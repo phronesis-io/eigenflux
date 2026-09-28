@@ -44,18 +44,20 @@ type Message struct {
 }
 
 type Job struct {
-	ID               string                    `json:"id"`
-	Kind             string                    `json:"kind"`
-	Scope            string                    `json:"scope"`
-	Revision         string                    `json:"binding_revision"`
-	Message          *Message                  `json:"message,omitempty"`
-	Data             json.RawMessage           `json:"data,omitempty"`
-	Status           string                    `json:"status"`
-	Code             string                    `json:"code,omitempty"`
-	Created          int64                     `json:"created"`
-	SessionID        string                    `json:"session_id,omitempty"`
-	ReplyID          string                    `json:"reply_id,omitempty"`
-	CommissionResult *CommissionIntakeDecision `json:"commission_result,omitempty"`
+	ID                    string                       `json:"id"`
+	Kind                  string                       `json:"kind"`
+	Scope                 string                       `json:"scope"`
+	Revision              string                       `json:"binding_revision"`
+	Message               *Message                     `json:"message,omitempty"`
+	Data                  json.RawMessage              `json:"data,omitempty"`
+	Status                string                       `json:"status"`
+	Code                  string                       `json:"code,omitempty"`
+	Created               int64                        `json:"created"`
+	SessionID             string                       `json:"session_id,omitempty"`
+	ReplyID               string                       `json:"reply_id,omitempty"`
+	CommissionResult      *CommissionIntakeDecision    `json:"commission_result,omitempty"`
+	CommissionFulfillment *CommissionFulfillmentResult `json:"commission_fulfillment,omitempty"`
+	CommissionDirectory   string                       `json:"commission_directory,omitempty"`
 }
 
 // CommissionIntakeDecision records input inspection, never order acceptance or fulfillment.

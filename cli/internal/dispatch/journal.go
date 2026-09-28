@@ -94,7 +94,14 @@ func readJournal(b Binding) (journalState, bool, error) {
 		if job.CommissionResult != nil && job.Kind != "commission_order" {
 			return journalState{}, false, errors.New("invalid_journal_commission_result")
 		}
+		if job.Kind != "commission_fulfillment" && (job.CommissionFulfillment != nil || job.CommissionDirectory != "") {
+			return journalState{}, false, errors.New("invalid_journal_commission_fulfillment")
+		}
 		switch job.Kind {
+		case "commission_fulfillment":
+			if !validCommissionFulfillmentJob(job, b) {
+				return journalState{}, false, errors.New("invalid_journal_commission_fulfillment")
+			}
 		case "pm_push":
 			m := job.Message
 			if m == nil || strings.TrimSpace(m.ID) == "" || strings.TrimSpace(m.Conversation) == "" || m.Sender == "" || m.Sender == b.AgentID || m.Receiver != b.AgentID || job.ID != journalID(b.Scope, b.Revision, m.Conversation, m.ID) {
@@ -175,7 +182,9 @@ func (j *Journal) save(next journalState) error {
 	for i := range next.Jobs {
 		if completedStatus(next.Jobs[i].Status) {
 			next.Jobs[i] = cloneJob(next.Jobs[i])
-			next.Jobs[i].Data = nil
+			if next.Jobs[i].Kind != "commission_fulfillment" {
+				next.Jobs[i].Data = nil
+			}
 			if next.Jobs[i].Message != nil {
 				next.Jobs[i].Message.Content = ""
 			}
@@ -378,7 +387,7 @@ func (j *Journal) Next() (Job, bool, error) {
 // worker cannot claim commission notifications before their business flow exists.
 func (j *Journal) NextKind(kind string) (Job, bool, error) {
 	switch kind {
-	case "pm_push", "profile_review_due", "maintenance_due", "control_pending", "commission_order":
+	case "pm_push", "profile_review_due", "maintenance_due", "control_pending", "commission_order", "commission_fulfillment":
 		return j.next(kind)
 	default:
 		return Job{}, false, errors.New("unsupported_dispatch_kind")
@@ -390,7 +399,7 @@ func (j *Journal) next(kind string) (Job, bool, error) {
 	defer j.mu.Unlock()
 	index := -1
 	for i, job := range j.state.Jobs {
-		if (kind == "" && job.Kind == "commission_order") || (kind != "" && job.Kind != kind) {
+		if (kind == "" && (job.Kind == "commission_order" || job.Kind == "commission_fulfillment")) || (kind != "" && job.Kind != kind) {
 			continue
 		}
 		if job.Status == "running" || job.Status == "sending" {
@@ -448,6 +457,12 @@ func (j *Journal) Update(id, status, code, sessionID, replyID string) error {
 // CompleteCommissionIntake commits the inspected result and execution state in
 // one write. Its outcome does not mutate or certify the server's order state.
 func (j *Journal) CompleteCommissionIntake(id string, result CommissionIntakeDecision, sessionID string) error {
+	return j.CompleteCommissionIntakeAndQueue(id, result, sessionID, false)
+}
+
+// CompleteCommissionIntakeAndQueue trusts the caller's fresh paid-order check,
+// then commits the ready inspection and its local fulfillment trigger together.
+func (j *Journal) CompleteCommissionIntakeAndQueue(id string, result CommissionIntakeDecision, sessionID string, paid bool) error {
 	if err := validateCommissionIntakeDecision(result, id, result.OrderID, result.OrderVersion); err != nil {
 		return err
 	}
@@ -466,11 +481,31 @@ func (j *Journal) CompleteCommissionIntake(id string, result CommissionIntakeDec
 		if err != nil || !commissionResultMatchesNotification(result, key) {
 			return errors.New("commission_result_notification_mismatch")
 		}
+		if paid && result.Outcome == "ready" && key.RecipientRole != "seller" {
+			return errors.New("commission_fulfillment_requires_seller")
+		}
 		job.CommissionResult = &result
 		job.Status = commissionResultStatus(result.Outcome)
 		job.Code = "commission_intake_" + result.Outcome
 		if sessionID != "" {
 			job.SessionID = sessionID
+		}
+		if paid && result.Outcome == "ready" {
+			fulfillmentID := commissionFulfillmentID(j.binding, result.OrderID)
+			found := false
+			for _, existing := range next.Jobs {
+				if existing.ID == fulfillmentID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				payload, err := json.Marshal(CommissionFulfillmentJob{Version: 1, OrderID: result.OrderID, OrderVersion: result.OrderVersion, IntakeRequestID: id, IntakeResult: result})
+				if err != nil {
+					return err
+				}
+				next.Jobs = append(next.Jobs, j.newHint(fulfillmentID, "commission_fulfillment", payload))
+			}
 		}
 		return j.saveUpdatedJob(next, i)
 	}
@@ -585,6 +620,16 @@ func cloneJob(job Job) Job {
 		}
 		job.CommissionResult = &result
 	}
+	if job.CommissionFulfillment != nil {
+		result := *job.CommissionFulfillment
+		if result.Decision.Artifacts != nil {
+			result.Decision.Artifacts = append([]CommissionArtifact{}, result.Decision.Artifacts...)
+		}
+		if result.Artifacts != nil {
+			result.Artifacts = append([]CommissionVerifiedArtifact{}, result.Artifacts...)
+		}
+		job.CommissionFulfillment = &result
+	}
 	return job
 }
 
@@ -653,6 +698,9 @@ func (j *Journal) Retry(id string) error {
 		job.Code = "operator_retry"
 		if job.Kind == "commission_order" {
 			job.CommissionResult = nil
+		}
+		if job.Kind == "commission_fulfillment" {
+			job.CommissionFulfillment = nil
 		}
 		if err := j.save(next); err != nil {
 			return err

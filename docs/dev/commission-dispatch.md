@@ -1,12 +1,12 @@
 # Commission dispatch plan
 
-Status: durable notification intake and local seller input inspection; acceptance, fulfillment and buyer receipts remain pending.
+Status: durable notification intake, seller input inspection and paid local fulfillment; acceptance semantics, upload/delivery and buyer receipts remain pending.
 
 ## Baseline
 
 The Commission branch was rebased onto main `3a3612d1`; rebase repairs are at `8989581a`. Branch `codex/commission-outer-loop-20260928` merges the existing account watch at `94d59c67`, including Socket/HTTP reception diagnostics. The old local and remote Commission heads are retained as backup branches. No production deployment or forced remote update was performed.
 
-Baseline CLI full tests and focused API capability/route tests pass. Existing automatic PM handling is available. Commission notifications enter a durable queue. A separate worker invokes a seller Agent to inspect frozen inputs and records its decision locally; it does not execute acceptance or fulfillment.
+Baseline CLI full tests and focused API capability/route tests pass. Existing automatic PM handling is available. Commission notifications enter a durable queue. A separate worker invokes a seller Agent to inspect frozen inputs and records its decision locally; paid `ready` results atomically queue a separate local fulfillment job.
 
 `commission_order` intake validates the account and notification, persists before ACK and deduplicates order/version/role. It uses the existing Socket only alongside a PM subscription; Commission-only bindings use initial HTTP intake and 60-second reconciliation to avoid the server Socket marking PM read. The original stream drain respects that persisted ownership. These intake guarantees do not establish the 180-second business result or any user notification.
 
@@ -19,6 +19,14 @@ The worker validates the pinned seller, latest order and frozen fulfillment Skil
 Input manifests use the existing Agent-authenticated GET `/api/v2/console/trade/orders/{id}`. The new exact GET Caddy route exposes this existing handler; other methods, lists and subpaths remain unchanged. Local route tests pass; it has not been deployed. Each input retains its own immutable snapshot ID. The model neither downloads files nor reads ambient account credentials.
 
 The 180-second local ceiling starts after queue claim and includes preparation. It is not the requested buyer-visible end-to-end deadline. No lease capability or remote readiness receipt is advertised. CLI full tests, focused Commission/dispatch/Skills race tests, Darwin arm64 and Windows amd64 builds pass. Caddy route tests pass. Fixtures use temporary accounts, signed rules, HTTP servers and mocked runners; they do not establish real-host or production acceptance.
+
+## Implemented paid local fulfillment
+
+A separate serial worker rechecks `in_progress`, identity, version, frozen Skill and verified materials before executing. It creates a private output directory inside WorkDir and persists that path before invoking the host. The model generates every contractual artifact and reports self-check evidence. CLI checks actual regular files, paths, SHA-256 and size; it retains outputs and partial work. Order changes and identity switches cancel execution through independent monitors. New intake and PM work do not wait for local fulfillment.
+
+A structured `artifacts_ready` result means local generation only and remains `needs_user` for submission authorization. It neither uploads nor delivers. Scope-specific external operations, paid subcontracting and payments remain separate. Triggering is notification-driven; it does not scan historical orders. Deduplication uses retained order-scoped journal records, not a permanent execution ledger.
+
+Fixture acceptance covers paid intake → queue → artifact generation/evidence, unpaid/stale orders, account switches, order cancellation, blocked-network identity checks, partial output retention and recovery. CLI full tests, related race checks and Darwin arm64 / Windows amd64 builds pass. An opt-in native Codex test passed on 2026-09-28: actual model inspection 35.4s, actual file generation/self-check 83.9s; the exact 11-byte artifact and SHA-256 matched. Order APIs and accounts were fixtures, not production orders. ACP Agents must provide their own usable file tools.
 
 ## Product decision
 

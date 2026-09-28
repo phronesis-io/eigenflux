@@ -36,8 +36,10 @@ func (w *accountWatch) enableDispatch() error {
 		return errors.New("dispatch rule missing; sync compatible Skills")
 	}
 	if b.Handles("commission_order") {
-		if _, err := skills.ReadSignedFile(b.SkillsDir, "ef-commission", "references/dispatch.md", 64<<10); err != nil {
-			return errors.New("signed Commission intake rule unavailable; sync compatible Skills")
+		for _, rule := range []string{"references/dispatch.md", "references/fulfillment-dispatch.md"} {
+			if _, err := skills.ReadSignedFile(b.SkillsDir, "ef-commission", rule, 64<<10); err != nil {
+				return errors.New("signed Commission dispatch rules unavailable; sync compatible Skills")
+			}
 		}
 	}
 	q, err := dispatch.OpenJournal(b)

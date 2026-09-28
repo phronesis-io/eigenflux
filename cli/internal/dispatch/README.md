@@ -10,7 +10,8 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 | [watch.go](../../cmd/watch.go) | `accountWatch.run`, `pmLoop`, `deliverPM`: account lock, WS/SSE, heartbeat, event lifecycle |
 | [watch_binding.go](../../cmd/watch_binding.go) | Bind/doctor/status/retry/reconcile; `applyDispatchOwnership` |
 | [watch_commission.go](../../cmd/watch_commission.go) | Commission notification intake, durable enqueue before ACK, bounded HTTP reconciliation |
-| [watch_commission_intake.go](../../cmd/watch_commission_intake.go), [watch_commission_materials.go](../../cmd/watch_commission_materials.go) | Dedicated seller input-check worker, fixed identity/order/Skill, bounded verified downloads, strict local result |
+| [watch_commission_intake.go](../../cmd/watch_commission_intake.go), [watch_commission_materials.go](../../cmd/watch_commission_materials.go) | Seller inspection, fixed identity/order/Skill, verified downloads, atomic paid-work enqueue |
+| [watch_commission_fulfillment.go](../../cmd/watch_commission_fulfillment.go), [watch_commission_artifacts.go](../../cmd/watch_commission_artifacts.go), [commission_fulfillment.go](commission_fulfillment.go) | Separate paid local work, strict decision/evidence, retained outputs and recovery |
 | [watch_dispatch.go](../../cmd/watch_dispatch.go) | `enableDispatch`, `pollPM`, `dispatchLoop`, `dispatchJob`, `dispatchPrompt`, `sendDispatchReply` |
 | [binding.go](binding.go), [types.go](types.go) | Binding validation, atomic writes, `ParseDecision` |
 | [journal.go](journal.go) | `AddMessages`, `AddHint`, `AddCommissionNotification`, `Next` / `NextKind`, `Update`: persistence, deduplication, sessions, recovery |
@@ -34,15 +35,27 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 
 ## Commission input inspection
 
-`commission_order` explicitly enables durable intake and a separate seller inspection worker. It does not accept orders, fulfill work, publish buyer receipts or establish a 180-second buyer SLA. Do not advertise execution readiness from the subscription.
+`commission_order` explicitly enables durable intake and a separate seller inspection worker. It also queues paid local fulfillment after a ready check. It does not accept orders, upload/deliver artifacts, publish buyer receipts or establish a 180-second buyer SLA. Do not advertise execution readiness from the subscription.
 
 With PM subscribed, notifications reuse its socket; Commission-only uses an initial HTTP pull and 60-second reconciliation because the server socket fetches PM on connect. Preserve before ACK, at most 50 IDs per ACK, and deduplicate order/version/role within the pinned binding. Notification cursors never replace PM cursors. Legacy stream respects persisted ownership; binding changes and legacy read/ACK share the credential lock.
 
-`Next` excludes Commission; `NextKind` serializes its independent worker. Buyer notifications are recorded without invoking a seller Agent. The worker re-reads seller identity, order state, frozen contract and fulfillment Skill. Only `awaiting_seller`, `pending_payment` and `in_progress` allow inspection. Read-only preparation and execution share a local 180-second ceiling, excluding queue time; the host's shorter timeout still applies.
+`Next` excludes both Commission kinds; `NextKind` serializes their separate workers. Buyer notifications are recorded without invoking a seller Agent. The worker re-reads seller identity, order state, frozen contract and fulfillment Skill. Only `awaiting_seller`, `pending_payment` and `in_progress` allow inspection. Read-only preparation and execution share a local 180-second ceiling, excluding queue time; the host's shorter timeout still applies.
 
 Official dispatch rules must be signed manifest members, read through `skills.ReadSignedFile`; third-party fulfillment Skills remain explicitly bound local content. Fetch the authenticated V2 order-detail input manifest, then each immutable snapshot/path grant using pinned credentials. Check manifest role/version/buyer, SHA-256 and byte count before passing local files to the Agent. Inputs use their own snapshot IDs, not the current order snapshot. Bound downloads to 128 files / 64 MiB total; keep URLs and credentials out of prompts. The public endpoint requires the exact GET detail Caddy route.
 
 Use a fresh Agent session. Require matching request/order/version and `ready`, `needs_input`, `needs_user` or `failed`, a brief summary and inspected logical paths. `ready` must cover all supplied verified inputs; required materials cannot be empty. Recheck identity and unchanged order before atomically storing `commission_result`. Preserve the result when completed notification bodies are compacted. Reuse actual non-failed checks only for the same latest order version; explicit retry rechecks. Interruptions remain `unknown`; do not replay automatically. Clean up owned temporary downloads after the run. Results are local status data, not user-visible or buyer-visible receipts.
+
+## Paid local fulfillment
+
+`CompleteCommissionIntakeAndQueue` atomically stores a `ready` check and queues `commission_fulfillment` only when the caller freshly observed `in_progress`. Its payload retains the checked result; source-result compaction cannot erase readiness evidence. Deduplicate by binding scope/revision/order, including across notification versions. A new notification rechecks an older development-build `ready` when no fulfillment record exists. Historical orders are not bulk-scanned.
+
+The separate fulfillment worker re-reads the same paid order version, resolves signed `fulfillment-dispatch.md`, and verifies freshly downloaded inputs against the checked logical paths. It uses the binding's host timeout, not the intake budget. Poll order state every 10 seconds independently of one-second local identity checks; a blocked network read cannot delay identity cancellation. Changed identity/order or interrupted execution stops work without automatic replay.
+
+Persist a new private output directory inside the bound WorkDir before invoking a fresh Agent session. Skills perform the frozen procedure, write new local deliverables and self-check contractual conditions. CLI requires a matching structured decision, then verifies all declared regular files through a confined filesystem root, rejects symlinks/traversal and duplicates, and computes SHA-256/byte counts from bounded reads. Limits: 128 outputs / 64 MiB. Portable validation cannot prove hard-link origin. Models may only claim local completion; unsupported tools, permissions or external effects require user action.
+
+Preserve output directories, including partial/unknown work; temporary input copies are removed. Persist exact output paths, checks and hashes. `artifacts_ready` remains `needs_user` because upload and delivery authorization are separate. Retry uses a new output directory and retains old files; unknown execution requires operator reconciliation. Order-level deduplication follows the journal retention window; manually completed records eventually trimmed from the latest 1024 records are not permanent tombstones. Recheck order and bytes before any later submission.
+
+Native/command reuse the existing Runner. ACP Agents need their own usable filesystem tools; this client supplies no filesystem/terminal RPC. Unit fixtures or cross-compilation do not establish a host's ability to produce artifacts. The opt-in `EIGENFLUX_COMMISSION_NATIVE_SMOKE=1 go test ./cmd -run TestCommissionNativeCodexLocalFulfillment -v` uses authenticated Codex with isolated fixture orders and can consume model usage. On 2026-09-28, real Codex inspection and file generation passed in 35.4s and 83.9s; this does not verify real Commission service orders or the buyer deadline.
 
 ## State and limits
 
@@ -75,9 +88,9 @@ Limits: journal 16 MiB, 256 unresolved jobs, latest 1024 completed jobs (includi
 | Binding / decisions / journal | `binding_test.go`, `types_test.go`, `journal_test.go`, `../../cmd/watch_binding_test.go` |
 | Host / ACP / cancellation | `runner_test.go`, `acp_test.go`, `process_windows_test.go` |
 | Intake → Agent → reply / identity / permission | `../../cmd/watch_dispatch_test.go`, `../../cmd/watch_test.go` |
-| Commission intake / inspection / materials / ownership | `journal_commission_test.go`, `commission_intake_test.go`, `../../cmd/watch_commission*_test.go`, `../../cmd/order_notifications_test.go`, `../skills/read_signed_test.go` |
+| Commission intake / inspection / materials / ownership | `journal_commission_test.go`, `commission_intake_test.go`, `commission_fulfillment_test.go`, `../../cmd/watch_commission*_test.go`, `../../cmd/order_notifications_test.go`, `../skills/read_signed_test.go` |
 | Heartbeat ownership / discovery | `../../cmd/heartbeat_modes_test.go`, `../../cmd/heartbeat_migration_test.go`, `../../cmd/capability_registry_contract_test.go` |
 
 Run relevant tests from `cli/`; use race checks for concurrency changes and Mac/Windows builds for process/filesystem changes. Update affected Skills and capability contracts with behavior changes.
 
-Setup, recovery commands, delivery limitations and unverified hosts: [operator guide](../../../docs/dev/agent-dispatch.md). Repository checks: [testing.md](../../../docs/dev/testing.md). Order acceptance, fulfillment and buyer receipts remain pending; A2A is excluded.
+Setup, recovery commands, delivery limitations and unverified hosts: [operator guide](../../../docs/dev/agent-dispatch.md). Repository checks: [testing.md](../../../docs/dev/testing.md). Order acceptance, authorized upload/delivery and buyer receipts remain pending; A2A is excluded.
