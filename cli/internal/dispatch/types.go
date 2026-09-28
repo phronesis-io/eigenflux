@@ -8,6 +8,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -43,17 +44,78 @@ type Message struct {
 }
 
 type Job struct {
-	ID        string          `json:"id"`
-	Kind      string          `json:"kind"`
-	Scope     string          `json:"scope"`
-	Revision  string          `json:"binding_revision"`
-	Message   *Message        `json:"message,omitempty"`
-	Data      json.RawMessage `json:"data,omitempty"`
-	Status    string          `json:"status"`
-	Code      string          `json:"code,omitempty"`
-	Created   int64           `json:"created"`
-	SessionID string          `json:"session_id,omitempty"`
-	ReplyID   string          `json:"reply_id,omitempty"`
+	ID               string                    `json:"id"`
+	Kind             string                    `json:"kind"`
+	Scope            string                    `json:"scope"`
+	Revision         string                    `json:"binding_revision"`
+	Message          *Message                  `json:"message,omitempty"`
+	Data             json.RawMessage           `json:"data,omitempty"`
+	Status           string                    `json:"status"`
+	Code             string                    `json:"code,omitempty"`
+	Created          int64                     `json:"created"`
+	SessionID        string                    `json:"session_id,omitempty"`
+	ReplyID          string                    `json:"reply_id,omitempty"`
+	CommissionResult *CommissionIntakeDecision `json:"commission_result,omitempty"`
+}
+
+// CommissionIntakeDecision records input inspection, never order acceptance or fulfillment.
+type CommissionIntakeDecision struct {
+	Version        int      `json:"version"`
+	RequestID      string   `json:"request_id"`
+	OrderID        string   `json:"order_id"`
+	OrderVersion   int64    `json:"order_version"`
+	Outcome        string   `json:"outcome"`
+	Summary        string   `json:"summary"`
+	InspectedFiles []string `json:"inspected_files"`
+}
+
+func ParseCommissionIntakeDecision(raw, requestID, orderID string, orderVersion int64) (CommissionIntakeDecision, error) {
+	var result CommissionIntakeDecision
+	if len(raw) > 1<<20 || !utf8.ValidString(raw) {
+		return result, errors.New("invalid_commission_result_encoding_or_size")
+	}
+	if err := decodeStrictObject([]byte(raw), &result); err != nil {
+		return result, errors.New("invalid_commission_result_contract")
+	}
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal([]byte(raw), &fields)
+	for _, key := range []string{"version", "request_id", "order_id", "order_version", "outcome", "summary", "inspected_files"} {
+		if value, ok := fields[key]; !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return result, errors.New("missing_commission_result_field")
+		}
+	}
+	if err := validateCommissionIntakeDecision(result, requestID, orderID, orderVersion); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func validateCommissionIntakeDecision(result CommissionIntakeDecision, requestID, orderID string, orderVersion int64) error {
+	if strings.TrimSpace(requestID) == "" || result.Version != 1 || result.RequestID != requestID || result.OrderID != orderID || orderVersion <= 0 || result.OrderVersion != orderVersion {
+		return errors.New("commission_result_identity_mismatch")
+	}
+	if _, err := positiveNotificationInteger([]byte(orderID)); err != nil {
+		return errors.New("invalid_commission_result_order_id")
+	}
+	switch result.Outcome {
+	case "ready", "needs_input", "needs_user", "failed":
+	default:
+		return errors.New("invalid_commission_result_outcome")
+	}
+	if !utf8.ValidString(result.Summary) || strings.TrimSpace(result.Summary) == "" || len(result.Summary) > 2000 {
+		return errors.New("invalid_commission_result_summary")
+	}
+	if result.InspectedFiles == nil || len(result.InspectedFiles) > 128 {
+		return errors.New("invalid_commission_result_files")
+	}
+	seen := make(map[string]bool, len(result.InspectedFiles))
+	for _, file := range result.InspectedFiles {
+		if !utf8.ValidString(file) || strings.TrimSpace(file) == "" || len(file) > 1024 || strings.IndexFunc(file, unicode.IsControl) >= 0 || seen[file] {
+			return errors.New("invalid_commission_result_files")
+		}
+		seen[file] = true
+	}
+	return nil
 }
 
 type commissionNotificationKey struct {

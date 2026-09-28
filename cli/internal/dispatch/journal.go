@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -90,6 +91,9 @@ func readJournal(b Binding) (journalState, bool, error) {
 			return journalState{}, false, errors.New("invalid_journal_job")
 		}
 		seen[job.ID] = true
+		if job.CommissionResult != nil && job.Kind != "commission_order" {
+			return journalState{}, false, errors.New("invalid_journal_commission_result")
+		}
 		switch job.Kind {
 		case "pm_push":
 			m := job.Message
@@ -104,12 +108,20 @@ func readJournal(b Binding) (journalState, bool, error) {
 			if job.Message != nil {
 				return journalState{}, false, errors.New("invalid_journal_commission")
 			}
+			if result := job.CommissionResult; result != nil {
+				if err := validateCommissionIntakeDecision(*result, job.ID, result.OrderID, result.OrderVersion); err != nil || !commissionResultStatusCompatible(job) {
+					return journalState{}, false, errors.New("invalid_journal_commission_result")
+				}
+			}
 			if completedStatus(job.Status) && len(job.Data) == 0 {
 				continue
 			}
 			key, err := parseCommissionNotification(job.Data, b.AgentID)
 			if err != nil || job.ID != commissionJournalID(b, key) {
 				return journalState{}, false, errors.New("invalid_journal_commission")
+			}
+			if result := job.CommissionResult; result != nil && !commissionResultMatchesNotification(*result, key) {
+				return journalState{}, false, errors.New("invalid_journal_commission_result")
 			}
 		default:
 			return journalState{}, false, errors.New("invalid_journal_kind")
@@ -193,6 +205,9 @@ func (j *Journal) save(next journalState) error {
 func cloneJournal(s journalState) journalState {
 	next := s
 	next.Jobs = append([]Job{}, s.Jobs...)
+	for i := range next.Jobs {
+		next.Jobs[i] = cloneJob(next.Jobs[i])
+	}
 	next.Sessions = make(map[string]string, len(s.Sessions))
 	for k, v := range s.Sessions {
 		next.Sessions[k] = v
@@ -425,18 +440,79 @@ func (j *Journal) Update(id, status, code, sessionID, replyID string) error {
 		if replyID != "" {
 			job.ReplyID = replyID
 		}
-		if completedStatus(status) {
-			moveCompletedLast(&next, i)
-		}
-		if err := j.save(next); err != nil {
-			return err
-		}
-		if j.hasPending() {
-			j.signal()
-		}
-		return nil
+		return j.saveUpdatedJob(next, i)
 	}
 	return errors.New("job_not_found")
+}
+
+// CompleteCommissionIntake commits the inspected result and execution state in
+// one write. Its outcome does not mutate or certify the server's order state.
+func (j *Journal) CompleteCommissionIntake(id string, result CommissionIntakeDecision, sessionID string) error {
+	if err := validateCommissionIntakeDecision(result, id, result.OrderID, result.OrderVersion); err != nil {
+		return err
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	next := cloneJournal(j.state)
+	for i := range next.Jobs {
+		job := &next.Jobs[i]
+		if job.ID != id {
+			continue
+		}
+		if job.Kind != "commission_order" || job.Status != "running" {
+			return errors.New("commission_intake_requires_running_job")
+		}
+		key, err := parseCommissionNotification(job.Data, j.binding.AgentID)
+		if err != nil || !commissionResultMatchesNotification(result, key) {
+			return errors.New("commission_result_notification_mismatch")
+		}
+		job.CommissionResult = &result
+		job.Status = commissionResultStatus(result.Outcome)
+		job.Code = "commission_intake_" + result.Outcome
+		if sessionID != "" {
+			job.SessionID = sessionID
+		}
+		return j.saveUpdatedJob(next, i)
+	}
+	return errors.New("job_not_found")
+}
+
+func commissionResultMatchesNotification(result CommissionIntakeDecision, key commissionNotificationKey) bool {
+	version, err := strconv.ParseInt(key.OrderVersion, 10, 64)
+	return err == nil && result.OrderID == key.OrderID && result.OrderVersion >= version
+}
+
+func commissionResultStatus(outcome string) string {
+	switch outcome {
+	case "ready":
+		return "completed"
+	case "needs_input", "needs_user":
+		return "needs_user"
+	default:
+		return "failed"
+	}
+}
+
+func commissionResultStatusCompatible(job Job) bool {
+	// Reconciliation preserves the original model result as history. Only the
+	// operator's code records its later outcome; no new model success is inferred.
+	if job.Code == "operator_verified" {
+		return job.Status == "completed" || job.Status == "failed"
+	}
+	return job.Status == commissionResultStatus(job.CommissionResult.Outcome) && job.Code == "commission_intake_"+job.CommissionResult.Outcome
+}
+
+func (j *Journal) saveUpdatedJob(next journalState, index int) error {
+	if completedStatus(next.Jobs[index].Status) {
+		moveCompletedLast(&next, index)
+	}
+	if err := j.save(next); err != nil {
+		return err
+	}
+	if j.hasPending() {
+		j.signal()
+	}
+	return nil
 }
 
 func validTransition(from, to string) bool {
@@ -502,6 +578,13 @@ func cloneJob(job Job) Job {
 		job.Message = &m
 	}
 	job.Data = append(json.RawMessage(nil), job.Data...)
+	if job.CommissionResult != nil {
+		result := *job.CommissionResult
+		if result.InspectedFiles != nil {
+			result.InspectedFiles = append([]string{}, result.InspectedFiles...)
+		}
+		job.CommissionResult = &result
+	}
 	return job
 }
 
@@ -568,6 +651,9 @@ func (j *Journal) Retry(id string) error {
 		}
 		job.Status = "pending"
 		job.Code = "operator_retry"
+		if job.Kind == "commission_order" {
+			job.CommissionResult = nil
+		}
 		if err := j.save(next); err != nil {
 			return err
 		}

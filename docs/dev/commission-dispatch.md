@@ -1,16 +1,24 @@
 # Commission dispatch plan
 
-Status: durable notification intake; Commission execution is not implemented.
+Status: durable notification intake and local seller input inspection; acceptance, fulfillment and buyer receipts remain pending.
 
 ## Baseline
 
 The Commission branch was rebased onto main `3a3612d1`; rebase repairs are at `8989581a`. Branch `codex/commission-outer-loop-20260928` merges the existing account watch at `94d59c67`, including Socket/HTTP reception diagnostics. The old local and remote Commission heads are retained as backup branches. No production deployment or forced remote update was performed.
 
-Baseline CLI full tests and focused API capability/route tests pass. Existing automatic PM handling is available. Commission notifications enter a durable queue; jobs remain pending because seller decision and fulfillment execution are not implemented.
+Baseline CLI full tests and focused API capability/route tests pass. Existing automatic PM handling is available. Commission notifications enter a durable queue. A separate worker invokes a seller Agent to inspect frozen inputs and records its decision locally; it does not execute acceptance or fulfillment.
 
 `commission_order` intake validates the account and notification, persists before ACK and deduplicates order/version/role. It uses the existing Socket only alongside a PM subscription; Commission-only bindings use initial HTTP intake and 60-second reconciliation to avoid the server Socket marking PM read. The original stream drain respects that persisted ownership. These intake guarantees do not establish the 180-second business result or any user notification.
 
 Intake validation: CLI `go test ./...`, focused Commission/binding/ownership race tests, and Darwin arm64 / Windows amd64 builds pass. Fixtures cover persistence failures, account switching, binding handoff, 100-item Socket batches, pagination and PM cursor isolation. Real Commission orders and model execution have not been tested.
+
+## Implemented seller inspection
+
+The worker validates the pinned seller, latest order and frozen fulfillment Skill, downloads authoritative inputs with byte-count/SHA-256 checks, and passes local files to a fresh Agent session. Signed `ef-commission/references/dispatch.md` owns reasoning. Store the matching result and inspected paths atomically; reject incomplete `ready`, changed orders and changed identity. Local downloads are temporary, capped at 128 files / 64 MiB. Completed job compaction retains results.
+
+Input manifests use the existing Agent-authenticated GET `/api/v2/console/trade/orders/{id}`. The new exact GET Caddy route exposes this existing handler; other methods, lists and subpaths remain unchanged. Local route tests pass; it has not been deployed. Each input retains its own immutable snapshot ID. The model neither downloads files nor reads ambient account credentials.
+
+The 180-second local ceiling starts after queue claim and includes preparation. It is not the requested buyer-visible end-to-end deadline. No lease capability or remote readiness receipt is advertised. CLI full tests, focused Commission/dispatch/Skills race tests, Darwin arm64 and Windows amd64 builds pass. Caddy route tests pass. Fixtures use temporary accounts, signed rules, HTTP servers and mocked runners; they do not establish real-host or production acceptance.
 
 ## Product decision
 
