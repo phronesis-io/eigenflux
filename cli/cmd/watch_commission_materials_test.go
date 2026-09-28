@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -100,7 +101,8 @@ func TestPrepareCommissionMaterialsUsesInputSnapshotsAndOmitsCredentials(t *test
 		t.Fatalf("wrong local bytes: %q %v", contents, err)
 	}
 	info, err := os.Stat(file.Path)
-	if err != nil || info.Mode().Perm() != 0600 {
+	// Windows Stat exposes DOS read-only bits, not POSIX permissions or ACLs.
+	if err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0600) {
 		t.Fatalf("private file mode: %v %v", info, err)
 	}
 }
