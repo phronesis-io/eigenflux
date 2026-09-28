@@ -52,7 +52,7 @@ features and source evidence only.
 
 | Method | Route | Behavior |
 | --- | --- | --- |
-| POST | `/api/v2/discovery/search` | Exactly one of query, internal saved Need reference, or internal inline Need |
+| POST | `/api/v2/discovery/search` | Exactly one of query, explicit Commission ID, internal saved Need reference, or internal inline Need |
 | POST | `/api/v2/discovery/recommendations` | Select eligible Needs, then fallback independently for uncovered kinds |
 
 Both require authenticated completed-onboarding access and `feed:read`.

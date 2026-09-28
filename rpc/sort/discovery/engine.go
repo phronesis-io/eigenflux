@@ -312,6 +312,9 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			if c.Origin == "baseline" {
 				channels = []string{"hot_recall", "new_recall"}
 			}
+			if kind == Commission && r.CommissionID > 0 {
+				channels = []string{"exact"}
+			}
 			for _, channel := range channels {
 				ci, c, kind, channel := ci, c, kind, channel
 				wg.Add(1)

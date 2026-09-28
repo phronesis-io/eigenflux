@@ -41,6 +41,7 @@ func (s *Service) RegisterDiscovery(h *server.Hertz, access *commissionaccess.Al
 			if r.Need != nil {
 				commissionScope = discovery.Kind(r.Need.NeedType) == discovery.Commission
 			}
+			commissionScope = commissionScope || r.CommissionID > 0
 			if commissionScope && !access.Allows(owner) {
 				discoveryHTTP(c, transport.Response(nil, discovery.Failure(403, "commission_access_denied")))
 				return

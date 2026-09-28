@@ -592,6 +592,39 @@ func TestDiscoveryE2E(t *testing.T) {
 			})
 		}
 	})
+	t.Run("ExactCommissionUsesUnifiedDelivery", func(t *testing.T) {
+		before := s.embeddingCallCount()
+		r := discovery.Request{CommissionID: s.item}
+		x := s.search(t, r, "commission-exact-retry")
+		require.Len(t, x.Items, 1)
+		require.Equal(t, discovery.SourceRef{Type: discovery.Commission, ID: s.item}, x.Items[0].Ref)
+		require.Equal(t, "commission_id", x.Items[0].Match["exact"])
+		require.Equal(t, "exact_match", x.Items[0].Match["score_kind"])
+		require.Equal(t, discovery.PipelineVersion, x.PipelineVersion)
+		require.False(t, x.HasMore)
+		require.Equal(t, x, s.search(t, r, "commission-exact-retry"))
+		s.waitSamples(t, x.ImpressionID, 1)
+		for _, id := range []int64{s.item + 100, 9223372036854775807} {
+			require.Empty(t, s.search(t, discovery.Request{CommissionID: id}, "").Items)
+		}
+		minPrice, duration := int64(1), int64(999)
+		for _, f := range []discovery.Filters{{Currency: "CNY", MinPriceFen: &minPrice}, {MaxDurationMS: &duration}, {Currency: "USD"}, {ExcludeAuthors: []string{fmt.Sprint(s.author)}}} {
+			r.Filters = f
+			require.Empty(t, s.search(t, r, "").Items)
+		}
+		compat := decode[struct {
+			Impression string `json:"impression_id"`
+			Candidates []struct {
+				ID       string `json:"commission_id"`
+				Features string `json:"features"`
+			} `json:"candidates"`
+		}](t, s.call(t, "GET", fmt.Sprintf("/api/v2/commissions/search?commission_id=%d", s.item), s.token, "commission-compat-exact", nil, 200))
+		require.Len(t, compat.Candidates, 1)
+		require.Equal(t, fmt.Sprint(s.item), compat.Candidates[0].ID)
+		require.Contains(t, compat.Candidates[0].Features, "commission_identity_v1")
+		s.waitSamples(t, compat.Impression, 1)
+		require.Equal(t, before, s.embeddingCallCount(), "exact Commission lookup must not call embedding")
+	})
 	t.Run("ExactAgentIdentityAndNames", func(t *testing.T) {
 		for _, id := range []int64{s.author, s.other} {
 			// The second Agent has no ES document. Exact lookup must still work.

@@ -113,10 +113,13 @@ func commission(d featureindex.CommissionDocument) Document {
 }
 func (s *Source) Recall(ctx context.Context, c Context, k Kind, channel string, limit int) ([]Document, error) {
 	if channel == "exact" {
-		if k != Agent || c.Origin != "query" {
+		if c.Origin != "query" || k != Agent && k != Commission {
 			return nil, fmt.Errorf("invalid exact lookup scope")
 		}
-		return s.exactAgents(ctx, c, limit)
+		if k == Agent {
+			return s.exactAgents(ctx, c, limit)
+		}
+		return s.search(ctx, c, k, channel, 1)
 	}
 	if s.DisabledChannels[channel] {
 		return []Document{}, nil

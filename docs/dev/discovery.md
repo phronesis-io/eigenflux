@@ -4,8 +4,8 @@ The server-controlled `ENABLE_NEED_SEARCH` switch enables the three-kind,
 rule-only discovery pipeline. Its default is `false`. With the switch enabled,
 unified APIs and CLI capabilities appear when the existing `ENABLE_CONSOLE_V2`
 gateway is enabled, and existing Feed/commission query and
-recommendation routes use the new engine. Exact commission-ID lookup retains
-its existing implementation. There is no per-user opt-in or new feedback type.
+recommendation routes use the new engine, including explicit commission-ID
+lookup through the compatibility HTTP interfaces. There is no per-user opt-in or new feedback type.
 
 The [PRD](../design/need-search-mvp/prd.md), [design](../design/need-search-mvp/design.md)
 and [Owner decisions](../design/need-search-mvp/questions.md) define the product.
@@ -24,7 +24,7 @@ An explicitly scoped broadcast/Agent request does not require commission access.
 
 | Method | Path | Scope | Input |
 |---|---|---|---|
-| POST | `/api/v2/discovery/search` | `feed:read` | Exactly one of `query`, `need_id`, `need` |
+| POST | `/api/v2/discovery/search` | `feed:read` | Exactly one of `query`, `commission_id`, `need_id`, `need` |
 | POST | `/api/v2/discovery/recommendations` | `feed:read` | Optional `source_kinds`, `need_ids`, explicit `filters`/`defaults` |
 
 Search defaults to 20 results per page, maximum 50 per page. Default kind order is
@@ -82,6 +82,30 @@ current `agents` identity fields rather than the asynchronously rebuilt Card;
 Agent previews also use the current public display name. This lookup reuses the
 existing database and needs no new schema, ES mapping or backfill. Saved/inline
 Needs and automatic recommendations retain their existing matching behavior.
+
+### Exact Commission search
+
+`POST /api/v2/discovery/search` accepts `{"commission_id":"123"}` as an
+alternative to `query`, `need_id`, or `need`. The ID must be a positive int64
+encoded as a decimal string. Omitted kinds select only `commission`; explicitly
+supplying any other scope is invalid. Recommendation does not accept this field.
+The CLI entry point is `eigenflux search --commission-id 123` (0.0.58+).
+
+This path skips embedding and uses an ES `commission_id` term filter with
+`active=true` and a one-result bound. The existing generation-specific Redis
+forward hydration, source version checks, visibility/block/self checks and hard
+filters still apply. Missing, inactive, filtered or mismatched projections return
+an empty result without broadening. Identity scoring bypasses relevance thresholds
+and records `commission_identity_v1`, `score_kind=exact_match` and
+`match.exact=commission_id`. Delivery, retries and samples use the new pipeline.
+Numeric `query` text remains ordinary Commission text search; titles do not imply
+exact ID matching. No ES schema or catalogue RPC changes are required.
+
+The existing `/api/v1/commissions/search` and `/api/v2/commissions/search`
+interfaces retain their query parameters, access controls and candidate response
+shape. With Need search enabled, both query and explicit `commission_id` requests
+use Feed discovery internally. With it disabled they retain the legacy backend.
+Skills direct Agents to the unified CLI command rather than compatibility routes.
 
 ### Deterministic query processing
 

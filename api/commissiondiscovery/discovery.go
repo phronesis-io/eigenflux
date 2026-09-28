@@ -17,12 +17,12 @@ type DiscoveryClient interface {
 }
 
 func (s *Service) SetDiscoveryClient(c DiscoveryClient) { s.discoveryClient = c }
-func (s *Service) serveDiscovery(ctx context.Context, c *app.RequestContext, mode, query string, f filters, limit int32) {
+func (s *Service) serveDiscovery(ctx context.Context, c *app.RequestContext, mode, query string, commissionID int64, f filters, limit int32) {
 	owner, ok := callerAgentID(c)
 	if !ok {
 		return
 	}
-	r := discovery.Request{Query: query, SourceKinds: []discovery.Kind{discovery.Commission}, Limit: int(limit), Filters: discovery.Filters{Currency: "CNY", MinPriceFen: f.MinPriceFen, MaxPriceFen: f.MaxPriceFen, MinDurationMS: f.MinPromisedDeliveryMS, MaxDurationMS: f.MaxPromisedDeliveryMS}}
+	r := discovery.Request{Query: query, CommissionID: commissionID, SourceKinds: []discovery.Kind{discovery.Commission}, Limit: int(limit), Filters: discovery.Filters{Currency: "CNY", MinPriceFen: f.MinPriceFen, MaxPriceFen: f.MaxPriceFen, MinDurationMS: f.MinPromisedDeliveryMS, MaxDurationMS: f.MaxPromisedDeliveryMS}}
 	raw, err := json.Marshal(r)
 	if err != nil {
 		rpcError(ctx, c, mode, err)

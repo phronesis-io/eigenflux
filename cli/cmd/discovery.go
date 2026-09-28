@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -71,12 +72,26 @@ func discoveryFile(path string) (map[string]any, error) {
 	return v, nil
 }
 func newDiscoveryCommands() []*cobra.Command {
-	search := &cobra.Command{Use: "search <query>", Short: "Search broadcasts, services, and public Agents", Args: cobra.ExactArgs(1), RunE: func(c *cobra.Command, args []string) error {
-		if strings.TrimSpace(args[0]) == "" {
-			return fmt.Errorf("query must not be blank")
+	search := &cobra.Command{Use: "search [query]", Short: "Search broadcasts, services, and public Agents", Args: cobra.MaximumNArgs(1), RunE: func(c *cobra.Command, args []string) error {
+		exact := c.Flags().Changed("commission-id")
+		if exact && len(args) != 0 || !exact && (len(args) != 1 || strings.TrimSpace(args[0]) == "") {
+			return fmt.Errorf("provide exactly one of query or --commission-id")
 		}
-		body := map[string]any{"query": args[0]}
+		body := map[string]any{}
 		types, _ := c.Flags().GetStringSlice("types")
+		if exact {
+			raw, _ := c.Flags().GetString("commission-id")
+			id, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil || id <= 0 {
+				return fmt.Errorf("--commission-id must be a positive int64")
+			}
+			if len(types) > 0 && (len(types) != 1 || types[0] != "commission") {
+				return fmt.Errorf("--commission-id only supports --types commission")
+			}
+			body["commission_id"] = strconv.FormatInt(id, 10)
+		} else {
+			body["query"] = args[0]
+		}
 		if len(types) > 0 {
 			body["source_kinds"] = types
 		}
@@ -96,6 +111,7 @@ func newDiscoveryCommands() []*cobra.Command {
 		}
 		return discoveryCall(c, "POST", "/discovery/search", body, nil, true)
 	}}
+	search.Flags().String("commission-id", "", "Exact Commission ID; mutually exclusive with query")
 	search.Flags().String("filters", "", "Explicit hard filters JSON file")
 	search.Flags().StringSlice("types", nil, "broadcast,commission,agent")
 	search.Flags().Int("limit", 20, "Results per page, maximum 50")

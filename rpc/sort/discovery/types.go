@@ -81,6 +81,7 @@ type Request struct {
 	LegacyLimit       bool       `json:"-"`
 	Prefetch          bool       `json:"-"`
 	Query             string     `json:"query,omitempty"`
+	CommissionID      int64      `json:"commission_id,string,omitempty"`
 	Cursor            string     `json:"cursor,omitempty"`
 	NeedID            int64      `json:"need_id,string,omitempty"`
 	Need              *NeedInput `json:"need,omitempty"`
@@ -104,6 +105,9 @@ func (r *Request) UnmarshalJSON(raw []byte) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return err
+	}
+	if _, present := fields["commission_id"]; present && value.CommissionID <= 0 {
+		return Invalid("commission_id", "invalid_id")
 	}
 	if value.Need != nil {
 		input, err := need.Decode(fields["need"])

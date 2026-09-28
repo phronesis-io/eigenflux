@@ -105,6 +105,15 @@ func NormalizeRequest(r Request, mode Mode, now int64) (Request, error) {
 		return r, Invalid("mode", "unsupported")
 	}
 	r.KindsExplicit = len(r.SourceKinds) > 0
+	if r.CommissionID < 0 {
+		return r, Invalid("commission_id", "invalid_id")
+	}
+	if r.CommissionID > 0 {
+		if mode != Search || len(r.SourceKinds) > 0 && (len(r.SourceKinds) != 1 || r.SourceKinds[0] != Commission) {
+			return r, Invalid("commission_id", "commission_search_only")
+		}
+		r.SourceKinds = []Kind{Commission}
+	}
 	if r.Defaults.ProviderRegion != "" && r.Defaults.ProviderRegion != "none" {
 		return r, Invalid("defaults.provider_region", "unsupported_inheritance")
 	}
@@ -133,6 +142,9 @@ func NormalizeRequest(r Request, mode Mode, now int64) (Request, error) {
 			n++
 		}
 		if r.Need != nil {
+			n++
+		}
+		if r.CommissionID > 0 {
 			n++
 		}
 		if n != 1 || len(r.NeedIDs) > 0 {
@@ -259,6 +271,9 @@ func (cc *Compiler) embed(ctx context.Context, c *Context) error {
 	return nil
 }
 func (cc *Compiler) Query(ctx context.Context, owner, id, now int64, r Request, origin string) (Context, error) {
+	if r.CommissionID > 0 {
+		r.Query = strconv.FormatInt(r.CommissionID, 10)
+	}
 	if origin != "query" && origin != "agent_context" && origin != "baseline" {
 		return Context{}, Invalid("input_origin", "unsupported")
 	}
@@ -296,7 +311,7 @@ func (cc *Compiler) Query(ctx context.Context, owner, id, now int64, r Request, 
 	if truncated {
 		c.Warnings = append(c.Warnings, "context_query_truncated")
 	}
-	if origin == "query" && len(c.Kinds) == 1 && c.Kinds[0] == Agent && (r.agentExact || decimalAgentQuery(c.Query)) {
+	if origin == "query" && (r.CommissionID > 0 || len(c.Kinds) == 1 && c.Kinds[0] == Agent && (r.agentExact || decimalAgentQuery(c.Query))) {
 		c.SpecHash = hashContext(c)
 		return c, nil
 	}

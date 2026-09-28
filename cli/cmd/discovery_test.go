@@ -21,7 +21,7 @@ func TestDiscoveryInputGuards(t *testing.T) {
 	if _, err := discoveryFile(p); err == nil {
 		t.Fatal("array accepted")
 	}
-	for _, args := range [][]string{{}, {""}, {"  "}, {"query", "extra"}} {
+	for _, args := range [][]string{{}, {""}, {"  "}, {"query", "extra"}, {"query", "--commission-id", "42"}, {"--commission-id", "0"}, {"--commission-id", "-1"}, {"--commission-id", "9223372036854775808"}, {"--commission-id", "abc"}, {"--commission-id", "42", "--types", "agent"}} {
 		search := newDiscoveryCommands()[0]
 		search.SetArgs(args)
 		if err := search.Execute(); err == nil {
@@ -91,6 +91,8 @@ func TestDiscoveryCLIRequestContract(t *testing.T) {
 	}{
 		{"search", 0, []string{"数据库 index review", "--types", "agent", "--limit", "3"}, map[string]any{"query": "数据库 index review", "source_kinds": []any{"agent"}, "limit": float64(3)}},
 		{"search", 0, []string{"design", "--cursor", "next-page", "--limit", "2"}, map[string]any{"query": "design", "cursor": "next-page", "limit": float64(2)}},
+		{"search", 0, []string{"--commission-id", "9223372036854775807"}, map[string]any{"commission_id": "9223372036854775807", "limit": float64(20)}},
+		{"search", 0, []string{"12345", "--types", "commission"}, map[string]any{"query": "12345", "source_kinds": []any{"commission"}, "limit": float64(20)}},
 		{"recommendations", 1, nil, map[string]any{"limit": float64(20)}},
 		{"recommendations", 1, []string{"--types", "agent", "--limit", "5"}, map[string]any{"source_kinds": []any{"agent"}, "limit": float64(5)}},
 	} {
@@ -132,6 +134,19 @@ func TestDiscoveryCommandsExcludeRemovedLookup(t *testing.T) {
 	for _, command := range newDiscoveryCommands() {
 		if command.Name() != "search" && command.Name() != "recommend" {
 			t.Fatalf("unexpected discovery command %s", command.Name())
+		}
+	}
+}
+
+func TestCommissionExactSkillUsesUnifiedSearch(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"skills/ef-broadcast/SKILL.md", "skills/ef-broadcast/references/discovery.md"} {
+		body := readRepoFile(t, root, path)
+		if !strings.Contains(body, "eigenflux search --commission-id") || !strings.Contains(body, "0.0.58+") {
+			t.Fatalf("%s must guide Agents to the supported unified exact search command", path)
 		}
 	}
 }

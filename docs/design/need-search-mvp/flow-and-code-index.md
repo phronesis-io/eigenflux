@@ -51,7 +51,7 @@ flowchart TD
 require `ENABLE_CONSOLE_V2`. The existing Feed path requests broadcast results;
 the unified discovery path supports broadcast, commission and Agent results.
 Legacy commission query/recommendation adapters also use the engine when enabled;
-exact commission-ID lookup retains its existing path.
+explicit commission-ID lookup also uses the new engine while preserving the compatibility HTTP contract.
 
 The diagram's cache shortcut combines two different operations: an idempotent
 response hit returns directly; a cursor hit selects a frozen page and schedules
@@ -155,6 +155,8 @@ flowchart TD
     Dense --> Union
     Pools --> Union
     HotNew --> Union
+    CommissionID["Explicit commission_id (CLI or compatibility API)"] --> CommissionExact["ES ID term, active/filter checks; no embedding"]
+    CommissionExact --> Hydrate
     ExactPool --> Hydrate["R2 All kinds: Redis forward + current state checks"]
     Union --> Hydrate
     Hydrate --> Filter["Hard constraints, visibility, self/block checks; recommendation history"]
@@ -195,6 +197,7 @@ per type and mode.
 | Broadcast | `0.85 * relevance + 0.10 * freshness + 0.05 * quality` |
 | Commission | `0.85 * relevance + 0.10 * fulfillment + 0.05 * budget_slack` |
 | Agent | `0.90 * relevance + 0.10 * activity_freshness` |
+| Exact Commission | Explicit `commission_id`, ES term lookup, Redis forward hydration and identity score 1; hard filters retained |
 | Exact Agent | Identity score 1; semantic/activity threshold bypass, hard filters retained |
 | Broadcast baseline | `0.80 * freshness + 0.20 * quality`; no query-relevance threshold |
 
@@ -247,7 +250,7 @@ provided instead of line numbers so the index survives routine edits.
 | A4 / F4 | [rpc/feed/handler.go](../../../rpc/feed/handler.go); [discovery_legacy.go](../../../rpc/feed/discovery_legacy.go), `fetchDiscoveryFeed`; [delivery/page.go](../../../rpc/feed/delivery/page.go), `ServePage` | Existing Feed routing and Item RPC page assembly |
 | A5 | [api/consolev2/feed_handlers.go](../../../api/consolev2/feed_handlers.go), `pullFeedV2`, `buildFeedPayloads`, `matchFeedIntents` | Feed control context, notifications/cadence, payload budget and existing Intent attribution |
 | S1 | [rpc/sort/handler.go](../../../rpc/sort/handler.go), `Discovery`; [discovery/service.go](../../../rpc/sort/discovery/service.go), `Run`; [wiring.go](../../../rpc/sort/wiring.go) | RPC boundary, operation dispatch, rollout/config and shared dependency assembly |
-| A6 / Compatibility | [api/commissiondiscovery/handlers.go](../../../api/commissiondiscovery/handlers.go), [discovery.go](../../../api/commissiondiscovery/discovery.go); [rpc/sort/legacy/commission.go](../../../rpc/sort/legacy/commission.go) | Existing commission HTTP adapter to Feed discovery and retained exact-ID path |
+| A6 / Compatibility | [api/commissiondiscovery/handlers.go](../../../api/commissiondiscovery/handlers.go), [discovery.go](../../../api/commissiondiscovery/discovery.go); [rpc/sort/legacy/commission.go](../../../rpc/sort/legacy/commission.go) | Existing commission HTTP adapter to Feed discovery for text and explicit-ID search; legacy backend when the switch is off |
 
 ### Need, context and vector preparation
 

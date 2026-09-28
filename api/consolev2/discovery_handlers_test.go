@@ -48,7 +48,7 @@ func TestUnifiedDiscoveryAuthAndOwnerBoundary(t *testing.T) {
 	for _, tc := range []struct {
 		body   string
 		status int
-	}{{`{"query":"hello","source_kinds":["agent"]}`, 200}, {`{"query":"hello","agent_id":"99"}`, 400}, {`{"query":"hello","source_kinds":["commission"]}`, 403}} {
+	}{{`{"query":"hello","source_kinds":["agent"]}`, 200}, {`{"query":"hello","agent_id":"99"}`, 400}, {`{"query":"hello","source_kinds":["commission"]}`, 403}, {`{"commission_id":"42"}`, 403}, {`{"commission_id":"42","source_kinds":["agent"]}`, 403}} {
 		feed.last = nil
 		r := ut.PerformRequest(h.Engine, "POST", "/api/v2/discovery/search", &ut.Body{Body: strings.NewReader(tc.body), Len: len(tc.body)}, ut.Header{Key: "Authorization", Value: "Bearer efv2a_discovery"}).Result()
 		if r.StatusCode() != tc.status {

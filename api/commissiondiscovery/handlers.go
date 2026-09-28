@@ -275,8 +275,12 @@ func (s *Service) Search(ctx context.Context, c *app.RequestContext) {
 		respond(c, http.StatusBadRequest, 400, err.Error(), nil)
 		return
 	}
-	if s.discoveryClient != nil && commissionID == nil {
-		s.serveDiscovery(ctx, c, "legacy_search", query, parsed, limit)
+	if s.discoveryClient != nil {
+		var exactID int64
+		if commissionID != nil {
+			exactID = *commissionID
+		}
+		s.serveDiscovery(ctx, c, "legacy_search", query, exactID, parsed, limit)
 		return
 	}
 	response, err := s.sortClient.SearchCommissions(ctx, &sortmodel.SearchCommissionsReq{Query: query, Filters: parsed.thrift(), Limit: &limit, CommissionId: commissionID})
@@ -301,7 +305,7 @@ func (s *Service) Recommend(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	if s.discoveryClient != nil {
-		s.serveDiscovery(ctx, c, "recommendation", "", parsed, limit)
+		s.serveDiscovery(ctx, c, "recommendation", "", 0, parsed, limit)
 		return
 	}
 	response, err := s.sortClient.RecommendCommissions(ctx, &sortmodel.RecommendCommissionsReq{AgentId: agentID, Filters: parsed.thrift(), Limit: &limit})

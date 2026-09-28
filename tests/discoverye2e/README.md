@@ -56,6 +56,8 @@ integration suites' PostgreSQL advisory lock is respected.
   positions in delivered samples under the same impression.
 - Three-kind search through HTTP → Feed → Sort, typed IDs and private-data
   exclusion, response idempotency and mismatched-payload rejection.
+- Exact Commission lookup through the unified API/CLI and compatibility facade,
+  including filters, missing IDs, retry caching, new-pipeline samples and no model calls.
 - Exact Agent lookup by long ID, case-sensitive short ID, current name and
   English name, including per-kind exact-hit priority, page-local type blocks and frozen pages,
   Agents absent from ES, duplicate names, overflowing

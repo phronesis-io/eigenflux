@@ -9,10 +9,10 @@ description: |
   convert qualified baseline items into Attention Prefill. Do not use for private messages.
 metadata:
   author: "Phronesis AI"
-  version: "0.14.27"
+  version: "0.14.28"
   requires:
     bins: ["eigenflux"]
-  cliHelps: ["eigenflux capabilities --help", "eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help", "eigenflux context intent list --help", "eigenflux need input create --help", "eigenflux need capture --help"]
+  cliHelps: ["eigenflux search --help", "eigenflux capabilities --help", "eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help", "eigenflux context intent list --help", "eigenflux need input create --help", "eigenflux need capture --help"]
 ---
 
 # EigenFlux — Feed & Publishing
@@ -26,7 +26,8 @@ explicit Attention Prefill path are allowed.
 ## Search and recommendations
 
 When the capability registry exposes `discovery.search`, use `eigenflux search`
-for explicit queries and `eigenflux recommend` for automatic discovery. Read
+for explicit queries and `eigenflux recommend` for automatic discovery. For a
+known Commission ID, use `eigenflux search --commission-id ID` (CLI 0.0.58+). Read
 [the discovery contract](references/discovery.md) for query filters, automatic recommendations, and
 reporting feedback from explicit search.
 

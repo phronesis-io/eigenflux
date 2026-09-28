@@ -61,6 +61,12 @@ func TestDiscoveryCLIE2E(t *testing.T) {
 	require.Equal(t, s.author, found.Items[0].Ref.ID)
 	require.Zero(t, found.Items[0].NeedID, "query search does not require a captured Need")
 
+	exact := run("search", "--commission-id", fmt.Sprint(s.item))
+	require.Len(t, exact.Items, 1)
+	require.Equal(t, discovery.SourceRef{Type: discovery.Commission, ID: s.item}, exact.Items[0].Ref)
+	require.Equal(t, "commission_id", exact.Items[0].Match["exact"])
+	s.waitSamples(t, exact.ImpressionID, 1)
+
 	page := run("search", "landing page design", "--filters", filters, "--limit", "1")
 	impression := page.ImpressionID
 	for i, kind := range discovery.AllKinds {

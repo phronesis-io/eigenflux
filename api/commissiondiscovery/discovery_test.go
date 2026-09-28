@@ -43,9 +43,20 @@ func TestLegacyCommissionCutoverPreservesExactLookupAndCurrency(t *testing.T) {
 		t.Fatal(data)
 	}
 	next.last = nil
-	status, _ = performWithStatus(t, h, "GET", "/search?commission_id=42")
-	if status != 200 || old.searchCalls != 1 || next.last != nil {
-		t.Fatal("exact lookup changed")
+	status, out = performWithStatus(t, h, "GET", "/search?commission_id=9223372036854775807&min_price_fen=10")
+	if status != 200 || old.searchCalls != 0 || next.last == nil {
+		t.Fatal("exact lookup did not migrate", status, out)
+	}
+	in = discovery.Request{}
+	if err := json.Unmarshal([]byte(next.last.Payload), &in); err != nil {
+		t.Fatal(err)
+	}
+	if in.Query != "" || in.CommissionID != 9223372036854775807 || in.Filters.Currency != "CNY" || in.Filters.MinPriceFen == nil || *in.Filters.MinPriceFen != 10 {
+		t.Fatal("exact request changed", in)
+	}
+	data = out["data"].(map[string]any)
+	if data["impression_id"] != "new-42" || data["candidates"].([]any)[0].(map[string]any)["commission_id"] != "42" {
+		t.Fatal("compatibility response changed", data)
 	}
 }
 

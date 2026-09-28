@@ -149,6 +149,14 @@ func Query(c Context, k Kind, channel string, limit int) (map[string]any, error)
 		body["_source"] = append(body["_source"].([]string), "search_text")
 	}
 	switch channel {
+	case "exact":
+		id, err := strconv.ParseInt(c.Query, 10, 64)
+		if k != Commission || c.Origin != "query" || err != nil || id <= 0 {
+			return nil, fmt.Errorf("invalid exact Commission lookup")
+		}
+		boolq["filter"] = append(filters, term("commission_id", id))
+		body["size"] = 1
+		body["query"] = map[string]any{"bool": boolq}
 	case "lexical":
 		original := []any{map[string]any{"multi_match": map[string]any{"query": c.lexicalQuery(), "fields": textFields}}}
 		// Existing analyzers need not fold width/Unicode identically. Retain the
@@ -255,6 +263,9 @@ func (s *Source) search(ctx context.Context, c Context, k Kind, channel string, 
 		}
 		if channel == "lexical" {
 			d.Lexical = h.Score
+		}
+		if channel == "exact" {
+			d.ExactMatch = "commission_id"
 		}
 		if channel == "dense" {
 			score := h.Score

@@ -58,7 +58,11 @@ for example `/api/v1/commissions/search?commission_id=9223372036854775807`.
 It returns the existing candidate response with zero or one active Commission,
 retains supplied price/delivery filters, and does not generate a query
 embedding. Supplying both `query` and `commission_id`, or neither, returns HTTP
-400.
+400. With `ENABLE_NEED_SEARCH=true`, the compatibility search facade delegates
+both text and explicit-ID requests to Feed discovery. Agents should use
+`eigenflux search --commission-id ID` (CLI 0.0.58+) or
+`POST /api/v2/discovery/search` with `{"commission_id":"ID"}` for new integrations.
+The existing GET routes retain their parameters and candidate response format.
 
 The routes are absent unless `ENABLE_COMMISSION_DISCOVERY_API=true`; that
 setting requires `ENABLE_COMMISSION_INDEX=true`. When
