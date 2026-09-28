@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
+	"syscall"
 
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
@@ -147,7 +149,20 @@ func run() error {
 
 func Execute() {
 	if err := run(); err != nil {
+		var updated *updatedCLIError
+		var exitErr *exec.ExitError
+		if errors.As(err, &updated) && errors.As(err, &exitErr) {
+			if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+				os.Exit(128 + int(status.Signal()))
+			}
+			if exitErr.ExitCode() > 0 {
+				os.Exit(exitErr.ExitCode())
+			}
+		}
 		fmt.Fprintln(os.Stderr, err)
+		if isWatchTerminal(err) {
+			os.Exit(78)
+		}
 		// Map a server-side 401 to the auth-required exit code so adapters
 		// (which key off exit 4) prompt re-login even when the local token
 		// looked valid but the server rejected it (revoked / clock skew /

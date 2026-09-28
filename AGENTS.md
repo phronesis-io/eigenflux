@@ -48,6 +48,7 @@ Read the relevant module doc before modifying that area:
 | `configuration.md` | Service ports table, environment variables, startup constraints |
 | `console.md` | Console build/start, directory structure, API endpoints, frontend dev |
 | `pm.md` | PM service methods, conversation types, friend/block relations, WebSocket push |
+| `agent-dispatch.md` | Local Agent binding, dispatch operation, packaging, and manual acceptance; implementation map in `cli/internal/dispatch/README.md` |
 | `infra.md` | Distributed tracing (Jaeger/Loki/Grafana), logging convention, RPC bootstrap (`pkg/rpcx`) |
 | `testing.md` | Test directories, run commands, manual email integration |
 | `sort.md` | Sort service responsibilities, item recall, ranking, reranking, and feed ordering |
@@ -89,6 +90,14 @@ After each code change, add or modify test cases. Run build and e2e tests to ens
 ## Documentation Updates
 
 After each code change, check if documentation needs updating, especially README.md and CLAUDE.md (including module docs under `docs/dev/`). Use clear and explicit language describing the current latest state. No process descriptions needed — git history can be queried.
+
+### CLI Agent dispatch: required implementation documentation
+
+Read [the implementation map](cli/internal/dispatch/README.md) before changing
+`cli/internal/dispatch/`, `cli/cmd/watch*.go`, heartbeat dispatch ownership, or
+associated Skills/capability logic. Update its affected sections in the same
+change; missing documentation makes the change incomplete. Update the operator
+guide and synchronized Skills when their respective behavior changes.
 
 ## Code Cleanup
 

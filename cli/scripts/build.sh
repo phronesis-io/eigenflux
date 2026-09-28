@@ -135,6 +135,8 @@ build_skills_bundle
 
 echo ""
 if [[ $failed -eq 0 ]]; then
+  "${GO_CMD[@]}" run ./cmd/clirelease --dir "$BUILD_DIR" --version "$CLI_VERSION" \
+    --signing-key-file "$EIGENFLUX_SKILLS_SIGNING_KEY_FILE"
   echo -e "${GREEN}All platforms compiled → build/cli/${NC}"
   ls -lh "$BUILD_DIR"
 else

@@ -264,6 +264,8 @@ func main() {
 	h.StaticFile("/bootstrap.md", "static/BOOTSTRAP.md")
 	install.RegisterShellInstaller(h)
 	h.StaticFile("/install.ps1", "static/install.ps1")
+	h.StaticFile("/uninstall.sh", "static/uninstall.sh")
+	h.StaticFile("/uninstall.ps1", "static/uninstall.ps1")
 
 	// Swagger UI
 	h.GET("/swagger/*any", hertzSwagger.WrapHandler(swaggerFiles.Handler))
