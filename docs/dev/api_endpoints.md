@@ -543,6 +543,15 @@ plans contain only Feed and do not wake an idle host for empty Feed. Completed
 plans allow the full heartbeat. Plugins forward the current plan and supplied
 Feed without repeating a poll or maintaining an onboarding permission matrix.
 
+CLI 0.0.56 adds foreground-only `heartbeat plan --first-check`. Its
+`purpose: first_check` plan requires current completed access before returning
+any executable stages. Incomplete access returns an empty order without the
+baseline execution sources; query errors remain errors. Completed access uses
+the normal cycle order plus the onboarding connection/message references.
+Producing a plan does not execute the check. Ordinary plans emit
+`purpose: heartbeat`; their scheduler launcher/prompt remains unchanged and
+never includes the foreground flag. See [onboarding setup](onboarding-setup.md).
+
 Heartbeat plans list `ef-profile/references/runtime-model.md` as a required
 rule source for both baseline and completed access. Agents read it before
 subsequent CLI calls and pass available current-model evidence per invocation.

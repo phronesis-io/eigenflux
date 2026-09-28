@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"cli.eigenflux.ai/internal/auth"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/skills"
@@ -105,6 +107,9 @@ func TestHeartbeatPlanJSONCarriesCurrentPromptAndAccessDecision(t *testing.T) {
 			if contextRequests != 1 {
 				t.Fatalf("context fetched %d times", contextRequests)
 			}
+			if plan.Purpose != "heartbeat" || strings.Contains(plan.AgentPrompt, "references/connection.md") || strings.Contains(plan.AgentPrompt, "references/messages.md") {
+				t.Fatalf("scheduled plan loaded foreground rules: %+v", plan)
+			}
 			if plan.AgentPrompt == "" || plan.AgentPrompt != renderHeartbeatPlanForAgent(plan) {
 				t.Fatalf("JSON discarded or changed central prompt: %q", plan.AgentPrompt)
 			}
@@ -165,7 +170,7 @@ func installHeartbeatTestRules(t *testing.T) string {
 	dir := t.TempDir()
 	t.Setenv("EIGENFLUX_SKILLS_DIR", dir)
 	t.Setenv("EIGENFLUX_CDN_URL", "http://127.0.0.1:1")
-	names := []string{"ef-broadcast", "ef-communication", "ef-profile"}
+	names := []string{"ef-broadcast", "ef-communication", "ef-profile", "ef-onboarding"}
 	for _, name := range names {
 		path := filepath.Join(dir, name, "SKILL.md")
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -188,6 +193,15 @@ func installHeartbeatTestRules(t *testing.T) string {
 	}
 	if err := os.WriteFile(modelRule, []byte("# Runtime Model Reporting\n"), 0o600); err != nil {
 		t.Fatal(err)
+	}
+	for _, name := range []string{"connection.md", "messages.md"} {
+		path := filepath.Join(dir, "ef-onboarding", "references", name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("# Foreground first check\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	manifest, err := skills.GenerateManifest(dir, "0.0.46", "0.0.46", names, 1)
 	if err != nil {
@@ -248,6 +262,9 @@ func TestSchedulerMigrationUsesNativeHostOwnership(t *testing.T) {
 }
 
 func TestHeartbeatCommandsAreRegistered(t *testing.T) {
+	if heartbeatPlanCmd.Flags().Lookup("first-check") == nil {
+		t.Fatal("first-check flag not registered")
+	}
 	if heartbeatPlanCmd.Parent() != heartbeatCmd || heartbeatCmd.Parent() != rootCmd {
 		t.Fatal("heartbeat plan command is not registered under the root command")
 	}
@@ -286,6 +303,140 @@ func TestHeartbeatPlanAcceptsLegacyEnvironmentMode(t *testing.T) {
 			}
 			if !strings.Contains(plan.SchedulerMigration, "Reuse working existing triggers") || !strings.Contains(plan.AgentPrompt, "including legacy EIGENFLUX_MODE launchers") {
 				t.Fatal("missing existing-user compatibility guidance")
+			}
+		})
+	}
+}
+
+// Exercise the real plan boundary with a non-default server, authenticated
+// identity, fresh state changes and both output formats. No Feed or business
+// mutation is performed merely by requesting a plan.
+func TestFirstCheckPlanUsesFreshStateAndKeepsSchedulerSeparate(t *testing.T) {
+	for _, format := range []string{"json", "agent"} {
+		t.Run(format, func(t *testing.T) {
+			completed, contextRequests := false, 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet || r.URL.Path != "/api/v2/agent-context" {
+					t.Errorf("plan executed a business operation: %s %s", r.Method, r.URL.Path)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				if r.Header.Get("Authorization") != "Bearer first-check-account" {
+					t.Errorf("wrong account credential: %s", r.Header.Get("Authorization"))
+				}
+				contextRequests++
+				if !completed {
+					w.WriteHeader(http.StatusConflict)
+					_, _ = w.Write([]byte(`{"error":{"code":"ONBOARDING_REQUIRED","details":{"onboarding_state":"in_progress"}}}`))
+					return
+				}
+				_, _ = w.Write([]byte(`{"code":0,"data":{"context_revision":12}}`))
+			}))
+			defer server.Close()
+			cfg, _ := runtimeTestConfig(t, "http://127.0.0.1:1", true)
+			serverFlag = "first-check-staging"
+			if err := cfg.AddServer(serverFlag, server.URL); err != nil {
+				t.Fatal(err)
+			}
+			creds := &auth.V2Credentials{AgentID: "first-check-agent", AccessToken: "first-check-account", RefreshToken: "fixture-refresh", ExpiresAt: time.Now().Add(time.Hour).UnixMilli()}
+			if err := auth.SaveV2Credentials(serverFlag, creds); err != nil {
+				t.Fatal(err)
+			}
+			rulesDir := installHeartbeatTestRules(t)
+			oldFormat := formatFlag
+			formatFlag = format
+			t.Cleanup(func() { formatFlag = oldFormat })
+			home, _ := config.HomeDirInfo()
+			expectedPrefix := "eigenflux --homedir " + shellQuote(home) + " --server " + shellQuote(serverFlag)
+			// Revisit incomplete state after success to prove cached completion
+			// never opens the gate on a later foreground request.
+			for _, state := range []bool{false, true, false} {
+				completed = state
+				var out bytes.Buffer
+				command := &cobra.Command{}
+				command.Flags().Bool("first-check", true, "")
+				command.SetOut(&out)
+				raw, err := captureHeartbeatStdout(t, func() error { return heartbeatPlanCmd.RunE(command, nil) })
+				if err != nil {
+					t.Fatal(err)
+				}
+				prompt := out.String()
+				if format == "json" {
+					var plan heartbeatPlan
+					if err := json.Unmarshal([]byte(raw), &plan); err != nil {
+						t.Fatal(err)
+					}
+					if plan.Purpose != "first_check" || plan.CLIPrefix != expectedPrefix {
+						t.Fatalf("lost purpose/target: %+v", plan)
+					}
+					if completed {
+						if !reflect.DeepEqual(plan.ExecutionOrder, heartbeatStages(runtimeAccess{OnboardingState: "completed"})) || !plan.WakeOnEmpty {
+							t.Fatalf("incorrect ready plan: %+v", plan)
+						}
+					} else if len(plan.ExecutionOrder) != 0 || plan.WakeOnEmpty {
+						t.Fatalf("incomplete website offered an executable first check: %+v", plan)
+					}
+					if strings.Contains(plan.SchedulerLauncher, "--first-check") || plan.SchedulerPrompt != heartbeatSchedulerPrompt(plan.SchedulerLauncher) {
+						t.Fatal("foreground request contaminated recurring task")
+					}
+					prompt = plan.AgentPrompt
+				}
+				if !strings.Contains(prompt, expectedPrefix) || !strings.Contains(prompt, filepath.Join(rulesDir, "ef-onboarding", "references", "connection.md")) || !strings.Contains(prompt, filepath.Join(rulesDir, "ef-onboarding", "references", "messages.md")) {
+					t.Fatalf("missing target or current foreground rules: %s", prompt)
+				}
+				if strings.Contains(prompt, "\nSCHEDULER\n") {
+					t.Fatal("foreground prompt instructed scheduler changes")
+				}
+				if !completed && (!strings.Contains(prompt, "FIRST CHECK BLOCKED") || strings.Contains(prompt, "ef-broadcast/SKILL.md")) {
+					t.Fatalf("blocked plan leaked baseline execution: %s", prompt)
+				}
+				if completed && (!strings.Contains(prompt, "FOREGROUND FIRST CHECK") || !strings.Contains(prompt, "A ready plan is not a completed check")) {
+					t.Fatalf("ready plan lacks result boundary: %s", prompt)
+				}
+			}
+			if contextRequests != 3 {
+				t.Fatalf("live state read %d times; want 3", contextRequests)
+			}
+			after, err := auth.LoadV2Credentials(serverFlag)
+			if err != nil || !reflect.DeepEqual(after, creds) {
+				t.Fatalf("plan replaced credentials: %+v, %v", after, err)
+			}
+		})
+	}
+}
+
+func TestFirstCheckPlanFailsClosedOnUnknownStateOrMissingRules(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, missing string
+		status              int
+	}{
+		{"unavailable", `{"error":{"code":"UNAVAILABLE"}}`, "", 503},
+		{"invalid context", `{"code":0,"data":{}}`, "", 200},
+		{"missing connection", `{"code":0,"data":{"context_revision":1}}`, "connection.md", 200},
+		{"missing messages", `{"code":0,"data":{"context_revision":1}}`, "messages.md", 200},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+			runtimeTestConfig(t, server.URL, true)
+			dir := installHeartbeatTestRules(t)
+			if tc.missing != "" {
+				if err := os.Remove(filepath.Join(dir, "ef-onboarding", "references", tc.missing)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			oldFormat := formatFlag
+			formatFlag = "agent"
+			t.Cleanup(func() { formatFlag = oldFormat })
+			var out bytes.Buffer
+			command := &cobra.Command{}
+			command.Flags().Bool("first-check", true, "")
+			command.SetOut(&out)
+			if err := heartbeatPlanCmd.RunE(command, nil); err == nil || out.Len() != 0 {
+				t.Fatalf("unknown state emitted plan: %v, %s", err, out.String())
 			}
 		})
 	}

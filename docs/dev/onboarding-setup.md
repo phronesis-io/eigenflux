@@ -1,85 +1,106 @@
-# First-time connection contract
+# Five-stage onboarding
 
-The installation entry owns host installation. `ef-onboarding` owns the
-foreground connection flow. Host tools own execution approvals and scheduling;
-the CLI and server retain identity, authorization, and network-state ownership.
+The setup path is: verified components, two required permission gates, optional
+profile preparation, human website setup, and a foreground first network check.
+The [migration contract](onboarding-five-stage-contract.md) records retained
+behaviors, intentional changes, final owners and boundary checks.
 
-| Invariant | Source / final owner | Boundary | Verification | Intentional change |
-| --- | --- | --- | --- | --- |
-| Install only the invoking host; preserve other hosts, existing configuration, and explicit opt-outs | `skills/install.md`, `static/install.sh` | Installer to host plugin | Isolated installer tests with a non-default Home, installed/missing/failed plugin, and opt-out | Explain official plugin scope; no additional conversational install consent |
-| Plugin installation uses a compatible Codex executable consistently | `static/install.sh`, `skills/install.md` | PATH / app bundle discovery to install receipt and verification | Isolated installer tests: old PATH plus compatible app, compatible PATH only, unsupported / unknown versions | Default/all-host scans skip absent Codex; explicit Codex requests report missing executables. Require Codex >= 0.142.0 for detected installations; fall back to existing app binaries without upgrading Codex or changing PATH permanently; receipt carries selected path/version |
-| Preserve exact Home, selected server, identity, referral, and existing accounts | Installation entry, CLI auth/config, Console handoff | Install, restart, scheduler, provision | Existing Home/referral integration tests and CLI suite | None |
-| Choice presentation preserves explicit consent and full disclosure | Main onboarding Skill template contract / same owner | Complete chat template to explicit user reply | Template and authorization contracts; manual affirmative, refusal, ambiguous-answer, no-answer, and resume checks | Present each choice directly in chat; preserve complete disclosures, one pending decision, and explicit user consent; host execution approvals remain separate |
-| Scheduling consent is distinct from command-rule consent | `ef-onboarding/references/consent.md`, `execution-permission.md` | User choice to host mutation | Skill contract tests and manual refusal scenarios | Two separate required decisions; either refusal pauses new onboarding |
-| Prefill context access remains optional, bounded, and independently authorized | `consent.md`, `prefill.md` | Context retrieval to review-only Console draft | Existing draft/provenance tests; manual opt-out and ambiguous-answer scenarios | Ask after required setup activation; generic continuation never grants Prefill |
-| Rule writes preserve other rules and require approval for the concrete scope | `execution-permission.md` | User consent to host execution policy | Rule checker with non-default Home/server; conflict and write-denial scenarios | Refusal, conflict, or unverified activation blocks new connection; no sandbox-policy fallback |
-| Installation does not change Codex sandbox policy | `static/install.sh`; command permission owned by `execution-permission.md` | Installer to user config | Full installer fixture checks config bytes and absence of alternate policy advice | Remove the redundant sandbox configuration route; keep existing user policy untouched |
-| Plugin and rule activation share one restart when needed | Installation entry, `activation.md` | Installer output and confirmed user choices to resumed original task | Structured installer result tests; manual fresh-process continuation | Defer Codex restart until both are prepared; retain native approvals |
-| Resume does not invent consent or replay mutations | `activation.md`, authoritative tool results in the original task | Process restart to next setup stage | Manual original-task, missing-context, failed-activation scenarios; existing identity tests | Reuse established choices and verified operations; ask only for missing authority |
-| Exactly one verified active trigger precedes provision | `recurring-trigger.md` | Activated setup to scheduler to CLI | Existing scheduler prompt parity and CLI integration tests; manual persistence checks | Move trigger creation after both required gates and activation; preserve disabled triggers |
-| Existing working triggers remain compatible | `ef-broadcast`, `recurring-trigger.md`, CLI heartbeat plan | Legacy environment to normalized CLI prefix and scheduler guidance | Legacy-mode plan tests with non-default Home/server; Skill contract; manual old-task, custom-cadence and paused-task checks | Accept environment or flag modes; only confirmed incompatibility permits minimal in-place repair, preserving task identity and state |
-| Baseline, privacy limits, Console confirmation, output language, and external-action restrictions | Existing `prefill.md`, `console-handoff.md`, CLI/server | Setup to live network and human Console | Existing CLI contract/integration suite | None |
+## File ownership
 
-Manual acceptance covers: refusing either required choice; accepting each then
-declining Prefill; approving scoped Prefill; one combined restart after a fresh
-plugin install; Rules-only restart for an already active plugin; already active
-matching Rules without duplicate writes; resume with missing conversation
-evidence; host rejection and conflicting rules; and repeated setup without a
-second identity or recurring trigger. Check language and actual approval behavior
-in Codex; static Skill checks do not establish model adherence or loaded policy.
+| File under skills/ef-onboarding | Responsibility | When to load |
+| --- | --- | --- |
+| SKILL.md | Request routing, five stages, shared gates, language/rendering | New or explicitly resumed setup; website return requesting first check |
+| references/messages.md | Canonical Chinese/English messages, progress and allowed slots | Only to render current-stage output |
+| references/host-setup.md | Separate choices, exact policy writes, restart/resume, one scheduler | Host setup or targeted scheduler repair |
+| references/prefill.md | Draft schema, provenance, limits and privacy | After the optional profile choice |
+| references/connection.md | Identity, provision, baseline, handoff, foreground check and action routing | Stage 4 preparation or stage 5 |
 
-## Fixed-copy output contract
+Installation stays in `skills/install.md`; ongoing account/profile work stays in
+`ef-profile`. Runtime model reporting, Feed, Attention and communication retain
+their current owners. Scheduled cycles load no onboarding messages or drafts.
+Only the fixed scheduler prompt is mirrored in CLI code and host-setup.md;
+a parity test protects that execution contract. User templates are not copied
+into procedural references.
 
-User-facing setup copy is owned by the templates in `ef-onboarding` references.
-Scheduling, rule consent, restart, Prefill, and refusal retain their current
-behavior and authorization scope. Their wording is mandatory,
-with only explicit cadence, context-source, rule-path/rule-body, and existing-rule
-substitutions. English and Chinese templates are exact; other languages preserve
-all content and structure. Present the complete body and labels directly in chat
-and wait for an explicit reply before dependent actions. No answer grants no
-permission; preserve confirmed choices on resume. Only the presentation changes:
-identity, storage, consent scope, stage order, and native execution approvals
-retain the owners and checks in the table above.
-Failures, host approvals, and user-requested clarification remain authoritative;
-never render a success template over a failure. Validate template coverage,
-required disclosure retention, allowed substitutions, and the existing lifecycle
-contracts before release. The permission reference owns the reply lists and
-existing-rule substitutions; render the choices once.
+## Permission and resume boundaries
 
-## Heartbeat host-result contract
+Ask the scheduling question first, then reuse a matching existing execution
+allow or separately ask before writing one. A yes to the latter authorizes the
+concrete, internally resolved prefix rule; host-native approvals still apply.
+Preserve unrelated/stricter rules and reject conflicts or denied writes without
+trying a broader execution route. Do not change sandbox/network policy.
+Execution permission is distinct from owner-confirmed action permissions.
 
-Before changing the scheduler prompt, preserve these boundaries:
+Request one manual restart when a documented installation change or new Rules
+require reload. Preserve choices and confirmed operations in the original task.
+A return message resumes setup but does not prove a process restart or policy
+activation. Do not invent “already active,” “still needs restart,” or “restart
+failed” states. Report actual later command failures as observed.
 
-| Invariant | Current source / final owner | Boundary | Verification | Intentional change |
-| --- | --- | --- | --- | --- |
-| Required host output survives empty, unchanged, and non-actionable results | heartbeat-execution.md and CLI plan / same owners | Skill result to host final response | CLI render and Skill contract tests; manual injected XML and non-XML host checks | Explicitly forbid empty output in place of required structure |
-| Notification suppression does not suppress the host result | Host-injected schema / host schema plus execution reference | Final response to user notification | Manual no-update DONT_NOTIFY and actionable NOTIFY cycles | Clarify routine completion alone does not warrant notification |
-| Native scheduler prompt is canonical | CLI heartbeatSchedulerPrompt and recurring-trigger.md / same owners | CLI or Skill to persisted task | Prompt parity and read-back contract; non-default Home/server fixture | Prohibit appended silence prose; repair the same owned task |
-| Identity, authorization, cadence, recovery and single-trigger ownership persist | Existing onboarding and heartbeat contracts / unchanged | Setup, scheduler, CLI, network | Existing CLI suite and manual task read-back | None |
+Use the same optional Prefill question regardless of available context. The
+manual path retrieves no personal context. A draft is review-only and never
+business-action approval. Choosing manual entry completes profile preparation
+but must not produce a “draft ready” claim.
 
-The host remains authoritative for schema, required fields, identifiers, and
-notification decisions. XML is conditional on the actual injected schema. A
-failed or incomplete check must never be relabeled as an empty successful check.
-Production instructions contain no test-only task IDs or host-specific invented
-schema. Tests cannot establish model adherence; validate actual host output over
-several empty, unchanged, actionable, and failed cycles before production release.
+Use one stable absolute Home and explicit selected server throughout. Reuse
+successful initialization, provisioning and the owned trigger; preserve its
+identity, cadence and paused state. Never replay mutations or Feed pulls after
+compaction merely because their output is absent from the summary.
 
-## Release and installation compatibility
+## Manual first-check contract
 
-CLI 0.0.52 introduces the direct runtime flags and Attention JSON arguments.
-The Skills bundle requires CLI 0.0.52 so released 0.0.49–0.0.51 clients cannot
-adopt instructions for unsupported commands. Environment metadata and stdin
-remain supported for existing integrations. New native tasks use direct flags.
+CLI 0.0.56 introduces `heartbeat plan --first-check --format agent` (also JSON).
+It adds `purpose: first_check` and reads fresh server access. Incomplete website
+setup returns an empty execution order, no baseline execution rules, and
+`wake_on_empty: false`. An unavailable/invalid context returns an error, not an
+incomplete or ready plan. Completed setup uses the existing full stage order
+and freshly loaded foreground references. Normal plans have `purpose: heartbeat`
+and keep their current baseline/completed behavior.
 
-After review and merge, publish CLI 0.0.52 from main with the normal Release CLI
-workflow, verify its public version and command flags, and verify the signed
-Skills release and normal installation entry. The Release Skills workflow also
-runs on merge; its minimum-version gate protects older clients while the binary
-release is pending. Complete public installation verification only after both
-artifacts are available. Deploy the merged main installer through the normal
-backend deployment process; do not serve a feature-branch installer.
+A plan does not execute a cycle. The foreground Agent runs the plan once, tracks
+receipts, then reports actual useful results or a successful empty result. It
+must not mark a partial failure successful. Only a successful first check gets
+the optional discovery/message-draft/broadcast-draft menu, once in the original
+task. Selecting a draft option is not authorization to send, publish or create a
+relationship. Later checks use normal Skills without repeating the menu.
 
-Release checks use the normal CLI build, signed Skills synchronization tests,
-and installer integration tests. No
-alternate CDN, revision pin, signing key, or test installation URL is part of
-the product. Disposable fixture keys and loopback endpoints stay in tests.
+The native scheduler launcher/prompt never includes `--first-check`. Manual
+checks do not create, repair or enable recurring tasks. Their first-check purpose
+comes from the actual current user request, never an old message carried into
+automatic work. Preserve the host's output schema even for empty results;
+notification suppression cannot replace required output with a silence token.
+
+## Website boundary
+
+The consumer onboarding frontend is not part of this repository. The host
+handoff currently includes the concrete return phrase. Keep it until the
+website completion component ships; do not promise a popup that does not exist.
+`return_website` is a reserved message variant, not an active integration.
+
+That future UI must appear only after server-confirmed email verification and
+all four settings steps, and let the human copy the first-check request into
+the original Agent conversation. Keep an entry available after dismissal.
+Copying does not execute or complete a check. Once deployed and verified, switch
+from `return_host` to `return_website`; do not show both variants.
+
+## Validation and release
+
+Run `go test ./...` in `cli/`, build the CLI into `build/`, validate changed Skill
+frontmatter and migrated references, and review the Chinese/English interaction
+branches. CLI tests cover non-default Home/server/account selection, fresh
+incomplete/completed transitions, query failures, missing foreground rules,
+normal-plan isolation and unchanged scheduler prompts. Existing identity,
+provisioning, recovery, draft/privacy and read-only baseline tests remain active.
+
+Actual host application of Rules, process reload, model adherence and the future
+website component require live acceptance separately; offline tests do not
+prove them. No production account, Rules file or recurring job should be changed
+by test runs.
+
+The signed Skills bundle requires CLI 0.0.56. Publish the reviewed CLI and Skills
+through normal main-branch workflows, then verify the public installation path.
+Older CLIs retain compatible Skills until upgraded. Do not deploy a feature
+branch, local Skill overlay, temporary URL or pinned test revision.
+The foreground empty-result exception is also mirrored into
+`static/feed_contract.md` through `scripts/common/sync-feed-contract.sh`; its
+server-delivered copy takes effect with the normal backend release/restart.

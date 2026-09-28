@@ -30,7 +30,7 @@ func TestProfileSkillOwnsOnlyPostOnboardingLifecycle(t *testing.T) {
 		"eigenflux agent provision --recover-account",
 		"eigenflux agent switch-account",
 		"Do not ask a clarifying question before generating the link",
-		"Do not use the new-join four-line success template",
+		"Do not use the onboarding handoff template",
 		"## Mandatory Intent Routing",
 		"Keep these routes mutually exclusive",
 		"A successful `eigenflux capabilities` or `eigenflux profile refresh-context` call confirms this route",
@@ -52,7 +52,7 @@ func TestProfileSkillOwnsOnlyPostOnboardingLifecycle(t *testing.T) {
 			t.Errorf("ef-profile frontmatter is missing account trigger %q", trigger)
 		}
 	}
-	if !strings.Contains(frontmatter[1], `version: "0.9.8"`) {
+	if !strings.Contains(frontmatter[1], `version: "0.9.9"`) {
 		t.Error("ef-profile version was not advanced for the lifecycle split")
 	}
 	for _, forbidden := range []string{"## Mandatory Join Route", "## Install the CLI", "references/onboarding-v2.md"} {
@@ -97,101 +97,48 @@ func TestProfileSkillOwnsOnlyPostOnboardingLifecycle(t *testing.T) {
 }
 
 func TestOnboardingSkillContract(t *testing.T) {
-	repoRoot, err := filepath.Abs("../..")
+	root, err := filepath.Abs("../..")
 	if err != nil {
-		t.Fatalf("resolve repo root: %v", err)
+		t.Fatal(err)
 	}
-
-	entry := readRepoFile(t, repoRoot, "skills/ef-onboarding/SKILL.md")
-	for _, required := range []string{
-		`version: "0.2.14"`,
-		"references/consent.md",
-		"Treat incomplete V2 setup as existing-account maintenance",
-		"only when the user explicitly requests it",
-		"https://cdn.eigenflux.ai/skills/latest/install.md#verify-and-continue",
-		"Require both CLI compatibility",
-		"and current-host installation verification",
-		"Accept a supported\nbare-CLI setup",
-		"references/prefill.md",
-		"references/recurring-trigger.md",
-		"references/console-handoff.md",
-		"do not ask for installation consent again",
-		"Reuse explicit choices in the original task",
-		"references/execution-permission.md",
-		"references/activation.md",
-		"do not invoke\n`ef-broadcast` as a whole",
-	} {
-		if !strings.Contains(entry, required) {
-			t.Errorf("ef-onboarding entry is missing %q", required)
-		}
+	requiredByFile := map[string][]string{
+		"SKILL.md": {
+			"references/messages.md", "references/host-setup.md", "references/prefill.md", "references/connection.md",
+			"Treat\nincomplete V2 setup as existing-account maintenance", "unless the user explicitly",
+			"https://cdn.eigenflux.ai/skills/latest/install.md#verify-and-continue",
+			"CLI 0.0.56+", "current-host\n   installation verification", "bare-CLI setup",
+			"No answer grants no permission", "Generic continuation grants no missing consent",
+			"natural-language", "host-native\nexecution approvals remain separate",
+			"never derive identity from cwd", "not historical onboarding text in a scheduled",
+		},
+		"references/prefill.md": {
+			"manual path", "field_provenance", "agent_user_context", "agent_inferred",
+			"`working_languages` protocol accepts only `zh` and `en`",
+			"Never infer permission\nfor `network_action` or `trade_action`",
+			"never include names, emails, credentials, internal URLs",
+			"Do not enumerate, summarize, quote, or ask the user",
+			"On the personalized path, `agent_name` must be non-empty",
+			"The manual path keeps `agent_name` empty", "At most 10 intent actions",
+		},
+		"references/connection.md": {
+			"eigenflux --homedir \"<agent-home>\" agent init --format json",
+			"--draft-json '<draft-json>'", "--require-existing-agent", "--recover-account",
+			"a non-empty `ticket` query parameter", "a non-empty `nonce` URL fragment",
+			"The Console always opens at Step 1", "An Agent ID change is not a reason to call provision again",
+			"`schema_version: feed.v2`", "`personalization.mode: baseline`",
+			"Do not load `ef-broadcast` as a whole", "does\nnot authorize or perform Feed feedback",
+			"zero qualified items skips the upload and is a valid", "at most\n10 for Attention Prefill",
+			"heartbeat plan --first-check --format agent", "A failed command/query is an\nunknown state",
+			"plan itself does\nnot execute the cycle", "Never repeat completed mutations",
+			"Never show this menu in automatic checks", "menu is not a sixth stage",
+		},
 	}
-
-	consent := readRepoFile(t, repoRoot, "skills/ef-onboarding/references/consent.md")
-	for _, required := range []string{
-		"one read-only initial network check",
-		"do not create the trigger yet",
-		"both required choices and host activation succeed",
-		"Scheduling,\nexecution permission, and optional Prefill are separate decisions",
-		"before personal-context retrieval, identity initialization",
-		"never count as Prefill approval",
-	} {
-		if !strings.Contains(consent, required) {
-			t.Errorf("onboarding consent contract is missing %q", required)
-		}
-	}
-	if strings.Contains(consent, "Install the EigenFlux CLI") || strings.Contains(consent, "安装 EigenFlux CLI") {
-		t.Error("onboarding consent still asks for installation")
-	}
-
-	prefill := readRepoFile(t, repoRoot, "skills/ef-onboarding/references/prefill.md")
-	for _, required := range []string{
-		"manual path", "field_provenance", "agent_user_context", "agent_inferred",
-		"`working_languages` protocol accepts only `zh` and `en`",
-		"Never infer permission\nfor `network_action` or `trade_action`",
-		"never include names, emails, credentials, internal URLs",
-		"Do not enumerate, summarize, quote, or ask the user",
-		"On the personalized path, `agent_name` must be non-empty",
-		"The manual path keeps `agent_name` empty",
-	} {
-		if !strings.Contains(prefill, required) {
-			t.Errorf("onboarding Prefill contract is missing %q", required)
-		}
-	}
-
-	handoff := readRepoFile(t, repoRoot, "skills/ef-onboarding/references/console-handoff.md")
-	for _, required := range []string{
-		"eigenflux --homedir \"<agent-home>\" agent init --format json",
-		"eigenflux --homedir \"<agent-home>\" agent provision --mode \"<installation-mode>\" --runtime-name \"<known-product>\" --draft-json '<draft-json>'",
-		"a non-empty `ticket` query parameter",
-		"a non-empty `nonce` URL fragment",
-		"[【点击此处，以人类伙伴身份继续 →】](<console_url>)",
-		"[Continue as my human partner →](<console_url>)",
-		"The Console always opens at Step 1",
-		"Email verification is required before later\nonboarding steps",
-		"An Agent ID change is not a reason to call provision again",
-		"eigenflux --homedir \"<agent-home>\" feed poll --limit 20 --action refresh --format json",
-		"`schema_version: feed.v2`",
-		"`personalization.mode: baseline`",
-		"ef-broadcast/references/attention.md",
-		"eigenflux --homedir \"<agent-home>\" attention prefill --json '<batch>' --format json",
-		"Do not load `ef-broadcast` as a whole",
-		"does not\npublish Active Attention",
-		"zero qualified items skips the upload and is a valid",
-		"does\nnot authorize or perform Feed feedback",
-		"Use this\nsame success template when personalization was declined",
-	} {
-		if !strings.Contains(handoff, required) {
-			t.Errorf("Console handoff contract is missing %q", required)
-		}
-	}
-	for _, forbidden := range []string{
-		"feed feedback --items",
-		"attention publish --stdin",
-		"feed event record",
-		"This manual-path response replaces the four-line success template",
-	} {
-		if strings.Contains(entry, forbidden) || strings.Contains(handoff, forbidden) {
-			t.Errorf("ef-onboarding includes an operation outside the onboarding baseline %q", forbidden)
+	for rel, fragments := range requiredByFile {
+		body := readRepoFile(t, root, "skills/ef-onboarding/"+rel)
+		for _, fragment := range fragments {
+			if !strings.Contains(body, fragment) {
+				t.Errorf("%s missing boundary %q", rel, fragment)
+			}
 		}
 	}
 }
@@ -201,7 +148,7 @@ func TestConsoleV2SchedulerPromptMatchesCLI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reference := readRepoFile(t, repoRoot, "skills/ef-onboarding/references/recurring-trigger.md")
+	reference := readRepoFile(t, repoRoot, "skills/ef-onboarding/references/host-setup.md")
 	blocks := strings.Split(reference, "```text")
 	if len(blocks) != 3 {
 		t.Fatal("expected the fixed prompt and a separate launcher block")
@@ -231,8 +178,8 @@ func TestPublicJoinEntryPointsUseOnboardingSkill(t *testing.T) {
 		"cli/cmd/root.go":                    {"eigenflux agent provision --draft-json '<draft-json>'"},
 		"cli/cmd/auth.go":                    {"Legacy email authentication commands", "New Agents must use eigenflux agent provision"},
 		"cli/scripts/install-local.sh":       {"Read ef-onboarding skill"},
-		"skills/ef-broadcast/SKILL.md":       {"ef-onboarding/references/recurring-trigger.md"},
-		"skills/ef-communication/SKILL.md":   {"ef-onboarding/references/recurring-trigger.md"},
+		"skills/ef-broadcast/SKILL.md":       {"ef-onboarding/references/host-setup.md"},
+		"skills/ef-communication/SKILL.md":   {"ef-onboarding/references/host-setup.md"},
 		"static/install.ps1":                 {"Check ef-onboarding skill"},
 		"static/install.sh":                  {"ef-broadcast|ef-communication|ef-onboarding|ef-profile", "Check ef-onboarding skill"},
 		"static/templates/agti_join.tmpl.md": {"https://github.com/phronesis-io/eigenflux/blob/main/skills/install.md"},
@@ -273,7 +220,7 @@ func TestStandaloneInstallEntryOwnsHostInstallationRules(t *testing.T) {
 		"explicit `EIGENFLUX_SKILLS_DIR` or Home-scoped registered target",
 		"A successfully installed Codex plugin awaiting activation may continue",
 		"Load the installed `ef-onboarding` Skill",
-		"scheduled-check question must\nbe the entire next user-visible response",
+		"verified-components overview and scheduled-check\nquestion",
 		"Keep successful CLI, Skill, plugin, version, and Home verification details",
 		"check the current account in the same Home and server",
 		"first incomplete stage using confirmed choices",
@@ -285,52 +232,57 @@ func TestStandaloneInstallEntryOwnsHostInstallationRules(t *testing.T) {
 }
 
 func TestOnboardingAuthorizationAndActivationBoundaries(t *testing.T) {
-	repoRoot, err := filepath.Abs("../..")
+	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry := readRepoFile(t, repoRoot, "skills/ef-onboarding/SKILL.md")
-	stages := []string{"**Scheduled checks.**", "**Execution permission.**", "**Activate.**", "**Optional Prefill.**", "**Initialize and draft.**", "**Schedule.**", "**Provision and connect.**"}
+	entry := readRepoFile(t, root, "skills/ef-onboarding/SKILL.md")
 	previous := -1
-	for _, stage := range stages {
+	for _, stage := range []string{"**Components.**", "**Permissions.**", "**Profile preparation.**", "**Website setup.**", "**First check.**"} {
 		index := strings.Index(entry, stage)
 		if index <= previous {
-			t.Fatalf("setup stage missing or out of order: %s", stage)
+			t.Fatalf("stage missing/out of order: %s", stage)
 		}
 		previous = index
 	}
-	requiredByFile := map[string][]string{
-		"skills/ef-onboarding/references/execution-permission.md": {
-			"Refusal pauses first-time connection", "Write\nonly after approval",
-			"trailing flags can override the target", "across Codex tasks",
-			"never replace a conflicting", "do not write a duplicate",
-			"an offline match proves the running host loaded the rule",
-		},
-		"skills/ef-onboarding/references/activation.md": {
-			"one full quit and reopen", "original task's confirmed tool history",
-			"grants no missing Rules or Prefill permission", "history is unavailable",
-			"Home, server,\nor permission scope changed", "A user-disabled trigger is not missing",
-			"An offline rule check alone is insufficient",
-		},
-		"skills/ef-onboarding/references/recurring-trigger.md": {
-			"separate required scheduling", "execution-permission choices and host activation",
-			"explicit server selection", "read back the trigger",
-		},
-	}
-	for file, fragments := range requiredByFile {
-		body := readRepoFile(t, repoRoot, file)
-		for _, fragment := range fragments {
-			if !strings.Contains(body, fragment) {
-				t.Errorf("%s is missing boundary %q", file, fragment)
-			}
+	host := readRepoFile(t, root, "skills/ef-onboarding/references/host-setup.md")
+	for _, boundary := range []string{
+		"Scheduling and execution permission are required separately. Prefill is optional",
+		"one read-only initial network check", "Do not create the trigger yet",
+		"without another consent question or duplicate write",
+		"never replace a conflicting `prompt` or `forbidden`", "A denied write does not",
+		"Read the file back and check", "trailing flags can override the",
+		"one full\nquit and reopen", "original\ntask's confirmed tool history",
+		"cannot prove a process reload", "Do not block on such an unobservable",
+		"Generic continuation grants no missing Rules", "A user-disabled trigger is",
+		"same Home, explicit server", "Do not branch on context availability",
+	} {
+		if !strings.Contains(host, boundary) {
+			t.Errorf("missing host boundary %q", boundary)
 		}
 	}
-	consent := readRepoFile(t, repoRoot, "skills/ef-onboarding/references/consent.md")
-	// User-facing scheduling copy must not acquire either unrelated permission.
-	scheduling := strings.SplitN(consent, "## Optional profile Prefill", 2)[0]
-	for _, line := range strings.Split(scheduling, "\n") {
-		if strings.HasPrefix(line, ">") && (strings.Contains(line, "Rules") || strings.Contains(line, "预填") || strings.Contains(line, "许可")) {
-			t.Fatalf("scheduling question contains another permission: %s", line)
+	for _, obsolete := range []string{"consent.md", "execution-permission.md", "activation.md", "recurring-trigger.md", "console-handoff.md"} {
+		if _, err := os.Stat(filepath.Join(root, "skills/ef-onboarding/references", obsolete)); !os.IsNotExist(err) {
+			t.Errorf("obsolete reference remains: %s", obsolete)
+		}
+		// Production references must not point back to removed owners.
+		walkErr := filepath.WalkDir(filepath.Join(root, "skills"), func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !d.IsDir() && strings.HasSuffix(path, ".md") {
+				body, readErr := os.ReadFile(path)
+				if readErr != nil {
+					return readErr
+				}
+				if strings.Contains(string(body), obsolete) {
+					t.Errorf("stale reference %s in %s", obsolete, path)
+				}
+			}
+			return nil
+		})
+		if walkErr != nil {
+			t.Fatal(walkErr)
 		}
 	}
 }
@@ -340,104 +292,48 @@ func TestOnboardingFixedTemplateCoverage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry := readRepoFile(t, root, "skills/ef-onboarding/SKILL.md")
-	for _, requirement := range []string{
-		"choice labels verbatim", "Do not paraphrase, shorten, reorder, omit",
-		"only variables or variants", "Failure handling, required host approvals",
-		"template body and exact choice labels once, directly in chat",
-		"explicit reply before dependent actions", "natural-language",
-		"No answer grants no permission",
-		"Keep only the current choice pending and preserve established choices on resume",
-		"Host-native execution approvals",
-	} {
-		if !strings.Contains(entry, requirement) {
-			t.Errorf("missing output constraint: %s", requirement)
+	messages := readRepoFile(t, root, "skills/ef-onboarding/references/messages.md")
+	allowed := map[string]bool{"<current-permission>": true, "<host>": true, "<cadence>": true, "<permission-scope>": true,
+		"<progress>": true, "<profile-result>": true, "<return-instruction>": true, "<console-url>": true,
+		"<followup>": true, "<results>": true, "<failure>": true, "<next-action>": true}
+	slots := regexp.MustCompile(`<[^>]+>`)
+	seen := map[string]bool{}
+	for _, section := range strings.Split(messages, "\n## ")[1:] {
+		id := strings.SplitN(section, "\n", 2)[0]
+		if seen[id] {
+			t.Errorf("duplicate template %s", id)
 		}
-	}
-	variable := regexp.MustCompile(`<[^>]+>`)
-	for _, tc := range []struct {
-		file    string
-		bodies  int
-		allowed map[string]bool
-	}{
-		{"consent.md", 8, map[string]bool{"<context-sources>": true}},
-		{"execution-permission.md", 2, map[string]bool{"<rules-file>": true, "<rule-block>": true}},
-		{"activation.md", 2, nil},
-	} {
-		body := readRepoFile(t, root, "skills/ef-onboarding/references/"+tc.file)
-		blocks := []string{}
-		current := []string{}
-		for _, line := range strings.Split(body+"\n", "\n") {
-			if strings.HasPrefix(line, ">") {
-				current = append(current, strings.TrimPrefix(line, ">"))
-			} else if len(current) > 0 {
-				blocks = append(blocks, strings.Join(current, "\n"))
-				current = nil
+		seen[id] = true
+		for _, locale := range []string{"zh", "en"} {
+			pieces := strings.Split(section, "### "+locale+"\n")
+			if len(pieces) != 2 {
+				t.Fatalf("%s has no unique %s body", id, locale)
 			}
-		}
-		if len(blocks) != tc.bodies {
-			t.Errorf("%s: got %d localized bodies, want %d", tc.file, len(blocks), tc.bodies)
-		}
-		for _, block := range blocks {
-			for _, placeholder := range variable.FindAllString(block, -1) {
-				if !tc.allowed[placeholder] {
-					t.Errorf("%s contains an undeclared template variable %s", tc.file, placeholder)
+			body := strings.SplitN(pieces[1], "\n### ", 2)[0]
+			if !strings.Contains(body, "\n> ") {
+				t.Errorf("%s/%s empty", id, locale)
+			}
+			for _, slot := range slots.FindAllString(body, -1) {
+				if !allowed[slot] {
+					t.Errorf("%s/%s undeclared slot %s", id, locale, slot)
 				}
 			}
-			if tc.file == "execution-permission.md" {
-				for placeholder := range tc.allowed {
-					if strings.Count(block, placeholder) != 1 {
-						t.Errorf("permission body must show %s once", placeholder)
-					}
-				}
+			if strings.Contains(body, "prefix_rule") || strings.Contains(body, "rules-file") {
+				t.Errorf("%s/%s leaked internal permission details", id, locale)
 			}
 		}
 	}
-}
-
-func TestExecutionPermissionExistingRuleVariants(t *testing.T) {
-	root, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
+	for _, id := range []string{"welcome", "schedule", "execution", "scope_codex", "execution_existing", "paused", "restart",
+		"prefill_choice", "profile_ready", "profile_manual", "handoff", "return_host", "return_website",
+		"website_incomplete", "check_start", "check_done", "check_empty", "followup_active", "followup_paused", "followup_unknown", "action_menu", "check_unavailable", "check_failed", "setup_failed", "preparing_draft", "preparing_manual", "preparing_network", "link_refreshed", "clarify_permission"} {
+		if !seen[id] {
+			t.Errorf("missing template %s", id)
+		}
 	}
-	body := readRepoFile(t, root, "skills/ef-onboarding/references/execution-permission.md")
-	localized := map[string]string{}
-	for _, tc := range []struct{ language, start, end string }{
-		{"Chinese", "Simplified Chinese:", "English:"},
-		{"English", "English:", "Keep the read/write scope"},
-	} {
-		section := strings.SplitN(strings.SplitN(body, tc.start, 2)[1], tc.end, 2)[0]
-		localized[tc.language] = strings.ReplaceAll(strings.ReplaceAll(section,
-			"<rules-file>", "/tmp/nondefault codex/rules/eigenflux.rules"),
-			"<rule-block>", `prefix_rule(pattern=["eigenflux", "--homedir", "/tmp/agent home/.eigenflux", "--server", "staging"], decision="allow")`)
-	}
-	counts := map[string]int{}
-	for _, line := range strings.Split(body, "\n") {
-		cols := strings.Split(line, "|")
-		if len(cols) != 5 {
-			continue
-		}
-		lang := strings.TrimSpace(cols[1])
-		rendered, ok := localized[lang]
-		if !ok {
-			continue
-		}
-		original, replacement := strings.TrimSpace(cols[2]), strings.TrimSpace(cols[3])
-		if strings.Count(rendered, original) != 1 {
-			t.Fatalf("%s variant does not match exactly once: %s", lang, original)
-		}
-		localized[lang] = strings.Replace(rendered, original, replacement, 1)
-		counts[lang]++
-	}
-	for lang, rendered := range localized {
-		if counts[lang] != 4 {
-			t.Errorf("%s: incomplete existing-rule substitutions", lang)
-		}
-		if strings.Count(rendered, "> - **") != 2 {
-			t.Errorf("%s: choices must remain distinct", lang)
-		}
-		if !strings.Contains(rendered, "/tmp/nondefault codex/rules/eigenflux.rules") || !strings.Contains(rendered, `"--server", "staging"`) {
-			t.Errorf("%s: rule identity changed during substitution", lang)
+	// Required choices must be short, distinct and owned only by messages.md.
+	for _, choice := range []string{"*同意*", "*不同意，先停止接入*", "*Agree*", "*Decline, stop connecting for now*"} {
+		if strings.Count(messages, "> - "+choice) != 2 {
+			t.Errorf("missing/duplicated required choice %s", choice)
 		}
 	}
 }
@@ -474,7 +370,7 @@ func TestExistingSchedulerCompatibilityContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reference := readRepoFile(t, root, "skills/ef-onboarding/references/recurring-trigger.md")
+	reference := readRepoFile(t, root, "skills/ef-onboarding/references/host-setup.md")
 	for _, required := range []string{"Reuse a verified working trigger", "legacy `EIGENFLUX_MODE`", "not a repair reason", "confirmed execution incompatibility", "Preserve task identity, thread, Home", "enabled/paused state", "Do not guess missing or conflicting modes", "Respect host approval requirements", "retain the original task", "Never restart onboarding"} {
 		if !strings.Contains(reference, required) {
 			t.Errorf("missing compatibility boundary %q", required)
@@ -483,5 +379,29 @@ func TestExistingSchedulerCompatibilityContract(t *testing.T) {
 	broadcast := readRepoFile(t, root, "skills/ef-broadcast/SKILL.md")
 	if !strings.Contains(broadcast, "effective mode supplied by `--runtime-mode` or legacy") || strings.Contains(broadcast, "server, and explicit `--runtime-mode`") {
 		t.Fatal("legacy modes must satisfy trigger validation")
+	}
+}
+
+func TestFirstCheckOutputContractAndReleaseGate(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract := readRepoFile(t, root, "skills/ef-broadcast/references/contract.md")
+	delivered := readRepoFile(t, root, "static/feed_contract.md")
+	if contract != delivered {
+		t.Fatal("server-delivered Feed contract is stale")
+	}
+	feed := readRepoFile(t, root, "skills/ef-broadcast/references/feed.md")
+	for name, text := range map[string]string{"contract": contract, "feed": feed} {
+		for _, boundary := range []string{"purpose: first_check", "successful-empty confirmation", "only after the whole foreground check succeeds", "Scheduled runs never inherit this exception"} {
+			if !strings.Contains(text, boundary) {
+				t.Errorf("%s missing first-check output boundary %q", name, boundary)
+			}
+		}
+	}
+	cfg := readRepoFile(t, root, "cli/.cli.config")
+	if !strings.Contains(cfg, "SKILLS_MIN_CLI_VERSION=0.0.56") || !strings.Contains(cfg, "CLI_VERSION=0.0.56") {
+		t.Fatal("new Skills require the first-check CLI flag; gate old clients until the CLI is released")
 	}
 }

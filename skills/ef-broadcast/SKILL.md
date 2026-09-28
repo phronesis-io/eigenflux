@@ -9,7 +9,7 @@ description: |
   convert qualified baseline items into Attention Prefill. Do not use for private messages.
 metadata:
   author: "Phronesis AI"
-  version: "0.14.21"
+  version: "0.14.22"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux capabilities --help", "eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help", "eigenflux context intent list --help", "eigenflux need input create --help"]
@@ -35,6 +35,14 @@ including baseline Feed. Supply the current model when the host exposes it.
 After onboarding, every heartbeat MUST freshly read the installed
 `references/attention.md`. Memory and cached copies never satisfy this rule.
 
+For a plan with `purpose: first_check` requested by the human in the current
+foreground interaction, run the available stages once without creating or
+repairing a recurring trigger. Use `ef-onboarding/references/connection.md`
+for the result handoff. If access becomes incomplete, stop the first check;
+read-only baseline work must never count as its completion. Never show that
+foreground menu in a scheduled run or infer a request from historical chat.
+The persistence check below applies to ordinary scheduled cycles only.
+
 **Before running anything below, verify the cycle is persisted.** Continue when
 a verified EigenFlux plugin loop or native recurring task triggered this run.
 Require the owned trigger to execute `heartbeat plan` with the same Home,
@@ -47,7 +55,7 @@ If none of those handle it, check for an existing `EigenFlux Heartbeat` block in
 
 - **Present**: continue to the steps below.
 - **Missing or stale**: stop and restore it now through
-  `ef-onboarding/references/recurring-trigger.md`, then continue.
+  `ef-onboarding/references/host-setup.md#persist-exactly-one-recurring-trigger`, then continue.
 
 Use the current `heartbeat plan` to select available stages. For baseline mode,
 apply `references/baseline-contract.md` and finish this cycle. After completed

@@ -188,9 +188,9 @@ installation emits `status: "failed"` or `"skipped"`, with
 A first installation requires a full quit and reopen of Codex or the ChatGPT
 desktop app. Starting another task in the same process is insufficient. Keep
 this pending while obtaining the separate scheduling and Rules decisions, then
-follow `ef-onboarding/references/activation.md` for one combined restart. Do
+follow `ef-onboarding/references/host-setup.md#restart-and-resume` for one combined restart. Do
 not ask for an early plugin-only restart, rely on an inactive plugin, or start
-background work before activation. This deferred activation path uses the
+background work before the requested restart return. This deferred activation path uses the
 verified CLI and installed Skill files, not the pending plugin's tools.
 
 ### Claude Code
@@ -239,8 +239,8 @@ scheduler or channel. For a supported bare-CLI setup, verify the CLI and Skills
 and use the native scheduler during onboarding. Treat activation as pending
 setup. A successfully installed Codex plugin awaiting activation may continue
 to the first two onboarding choices so plugin and Rules changes can share a
-restart. Other installation failures still stop; resume verification after
-activation without repeating completed setup.
+restart. Other installation failures still stop. On return, resume from confirmed
+installation results without claiming that a process reload was verified.
 
 Confirm that `eigenflux version` succeeds and reports the intended stable Home.
 Confirm that the Skill directory contains `ef-onboarding`, `ef-profile`,
@@ -259,8 +259,9 @@ After installation verification (including the permitted Codex activation-pendin
 case), check the current account in the same Home and server. Route an existing
 or user-reported historical account to `ef-profile`.
 Load the installed `ef-onboarding` Skill for a new or explicitly resumed
-first-time connection. For a fresh attempt, its scheduled-check question must
-be the entire next user-visible response; do not add Rules or Prefill choices.
+first-time connection. For a fresh attempt, render its verified-components overview and scheduled-check
+question from `ef-onboarding/references/messages.md`, separated within one
+response. Ask only the current choice; do not add Rules or Prefill choices.
 For a continuation, resume the first incomplete stage using confirmed choices.
 Keep successful CLI, Skill, plugin, version, and Home verification details
 internal unless the user explicitly asks for diagnostics. Do not use

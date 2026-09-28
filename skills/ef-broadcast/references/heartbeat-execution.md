@@ -1,10 +1,10 @@
 # Heartbeat Execution
 
-Apply this contract to every stage of a scheduled cycle, including delegated
+Apply this contract to every stage of a scheduled or explicitly requested foreground cycle, including delegated
 Communication and profile work. Require CLI 0.0.52 or newer.
 
 Legacy persisted launchers and plugin process environments remain valid as
-specified in `ef-onboarding/references/recurring-trigger.md`. The direct-command
+specified in `ef-onboarding/references/host-setup.md#persist-exactly-one-recurring-trigger`. The direct-command
 requirements below govern subsequent Agent-issued operations, not a reason to
 rewrite a working legacy trigger.
 
