@@ -74,6 +74,30 @@ func TestBindingValidateIdentityAndDefaults(t *testing.T) {
 	}
 }
 
+func TestBindingCommissionSubscriptionIsExplicit(t *testing.T) {
+	b := validTestBinding(t)
+	if err := b.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if b.Handles("commission_order") {
+		t.Fatal("default binding subscribed to commission")
+	}
+	b.Events = []string{"commission_order"}
+	if err := b.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !b.Handles("commission_order") || b.Handles("pm_push") {
+		t.Fatalf("unexpected subscriptions: %v", b.Events)
+	}
+	if err := WriteJSON(BindingPath(b.Home, b.Server), b); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := ReadBinding(b.Home, b.Server)
+	if err != nil || !loaded.Handles("commission_order") {
+		t.Fatalf("commission subscription not persisted: %+v %v", loaded, err)
+	}
+}
+
 func TestBindingValidateRejectsUnsafeConfiguration(t *testing.T) {
 	cases := []struct {
 		name  string

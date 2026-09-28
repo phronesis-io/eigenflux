@@ -163,7 +163,7 @@ func (b *Binding) Validate() error {
 	seen := map[string]bool{}
 	for _, kind := range b.Events {
 		switch kind {
-		case "pm_push", "profile_review_due", "maintenance_due", "control_pending":
+		case "pm_push", "profile_review_due", "maintenance_due", "control_pending", "commission_order":
 		default:
 			return fmt.Errorf("unsupported event %q", kind)
 		}

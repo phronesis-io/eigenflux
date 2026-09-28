@@ -100,6 +100,17 @@ func readJournal(b Binding) (journalState, bool, error) {
 			if job.Message != nil || (!json.Valid(job.Data) && !(completedStatus(job.Status) && len(job.Data) == 0)) {
 				return journalState{}, false, errors.New("invalid_journal_hint")
 			}
+		case "commission_order":
+			if job.Message != nil {
+				return journalState{}, false, errors.New("invalid_journal_commission")
+			}
+			if completedStatus(job.Status) && len(job.Data) == 0 {
+				continue
+			}
+			key, err := parseCommissionNotification(job.Data, b.AgentID)
+			if err != nil || job.ID != commissionJournalID(b, key) {
+				return journalState{}, false, errors.New("invalid_journal_commission")
+			}
 		default:
 			return journalState{}, false, errors.New("invalid_journal_kind")
 		}
@@ -305,15 +316,68 @@ func (j *Journal) AddHint(kind string, data json.RawMessage) error {
 	return nil
 }
 
+// AddCommissionNotification durably accepts one server notification. A nil
+// result permits its acknowledgement, including a previously persisted duplicate.
+// This records work only; it never authorizes an order action or executes an Agent.
+func (j *Journal) AddCommissionNotification(raw json.RawMessage) error {
+	if !j.binding.Handles("commission_order") {
+		return errors.New("commission_event_not_subscribed")
+	}
+	if len(raw) > journalMaxBytes {
+		return errors.New("commission_notification_size_limit")
+	}
+	key, err := parseCommissionNotification(raw, j.binding.AgentID)
+	if err != nil {
+		return err
+	}
+	id := commissionJournalID(j.binding, key)
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	for _, job := range j.state.Jobs {
+		if job.ID == id {
+			return nil
+		}
+	}
+	next := cloneJournal(j.state)
+	next.Jobs = append(next.Jobs, j.newHint(id, "commission_order", append(json.RawMessage(nil), raw...)))
+	if err := j.save(next); err != nil {
+		return err
+	}
+	j.signal()
+	return nil
+}
+
+func commissionJournalID(b Binding, key commissionNotificationKey) string {
+	return journalID(b.Scope, b.Revision, "commission_order", key.OrderID, key.OrderVersion, key.RecipientRole)
+}
+
 func (j *Journal) newHint(id, kind string, data json.RawMessage) Job {
 	return Job{ID: id, Kind: kind, Scope: j.binding.Scope, Revision: j.binding.Revision, Data: data, Status: "pending", Created: time.Now().Unix()}
 }
 
 func (j *Journal) Next() (Job, bool, error) {
+	return j.next("")
+}
+
+// NextKind explicitly claims one event kind for a dedicated worker. The general
+// worker cannot claim commission notifications before their business flow exists.
+func (j *Journal) NextKind(kind string) (Job, bool, error) {
+	switch kind {
+	case "pm_push", "profile_review_due", "maintenance_due", "control_pending", "commission_order":
+		return j.next(kind)
+	default:
+		return Job{}, false, errors.New("unsupported_dispatch_kind")
+	}
+}
+
+func (j *Journal) next(kind string) (Job, bool, error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	index := -1
 	for i, job := range j.state.Jobs {
+		if (kind == "" && job.Kind == "commission_order") || (kind != "" && job.Kind != kind) {
+			continue
+		}
 		if job.Status == "running" || job.Status == "sending" {
 			return Job{}, false, nil
 		}

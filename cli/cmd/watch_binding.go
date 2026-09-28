@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/config"
@@ -140,7 +141,18 @@ var watchBindCmd = &cobra.Command{
 		} else if !os.IsNotExist(readErr) {
 			return readErr
 		}
-		if err = dispatch.WriteJSON(dispatch.BindingPath(b.Home, b.Server), b); err != nil {
+		// Serialize ownership handoff with legacy notification render/ACK and
+		// account switching; no old consumer may ACK after this binding wins.
+		if err = auth.WithV2CredentialsLockContext(cmd.Context(), b.Server, 35*time.Second, func() error {
+			current, err := watchBindingIdentity()
+			if err != nil {
+				return err
+			}
+			if !sameBindingIdentity(expected, current) {
+				return errWatchIdentity
+			}
+			return dispatch.WriteJSON(dispatch.BindingPath(b.Home, b.Server), b)
+		}); err != nil {
 			return err
 		}
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"status": "bound", "mode": b.Mode, "host": b.Host, "agent_id": b.AgentID, "binding_revision": b.Revision, "events": b.Events, "execution": "run watch --dispatch after stopping the old consumer"})

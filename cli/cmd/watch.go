@@ -172,7 +172,7 @@ func (w *accountWatch) run(parent context.Context, out io.Writer) error {
 		return err
 	}
 	var workers sync.WaitGroup
-	runners := []func(context.Context) error{w.pmLoop, w.controlLoop, w.runtimeLoop, w.checkLoop, w.maintenanceLoop, w.pmFallbackLoop}
+	runners := []func(context.Context) error{w.pmLoop, w.controlLoop, w.runtimeLoop, w.checkLoop, w.maintenanceLoop, w.pmFallbackLoop, w.commissionFallbackLoop}
 	if w.journal != nil {
 		runners = append(runners, w.dispatchLoop)
 	}
@@ -329,11 +329,11 @@ func (w *accountWatch) pmLoop(ctx context.Context) error {
 							NextCursor string `json:"next_cursor"`
 						}
 						_ = json.Unmarshal(event.Data, &data)
-						if emitErr := w.deliverPM(ctx, event.Type, event.Data, "socket"); emitErr != nil {
+						if emitErr := w.deliverSocketEvent(ctx, event.Type, event.Data); emitErr != nil {
 							err = emitErr
 							break
 						}
-						if data.NextCursor != "" {
+						if event.Type == "pm_push" && data.NextCursor != "" {
 							cursor = data.NextCursor
 						}
 					}
