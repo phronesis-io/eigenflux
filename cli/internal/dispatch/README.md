@@ -10,6 +10,7 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 | [watch.go](../../cmd/watch.go) | `accountWatch.run`, `pmLoop`, `deliverPM`: account lock, WS/SSE, heartbeat, event lifecycle |
 | [watch_binding.go](../../cmd/watch_binding.go) | Bind/doctor/status/retry/reconcile; `applyDispatchOwnership` |
 | [watch_commission.go](../../cmd/watch_commission.go) | Commission notification intake, durable enqueue before ACK, bounded HTTP reconciliation |
+| [watch_commission_intake.go](../../cmd/watch_commission_intake.go), [watch_commission_materials.go](../../cmd/watch_commission_materials.go) | Dedicated seller input-check worker, fixed identity/order/Skill, bounded verified downloads, strict local result |
 | [watch_dispatch.go](../../cmd/watch_dispatch.go) | `enableDispatch`, `pollPM`, `dispatchLoop`, `dispatchJob`, `dispatchPrompt`, `sendDispatchReply` |
 | [binding.go](binding.go), [types.go](types.go) | Binding validation, atomic writes, `ParseDecision` |
 | [journal.go](journal.go) | `AddMessages`, `AddHint`, `AddCommissionNotification`, `Next` / `NextKind`, `Update`: persistence, deduplication, sessions, recovery |
@@ -31,15 +32,17 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 7. Require one JSON decision: `version=1`, matching `request_id`, `action`, `reply_text`. Actions: `reply`, `no_reply`, `needs_user`. Reject missing/unknown/duplicate fields and trailing output.
 8. Validate reply content, persist `sending`, then recheck identity and permission under the credential lock. POST only to the original conversation with the original quote ID; disable POST refresh/replay. Record `replied` only with a valid matching receipt; emit redacted status.
 
-## Commission intake foundation
+## Commission input inspection
 
-`commission_order` is an explicit subscription for durable notification intake. This integration stage does not execute seller decisions, accept orders, fulfill work, or provide the buyer a 180-second receipt. Do not advertise Commission execution readiness from this subscription.
+`commission_order` explicitly enables durable intake and a separate seller inspection worker. It does not accept orders, fulfill work, publish buyer receipts or establish a 180-second buyer SLA. Do not advertise execution readiness from the subscription.
 
-With PM also subscribed, `notification_push` reuses its socket; otherwise Commission uses an initial HTTP pull and minute-spaced `/notifications/pending` reconciliation. The existing server socket fetches PM on connect, so a Commission-only binding must not connect to it. Notification cursors must never become PM cursors.
+With PM subscribed, notifications reuse its socket; Commission-only uses an initial HTTP pull and 60-second reconciliation because the server socket fetches PM on connect. Preserve before ACK, at most 50 IDs per ACK, and deduplicate order/version/role within the pinned binding. Notification cursors never replace PM cursors. Legacy stream respects persisted ownership; binding changes and legacy read/ACK share the credential lock.
 
-Persist each validated order notification before `/notifications/ack`; ACK batches contain at most 50 items. Derive identity from the pinned account and require a matching recipient. Deduplicate by order/version/recipient role within binding scope, preserving separate orders and versions. Stream notification draining yields to the same account's persisted Commission binding, including while watch is stopped. Binding writes and legacy render/ACK share the credential lock, with identity and ownership rechecked inside it. Failure to persist prevents watch ACK.
+`Next` excludes Commission; `NextKind` serializes its independent worker. Buyer notifications are recorded without invoking a seller Agent. The worker re-reads seller identity, order state, frozen contract and fulfillment Skill. Only `awaiting_seller`, `pending_payment` and `in_progress` allow inspection. Read-only preparation and execution share a local 180-second ceiling, excluding queue time; the host's shorter timeout still applies.
 
-The ordinary `Next` worker leaves Commission jobs pending. `NextKind` claims at most one running job per kind without blocking PM; it is reserved for a separate worker. Terminal results, permission boundaries, execution recovery and reporting must be implemented before enabling real Commission execution. PM does not become a task-delegation command channel.
+Official dispatch rules must be signed manifest members, read through `skills.ReadSignedFile`; third-party fulfillment Skills remain explicitly bound local content. Fetch the authenticated V2 order-detail input manifest, then each immutable snapshot/path grant using pinned credentials. Check manifest role/version/buyer, SHA-256 and byte count before passing local files to the Agent. Inputs use their own snapshot IDs, not the current order snapshot. Bound downloads to 128 files / 64 MiB total; keep URLs and credentials out of prompts. The public endpoint requires the exact GET detail Caddy route.
+
+Use a fresh Agent session. Require matching request/order/version and `ready`, `needs_input`, `needs_user` or `failed`, a brief summary and inspected logical paths. `ready` must cover all supplied verified inputs; required materials cannot be empty. Recheck identity and unchanged order before atomically storing `commission_result`. Preserve the result when completed notification bodies are compacted. Reuse actual non-failed checks only for the same latest order version; explicit retry rechecks. Interruptions remain `unknown`; do not replay automatically. Clean up owned temporary downloads after the run. Results are local status data, not user-visible or buyer-visible receipts.
 
 ## State and limits
 
@@ -72,9 +75,9 @@ Limits: journal 16 MiB, 256 unresolved jobs, latest 1024 completed jobs (includi
 | Binding / decisions / journal | `binding_test.go`, `types_test.go`, `journal_test.go`, `../../cmd/watch_binding_test.go` |
 | Host / ACP / cancellation | `runner_test.go`, `acp_test.go`, `process_windows_test.go` |
 | Intake → Agent → reply / identity / permission | `../../cmd/watch_dispatch_test.go`, `../../cmd/watch_test.go` |
-| Commission intake / ownership / persistence | `journal_commission_test.go`, `../../cmd/watch_commission_test.go`, `../../cmd/order_notifications_test.go` |
+| Commission intake / inspection / materials / ownership | `journal_commission_test.go`, `commission_intake_test.go`, `../../cmd/watch_commission*_test.go`, `../../cmd/order_notifications_test.go`, `../skills/read_signed_test.go` |
 | Heartbeat ownership / discovery | `../../cmd/heartbeat_modes_test.go`, `../../cmd/heartbeat_migration_test.go`, `../../cmd/capability_registry_contract_test.go` |
 
 Run relevant tests from `cli/`; use race checks for concurrency changes and Mac/Windows builds for process/filesystem changes. Update affected Skills and capability contracts with behavior changes.
 
-Setup, recovery commands, delivery limitations and unverified hosts: [operator guide](../../../docs/dev/agent-dispatch.md). Repository checks: [testing.md](../../../docs/dev/testing.md). Task delegation remains TODO; A2A is excluded.
+Setup, recovery commands, delivery limitations and unverified hosts: [operator guide](../../../docs/dev/agent-dispatch.md). Repository checks: [testing.md](../../../docs/dev/testing.md). Order acceptance, fulfillment and buyer receipts remain pending; A2A is excluded.

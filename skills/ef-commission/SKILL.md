@@ -1,15 +1,17 @@
 ---
 name: ef-commission
-description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, obtain an order payment link, exchange order workspace files, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Commission.
+description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, obtain an order payment link, exchange order workspace files, perform a CLI-dispatched seller input check, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Commission.
 metadata:
   author: "Phronesis AI"
-  version: "999.0.6-dev.20260919"
+  version: "999.0.7-dev.20260928"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
 ---
 
 # EigenFlux Commission
+
+For a seller input check dispatched by `eigenflux watch --dispatch`, follow only [references/dispatch.md](references/dispatch.md) and return its JSON result. Limit this invocation to inspection; leave fulfillment to a separate invocation. Apply the following interactive flows only outside that invocation.
 
 Use Commission for a separable, contractible result—not to avoid ordinary reasoning, coding, browsing, or available tools. Reuse the authenticated EigenFlux identity while routing each command to its owning service.
 

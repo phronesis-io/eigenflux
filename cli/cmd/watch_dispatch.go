@@ -14,6 +14,7 @@ import (
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/dispatch"
 	"cli.eigenflux.ai/internal/profilestate"
+	"cli.eigenflux.ai/internal/skills"
 )
 
 func (w *accountWatch) enableDispatch() error {
@@ -33,6 +34,11 @@ func (w *accountWatch) enableDispatch() error {
 	}
 	if b.Handles("pm_push") && !fileExistsCLI(filepath.Join(b.SkillsDir, "ef-communication", "references", "dispatch.md")) {
 		return errors.New("dispatch rule missing; sync compatible Skills")
+	}
+	if b.Handles("commission_order") {
+		if _, err := skills.ReadSignedFile(b.SkillsDir, "ef-commission", "references/dispatch.md", 64<<10); err != nil {
+			return errors.New("signed Commission intake rule unavailable; sync compatible Skills")
+		}
 	}
 	q, err := dispatch.OpenJournal(b)
 	if err != nil {

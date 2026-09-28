@@ -105,6 +105,6 @@ For small PMs, use a dedicated workspace with concise owner instructions. Host-w
 
 ## Commission integration status
 
-The development branch accepts an explicit `commission_order` subscription for durable notification intake only. Its ordinary Agent worker leaves these jobs pending; there is no seller decision, fulfillment or 180-second buyer result yet. Use neither its binding nor a notification ACK as evidence that an order was handled.
+The explicit `commission_order` subscription enables durable notification intake and a separate seller input-check worker. It reads the frozen contract and bound Skill, verifies downloaded inputs, invokes a fresh Agent session and saves a strict `commission_result` in `watch status`. Files are capped at 128 / 64 MiB; preparation and execution have a local 180-second ceiling after queue claim. Acceptance, fulfillment and the buyer-visible three-minute result are not implemented. A notification ACK or local `ready` is not an acceptance/delivery receipt.
 
 PM + Commission subscriptions share the Socket. A Commission-only subscription uses an initial HTTP request and 60-second reconciliation, because the current server Socket always consumes PM. The same account's ordinary stream skips Commission notification draining while watch owns it. Stop and inspect unresolved jobs before rebinding. The implementation and pending business decisions are in [Commission dispatch](commission-dispatch.md).
