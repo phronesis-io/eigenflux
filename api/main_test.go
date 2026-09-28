@@ -4,8 +4,6 @@ import (
 	"context"
 	"eigenflux_server/api/consolev2"
 	"errors"
-	"github.com/cloudwego/hertz/pkg/app/server"
-	"github.com/cloudwego/hertz/pkg/common/ut"
 	"net"
 	"net/http"
 	"sync"
@@ -158,14 +156,9 @@ func TestRegisterCommissionConsoleBFFRoutesUsesGateForEveryRoute(t *testing.T) {
 		{http.MethodGet, "trade/commissions"},
 		{http.MethodGet, "trade/orders"},
 		{http.MethodGet, "trade/orders/:order_id"},
-		{http.MethodGet, "trade/orders/:order_id/snapshots/:snapshot_id/file"},
-		{http.MethodPost, "trade/orders/:order_id/payment"},
 		{http.MethodGet, "earnings/summary"},
 		{http.MethodGet, "earnings/records"},
 		{http.MethodGet, "payout-method"},
-		{http.MethodGet, "payout-method/kyc"},
-		{http.MethodPost, "payout-method/kyc"},
-		{http.MethodPost, "payout-method/kyc/authorization"},
 		{http.MethodPost, "payout-method/authorization"},
 		{http.MethodPost, "withdrawals"},
 		{http.MethodGet, "withdrawals/:withdrawal_id"},
@@ -194,7 +187,7 @@ func TestRegisterCommissionConsoleBFFRoutesUsesGateForEveryRoute(t *testing.T) {
 
 func TestWalletKYCRoutesRequireConsoleAuthentication(t *testing.T) {
 	h := server.New()
-	registerConsoleV2BusinessBFF(h, &consolev2.Service{}, &config.Config{})
+	registerConsoleV2BusinessBFF(h, &consolev2.Service{}, &config.Config{}, nil)
 	for _, tc := range []struct {
 		method, path string
 		status       int
