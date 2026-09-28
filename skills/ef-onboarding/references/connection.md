@@ -1,6 +1,7 @@
 # Connection and first check
 
-For a `purpose: first_check` plan, read "Foreground first check" and, after
+For the current foreground first-check request routed here by `ef-onboarding`,
+read "Foreground first check" and, after
 success, "Optional exploration after completion". Do not execute the setup
 sections or repeat their consent/provisioning gates. Those sections apply only
 to preparing the initial website handoff.
@@ -238,20 +239,27 @@ reprovision to test completion. Reuse the established Home and selected server.
 If they are unavailable, resolve the installed account before proceeding;
 never guess from cwd or create another Home.
 
-Require CLI 0.0.56+ and invoke directly, preserving the server and current runtime
+Invoke the existing command directly, preserving the server and current runtime
 metadata in the prefix:
 
 ```bash
-eigenflux --homedir "<agent-home>" heartbeat plan --first-check --format agent
+eigenflux --homedir "<agent-home>" heartbeat plan --format json
 ```
 
-The plan resolves fresh authenticated runtime access and declares
-`purpose: first_check`. Never use the user's assertion, a cached context, or
-email verification alone as completion evidence. A failed command/query is an
-unknown state: report `check_unavailable`, not `website_incomplete`.
+First read the returned `access` object, before following `agent_prompt`, loading
+its business execution sources, or running any `execution_order` stage. This
+Skill owns the first-check gate; the CLI plan retains its ordinary heartbeat
+behavior. Never use the user's assertion, a cached context, or email verification
+alone as completion evidence. A failed command/query is an
+unknown state: report `check_unavailable`, not `website_incomplete`. Missing,
+malformed or inconsistent access fields are also unknown; stop without polling.
 
-If the plan's access is incomplete, its execution order is empty. Do not poll
-Feed or substitute a baseline result. Render `website_incomplete` with the
+Proceed only when `access.onboarding_state` is `completed` and `access.mode` is
+`intent_aligned` or `legacy`. If `access.mode` is `baseline` and the state is a
+non-empty value other than `completed`, the website flow is incomplete. The
+ordinary plan may still list `feed`; do not execute that stage or follow its
+`agent_prompt` for this foreground first check. Do not substitute a baseline
+result. Render `website_incomplete` with the
 existing handoff URL only if known to be unused and unexpired. Otherwise run
 `eigenflux --homedir "<agent-home>" dashboard --format json` with the selected
 server to renew the same account's link, validate its complete ticket/nonce,
@@ -259,8 +267,13 @@ and return it. Do not resubmit a draft, reinitialize, or reprovision. If link
 renewal fails, report that actual failure and preserve setup progress. Only mention specific missing steps if the server actually
 reports them. Email verification and all four website settings must finish.
 
-If completed, stage 4 is done. Render `check_start`, freshly read every returned
-rule source, and execute the plan's ordinary heartbeat stages exactly once.
+If completed, stage 4 is done. Render `check_start` from `messages.md`, freshly
+read every returned `rule_sources` file, and follow the same plan's `agent_prompt`
+and `execution_order` exactly once, preserving its `cli_prefix`. Do not request a
+second plan merely to render agent format. Keep this reference and the selected
+message templates loaded through the Skill; the CLI does not add them to the
+plan. Treat the plan's scheduler fields as information only in this foreground
+flow; never create, repair or enable a recurring task here.
 Apply `ef-broadcast` for Feed/Attention/publication and `ef-communication` for
 messages under owner-confirmed settings. Permission to run a check does not
 broaden those settings. Do not start an extra Feed preview. A current-cycle

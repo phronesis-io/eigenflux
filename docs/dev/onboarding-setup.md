@@ -14,6 +14,7 @@ behaviors, intentional changes, final owners and boundary checks.
 | references/host-setup.md | Separate choices, exact policy writes, restart/resume, one scheduler | Host setup or targeted scheduler repair |
 | references/prefill.md | Draft schema, provenance, limits and privacy | After the optional profile choice |
 | references/connection.md | Identity, provision, baseline, handoff, foreground check and action routing | Stage 4 preparation or stage 5 |
+| references/recurring-trigger.md | Compatibility pointer to host-setup.md; no duplicate rules | When a released CLI plan references this filename |
 
 Installation stays in `skills/install.md`; ongoing account/profile work stays in
 `ef-profile`. Runtime model reporting, Feed, Attention and communication retain
@@ -49,13 +50,18 @@ compaction merely because their output is absent from the summary.
 
 ## Manual first-check contract
 
-CLI 0.0.56 introduces `heartbeat plan --first-check --format agent` (also JSON).
-It adds `purpose: first_check` and reads fresh server access. Incomplete website
-setup returns an empty execution order, no baseline execution rules, and
-`wake_on_empty: false`. An unavailable/invalid context returns an error, not an
-incomplete or ready plan. Completed setup uses the existing full stage order
-and freshly loaded foreground references. Normal plans have `purpose: heartbeat`
-and keep their current baseline/completed behavior.
+The foreground Skill calls the existing `heartbeat plan --format json` and
+checks its fresh `access` object before following any execution instructions.
+Only `onboarding_state: completed` with `mode: intent_aligned` or `legacy`
+permits the first check. An explicit baseline/incomplete state returns the
+website prompt without executing the plan's Feed stage. A failed query or
+missing/inconsistent state is unknown, not evidence of incomplete setup.
+
+The CLI response is unchanged: ordinary baseline plans still contain Feed;
+completed plans still contain the full cycle. The Skill applies the stricter
+foreground gate and reads its own connection/message references. After the gate
+passes, use that same plan's prefix, rule sources, agent prompt and execution
+order; do not call the command again just to change output format.
 
 A plan does not execute a cycle. The foreground Agent runs the plan once, tracks
 receipts, then reports actual useful results or a successful empty result. It
@@ -64,9 +70,9 @@ the optional discovery/message-draft/broadcast-draft menu, once in the original
 task. Selecting a draft option is not authorization to send, publish or create a
 relationship. Later checks use normal Skills without repeating the menu.
 
-The native scheduler launcher/prompt never includes `--first-check`. Manual
-checks do not create, repair or enable recurring tasks. Their first-check purpose
-comes from the actual current user request, never an old message carried into
+The native scheduler launcher and prompt remain unchanged. Manual checks do
+not create, repair or enable recurring tasks. Their routing comes from the actual
+current user request, never a plan field or an old message carried into
 automatic work. Preserve the host's output schema even for empty results;
 notification suppression cannot replace required output with a silence token.
 
@@ -87,20 +93,23 @@ from `return_host` to `return_website`; do not show both variants.
 
 Run `go test ./...` in `cli/`, build the CLI into `build/`, validate changed Skill
 frontmatter and migrated references, and review the Chinese/English interaction
-branches. CLI tests cover non-default Home/server/account selection, fresh
-incomplete/completed transitions, query failures, missing foreground rules,
-normal-plan isolation and unchanged scheduler prompts. Existing identity,
-provisioning, recovery, draft/privacy and read-only baseline tests remain active.
+branches. Existing CLI tests cover live incomplete/completed access, query
+failures, non-default Homes, legacy modes and unchanged scheduler prompts.
+Skill checks cover the compatibility pointer and preserved workflow boundaries.
+Identity, provisioning, recovery, draft/privacy and read-only baseline tests
+remain active. Review the foreground stop/proceed behavior separately; a CLI
+plan test cannot prove that an Agent follows the Skill gate.
 
 Actual host application of Rules, process reload, model adherence and the future
 website component require live acceptance separately; offline tests do not
 prove them. No production account, Rules file or recurring job should be changed
 by test runs.
 
-The signed Skills bundle requires CLI 0.0.56. Publish the reviewed CLI and Skills
-through normal main-branch workflows, then verify the public installation path.
-Older CLIs retain compatible Skills until upgraded. Do not deploy a feature
-branch, local Skill overlay, temporary URL or pinned test revision.
+Keep the existing CLI release and minimum-version configuration unchanged
+(CLI 0.0.55, bundle minimum 0.0.54). This change needs only the normal Skills
+release, not a new CLI binary. Verify the public installation path after release.
+Do not deploy a feature branch, local Skill overlay, temporary URL or pinned
+test revision.
 The foreground empty-result exception is also mirrored into
 `static/feed_contract.md` through `scripts/common/sync-feed-contract.sh`; its
 server-delivered copy takes effect with the normal backend release/restart.

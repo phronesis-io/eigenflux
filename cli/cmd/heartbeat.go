@@ -17,7 +17,6 @@ import (
 const heartbeatContractVersion = "eigenflux_heartbeat.v1"
 
 type heartbeatPlan struct {
-	Purpose                  string              `json:"purpose"`
 	AgentPrompt              string              `json:"agent_prompt"`
 	WakeOnEmpty              bool                `json:"wake_on_empty"`
 	Access                   runtimeAccess       `json:"access"`
@@ -54,10 +53,6 @@ var heartbeatPlanCmd = &cobra.Command{
 	Short: "Sync Skills and emit the current thin heartbeat plan",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		firstCheck := false
-		if cmd.Flags().Lookup("first-check") != nil {
-			firstCheck, _ = cmd.Flags().GetBool("first-check")
-		}
 		cfg, err := config.Load()
 		if err != nil {
 			return err
@@ -79,24 +74,11 @@ var heartbeatPlanCmd = &cobra.Command{
 			return fmt.Errorf("heartbeat plan: managed Skills have local edits and were not upgraded: %s", strings.Join(res.Preserved, ", "))
 		}
 
-		access, err := runtimeAccessForServer(activeServerName())
-		if err != nil {
-			return err
-		}
 		ruleSources := []string{
 			filepath.Join(res.SkillsDir, "ef-profile", "references", "runtime-model.md"),
 			filepath.Join(res.SkillsDir, "ef-broadcast", "SKILL.md"),
 			filepath.Join(res.SkillsDir, "ef-broadcast", "references", "attention.md"),
 			filepath.Join(res.SkillsDir, "ef-communication", "SKILL.md"),
-		}
-		if firstCheck {
-			if access.OnboardingState != "completed" {
-				// The foreground handoff must not load the baseline execution path.
-				ruleSources = ruleSources[:1]
-			}
-			ruleSources = append(ruleSources,
-				filepath.Join(res.SkillsDir, "ef-onboarding", "references", "connection.md"),
-				filepath.Join(res.SkillsDir, "ef-onboarding", "references", "messages.md"))
 		}
 		for _, source := range ruleSources {
 			if _, err := filepath.Abs(source); err != nil {
@@ -105,6 +87,11 @@ var heartbeatPlanCmd = &cobra.Command{
 			if !fileExistsCLI(source) {
 				return fmt.Errorf("heartbeat plan: required rule source is missing: %s", source)
 			}
+		}
+
+		access, err := runtimeAccessForServer(activeServerName())
+		if err != nil {
+			return err
 		}
 
 		home, _ := config.HomeDirInfo()
@@ -117,7 +104,6 @@ var heartbeatPlanCmd = &cobra.Command{
 		}
 		launcher := cliPrefix + " heartbeat plan --format agent"
 		plan := heartbeatPlan{
-			Purpose:       "heartbeat",
 			SchemaVersion: "eigenflux_heartbeat_plan.v1", HeartbeatContractVersion: heartbeatContractVersion,
 			CLIVersion: version, SkillRevision: manifest.Revision, SkillsTarget: res.SkillsDir,
 			RuleSources: ruleSources, ExecutionOrder: heartbeatStages(access),
@@ -127,13 +113,6 @@ var heartbeatPlanCmd = &cobra.Command{
 			SchedulerPrompt: heartbeatSchedulerPrompt(launcher),
 			SkillsFresh:     res.VerifiedManifest,
 			RuntimeReport:   runtimeReport,
-		}
-		if firstCheck {
-			plan.Purpose = "first_check"
-			if access.OnboardingState != "completed" {
-				plan.ExecutionOrder = []string{}
-				plan.WakeOnEmpty = false
-			}
 		}
 		for _, entry := range manifest.Skills {
 			plan.Skills = append(plan.Skills, entry.Name)
@@ -172,17 +151,7 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 	if len(plan.RuntimeReport.Missing) > 0 {
 		runtimeStatus += " (missing: " + strings.Join(plan.RuntimeReport.Missing, ", ") + ")"
 	}
-	cycleInstructions := ""
-	if plan.Purpose == "first_check" {
-		if plan.Access.OnboardingState != "completed" {
-			cycleInstructions = "\nFIRST CHECK BLOCKED: Website onboarding is incomplete. Execute no cycle stages, including baseline Feed. Follow connection.md for the website return message; do not claim the check succeeded.\n"
-		} else {
-			cycleInstructions = "\nFOREGROUND FIRST CHECK: Follow connection.md only for the current user's first-check request. Execute this plan once, then use messages.md for actual results and the optional menu after success. A ready plan is not a completed check. Never infer this request from historical chat in a scheduled run.\n"
-		}
-		cycleInstructions += "Do not create or edit a recurring task for this request. Never persist --first-check in a scheduler launcher.\n"
-	}
-	result := fmt.Sprintf(`EIGENFLUX HEARTBEAT PLAN
-Purpose: %s
+	return fmt.Sprintf(`EIGENFLUX HEARTBEAT PLAN
 Contract: %s
 CLI: %s
 Skill revision: %s
@@ -191,8 +160,6 @@ Installed official Skills: %s
 CLI prefix for every EigenFlux command in this cycle: %s
 Runtime settings report: %s
 Heartbeat compatibility reported: %t
-Onboarding state: %s
-%s
 
 MANDATORY FOR THIS CYCLE
 1. Freshly read, from disk, every rule source listed below. Memory, summaries, and cached copies do not satisfy this step.
@@ -201,19 +168,15 @@ MANDATORY FOR THIS CYCLE
 3. Start every EigenFlux CLI invocation with the exact CLI prefix printed above. Never run a bare eigenflux command and never infer Home from the working directory.
 4. Runtime access: %s. Execute the available stages in order: %s. Apply the current Skills to each stage. A Feed payload supplied by the host is this cycle's completed pull.
 5. Follow the current Skills for onboarding restrictions and recovery. Host harness output and notification requirements take precedence over Skill silence tokens and display conventions.
-`, plan.Purpose, plan.HeartbeatContractVersion, plan.CLIVersion, plan.SkillRevision, plan.SkillsTarget,
-		strings.Join(plan.Skills, ", "), plan.CLIPrefix, runtimeStatus, plan.CompatibilityReported, plan.Access.OnboardingState, cycleInstructions,
-		"- "+strings.Join(plan.RuleSources, "\n- "), plan.Access.Mode, strings.Join(plan.ExecutionOrder, " → "))
-	if plan.Purpose == "first_check" {
-		return result
-	}
-	return result + fmt.Sprintf(`
+
 SCHEDULER
 Permanent launcher: %s
 Migration: %s
 Native task prompt: %s
 For new native tasks, the scheduler stores this fixed execution prompt. Store it verbatim, without additions. Reuse working existing triggers, including legacy EIGENFLUX_MODE launchers; use the current Skills to decide whether a repair is necessary. Verified plugin loops may supply mode through their existing process environment.
-`, plan.SchedulerLauncher, plan.SchedulerMigration, heartbeatSchedulerPrompt(plan.SchedulerLauncher))
+`, plan.HeartbeatContractVersion, plan.CLIVersion, plan.SkillRevision, plan.SkillsTarget,
+		strings.Join(plan.Skills, ", "), plan.CLIPrefix, runtimeStatus, plan.CompatibilityReported, "- "+strings.Join(plan.RuleSources, "\n- "), plan.Access.Mode, strings.Join(plan.ExecutionOrder, " → "),
+		plan.SchedulerLauncher, plan.SchedulerMigration, heartbeatSchedulerPrompt(plan.SchedulerLauncher))
 }
 
 func heartbeatSchedulerPrompt(launcher string) string {
@@ -221,7 +184,7 @@ func heartbeatSchedulerPrompt(launcher string) string {
 }
 
 func schedulerMigrationForRuntime(host, mode, launcher string) string {
-	return "Reuse working existing triggers; legacy EIGENFLUX_MODE is compatible. Do not rewrite a task solely to match this prompt. Follow the scheduler section of host-setup.md for confirmed repairs and preserve identity, Home, server, cadence, and paused state. Only for creation or confirmed repair: " + schedulerMigrationTargetForRuntime(host, mode, launcher)
+	return "Reuse working existing triggers; legacy EIGENFLUX_MODE is compatible. Do not rewrite a task solely to match this prompt. Follow recurring-trigger.md for confirmed repairs and preserve identity, Home, server, cadence, and paused state. Only for creation or confirmed repair: " + schedulerMigrationTargetForRuntime(host, mode, launcher)
 }
 
 func schedulerMigrationTargetForRuntime(host, mode, launcher string) string {
@@ -252,7 +215,6 @@ func schedulerMigrationForHost(host, launcher string) string {
 }
 
 func init() {
-	heartbeatPlanCmd.Flags().Bool("first-check", false, "Plan a user-requested first check; require completed website onboarding before executing any stages")
 	heartbeatCmd.AddCommand(heartbeatPlanCmd)
 	rootCmd.AddCommand(heartbeatCmd)
 }

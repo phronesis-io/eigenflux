@@ -106,7 +106,7 @@ func TestOnboardingSkillContract(t *testing.T) {
 			"references/messages.md", "references/host-setup.md", "references/prefill.md", "references/connection.md",
 			"Treat\nincomplete V2 setup as existing-account maintenance", "unless the user explicitly",
 			"https://cdn.eigenflux.ai/skills/latest/install.md#verify-and-continue",
-			"CLI 0.0.56+", "current-host\n   installation verification", "bare-CLI setup",
+			"CLI 0.0.54+", "current-host\n   installation verification", "bare-CLI setup",
 			"No answer grants no permission", "Generic continuation grants no missing consent",
 			"natural-language", "host-native\nexecution approvals remain separate",
 			"never derive identity from cwd", "not historical onboarding text in a scheduled",
@@ -128,7 +128,7 @@ func TestOnboardingSkillContract(t *testing.T) {
 			"`schema_version: feed.v2`", "`personalization.mode: baseline`",
 			"Do not load `ef-broadcast` as a whole", "does\nnot authorize or perform Feed feedback",
 			"zero qualified items skips the upload and is a valid", "at most\n10 for Attention Prefill",
-			"heartbeat plan --first-check --format agent", "A failed command/query is an\nunknown state",
+			"heartbeat plan --format json", "A failed command/query is an\nunknown state",
 			"plan itself does\nnot execute the cycle", "Never repeat completed mutations",
 			"Never show this menu in automatic checks", "menu is not a sixth stage",
 		},
@@ -261,7 +261,7 @@ func TestOnboardingAuthorizationAndActivationBoundaries(t *testing.T) {
 			t.Errorf("missing host boundary %q", boundary)
 		}
 	}
-	for _, obsolete := range []string{"consent.md", "execution-permission.md", "activation.md", "recurring-trigger.md", "console-handoff.md"} {
+	for _, obsolete := range []string{"consent.md", "execution-permission.md", "activation.md", "console-handoff.md"} {
 		if _, err := os.Stat(filepath.Join(root, "skills/ef-onboarding/references", obsolete)); !os.IsNotExist(err) {
 			t.Errorf("obsolete reference remains: %s", obsolete)
 		}
@@ -382,7 +382,7 @@ func TestExistingSchedulerCompatibilityContract(t *testing.T) {
 	}
 }
 
-func TestFirstCheckOutputContractAndReleaseGate(t *testing.T) {
+func TestFirstCheckOutputContract(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -394,14 +394,36 @@ func TestFirstCheckOutputContractAndReleaseGate(t *testing.T) {
 	}
 	feed := readRepoFile(t, root, "skills/ef-broadcast/references/feed.md")
 	for name, text := range map[string]string{"contract": contract, "feed": feed} {
-		for _, boundary := range []string{"purpose: first_check", "successful-empty confirmation", "only after the whole foreground check succeeds", "Scheduled runs never inherit this exception"} {
+		for _, boundary := range []string{"current human-requested first check routed through `ef-onboarding`", "successful-empty confirmation", "only after the whole foreground check succeeds", "Scheduled runs never inherit this exception"} {
 			if !strings.Contains(text, boundary) {
 				t.Errorf("%s missing first-check output boundary %q", name, boundary)
 			}
 		}
 	}
-	cfg := readRepoFile(t, root, "cli/.cli.config")
-	if !strings.Contains(cfg, "SKILLS_MIN_CLI_VERSION=0.0.56") || !strings.Contains(cfg, "CLI_VERSION=0.0.56") {
-		t.Fatal("new Skills require the first-check CLI flag; gate old clients until the CLI is released")
+}
+
+func TestReleasedCLIOnboardingSchedulerReferenceResolves(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	migration := schedulerMigrationForRuntime("codex", "skill", "eigenflux --homedir '/tmp/nondefault home' heartbeat plan --format agent")
+	// Follow the filename actually emitted by the unchanged CLI, rather than
+	// assuming that deployed versions know the reorganized Skill layout.
+	match := regexp.MustCompile(`Follow ([a-z-]+\.md)`).FindStringSubmatch(migration)
+	if len(match) != 2 {
+		t.Fatalf("no scheduler reference in %q", migration)
+	}
+	reference := readRepoFile(t, root, "skills/ef-onboarding/references/"+match[1])
+	link := regexp.MustCompile(`\]\(([^)#]+)(?:#[^)]*)?\)`).FindStringSubmatch(reference)
+	if len(link) != 2 {
+		t.Fatal("released CLI reference has no canonical destination")
+	}
+	canonical := readRepoFile(t, root, "skills/ef-onboarding/references/"+link[1])
+	if !strings.Contains(canonical, heartbeatSchedulerPrompt("<launcher>")) {
+		t.Fatal("compatibility pointer does not reach the scheduler prompt owner")
+	}
+	if strings.Contains(reference, "```") {
+		t.Fatal("compatibility entry duplicated a procedure instead of forwarding")
 	}
 }
