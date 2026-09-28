@@ -15,9 +15,16 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"eigenflux_server/pkg/validator"
 )
+
+const onlineEmbeddingTimeout = 2 * time.Second
+
+// Intent fields each allow 1,000 Unicode runes, plus their joining space.
+const agentContextMaxRunes = 2001
 
 type Embedder interface {
 	GetEmbedding(context.Context, string) ([]float32, error)
@@ -216,8 +223,13 @@ func (cc *Compiler) embed(ctx context.Context, c *Context) error {
 		c.SpecHash = hashContext(*c)
 		return nil
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	work, cancel := context.WithTimeout(ctx, onlineEmbeddingTimeout)
+	defer cancel()
 	if c.CapturedNeed != nil && c.CapturedNeed.InputID > 0 && cc.NeedVectors != nil {
-		v, err := cc.NeedVectors.Lookup(ctx, c.CapturedNeed.InputID, c.lexicalQuery(), c.QueryAnalysis.Version)
+		v, err := cc.NeedVectors.Lookup(work, c.CapturedNeed.InputID, c.lexicalQuery(), c.QueryAnalysis.Version)
 		if errors.Is(err, needembedding.ErrPending) {
 			c.Warnings = append(c.Warnings, "embedding_pending")
 		} else if err != nil || len(v) == 0 {
@@ -228,7 +240,7 @@ func (cc *Compiler) embed(ctx context.Context, c *Context) error {
 	} else if cc.Embedder == nil {
 		c.Warnings = append(c.Warnings, "embedding_unavailable")
 	} else {
-		v, err := cc.Embedder.GetEmbedding(ctx, c.lexicalQuery())
+		v, err := cc.Embedder.GetEmbedding(work, c.lexicalQuery())
 		if err != nil || len(v) == 0 {
 			c.Warnings = append(c.Warnings, "embedding_unavailable")
 		} else {
@@ -240,6 +252,9 @@ func (cc *Compiler) embed(ctx context.Context, c *Context) error {
 			c.Vector = v
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	c.SpecHash = hashContext(*c)
 	return nil
 }
@@ -247,7 +262,15 @@ func (cc *Compiler) Query(ctx context.Context, owner, id, now int64, r Request, 
 	if origin != "query" && origin != "agent_context" && origin != "baseline" {
 		return Context{}, Invalid("input_origin", "unsupported")
 	}
-	if origin != "baseline" && !textOK(r.Query, 2000) {
+	truncated := false
+	if origin == "agent_context" {
+		r.Query = strings.TrimSpace(r.Query)
+		if utf8.RuneCountInString(r.Query) > agentContextMaxRunes {
+			r.Query = string([]rune(r.Query)[:agentContextMaxRunes])
+			truncated = true
+		}
+	}
+	if origin == "agent_context" && r.Query == "" || origin == "query" && !textOK(r.Query, 2000) {
 		return Context{}, Invalid("query", "invalid_length")
 	}
 	plan, err := cc.compiled(ctx, owner, now, struct {
@@ -269,6 +292,9 @@ func (cc *Compiler) Query(ctx context.Context, owner, id, now int64, r Request, 
 	c, err := plan.execution(owner, id, now, cc.EmbeddingVersion)
 	if err != nil {
 		return c, err
+	}
+	if truncated {
+		c.Warnings = append(c.Warnings, "context_query_truncated")
 	}
 	if origin == "query" && len(c.Kinds) == 1 && c.Kinds[0] == Agent && (r.agentExact || decimalAgentQuery(c.Query)) {
 		c.SpecHash = hashContext(c)

@@ -26,9 +26,13 @@ the external boundaries.
 | [discovery/context.go](discovery/context.go), [input_cache.go](discovery/input_cache.go) | Cache reusable retrieval values and input selection; bind request IDs/clocks and check current deadlines. |
 | [pkg/cache/discovery.go](../../pkg/cache/discovery.go) | Redis read-through, singleflight, bounded input freshness and generation invalidation shared with source writers. |
 | [discovery/store.go](discovery/store.go) | Expiry cleanup for historical context rows; new executions use asynchronous replay samples. |
-| [discovery/source.go](discovery/source.go), [source_query.go](discovery/source_query.go) | ES retrieval, broadcast DB hydration, Agent/commission forward reads, and current account/relationship checks. |
-| [discovery/index/](discovery/index/) | Source language/provider schema, normalization and versioned Redis forward storage. This leaf package is also used by index writers, without importing the execution engine. |
+| [discovery/source.go](discovery/source.go), [source_query.go](discovery/source_query.go) | ES retrieval, registered forward reads, broadcast DB repair, and current account/relationship checks. |
+| [discovery/index/](discovery/index/) | Source language/provider schema and normalization. This leaf package is also used by index writers, without importing the execution engine. |
 | [discovery/transport/](discovery/transport/) | Shared RPC JSON response encoding and decoding. |
+
+See [pkg/featureindex](../../pkg/featureindex) for registered fields, shared Redis
+reads/writes and bounded periodic source loaders; [feature contracts](../../docs/dev/feature_index.md)
+describe freshness and compatibility.
 
 ## Existing feed pipeline and policies
 
@@ -45,25 +49,30 @@ the external boundaries.
 `legacy` identifies the existing orchestration; it is not an independently
 removable subsystem because discovery still reuses its policy adapter.
 
+For the complete input, cache, retrieval, delivery and feedback map, see the
+[discovery workflow and code review index](../../docs/design/need-search-mvp/flow-and-code-index.md).
+
 ```mermaid
 flowchart TD
-    RPC[Sort RPC: handler.go] --> D[discovery/service.go + engine.go]
-    RPC --> L[legacy/pipeline.go + commission.go]
-    D --> N[pkg/need/reader.go: current_need_inputs]
-    N --> C[discovery/need.go: query and filters]
-    Q[Explicit query / Agent context] --> PQuery[discovery/queryprocessing]
-    C --> PQuery
-    PQuery --> Compile[discovery/compiler.go: retrieval preparation]
-    Compile --> S
-    D --> S[discovery/store.go + source.go]
-    D --> P[legacy/discovery_policy.go]
-    L --> R[dal / ranker / lrranker / rerank]
+    F["Feed delivery: pages and response cache"] --> RPC["Sort RPC: handler.go"]
+    RPC --> D["discovery/service.go + engine.go"]
+    RPC --> L["legacy/pipeline.go + commission.go"]
+    D --> Inputs["input_cache.go: current Needs and owner context"]
+    Inputs --> C["context.go + compiler.go + need.go: reusable compilation"]
+    C --> Q["queryprocessing: process on compilation miss"]
+    C --> V["Per-execution binding and eligible query vectors"]
+    V --> S["source.go + source_query.go: recall and hydration"]
+    S --> Score["filter.go + score.go"]
+    Score --> P["legacy/discovery_policy.go"]
+    P --> M["score.go: merge and type blocks"]
+    M --> F
+    L --> R["dal / ranker / lrranker / rerank"]
     P --> R
-    D --> I[discovery/index]
-    W[Index writers] --> I
-    F[Feed: rpc/feed/discovery.go] --> RPC
-    F --> Delivery[rpc/feed/delivery: pages, response cache, background recording]
+    W["Index writers"] --> I["pkg/featureindex: registered forward views"]
+    I -.-> S
+    F -.-> Record["delivery/record.go: independent background writes"]
 ```
+
 
 Tests stay beside the package they exercise. Service integration suites remain
 under `tests/`; see [testing instructions](../../docs/dev/testing.md).

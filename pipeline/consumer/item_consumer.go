@@ -15,6 +15,7 @@ import (
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/dedup"
+	"eigenflux_server/pkg/featureindex"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/mq"
@@ -57,29 +58,31 @@ func homepageCountryFromPrivateCard(raw string) (string, error) {
 // handleMessage) are kept on the consumer struct so miniredis-based tests can
 // override them between NewItemConsumer and Start, mirroring ItemStatsConsumer.
 type ItemConsumer struct {
-	llmClient        *llm.Client
-	safetyClient     *llm.Client
-	embeddingClient  *embedding.Client
-	qualityThreshold float64
-	consumerName     string
-	workers          int
-	maxRetries       int64
-	retryMinIdle     time.Duration
-	readBlock        time.Duration
-	handleMessage    MessageHandler
+	enableFeatureIndex bool
+	llmClient          *llm.Client
+	safetyClient       *llm.Client
+	embeddingClient    *embedding.Client
+	qualityThreshold   float64
+	consumerName       string
+	workers            int
+	maxRetries         int64
+	retryMinIdle       time.Duration
+	readBlock          time.Duration
+	handleMessage      MessageHandler
 }
 
 func NewItemConsumer(cfg *config.Config, prompts *llm.PromptRegistry) *ItemConsumer {
 	c := &ItemConsumer{
-		llmClient:        llm.NewClient(cfg, prompts),
-		safetyClient:     llm.NewSafetyClient(cfg, prompts),
-		embeddingClient:  embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions),
-		qualityThreshold: cfg.QualityThreshold,
-		consumerName:     itemConsumerName,
-		maxRetries:       itemMaxRetryCount,
-		retryMinIdle:     itemRetryMinIdle,
-		readBlock:        itemReadBlock,
-		workers:          cfg.ItemConsumerWorkers,
+		enableFeatureIndex: cfg.EnableNeedSearch,
+		llmClient:          llm.NewClient(cfg, prompts),
+		safetyClient:       llm.NewSafetyClient(cfg, prompts),
+		embeddingClient:    embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions),
+		qualityThreshold:   cfg.QualityThreshold,
+		consumerName:       itemConsumerName,
+		maxRetries:         itemMaxRetryCount,
+		retryMinIdle:       itemRetryMinIdle,
+		readBlock:          itemReadBlock,
+		workers:            cfg.ItemConsumerWorkers,
 	}
 	c.handleMessage = c.handle
 	return c
@@ -398,6 +401,13 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 		}
 		if err = db.DB.WithContext(ctx).Exec("UPDATE processed_items SET retrieval_slots=?::jsonb WHERE item_id=?", string(slots), itemID).Error; err != nil {
 			return HandleRetry
+		}
+	}
+	if c.enableFeatureIndex {
+		if _, err := (featureindex.BroadcastIndex{DB: db.DB, Redis: mq.RDB}).Load(ctx, []int64{itemID}); err != nil {
+			// The committed item must not re-enter LLM/dedup processing. The
+			// registered source loader and read-through repair retry this projection.
+			logger.Default().Error("broadcast feature materialization failed", "itemID", itemID, "err", err)
 		}
 	}
 	if err := sortDal.IndexItem(ctx, esItem); err != nil {

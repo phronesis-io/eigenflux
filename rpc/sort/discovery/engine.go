@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"eigenflux_server/pkg/featureindex"
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/need"
 	"encoding/json"
@@ -184,6 +185,7 @@ func (e *Engine) contexts(ctx context.Context, owner int64, r Request, mode Mode
 }
 func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode, now int64) (x Execution, resultErr error) {
 	started := time.Now()
+	ctx = featureindex.WithRequestCache(ctx)
 	defer func() {
 		status := x.Status
 		if resultErr != nil {
@@ -385,6 +387,11 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				d := res.docs[pos]
 				key := d.Ref.Key()
 				if prior, ok := merged[key]; ok {
+					if prior.Ref.Type == Broadcast && prior.Version == "" && d.Version != "" {
+						channels := prior.Channels
+						prior = d
+						prior.Channels = channels
+					}
 					prior.Channels = appendUnique(prior.Channels, res.channel)
 					if d.Lexical > prior.Lexical {
 						prior.Lexical = d.Lexical
@@ -428,16 +435,21 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			if !ok {
 				return x, Failure(503, "unexpected_hydrated_source")
 			}
-			if prior.Version != d.Version {
+			if prior.Version != d.Version && !(d.Ref.Type == Broadcast && prior.Version == "") {
 				continue
+			}
+			// Recall text is tied to the version just validated. Pool-only rows
+			// obtain their text from the bounded DB presentation read instead.
+			if prior.Version != "" {
+				d.Text = prior.Text
+				if d.Ref.Type != Agent {
+					d.Preview = prior.Preview
+				}
 			}
 			d.Lexical = prior.Lexical
 			d.DenseScore = prior.DenseScore
 			d.Channels = prior.Channels
 			d.ExactMatch = prior.ExactMatch
-			if d.Ref.Type == Broadcast {
-				d.Vector = prior.Vector
-			}
 			if seen[d.Ref.Key()] {
 				exhausted = true
 				metrics.DiscoveryRejected.WithLabelValues(string(d.Ref.Type), "seen").Inc()
@@ -447,6 +459,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				metrics.DiscoveryRejected.WithLabelValues(string(d.Ref.Type), reason).Inc()
 				continue
 			}
+			d.Text = ""
 			score := ScoreRules(c, d, e.Rules[d.Ref.Type][mode], now)
 			if !score.Eligible {
 				below = true

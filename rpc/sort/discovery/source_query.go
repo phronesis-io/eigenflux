@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"eigenflux_server/pkg/agentidentity"
-	"eigenflux_server/pkg/agentindex"
-	"eigenflux_server/pkg/commissionindex"
+	"eigenflux_server/pkg/featureindex"
+
 	"eigenflux_server/pkg/es"
 	sortdal "eigenflux_server/rpc/sort/dal"
 	"encoding/json"
@@ -61,7 +61,7 @@ func (s *Source) exactAgents(ctx context.Context, c Context, limit int) ([]Docum
 			}
 		}
 	}
-	rows, err := agentindex.Load(ctx, s.DB, ids)
+	rows, err := featureindex.LoadAgents(ctx, s.DB, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -132,11 +132,21 @@ func Query(c Context, k Kind, channel string, limit int) (map[string]any, error)
 	}
 	boolq := map[string]any{"filter": filters, "must_not": not}
 	body := map[string]any{"size": limit, "track_total_hits": false}
+	if k == Broadcast {
+		// Compute the source fingerprint without transferring embeddings or
+		// unrelated legacy fields. Ranking facts are loaded from the forward view.
+		body["_source"] = []string{"id", "author_agent_id", "content", "summary", "lang", "retrieval_slots"}
+	}
 	if k == Agent {
 		body["_source"] = []string{"agent_id", "version", "projection_version"}
 	}
 	if k == Commission {
-		body["_source"] = []string{"commission_id", "catalogue_version"}
+		body["_source"] = []string{"commission_id", "catalogue_version", "title"}
+	}
+	// Text is retrieval evidence for the language-aware exclusion evaluator,
+	// not a stored ranking feature. Presentation reuses the recalled title.
+	if k != Broadcast && len(f.ExcludeTerms) > 0 {
+		body["_source"] = append(body["_source"].([]string), "search_text")
 	}
 	switch channel {
 	case "lexical":
@@ -225,13 +235,13 @@ func (s *Source) search(ctx context.Context, c Context, k Kind, channel string, 
 			}
 			d = broadcast(v)
 		case Commission:
-			var v commissionindex.Document
+			var v featureindex.CommissionDocument
 			if err = json.Unmarshal(h.Source, &v); err != nil {
 				return nil, err
 			}
 			d = commission(v)
 		case Agent:
-			var v agentindex.Document
+			var v featureindex.AgentDocument
 			if err = json.Unmarshal(h.Source, &v); err != nil {
 				return nil, err
 			}

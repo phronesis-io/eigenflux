@@ -1,4 +1,4 @@
-package agentindex
+package featureindex
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func Ensure(ctx context.Context, index string, dims int) error {
+func EnsureAgentSearchIndex(ctx context.Context, index string, dims int) error {
 	if index == "" || dims < 1 {
 		return fmt.Errorf("invalid Agent index configuration")
 	}
@@ -57,7 +57,7 @@ func Ensure(ctx context.Context, index string, dims int) error {
 	return nil
 }
 
-type Projector struct {
+type AgentProjector struct {
 	Redis    *redis.Client
 	DB       *gorm.DB
 	Index    string
@@ -66,18 +66,18 @@ type Projector struct {
 	}
 }
 
-func (p Projector) Project(ctx context.Context, id int64) error {
+func (p AgentProjector) Project(ctx context.Context, id int64) error {
 	// Allocate before the read: a concurrent later Card rebuild receives a larger
 	// fence, so a deletion tombstone cannot overwrite a newer recreated Card.
 	var fence int64
 	if err := p.DB.WithContext(ctx).Raw("SELECT nextval('agent_card_rebuild_fence_seq')").Scan(&fence).Error; err != nil {
 		return err
 	}
-	rows, err := Load(ctx, p.DB, []int64{id})
+	rows, err := LoadAgents(ctx, p.DB, []int64{id})
 	if err != nil {
 		return err
 	}
-	d := Document{AgentID: id, Version: fence, ProjectionVersion: fence, Active: false}
+	d := AgentDocument{AgentID: id, Version: fence, ProjectionVersion: fence, Active: false}
 	if len(rows) > 0 {
 		d = rows[0]
 		if d.ProjectionVersion <= 0 {
@@ -93,7 +93,7 @@ func (p Projector) Project(ctx context.Context, id int64) error {
 			}
 		}
 	}
-	if err := WriteForward(ctx, p.Redis, p.Index, d); err != nil {
+	if err := (AgentIndex{Redis: p.Redis, IndexName: p.Index}).Write(ctx, d); err != nil {
 		return err
 	}
 	b, err := json.Marshal(d.SearchFields())
@@ -112,4 +112,12 @@ func (p Projector) Project(ctx context.Context, id int64) error {
 		return fmt.Errorf("Agent projection failed: %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// SearchFields excludes activity/freshness features. Embedding remains in ES
+// for kNN; Redis stores scalar ranking and hydration evidence only.
+func (d AgentDocument) SearchFields() map[string]any {
+	return map[string]any{"agent_id": d.AgentID, "version": d.Version, "projection_version": d.ProjectionVersion,
+		"active": d.Active, "search_text": d.SearchText, "display_name": d.DisplayName,
+		"retrieval_slots": d.Slots, "embedding": d.Embedding}
 }

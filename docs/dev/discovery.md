@@ -10,6 +10,8 @@ its existing implementation. There is no per-user opt-in or new feedback type.
 The [PRD](../design/need-search-mvp/prd.md), [design](../design/need-search-mvp/design.md)
 and [Owner decisions](../design/need-search-mvp/questions.md) define the product.
 This document describes the executable contracts and operation of this implementation.
+The [workflow and code review index](../design/need-search-mvp/flow-and-code-index.md)
+maps the complete serving path to implementation files.
 
 ## Entry points
 
@@ -98,12 +100,21 @@ strict decoding rather than silently ignored. The metadata lookup route and
 CLI command are absent. Historical input/snapshot JSON remains unchanged.
 
 `query_rules_v2` analysis is frozen in samples and participates in the versioned
-Need vector cache. Query/context compilation uses `context_rules_v5`; Need compilation uses
+Need vector cache. Query/context compilation uses `context_rules_v6`; Need compilation uses
 `need_input_context_v5`.
 Stored Needs read asynchronous vectors. Explicit queries and unsaved inline
-Needs may call embedding on demand. Agent-context fallback is lexical-only:
+Needs may call embedding on demand. Online vector lookup and model calls have a
+fixed 2-second timeout; an earlier parent deadline or cancellation still applies.
+An optional-stage timeout retains lexical retrieval; caller cancellation still
+propagates. Asynchronous vector production keeps its separate worker budget.
+Agent-context fallback is lexical-only:
 it neither calls a model nor schedules vector work, and carries no artificial
 embedding failure warning. Empty broadcast baseline uses existing recall lists.
+
+Internal Intent clauses accept up to 2,001 Unicode runes (two 1,000-rune fields
+plus their separator), independently of the explicit query weighted-length limit.
+Oversized internal clauses are shortened at a rune boundary and marked
+`context_query_truncated`; stored inputs remain unchanged.
 
 Public `match.match_types` contains deduplicated `exact`, `keyword`, `semantic`
 and `recall` labels. These describe retrieval paths, not confidence or guaranteed
@@ -230,13 +241,13 @@ cache state.
 - `rpc/sort/discovery/need.go`: compile those inputs into reusable retrieval values.
 - `rpc/sort/discovery/context.go`, `input_cache.go`: reusable values, per-request execution binding and cached input reads.
 - `pkg/cache/discovery.go`: shared cache/generation protocol and source-writer invalidation.
-- `rpc/sort/discovery/source.go` and `source_query.go`: existing broadcast/commission indices and public Agent index, with broadcast DB hydration and Agent/commission Redis forward projections.
+- `rpc/sort/discovery/source.go` and `source_query.go`: existing broadcast/commission indices and public Agent index, with registered Redis forward projections and bounded source-state checks.
 - `rpc/sort/discovery/index`: source evidence schema, normalization and forward storage shared with index writers.
 - `rpc/sort/discovery/transport`: shared RPC JSON response codec.
 - `rpc/sort/legacy/discovery_policy.go`: existing freshness, boost, injection and source-limit policies, after eligibility.
 - `rpc/feed/delivery`: response/page caching and independent best-effort exposure recording.
-- `pkg/agentindex`: public Card search/forward projections with version fencing and tombstones.
-- `pkg/commissionindex`: catalogue search projection and independent catalogue/statistics forward components.
+- `pkg/featureindex/agent.go`: public Card search/forward projections with version fencing and tombstones.
+- `pkg/featureindex/commission.go`: catalogue search projection and independent catalogue/statistics forward components.
 - `rpc/sort/discovery/index/forward.go`: bounded Redis batch reads and monotonic component writes shared by projection owners.
 
 Successful discovery requests and Need writes retain the existing runtime/activity
@@ -276,10 +287,13 @@ public search text/name, active state, slots and embedding; activity/edit times
 are not in ES. Commission ES keeps weighted searchable text, active state,
 seller ID, slots, price/currency/promised duration and embedding. Fulfillment,
 ratings, counts, statistics revision and update time are not in ES. Price and source text serve both retrieval and eligibility checks and are
-stored in both. Candidate embeddings exist only in ES. Broadcast storage and scoring reads are unchanged.
+stored in both. Candidate embeddings exist only in ES. All three kinds read scalar features through the
+[registered feature module](feature_index.md); existing ES fields are unchanged.
 
-ES responses return only candidate IDs, source revisions, `_index` and channel
-scores. Sort then batches Redis forward reads for the deduplicated candidates:
+Agent/commission ES responses return candidate IDs, source revisions, `_index`
+and channel scores. Broadcast recall retains only existing text/filter evidence
+for its source fingerprint and channel scores; embeddings and scalar ranking
+fields are not transferred. Hot/new lists return IDs without an ES feature fetch. Sort then batches Redis forward reads for the deduplicated candidates:
 
 | Key | Contents and revision |
 |---|---|
@@ -287,12 +301,17 @@ scores. Sort then batches Redis forward reads for the deduplicated candidates:
 | `discovery:forward:commission:<concrete-index>:<id>:catalogue` | Catalogue projection, source evidence, budget/duration evidence, update time; catalogue revision |
 | `discovery:forward:commission:<concrete-index>:<id>:statistics` | Completion/rating/count/delivery features; independent statistics revision |
 
-These are reconstructible projections without TTL, not cache-aside entries.
+The Agent/commission views above have seven-day physical retention.
+Broadcast uses `discovery:forward:broadcast:v1:<id>:item`, with 48-hour physical
+retention and bounded DB repair on misses. Bundled views use event/periodic
+refresh without age-based logical expiry. Its status/expiry is checked in
+a small authoritative DB batch, even on warm hits. See [feature_index.md](feature_index.md)
+for hot-reloaded YAML field registration, source fencing and periodic loading.
 Namespaces use concrete ES generations so staged backfills cannot change the
 currently served generation. Missing components and revision mismatches skip the
 candidate and increment `discovery_rejected_total` with `forward_missing` or
 `forward_version`; Redis errors and corrupt components fail the request. No
-online DB/RPC fallback fills missing ranking features with defaults. Existing
+online DB/RPC fallback fills missing Agent/commission ranking features with defaults. Existing
 account/block/contact checks and current public display names still come from
 bounded DB queries. Exact Agent identity lookup retains its DB-only path because
 it does not rank by activity or semantic features.
@@ -332,7 +351,7 @@ impression without querying Sort or checking mutable Need/source state again;
 changed payloads return 409. Requests without a key do not create a response
 cache. Cache failures remain errors when the caller requested idempotency.
 
-Needs and rules use the execution snapshot. Sort hydrates broadcast source facts and Agent/commission forward projections
+Needs and rules use the execution snapshot. Sort hydrates registered forward projections and checks current source state
 once per context before filtering and scoring; it performs no extra
 post-ranking hydration or `Revalidate` RPC. Later Need/source changes affect new
 requests. Assembled response caches may remain stale for their TTL.
@@ -369,7 +388,10 @@ candidate, rule evidence and policy result. `item_score` is the final policy
 score. The existing unique `(impression_id, position)` key makes consumption
 idempotent. No reject/empty result creates a row or a negative label. Internal
 Feed readers restrict to broadcast Feed/recommendation samples; legacy
-feature-dependent rescue reads restrict to the legacy generation.
+feature-dependent rescue reads restrict to the legacy generation. The legacy
+Feed rescue cron is disabled while `ENABLE_NEED_SEARCH=true`: its domain-based
+measurement cannot interpret new delivery samples. It resumes legacy behavior
+when the routing flag is off.
 
 CLI 0.0.55 adds `search`, `recommend`, and Need capture
 commands via the existing `need input` group. The ef-broadcast Skill is 0.14.23. Broadcast feedback retains existing
@@ -553,15 +575,23 @@ wiring constructs the same cache profile.
 ### Candidate vector storage and ranking
 
 Agent and Commission embeddings exist only in their ES search documents. Redis
-`card`/`catalogue` forward components omit `embedding`; scalar ranking features,
-source text, language/provider evidence and versions remain available there.
+All forward components omit vectors and long text (including search text,
+summary, titles and descriptions). Scalar features, language/provider evidence
+and versions remain; broadcasts store a fixed content hash. Exclusions reuse
+version-matched recall text, then discard it before scoring. Commission previews
+reuse recalled titles; Agent previews use current identity. ID-only broadcast
+pools batch-load DB summaries and read full text only for exclusions. See the
+[feature index contract](feature_index.md#read-path).
 Need query vectors still use their separate versioned Redis cache.
 
 Dense recall carries ES `_score` through per-context merging and version-checked
 hydration. With the cosine mappings, `cosine = 2 * dense_score - 1`; a lexical
 `_score` is never interpreted as cosine. Agent/Commission lexical-only candidates
 have missing semantic evidence rather than triggering a vector read or model
-call. Broadcast continues to use its existing ES-returned vector for cosine.
+call. Broadcast uses the same dense-score evidence; no candidate vector is loaded
+after recall. Broadcast rule versions carry `:broadcast_dense_v1` to distinguish
+this evidence change. Lexical/pool-only broadcasts no longer receive locally
+computed cosine unless also present in the dense channel.
 
 `lexical = bm25 / (bm25 + bm25_scale)` and
 `semantic = clamp((cosine - cosine_floor) / (1 - cosine_floor))`.
@@ -570,7 +600,7 @@ otherwise it is lexical alone. No slot score participates. Other per-kind
 freshness/quality/fulfillment/budget coefficients and hard relevance gates remain.
 Review thresholds for this feature contract and use new rule versions on rollout.
 
-After upgrading all forward writers, remove old Redis payload fields without
+After upgrading all forward readers and writers, remove old Redis payload fields without
 regenerating embeddings:
 
 ```bash
@@ -578,8 +608,9 @@ go run ./scripts/discovery_forward_cleanup          # preview count
 go run ./scripts/discovery_forward_cleanup --apply  # compare-and-set updates
 ```
 
-This bounded ten-minute scan touches Agent card and Commission catalogue
-components only, preserves int64 IDs and version fences, and skips concurrent
+This ten-minute scan covers broadcast item, Agent card and Commission catalogue
+components. It removes retired text/vector fields, derives broadcast content
+hashes, preserves int64 IDs, expiry and version fences, and skips concurrent
 changes. Rerun if interrupted. Statistics, Need vector caches and historical
 samples are untouched. Fresh projections already omit retired fields. Existing
 ES mappings require a new concrete index generation to physically remove old

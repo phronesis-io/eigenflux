@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"eigenflux_server/pkg/commissionindex"
+	"eigenflux_server/pkg/featureindex"
 
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/sync/singleflight"
@@ -33,13 +33,13 @@ type ProjectionState interface {
 }
 
 type Source interface {
-	GetIndexSnapshot(context.Context, int64) (commissionindex.CatalogueSnapshot, error)
-	GetStatistics(context.Context, int64) (commissionindex.StatisticsSnapshot, error)
+	GetIndexSnapshot(context.Context, int64) (featureindex.CommissionCatalogueSnapshot, error)
+	GetStatistics(context.Context, int64) (featureindex.CommissionStatisticsSnapshot, error)
 	Ready(context.Context) error
 }
 
 type Index interface {
-	Get(context.Context, int64) (commissionindex.Document, bool, error)
+	Get(context.Context, int64) (featureindex.CommissionDocument, bool, error)
 	Ready(context.Context) (int, error)
 }
 
@@ -123,11 +123,11 @@ func (s *Service) Diagnostic(ctx context.Context, commissionID int64) (Diagnosti
 	}
 	var projection ProjectionDiagnostic
 	var projectionOK bool
-	var catalogue commissionindex.CatalogueSnapshot
+	var catalogue featureindex.CommissionCatalogueSnapshot
 	var catalogueOK bool
-	var statistics commissionindex.StatisticsSnapshot
+	var statistics featureindex.CommissionStatisticsSnapshot
 	var statisticsOK bool
-	var document commissionindex.Document
+	var document featureindex.CommissionDocument
 	var documentFound, documentOK bool
 	var probes sync.WaitGroup
 	probes.Add(4)
@@ -341,7 +341,7 @@ func commissionProjectionEnvelopeMatches(values map[string]any, wantedID string)
 	if !schemaOK || !typeOK || !idOK || !topicOK || schemaVersion != "1" || aggregateID != wantedID {
 		return false
 	}
-	expectedAggregateType, supported := commissionindex.ExpectedAggregateType(topic)
+	expectedAggregateType, supported := featureindex.CommissionAggregateType(topic)
 	return supported && aggregateType == expectedAggregateType
 }
 

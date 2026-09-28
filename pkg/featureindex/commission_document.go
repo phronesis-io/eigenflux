@@ -1,5 +1,4 @@
-// Package commissionindex owns the disposable Commission search projection.
-package commissionindex
+package featureindex
 
 import (
 	"context"
@@ -10,23 +9,23 @@ import (
 )
 
 const (
-	PublishedTopic  = "commission.published.v1"
-	OfflineTopic    = "commission.offline.v1"
-	StatisticsTopic = "commission.statistics.changed.v1"
+	CommissionPublishedTopic  = "commission.published.v1"
+	CommissionOfflineTopic    = "commission.offline.v1"
+	CommissionStatisticsTopic = "commission.statistics.changed.v1"
 )
 
-func ExpectedAggregateType(topic string) (string, bool) {
+func CommissionAggregateType(topic string) (string, bool) {
 	switch topic {
-	case PublishedTopic, OfflineTopic:
+	case CommissionPublishedTopic, CommissionOfflineTopic:
 		return "commission", true
-	case StatisticsTopic:
+	case CommissionStatisticsTopic:
 		return "commission_statistics", true
 	default:
 		return "", false
 	}
 }
 
-type CatalogueSnapshot struct {
+type CommissionCatalogueSnapshot struct {
 	CommissionID          int64
 	SellerAgentID         int64
 	Status                string
@@ -43,7 +42,7 @@ type CatalogueSnapshot struct {
 	UpdatedAt             int64
 }
 
-type StatisticsSnapshot struct {
+type CommissionStatisticsSnapshot struct {
 	CommissionID       int64
 	SellerAgentID      int64
 	CompletedCount     int64
@@ -57,14 +56,14 @@ type StatisticsSnapshot struct {
 
 // Source is the only synchronous dependency of the Commission projection.
 // Implementations must return an error for transport and BaseResp failures.
-type Source interface {
-	GetIndexSnapshot(context.Context, int64) (CatalogueSnapshot, error)
-	ListActiveIndexSnapshots(context.Context, int64, int) ([]CatalogueSnapshot, int64, error)
-	GetStatistics(context.Context, int64) (StatisticsSnapshot, error)
-	BatchGetStatistics(context.Context, []int64) ([]StatisticsSnapshot, error)
+type CommissionSource interface {
+	GetIndexSnapshot(context.Context, int64) (CommissionCatalogueSnapshot, error)
+	ListActiveIndexSnapshots(context.Context, int64, int) ([]CommissionCatalogueSnapshot, int64, error)
+	GetStatistics(context.Context, int64) (CommissionStatisticsSnapshot, error)
+	BatchGetStatistics(context.Context, []int64) ([]CommissionStatisticsSnapshot, error)
 }
 
-type Document struct {
+type CommissionDocument struct {
 	RetrievalSlots        searchindex.Slots `json:"retrieval_slots,omitempty"`
 	CommissionID          int64             `json:"commission_id"`
 	SellerAgentID         int64             `json:"seller_agent_id,omitempty"`
@@ -90,10 +89,10 @@ type Document struct {
 	UpdatedAt             time.Time         `json:"updated_at"`
 }
 
-func BuildDocument(c CatalogueSnapshot, s StatisticsSnapshot, embedding []float32) Document {
+func BuildCommissionDocument(c CommissionCatalogueSnapshot, s CommissionStatisticsSnapshot, embedding []float32) CommissionDocument {
 	tags := append([]string(nil), c.Tags...)
 	parts := []string{c.Title, c.CapabilityDescription, c.RequestSpecText, c.DeliverySpecText, strings.Join(tags, " ")}
-	return Document{
+	return CommissionDocument{
 		CommissionID: c.CommissionID, SellerAgentID: c.SellerAgentID,
 		Active: strings.EqualFold(c.Status, "active"), CatalogueVersion: c.CatalogueVersion,
 		StatisticsVersion: s.StatisticsVersion, Title: c.Title, CapabilityDescription: c.CapabilityDescription,
@@ -101,21 +100,21 @@ func BuildDocument(c CatalogueSnapshot, s StatisticsSnapshot, embedding []float3
 		PriceFen: c.PriceFen, Currency: c.Currency, PromisedDeliveryMS: c.PromisedDeliveryMS,
 		CompletedCount: s.CompletedCount, RefundedCount: s.RefundedCount, CompletionRateBPS: s.CompletionRateBPS,
 		AverageRatingMilli: s.AverageRatingMilli, HasRating: s.HasRating, AverageDeliveryMS: s.AverageDeliveryMS,
-		SearchText: NormalizeText(parts...), Embedding: embedding, UpdatedAt: time.UnixMilli(c.UpdatedAt),
+		SearchText: NormalizeCommissionText(parts...), Embedding: embedding, UpdatedAt: time.UnixMilli(c.UpdatedAt),
 	}
 }
 
-func Tombstone(c CatalogueSnapshot, s StatisticsSnapshot) Document {
-	d := BuildDocument(c, s, nil)
+func CommissionTombstone(c CommissionCatalogueSnapshot, s CommissionStatisticsSnapshot) CommissionDocument {
+	d := BuildCommissionDocument(c, s, nil)
 	d.Active = false
 	return d
 }
 
-func EmbeddingInput(c CatalogueSnapshot) string {
-	return NormalizeText(c.Title, c.CapabilityDescription, c.RequestSpecText, c.DeliverySpecText, strings.Join(c.Tags, " "))
+func CommissionEmbeddingInput(c CommissionCatalogueSnapshot) string {
+	return NormalizeCommissionText(c.Title, c.CapabilityDescription, c.RequestSpecText, c.DeliverySpecText, strings.Join(c.Tags, " "))
 }
 
-func NormalizeText(parts ...string) string {
+func NormalizeCommissionText(parts ...string) string {
 	clean := make([]string, 0, len(parts))
 	for _, part := range parts {
 		if v := strings.Join(strings.Fields(part), " "); v != "" {
@@ -125,20 +124,20 @@ func NormalizeText(parts ...string) string {
 	return strings.Join(clean, " ")
 }
 
-type Store interface {
-	Upsert(context.Context, Document) error
-	UpsertStatistics(context.Context, StatisticsSnapshot) error
-	Search(context.Context, SearchRequest) ([]Hit, error)
+type CommissionSearchStore interface {
+	Upsert(context.Context, CommissionDocument) error
+	UpsertStatistics(context.Context, CommissionStatisticsSnapshot) error
+	Search(context.Context, CommissionSearchRequest) ([]CommissionHit, error)
 }
 
-type SearchRequest struct {
+type CommissionSearchRequest struct {
 	Query                                                  string
 	CommissionID                                           int64
 	Embedding                                              []float32
 	MinPriceFen, MaxPriceFen, MinDurationMS, MaxDurationMS int64
 	Limit                                                  int
 }
-type Hit struct {
-	Document                    Document
+type CommissionHit struct {
+	Document                    CommissionDocument
 	KeywordScore, SemanticScore float64
 }

@@ -157,7 +157,9 @@ the task prompt; an empty preference keeps the guess-from-content fallback.
   `RESCUE_WINDOW_DAYS` (3) from `replay_logs` (`jsonb_exists_any` overlap); if
   below `RESCUE_THRESHOLD` (30), DMs a personalized topic suggestion drawn from
   network trending, gated by a `RESCUE_COOLDOWN_DAYS` (3) cooldown and
-  `OFFICIAL_LLM_MAX_PER_RUN`.
+  `OFFICIAL_LLM_MAX_PER_RUN`. The task does not start when
+  `ENABLE_NEED_SEARCH=true`, because legacy domain samples cannot measure
+  deliveries from the new pipeline.
 
 ## Official Account Reactive Replies (pipeline/consumer/official_*.go)
 
@@ -285,3 +287,19 @@ reuses a versioned Redis vector, and retries failures with bounded backoff.
 Sort reads these vectors without waiting for a model on stored-Need cache misses.
 The Pipeline and Sort embedding settings, including `DISCOVERY_EMBEDDING_REVISION`,
 must match. See [cache keys, failure behavior and deployment](discovery.md#asynchronous-need-embeddings).
+
+## Discovery feature materialization
+
+Pipeline runs the registered commission source loader whenever
+`ENABLE_COMMISSION_INDEX=true`, including legacy routing and rollback.
+`ENABLE_NEED_SEARCH=true` additionally enables broadcast and Agent loaders. These loaders
+refresh Redis from DB/source RPCs without embedding or ES access. Completed
+broadcast processing attempts an incremental refresh; Agent and commission
+retain their existing event writers. See [Online feature index](feature_index.md)
+for field registration, fencing, checkpoints and repair cadence.
+
+Feature materializers use YAML-paced, version-protected batch writes over active
+source pages, with a shared checkpoint and cycle pause. A separate bounded audit
+adopts physical retention on legacy keys and counts physical keys by type.
+Completed census snapshots, source scan progress and failure counters are exported
+through Pipeline metrics; see [feature monitoring](feature_index.md#monitoring).

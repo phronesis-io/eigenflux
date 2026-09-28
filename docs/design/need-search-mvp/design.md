@@ -43,7 +43,7 @@ flowchart TD
 
 Owner-context compilation skips embedding entirely. Explicit queries and inline
 Needs compute on demand; saved Needs read the asynchronous cache. ES stores
-candidate vectors. Agent/Commission Redis forward projections contain scalar
+candidate vectors. All three candidate Redis forward projections contain scalar
 features and source evidence only.
 
 ## 2. Top-level interfaces
@@ -166,7 +166,7 @@ filters apply to every channel.
 
 | Kind | Candidate production | ES | Redis forward |
 | --- | --- | --- | --- |
-| Broadcast | Existing item consumer, embedding from raw content | Existing `items-*`, text, source facts, embedding | Existing recall lists; vector still read from ES |
+| Broadcast | Existing item consumer, embedding from raw content | Existing `items-*`, text, source facts, embedding | Registered item facts; bounded DB repair; no embedding |
 | Agent | Public Card rebuild/projector and backfill | Public search text/name, state, versions, language/provider evidence, embedding | Card text, state, versions, scalar freshness/activity; no embedding |
 | Commission | Existing published/offline stream consumer and backfill | Text, state, versions, price/currency/duration, source evidence, embedding | Catalogue and independent statistics components; no embedding |
 
@@ -179,8 +179,10 @@ Commission statistics updates do not call embedding or rewrite ES.
 
 Dense ES cosine `_score` is retained as per-context retrieval evidence through
 merge and hydration. Attach it only to the same source/projection version.
-Agent/Commission do not load vectors from Redis or issue model calls during
-ranking. Source text remains in forward documents for exclusion checks.
+All kinds consume ES dense-score evidence without loading candidate vectors
+or issuing model calls during ranking. Broadcast scalar updates are independent
+of its searchable-content fingerprint. The [feature module](../../dev/feature_index.md)
+owns registered fields, versioned access and periodic loading. Source text remains in forward documents for exclusion checks.
 
 ### 3.5 Hard eligibility and authority
 

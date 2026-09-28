@@ -19,9 +19,9 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/order"
 	"eigenflux_server/kitex_gen/eigenflux/order/orderservice"
 	"eigenflux_server/pkg/agentidentity"
-	"eigenflux_server/pkg/agentindex"
 	"eigenflux_server/pkg/cache"
-	"eigenflux_server/pkg/commissionindex"
+	"eigenflux_server/pkg/featureindex"
+
 	"eigenflux_server/pkg/es"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/rpcx"
@@ -102,25 +102,25 @@ func (s *stack) seed(t *testing.T) {
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	require.False(t, resp.IsError())
-	cat := commissionindex.CatalogueSnapshot{CommissionID: s.item, SellerAgentID: s.author, Status: "active", CatalogueVersion: 1, Title: "landing page design", Tags: []string{s.label, "landing-page"}, Currency: "CNY", PriceFen: 0, PromisedDeliveryMS: 1000, CreatedAt: now, UpdatedAt: now}
+	cat := featureindex.CommissionCatalogueSnapshot{CommissionID: s.item, SellerAgentID: s.author, Status: "active", CatalogueVersion: 1, Title: "landing page design", Tags: []string{s.label, "landing-page"}, Currency: "CNY", PriceFen: 0, PromisedDeliveryMS: 1000, CreatedAt: now, UpdatedAt: now}
 	s.catalogue = &catalogueFixture{snapshot: cat}
-	b, _ := json.Marshal(map[string]any{"mappings": commissionindex.Mapping(len(s.vector))})
+	b, _ := json.Marshal(map[string]any{"mappings": featureindex.CommissionMapping(len(s.vector))})
 	resp, err = es.Client.Indices.Create(s.commissionIndex, es.Client.Indices.Create.WithBody(bytes.NewReader(b)))
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	require.False(t, resp.IsError())
-	doc := commissionindex.BuildDocument(cat, commissionindex.StatisticsSnapshot{}, s.vector)
-	require.NoError(t, (commissionindex.ESStore{Redis: mq.RDB, Index: s.commissionIndex}).Upsert(context.Background(), doc))
+	doc := featureindex.BuildCommissionDocument(cat, featureindex.CommissionStatisticsSnapshot{}, s.vector)
+	require.NoError(t, (featureindex.CommissionESStore{Redis: mq.RDB, Index: s.commissionIndex}).Upsert(context.Background(), doc))
 	response, err := es.Client.Indices.Refresh(es.Client.Indices.Refresh.WithIndex(s.commissionIndex))
 	require.NoError(t, err)
 	_ = response.Body.Close()
 	require.False(t, response.IsError())
-	require.NoError(t, agentindex.Ensure(context.Background(), s.agentIndex, len(s.vector)))
-	docs, err := agentindex.Load(context.Background(), s.db, []int64{s.author})
+	require.NoError(t, featureindex.EnsureAgentSearchIndex(context.Background(), s.agentIndex, len(s.vector)))
+	docs, err := featureindex.LoadAgents(context.Background(), s.db, []int64{s.author})
 	require.NoError(t, err)
 	require.Len(t, docs, 1)
 	docs[0].Embedding = s.vector
-	require.NoError(t, agentindex.WriteForward(context.Background(), mq.RDB, s.agentIndex, docs[0]))
+	require.NoError(t, (featureindex.AgentIndex{Redis: mq.RDB, IndexName: s.agentIndex}).Write(context.Background(), docs[0]))
 	s.index(t, s.agentIndex, s.author, docs[0].SearchFields())
 }
 
@@ -149,7 +149,7 @@ func (s *stack) index(t *testing.T, index string, id int64, doc any) {
 // External catalogue boundaries use real Kitex transport with deterministic data.
 type catalogueFixture struct {
 	mu       sync.RWMutex
-	snapshot commissionindex.CatalogueSnapshot
+	snapshot featureindex.CommissionCatalogueSnapshot
 	fail     bool
 }
 

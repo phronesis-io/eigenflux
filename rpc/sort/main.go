@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"eigenflux_server/pkg/featureindex"
 	"eigenflux_server/rpc/sort/legacy"
 	"log"
 	"net"
@@ -9,7 +10,7 @@ import (
 	etcd "github.com/kitex-contrib/registry-etcd"
 
 	"eigenflux_server/kitex_gen/eigenflux/sort/sortservice"
-	"eigenflux_server/pkg/commissionindex"
+
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/es"
@@ -24,6 +25,13 @@ func main() {
 	cfg := config.Load()
 	logFlush := logger.Init("SortService", cfg.EffectiveLokiURL(), cfg.LogLevel)
 	defer logFlush()
+	if cfg.EnableNeedSearch || cfg.EnableCommissionIndex {
+		stopFeatureConfig, err := featureindex.StartConfig(context.Background(), cfg.FeatureIndexConfigDir, cfg.FeatureIndexReloadInterval)
+		if err != nil {
+			log.Fatalf("feature configuration: %v", err)
+		}
+		defer stopFeatureConfig()
+	}
 
 	shutdown, err := telemetry.Init("SortService", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)
 	if err != nil {
@@ -48,7 +56,7 @@ func main() {
 		log.Fatalf("failed to initialize ES: %v", err)
 	}
 	if cfg.EnableCommissionIndex {
-		if err := (commissionindex.ESStore{Index: cfg.CommissionIndexName, Alias: cfg.CommissionIndexAlias, Dimensions: cfg.EmbeddingDimensions}).Ensure(context.Background()); err != nil {
+		if err := (featureindex.CommissionESStore{Index: cfg.CommissionIndexName, Alias: cfg.CommissionIndexAlias, Dimensions: cfg.EmbeddingDimensions}).Ensure(context.Background()); err != nil {
 			log.Fatalf("failed to bootstrap Commission index: %v", err)
 		}
 	}

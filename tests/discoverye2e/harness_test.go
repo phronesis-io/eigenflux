@@ -39,6 +39,7 @@ import (
 // migrated test stack with no other Kitex services registered in its etcd.
 type stack struct {
 	embeddingCalls                                      sync.Map
+	stallEmbedding                                      atomic.Bool
 	needVectors                                         *needembedding.Cache
 	needWorker                                          *consumer.NeedEmbeddingWorker
 	root, logs, url, label, commissionIndex, agentIndex string
@@ -112,6 +113,10 @@ func startStack(t *testing.T) *stack {
 		}
 		counter, _ := s.embeddingCalls.LoadOrStore(input.Input, &atomic.Int32{})
 		counter.(*atomic.Int32).Add(1)
+		if s.stallEmbedding.Load() {
+			<-r.Context().Done()
+			return
+		}
 		// Verify failed embedding never invents cross-language lexical aliases.
 		if input.Input == "著陸頁" {
 			http.Error(w, "fixture embedding unavailable", http.StatusServiceUnavailable)

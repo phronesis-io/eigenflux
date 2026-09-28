@@ -77,7 +77,7 @@ Default config in `pkg/config/config.go`, override via environment variables:
 | `OFFICIAL_TEST_EMAIL_SUFFIXES` | (empty) | Comma-separated test-account matchers: `@domain` entries match by suffix; other entries match the full address with shell-style glob syntax (`*`, `?`, `[0-9]`). Invalid patterns match nothing. Matching accounts use `OFFICIAL_TEST_OTP` for V1 login and Console V2 email binding/login without email delivery or an IP whitelist. Empty = disabled |
 | `OFFICIAL_TEST_OTP` | (empty) | Fixed OTP for `OFFICIAL_TEST_EMAIL_SUFFIXES` accounts (no email sent, no IP whitelist). Console V2 still applies its challenge binding, expiration, attempt, and rate-limit checks. Empty = test-account path disabled. ⚠️ This is a sign-in backdoor for the matched accounts — prefer exact addresses on a domain you control, and never commit real values |
 | `ENABLE_OFFICIAL_TRENDING` | `true` | #5 biweekly network-wide trending DM cron |
-| `ENABLE_OFFICIAL_FEED_RESCUE` | `true` | #4 feed-deficit recommendation DM cron |
+| `ENABLE_OFFICIAL_FEED_RESCUE` | `true` | #4 feed-deficit recommendation DM cron; disabled when `ENABLE_NEED_SEARCH=true` |
 | `OFFICIAL_TRENDING_INTERVAL_SEC` | `1209600` | #5 cadence (default 14d) |
 | `OFFICIAL_TRENDING_WINDOW_DAYS` | `7` | #5 aggregation window (reuses the existing network-signal window) |
 | `OFFICIAL_TRENDING_POOL_N` / `_PICK_N` | `20` / `3` | #5 top-N pool to sample from, and topics per DM |
@@ -116,7 +116,7 @@ The per-user opt-out is a setting, not an env var: `eigenflux config set --key o
 | `EMBEDDING_BACKFILL_WORKERS` | `4` | Concurrent workers used by embedding backfill |
 | `EMBEDDING_BACKFILL_PAUSE_MS` | `100` | Per-worker pause between embedding requests in milliseconds |
 | `ENABLE_SEARCH_CACHE` | `true` | Whether to enable search cache |
-| `ENABLE_COMMISSION_INDEX` | `false` | Enables Commission index bootstrap in Sort and Redis-stream projection consumption in Pipeline; does not expose public discovery routes |
+| `ENABLE_COMMISSION_INDEX` | `false` | Enables Commission index bootstrap in Sort, Redis-stream projection consumption and periodic forward refresh in Pipeline (including legacy routing); does not expose public discovery routes |
 | `ENABLE_COMMISSION_DISCOVERY_API` | `false` | Registers Commission search and recommendation routes in the API gateway; requires `ENABLE_COMMISSION_INDEX=true` or API startup fails |
 | `ENABLE_COMMISSION_AGENT_ID_WHITELIST` | `false` | Restricts authenticated Commission discovery routes to configured Agent IDs; disabled mode ignores the list, while enabled empty mode denies all Agents |
 | `COMMISSION_AGENT_ID_WHITELIST` | (empty) | Comma-separated positive Agent IDs allowed to call Commission search and recommendation; malformed values fail API startup when the whitelist is enabled |
@@ -207,3 +207,19 @@ the same session — see the policy's *Temporary diagnostic overrides* clause.
 ### Multiple public console domains
 
 Keep `CONSOLE_V2_PUBLIC_URL=https://www.eigenflux.ai` for canonical Agent handoff links and set `CONSOLE_V2_ALLOWED_ORIGINS=https://www.eigenflux.net` to enable the same-origin console on the secondary website. The canonical origin remains trusted automatically. Each domain has a separate host-only browser session; this does not enable cross-domain requests or shared cookies. Reverse proxies must preserve the original Host. Changing a V2 rollout flag does not replace origin validation.
+
+## Online feature registry
+
+`FEATURE_INDEX_CONFIG_DIR` selects the external feature YAML directory (default
+`configs/featureindex` relative to the process working directory).
+`FEATURE_INDEX_RELOAD_INTERVAL` is a positive Go duration (default `5s`).
+Readers and writers validate the complete snapshot at startup and poll for changes;
+invalid runtime edits preserve the last good snapshot. Distribute identical YAML
+to Sort, Pipeline, Pipeline Cron, API Commission diagnostics and backfill processes. See the
+[feature index contract](feature_index.md) for rollout semantics and limitations.
+
+Feature-index YAML also controls `retention_ttl` and per-materializer `load`
+settings (`interval`, `timeout`, `batch_size`, `cycle_pause`). Bundled views use
+`ttl: 0s` for event/periodic freshness; physical retention is 48 hours for
+broadcasts and 168 hours for Agent/commission. See [feature index](feature_index.md)
+for compatibility, pacing and monitoring contracts.

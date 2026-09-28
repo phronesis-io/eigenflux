@@ -55,12 +55,11 @@ func TestDenseScoreMergeRequiresSameProjection(t *testing.T) {
 	}
 }
 
-func TestAgentAndCommissionUseESScoreWithoutForwardVector(t *testing.T) {
+func TestAllKindsUseESScoreWithoutForwardVector(t *testing.T) {
 	rule := Rule{Version: "retrieval-v2", BM25Scale: 1, CosineFloor: 0, MinRelevance: 0, Threshold: 0, HalfLifeMS: 1000}
-	for _, kind := range []Kind{Agent, Commission} {
+	for _, kind := range []Kind{Broadcast, Agent, Commission} {
 		c := baseContext()
 		d := baseDoc(kind)
-		d.Vector = []float32{-1, 0} // Candidate vectors must never affect these scorers.
 		score := .9
 		d.DenseScore = &score
 		got := ScoreRules(c, d, rule, 100)

@@ -54,10 +54,10 @@ use `testutil.BaseURL` instead of a hardcoded 8080 instance.
 
 ## Implementation choices
 
-- Sort's root contains process startup, dependency composition and the RPC adapter. `rpc/sort/discovery` contains the search/recommendation engine, context value compilation/cache and candidate sources; its `index` leaf package shares source evidence and forward projections with index writers. `rpc/sort/legacy` owns the existing feed/commission orchestration and reusable policy adapter, with configuration, caches and model manager held by a service instance. Feed delivery lives in `rpc/feed/delivery`. See the [code review index](../../../rpc/sort/README.md).
+- Sort's root contains process startup, dependency composition and the RPC adapter. `rpc/sort/discovery` contains the search/recommendation engine, context value compilation/cache and candidate sources; its `index` leaf package shares source evidence with index writers. `pkg/featureindex` owns registered forward fields, storage and periodic materialization. `rpc/sort/legacy` owns the existing feed/commission orchestration and reusable policy adapter, with configuration, caches and model manager held by a service instance. Feed delivery lives in `rpc/feed/delivery`. See the [code review index](../../../rpc/sort/README.md).
 - Use existing process boundaries, DB, ES cluster and Redis; no new deployed microservice.
 - Capture/history remain in `pkg/need`. Cache automatic input selection and immutable compiled conditions; keep execution evidence in existing asynchronous replay samples, without synchronous context-row inserts.
-- Owner-context fallback is lexical-only; saved Needs reuse asynchronous vectors. Agent/Commission ranking uses ES dense scores and scalar forward features. No vocabulary asset or lookup surface exists.
+- Owner-context fallback is lexical-only; saved Needs reuse asynchronous vectors. All-kind ranking uses ES dense scores and registered scalar forward features. No vocabulary asset or lookup surface exists.
 - Agent projection uses configured versioned index `agent_discovery_v1`; its mapping is checked before use. Existing item/commission backing-index slot mappings are upgraded before projection.
 - Keep six simultaneous recall calls, a 200-document per-context union and a 1,000-pair request bound. Legacy pages prefetch at most 20 eligible broadcasts.
 - Rule coefficients remain the explicit formula in versioned code; gates/scales/half-life are external per-kind/mode settings. No fixture thresholds are presented as approved production configuration.

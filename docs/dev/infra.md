@@ -108,3 +108,11 @@ it exposes only 90 aggregate rows and never grants Grafana access to an
 individual feedback event.
 
 When the app server and monitor server are separate hosts, ensure the app server's firewall allows inbound on the metrics ports listed above from the monitor server, and set `MONITOR_ENABLED=true` in the app server's `.env` to enable distributed tracing alongside metrics. Cross-host bindings and deployment are documented in the observability repository.
+
+Feature-index metrics use the `feature_index_*` namespace on the existing Sort
+and Pipeline endpoints. The primary signals are physical key counts and
+Redis miss rate by type, with lightweight write/loader/audit health counters.
+Pipeline publishes completed background census snapshots; Sort reports lookup
+outcomes. No intermediate FeatureIndex timing histograms are emitted. Labels
+contain registered type/view and fixed outcomes only. Metric
+semantics and PromQL examples are in [Online feature index](feature_index.md#monitoring).

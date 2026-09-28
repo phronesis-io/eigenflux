@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"eigenflux_server/pkg/config"
+	"eigenflux_server/pkg/featureindex"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -28,8 +29,28 @@ func cleaned(raw string) (string, bool, error) {
 	if doc == nil {
 		return "", false, fmt.Errorf("invalid forward document")
 	}
-	_, changed := doc["embedding"]
-	delete(doc, "embedding")
+	changed := false
+	// Preserve broadcast evidence before discarding its source text.
+	if _, broadcast := doc["item_id"]; broadcast && (doc["content"] != nil || doc["summary"] != nil) {
+		var source struct {
+			featureindex.BroadcastDocument
+			Content string `json:"content"`
+			Summary string `json:"summary"`
+		}
+		if err := json.Unmarshal([]byte(raw), &source); err != nil {
+			return "", false, err
+		}
+		if source.Lang != "" {
+			source.Slots.Lang = []string{source.Lang}
+		}
+		doc["content_hash"], _ = json.Marshal(featureindex.BroadcastContentHash(source.ItemID, source.AuthorID, source.Content+"\n"+source.Summary, source.Slots))
+	}
+	for _, field := range []string{"embedding", "content", "summary", "search_text", "display_name", "title", "capability_description", "request_spec_text", "delivery_spec_text", "tags"} {
+		if _, exists := doc[field]; exists {
+			delete(doc, field)
+			changed = true
+		}
+	}
 	if b, ok := doc["retrieval_slots"]; ok {
 		var slots map[string]json.RawMessage
 		if err := json.Unmarshal(b, &slots); err != nil {
@@ -56,7 +77,7 @@ func cleaned(raw string) (string, bool, error) {
 
 func cleanup(ctx context.Context, r redis.UniversalClient, apply bool) (int, error) {
 	count := 0
-	for _, pattern := range []string{"discovery:forward:agent:*:*:card", "discovery:forward:commission:*:*:catalogue"} {
+	for _, pattern := range []string{"discovery:forward:broadcast:*:*:item", "discovery:forward:agent:*:*:card", "discovery:forward:commission:*:*:catalogue"} {
 		iter := r.Scan(ctx, 0, pattern, 100).Iterator()
 		for iter.Next(ctx) {
 			key := iter.Val()

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"eigenflux_server/pkg/commissionindex"
+	"eigenflux_server/pkg/featureindex"
 )
 
 type projectionFake struct {
@@ -33,53 +33,53 @@ func (deadlineProjection) Ready(context.Context) error { return nil }
 
 type contextAwareSource struct{ sourceFake }
 
-func (f contextAwareSource) GetIndexSnapshot(ctx context.Context, id int64) (commissionindex.CatalogueSnapshot, error) {
+func (f contextAwareSource) GetIndexSnapshot(ctx context.Context, id int64) (featureindex.CommissionCatalogueSnapshot, error) {
 	if err := ctx.Err(); err != nil {
-		return commissionindex.CatalogueSnapshot{}, err
+		return featureindex.CommissionCatalogueSnapshot{}, err
 	}
 	return f.sourceFake.GetIndexSnapshot(ctx, id)
 }
-func (f contextAwareSource) GetStatistics(ctx context.Context, id int64) (commissionindex.StatisticsSnapshot, error) {
+func (f contextAwareSource) GetStatistics(ctx context.Context, id int64) (featureindex.CommissionStatisticsSnapshot, error) {
 	if err := ctx.Err(); err != nil {
-		return commissionindex.StatisticsSnapshot{}, err
+		return featureindex.CommissionStatisticsSnapshot{}, err
 	}
 	return f.sourceFake.GetStatistics(ctx, id)
 }
 
 type contextAwareIndex struct{ indexFake }
 
-func (f contextAwareIndex) Get(ctx context.Context, id int64) (commissionindex.Document, bool, error) {
+func (f contextAwareIndex) Get(ctx context.Context, id int64) (featureindex.CommissionDocument, bool, error) {
 	if err := ctx.Err(); err != nil {
-		return commissionindex.Document{}, false, err
+		return featureindex.CommissionDocument{}, false, err
 	}
 	return f.indexFake.Get(ctx, id)
 }
 
 type sourceFake struct {
-	catalogue     commissionindex.CatalogueSnapshot
-	statistics    commissionindex.StatisticsSnapshot
+	catalogue     featureindex.CommissionCatalogueSnapshot
+	statistics    featureindex.CommissionStatisticsSnapshot
 	catalogueErr  error
 	statisticsErr error
 	ready         error
 }
 
-func (f sourceFake) GetIndexSnapshot(context.Context, int64) (commissionindex.CatalogueSnapshot, error) {
+func (f sourceFake) GetIndexSnapshot(context.Context, int64) (featureindex.CommissionCatalogueSnapshot, error) {
 	return f.catalogue, f.catalogueErr
 }
-func (f sourceFake) GetStatistics(context.Context, int64) (commissionindex.StatisticsSnapshot, error) {
+func (f sourceFake) GetStatistics(context.Context, int64) (featureindex.CommissionStatisticsSnapshot, error) {
 	return f.statistics, f.statisticsErr
 }
 func (f sourceFake) Ready(context.Context) error { return f.ready }
 
 type indexFake struct {
-	document   commissionindex.Document
+	document   featureindex.CommissionDocument
 	found      bool
 	err        error
 	dimensions int
 	ready      error
 }
 
-func (f indexFake) Get(context.Context, int64) (commissionindex.Document, bool, error) {
+func (f indexFake) Get(context.Context, int64) (featureindex.CommissionDocument, bool, error) {
 	return f.document, f.found, f.err
 }
 func (f indexFake) Ready(context.Context) (int, error) { return f.dimensions, f.ready }
@@ -99,11 +99,11 @@ func readyService(t *testing.T) *Service {
 	service, err := NewService(
 		projectionFake{state: ProjectionDiagnostic{StreamLastID: "123-0", Pending: 2, Lag: 3, DLQMatches: 4}},
 		sourceFake{
-			catalogue:  commissionindex.CatalogueSnapshot{CommissionID: 9223372036854775000, Status: "active", CatalogueVersion: 11, Title: "private source catalogue"},
-			statistics: commissionindex.StatisticsSnapshot{CommissionID: 9223372036854775000, StatisticsVersion: 12},
+			catalogue:  featureindex.CommissionCatalogueSnapshot{CommissionID: 9223372036854775000, Status: "active", CatalogueVersion: 11, Title: "private source catalogue"},
+			statistics: featureindex.CommissionStatisticsSnapshot{CommissionID: 9223372036854775000, StatisticsVersion: 12},
 		},
 		indexFake{
-			document: commissionindex.Document{CommissionID: 9223372036854775000, Active: true, CatalogueVersion: 10, StatisticsVersion: 9, SearchText: "private vector source", Embedding: []float32{1, 2}},
+			document: featureindex.CommissionDocument{CommissionID: 9223372036854775000, Active: true, CatalogueVersion: 10, StatisticsVersion: 9, SearchText: "private vector source", Embedding: []float32{1, 2}},
 			found:    true, dimensions: 768,
 		},
 		embeddingFake{provider: "ollama", dimensions: 768},
@@ -216,10 +216,10 @@ func TestDiagnosticReturnsMetadataOnlyAndPreservesInt64ID(t *testing.T) {
 
 func TestDiagnosticReturnsOfflineSourceAndESVersions(t *testing.T) {
 	service, err := NewService(projectionFake{}, sourceFake{
-		catalogue:  commissionindex.CatalogueSnapshot{CommissionID: 42, Status: "offline", CatalogueVersion: 13},
-		statistics: commissionindex.StatisticsSnapshot{CommissionID: 42, StatisticsVersion: 3},
+		catalogue:  featureindex.CommissionCatalogueSnapshot{CommissionID: 42, Status: "offline", CatalogueVersion: 13},
+		statistics: featureindex.CommissionStatisticsSnapshot{CommissionID: 42, StatisticsVersion: 3},
 	}, indexFake{
-		document: commissionindex.Document{CommissionID: 42, Active: false, CatalogueVersion: 12, StatisticsVersion: 2},
+		document: featureindex.CommissionDocument{CommissionID: 42, Active: false, CatalogueVersion: 12, StatisticsVersion: 2},
 		found:    true, dimensions: 768,
 	}, embeddingFake{provider: "ollama", dimensions: 768})
 	if err != nil {
@@ -243,10 +243,10 @@ func TestDiagnosticRejectsInvalidIDAndPreservesDependencyStage(t *testing.T) {
 	const id int64 = 42
 	readyProjection := projectionFake{state: ProjectionDiagnostic{StreamLastID: "1-0"}}
 	readySource := sourceFake{
-		catalogue:  commissionindex.CatalogueSnapshot{CommissionID: id, Status: "active", CatalogueVersion: 2},
-		statistics: commissionindex.StatisticsSnapshot{CommissionID: id, StatisticsVersion: 3},
+		catalogue:  featureindex.CommissionCatalogueSnapshot{CommissionID: id, Status: "active", CatalogueVersion: 2},
+		statistics: featureindex.CommissionStatisticsSnapshot{CommissionID: id, StatisticsVersion: 3},
 	}
-	readyIndex := indexFake{document: commissionindex.Document{CommissionID: id, Active: true, CatalogueVersion: 2, StatisticsVersion: 3}, found: true}
+	readyIndex := indexFake{document: featureindex.CommissionDocument{CommissionID: id, Active: true, CatalogueVersion: 2, StatisticsVersion: 3}, found: true}
 	tests := []struct {
 		name       string
 		projection projectionFake
@@ -290,10 +290,10 @@ func TestDiagnosticSlowProjectionDoesNotEraseHealthyStageEvidence(t *testing.T) 
 	service, err := NewService(
 		deadlineProjection{},
 		contextAwareSource{sourceFake: sourceFake{
-			catalogue:  commissionindex.CatalogueSnapshot{CommissionID: id, Status: "active", CatalogueVersion: 2},
-			statistics: commissionindex.StatisticsSnapshot{CommissionID: id, StatisticsVersion: 3},
+			catalogue:  featureindex.CommissionCatalogueSnapshot{CommissionID: id, Status: "active", CatalogueVersion: 2},
+			statistics: featureindex.CommissionStatisticsSnapshot{CommissionID: id, StatisticsVersion: 3},
 		}},
-		contextAwareIndex{indexFake: indexFake{document: commissionindex.Document{CommissionID: id, Active: true, CatalogueVersion: 2, StatisticsVersion: 3}, found: true}},
+		contextAwareIndex{indexFake: indexFake{document: featureindex.CommissionDocument{CommissionID: id, Active: true, CatalogueVersion: 2, StatisticsVersion: 3}, found: true}},
 		embeddingFake{provider: "ollama", dimensions: 768},
 	)
 	if err != nil {

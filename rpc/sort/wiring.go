@@ -3,11 +3,11 @@ package main
 import (
 	"context"
 	"eigenflux_server/pipeline/embedding"
-	"eigenflux_server/pkg/agentindex"
 	"eigenflux_server/pkg/cache"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/es"
+	"eigenflux_server/pkg/featureindex"
 	"eigenflux_server/pkg/idgen"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/need"
@@ -37,7 +37,7 @@ func initDiscovery(ctx context.Context, cfg *config.Config, policies func(contex
 		return nil, nil, err
 	}
 	embed := embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)
-	if err = agentindex.Ensure(ctx, cfg.AgentDiscoveryIndex, cfg.EmbeddingDimensions); err != nil {
+	if err = featureindex.EnsureAgentSearchIndex(ctx, cfg.AgentDiscoveryIndex, cfg.EmbeddingDimensions); err != nil {
 		return nil, nil, err
 	}
 	ids, err := idgen.NewManagedGenerator(ctx, idgen.ManagedGeneratorConfig{Endpoints: strings.Split(cfg.EtcdAddr, ","), WorkerPrefix: cfg.IDWorkerPrefix, ServiceName: "discovery-context-id", InstanceID: cfg.IDInstanceID, LeaseTTLSecond: cfg.IDWorkerLeaseTTL, EpochMS: cfg.IDSnowflakeEpoch})

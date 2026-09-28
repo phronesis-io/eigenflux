@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"eigenflux_server/pkg/featureindex"
 
 	"errors"
 	"fmt"
@@ -12,7 +13,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/commission/commissionservice"
 	"eigenflux_server/kitex_gen/eigenflux/order/orderservice"
 	"eigenflux_server/pipeline/embedding"
-	"eigenflux_server/pkg/commissionindex"
+
 	"eigenflux_server/pkg/commissionsource"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/es"
@@ -26,6 +27,12 @@ var errCommissionIndexDisabled = errors.New("commission backfill requires ENABLE
 
 func main() {
 	cfg := config.Load()
+	stopFeatureConfig, err := featureindex.StartConfig(context.Background(), cfg.FeatureIndexConfigDir, cfg.FeatureIndexReloadInterval)
+	if err != nil {
+		log.Fatalf("feature configuration: %v", err)
+	}
+	defer stopFeatureConfig()
+
 	if err := validateConfiguration(cfg); err != nil {
 		log.Fatal(err)
 	}
@@ -46,7 +53,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	store := commissionindex.ESStore{Redis: mq.RDB, Index: cfg.CommissionIndexName, Alias: cfg.CommissionIndexAlias, Dimensions: cfg.EmbeddingDimensions}
+	store := featureindex.CommissionESStore{Redis: mq.RDB, Index: cfg.CommissionIndexName, Alias: cfg.CommissionIndexAlias, Dimensions: cfg.EmbeddingDimensions}
 	if err := store.Ensure(context.Background()); err != nil {
 		log.Fatal(err)
 	}
@@ -78,7 +85,7 @@ type embedder interface {
 	GetEmbedding(context.Context, string) ([]float32, error)
 }
 
-func backfill(ctx context.Context, source commissionindex.Source, store commissionindex.Store, embedder embedder, pageSize int) error {
+func backfill(ctx context.Context, source featureindex.CommissionSource, store featureindex.CommissionSearchStore, embedder embedder, pageSize int) error {
 	if pageSize <= 0 {
 		pageSize = 100
 	}
@@ -96,17 +103,17 @@ func backfill(ctx context.Context, source commissionindex.Source, store commissi
 		if err != nil {
 			return err
 		}
-		byID := make(map[int64]commissionindex.StatisticsSnapshot, len(stats))
+		byID := make(map[int64]featureindex.CommissionStatisticsSnapshot, len(stats))
 		for _, stat := range stats {
 			byID[stat.CommissionID] = stat
 		}
 		for _, snapshot := range snapshots {
 			stat := byID[snapshot.CommissionID]
-			embedding, err := embedder.GetEmbedding(ctx, commissionindex.EmbeddingInput(snapshot))
+			embedding, err := embedder.GetEmbedding(ctx, featureindex.CommissionEmbeddingInput(snapshot))
 			if err != nil {
 				return fmt.Errorf("embed Commission %d: %w", snapshot.CommissionID, err)
 			}
-			if err := store.Upsert(ctx, commissionindex.BuildDocument(snapshot, stat, embedding)); err != nil {
+			if err := store.Upsert(ctx, featureindex.BuildCommissionDocument(snapshot, stat, embedding)); err != nil {
 				return fmt.Errorf("index Commission %d: %w", snapshot.CommissionID, err)
 			}
 		}

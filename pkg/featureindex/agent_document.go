@@ -1,5 +1,4 @@
-// Package agentindex projects only public Agent Card fields into discovery.
-package agentindex
+package featureindex
 
 import (
 	"context"
@@ -12,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-type Document struct {
+type AgentDocument struct {
 	ProjectionVersion int64             `json:"projection_version"`
 	AgentID           int64             `json:"agent_id"`
 	Version           int64             `json:"version"`
@@ -35,9 +34,12 @@ type publicCard struct {
 }
 
 // Load never selects private_card, owner geography, email, or control context.
-func Load(ctx context.Context, db *gorm.DB, ids []int64) ([]Document, error) {
+func LoadAgents(ctx context.Context, db *gorm.DB, ids []int64) ([]AgentDocument, error) {
+	return loadAgents(ctx, db, ids, false)
+}
+func loadAgents(ctx context.Context, db *gorm.DB, ids []int64, featuresOnly bool) ([]AgentDocument, error) {
 	if len(ids) == 0 {
-		return []Document{}, nil
+		return []AgentDocument{}, nil
 	}
 	if len(ids) > 1000 {
 		return nil, fmt.Errorf("Agent hydration bound exceeded")
@@ -47,20 +49,27 @@ func Load(ctx context.Context, db *gorm.DB, ids []int64) ([]Document, error) {
 		PublicCard                                     string
 		Active                                         bool
 	}
+	cardExpr := "c.public_card::text"
+	if featuresOnly {
+		cardExpr = "jsonb_build_object('working_languages',c.public_card->'working_languages','last_active_at',c.public_card->'last_active_at')::text"
+	}
 	err := db.WithContext(ctx).Raw(`SELECT c.agent_id, c.public_card_version AS version,c.rebuild_fence AS projection_version, c.public_card_generated_at AS updated_at,
- c.public_card::text, (COALESCE(a.profile_completed_at,0)>0 AND a.identity_state='active') AS active
+ `+cardExpr+` AS public_card, (COALESCE(a.profile_completed_at,0)>0 AND a.identity_state='active') AS active
  FROM agent_cards c JOIN agents a USING (agent_id) WHERE c.agent_id IN ?`, ids).Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}
-	out := make([]Document, 0, len(rows))
+	out := make([]AgentDocument, 0, len(rows))
 	for _, r := range rows {
 		var p publicCard
 		if err = json.Unmarshal([]byte(r.PublicCard), &p); err != nil {
 			return nil, err
 		}
-		parts := []string{p.DisplayName, p.AgentDescription, p.HumanDescription, strings.Join(p.Offering, " "), strings.Join(p.Seeking, " ")}
-		out = append(out, Document{AgentID: r.AgentID, Version: r.Version, ProjectionVersion: r.ProjectionVersion, Active: r.Active, SearchText: strings.Join(parts, "\n"), DisplayName: p.DisplayName, Slots: searchindex.Slots{Lang: p.Languages}, ActivityAt: p.LastActive, UpdatedAt: r.UpdatedAt})
+		text := ""
+		if !featuresOnly {
+			text = strings.Join([]string{p.DisplayName, p.AgentDescription, p.HumanDescription, strings.Join(p.Offering, " "), strings.Join(p.Seeking, " ")}, "\n")
+		}
+		out = append(out, AgentDocument{AgentID: r.AgentID, Version: r.Version, ProjectionVersion: r.ProjectionVersion, Active: r.Active, SearchText: text, DisplayName: p.DisplayName, Slots: searchindex.Slots{Lang: p.Languages}, ActivityAt: p.LastActive, UpdatedAt: r.UpdatedAt})
 	}
 	return out, nil
 }

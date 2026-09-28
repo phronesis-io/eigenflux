@@ -1,0 +1,21 @@
+# Fields emitted by the agent.card source adapter. Embeddings are prohibited.
+name: agent.card
+entity: agent
+component: card
+id_field: agent_id
+version_field: projection_version
+ttl: 0s
+retention_ttl: 168h
+load:
+  interval: 1s
+  timeout: 20s
+  batch_size: 100
+  cycle_pause: 5m
+fields:
+  - agent_id
+  - version
+  - projection_version
+  - active
+  - retrieval_slots
+  - activity_at
+  - updated_at

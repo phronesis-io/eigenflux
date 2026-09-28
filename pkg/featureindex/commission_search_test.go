@@ -1,4 +1,4 @@
-package commissionindex
+package featureindex
 
 import (
 	"context"
@@ -23,22 +23,22 @@ func forwardRedis(t *testing.T) *redis.Client {
 	t.Cleanup(func() { _ = r.Close() })
 	return r
 }
-func seedForward(t *testing.T, r *redis.Client, index string, d Document) {
+func seedForward(t *testing.T, r *redis.Client, index string, d CommissionDocument) {
 	t.Helper()
-	if err := WriteForward(context.Background(), r, index, d); err != nil {
+	if err := (CommissionIndex{Redis: r, IndexName: index}).Write(context.Background(), d); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestBuildDocumentUsesIndependentVersionsAndNormalizedText(t *testing.T) {
-	doc := BuildDocument(CatalogueSnapshot{CommissionID: 1, SellerAgentID: 2, Status: "active", CatalogueVersion: 4, Title: "  Build  API ", Tags: []string{"Go", "API"}}, StatisticsSnapshot{CommissionID: 1, StatisticsVersion: 7, CompletedCount: 2}, []float32{1})
+	doc := BuildCommissionDocument(CommissionCatalogueSnapshot{CommissionID: 1, SellerAgentID: 2, Status: "active", CatalogueVersion: 4, Title: "  Build  API ", Tags: []string{"Go", "API"}}, CommissionStatisticsSnapshot{CommissionID: 1, StatisticsVersion: 7, CompletedCount: 2}, []float32{1})
 	if !doc.Active || doc.CatalogueVersion != 4 || doc.StatisticsVersion != 7 || doc.SearchText != "Build API Go API" {
 		t.Fatalf("unexpected document: %#v", doc)
 	}
 }
 
 func TestTombstoneRetainsVersion(t *testing.T) {
-	doc := Tombstone(CatalogueSnapshot{CommissionID: 1, CatalogueVersion: 3, Status: "active"}, StatisticsSnapshot{StatisticsVersion: 4, CompletedCount: 2, CompletionRateBPS: 8000})
+	doc := CommissionTombstone(CommissionCatalogueSnapshot{CommissionID: 1, CatalogueVersion: 3, Status: "active"}, CommissionStatisticsSnapshot{StatisticsVersion: 4, CompletedCount: 2, CompletionRateBPS: 8000})
 	if doc.Active || doc.CatalogueVersion != 3 || doc.StatisticsVersion != 4 || doc.CompletedCount != 2 || doc.CompletionRateBPS != 8000 {
 		t.Fatalf("unexpected tombstone: %#v", doc)
 	}
@@ -73,7 +73,7 @@ func withCommissionESTransport(t *testing.T, roundTrip commissionRoundTripFunc) 
 
 func TestESStoreGetUsesReadAliasAndExactInt64ID(t *testing.T) {
 	r := forwardRedis(t)
-	seedForward(t, r, "commissions-v1", Document{CommissionID: 9223372036854775807, Active: true, CatalogueVersion: 12, StatisticsVersion: 13})
+	seedForward(t, r, "commissions-v1", CommissionDocument{CommissionID: 9223372036854775807, Active: true, CatalogueVersion: 12, StatisticsVersion: 13})
 	body := &closeTrackingBody{Reader: strings.NewReader(`{"_index":"commissions-v1","_id":"9223372036854775807","found":true,"_source":{"commission_id":9223372036854775807,"active":true,"catalogue_version":12,"statistics_version":13,"title":"` + strings.Repeat("irrelevant", 1000) + `","embedding":[1,2,3]}}`)}
 	withCommissionESTransport(t, func(req *http.Request) (*http.Response, error) {
 		if req.Method != http.MethodGet || req.URL.EscapedPath() != "/commissions/_doc/9223372036854775807" {
@@ -85,7 +85,7 @@ func TestESStoreGetUsesReadAliasAndExactInt64ID(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"X-Elastic-Product": []string{"Elasticsearch"}}, Body: body}, nil
 	})
 
-	doc, found, err := (ESStore{Redis: r, Index: "commissions-v1", Alias: "commissions"}).Get(context.Background(), 9223372036854775807)
+	doc, found, err := (CommissionESStore{Redis: r, Index: "commissions-v1", Alias: "commissions"}).Get(context.Background(), 9223372036854775807)
 	if err != nil || !found {
 		t.Fatalf("Get() found=%v error=%v", found, err)
 	}
@@ -102,7 +102,7 @@ func TestESStoreGetNotFound(t *testing.T) {
 	withCommissionESTransport(t, func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusNotFound, Header: http.Header{"X-Elastic-Product": []string{"Elasticsearch"}}, Body: body}, nil
 	})
-	doc, found, err := (ESStore{Alias: "commissions"}).Get(context.Background(), 42)
+	doc, found, err := (CommissionESStore{Alias: "commissions"}).Get(context.Background(), 42)
 	if err != nil || found || doc.CommissionID != 0 {
 		t.Fatalf("Get() doc=%#v found=%v error=%v", doc, found, err)
 	}
@@ -123,7 +123,7 @@ func TestESStoreGetRejectsNonDocument404(t *testing.T) {
 		withCommissionESTransport(t, func(*http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: http.StatusNotFound, Header: http.Header{"X-Elastic-Product": []string{"Elasticsearch"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
 		})
-		if _, _, err := (ESStore{Alias: "commissions"}).Get(context.Background(), 42); err == nil {
+		if _, _, err := (CommissionESStore{Alias: "commissions"}).Get(context.Background(), 42); err == nil {
 			t.Fatalf("non-document 404 accepted: %.80q", body)
 		}
 	}
@@ -134,7 +134,7 @@ func TestESStoreGetFailsClosed(t *testing.T) {
 		previous := es.Client
 		es.Client = nil
 		t.Cleanup(func() { es.Client = previous })
-		if _, _, err := (ESStore{}).Get(context.Background(), 0); err == nil || len(err.Error()) > 96 {
+		if _, _, err := (CommissionESStore{}).Get(context.Background(), 0); err == nil || len(err.Error()) > 96 {
 			t.Fatalf("error=%v", err)
 		}
 	})
@@ -157,7 +157,7 @@ func TestESStoreGetFailsClosed(t *testing.T) {
 				}
 				return &http.Response{StatusCode: tc.status, Header: http.Header{"X-Elastic-Product": []string{"Elasticsearch"}}, Body: io.NopCloser(tc.body)}, nil
 			})
-			_, _, err := (ESStore{Alias: "commissions"}).Get(context.Background(), 42)
+			_, _, err := (CommissionESStore{Alias: "commissions"}).Get(context.Background(), 42)
 			if err == nil {
 				t.Fatal("Get() succeeded")
 			}
@@ -176,7 +176,7 @@ func TestESStoreReadyReadsCommissionMappingDimensions(t *testing.T) {
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"X-Elastic-Product": []string{"Elasticsearch"}}, Body: body}, nil
 	})
-	dimensions, err := (ESStore{Alias: "commissions"}).Ready(context.Background())
+	dimensions, err := (CommissionESStore{Alias: "commissions"}).Ready(context.Background())
 	if err != nil || dimensions != 768 {
 		t.Fatalf("Ready() dimensions=%d error=%v", dimensions, err)
 	}
@@ -200,7 +200,7 @@ func TestESStoreReadyFailsClosedForUnavailableOrInconsistentMapping(t *testing.T
 			withCommissionESTransport(t, func(*http.Request) (*http.Response, error) {
 				return &http.Response{StatusCode: tc.status, Header: http.Header{"X-Elastic-Product": []string{"Elasticsearch"}}, Body: io.NopCloser(strings.NewReader(tc.body))}, nil
 			})
-			_, err := (ESStore{Alias: "commissions"}).Ready(context.Background())
+			_, err := (CommissionESStore{Alias: "commissions"}).Ready(context.Background())
 			if err == nil || len(err.Error()) > 96 || strings.Contains(err.Error(), "private") || strings.Contains(err.Error(), "source") {
 				t.Fatalf("unsafe error=%v", err)
 			}
@@ -230,14 +230,14 @@ func TestESStoreSearchSetsJSONContentType(t *testing.T) {
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"X-Elastic-Product": []string{"Elasticsearch"}}, Body: io.NopCloser(strings.NewReader(`{"hits":{"hits":[]}}`))}, nil
 	})
-	if _, err := (ESStore{Alias: "commissions"}).Search(context.Background(), SearchRequest{Query: "integration", Limit: 1}); err != nil {
+	if _, err := (CommissionESStore{Alias: "commissions"}).Search(context.Background(), CommissionSearchRequest{Query: "integration", Limit: 1}); err != nil {
 		t.Fatalf("Search() error=%v", err)
 	}
 }
 
 func TestESStoreSearchByCommissionIDUsesExactTermAndFilters(t *testing.T) {
 	r := forwardRedis(t)
-	seedForward(t, r, "commissions-v1", Document{CommissionID: 9223372036854775807, Active: true, CatalogueVersion: 1})
+	seedForward(t, r, "commissions-v1", CommissionDocument{CommissionID: 9223372036854775807, Active: true, CatalogueVersion: 1})
 	const commissionID = int64(9223372036854775807)
 	withCommissionESTransport(t, func(req *http.Request) (*http.Response, error) {
 		body, err := io.ReadAll(req.Body)
@@ -280,7 +280,7 @@ func TestESStoreSearchByCommissionIDUsesExactTermAndFilters(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"X-Elastic-Product": []string{"Elasticsearch"}}, Body: io.NopCloser(strings.NewReader(response))}, nil
 	})
 
-	hits, err := (ESStore{Redis: r, Alias: "commissions"}).Search(context.Background(), SearchRequest{
+	hits, err := (CommissionESStore{Redis: r, Alias: "commissions"}).Search(context.Background(), CommissionSearchRequest{
 		CommissionID: commissionID,
 		Embedding:    []float32{1, 2, 3},
 		MinPriceFen:  10,
@@ -293,12 +293,12 @@ func TestESStoreSearchByCommissionIDUsesExactTermAndFilters(t *testing.T) {
 }
 
 func TestESStoreSearchRejectsMissingOrConflictingMode(t *testing.T) {
-	for _, request := range []SearchRequest{
+	for _, request := range []CommissionSearchRequest{
 		{},
 		{CommissionID: -1},
 		{Query: "research", CommissionID: 42},
 	} {
-		if _, err := (ESStore{Alias: "commissions"}).Search(context.Background(), request); err == nil {
+		if _, err := (CommissionESStore{Alias: "commissions"}).Search(context.Background(), request); err == nil {
 			t.Fatalf("Search(%+v) succeeded", request)
 		}
 	}
@@ -315,7 +315,7 @@ func TestESStoreUpsertSetsJSONContentType(t *testing.T) {
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"X-Elastic-Product": []string{"Elasticsearch"}}, Body: io.NopCloser(strings.NewReader(`{"result":"updated"}`))}, nil
 	})
-	if err := (ESStore{Redis: r, Index: "commissions-v1", Alias: "commissions"}).Upsert(context.Background(), Document{CommissionID: 1, CatalogueVersion: 1}); err != nil {
+	if err := (CommissionESStore{Redis: r, Index: "commissions-v1", Alias: "commissions"}).Upsert(context.Background(), CommissionDocument{CommissionID: 1, CatalogueVersion: 1}); err != nil {
 		t.Fatalf("Upsert() error=%v", err)
 	}
 }
@@ -356,7 +356,7 @@ func TestESStoreEnsureAtomicallyMovesAliasToSingleWriteIndex(t *testing.T) {
 			return nil, errors.New("unexpected request")
 		}
 	})
-	if err := (ESStore{Index: "commissions-v2", Alias: "commissions", Dimensions: 768}).Ensure(context.Background()); err != nil {
+	if err := (CommissionESStore{Index: "commissions-v2", Alias: "commissions", Dimensions: 768}).Ensure(context.Background()); err != nil {
 		t.Fatalf("Ensure() error=%v", err)
 	}
 	if requestCount != 3 {
@@ -381,7 +381,7 @@ func TestESStoreEnsureDoesNotMoveExistingAlias(t *testing.T) {
 			return nil, errors.New("unexpected alias move")
 		}
 	})
-	if err := (ESStore{Index: "commissions-v2", Alias: "commissions", Dimensions: 768}).Ensure(context.Background()); err != nil {
+	if err := (CommissionESStore{Index: "commissions-v2", Alias: "commissions", Dimensions: 768}).Ensure(context.Background()); err != nil {
 		t.Fatalf("Ensure() error=%v", err)
 	}
 	if requestCount != 2 {
@@ -394,7 +394,7 @@ func TestESStoreSearchRejectsOversizedResponse(t *testing.T) {
 		body := `{"hits":{"hits":[]},"private":"` + strings.Repeat("x", maxCommissionSearchResponseBytes) + `"}`
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"X-Elastic-Product": []string{"Elasticsearch"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
 	})
-	_, err := (ESStore{Alias: "commissions"}).Search(context.Background(), SearchRequest{Query: "integration", Limit: 1})
+	_, err := (CommissionESStore{Alias: "commissions"}).Search(context.Background(), CommissionSearchRequest{Query: "integration", Limit: 1})
 	if err == nil || strings.Contains(err.Error(), "private") {
 		t.Fatalf("Search() error=%v", err)
 	}

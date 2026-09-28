@@ -2,49 +2,49 @@ package consumer
 
 import (
 	"context"
-	"eigenflux_server/pkg/commissionindex"
+	"eigenflux_server/pkg/featureindex"
 	"errors"
 	"testing"
 )
 
 type commissionTestSource struct {
-	catalogue       commissionindex.CatalogueSnapshot
-	statistics      commissionindex.StatisticsSnapshot
+	catalogue       featureindex.CommissionCatalogueSnapshot
+	statistics      featureindex.CommissionStatisticsSnapshot
 	err             error
 	forbidCatalogue bool
 }
 
-func (s commissionTestSource) GetIndexSnapshot(context.Context, int64) (commissionindex.CatalogueSnapshot, error) {
+func (s commissionTestSource) GetIndexSnapshot(context.Context, int64) (featureindex.CommissionCatalogueSnapshot, error) {
 	if s.forbidCatalogue {
 		panic("statistics event must not read catalogue")
 	}
 	return s.catalogue, s.err
 }
-func (s commissionTestSource) ListActiveIndexSnapshots(context.Context, int64, int) ([]commissionindex.CatalogueSnapshot, int64, error) {
+func (s commissionTestSource) ListActiveIndexSnapshots(context.Context, int64, int) ([]featureindex.CommissionCatalogueSnapshot, int64, error) {
 	return nil, 0, s.err
 }
-func (s commissionTestSource) GetStatistics(context.Context, int64) (commissionindex.StatisticsSnapshot, error) {
+func (s commissionTestSource) GetStatistics(context.Context, int64) (featureindex.CommissionStatisticsSnapshot, error) {
 	return s.statistics, s.err
 }
-func (s commissionTestSource) BatchGetStatistics(context.Context, []int64) ([]commissionindex.StatisticsSnapshot, error) {
+func (s commissionTestSource) BatchGetStatistics(context.Context, []int64) ([]featureindex.CommissionStatisticsSnapshot, error) {
 	return nil, s.err
 }
 
 type commissionTestStore struct {
-	document   commissionindex.Document
-	statistics commissionindex.StatisticsSnapshot
+	document   featureindex.CommissionDocument
+	statistics featureindex.CommissionStatisticsSnapshot
 	err        error
 }
 
-func (s *commissionTestStore) Upsert(_ context.Context, d commissionindex.Document) error {
+func (s *commissionTestStore) Upsert(_ context.Context, d featureindex.CommissionDocument) error {
 	s.document = d
 	return s.err
 }
-func (s *commissionTestStore) UpsertStatistics(_ context.Context, v commissionindex.StatisticsSnapshot) error {
+func (s *commissionTestStore) UpsertStatistics(_ context.Context, v featureindex.CommissionStatisticsSnapshot) error {
 	s.statistics = v
 	return s.err
 }
-func (s *commissionTestStore) Search(context.Context, commissionindex.SearchRequest) ([]commissionindex.Hit, error) {
+func (s *commissionTestStore) Search(context.Context, featureindex.CommissionSearchRequest) ([]featureindex.CommissionHit, error) {
 	return nil, nil
 }
 
@@ -55,7 +55,7 @@ func (commissionTestEmbedder) GetEmbedding(context.Context, string) ([]float32, 
 }
 func TestCommissionConsumerProjectsActiveSnapshot(t *testing.T) {
 	store := &commissionTestStore{}
-	c := &CommissionIndexConsumer{source: commissionTestSource{catalogue: commissionindex.CatalogueSnapshot{CommissionID: 4, Status: "active", CatalogueVersion: 2, Title: "Write"}, statistics: commissionindex.StatisticsSnapshot{CommissionID: 4, StatisticsVersion: 3}}, store: store, embedder: commissionTestEmbedder{}}
+	c := &CommissionIndexConsumer{source: commissionTestSource{catalogue: featureindex.CommissionCatalogueSnapshot{CommissionID: 4, Status: "active", CatalogueVersion: 2, Title: "Write"}, statistics: featureindex.CommissionStatisticsSnapshot{CommissionID: 4, StatisticsVersion: 3}}, store: store, embedder: commissionTestEmbedder{}}
 	result := c.Handle(context.Background(), "1-0", map[string]any{"event_id": "1", "schema_version": "1", "topic": commissionPublishedTopic, "aggregate_type": "commission", "aggregate_id": "4", "aggregate_version": "2", "occurred_at": "1", "payload_json": "{}"})
 	if result != HandleSuccess || !store.document.Active || store.document.CatalogueVersion != 2 || store.document.StatisticsVersion != 3 {
 		t.Fatalf("unexpected projection: %#v, %v", store.document, result)
@@ -67,7 +67,7 @@ func TestCommissionConsumerProjectsStatisticsEnvelope(t *testing.T) {
 	c := &CommissionIndexConsumer{
 		source: commissionTestSource{
 			forbidCatalogue: true,
-			statistics:      commissionindex.StatisticsSnapshot{CommissionID: 4, StatisticsVersion: 7},
+			statistics:      featureindex.CommissionStatisticsSnapshot{CommissionID: 4, StatisticsVersion: 7},
 		},
 		store: store, embedder: nil,
 	}
@@ -89,7 +89,7 @@ func TestCommissionConsumerRejectsInvalidEnvelope(t *testing.T) {
 
 func TestCommissionConsumerDoesNotTombstoneNewerRepublication(t *testing.T) {
 	store := &commissionTestStore{}
-	c := &CommissionIndexConsumer{source: commissionTestSource{catalogue: commissionindex.CatalogueSnapshot{CommissionID: 4, Status: "active", CatalogueVersion: 3, Title: "Write"}, statistics: commissionindex.StatisticsSnapshot{CommissionID: 4, StatisticsVersion: 3}}, store: store, embedder: commissionTestEmbedder{}}
+	c := &CommissionIndexConsumer{source: commissionTestSource{catalogue: featureindex.CommissionCatalogueSnapshot{CommissionID: 4, Status: "active", CatalogueVersion: 3, Title: "Write"}, statistics: featureindex.CommissionStatisticsSnapshot{CommissionID: 4, StatisticsVersion: 3}}, store: store, embedder: commissionTestEmbedder{}}
 	result := c.Handle(context.Background(), "1-0", map[string]any{"event_id": "1", "schema_version": "1", "topic": commissionOfflineTopic, "aggregate_type": "commission", "aggregate_id": "4", "aggregate_version": "2", "occurred_at": "1", "payload_json": "{}"})
 	if result != HandleSuccess || !store.document.Active {
 		t.Fatalf("delayed offline event regressed republication: %#v, %v", store.document, result)
@@ -99,13 +99,13 @@ func TestCommissionConsumerDoesNotTombstoneNewerRepublication(t *testing.T) {
 func TestCommissionStatisticsProjectionRetries(t *testing.T) {
 	for _, tc := range []struct {
 		name                string
-		snapshot            commissionindex.StatisticsSnapshot
+		snapshot            featureindex.CommissionStatisticsSnapshot
 		sourceErr, storeErr error
 	}{
 		{name: "source unavailable", sourceErr: errors.New("source unavailable")},
-		{name: "stale snapshot", snapshot: commissionindex.StatisticsSnapshot{CommissionID: 4, StatisticsVersion: 6}},
-		{name: "wrong identity", snapshot: commissionindex.StatisticsSnapshot{CommissionID: 5, StatisticsVersion: 7}},
-		{name: "forward unavailable", snapshot: commissionindex.StatisticsSnapshot{CommissionID: 4, StatisticsVersion: 7}, storeErr: errors.New("Redis unavailable")},
+		{name: "stale snapshot", snapshot: featureindex.CommissionStatisticsSnapshot{CommissionID: 4, StatisticsVersion: 6}},
+		{name: "wrong identity", snapshot: featureindex.CommissionStatisticsSnapshot{CommissionID: 5, StatisticsVersion: 7}},
+		{name: "forward unavailable", snapshot: featureindex.CommissionStatisticsSnapshot{CommissionID: 4, StatisticsVersion: 7}, storeErr: errors.New("Redis unavailable")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &commissionTestStore{err: tc.storeErr}

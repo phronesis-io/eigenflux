@@ -218,6 +218,10 @@ type Config struct {
 	BlockedAgentEmails    []string // agent emails denied at the API auth gate (spam/abuse); blocks every authenticated route including broadcast publish
 	RecallRedisNamespace  string   // Redis key namespace for recall indices (default: "rec")
 
+	// External feature view YAML, reloaded by each feature reader/writer process.
+	FeatureIndexConfigDir      string
+	FeatureIndexReloadInterval string
+
 	// LR ranker (sort). A daily-trained logistic-regression model replaces the
 	// formula rank when enabled and a valid bundle is loaded; otherwise sort
 	// falls back to the baseline formula ranker. The bundle is delivered to a
@@ -424,6 +428,8 @@ func Load() *Config {
 		LRRankerEnabled:              getEnvBool("LR_RANKER_ENABLED", false),
 		LRRankerModelPath:            getEnv("LR_RANKER_MODEL_PATH", "/data/models/eigenflux/lr-ranker/current/model.json"),
 		LRRankerReloadInterval:       getEnv("LR_RANKER_RELOAD_INTERVAL", "60s"),
+		FeatureIndexConfigDir:        getEnv("FEATURE_INDEX_CONFIG_DIR", "configs/featureindex"),
+		FeatureIndexReloadInterval:   getEnv("FEATURE_INDEX_RELOAD_INTERVAL", "5s"),
 		RecallRedisNamespace:         getEnv("REC_REDIS_NAMESPACE", "rec"),
 		FreshnessAlertOffset:         getEnv("FRESHNESS_ALERT_OFFSET", "2h"),
 		FreshnessAlertScale:          getEnv("FRESHNESS_ALERT_SCALE", "12h"),

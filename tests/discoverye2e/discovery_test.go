@@ -4,14 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"eigenflux_server/pkg/agentindex"
-	"eigenflux_server/pkg/commissionindex"
+	"eigenflux_server/pkg/featureindex"
+
 	"eigenflux_server/pkg/es"
 	"eigenflux_server/pkg/impr"
 	"eigenflux_server/pkg/mq"
@@ -114,6 +117,45 @@ func TestDiscoveryE2E(t *testing.T) {
 			require.Eventually(t, func() bool { return mq.RDB.SIsMember(ctx, historyKey, member).Val() }, 3*time.Second, 25*time.Millisecond)
 			t.Cleanup(func() { require.NoError(t, mq.RDB.SRem(ctx, historyKey, member).Err()) })
 		}
+	})
+	t.Run("LongIntentFallbackPreservesCapturedNeed", func(t *testing.T) {
+		t.Cleanup(func() { s.sql(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner) })
+		var original string
+		require.NoError(t, s.db.Raw("SELECT compiled_context::text FROM agent_context_revisions WHERE agent_id=? AND revision=1", s.owner).Scan(&original).Error)
+		defer s.changeInputs(t, "UPDATE agent_context_revisions SET compiled_context=?::jsonb WHERE agent_id=? AND revision=1", original, s.owner)
+		raw, err := json.Marshal(map[string]any{"intent_actions": []map[string]string{{"watch_for": strings.Repeat("研", 1000), "trigger_when": strings.Repeat("究", 1000)}}})
+		require.NoError(t, err)
+		s.changeInputs(t, "UPDATE agent_context_revisions SET compiled_context=?::jsonb WHERE agent_id=? AND revision=1", string(raw), s.owner)
+		s.capture(t, s.need(t, "agent"))
+		out := s.recommend(t, discovery.Request{Limit: 20}, "")
+		found := false
+		for _, item := range out.Items {
+			if item.Ref.Type == discovery.Agent {
+				found = true
+			}
+		}
+		require.True(t, found, "valid captured Need was lost to another type's long fallback")
+		for _, item := range out.Items {
+			member := item.Ref.Key()
+			if item.Ref.Type == discovery.Broadcast {
+				continue
+			}
+			key := fmt.Sprintf("impr:discovery:agent:%d:items", s.owner)
+			require.Eventually(t, func() bool { return mq.RDB.SIsMember(ctx, key, member).Val() }, 3*time.Second, 25*time.Millisecond)
+			t.Cleanup(func() { require.NoError(t, mq.RDB.SRem(ctx, key, member).Err()) })
+		}
+	})
+	t.Run("SlowEmbeddingFallsBackBeforeRPCDeadline", func(t *testing.T) {
+		before := s.embeddingCallCount()
+		s.stallEmbedding.Store(true)
+		defer s.stallEmbedding.Store(false)
+		started := time.Now()
+		out := s.search(t, discovery.Request{Query: "landing page design"}, "")
+		require.GreaterOrEqual(t, time.Since(started), 2*time.Second)
+		require.Less(t, time.Since(started), 3*time.Second)
+		require.Len(t, out.Items, 3)
+		require.Contains(t, out.Reasons, "embedding_unavailable")
+		require.Greater(t, s.embeddingCallCount(), before)
 	})
 	t.Run("SavedNeedEmbeddingIsPrecomputedAndReused", func(t *testing.T) {
 		defer s.changeInputs(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)
@@ -282,6 +324,7 @@ func TestDiscoveryE2E(t *testing.T) {
 			}
 			require.Equal(t, want, first.Items[i].Ref.ID)
 			require.Equal(t, "rules", first.Items[i].Match["scorer_type"])
+			require.NotEmpty(t, first.Items[i].Preview["text"], "slim forward retains response preview")
 		}
 		s.waitSamples(t, first.ImpressionID, 3)
 		var rows []struct {
@@ -330,6 +373,37 @@ func TestDiscoveryE2E(t *testing.T) {
 		require.Equal(t, "legacy_feed_v1", old.PipelineVersion)
 		require.Equal(t, "feed", old.RequestMode)
 		require.Equal(t, 1, old.SampleSchemaVersion)
+	})
+	t.Run("FeatureMetricsAreExposedBySort", func(t *testing.T) {
+		result := s.search(t, discovery.Request{Query: "landing page"}, "")
+		require.Len(t, result.Items, 3)
+		port, err := strconv.Atoi(os.Getenv("SORT_RPC_PORT"))
+		require.NoError(t, err)
+		response, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/metrics", port+1000))
+		require.NoError(t, err)
+		defer response.Body.Close()
+		require.Equal(t, http.StatusOK, response.StatusCode)
+		raw, err := io.ReadAll(response.Body)
+		require.NoError(t, err)
+		for _, name := range []string{"feature_index_read_items_total"} {
+			require.Contains(t, string(raw), name)
+		}
+		require.Contains(t, string(raw), `outcome="request_hit"`)
+		for _, name := range []string{"feature_index_operation_seconds", "feature_index_batch_size", "feature_index_payload_bytes", "feature_index_audit_key_bytes", "feature_index_loader_cycle_seconds"} {
+			require.NotContains(t, string(raw), name)
+		}
+		for _, kind := range []string{"agent.card", "broadcast.item", "commission.catalogue", "commission.statistics"} {
+			require.Contains(t, string(raw), `view="`+kind+`"`)
+		}
+	})
+	t.Run("TextExclusionsWithSlimForward", func(t *testing.T) {
+		for _, tc := range []struct {
+			term  string
+			count int
+		}{{"design", 0}, {"sign", 3}, {"ＤＥＳＩＧＮ", 0}, {"不存在的词", 3}} {
+			result := s.search(t, discovery.Request{Query: "landing page", Filters: discovery.Filters{ExcludeTerms: []string{tc.term}}}, "")
+			require.Len(t, result.Items, tc.count, tc.term)
+		}
 	})
 	t.Run("QueryNormalizationAndDenseRetrievalWithoutAliases", func(t *testing.T) {
 		for _, query := range []string{"  ＬＰ  ", "着陆页", "帮我做LP"} {
@@ -413,14 +487,41 @@ func TestDiscoveryE2E(t *testing.T) {
 			}
 		}
 	})
+	t.Run("BroadcastForwardFeaturesAndAuthoritativeState", func(t *testing.T) {
+		store := featureindex.BroadcastIndex{DB: s.db, Redis: mq.RDB}
+		rows, err := store.Read(ctx, []int64{s.item})
+		require.NoError(t, err)
+		d := rows[s.item]
+		f := (featureindex.BroadcastIndex{Redis: mq.RDB}).Forward()
+		defer func() { _, err := store.Load(ctx, []int64{s.item}); require.NoError(t, err) }()
+		d.QualityScore = .23
+		d.Version, err = f.AllocateVersion(ctx)
+		require.NoError(t, err)
+		require.NoError(t, f.Put(ctx, s.item, "item", d.Version, d))
+		result := s.search(t, discovery.Request{Query: "landing page design", SourceKinds: []discovery.Kind{discovery.Broadcast}}, "")
+		require.Len(t, result.Items, 1)
+		s.waitSamples(t, result.ImpressionID, 1)
+		var raw string
+		require.NoError(t, s.db.Table("replay_logs").Select("item_features").Where("impression_id=?", result.ImpressionID).Scan(&raw).Error)
+		sample := decode[struct {
+			Search discovery.Candidate `json:"search"`
+		}](t, []byte(raw))
+		require.InDelta(t, .23, sample.Search.Score.Features["quality"], .00001, "quality comes from Redis, not ES or DB")
+		require.InDelta(t, 1, sample.Search.Score.Features["cosine"], .00001)
+		require.NotContains(t, mq.RDB.HGet(ctx, f.Key(s.item, "item"), "data").Val(), `"embedding"`)
+		s.sql(t, "UPDATE processed_items SET status=2 WHERE item_id=?", s.item)
+		defer s.sql(t, "UPDATE processed_items SET status=3 WHERE item_id=?", s.item)
+		result = s.search(t, discovery.Request{Query: "landing page design", SourceKinds: []discovery.Kind{discovery.Broadcast}}, "")
+		require.Empty(t, result.Items, "warm forward projection cannot bypass current item status")
+	})
 	t.Run("RedisForwardSuppliesRankingFeatures", func(t *testing.T) {
-		agentRows, err := agentindex.ReadForward(ctx, mq.RDB, s.agentIndex, []int64{s.author})
+		agentRows, err := (featureindex.AgentIndex{Redis: mq.RDB, IndexName: s.agentIndex}).Read(ctx, []int64{s.author})
 		require.NoError(t, err)
 		a := agentRows[s.author]
 		require.Empty(t, a.Embedding)
-		require.NotContains(t, mq.RDB.HGet(ctx, agentindex.Forward(mq.RDB, s.agentIndex).Key(s.author, "card"), "data").Val(), `"embedding"`)
+		require.NotContains(t, mq.RDB.HGet(ctx, (featureindex.AgentIndex{Redis: mq.RDB, IndexName: s.agentIndex}).Forward().Key(s.author, "card"), "data").Val(), `"embedding"`)
 		a.ActivityAt = 0 // The DB public Card still has a recent last_active_at.
-		require.NoError(t, agentindex.WriteForward(ctx, mq.RDB, s.agentIndex, a))
+		require.NoError(t, (featureindex.AgentIndex{Redis: mq.RDB, IndexName: s.agentIndex}).Write(ctx, a))
 		result := s.search(t, discovery.Request{Query: "landing page design", SourceKinds: []discovery.Kind{discovery.Agent}}, "")
 		require.Len(t, result.Items, 1)
 		s.waitSamples(t, result.ImpressionID, 1)
@@ -431,9 +532,9 @@ func TestDiscoveryE2E(t *testing.T) {
 		}](t, []byte(raw))
 		require.Zero(t, sample.Search.Score.Features["activity_freshness"])
 		require.InDelta(t, 1, sample.Search.Score.Features["cosine"], 0.00001, "cosine must derive from ES kNN score without a Redis vector")
-		require.NotContains(t, mq.RDB.HGet(ctx, commissionindex.Forward(mq.RDB, s.commissionIndex).Key(s.item, "catalogue"), "data").Val(), `"embedding"`)
+		require.NotContains(t, mq.RDB.HGet(ctx, (featureindex.CommissionIndex{Redis: mq.RDB, IndexName: s.commissionIndex}).Forward().Key(s.item, "catalogue"), "data").Val(), `"embedding"`)
 		before := s.esDocument(t, s.commissionIndex, s.item)
-		require.NoError(t, commissionindex.WriteStatistics(ctx, mq.RDB, s.commissionIndex, commissionindex.StatisticsSnapshot{CommissionID: s.item, StatisticsVersion: 7, CompletionRateBPS: 8000}))
+		require.NoError(t, (featureindex.CommissionIndex{Redis: mq.RDB, IndexName: s.commissionIndex}).WriteStatistics(ctx, featureindex.CommissionStatisticsSnapshot{CommissionID: s.item, StatisticsVersion: 7, CompletionRateBPS: 8000}))
 		result = s.search(t, discovery.Request{Query: "landing page design", SourceKinds: []discovery.Kind{discovery.Commission}}, "")
 		require.Len(t, result.Items, 1)
 		s.waitSamples(t, result.ImpressionID, 1)
@@ -462,9 +563,9 @@ func TestDiscoveryE2E(t *testing.T) {
 	t.Run("ForwardMissVersionGapAndReadFailure", func(t *testing.T) {
 		for _, kind := range []discovery.Kind{discovery.Agent, discovery.Commission} {
 			t.Run(string(kind), func(t *testing.T) {
-				key, versionField := agentindex.Forward(mq.RDB, s.agentIndex).Key(s.author, "card"), "projection_version"
+				key, versionField := (featureindex.AgentIndex{Redis: mq.RDB, IndexName: s.agentIndex}).Forward().Key(s.author, "card"), "projection_version"
 				if kind == discovery.Commission {
-					key, versionField = commissionindex.Forward(mq.RDB, s.commissionIndex).Key(s.item, "catalogue"), "catalogue_version"
+					key, versionField = (featureindex.CommissionIndex{Redis: mq.RDB, IndexName: s.commissionIndex}).Forward().Key(s.item, "catalogue"), "catalogue_version"
 				}
 				original, err := mq.RDB.HGetAll(ctx, key).Result()
 				require.NoError(t, err)

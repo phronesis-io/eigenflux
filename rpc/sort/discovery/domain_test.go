@@ -20,7 +20,7 @@ func baseContext() Context {
 	return Context{ID: 1, OwnerID: 10, State: "active", Kinds: AllKinds, Vector: []float32{1, 0}}
 }
 func baseDoc(k Kind) Document {
-	return Document{Ref: SourceRef{k, 20}, AuthorID: 20, Active: true, Visible: true, Text: "A landing page designer", Slots: searchindex.Slots{Lang: []string{"en"}}, Vector: []float32{1, 0}, Lexical: 10}
+	return Document{Ref: SourceRef{k, 20}, AuthorID: 20, Active: true, Visible: true, Text: "A landing page designer", Slots: searchindex.Slots{Lang: []string{"en"}}, Lexical: 10}
 }
 func num(n int64) *int64 { return &n }
 func TestFilterAllKindsAndMissingEvidence(t *testing.T) {

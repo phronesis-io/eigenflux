@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"eigenflux_server/pipeline/embedding"
-	"eigenflux_server/pkg/agentindex"
+	"eigenflux_server/pkg/featureindex"
 
 	"eigenflux_server/rpc/sort/discovery"
 	"log"
@@ -46,6 +46,13 @@ func main() {
 	cfg := config.Load()
 	logFlush := logger.Init("pipeline-cron", cfg.EffectiveLokiURL(), cfg.LogLevel)
 	defer logFlush()
+	if cfg.EnableNeedSearch || cfg.EnableCommissionIndex {
+		stopFeatureConfig, err := featureindex.StartConfig(context.Background(), cfg.FeatureIndexConfigDir, cfg.FeatureIndexReloadInterval)
+		if err != nil {
+			log.Fatalf("feature configuration: %v", err)
+		}
+		defer stopFeatureConfig()
+	}
 
 	shutdown, err := telemetry.Init("pipeline-cron", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)
 	if err != nil {
@@ -93,7 +100,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if cfg.EnableNeedSearch {
-		projector := agentindex.Projector{Redis: mq.RDB, DB: db.DB, Index: cfg.AgentDiscoveryIndex, Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)}
+		projector := featureindex.AgentProjector{Redis: mq.RDB, DB: db.DB, Index: cfg.AgentDiscoveryIndex, Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)}
 		projectDiscoveryAgent = projector.Project
 		go func() {
 			ticker := time.NewTicker(time.Hour)

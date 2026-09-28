@@ -5,10 +5,11 @@ package main
 import (
 	"context"
 	"eigenflux_server/pipeline/embedding"
-	"eigenflux_server/pkg/agentindex"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/es"
+	"eigenflux_server/pkg/featureindex"
+
 	"eigenflux_server/pkg/mq"
 
 	sortdal "eigenflux_server/rpc/sort/dal"
@@ -22,6 +23,12 @@ func main() {
 	kind := flag.String("kind", "agent", "agent or broadcast")
 	flag.Parse()
 	cfg := config.Load()
+	stopFeatureConfig, err := featureindex.StartConfig(context.Background(), cfg.FeatureIndexConfigDir, cfg.FeatureIndexReloadInterval)
+	if err != nil {
+		log.Fatalf("feature configuration: %v", err)
+	}
+	defer stopFeatureConfig()
+
 	if !cfg.EnableNeedSearch {
 		log.Fatal("ENABLE_NEED_SEARCH is required")
 	}
@@ -41,9 +48,9 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	p := agentindex.Projector{Redis: mq.RDB, DB: db.DB, Index: cfg.AgentDiscoveryIndex, Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)}
+	p := featureindex.AgentProjector{Redis: mq.RDB, DB: db.DB, Index: cfg.AgentDiscoveryIndex, Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)}
 	if *kind == "agent" {
-		if err := agentindex.Ensure(context.Background(), cfg.AgentDiscoveryIndex, cfg.EmbeddingDimensions); err != nil {
+		if err := featureindex.EnsureAgentSearchIndex(context.Background(), cfg.AgentDiscoveryIndex, cfg.EmbeddingDimensions); err != nil {
 			log.Fatal(err)
 		}
 	}

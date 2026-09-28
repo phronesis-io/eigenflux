@@ -2,20 +2,18 @@ package discovery
 
 import (
 	"context"
-	"crypto/sha256"
 	"eigenflux_server/pkg/agentidentity"
-	"eigenflux_server/pkg/agentindex"
 	"eigenflux_server/pkg/bloomfilter"
+	"eigenflux_server/pkg/featureindex"
+
 	"eigenflux_server/pkg/cache"
-	"eigenflux_server/pkg/commissionindex"
+
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/recall"
-	searchindex "eigenflux_server/rpc/sort/discovery/index"
 
 	sortdal "eigenflux_server/rpc/sort/dal"
 	"encoding/json"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -99,7 +97,7 @@ func (s *Source) loadOwner(ctx context.Context, id int64) (OwnerContext, error) 
 	return out, nil
 }
 func broadcast(d sortdal.Item) Document {
-	out := Document{Ref: SourceRef{Type: Broadcast, ID: d.ID}, AuthorID: d.AuthorAgentID, Version: strconv.FormatInt(d.UpdatedAt.UnixMilli(), 10), Text: d.Content + "\n" + d.Summary, Preview: d.Summary, Active: true, Visible: true, GroupID: d.GroupID, FreshAt: d.CreatedAt.UnixMilli(), SourceUpdatedAt: d.UpdatedAt.UnixMilli(), Quality: d.QualityScore, Vector: d.Embedding, Lexical: d.Score, ContentType: d.Type, SourceType: d.SourceType, URL: d.RawURL, Slots: d.RetrievalSlots}
+	out := Document{Ref: SourceRef{Type: Broadcast, ID: d.ID}, AuthorID: d.AuthorAgentID, Version: strconv.FormatInt(d.UpdatedAt.UnixMilli(), 10), Text: d.Content + "\n" + d.Summary, Preview: d.Summary, Active: true, Visible: true, GroupID: d.GroupID, FreshAt: d.CreatedAt.UnixMilli(), SourceUpdatedAt: d.UpdatedAt.UnixMilli(), Quality: d.QualityScore, Lexical: d.Score, ContentType: d.Type, SourceType: d.SourceType, URL: d.RawURL, Slots: d.RetrievalSlots}
 	if d.Lang != "" {
 		out.Slots.Lang = []string{d.Lang}
 	}
@@ -109,7 +107,7 @@ func broadcast(d sortdal.Item) Document {
 	out.Version = broadcastVersion(out)
 	return out
 }
-func commission(d commissionindex.Document) Document {
+func commission(d featureindex.CommissionDocument) Document {
 	p, dur := d.PriceFen, d.PromisedDeliveryMS
 	return Document{Ref: SourceRef{Type: Commission, ID: d.CommissionID}, AuthorID: d.SellerAgentID, Version: strconv.FormatInt(d.CatalogueVersion, 10), StatisticsVersion: d.StatisticsVersion, Text: d.SearchText, Preview: d.Title, Active: d.Active, Visible: d.Active, PriceFen: &p, Currency: d.Currency, DurationMS: &dur, FreshAt: d.UpdatedAt.UnixMilli(), Fulfillment: float64(d.CompletionRateBPS) / 10000, Quality: float64(d.AverageRatingMilli) / 5000, Slots: d.RetrievalSlots}
 }
@@ -134,13 +132,9 @@ func (s *Source) Recall(ctx context.Context, c Context, k Kind, channel string, 
 		if len(ids) > limit {
 			ids = ids[:limit]
 		}
-		docs, err := sortdal.FetchItemsByIDs(ctx, ids)
-		if err != nil {
-			return nil, err
-		}
-		out := make([]Document, 0, len(docs))
-		for _, d := range docs {
-			out = append(out, broadcast(d))
+		out := make([]Document, 0, len(ids))
+		for _, id := range ids {
+			out = append(out, Document{Ref: SourceRef{Type: Broadcast, ID: id}, NeedExclusionText: len(c.Filters.ExcludeTerms) > 0})
 		}
 		return out, nil
 	}
@@ -158,32 +152,77 @@ func (s *Source) Hydrate(ctx context.Context, owner int64, mode Mode, docs []Doc
 			seen[d.Ref.Key()] = true
 		}
 	}
+	ctx = featureindex.EnsureRequestCache(ctx)
+	batches := []featureindex.ReadRequest{}
+	if ids := byKind[Broadcast]; len(ids) > 0 {
+		batches = append(batches, featureindex.ReadRequest{Forward: (featureindex.BroadcastIndex{Redis: s.Redis}).Forward(), IDs: ids, Components: []string{"item"}})
+	}
+	groupsToRead := map[string]*featureindex.ReadRequest{}
+	for _, d := range docs {
+		if d.Ref.Type == Broadcast || d.Ref.Type == Agent && d.ExactMatch != "" {
+			continue
+		}
+		if d.SourceIndex == "" {
+			return nil, fmt.Errorf("missing forward index generation")
+		}
+		namespace := string(d.Ref.Type) + ":" + d.SourceIndex
+		batch := groupsToRead[namespace]
+		if batch == nil {
+			components := []string{"card"}
+			if d.Ref.Type == Commission {
+				components = []string{"catalogue", "statistics"}
+			}
+			batch = &featureindex.ReadRequest{Forward: featureindex.Forward{Redis: s.Redis, Namespace: namespace}, Components: components}
+			groupsToRead[namespace] = batch
+		}
+		batch.IDs = append(batch.IDs, d.Ref.ID)
+	}
+	for _, batch := range groupsToRead {
+		batches = append(batches, *batch)
+	}
+	if err := featureindex.Prefetch(ctx, batches); err != nil {
+		return nil, err
+	}
 	out := []Document{}
 	if ids := byKind[Broadcast]; len(ids) > 0 {
-		var rows []struct {
-			ItemID, AuthorAgentID, CreatedAt, UpdatedAt, GroupID                int64
-			Status                                                              int
-			RawContent, Summary, RawURL, BroadcastType, SourceType, Lang, Slots string
-			ExpireTime                                                          string
-			QualityScore                                                        float64
-		}
-		err := s.DB.WithContext(ctx).Raw(`SELECT r.item_id,r.author_agent_id,r.raw_content,r.raw_url,r.created_at,p.updated_at,p.status,p.summary,p.broadcast_type,p.source_type,p.lang,p.expire_time,p.group_id,p.quality_score,p.retrieval_slots::text AS slots FROM raw_items r JOIN processed_items p USING(item_id) WHERE r.item_id IN ?`, ids).Scan(&rows).Error
+		rows, err := (featureindex.BroadcastIndex{DB: s.DB, Redis: s.Redis}).Read(ctx, ids)
 		if err != nil {
 			return nil, err
 		}
-		for _, r := range rows {
-			var slots searchindex.Slots
-			if err = json.Unmarshal([]byte(r.Slots), &slots); err != nil {
-				return nil, err
+		// Source visibility is authoritative even when scalar features are cached.
+		// This small batch read does not fetch content, embeddings or ranking fields.
+		var states []struct {
+			ItemID     int64
+			Status     int
+			ExpireTime string
+		}
+		if err := s.DB.WithContext(ctx).Table("processed_items").Select("item_id,status,expire_time").Where("item_id IN ?", ids).Scan(&states).Error; err != nil {
+			return nil, err
+		}
+		for _, state := range states {
+			r, ok := rows[state.ItemID]
+			if !ok {
+				continue
 			}
-			d := broadcast(sortdal.Item{ID: r.ItemID, AuthorAgentID: r.AuthorAgentID, Content: r.RawContent, Summary: r.Summary, RawURL: r.RawURL, CreatedAt: time.UnixMilli(r.CreatedAt), UpdatedAt: time.UnixMilli(r.UpdatedAt), Type: r.BroadcastType, SourceType: r.SourceType, Lang: r.Lang, ExpireTime: parseExpiry(r.ExpireTime), GroupID: r.GroupID, QualityScore: r.QualityScore, RetrievalSlots: slots})
+			d := Document{Ref: SourceRef{Type: Broadcast, ID: r.ItemID}, AuthorID: r.AuthorID,
+				Version: r.ContentHash, Active: r.Active && state.Status == 3, Visible: true,
+				GroupID: r.GroupID, FreshAt: r.CreatedAt, SourceUpdatedAt: r.UpdatedAt,
+				Quality: r.QualityScore, ContentType: r.BroadcastType, SourceType: r.SourceType, URL: r.URL, Slots: r.Slots}
 			if r.Lang != "" {
 				d.Slots.Lang = []string{r.Lang}
 			}
-			d.Version = broadcastVersion(d)
-			d.Active = r.Status == 3
+			if expiry := parseExpiry(state.ExpireTime); expiry != nil {
+				d.ExpiresAt = expiry.UnixMilli()
+			} else {
+				d.ExpiresAt = 0
+			}
 			out = append(out, d)
 		}
+	}
+	// Pool recall carries IDs only. Fetch display summaries in one bounded DB
+	// batch; full source text is read only when exclusion terms require it.
+	if err := s.hydratePoolText(ctx, docs, out); err != nil {
+		return nil, err
 	}
 	// Ranking data comes only from the generation-specific forward projection.
 	// Exact Agent identity lookups do not rank by features and retain DB hydration.
@@ -205,7 +244,7 @@ func (s *Source) Hydrate(ctx context.Context, owner int64, mode Mode, docs []Doc
 		groups[d.Ref.Type][d.SourceIndex] = append(groups[d.Ref.Type][d.SourceIndex], d.Ref.ID)
 	}
 	if len(exactIDs) > 0 {
-		rows, err := agentindex.Load(ctx, s.DB, exactIDs)
+		rows, err := featureindex.LoadAgents(ctx, s.DB, exactIDs)
 		if err != nil {
 			return nil, err
 		}
@@ -223,7 +262,7 @@ func (s *Source) Hydrate(ctx context.Context, owner int64, mode Mode, docs []Doc
 		out = append(out, d)
 	}
 	for index, ids := range groups[Agent] {
-		rows, err := agentindex.ReadForward(ctx, s.Redis, index, ids)
+		rows, err := (featureindex.AgentIndex{Redis: s.Redis, IndexName: index}).Read(ctx, ids)
 		if err != nil {
 			return nil, err
 		}
@@ -236,7 +275,7 @@ func (s *Source) Hydrate(ctx context.Context, owner int64, mode Mode, docs []Doc
 		}
 	}
 	for index, ids := range groups[Commission] {
-		rows, err := commissionindex.ReadForward(ctx, s.Redis, index, ids)
+		rows, err := (featureindex.CommissionIndex{Redis: s.Redis, IndexName: index}).Read(ctx, ids)
 		if err != nil {
 			return nil, err
 		}
@@ -358,28 +397,13 @@ func (s *Source) Seen(ctx context.Context, owner int64, docs []Document) (map[st
 }
 
 func parseExpiry(raw string) *time.Time {
-	if raw == "" {
-		return nil
-	}
-	for _, layout := range []string{time.RFC3339, "2006-01-02 15:04:05", "2006-01-02"} {
-		if t, err := time.Parse(layout, raw); err == nil {
-			return &t
-		}
-	}
-	t := time.UnixMilli(1)
-	return &t
+	return featureindex.ParseExpiry(raw)
 }
 
 func broadcastVersion(d Document) string {
-	b, _ := json.Marshal(struct {
-		ID, Author, Group, Expires       int64
-		Text, Preview, Type, Source, URL string
-		Slots                            searchindex.Slots
-		Quality                          float64
-	}{d.Ref.ID, d.AuthorID, d.GroupID, d.ExpiresAt, d.Text, d.Preview, d.ContentType, d.SourceType, d.URL, d.Slots, math.Round(d.Quality*1e6) / 1e6})
-	return fmt.Sprintf("%x", sha256.Sum256(b))
+	return featureindex.BroadcastContentHash(d.Ref.ID, d.AuthorID, d.Text, d.Slots)
 }
 
-func agentDocument(d agentindex.Document) Document {
+func agentDocument(d featureindex.AgentDocument) Document {
 	return Document{Ref: SourceRef{Type: Agent, ID: d.AgentID}, AuthorID: d.AgentID, Version: strconv.FormatInt(d.Version, 10), ProjectionVersion: d.ProjectionVersion, Active: d.Active, Visible: d.Active, Text: d.SearchText, Preview: d.DisplayName, Slots: d.Slots, ActivityAt: d.ActivityAt, FreshAt: d.UpdatedAt}
 }

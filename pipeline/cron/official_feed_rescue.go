@@ -25,6 +25,10 @@ const lockKeyOfficialFeedRescue = "lock:cron:official_feed_rescue"
 // concrete topic suggestions (drawn from network-wide trending) nudging them to
 // broaden a domain or update their profile.
 func StartOfficialFeedRescue(ctx context.Context, cfg *config.Config, rdb *redis.Client, oc *official.Sender) {
+	if cfg.EnableNeedSearch {
+		logger.Default().Info("official feed-rescue disabled for Need search: legacy domain samples do not measure this traffic")
+		return
+	}
 	interval := time.Duration(cfg.OfficialRescueIntervalSec) * time.Second
 	if interval <= 0 {
 		interval = 24 * time.Hour
@@ -47,6 +51,9 @@ func StartOfficialFeedRescue(ctx context.Context, cfg *config.Config, rdb *redis
 }
 
 func runOfficialFeedRescue(ctx context.Context, cfg *config.Config, rdb *redis.Client, oc *official.Sender) {
+	if cfg.EnableNeedSearch {
+		return
+	}
 	token, acquired, err := acquireLock(ctx, rdb, lockKeyOfficialFeedRescue, 20*time.Minute)
 	if err != nil || !acquired {
 		return

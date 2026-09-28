@@ -49,6 +49,9 @@ integration suites' PostgreSQL advisory lock is respected.
   execution snapshots and samples, Intent edits, expired deadlines, successful
   search/recommendation with open requirements, multi-Need delivery, and frozen
   retries.
+- Maximum-length Chinese Intent fallback preserves valid captured Needs for other
+  kinds. A stalled embedding provider times out within its optional budget while
+  lexical results still return through the complete RPC chain.
 - Frozen search cursor pages, owner/request binding, page retries, and absolute
   positions in delivered samples under the same impression.
 - Three-kind search through HTTP → Feed → Sort, typed IDs and private-data
@@ -78,7 +81,8 @@ integration suites' PostgreSQL advisory lock is respected.
   markers, nullable broadcast IDs for other kinds, and legacy event compatibility
   in the same replay table. Checks poll eventual state rather than requiring an
   atomic delivery/history/sample transaction.
-- Redis forward features drive recorded scores; statistics-only updates leave ES
+- All-kind Redis forward features drive recorded scores; warm broadcast features
+  cannot bypass current item state. Statistics-only updates leave ES
   unchanged. ES documents exclude ranking-only fields. Missing/mismatched
   projections skip candidates, corrupt Redis types error, and catalogue RPC
   failures do not affect online ranking.
@@ -115,3 +119,23 @@ It checks independent execution IDs, deadline/constraint behavior, cache-free
 sample replay and zero new `discovery_contexts` rows. Direct SQL fixture changes
 explicitly invoke the post-commit invalidation helper; writer-hook assertions use
 production write paths.
+
+`TestFeatureYAMLReloadWithoutServiceRestart` validates external YAML field changes
+in the running Sort process against persisted ranking samples.
+
+Slim-forward regressions assert nonempty three-kind previews and preserve Latin
+word-boundary/full-width exclusion behavior through the HTTP and RPC stack.
+The Sort source integration suite additionally covers Chinese exclusions, exact
+Agent exclusions, ID-only pool summaries/text, changed-content hash rejection,
+and read-through repair of pre-upgrade broadcasts without content hashes.
+
+`FeatureMetricsAreExposedBySort` scrapes the running Sort process and verifies
+read outcomes, request-cache reuse and all four views, and verifies that removed
+intermediate histograms are absent.
+Feature unit tests count Redis commands/pipeline rounds, verify script-cache
+recovery and independent version fences, and exercise real Redis retention audit.
+
+Feature census tests cover physical key counts across generations/components,
+zero counts after expiry, fenced resumable checkpoints, replica pacing, and
+Prometheus exposition. Miss-rate tests exclude repeated request-cache reads and
+Redis errors while including physical misses and logical expiry.

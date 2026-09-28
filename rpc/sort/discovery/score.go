@@ -36,25 +36,6 @@ func clamp(v float64) float64 {
 	}
 	return math.Max(0, math.Min(1, v))
 }
-func Cosine(a, b []float32) (float64, bool) {
-	if len(a) == 0 || len(a) != len(b) {
-		return 0, false
-	}
-	var dot, aa, bb float64
-	for i, x := range a {
-		y := b[i]
-		if !finite(float64(x)) || !finite(float64(y)) {
-			return 0, false
-		}
-		dot += float64(x) * float64(y)
-		aa += float64(x) * float64(x)
-		bb += float64(y) * float64(y)
-	}
-	if aa == 0 || bb == 0 {
-		return 0, false
-	}
-	return math.Max(-1, math.Min(1, dot/math.Sqrt(aa*bb))), true
-}
 func decay(ts, now, half int64) float64 {
 	if ts <= 0 {
 		return 0
@@ -80,9 +61,7 @@ func ScoreRules(c Context, d Document, rule Rule, now int64) Score {
 	}
 	semantic := 0.0
 	cos, ok := 0.0, false
-	if d.Ref.Type == Broadcast {
-		cos, ok = Cosine(c.Vector, d.Vector)
-	} else if d.DenseScore != nil && finite(*d.DenseScore) && *d.DenseScore >= 0 && *d.DenseScore <= 1 {
+	if d.DenseScore != nil && finite(*d.DenseScore) && *d.DenseScore >= 0 && *d.DenseScore <= 1 {
 		// ES cosine kNN returns (1 + cosine) / 2, without lexical boosts.
 		cos, ok = 2*(*d.DenseScore)-1, true
 	}
@@ -104,6 +83,7 @@ func ScoreRules(c Context, d Document, rule Rule, now int64) Score {
 	s.Features["quality"] = quality
 	switch d.Ref.Type {
 	case Broadcast:
+		s.Version = rule.Version + ":broadcast_dense_v1"
 		s.Contributions = map[string]float64{"relevance": .85 * s.Relevance, "freshness": .10 * fresh, "quality": .05 * quality}
 		s.Value = .85*s.Relevance + .10*fresh + .05*quality
 	case Commission:

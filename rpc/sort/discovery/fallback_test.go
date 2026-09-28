@@ -2,7 +2,9 @@ package discovery
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"eigenflux_server/pkg/need"
 	"github.com/stretchr/testify/require"
@@ -59,4 +61,43 @@ func TestRecommendationFallbackEmptyContextAndExplicitSelection(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, x.Candidates, 1)
 	require.Equal(t, int64(7), x.Candidates[0].Context.NeedID())
+}
+
+func TestValidLongIntentKeepsOtherKindNeedResults(t *testing.T) {
+	for _, query := range []string{strings.Repeat("研", 1000) + " " + strings.Repeat("究", 1000), strings.Repeat("a", 1000) + " " + strings.Repeat("b", 1000)} {
+		e, source, store := engineFixture()
+		store.active = []need.Snapshot{capturedFixture(7, Agent)}
+		source.docs = []Document{baseDoc(Agent), baseDoc(Broadcast), baseDoc(Commission)}
+		source.owner = OwnerContext{Revision: "card:long", Clauses: []string{query}}
+		x, err := e.Execute(context.Background(), 1, Request{Limit: 10}, Recommendation, 100)
+		require.NoError(t, err)
+		require.Len(t, x.Candidates, 3)
+		found := false
+		for _, candidate := range x.Candidates {
+			if candidate.Document.Ref.Type == Agent {
+				require.Equal(t, int64(7), candidate.Context.NeedID())
+				found = true
+			}
+		}
+		require.True(t, found)
+		for _, c := range x.Contexts {
+			if c.Origin == "agent_context" {
+				require.Equal(t, query, c.Query)
+				require.NotContains(t, c.Warnings, "context_query_truncated")
+			}
+		}
+		_, err = e.Compiler.Query(context.Background(), 1, 2, 100, Request{Query: query}, "query")
+		require.Error(t, err, "explicit query limits must remain unchanged")
+	}
+}
+
+func TestOversizedInternalContextIsBoundedWithoutBreakingUTF8(t *testing.T) {
+	cc := Compiler{}
+	query := strings.Repeat("研究", 3000)
+	c, err := cc.Query(context.Background(), 1, 2, 100, Request{Query: query, SourceKinds: []Kind{Agent}}, "agent_context")
+	require.NoError(t, err)
+	require.True(t, utf8.ValidString(c.Query))
+	require.Equal(t, agentContextMaxRunes, utf8.RuneCountInString(c.Query))
+	require.Contains(t, c.Warnings, "context_query_truncated")
+	require.Equal(t, c.Query, c.QueryAnalysis.Normalized)
 }

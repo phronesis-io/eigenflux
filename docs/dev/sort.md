@@ -32,6 +32,9 @@ search and recommendation routes only when
 
 The Sort RPC service (`rpc/sort/`, port `SORT_RPC_PORT`) owns item recall, ranking, reranking, deduplication, and feed ordering through `SortItems`.
 
+The registered three-kind feature store and loader lifecycle are documented in
+[Online feature index](feature_index.md).
+
 ## Subpackages
 
 See the [Sort code review index](../../rpc/sort/README.md) for entry points and
@@ -42,7 +45,7 @@ belong to `legacy.Service` rather than package globals.
 | Subpackage | Responsibility |
 |------------|----------------|
 | `rpc/sort/discovery/` | Three-kind search/recommendation, context compilation, rule scoring and DB/ES/Redis access. |
-| `rpc/sort/discovery/index/` | Source evidence and versioned forward-index schema used by both query execution and index writers. |
+| `rpc/sort/discovery/index/` | Source language/provider evidence and normalization shared with index writers. |
 | `rpc/sort/discovery/transport/` | JSON response codec shared by Sort, Feed and the gateway. |
 | `rpc/sort/legacy/` | Existing feed/commission orchestration and the policy adapter reused by discovery. |
 | `rpc/sort/dal/` | Elasticsearch readers for `items-*` and PostgreSQL access for user profile data. |

@@ -5,8 +5,8 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	"eigenflux_server/kitex_gen/eigenflux/sort"
 	"eigenflux_server/pipeline/embedding"
-	"eigenflux_server/pkg/commissionindex"
 	embcodec "eigenflux_server/pkg/embedding"
+	"eigenflux_server/pkg/featureindex"
 	"eigenflux_server/pkg/json"
 	"eigenflux_server/pkg/metrics"
 	profileDal "eigenflux_server/rpc/profile/dal"
@@ -59,7 +59,7 @@ func (s *Service) RecommendCommissions(ctx context.Context, req *sort.RecommendC
 	if err != nil || profile == nil || profile.Status != 3 {
 		return commissionRecommendError("completed profile not found"), nil
 	}
-	query := commissionindex.NormalizeText(profile.Keywords, profile.Country)
+	query := featureindex.NormalizeCommissionText(profile.Keywords, profile.Country)
 	if query == "" {
 		return commissionRecommendError("profile has no discovery features"), nil
 	}
@@ -78,7 +78,7 @@ func (s *Service) searchCommissions(ctx context.Context, query string, vector []
 	if limit > 100 {
 		limit = 100
 	}
-	request := commissionindex.SearchRequest{Query: query, CommissionID: commissionID, Embedding: vector, Limit: limit}
+	request := featureindex.CommissionSearchRequest{Query: query, CommissionID: commissionID, Embedding: vector, Limit: limit}
 	if filters != nil {
 		request.MinPriceFen = filters.GetMinPriceFen()
 		request.MaxPriceFen = filters.GetMaxPriceFen()
@@ -86,7 +86,7 @@ func (s *Service) searchCommissions(ctx context.Context, query string, vector []
 		request.MaxDurationMS = filters.GetMaxPromisedDeliveryMs()
 	}
 	start := time.Now()
-	hits, err := commissionindex.ESStore{Redis: s.redis, Index: s.cfg.CommissionIndexName, Alias: s.cfg.CommissionIndexAlias, Dimensions: s.cfg.EmbeddingDimensions}.Search(ctx, request)
+	hits, err := featureindex.CommissionESStore{Redis: s.redis, Index: s.cfg.CommissionIndexName, Alias: s.cfg.CommissionIndexAlias, Dimensions: s.cfg.EmbeddingDimensions}.Search(ctx, request)
 	metrics.CommissionDiscoveryDuration.WithLabelValues("search").Observe(time.Since(start).Seconds())
 	if err != nil {
 		return nil, err
@@ -102,7 +102,7 @@ func (s *Service) searchCommissions(ctx context.Context, query string, vector []
 	return out, nil
 }
 
-func commissionScore(hit commissionindex.Hit) float64 {
+func commissionScore(hit featureindex.CommissionHit) float64 {
 	relevance := hit.KeywordScore
 	if hit.SemanticScore > relevance {
 		relevance = hit.SemanticScore

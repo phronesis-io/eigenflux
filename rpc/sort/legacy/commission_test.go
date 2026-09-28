@@ -10,9 +10,9 @@ import (
 	"testing"
 
 	sortmodel "eigenflux_server/kitex_gen/eigenflux/sort"
-	"eigenflux_server/pkg/commissionindex"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/es"
+	"eigenflux_server/pkg/featureindex"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
@@ -29,7 +29,7 @@ func (f commissionSearchRoundTripFunc) RoundTrip(req *http.Request) (*http.Respo
 func TestSearchCommissionsByIDSkipsEmbedding(t *testing.T) {
 	s := &Service{redis: redis.NewClient(&redis.Options{Addr: miniredis.RunT(t).Addr()})}
 	t.Cleanup(func() { s.redis.Close() })
-	if err := commissionindex.WriteForward(context.Background(), s.redis, "commissions-v1", commissionindex.Document{CommissionID: 42, CatalogueVersion: 1, Active: true}); err != nil {
+	if err := (featureindex.CommissionIndex{Redis: s.redis, IndexName: "commissions-v1"}).Write(context.Background(), featureindex.CommissionDocument{CommissionID: 42, CatalogueVersion: 1, Active: true}); err != nil {
 		t.Fatal(err)
 	}
 

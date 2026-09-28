@@ -169,7 +169,8 @@ type Document struct {
 	Ref               SourceRef         `json:"source_ref"`
 	AuthorID          int64             `json:"author_id,string"`
 	Version           string            `json:"version"`
-	Text              string            `json:"text"`
+	Text              string            `json:"-"` // Request-local exclusion evidence; never snapshot source text.
+	NeedExclusionText bool              `json:"-"`
 	Preview           string            `json:"preview"`
 	Active            bool              `json:"active"`
 	Visible           bool              `json:"visible"`
@@ -186,7 +187,6 @@ type Document struct {
 	ActivityAt        int64             `json:"activity_at,omitempty"`
 	Quality           float64           `json:"quality"`
 	Fulfillment       float64           `json:"fulfillment"`
-	Vector            []float32         `json:"-"`
 	DenseScore        *float64          `json:"dense_score,omitempty"`
 	Lexical           float64           `json:"lexical"`
 	Channels          []string          `json:"channels"`
