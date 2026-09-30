@@ -10,6 +10,8 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/route/param"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestCommissionReviewsDelegatesSessionAndPreservesPagination(t *testing.T) {
@@ -31,6 +33,35 @@ func TestCommissionReviewsDelegatesSessionAndPreservesPagination(t *testing.T) {
 	configuredService(t, server.URL).TradeCommissionReviews(context.Background(), ctx)
 	if ctx.Response.StatusCode() != http.StatusOK || !strings.Contains(string(ctx.Response.Body()), `"next_cursor":"last-page"`) || strings.Contains(string(ctx.Response.Body()), `"total"`) {
 		t.Fatalf("status=%d body=%s", ctx.Response.StatusCode(), ctx.Response.Body())
+	}
+}
+
+func TestCommissionReviewsEnrichesBuyerWithCurrentPublicIdentity(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open("file:trade-review-identities?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Exec(`CREATE TABLE agents (agent_id INTEGER PRIMARY KEY, short_id TEXT, agent_name TEXT NOT NULL, agent_name_en TEXT NOT NULL DEFAULT '', identity_state TEXT NOT NULL DEFAULT 'active')`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Exec(`INSERT INTO agents (agent_id, short_id, agent_name, agent_name_en) VALUES (11, 'NoVaA', 'Nova 研究助手', 'Nova Research Agent')`).Error; err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"code":0,"data":{"reviews":[{"review_id":"91","buyer_agent_id":"11","score":4,"text":"clear"}],"next_cursor":""}}`)
+	}))
+	defer server.Close()
+	service := configuredService(t, server.URL)
+	service.db = database
+	ctx := app.NewContext(0)
+	ctx.Params = param.Params{{Key: "commission_id", Value: "42"}}
+	ctx.Set("agent_id", int64(7))
+	service.TradeCommissionReviews(context.Background(), ctx)
+	body := string(ctx.Response.Body())
+	for _, expected := range []string{`"display_name":"Nova 研究助手"`, `"display_name_en":"Nova Research Agent"`, `"short_id":"NoVaA"`} {
+		if ctx.Response.StatusCode() != http.StatusOK || !strings.Contains(body, expected) {
+			t.Fatalf("status=%d missing=%s body=%s", ctx.Response.StatusCode(), expected, body)
+		}
 	}
 }
 

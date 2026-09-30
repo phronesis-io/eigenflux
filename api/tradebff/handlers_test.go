@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/route/param"
 )
 
 func TestUnavailableTradeOverviewDoesNotInventMoney(t *testing.T) {
@@ -52,6 +53,72 @@ func TestTradeCommissionsDelegatesAuthenticatedSubject(t *testing.T) {
 	}
 	claims := tokenClaims(t, strings.TrimPrefix(authorization, "Bearer "))
 	if claims.Subject != "42" || claims.Scope != "commissions:mine:read" || claims.Operation != "console.trade.commissions.list" {
+		t.Fatalf("claims = %#v", claims)
+	}
+}
+
+func TestTradeRecentCommissionsDelegatesAuthenticatedSubject(t *testing.T) {
+	var authorization, requestPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization, requestPath = r.Header.Get("Authorization"), r.URL.RequestURI()
+		_, _ = io.WriteString(w, `{"code":0,"data":{"recent_commissions":[],"next_cursor":""}}`)
+	}))
+	defer server.Close()
+	service := configuredService(t, server.URL)
+	ctx := app.NewContext(0)
+	ctx.Request.SetRequestURI("/api/v2/console/bff/trade/commissions/recent?cursor=11&limit=20")
+	ctx.Set("agent_id", int64(42))
+	service.TradeRecentCommissions(context.Background(), ctx)
+	if ctx.Response.StatusCode() != http.StatusOK || requestPath != "/api/v1/commissions/recent?cursor=11&limit=20" {
+		t.Fatalf("status=%d path=%q body=%s", ctx.Response.StatusCode(), requestPath, ctx.Response.Body())
+	}
+	claims := tokenClaims(t, strings.TrimPrefix(authorization, "Bearer "))
+	if claims.Subject != "42" || claims.Scope != "commissions:recent:read" || claims.Operation != "console.trade.commissions.recent.list" {
+		t.Fatalf("claims = %#v", claims)
+	}
+}
+
+func TestTradeRecentCommissionsIncludesLatestOrderReview(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/orders/88/review" {
+			claims := tokenClaims(t, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+			if claims.Scope != "orders:reviews:read" || claims.Operation != "console.trade.orders.review.get" {
+				t.Fatalf("review claims = %#v", claims)
+			}
+			_, _ = io.WriteString(w, `{"code":0,"data":{"review":{"review_id":"99","order_id":"88","score":5,"text":"清晰可用"}}}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"code":0,"data":{"recent_commissions":[{"latest_order_id":"88","last_used_at":1700000000000}],"next_cursor":""}}`)
+	}))
+	defer server.Close()
+	service := configuredService(t, server.URL)
+	ctx := app.NewContext(0)
+	ctx.Set("agent_id", int64(42))
+	service.TradeRecentCommissions(context.Background(), ctx)
+	body := string(ctx.Response.Body())
+	if ctx.Response.StatusCode() != http.StatusOK || !strings.Contains(body, `"latest_review":`) || !strings.Contains(body, `"review_id":"99"`) || !strings.Contains(body, `"order_id":"88"`) || !strings.Contains(body, `"text":"清晰可用"`) {
+		t.Fatalf("status=%d body=%s", ctx.Response.StatusCode(), body)
+	}
+}
+
+func TestTradeOrderReviewDelegatesAuthenticatedSubject(t *testing.T) {
+	var authorization, requestPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization, requestPath = r.Header.Get("Authorization"), r.URL.RequestURI()
+		_, _ = io.WriteString(w, `{"code":0,"data":{"review":{"review_id":"99","order_id":"88","score":5,"text":"清晰可用"}}}`)
+	}))
+	defer server.Close()
+	service := configuredService(t, server.URL)
+	ctx := app.NewContext(0)
+	ctx.Request.SetRequestURI("/api/v2/console/bff/trade/orders/88/review")
+	ctx.Set("agent_id", int64(42))
+	ctx.Params = append(ctx.Params, param.Param{Key: "order_id", Value: "88"})
+	service.TradeOrderReview(context.Background(), ctx)
+	if ctx.Response.StatusCode() != http.StatusOK || requestPath != "/api/v1/orders/88/review" {
+		t.Fatalf("status=%d path=%q body=%s", ctx.Response.StatusCode(), requestPath, ctx.Response.Body())
+	}
+	claims := tokenClaims(t, strings.TrimPrefix(authorization, "Bearer "))
+	if claims.Subject != "42" || claims.Scope != "orders:reviews:read" || claims.Operation != "console.trade.orders.review.get" {
 		t.Fatalf("claims = %#v", claims)
 	}
 }
