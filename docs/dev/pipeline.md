@@ -28,6 +28,29 @@ migration and new Pipeline until the outbox drains. Unmarked direct RPC callers
 still own their dispatch. Recovery never infers work from historical pending
 processed rows or replays historical PGC broadcasts.
 
+Retry-aware stream workers heartbeat both running and locally queued deliveries,
+without incrementing the delivery count. Each process lifetime has a unique
+consumer name. Lua owner checks fence heartbeat, ACK and DLQ writes; losing the
+owner cancels the handler context, including synchronous Item/Profile database
+operations and model retry backoff. A stopped worker leaves its work pending for
+the next instance. Item and Profile poison/exhausted messages have bounded DLQs.
+
+An Item persistence failure stays pending. A committed completed row is the
+enrichment checkpoint: failed search indexing or retrieval-slot writes retry
+from stored fields and rebuild the raw-content embedding, without repeating
+LLM evaluation, duplicate detection, or best-effort homepage counter updates.
+Discarded/deleted checkpoints only retry removal of stale search drafts.
+Homepage counters and latest-item snapshots remain best-effort and are repaired
+by their existing calibration/backfill jobs; this is not exactly-once delivery
+of every asynchronous side effect.
+
+Legacy profile keyword extraction validates the prompt's ten-keyword ceiling
+and its explicitly forbidden generic content categories. An invalid result gets
+one correction request using the original bio and a validation hint. A second
+invalid result returns an error to the existing bounded Profile consumer retry;
+transport errors do not trigger this semantic correction. Valid sparse results
+are not padded, and named entities are not silently truncated.
+
 When `ENABLE_COMMISSION_ORDER_NOTIFICATIONS=true`, `CommissionOrderNotificationConsumer` reads `COMMISSION_NOTIFICATION_STREAM` with its dedicated retry-aware consumer group and DLQ. Durable inbox insertion precedes the online wake-up; duplicate stream delivery does not create or signal a second logical notification. Invalid facts are dead-lettered, while database failures remain retryable.
 
 - Redis Stream names: `stream:profile:update`, `stream:item:publish`, `stream:item:stats`, `stream:replay:log`, `stream:followup:label`

@@ -45,7 +45,7 @@ func TestItemStatsConsumerRetriesPendingMessageUntilSuccess(t *testing.T) {
 	consumer := NewItemStatsConsumer(cfg, nil)
 	consumer.consumerName = "test-item-stats-success"
 	consumer.readBlock = 10 * time.Millisecond
-	consumer.retryMinIdle = 5 * time.Millisecond
+	consumer.retryMinIdle = 150 * time.Millisecond
 	consumer.maxRetries = 3
 
 	var attempts atomic.Int64
@@ -86,7 +86,7 @@ func TestItemStatsConsumerDropsMessageAfterMaxRetries(t *testing.T) {
 	consumer := NewItemStatsConsumer(cfg, nil)
 	consumer.consumerName = "test-item-stats-drop"
 	consumer.readBlock = 10 * time.Millisecond
-	consumer.retryMinIdle = 5 * time.Millisecond
+	consumer.retryMinIdle = 150 * time.Millisecond
 	consumer.maxRetries = 3
 
 	var attempts atomic.Int64

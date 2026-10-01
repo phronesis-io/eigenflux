@@ -71,7 +71,12 @@ func Dispatch(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, itemID int64
 		if err != nil {
 			return err
 		}
-		if err := rdb.Eval(ctx, publishScript, []string{stream, marker(itemID)}, strconv.FormatInt(itemID, 10)).Err(); err != nil {
+		deadline, _ := ctx.Deadline()
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return context.DeadlineExceeded
+		}
+		if err := rdb.WithTimeout(remaining).Eval(ctx, publishScript, []string{stream, marker(itemID)}, strconv.FormatInt(itemID, 10)).Err(); err != nil {
 			return err
 		}
 		return tx.Model(&Outbox{}).Where("item_id = ?", itemID).Update("dispatched_at", time.Now().UnixMilli()).Error

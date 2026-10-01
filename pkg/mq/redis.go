@@ -124,6 +124,12 @@ func PendingCount(ctx context.Context, stream, group string) (int64, error) {
 }
 
 func ConsumePending(ctx context.Context, stream, group, consumer string, count int64, minIdle time.Duration) ([]PendingMessage, error) {
+	return ConsumePendingExcept(ctx, stream, group, consumer, count, minIdle, nil)
+}
+
+// ConsumePendingExcept does not reclaim messages already queued or running in
+// this instance. Other instances are protected by their PEL heartbeat.
+func ConsumePendingExcept(ctx context.Context, stream, group, consumer string, count int64, minIdle time.Duration, active map[string]bool) ([]PendingMessage, error) {
 	pendingEntries, err := RDB.XPendingExt(ctx, &redis.XPendingExtArgs{
 		Stream: stream,
 		Group:  group,
@@ -145,8 +151,14 @@ func ConsumePending(ctx context.Context, stream, group, consumer string, count i
 	ids := make([]string, 0, len(pendingEntries))
 	metaByID := make(map[string]redis.XPendingExt, len(pendingEntries))
 	for _, entry := range pendingEntries {
+		if active[entry.ID] {
+			continue
+		}
 		ids = append(ids, entry.ID)
 		metaByID[entry.ID] = entry
+	}
+	if len(ids) == 0 {
+		return nil, nil
 	}
 
 	messages, err := RDB.XClaim(ctx, &redis.XClaimArgs{
@@ -184,14 +196,55 @@ func Ack(ctx context.Context, stream, group, id string) error {
 	return RDB.XAck(ctx, stream, group, id).Err()
 }
 
+// RefreshOwnedPending resets idle time without consuming retry budget. The
+// owner check and JUSTID claim are atomic; a stale worker cannot steal a lease.
+func RefreshOwnedPending(ctx context.Context, stream, group, owner, id string) (bool, error) {
+	const script = `
+local p = redis.call('XPENDING', KEYS[1], ARGV[1], ARGV[3], ARGV[3], 1)
+if #p == 0 or p[1][2] ~= ARGV[2] then return 0 end
+redis.call('XCLAIM', KEYS[1], ARGV[1], ARGV[2], 0, ARGV[3], 'RETRYCOUNT', p[1][4], 'JUSTID')
+return 1`
+	client := RDB
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return false, context.DeadlineExceeded
+		}
+		// go-redis does not enable context-based socket deadlines by default.
+		client = client.WithTimeout(remaining)
+	}
+	n, err := client.Eval(ctx, script, []string{stream}, group, owner, id).Int()
+	return n == 1, err
+}
+
+func AckOwned(ctx context.Context, stream, group, owner, id string) (bool, error) {
+	const script = `
+local p = redis.call('XPENDING', KEYS[1], ARGV[1], ARGV[3], ARGV[3], 1)
+if #p == 0 or p[1][2] ~= ARGV[2] then return 0 end
+return redis.call('XACK', KEYS[1], ARGV[1], ARGV[3])`
+	n, err := RDB.Eval(ctx, script, []string{stream}, group, owner, id).Int()
+	return n == 1, err
+}
+
 // DeadLetterAndAck writes one bounded diagnostic record before ACKing the
 // source message. A bounded sorted set makes retries idempotent when the Lua
 // reply is lost after Redis committed the script without creating one Redis
 // key per failed message.
 func DeadLetterAndAck(ctx context.Context, stream, group, id, deadLetterStream string, values map[string]interface{}) error {
+	_, err := DeadLetterAndAckOwned(ctx, stream, group, "", id, deadLetterStream, values)
+	return err
+}
+
+// DeadLetterAndAckOwned fences both external effects with the current PEL owner.
+// An empty owner retains the legacy unfenced helper contract.
+func DeadLetterAndAckOwned(ctx context.Context, stream, group, owner, id, deadLetterStream string, values map[string]interface{}) (bool, error) {
 	markerKey := deadLetterStream + ":seen"
 	marker := fmt.Sprintf("%s|%s|%s", stream, group, id)
 	const script = `
+if ARGV[8] ~= '' then
+  local p = redis.call('XPENDING', KEYS[1], ARGV[1], ARGV[2], ARGV[2], 1)
+  if #p == 0 or p[1][2] ~= ARGV[8] then return 0 end
+end
 if redis.call("ZSCORE", KEYS[3], ARGV[7]) then
   redis.call("XACK", KEYS[1], ARGV[1], ARGV[2])
   return 2
@@ -205,7 +258,7 @@ redis.call("ZREMRANGEBYRANK", KEYS[3], 0, -10001)
 redis.call("EXPIRE", KEYS[3], 604800)
 redis.call("XACK", KEYS[1], ARGV[1], ARGV[2])
 return 1`
-	_, err := RDB.Eval(ctx, script, []string{stream, deadLetterStream, markerKey},
-		group, id, values["retry_count"], values["payload"], values["payload_truncated"], values["failed_at"], marker).Result()
-	return err
+	n, err := RDB.Eval(ctx, script, []string{stream, deadLetterStream, markerKey},
+		group, id, values["retry_count"], values["payload"], values["payload_truncated"], values["failed_at"], marker, owner).Int()
+	return n > 0, err
 }

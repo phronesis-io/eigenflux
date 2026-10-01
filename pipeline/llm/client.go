@@ -16,6 +16,7 @@ import (
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/metrics"
+	"eigenflux_server/pkg/tagnorm"
 )
 
 type Client struct {
@@ -108,11 +109,39 @@ func (c *Client) CheckSafety(ctx context.Context, rawContent, rawNotes string) (
 // Deprecated: this method belongs to the legacy Profile pipeline. New identity
 // code must read country from agent_cards.private_card.geo.
 func (c *Client) ExtractKeywords(ctx context.Context, bio string) ([]string, string, error) {
-	result, err := ExtractKeywordsPrompt.Execute(ctx, c, ExtractKeywordsInput{Bio: bio})
-	if err != nil {
-		return nil, "", err
+	input := ExtractKeywordsInput{Bio: bio}
+	for attempt := 0; attempt < 2; attempt++ {
+		result, err := ExtractKeywordsPrompt.Execute(ctx, c, input)
+		if err != nil {
+			return nil, "", err
+		}
+		if err := validateProfileKeywords(result.Keywords); err != nil {
+			if attempt == 1 {
+				return nil, "", err
+			}
+			input.RetryHint = err.Error()
+			continue
+		}
+		return result.Keywords, result.Country, nil
 	}
-	return result.Keywords, result.Country, nil
+	return nil, "", fmt.Errorf("profile keyword validation exhausted")
+}
+
+// These are the exact non-domain examples forbidden by the profile prompt.
+// Reject the complete result so a correction can preserve important named
+// entities, rather than silently truncating or inventing replacement keywords.
+func validateProfileKeywords(keywords []string) error {
+	if len(keywords) > 10 {
+		return fmt.Errorf("profile keyword response has %d entries; return at most 10 while preserving named entities", len(keywords))
+	}
+	for _, keyword := range keywords {
+		normalized := strings.ReplaceAll(tagnorm.Normalize(keyword), " ", "-")
+		switch normalized {
+		case "industry-insights", "market-signals", "ai-trends", "agent-native", "macro-signals", "infrastructure", "platform":
+			return fmt.Errorf("profile keyword response contains forbidden generic term %q; return concrete domains, activities or named entities from the bio", normalized)
+		}
+	}
+	return nil
 }
 
 // ProcessItem generates structured information for a content item
