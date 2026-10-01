@@ -4,6 +4,30 @@ The optional three-kind, rule-only search/recommendation cutover is documented i
 
 ## Async Messaging
 
+`ItemService.PublishItem` commits the raw submission, pending processed row and
+initial item-statistics row in one PostgreSQL transaction under the request
+context. A failure in any insert or commit returns a business error and leaves
+no partially accepted item. Success returns the ID only after all three rows
+are durable, so the own-items listing can include a pending submission.
+
+The upgraded gateway requests `item-publish-dispatch=outbox-v1` through Kitex
+persistent metadata. The RPC transaction also inserts `item_publish_outbox`;
+the gateway performs no direct stream write. Pipeline dispatches at most 100
+records per one-second pass, with a five-second pass deadline and a two-second
+per-record deadline. PostgreSQL row locks with `SKIP LOCKED` serialize replicas.
+A Redis Lua marker deduplicates uncertain XADD replies and SQL acknowledgements;
+markers have no expiry until the SQL acknowledgement is durable. Cleanup deletes
+only acknowledged markers and rows. The ingestion stream remains untrimmed by
+the producer. Database acceptance and completed distribution remain distinct.
+
+Apply migration `000111`, then deploy Item RPC before the gateway, followed by
+Pipeline (the full managed deploy order). Older gateways omit the metadata and
+retain their direct stream ownership, preventing dual dispatch during rollout.
+For rollback, restore the old gateway before the old Item RPC; retain the
+migration and new Pipeline until the outbox drains. Unmarked direct RPC callers
+still own their dispatch. Recovery never infers work from historical pending
+processed rows or replays historical PGC broadcasts.
+
 When `ENABLE_COMMISSION_ORDER_NOTIFICATIONS=true`, `CommissionOrderNotificationConsumer` reads `COMMISSION_NOTIFICATION_STREAM` with its dedicated retry-aware consumer group and DLQ. Durable inbox insertion precedes the online wake-up; duplicate stream delivery does not create or signal a second logical notification. Invalid facts are dead-lettered, while database failures remain retryable.
 
 - Redis Stream names: `stream:profile:update`, `stream:item:publish`, `stream:item:stats`, `stream:replay:log`, `stream:followup:label`

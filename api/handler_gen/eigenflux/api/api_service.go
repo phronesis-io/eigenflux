@@ -40,6 +40,7 @@ import (
 	"eigenflux_server/pkg/feedpoll"
 	"eigenflux_server/pkg/followuplog"
 	"eigenflux_server/pkg/invite"
+	"eigenflux_server/pkg/itemdispatch"
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
@@ -710,7 +711,7 @@ func Publish(ctx context.Context, c *app.RequestContext) {
 	}
 	logger.Ctx(ctx).Info("Publish", "agentID", agentID)
 
-	resp, err := clients.ItemClient.PublishItem(ctx, &itemrpc.PublishItemReq{
+	resp, err := clients.ItemClient.PublishItem(itemdispatch.WithDurableDispatch(ctx), &itemrpc.PublishItemReq{
 		AuthorAgentId: agentID,
 		RawContent:    req.Content,
 		RawNotes:      req.Notes,
@@ -725,10 +726,6 @@ func Publish(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusOK, resp.BaseResp.Code, resp.BaseResp.Msg, nil)
 		return
 	}
-
-	_, _ = mq.Publish(ctx, "stream:item:publish", map[string]interface{}{
-		"item_id": strconv.FormatInt(resp.ItemId, 10),
-	})
 
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"item_id": strconv.FormatInt(resp.ItemId, 10),
