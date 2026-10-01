@@ -14,6 +14,11 @@ on:
       - 'migrations/**'
       - 'pipeline/cron/**'
       - 'pipeline/llm/**'
+      - 'pipeline/main.go'
+      - 'pkg/itemdispatch/**'
+      - 'pkg/mq/**'
+      - 'pipeline/consumer/**'
+      - 'rpc/item/**'
       - 'pkg/consolev2retention/**'
       - 'pkg/agentidentity/**'
       - 'pkg/agentcard/**'
@@ -36,6 +41,11 @@ on:
       - 'migrations/**'
       - 'pipeline/cron/**'
       - 'pipeline/llm/**'
+      - 'pipeline/main.go'
+      - 'pkg/itemdispatch/**'
+      - 'pkg/mq/**'
+      - 'pipeline/consumer/**'
+      - 'rpc/item/**'
       - 'pkg/consolev2retention/**'
       - 'pkg/agentidentity/**'
       - 'pkg/agentcard/**'
@@ -53,6 +63,15 @@ jobs:
   postgres-contracts:
     runs-on: ubuntu-latest
     services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
       postgres:
         image: postgres:16-alpine
         env:
@@ -78,6 +97,14 @@ jobs:
         run: bash scripts/common/migrate_up.sh
       - name: Verify migration source contracts
         run: go test -count=1 ./migrations
+      - name: Verify atomic publication and durable dispatch
+        run: |
+          psql "$PG_DSN" -c 'CREATE DATABASE pgc_publish_ci;'
+          PUBLISH_PG_TEST_DSN='postgres://postgres:postgres@127.0.0.1:5432/pgc_publish_ci?sslmode=disable' \
+            go test -race -count=1 ./rpc/item -run '^TestPostgresPublish'
+          go test -race -count=1 ./api/handler_gen/eigenflux/api -run '^TestPublishTransfersDispatchOwnershipToRPC$'
+          PUBLISH_REDIS_TEST_ADDR='127.0.0.1:6379' \
+            go test -race -count=1 ./pkg/mq ./pipeline/consumer ./pipeline/llm
       - name: Verify PostgreSQL retention and identity semantics
         run: go test -count=1 ./pkg/consolev2retention ./pkg/agentidentity ./pkg/agentcard
       - name: Verify the test-account reset covers every agent-scoped table

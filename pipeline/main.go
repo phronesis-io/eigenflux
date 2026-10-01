@@ -25,6 +25,7 @@ import (
 	"eigenflux_server/pkg/es"
 
 	"eigenflux_server/pkg/idgen"
+	"eigenflux_server/pkg/itemdispatch"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/milestone"
@@ -249,6 +250,7 @@ func main() {
 	}
 
 	go itemConsumer.Start(ctx)
+	go itemdispatch.Run(ctx, db.DB, mq.RDB)
 	go itemStatsConsumer.Start(ctx)
 	go runMilestoneRecovery(ctx, milestoneSvc)
 	go runMilestoneRuleInvalidationSubscriber(ctx, milestoneSvc)

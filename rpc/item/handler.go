@@ -8,6 +8,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	"eigenflux_server/kitex_gen/eigenflux/item"
 	"eigenflux_server/pkg/db"
+	"eigenflux_server/pkg/itemdispatch"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/validator"
 	"eigenflux_server/rpc/item/dal"
@@ -61,11 +62,6 @@ func (s *ItemServiceImpl) PublishItem(ctx context.Context, req *item.PublishItem
 		RawNotes:      req.GetRawNotes(),
 		RawURL:        req.GetRawUrl(),
 	}
-	if err := dal.CreateRawItem(db.DB, raw); err != nil {
-		return &item.PublishItemResp{
-			BaseResp: &base.BaseResp{Code: 500, Msg: err.Error()},
-		}, nil
-	}
 	expectedResponse := ""
 	if req.AcceptReply != nil && !*req.AcceptReply {
 		expectedResponse = "no_reply"
@@ -75,15 +71,26 @@ func (s *ItemServiceImpl) PublishItem(ctx context.Context, req *item.PublishItem
 		Status:           dal.StatusPending,
 		ExpectedResponse: expectedResponse,
 	}
-	if err := dal.CreateProcessedItem(db.DB, pi); err != nil {
+	err := db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := dal.CreateRawItem(tx, raw); err != nil {
+			return err
+		}
+		if err := dal.CreateProcessedItem(tx, pi); err != nil {
+			return err
+		}
+		if err := dal.CreateItemStats(tx, raw.ItemID, req.AuthorAgentId); err != nil {
+			return err
+		}
+		if itemdispatch.DurableDispatchRequested(ctx) {
+			return itemdispatch.Enqueue(tx, raw.ItemID)
+		}
+		return nil
+	})
+	if err != nil {
+		logger.Ctx(ctx).Error("PublishItem persistence failed", "err", err)
 		return &item.PublishItemResp{
-			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create processed item: " + err.Error()},
+			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to persist published item: " + err.Error()},
 		}, nil
-	}
-
-	// Create item stats record
-	if err := dal.CreateItemStats(db.DB, raw.ItemID, req.AuthorAgentId); err != nil {
-		logger.Ctx(ctx).Error("CreateItemStats error", "err", err)
 	}
 
 	return &item.PublishItemResp{

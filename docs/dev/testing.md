@@ -60,6 +60,21 @@ that is not `APP_ENV=test` with deterministic providers.
 
 ## Running Tests
 
+Publish persistence has colocated failure, cancellation and own-listing tests
+in `rpc/item`. Native PostgreSQL tests also exercise competing dispatchers,
+Redis failures, lost SQL acknowledgements, interrupted cleanup, legacy ownership
+and migration rollback guards. These contracts accept only
+an explicitly configured loopback `pgc_publish_*` test database:
+
+```bash
+PUBLISH_PG_TEST_DSN='postgres://user:password@127.0.0.1:5432/pgc_publish_atomic?sslmode=disable' \
+  go test -race ./rpc/item -run '^TestPostgresPublish' -count=1
+```
+
+Each case creates and drops its own schema. The PostgreSQL cases skip when that
+dedicated variable is absent; a skipped case does not establish native database
+acceptance. Ordinary service suites continue to use `PG_DSN` separately.
+
 The [Need capture case matrix and execution flow](../design/need-capture/e2e.md)
 distinguishes real-gateway HTTP/CLI coverage from Store integration and manual
 cases. Set `NEED_TEST_API_URL` to the isolated loopback gateway and

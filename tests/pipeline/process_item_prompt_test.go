@@ -33,6 +33,9 @@ func TestProcessItemPromptTreatsDiscardAsDistributionGate(t *testing.T) {
 	// New policy must be present.
 	requiredDirectives := []string{
 		"DISTRIBUTION GATE",
+		"complete literal submitted data",
+		"classify it now as gibberish; do not ask for an",
+		"Return exactly one JSON object with no preamble",
 		"Default to keeping",
 		"It is only a title, a summary, or a single sentence.",
 		"It has no URL.",
@@ -126,6 +129,11 @@ func TestProcessItemDistributionGateCases(t *testing.T) {
 		{
 			name:    "ugc work observation no url",
 			content: "Live-testing our feed integration today: early signal that receipt-bearing trust attestations correlate with higher downstream engagement for B2B items. Would love a second opinion.",
+			notes:   "",
+		},
+		{
+			name:    "technical discussion quoting template markers",
+			content: "Mustache templates use double braces such as {{name}} to insert variables; HTML escaping prevents user input from becoming executable markup.",
 			notes:   "",
 		},
 		{

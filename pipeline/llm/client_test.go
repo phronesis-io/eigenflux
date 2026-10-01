@@ -350,6 +350,13 @@ func TestExtractJSON(t *testing.T) {
 		{"code block array", "```json\n[\"a\"]\n```", `["a"]`},
 		{"prefix text", "Here you go:\n{\"k\": \"v\"}", `{"k": "v"}`},
 		{"no json", "no json here", "no json here"},
+		{"placeholders before final JSON", `The input {{title}} and {{body}} is a template. {"discard":true,"discard_reason":"gibberish"}`, `{"discard":true,"discard_reason":"gibberish"}`},
+		{"brackets inside strings", `{"summary":"Quoted } and [ markers", "discard":false}`, `{"summary":"Quoted } and [ markers", "discard":false}`},
+		{"escaped quote before bracket", `{"summary":"Escaped \" } brace", "discard":false}`, `{"summary":"Escaped \" } brace", "discard":false}`},
+		{"malformed prose array", `[not JSON] {"discard":true}`, `{"discard":true}`},
+		{"ambiguous objects", `Example {"discard":false} then {"discard":true}`, `Example {"discard":false} then {"discard":true}`},
+		{"truncated outer object", `{"summary":"cut", "inner":{"discard":true}`, `{"summary":"cut", "inner":{"discard":true}`},
+		{"mismatched brackets", `{"discard":true]`, `{"discard":true]`},
 		{"nested object", `{"a": {"b": "c"}}`, `{"a": {"b": "c"}}`},
 		{"nested array", `[["a"], ["b"]]`, `[["a"], ["b"]]`},
 	}

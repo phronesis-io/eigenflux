@@ -39,7 +39,6 @@ const (
 var (
 	updateProcessedItem       = itemDal.UpdateProcessedItem
 	updateProcessedItemStatus = itemDal.UpdateProcessedItemStatus
-	ackItemMessage            = mq.Ack
 )
 
 func homepageCountryFromPrivateCard(raw string) (string, error) {
@@ -96,6 +95,7 @@ func (c *ItemConsumer) Start(ctx context.Context) {
 		Group:                   itemGroup,
 		ConsumerName:            c.consumerName,
 		MetricsLabel:            itemMetricsLabel,
+		DeadLetterStream:        itemStream + ":dlq",
 		Workers:                 c.workers,
 		MaxRetries:              c.maxRetries,
 		RetryMinIdle:            c.retryMinIdle,
@@ -121,24 +121,37 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 	}
 	logger.Default().Info("ItemConsumer processing item", "itemID", itemID)
 
-	// Preserve publisher's expected_response if set to "no_reply"
-	publisherExpResp, _ := itemDal.GetProcessedItemExpectedResponse(db.DB, itemID)
-
-	// Set status to processing
-	itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusProcessing)
-
-	// Get raw item
-	raw, err := itemDal.GetRawItemByID(db.DB, itemID)
+	itemDB := db.DB.WithContext(ctx)
+	processed, err := itemDal.GetProcessedItemByID(itemDB, itemID)
+	if err != nil {
+		logger.Default().Warn("processed item not found", "itemID", itemID, "err", err)
+		return HandleRetry
+	}
+	if processed.Status == itemDal.StatusDeleted || processed.Status == itemDal.StatusDiscarded {
+		// Retried terminal items must never re-enter moderation or distribution.
+		// A discarded item may still have a draft whose deletion previously failed.
+		if err := sortDal.DeleteItem(ctx, itemID); err != nil {
+			return HandleRetry
+		}
+		return HandleSuccess
+	}
+	raw, err := itemDal.GetRawItemByID(itemDB, itemID)
 	if err != nil {
 		logger.Default().Warn("raw item not found", "itemID", itemID, "err", err)
-		itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusFailed)
-		return HandleFailure
+		return HandleRetry
+	}
+	if processed.Status == itemDal.StatusCompleted {
+		return c.resumeCompletedItem(ctx, raw, processed)
+	}
+	publisherExpResp := processed.ExpectedResponse
+	if err := itemDal.UpdateProcessedItemStatus(itemDB, itemID, itemDal.StatusProcessing); err != nil {
+		return HandleRetry
 	}
 
 	// Check blacklist keywords (cheap string match — run first)
 	if matched := checkBlacklist(ctx, raw.RawContent, raw.RawURL, raw.RawNotes); matched != "" {
 		logger.Default().Info("item discarded by blacklist keyword", "itemID", itemID, "keyword", matched)
-		if err := itemDal.MarkItemDistributionSkipped(db.DB, itemID, itemDal.DistributionSkipContentEvaluation, nil); err != nil {
+		if err := itemDal.MarkItemDistributionSkipped(itemDB, itemID, itemDal.DistributionSkipContentEvaluation, nil); err != nil {
 			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
 			return HandleRetry
 		}
@@ -153,13 +166,13 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 
 	if hashExists, err := dedup.HashExists(ctx, mq.RDB, contentHash); err == nil && hashExists {
 		prior, priorErr := itemDal.FindPriorExactBroadcast(
-			db.DB, raw.AuthorAgentID, itemID, raw.CreatedAt, contentHash, raw.RawContent,
+			itemDB, raw.AuthorAgentID, itemID, raw.CreatedAt, contentHash, raw.RawContent,
 		)
 		if priorErr != nil {
 			logger.Default().Warn("ItemConsumer failed to resolve prior duplicate, continuing", "itemID", itemID, "err", priorErr)
 		} else if decision := resolveExactDuplicateSkip(prior); decision.Discard {
 			logger.Default().Info("ItemConsumer exact duplicate of prior same-author broadcast, discarding", "itemID", itemID, "duplicateOf", *decision.DuplicateOf)
-			if err := itemDal.MarkItemDistributionSkipped(db.DB, itemID, itemDal.DistributionSkipDuplicate, decision.DuplicateOf); err != nil {
+			if err := itemDal.MarkItemDistributionSkipped(itemDB, itemID, itemDal.DistributionSkipDuplicate, decision.DuplicateOf); err != nil {
 				logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
 				return HandleRetry
 			}
@@ -189,7 +202,9 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 		}
 		logger.Default().Warn("ItemConsumer embedding attempt failed", "attempt", embAttempt, "maxRetries", maxRetries, "itemID", itemID, "err", embErr)
 		if embAttempt < maxRetries {
-			time.Sleep(time.Duration(embAttempt) * time.Second)
+			if !waitMessageRetry(ctx, time.Duration(embAttempt)*time.Second) {
+				return HandleRetry
+			}
 		}
 	}
 
@@ -225,11 +240,13 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 			break
 		}
 		logger.Default().Warn("ItemConsumer safety check attempt failed", "attempt", attempt, "maxRetries", maxRetries, "itemID", itemID, "err", err)
-		time.Sleep(time.Duration(attempt) * time.Second)
+		if !waitMessageRetry(ctx, time.Duration(attempt)*time.Second) {
+			return HandleRetry
+		}
 	}
 	if err != nil {
 		logger.Default().Error("ItemConsumer safety check all retries failed, discarding in strict mode", "itemID", itemID, "err", err)
-		if statusErr := itemDal.MarkItemDistributionSkipped(db.DB, itemID, itemDal.DistributionSkipContentEvaluation, nil); statusErr != nil {
+		if statusErr := itemDal.MarkItemDistributionSkipped(itemDB, itemID, itemDal.DistributionSkipContentEvaluation, nil); statusErr != nil {
 			logger.Default().Error("failed to update discard status after safety check error", "itemID", itemID, "err", statusErr)
 			return HandleRetry
 		}
@@ -237,7 +254,7 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 	}
 	if !safetyResult.Safe {
 		logger.Default().Info("item flagged by safety check", "itemID", itemID, "flag", safetyResult.Flag, "reason", safetyResult.Reason)
-		if err := itemDal.MarkItemDistributionSkipped(db.DB, itemID, itemDal.DistributionSkipContentEvaluation, nil); err != nil {
+		if err := itemDal.MarkItemDistributionSkipped(itemDB, itemID, itemDal.DistributionSkipContentEvaluation, nil); err != nil {
 			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
 			return HandleRetry
 		}
@@ -269,11 +286,13 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 			break
 		}
 		logger.Default().Warn("ItemConsumer LLM attempt failed", "attempt", attempt, "maxRetries", maxRetries, "itemID", itemID, "err", err)
-		time.Sleep(time.Duration(attempt) * time.Second)
+		if !waitMessageRetry(ctx, time.Duration(attempt)*time.Second) {
+			return HandleRetry
+		}
 	}
 	if err != nil {
 		logger.Default().Error("all retries failed", "itemID", itemID, "err", err)
-		itemDal.UpdateProcessedItemStatus(db.DB, itemID, itemDal.StatusFailed)
+		itemDal.UpdateProcessedItemStatus(itemDB, itemID, itemDal.StatusFailed)
 		return HandleFailure
 	}
 	llm.NormalizeHomepageEvaluation(result)
@@ -281,11 +300,15 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 	// Check discard flag
 	if result.Discard {
 		logger.Default().Info("item discarded by LLM", "itemID", itemID, "reason", result.DiscardReason)
-		if delErr := sortDal.DeleteItem(ctx, itemID); delErr != nil {
-			logger.Default().Warn("ItemConsumer failed to remove draft from ES", "itemID", itemID, "err", delErr)
+		deleteErr := sortDal.DeleteItem(ctx, itemID)
+		if deleteErr != nil {
+			logger.Default().Warn("ItemConsumer failed to remove draft from ES", "itemID", itemID, "err", deleteErr)
 		}
-		if err := itemDal.MarkItemDistributionSkipped(db.DB, itemID, itemDal.DistributionSkipContentEvaluation, nil); err != nil {
+		if err := itemDal.MarkItemDistributionSkipped(itemDB, itemID, itemDal.DistributionSkipContentEvaluation, nil); err != nil {
 			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
+			return HandleRetry
+		}
+		if deleteErr != nil {
 			return HandleRetry
 		}
 		return HandleSuccess
@@ -294,11 +317,15 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 	// Check quality threshold
 	if result.Quality < c.qualityThreshold {
 		logger.Default().Info("item quality below threshold, discarding", "itemID", itemID, "quality", result.Quality, "threshold", c.qualityThreshold)
-		if delErr := sortDal.DeleteItem(ctx, itemID); delErr != nil {
-			logger.Default().Warn("ItemConsumer failed to remove draft from ES", "itemID", itemID, "err", delErr)
+		deleteErr := sortDal.DeleteItem(ctx, itemID)
+		if deleteErr != nil {
+			logger.Default().Warn("ItemConsumer failed to remove draft from ES", "itemID", itemID, "err", deleteErr)
 		}
-		if err := itemDal.MarkItemDistributionSkipped(db.DB, itemID, itemDal.DistributionSkipContentEvaluation, nil); err != nil {
+		if err := itemDal.MarkItemDistributionSkipped(itemDB, itemID, itemDal.DistributionSkipContentEvaluation, nil); err != nil {
 			logger.Default().Error("failed to update discard status", "itemID", itemID, "err", err)
+			return HandleRetry
+		}
+		if deleteErr != nil {
 			return HandleRetry
 		}
 		return HandleSuccess
@@ -357,12 +384,14 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 		}
 		logger.Default().Warn("ItemConsumer suggest action attempt failed",
 			"attempt", attempt, "maxRetries", maxRetries, "itemID", itemID, "err", suggestErr)
-		time.Sleep(time.Duration(attempt) * time.Second)
+		if !waitMessageRetry(ctx, time.Duration(attempt)*time.Second) {
+			return HandleRetry
+		}
 	}
 
 	// Update processed item with LLM results
 	if !persistProcessedItem(ctx, msgID, itemID, result, domainsStr, finalExpectedResponse, finalGroupID, suggestion) {
-		return HandleFailure
+		return HandleRetry
 	}
 
 	// Only completed items reserve their exact-content hash.  Failed processing
@@ -399,12 +428,12 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 		if err != nil {
 			return HandleRetry
 		}
-		if err = db.DB.WithContext(ctx).Exec("UPDATE processed_items SET retrieval_slots=?::jsonb WHERE item_id=?", string(slots), itemID).Error; err != nil {
+		if err = itemDB.Table("processed_items").Where("item_id = ?", itemID).Update("retrieval_slots", string(slots)).Error; err != nil {
 			return HandleRetry
 		}
 	}
 	if c.enableFeatureIndex {
-		if _, err := (featureindex.BroadcastIndex{DB: db.DB, Redis: mq.RDB}).Load(ctx, []int64{itemID}); err != nil {
+		if _, err := (featureindex.BroadcastIndex{DB: itemDB, Redis: mq.RDB}).Load(ctx, []int64{itemID}); err != nil {
 			// The committed item must not re-enter LLM/dedup processing. The
 			// registered source loader and read-through repair retry this projection.
 			logger.Default().Error("broadcast feature materialization failed", "itemID", itemID, "err", err)
@@ -412,7 +441,7 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 	}
 	if err := sortDal.IndexItem(ctx, esItem); err != nil {
 		logger.Default().Error("ItemConsumer failed to index item to ES", "itemID", itemID, "err", err)
-		// Don't block the flow, continue to ACK
+		return HandleRetry
 	} else {
 		logger.Default().Info("ItemConsumer item indexed to ES successfully", "itemID", itemID)
 
@@ -495,14 +524,13 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 }
 
 func persistProcessedItem(ctx context.Context, msgID string, itemID int64, result *llm.ExtractResult, domainsStr, finalExpectedResponse string, finalGroupID int64, suggestion string) bool {
-	if err := updateProcessedItem(db.DB, itemID, result.Summary, result.BroadcastType, domainsStr, result.Keywords, result.ExpireTime, result.Geo, result.SourceType, finalExpectedResponse, finalGroupID, result.Quality, result.Lang, result.Timeliness, suggestion, llm.HomepageEligibleValue(result), llm.HomepageRealWorldRelevantValue(result), result.HomepageRejectionReason, result.HomepageEvaluationVersion, itemDal.StatusCompleted); err != nil {
-		logger.Default().Error("failed to persist processed item", "itemID", itemID, "broadcastType", result.BroadcastType, "err", err)
+	if err := updateProcessedItem(db.DB.WithContext(ctx), itemID, result.Summary, result.BroadcastType, domainsStr, result.Keywords, result.ExpireTime, result.Geo, result.SourceType, finalExpectedResponse, finalGroupID, result.Quality, result.Lang, result.Timeliness, suggestion, llm.HomepageEligibleValue(result), llm.HomepageRealWorldRelevantValue(result), result.HomepageRejectionReason, result.HomepageEvaluationVersion, itemDal.StatusCompleted); err != nil {
+		logger.Default().Error("failed to persist processed item", "msgID", msgID, "itemID", itemID, "broadcastType", result.BroadcastType, "err", err)
 
-		if statusErr := updateProcessedItemStatus(db.DB, itemID, itemDal.StatusFailed); statusErr != nil {
+		if statusErr := updateProcessedItemStatus(db.DB.WithContext(ctx), itemID, itemDal.StatusFailed); statusErr != nil {
 			logger.Default().Error("failed to mark item as failed after persist error", "itemID", itemID, "err", statusErr)
 		}
 
-		ackItemMessage(ctx, itemStream, itemGroup, msgID)
 		return false
 	}
 

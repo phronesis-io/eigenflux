@@ -160,3 +160,12 @@ is needed. Vector contents live in versioned Redis entries; the jobs table store
 no processed private text or vector. Apply this migration before deploying the
 updated Pipeline worker and Sort cache lookup. Model generations can coexist
 during rolling deployment without overwriting each other's state.
+
+### Durable item dispatch (000111)
+
+`item_publish_outbox` joins upgraded gateway publications to their Redis stream
+dispatch. The row commits with raw content, pending processing state and item
+statistics; its foreign key follows raw-item deletion. Partial indexes bound
+pending recovery and acknowledged cleanup scans. Down refuses to remove undispatched work. No historical
+pending items are enrolled. Apply the migration before Item RPC, then upgrade
+the gateway and Pipeline; see [dispatch ownership and rollback](pipeline.md#async-messaging).

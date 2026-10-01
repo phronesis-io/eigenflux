@@ -4,6 +4,62 @@ The optional three-kind, rule-only search/recommendation cutover is documented i
 
 ## Async Messaging
 
+`ItemService.PublishItem` commits the raw submission, pending processed row and
+initial item-statistics row in one PostgreSQL transaction under the request
+context. A failure in any insert or commit returns a business error and leaves
+no partially accepted item. Success returns the ID only after all three rows
+are durable, so the own-items listing can include a pending submission.
+
+The upgraded gateway requests `item-publish-dispatch=outbox-v1` through Kitex
+persistent metadata. The RPC transaction also inserts `item_publish_outbox`;
+the gateway performs no direct stream write. Pipeline dispatches at most 100
+records per one-second pass, with a five-second pass deadline and a two-second
+per-record deadline. PostgreSQL row locks with `SKIP LOCKED` serialize replicas.
+A Redis Lua marker deduplicates uncertain XADD replies and SQL acknowledgements;
+markers have no expiry until the SQL acknowledgement is durable. Cleanup deletes
+only acknowledged markers and rows. The ingestion stream remains untrimmed by
+the producer. Database acceptance and completed distribution remain distinct.
+
+Apply migration `000111`, then deploy Item RPC before the gateway, followed by
+Pipeline (the full managed deploy order). Older gateways omit the metadata and
+retain their direct stream ownership, preventing dual dispatch during rollout.
+For rollback, restore the old gateway before the old Item RPC; retain the
+migration and new Pipeline until the outbox drains. Unmarked direct RPC callers
+still own their dispatch. Recovery never infers work from historical pending
+processed rows or replays historical PGC broadcasts.
+
+Retry-aware stream workers heartbeat both running and locally queued deliveries,
+without incrementing the delivery count. Each process lifetime has a unique
+consumer name. Lua owner checks fence heartbeat, ACK and DLQ writes; losing the
+owner cancels the handler context, including synchronous Item/Profile database
+operations and model retry backoff. A stopped worker leaves its work pending for
+the next instance. Item and Profile poison/exhausted messages have bounded DLQs.
+
+An Item persistence failure stays pending. A committed completed row is the
+enrichment checkpoint: failed search indexing or retrieval-slot writes retry
+from stored fields and rebuild the raw-content embedding, without repeating
+LLM evaluation, duplicate detection, or best-effort homepage counter updates.
+Discarded/deleted checkpoints only retry removal of stale search drafts.
+Homepage counters and latest-item snapshots remain best-effort and are repaired
+by their existing calibration/backfill jobs; this is not exactly-once delivery
+of every asynchronous side effect.
+
+Item extraction treats the input as complete literal data, including template
+markers. It classifies placeholder-only boilerplate without asking for missing
+input; substantive technical discussion quoting placeholders stays admissible.
+
+Model JSON extraction respects strings and escapes, ignores balanced non-JSON
+prose fragments (including unreplaced template markers), and requires a single
+complete JSON container. Truncated or ambiguous multiple outputs remain errors
+for the existing consumer retry; nested fragments are not salvaged as results.
+
+Legacy profile keyword extraction validates the prompt's ten-keyword ceiling
+and its explicitly forbidden generic content categories. An invalid result gets
+one correction request using the original bio and a validation hint. A second
+invalid result returns an error to the existing bounded Profile consumer retry;
+transport errors do not trigger this semantic correction. Valid sparse results
+are not padded, and named entities are not silently truncated.
+
 When `ENABLE_COMMISSION_ORDER_NOTIFICATIONS=true`, `CommissionOrderNotificationConsumer` reads `COMMISSION_NOTIFICATION_STREAM` with its dedicated retry-aware consumer group and DLQ. Durable inbox insertion precedes the online wake-up; duplicate stream delivery does not create or signal a second logical notification. Invalid facts are dead-lettered, while database failures remain retryable.
 
 - Redis Stream names: `stream:profile:update`, `stream:item:publish`, `stream:item:stats`, `stream:replay:log`, `stream:followup:label`
