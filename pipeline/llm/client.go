@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	stdjson "encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -344,38 +345,59 @@ func normalizeBaseURL(baseURL string) string {
 	return baseURL + "/v1"
 }
 
-// extractJSON tries to extract JSON from text that might be wrapped in markdown code blocks
+// extractJSON accepts one complete JSON container, ignoring malformed balanced
+// prose fragments such as {{title}}. String/escape handling keeps quoted braces
+// inside the container. Ambiguous multiple objects and truncated outer containers
+// remain errors instead of selecting an arbitrary or nested result.
 func extractJSON(text string) string {
-	start := -1
-	for i := 0; i < len(text); i++ {
-		if text[i] == '[' || text[i] == '{' {
-			start = i
-			break
+	var candidate string
+	for start := 0; start < len(text); start++ {
+		if text[start] != '[' && text[start] != '{' {
+			continue
 		}
-	}
-	if start == -1 {
-		return text
-	}
-	end := -1
-	openChar := text[start]
-	closeChar := byte('}')
-	if openChar == '[' {
-		closeChar = ']'
-	}
-	depth := 0
-	for i := start; i < len(text); i++ {
-		if text[i] == openChar {
-			depth++
-		} else if text[i] == closeChar {
-			depth--
-			if depth == 0 {
-				end = i + 1
-				break
+		depth, inString, escaped := 0, false, false
+		end := -1
+		for i := start; i < len(text); i++ {
+			ch := text[i]
+			if inString {
+				if escaped {
+					escaped = false
+				} else if ch == '\\' {
+					escaped = true
+				} else if ch == '"' {
+					inString = false
+				}
+				continue
+			}
+			if ch == '"' {
+				inString = true
+				continue
+			}
+			if ch == '{' || ch == '[' {
+				depth++
+			}
+			if ch == '}' || ch == ']' {
+				depth--
+				if depth == 0 {
+					end = i + 1
+					break
+				}
 			}
 		}
+		if end == -1 {
+			return text
+		}
+		fragment := text[start:end]
+		if stdjson.Valid([]byte(fragment)) {
+			if candidate != "" {
+				return text
+			}
+			candidate = fragment
+		}
+		start = end - 1
 	}
-	if end == -1 {
-		return text[start:]
+	if candidate != "" {
+		return candidate
 	}
-	return text[start:end]
+	return text
 }

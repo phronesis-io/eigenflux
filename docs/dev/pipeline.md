@@ -44,6 +44,15 @@ Homepage counters and latest-item snapshots remain best-effort and are repaired
 by their existing calibration/backfill jobs; this is not exactly-once delivery
 of every asynchronous side effect.
 
+Item extraction treats the input as complete literal data, including template
+markers. It classifies placeholder-only boilerplate without asking for missing
+input; substantive technical discussion quoting placeholders stays admissible.
+
+Model JSON extraction respects strings and escapes, ignores balanced non-JSON
+prose fragments (including unreplaced template markers), and requires a single
+complete JSON container. Truncated or ambiguous multiple outputs remain errors
+for the existing consumer retry; nested fragments are not salvaged as results.
+
 Legacy profile keyword extraction validates the prompt's ten-keyword ceiling
 and its explicitly forbidden generic content categories. An invalid result gets
 one correction request using the original bio and a validation hint. A second
