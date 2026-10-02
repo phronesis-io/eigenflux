@@ -6,15 +6,32 @@ import (
 	searchindex "eigenflux_server/rpc/sort/discovery/index"
 	"encoding/json"
 	"fmt"
+	"io"
 )
 
-// EnsureRetrievalSlots upgrades existing backing indices before any projector
-// writes canonical IDs, preventing dynamic text mappings on legacy indices.
+// EnsureBroadcastRetrievalFields installs only fields used by broadcast filters.
+// The top-level language uses its exact multi-field. Slot language is not a
+// broadcast filter and its existing mapping must remain untouched.
+func EnsureBroadcastRetrievalFields(ctx context.Context, indices ...string) error {
+	return ensureRetrievalMapping(ctx, map[string]any{
+		"lang": broadcastLanguageMapping(),
+		"retrieval_slots": map[string]any{"properties": map[string]any{
+			"provider_region": map[string]any{"type": "keyword"},
+		}},
+	}, indices...)
+}
+
+// EnsureRetrievalSlots installs the exact slot fields used by Agent/Commission
+// filters. Broadcast indices must use EnsureBroadcastRetrievalFields instead.
 func EnsureRetrievalSlots(ctx context.Context, indices ...string) error {
+	return ensureRetrievalMapping(ctx, map[string]any{"retrieval_slots": searchindex.SlotsMapping()}, indices...)
+}
+
+func ensureRetrievalMapping(ctx context.Context, properties map[string]any, indices ...string) error {
 	if Client == nil {
 		return fmt.Errorf("Elasticsearch client unavailable")
 	}
-	body, err := json.Marshal(map[string]any{"properties": map[string]any{"retrieval_slots": searchindex.SlotsMapping()}})
+	body, err := json.Marshal(map[string]any{"properties": properties})
 	if err != nil {
 		return err
 	}
@@ -29,10 +46,12 @@ func EnsureRetrievalSlots(ctx context.Context, indices ...string) error {
 			return err
 		}
 		status := r.StatusCode
-		r.Body.Close()
 		if status >= 300 {
-			return fmt.Errorf("discovery slot mapping for %s failed: HTTP %d", index, status)
+			detail, _ := io.ReadAll(io.LimitReader(r.Body, 4096))
+			r.Body.Close()
+			return fmt.Errorf("discovery retrieval mapping for %s failed: HTTP %d: %s", index, status, detail)
 		}
+		r.Body.Close()
 	}
 	return nil
 }

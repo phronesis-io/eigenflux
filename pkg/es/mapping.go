@@ -2,10 +2,20 @@ package es
 
 import searchindex "eigenflux_server/rpc/sort/discovery/index"
 
+// Match the existing dynamic string mapping while making the exact field
+// available before any document is written into a new rollover index.
+func broadcastLanguageMapping() map[string]any {
+	return map[string]any{
+		"type":   "text",
+		"fields": map[string]any{"keyword": map[string]any{"type": "keyword", "ignore_above": 256}},
+	}
+}
+
 // BuildIndexMapping returns the Elasticsearch mapping for the item index.
 func BuildIndexMapping(embeddingDims int) map[string]interface{} {
 	return map[string]interface{}{
 		"properties": map[string]interface{}{
+			"lang":            broadcastLanguageMapping(),
 			"retrieval_slots": searchindex.SlotsMapping(),
 			"id": map[string]interface{}{
 				"type": "long",

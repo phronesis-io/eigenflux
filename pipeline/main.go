@@ -158,7 +158,10 @@ func main() {
 	profileConsumer := consumer.NewProfileConsumer(cfg, prompts)
 	agentCardConsumer := consumer.NewAgentCardConsumer()
 	if cfg.EnableNeedSearch {
-		if err := es.EnsureRetrievalSlots(context.Background(), es.ReadIndexPattern, cfg.CommissionIndexName, cfg.CommissionIndexAlias); err != nil {
+		if err := es.EnsureBroadcastRetrievalFields(context.Background(), es.ReadIndexPattern); err != nil {
+			log.Fatalf("broadcast retrieval mappings: %v", err)
+		}
+		if err := es.EnsureRetrievalSlots(context.Background(), cfg.CommissionIndexName, cfg.CommissionIndexAlias); err != nil {
 			log.Fatalf("discovery slot mappings: %v", err)
 		}
 		if err := featureindex.EnsureAgentSearchIndex(context.Background(), cfg.AgentDiscoveryIndex, cfg.EmbeddingDimensions); err != nil {

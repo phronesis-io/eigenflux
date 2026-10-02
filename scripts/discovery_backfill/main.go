@@ -44,7 +44,7 @@ func main() {
 		defer mq.RDB.Close()
 	}
 	if *kind == "broadcast" {
-		if err := es.EnsureRetrievalSlots(context.Background(), es.ReadIndexPattern); err != nil {
+		if err := es.EnsureBroadcastRetrievalFields(context.Background(), es.ReadIndexPattern); err != nil {
 			log.Fatal(err)
 		}
 	}

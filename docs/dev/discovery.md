@@ -494,6 +494,25 @@ formula coefficients must also be reviewed against supplied examples before
 cutover. There are deliberately no invented production threshold assets.
 `AGENT_DISCOVERY_INDEX` selects the public Agent index.
 
+Broadcast language filters use `lang.keyword`, preserving the existing top-level
+`lang` text field and its keyword multi-field. The rollover template declares
+this mapping explicitly. Sort, Pipeline, and broadcast backfill initialize only
+this language mapping and the `retrieval_slots.provider_region` keyword field;
+they do not add, retype, or change the dynamic policy of historical slot-language
+fields. Thus an existing `retrieval_slots.lang` text mapping does not require a
+broadcast reindex. Agent and Commission filters still use keyword
+`retrieval_slots.lang`. Actual required-field mapping conflicts remain fatal,
+and the error includes the target index and Elasticsearch's bounded reason.
+
+Adding a missing region mapping does not populate historical documents. With a
+region constraint, documents without explicit region evidence remain excluded;
+without that constraint they remain eligible. Before cutover, inspect all
+`items-*` mappings and verify that existing documents already have the
+`lang.keyword` multi-field indexed. Installing a previously absent multi-field
+does not retroactively index its values. The supported production layout is
+top-level `lang: text` with `lang.keyword: keyword`; this initialization does not
+convert a differently typed top-level language field.
+
 Rollout order:
 
 1. Apply migrations through 110 to the intended database. Set `PG_DSN` explicitly when using nondefault local ports.

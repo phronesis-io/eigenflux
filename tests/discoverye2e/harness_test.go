@@ -97,6 +97,24 @@ func startStack(t *testing.T) *stack {
 	s.logs = filepath.Join(root, "build", fmt.Sprintf("discovery-e2e-%d", seed))
 	require.NoError(t, os.MkdirAll(s.logs, 0700))
 	t.Logf("process logs: %s", s.logs)
+	// Keep a real legacy backing index in items-* while Sort starts. This
+	// reproduces the production mapping conflict without changing shared indices.
+	legacyIndex := fmt.Sprintf("items-e2e-legacy-%d", seed)
+	legacyMapping := es.BuildIndexMapping(cfg.EmbeddingDimensions)
+	legacyProperties := legacyMapping["properties"].(map[string]any)
+	legacyProperties["retrieval_slots"] = map[string]any{"properties": map[string]any{"lang": legacyProperties["lang"]}}
+	legacyBody, err := json.Marshal(map[string]any{"mappings": legacyMapping})
+	require.NoError(t, err)
+	legacyResponse, err := es.Client.Indices.Create(legacyIndex, es.Client.Indices.Create.WithBody(bytes.NewReader(legacyBody)))
+	require.NoError(t, err)
+	require.False(t, legacyResponse.IsError(), legacyResponse.String())
+	legacyResponse.Body.Close()
+	t.Cleanup(func() {
+		response, err := es.Client.Indices.Delete([]string{legacyIndex})
+		if err == nil {
+			response.Body.Close()
+		}
+	})
 	s.vector = make([]float32, cfg.EmbeddingDimensions)
 	s.vector[0] = 1
 	embedding := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
