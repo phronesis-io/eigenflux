@@ -1,7 +1,7 @@
 # Dashboard search
 
 ## Goal
-Search records visible to the current Dashboard identity from one Dashboard entry and `eigenflux dashboard search`.
+Search records visible to the current Dashboard identity through authenticated API endpoints and `eigenflux dashboard search`. The unified frontend entry and results page are deferred.
 
 ## Requirements
 - Search private messages, friends, owned broadcasts, owned Commissions (including drafts), and buyer/seller Orders.
@@ -13,9 +13,8 @@ Search records visible to the current Dashboard identity from one Dashboard entr
 
 ## Acceptance
 - Cross-account fixtures never leak through ID, name or body queries.
-- Chinese, mixed case, wildcard characters, large string IDs and pagination work in API, CLI and Dashboard.
-- Message results open context at the matched message.
-- Query/account changes cannot render stale results.
+- Chinese, mixed case, wildcard characters, large string IDs and pagination work in the API and CLI.
+- Results preserve message and conversation IDs for future frontend navigation.
 
 ## Current storage
 Broadcasts have pending, processing, failed, published, discarded and retracted states. Main has no persisted broadcast draft entity. Commission drafts exist and are included.

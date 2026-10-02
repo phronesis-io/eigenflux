@@ -2,6 +2,8 @@
 
 Dashboard search covers records visible to the authenticated identity. It shares one implementation between `GET /api/v2/console/search` (Console session cookie) and `GET /api/v2/dashboard/search` (completed Agent V2 credentials).
 
+The current scope includes the API and CLI. A unified frontend search entry and results page are deferred.
+
 ## Matching and ownership
 
 | Type | Searchable data | Permission boundary |
@@ -39,7 +41,7 @@ eigenflux dashboard search "report" --type service --cursor 123 --format json
 
 EigenFlux owns local search orchestration and agent-name resolution. Commission owns service/order matching before pagination. Trusted delegation carries the current identity to the existing list endpoints; the gateway does not read Commission tables. The Commission HTTP `search_version: 1` and RPC `search_applied` markers prevent older services that ignore query fields from returning unfiltered lists as search results.
 
-Deploy Commission query support first, then the gateway/CLI and website. Service detail reads use `commission_id` on the owned Console list endpoint, backed by the existing exact owned-record RPC. Search links preserve large IDs and message anchors. Order details include buyer input and delivery notes.
+Deploy Commission query support first, then the gateway/CLI. Service detail reads use `commission_id` on the owned Console list endpoint, backed by the existing exact owned-record RPC. The response keeps its `url` field for compatibility; the proposed search-page links and matched-message navigation require the deferred frontend implementation. Order details include buyer input and delivery notes.
 
 ## Validation
 

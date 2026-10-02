@@ -1,6 +1,6 @@
 # Implementation and validation
 
-Implemented private Dashboard search across EigenFlux, Commission and the website. Existing discovery search and Dashboard login-link commands remain available. Service and order matching stays in its owning service; literal filters run before pagination. Both HTTP and RPC adapters reject search requests when the downstream version does not confirm search support.
+Implemented private Dashboard search APIs across EigenFlux and Commission, with a CLI entry. The unified frontend search interface is deferred. Existing discovery search and Dashboard login-link commands remain available. Service and order matching stays in its owning service; literal filters run before pagination. Both HTTP and RPC adapters reject search requests when the downstream version does not confirm search support.
 
 ## Passed locally
 
@@ -10,7 +10,6 @@ Implemented private Dashboard search across EigenFlux, Commission and the websit
 - Commission/Order literal-query PostgreSQL tests and platform integration suite.
 - Dedicated deployed search test using real HTTP, Console cookies, trusted Commission delegation, RPC, PostgreSQL and the CLI. Five groups and foreign-record exclusion pass, including exact owned-service detail and forbidden foreign-service detail.
 - Authentication integration suite.
-- Website production build, complete Vitest suite, and desktop/mobile browser rendering checks. Dedicated interaction tests cover literal highlights, large IDs, stale queries/accounts, pagination, retry, service details and exact message anchors.
 
 ## Environment limits
 
