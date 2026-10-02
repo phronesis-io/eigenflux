@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"crypto/rand"
+	"eigenflux_server/pkg/cache/keys"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -30,7 +31,7 @@ type discoveryValue struct {
 }
 
 func discoveryGenerationKey(owner int64) string {
-	return fmt.Sprintf("cache:discovery:v1:{%d}:generation", owner)
+	return fmt.Sprintf(keys.DiscoveryGeneration, owner)
 }
 func discoveryToken() (string, error) {
 	var b [16]byte
@@ -52,7 +53,7 @@ func InvalidateDiscovery(ctx context.Context, r *redis.Client, owner int64) {
 	defer cancel()
 	token, err := discoveryToken()
 	if err == nil {
-		err = r.Set(ctx, discoveryGenerationKey(owner), token, 24*time.Hour).Err()
+		err = Redis(r).Write(ctx, discoveryGenerationKey(owner), token, 24*time.Hour).Err()
 	}
 	if err != nil {
 		metrics.DiscoveryContextCache.WithLabelValues("invalidate", "error").Inc()
@@ -62,7 +63,7 @@ func InvalidateDiscovery(ctx context.Context, r *redis.Client, owner int64) {
 
 func (c *DiscoveryCache) generation(ctx context.Context, owner int64) (string, error) {
 	key := discoveryGenerationKey(owner)
-	v, err := c.Redis.Get(ctx, key).Result()
+	v, err := Redis(c.Redis).Read(ctx, key).Result()
 	if err != redis.Nil {
 		return v, err
 	}
@@ -77,7 +78,7 @@ func (c *DiscoveryCache) generation(ctx context.Context, owner int64) (string, e
 	if won {
 		return token, nil
 	}
-	return c.Redis.Get(ctx, key).Result()
+	return Redis(c.Redis).Read(ctx, key).Result()
 }
 
 // Load caches a value until its TTL or its earliest absolute deadline. scope is
@@ -123,9 +124,9 @@ func (c *DiscoveryCache) Load(ctx context.Context, owner int64, scope, identity 
 		}
 		return decode(raw)
 	}
-	key := fmt.Sprintf("cache:discovery:v1:{%d}:%s:%s:%s", owner, epoch, scope, identity)
+	key := fmt.Sprintf(keys.DiscoveryValue, owner, epoch, scope, identity)
 	read := func(ctx context.Context) ([]byte, bool) {
-		raw, err := c.Redis.Get(ctx, key).Bytes()
+		raw, err := Redis(c.Redis).Read(ctx, key).Bytes()
 		if err == redis.Nil {
 			return nil, false
 		}
@@ -151,7 +152,7 @@ func (c *DiscoveryCache) Load(ctx context.Context, owner int64, scope, identity 
 		if err != nil {
 			return nil, err
 		}
-		if err := c.Redis.Set(shared, key, raw, ttl).Err(); err != nil {
+		if err := Redis(c.Redis).Write(shared, key, raw, ttl).Err(); err != nil {
 			metrics.DiscoveryContextCache.WithLabelValues(scope, "error").Inc()
 		}
 		return raw, nil

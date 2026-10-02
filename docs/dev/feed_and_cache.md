@@ -46,6 +46,12 @@ the scan to the requested time window without indexing other follow-up kinds.
 - Console reads impression records via `impr.GetSeenItems`
 - Primary delivery deduplication is done by the bloom filter. The item impression set remains the feedback-validation and console-query source of truth; optional Swing I2I uses confirmed `surface` follow-up labels as seeds and uses impressions only to exclude already delivered neighbors.
 
+## Shared cache implementation
+
+All process and Redis cache adapters are maintained in `pkg/cache`. See the
+[shared cache contract](cache.md) for Jetcache configuration, key ownership,
+connection lifecycle, migration coverage and local staleness bounds.
+
 ## Multi-Level Cache Architecture
 
 System implements multi-level caching to optimize Elasticsearch load under high-frequency polling scenarios.

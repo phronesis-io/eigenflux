@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 	"net/url"
 	"strings"
 	"testing"
@@ -20,7 +22,7 @@ import (
 )
 
 func TestDashboardSearchRejectsInvalidInputAndPreservesScope(t *testing.T) {
-	s := &Service{}
+	s := &Service{redisClient: searchTestRedis(t)}
 	for _, query := range []string{"q=", "q=x&type=secret", "q=x&limit=51", "q=x&cursor=1", "q=x&type=broadcast&status=draft", "q=x&type=friend&cursor=-1"} {
 		c := app.NewContext(0)
 		c.Set("agent_id", int64(1))
@@ -78,7 +80,7 @@ func TestDashboardSearchUsesAuthenticatedRPCAndProjectsStringIDs(t *testing.T) {
 				return &search.SearchResp{Items: []*search.Record{{Id: 9007199254740993, Title: "title", Preview: "合同_%!", Status: "open", UpdatedAt: 7, ConversationId: &conv, PeerId: &peer, ShortId: &short}}, NextCursor: 9007199254740993, HasMore: true, BaseResp: &base.BaseResp{}}, nil
 			}}
 			// Deliberately no DB: the search BFF must work only through service clients.
-			s := &Service{enableCommunication: true}
+			s := &Service{enableCommunication: true, redisClient: searchTestRedis(t)}
 			s.SetDashboardSearchClients(fake, fake, fake)
 			c := app.NewContext(0)
 			c.Set("agent_id", int64(1))
@@ -112,7 +114,7 @@ func TestDashboardSearchUsesAuthenticatedRPCAndProjectsStringIDs(t *testing.T) {
 }
 
 func TestDashboardSearchRPCFailuresAreCategoryErrors(t *testing.T) {
-	for _, failure := range []string{"transport", "nil", "missing status", "business"} {
+	for _, failure := range []string{"transport", "nil", "missing status", "business", "rate"} {
 		t.Run(failure, func(t *testing.T) {
 			fake := dashboardSearchRPCStub{search: func(context.Context, string, *search.SearchReq) (*search.SearchResp, error) {
 				switch failure {
@@ -120,19 +122,25 @@ func TestDashboardSearchRPCFailuresAreCategoryErrors(t *testing.T) {
 					return nil, errors.New("offline")
 				case "nil":
 					return nil, nil
+				case "rate":
+					return &search.SearchResp{BaseResp: &base.BaseResp{Code: 429}}, nil
 				case "missing status":
 					return &search.SearchResp{}, nil
 				default:
 					return &search.SearchResp{BaseResp: &base.BaseResp{Code: 403}}, nil
 				}
 			}}
-			s := &Service{enableCommunication: true}
+			s := &Service{enableCommunication: true, redisClient: searchTestRedis(t)}
 			s.SetDashboardSearchClients(fake, fake, fake)
 			c := app.NewContext(0)
 			c.Set("agent_id", int64(1))
 			c.Request.SetRequestURI("/search?q=x&type=message")
 			s.dashboardSearch(nil)(context.Background(), c)
-			if !strings.Contains(string(c.Response.Body()), "SEARCH_UNAVAILABLE") {
+			expected := "SEARCH_UNAVAILABLE"
+			if failure == "rate" {
+				expected = "SEARCH_RATE_LIMITED"
+			}
+			if !strings.Contains(string(c.Response.Body()), expected) {
 				t.Fatal(string(c.Response.Body()))
 			}
 		})
@@ -147,7 +155,7 @@ func TestDashboardCounterpartiesRejectsTruncatedProfileResults(t *testing.T) {
 			}
 			return &profile.MatchAgentsByNameResp{AgentIds: []int64{2}, HasMore: more, BaseResp: &base.BaseResp{}}, nil
 		}}
-		s := &Service{}
+		s := &Service{redisClient: searchTestRedis(t)}
 		s.SetDashboardSearchClients(fake, fake, fake)
 		ids, err := s.dashboardCounterparties(context.Background(), "name")
 		if more && err == nil {
@@ -156,5 +164,42 @@ func TestDashboardCounterpartiesRejectsTruncatedProfileResults(t *testing.T) {
 		if !more && (err != nil || len(ids) != 1 || ids[0] != 2) {
 			t.Fatalf("%v %v", ids, err)
 		}
+	}
+}
+
+func searchTestRedis(t *testing.T) *redis.Client {
+	t.Helper()
+	server := miniredis.RunT(t)
+	r := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { r.Close() })
+	return r
+}
+
+func TestDashboardSearchRateLimitPreventsFanout(t *testing.T) {
+	s := &Service{redisClient: searchTestRedis(t), enableCommunication: true}
+	calls := 0
+	fake := dashboardSearchRPCStub{search: func(context.Context, string, *search.SearchReq) (*search.SearchResp, error) {
+		calls++
+		return &search.SearchResp{Items: []*search.Record{}, BaseResp: &base.BaseResp{}}, nil
+	}}
+	s.SetDashboardSearchClients(fake, fake, fake)
+	for i := 0; i < 31; i++ {
+		c := app.NewContext(0)
+		c.Set("agent_id", int64(1))
+		c.Request.SetRequestURI("/search?q=x&type=message")
+		s.dashboardSearch(nil)(context.Background(), c)
+		want := 200
+		if i == 30 {
+			want = 429
+		}
+		if c.Response.StatusCode() != want {
+			t.Fatalf("request %d: %s", i, c.Response.Body())
+		}
+		if i == 30 && string(c.Response.Header.Peek("Retry-After")) != "10" {
+			t.Fatal("missing retry delay")
+		}
+	}
+	if calls != 30 {
+		t.Fatal(calls)
 	}
 }

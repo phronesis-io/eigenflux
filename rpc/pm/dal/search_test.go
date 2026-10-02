@@ -100,4 +100,15 @@ func TestRecordSearchPostgresIsolationLiteralsPagination(t *testing.T) {
 	if len(find("friend", "english name", "", 0, 10).Items) != 1 {
 		t.Fatal("English name")
 	}
+
+	cachedMessage := find("message", "合同_%!", "", 0, 10)
+	exec(`UPDATE conversations SET status=1 WHERE conv_id=11`)
+	if err := FilterSearchVisibility(context.Background(), tx, 1, "message", cachedMessage); err != nil || len(cachedMessage.Items) != 0 {
+		t.Fatalf("hidden conversation in cached page: %v %v", cachedMessage, err)
+	}
+	cachedFriend := find("friend", "合同_%!", "", 0, 10)
+	exec(`DELETE FROM user_relations WHERE from_uid=1 AND to_uid=2`)
+	if err := FilterSearchVisibility(context.Background(), tx, 1, "friend", cachedFriend); err != nil || len(cachedFriend.Items) != 0 {
+		t.Fatalf("removed friend in cached page: %v %v", cachedFriend, err)
+	}
 }

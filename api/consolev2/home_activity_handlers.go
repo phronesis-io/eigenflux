@@ -2,6 +2,8 @@ package consolev2
 
 import (
 	"context"
+	"eigenflux_server/pkg/cache"
+	"eigenflux_server/pkg/cache/keys"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -16,7 +18,7 @@ import (
 )
 
 const (
-	homeActivityCacheKey = "console:v2:home:activity:v2"
+	homeActivityCacheKey = keys.HomeActivity
 	homeActivityCacheTTL = 2 * time.Minute
 	homeActivityLimit    = 60
 	homeActivityWindow   = 24 * time.Hour
@@ -95,7 +97,7 @@ func (s *Service) readHomeActivityCache(ctx context.Context) (homeActivityRespon
 		recordHomeCache("activity", "disabled")
 		return homeActivityResponse{}, false
 	}
-	raw, err := s.redisClient.Get(ctx, homeActivityCacheKey).Bytes()
+	raw, err := cache.Redis(s.redisClient).Read(ctx, homeActivityCacheKey).Bytes()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			recordHomeCache("activity", "miss")
@@ -122,7 +124,7 @@ func (s *Service) writeHomeActivityCache(ctx context.Context, result homeActivit
 		recordHomeCache("activity", "encode_error")
 		return
 	}
-	if err := s.redisClient.Set(ctx, homeActivityCacheKey, raw, homeActivityCacheTTL).Err(); err != nil {
+	if err := cache.Redis(s.redisClient).Write(ctx, homeActivityCacheKey, raw, homeActivityCacheTTL).Err(); err != nil {
 		recordHomeCache("activity", "write_error")
 		return
 	}

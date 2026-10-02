@@ -15,6 +15,7 @@ import (
 	"eigenflux_server/pkg/dashboardsearch"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/reqinfo"
+	"eigenflux_server/pkg/searchguard"
 
 	"github.com/bytedance/gopkg/cloud/metainfo"
 	"github.com/cloudwego/hertz/pkg/app"
@@ -58,6 +59,16 @@ func (s *Service) dashboardSearch(trade DashboardTradeSearch) app.HandlerFunc {
 			fail(c, 400, "INVALID_SEARCH", "use 1–100 query characters, a valid type/status, limit 1–50, and a cursor only with one type", nil)
 			return
 		}
+
+		if err := searchguard.Allow(ctx, s.redisClient, searchguard.Dashboard, owner, searchguard.OwnerLimit, searchguard.RateWindow); err != nil {
+			if errors.Is(err, searchguard.ErrLimited) {
+				c.Header("Retry-After", "10")
+				fail(c, 429, "SEARCH_RATE_LIMITED", "search rate limited", nil)
+			} else {
+				fail(c, 503, "SEARCH_UNAVAILABLE", "search protection unavailable", nil)
+			}
+			return
+		}
 		ctx = metainfo.WithPersistentValue(ctx, reqinfo.KeyAgentID, strconv.FormatInt(owner, 10))
 		ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 		defer cancel()
@@ -83,7 +94,7 @@ func (s *Service) dashboardSearch(trade DashboardTradeSearch) app.HandlerFunc {
 				}
 				if searchErr != nil {
 					logger.Ctx(ctx).Warn("Dashboard search category failed", "type", category, "error", searchErr)
-					group = dashboardsearch.Group{Type: category, Items: []dashboardsearch.Result{}, Error: "SEARCH_UNAVAILABLE"}
+					group = dashboardsearch.Group{Type: category, Items: []dashboardsearch.Result{}, Error: dashboardSearchError(searchErr)}
 				}
 			} else if (category == "message" || category == "friend") && !s.enableCommunication {
 				group.Error = "COMMUNICATION_UNAVAILABLE"
@@ -91,7 +102,7 @@ func (s *Service) dashboardSearch(trade DashboardTradeSearch) app.HandlerFunc {
 				group, err = s.searchDashboardRPC(ctx, owner, category, text, status, cursor, limit)
 				if err != nil {
 					logger.Ctx(ctx).Warn("Dashboard search category failed", "type", category, "error", err)
-					group = dashboardsearch.Group{Type: category, Items: []dashboardsearch.Result{}, Error: "SEARCH_UNAVAILABLE"}
+					group = dashboardsearch.Group{Type: category, Items: []dashboardsearch.Result{}, Error: dashboardSearchError(err)}
 				}
 			}
 			groups = append(groups, group)
@@ -141,6 +152,9 @@ func (s *Service) dashboardCounterparties(ctx context.Context, text string) ([]i
 	if err != nil {
 		return nil, err
 	}
+	if resp != nil && resp.BaseResp != nil && resp.BaseResp.Code == 429 {
+		return nil, searchguard.ErrLimited
+	}
 	if resp == nil || resp.BaseResp == nil || resp.BaseResp.Code != 0 {
 		return nil, errors.New("profile search failed")
 	}
@@ -177,6 +191,9 @@ func (s *Service) searchDashboardRPC(ctx context.Context, owner int64, kind, tex
 	if err != nil {
 		return dashboardsearch.Group{}, err
 	}
+	if resp != nil && resp.BaseResp != nil && resp.BaseResp.Code == 429 {
+		return dashboardsearch.Group{}, searchguard.ErrLimited
+	}
 	if resp == nil || resp.BaseResp == nil || resp.BaseResp.Code != 0 {
 		return dashboardsearch.Group{}, errors.New("record search failed")
 	}
@@ -206,4 +223,11 @@ func (s *Service) searchDashboardRPC(ctx context.Context, owner int64, kind, tex
 		group.Items = append(group.Items, dashboardsearch.Result{ID: id, Title: r.Title, Preview: r.Preview, Status: r.Status, URL: target, UpdatedAt: r.UpdatedAt, ConversationID: conversationID, PeerID: peerID})
 	}
 	return group, nil
+}
+
+func dashboardSearchError(err error) string {
+	if errors.Is(err, searchguard.ErrLimited) {
+		return "SEARCH_RATE_LIMITED"
+	}
+	return "SEARCH_UNAVAILABLE"
 }

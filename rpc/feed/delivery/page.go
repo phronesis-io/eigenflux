@@ -2,6 +2,8 @@ package delivery
 
 import (
 	"context"
+	"eigenflux_server/pkg/cache"
+	"eigenflux_server/pkg/cache/keys"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -36,8 +38,8 @@ func (s Service) ServePage(ctx context.Context, owner int64, action string, limi
 	if err != nil {
 		return empty, false, err
 	}
-	pageKey := fmt.Sprintf("discovery:feed:%d:page", owner)
-	lockKey := pageKey + ":lock"
+	pageKey := fmt.Sprintf(keys.DeliveryPage, owner)
+	lockKey := pageKey + keys.LockSuffix
 	lockToken := fmt.Sprint(token)
 	unlock, err := s.lock(ctx, lockKey, lockToken)
 	if err != nil {
@@ -46,7 +48,7 @@ func (s Service) ServePage(ctx context.Context, owner int64, action string, limi
 	defer unlock()
 	state := pageState{}
 	if action == "load_more" {
-		raw, err := s.Redis.Get(ctx, pageKey).Result()
+		raw, err := cache.Redis(s.Redis).Read(ctx, pageKey).Result()
 		if err == redis.Nil {
 			return empty, false, nil
 		}
@@ -100,7 +102,7 @@ func (s Service) ServePage(ctx context.Context, owner int64, action string, limi
 	if err != nil {
 		return empty, false, err
 	}
-	if err := s.Redis.Set(ctx, pageKey, raw, 30*time.Minute).Err(); err != nil {
+	if err := cache.Redis(s.Redis).Write(ctx, pageKey, raw, 30*time.Minute).Err(); err != nil {
 		return empty, false, err
 	}
 	result := responseFor(selected, state.Impression)

@@ -5,6 +5,8 @@ package delivery
 import (
 	"context"
 	"crypto/sha256"
+	"eigenflux_server/pkg/cache"
+	"eigenflux_server/pkg/cache/keys"
 	"eigenflux_server/rpc/sort/discovery"
 	"encoding/hex"
 	"encoding/json"
@@ -63,9 +65,9 @@ func (s Service) Serve(ctx context.Context, owner int64, r discovery.Request, mo
 	cacheKey := ""
 	if key != "" {
 		kh := sha256.Sum256([]byte(key))
-		cacheKey = fmt.Sprintf("discovery:serve:%d:%x", owner, kh)
+		cacheKey = fmt.Sprintf(keys.DeliveryResponse, owner, kh)
 		load := func() (discovery.Response, bool, error) {
-			raw, err := s.Redis.Get(ctx, cacheKey).Result()
+			raw, err := cache.Redis(s.Redis).Read(ctx, cacheKey).Result()
 			if err == redis.Nil {
 				return empty, false, nil
 			}
@@ -84,7 +86,7 @@ func (s Service) Serve(ctx context.Context, owner int64, r discovery.Request, mo
 		if response, ok, err := load(); err != nil || ok {
 			return response, err
 		}
-		unlock, err := s.lock(ctx, cacheKey+":lock", impression)
+		unlock, err := s.lock(ctx, cacheKey+keys.LockSuffix, impression)
 		if err != nil {
 			return empty, err
 		}
@@ -133,7 +135,7 @@ func (s Service) Serve(ctx context.Context, owner int64, r discovery.Request, mo
 		if err != nil {
 			return empty, err
 		}
-		if err := s.Redis.Set(ctx, cacheKey, raw, 24*time.Hour).Err(); err != nil {
+		if err := cache.Redis(s.Redis).Write(ctx, cacheKey, raw, 24*time.Hour).Err(); err != nil {
 			return empty, err
 		}
 	}

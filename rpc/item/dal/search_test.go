@@ -81,4 +81,10 @@ func TestRecordSearchPostgresIsolationLiteralsPagination(t *testing.T) {
 	if len(g.Items) != 1 || !strings.Contains(g.Items[0].Preview, "正文命中") {
 		t.Fatal(g)
 	}
+
+	cached := find("broadcast", "合同", "", 0, 10)
+	exec(`UPDATE raw_items SET author_agent_id=2 WHERE author_agent_id=1`)
+	if err := FilterSearchVisibility(context.Background(), tx, 1, "broadcast", cached); err != nil || len(cached.Items) != 0 {
+		t.Fatalf("foreign cached records: %v %v", cached, err)
+	}
 }

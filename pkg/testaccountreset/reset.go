@@ -14,6 +14,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	cachekeys "eigenflux_server/pkg/cache/keys"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -353,7 +354,7 @@ func RedisKeys(report *Report, recallNamespace string) []string {
 	sum := sha256.Sum256([]byte(report.Email))
 	keys := []string{"auth:login:email:active:" + hex.EncodeToString(sum[:])}
 	for _, h := range report.TokenHashes {
-		keys = append(keys, "auth:session:"+h)
+		keys = append(keys, cachekeys.AuthSession+h)
 	}
 	if report.AgentID == 0 {
 		return keys
@@ -361,23 +362,23 @@ func RedisKeys(report *Report, recallNamespace string) []string {
 	id := report.AgentID
 	for _, format := range []string{
 		"impr:agent:%d:items", "impr:agent:%d:groups", "impr:agent:%d:urls",
-		"feed:cache:%d", "cache:profile:%d", "cache:profile:emb:%d", "cache:agent_influence:%d",
-		"pm:fetch:%d", "pm:notify:%d", "milestone:notify:%d", "block:%d",
+		cachekeys.Feed, cachekeys.Profile, cachekeys.Embedding, cachekeys.AgentInfluence,
+		cachekeys.PMFetch, "pm:notify:%d", "milestone:notify:%d", cachekeys.Blocks,
 		"official:welcomed:%d", "official:firstbroadcast:%d",
 		"stats:agent:%d:impressions", "stats:agent:%d:worth",
-		"agentcard:la:gate:%d", "friend:%d", "friend_count:%d",
+		"agentcard:la:gate:%d", cachekeys.Friends, cachekeys.FriendCount,
 		"console:v2:attention:{%d}:total", "console:v2:attention:{%d}:participation", "console:v2:attention:{%d}:focus",
 	} {
 		keys = append(keys, fmt.Sprintf(format, id))
 	}
 	// Peers' relation and inbox caches are rebuilt from PostgreSQL on the next read.
 	for _, peer := range report.Peers {
-		for _, format := range []string{"friend:%d", "friend_count:%d", "block:%d", "pm:fetch:%d"} {
+		for _, format := range []string{cachekeys.Friends, cachekeys.FriendCount, cachekeys.Blocks, cachekeys.PMFetch} {
 			keys = append(keys, fmt.Sprintf(format, peer))
 		}
 	}
 	for _, c := range report.Convs {
-		keys = append(keys, fmt.Sprintf("pm:conv:%d", c.ID), fmt.Sprintf("pm:convmap:%d:%d:%d", c.A, c.B, c.Origin))
+		keys = append(keys, fmt.Sprintf(cachekeys.PMConversation, c.ID), fmt.Sprintf(cachekeys.PMConversationMap, c.A, c.B, c.Origin))
 	}
 	if recallNamespace != "" {
 		keys = append(keys, fmt.Sprintf("%s:surface:agent:%d:items", recallNamespace, id))

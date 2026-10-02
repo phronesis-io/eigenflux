@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"eigenflux_server/pkg/cache"
+	"eigenflux_server/pkg/cache/keys"
 	"eigenflux_server/pkg/json"
+	"eigenflux_server/pkg/searchguard"
 	"errors"
 	"fmt"
 	"strings"
@@ -41,7 +44,8 @@ type pendingNotificationDeletion struct {
 }
 
 type PMServiceImpl struct {
-	convIDGen interface {
+	searchGuard searchguard.Guard
+	convIDGen   interface {
 		NextID() (int64, error)
 	}
 	msgIDGen interface {
@@ -293,7 +297,7 @@ func (s *PMServiceImpl) handleNewConversation(ctx context.Context, req *pm.SendP
 	// Post-commit: cache mapping, ice break, invalidate fetch cache
 	_ = s.validator.CacheConvMapping(ctx, participantA, participantB, itemID, convID)
 	_, _, _ = s.iceBreaker.CheckAndSetIceBreak(ctx, convID, req.SenderId)
-	db.RDB.Del(ctx, fmt.Sprintf("pm:fetch:%d", receiverID))
+	cache.Redis(db.RDB).Remove(ctx, fmt.Sprintf(keys.PMFetch, receiverID))
 	if err := db.RDB.Publish(ctx, fmt.Sprintf("pm:push:%d", receiverID), fmt.Sprintf("%d", msgID)).Err(); err != nil {
 		logger.Ctx(ctx).Error("failed to publish pm push notification", "receiverID", receiverID, "msgID", msgID, "err", err)
 	}
@@ -410,7 +414,7 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq, skip
 	}
 
 	// Post-commit: invalidate fetch cache
-	db.RDB.Del(ctx, fmt.Sprintf("pm:fetch:%d", receiverID))
+	cache.Redis(db.RDB).Remove(ctx, fmt.Sprintf(keys.PMFetch, receiverID))
 	if err := db.RDB.Publish(ctx, fmt.Sprintf("pm:push:%d", receiverID), fmt.Sprintf("%d", msgID)).Err(); err != nil {
 		logger.Ctx(ctx).Error("failed to publish pm push notification", "receiverID", receiverID, "msgID", msgID, "err", err)
 	}
@@ -473,7 +477,7 @@ func (s *PMServiceImpl) handleFriendPM(ctx context.Context, req *pm.SendPMReq) (
 		return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create"}}, nil
 	}
 	_ = s.validator.CacheConvMapping(ctx, participantA, participantB, 0, convID)
-	db.RDB.Del(ctx, fmt.Sprintf("pm:fetch:%d", req.ReceiverId))
+	cache.Redis(db.RDB).Remove(ctx, fmt.Sprintf(keys.PMFetch, req.ReceiverId))
 	if err := db.RDB.Publish(ctx, fmt.Sprintf("pm:push:%d", req.ReceiverId), fmt.Sprintf("%d", msgID)).Err(); err != nil {
 		logger.Ctx(ctx).Error("failed to publish pm push notification", "receiverID", req.ReceiverId, "msgID", msgID, "err", err)
 	}
@@ -517,8 +521,8 @@ func (s *PMServiceImpl) FetchPM(ctx context.Context, req *pm.FetchPMReq) (*pm.Fe
 
 	// For cursor=0 (polling case), try Redis cache first
 	if cursor == 0 {
-		cacheKey := fmt.Sprintf("pm:fetch:%d", req.AgentId)
-		cached, err := db.RDB.Get(ctx, cacheKey).Bytes()
+		cacheKey := fmt.Sprintf(keys.PMFetch, req.AgentId)
+		cached, err := cache.Redis(db.RDB).Read(ctx, cacheKey).Bytes()
 		if err == nil {
 			var resp pm.FetchPMResp
 			if json.Unmarshal(cached, &resp) == nil {
@@ -545,7 +549,7 @@ func (s *PMServiceImpl) FetchPM(ctx context.Context, req *pm.FetchPMReq) (*pm.Fe
 		// Cache empty result for cursor=0
 		if cursor == 0 {
 			if data, err := json.Marshal(emptyResp); err == nil {
-				db.RDB.Set(ctx, fmt.Sprintf("pm:fetch:%d", req.AgentId), data, 10*time.Second)
+				cache.Redis(db.RDB).Write(ctx, fmt.Sprintf(keys.PMFetch, req.AgentId), data, 10*time.Second)
 			}
 		}
 		return emptyResp, nil
@@ -1277,7 +1281,7 @@ func (s *PMServiceImpl) BlockUser(ctx context.Context, req *pm.BlockUserReq) (*p
 		logger.Ctx(ctx).Error("BlockUser failed", "fromUID", req.FromUid, "toUID", req.ToUid, "err", err)
 		return &pm.BlockUserResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to block"}}, nil
 	}
-	_ = db.RDB.SAdd(ctx, fmt.Sprintf("block:%d", req.FromUid), req.ToUid)
+	_ = db.RDB.SAdd(ctx, fmt.Sprintf(keys.Blocks, req.FromUid), req.ToUid)
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.FromUid)
 	_ = relations.InvalidateFriendCache(ctx, db.RDB, req.ToUid)
 	s.deletePendingFriendRequestNotifications(deletions)
@@ -1307,7 +1311,7 @@ func (s *PMServiceImpl) UnblockUser(ctx context.Context, req *pm.UnblockUserReq)
 		logger.Ctx(ctx).Error("UnblockUser failed", "fromUID", req.FromUid, "toUID", req.ToUid, "err", err)
 		return &pm.UnblockUserResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to unblock"}}, nil
 	}
-	_ = db.RDB.SRem(ctx, fmt.Sprintf("block:%d", req.FromUid), req.ToUid)
+	_ = db.RDB.SRem(ctx, fmt.Sprintf(keys.Blocks, req.FromUid), req.ToUid)
 	logger.Ctx(ctx).Info("UnblockUser done", "fromUID", req.FromUid, "toUID", req.ToUid)
 	return &pm.UnblockUserResp{BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
 }

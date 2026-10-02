@@ -296,3 +296,5 @@ and optional `preferences`. Current eligibility follows the linked Intent.
 Historical inputs and projections remain available. Existing Search/Sort/Feed
 paths do not consume these records. See [the design](docs/design/need-capture/design.md)
 and [complete input example](contracts/need_input.v2.example.json).
+
+Cache implementation and key ownership: [Shared cache package](docs/dev/cache.md).

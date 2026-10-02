@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"eigenflux_server/pkg/cache/keys"
 	"fmt"
 	"time"
 
@@ -34,7 +35,7 @@ type CachedProfile struct {
 // BuildProfileKey generates a cache key for a profile
 // Format: cache:profile:{agent_id}
 func (pc *ProfileCache) BuildProfileKey(agentID int64) string {
-	return fmt.Sprintf("cache:profile:%d", agentID)
+	return fmt.Sprintf(keys.Profile, agentID)
 }
 
 // Get retrieves a cached profile

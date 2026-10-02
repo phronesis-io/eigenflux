@@ -53,3 +53,42 @@ func SearchFriends(ctx context.Context, db *gorm.DB, req *search.SearchReq) (*se
 	}
 	return recordsearch.Page(rows, text, int(req.Limit)), nil
 }
+
+// FilterSearchVisibility rechecks permissions even for cached/in-flight pages.
+// This also covers writes through other entry points, without a stale ACL TTL.
+func FilterSearchVisibility(ctx context.Context, db *gorm.DB, owner int64, kind string, page *search.SearchResp) error {
+	if len(page.Items) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(page.Items))
+	for _, hit := range page.Items {
+		ids = append(ids, hit.Id)
+	}
+	var visible []int64
+
+	var query string
+	if kind == "message" {
+		query = `SELECT m.msg_id FROM private_messages m JOIN conversations c ON c.conv_id=m.conv_id WHERE m.msg_id IN ? AND c.status=0 AND (c.participant_a=? OR c.participant_b=?)`
+		if err := db.WithContext(ctx).Raw(query, ids, owner, owner).Scan(&visible).Error; err != nil {
+			return err
+		}
+	} else {
+		query = `SELECT r.to_uid FROM user_relations r JOIN agents a ON a.agent_id=r.to_uid WHERE r.to_uid IN ? AND r.from_uid=? AND r.rel_type=1`
+		if err := db.WithContext(ctx).Raw(query, ids, owner).Scan(&visible).Error; err != nil {
+			return err
+		}
+	}
+
+	allowed := make(map[int64]bool, len(visible))
+	for _, id := range visible {
+		allowed[id] = true
+	}
+	kept := page.Items[:0]
+	for _, hit := range page.Items {
+		if allowed[hit.Id] {
+			kept = append(kept, hit)
+		}
+	}
+	page.Items = kept
+	return nil
+}

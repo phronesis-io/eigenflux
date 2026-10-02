@@ -2,7 +2,9 @@ package tradebff
 
 import (
 	"context"
+	"eigenflux_server/pkg/searchguard"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -33,6 +35,10 @@ func (s *Service) SearchDashboard(ctx context.Context, owner int64, kind, query,
 	}
 	raw, err := s.fetch(ctx, owner, scope, operation, http.MethodGet, path, values, nil, "", false)
 	if err != nil {
+		var upstream *UpstreamError
+		if errors.As(err, &upstream) && upstream.Status == 429 {
+			return group, searchguard.ErrLimited
+		}
 		return group, err
 	}
 	type content struct {

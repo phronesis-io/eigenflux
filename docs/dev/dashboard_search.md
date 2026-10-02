@@ -50,6 +50,18 @@ The BFF authenticates the caller, checks category scopes, invokes service client
 
 The shared `record_search.thrift` contract carries bounded excerpts, status and pagination without frontend URLs. PM and Item reject missing or mismatched `ef.agent_id` metadata independently of HTTP validation. Profile only returns public identity IDs; Commission intersects candidate IDs with the caller's orders. The shared `pkg/recordsearch` helpers contain validation, escaping and excerpt logic, with no database access.
 
+## Database protection
+
+All five private-search categories and Profile name matching use service-owned `pkg/searchguard` guards. The BFF holds no search result cache.
+
+- Redis caches successful pages, including empty pages, for 5 seconds. Keys include the authenticated owner, domain, and a SHA-256 digest of the complete request (query, status/role, cursor, limit and counterparty IDs where applicable). Raw search text is not embedded in keys. Pages larger than 256 KiB are served under the query budget without being cached. Errors are never cached.
+- Each service instance uses Jetcache `Once` through the [shared cache package](cache.md) to merge identical concurrent fills. Each caller receives an independent decoded response. A disconnected first caller does not cancel other waiters; shared work keeps authentication metadata and expires after 3 seconds. Redis shares cached values across instances; singleflight operates within one instance.
+- Redis enforces 30 requests per owner per 10-second window at the BFF and independently per RPC search category. Cold fills additionally share a 100-per-second budget per category. A service instance allows at most 16 concurrent fills or visibility checks and rejects excess work without queuing.
+- Every private page, including cache hits and singleflight waiters, gets a current visibility check using only its bounded result IDs. Hidden conversations, removed friends, deleted services, and records outside the caller's ownership are filtered immediately. These checks also cover writes through other entry points. This avoids repeating content matching while retaining authoritative permissions; cache hits still perform an indexed visibility query. Text, status, totals and newly matching records may lag by up to 5 seconds.
+- Redis failures return an explicit unavailable error rather than bypassing protection and flooding SQL. HTTP entry throttling returns `429 SEARCH_RATE_LIMITED` with `Retry-After: 10`; individual throttled categories return `SEARCH_RATE_LIMITED`. The CLI keeps its nonzero exit for partial failure.
+
+Authentication and scope checks run on every request before cached data is served. HTTP responses retain `private, no-store`; server-side caches do not enable shared browser/CDN caching.
+
 ## Trade integration and rollout
 
 The EigenFlux BFF orchestrates searches and uses Profile RPC for agent-name resolution. Commission owns service/order matching before pagination. Trusted delegation carries the current identity to the existing list endpoints; the gateway does not read Commission tables. The Commission HTTP `search_version: 1` and RPC `search_applied` markers prevent older services that ignore query fields from returning unfiltered lists as search results.

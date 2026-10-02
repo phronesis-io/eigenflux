@@ -15,7 +15,6 @@ import (
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
-	"github.com/hashicorp/golang-lru/v2/expirable"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -34,11 +33,11 @@ type Service struct {
 	embeddingCache     *cache.EmbeddingCache
 	recallSources      []recallsource.RecallSource
 	sfGroup            singleflight.Group
-	contentClassCache  *expirable.LRU[int64, bool]
+	contentClassCache  *cache.Local[int64, bool]
 }
 
 func New(cfg *config.Config, database *gorm.DB, redisClient *redis.Client) *Service {
-	s := &Service{cfg: cfg, db: database, redis: redisClient, contentClassCache: expirable.NewLRU[int64, bool](pgcClassCacheSize, nil, pgcClassCacheTTL)}
+	s := &Service{cfg: cfg, db: database, redis: redisClient, contentClassCache: cache.NewLocal[int64, bool](pgcClassCacheSize)}
 	// Initialize Bloom Filter (for group_id deduplication)
 	s.bf = bloomfilter.NewBloomFilter(s.redis)
 

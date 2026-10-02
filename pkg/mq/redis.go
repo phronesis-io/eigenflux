@@ -2,6 +2,7 @@ package mq
 
 import (
 	"context"
+	"eigenflux_server/pkg/cache"
 	"eigenflux_server/pkg/logger"
 	"fmt"
 	"os"
@@ -19,10 +20,7 @@ type PendingMessage struct {
 }
 
 func Init(addr, password string) {
-	RDB = redis.NewClient(&redis.Options{
-		Addr:     addr,
-		Password: password,
-	})
+	RDB = cache.SharedConnections.Client(addr, password)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := RDB.Ping(ctx).Err(); err != nil {

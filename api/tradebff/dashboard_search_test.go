@@ -2,6 +2,8 @@ package tradebff
 
 import (
 	"context"
+	"eigenflux_server/pkg/searchguard"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -30,5 +32,18 @@ func TestDashboardSearchDelegationAndVersionFence(t *testing.T) {
 	version = ""
 	if _, err = s.SearchDashboard(context.Background(), 42, "order", "合同_%!", "completed", "", 2, []int64{72, 83}); err == nil {
 		t.Fatal("old server must fail closed")
+	}
+}
+
+func TestDashboardSearchPreservesUpstreamRateLimit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(429)
+		io.WriteString(w, `{"code":429,"msg":"limited","error_code":"ORDER_RATE_LIMITED"}`)
+	}))
+	defer server.Close()
+	s := configuredService(t, server.URL)
+	_, err := s.SearchDashboard(context.Background(), 42, "order", "x", "", "", 10, nil)
+	if !errors.Is(err, searchguard.ErrLimited) {
+		t.Fatal(err)
 	}
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"eigenflux_server/pkg/cache"
+	"eigenflux_server/pkg/cache/keys"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -42,7 +44,7 @@ func searchToken() string {
 }
 
 func searchKey(owner int64, session string) string {
-	return fmt.Sprintf("discovery:search:%d:%s", owner, session)
+	return fmt.Sprintf(keys.DeliverySearch, owner, session)
 }
 
 func (s Service) freezeSearch(ctx context.Context, owner int64, r discovery.Request, x discovery.Execution, impression string, now int64) (searchSnapshot, string, error) {
@@ -62,7 +64,7 @@ func (s Service) freezeSearch(ctx context.Context, owner int64, r discovery.Requ
 	if err != nil {
 		return state, "", err
 	}
-	err = s.Redis.Set(ctx, searchKey(owner, session), raw, searchTTL).Err()
+	err = cache.Redis(s.Redis).Write(ctx, searchKey(owner, session), raw, searchTTL).Err()
 	return state, session, err
 }
 
@@ -77,7 +79,7 @@ func (s Service) loadSearch(ctx context.Context, owner int64, r discovery.Reques
 		}
 	}
 	session = parts[0]
-	raw, err := s.Redis.Get(ctx, searchKey(owner, session)).Result()
+	raw, err := cache.Redis(s.Redis).Read(ctx, searchKey(owner, session)).Result()
 	if err == redis.Nil {
 		return state, "", 0, discovery.Failure(410, "search_cursor_expired")
 	}

@@ -133,6 +133,13 @@ func TestDashboardSearchDeployed(t *testing.T) {
 	if len(byCounterparty) != 1 || byCounterparty[0].Error != "" || len(byCounterparty[0].Items) != 1 || byCounterparty[0].Items[0].ID != strconv.FormatInt(base+500, 10) {
 		t.Fatalf("counterparty-name result: %#v", byCounterparty)
 	}
+
+	repeated := request(term, "all")
+	for _, g := range repeated {
+		if g.Error != "" || len(g.Items) != 1 {
+			t.Fatalf("cached search: %#v", g)
+		}
+	}
 	for kind, id := range map[string]int64{"broadcast": base + 101, "message": base + 301, "service": base + 401, "order": base + 501} {
 		g := request(strconv.FormatInt(id, 10), kind)
 		if len(g) != 1 || g[0].Error != "" || len(g[0].Items) != 0 {
@@ -190,6 +197,48 @@ func TestDashboardSearchDeployed(t *testing.T) {
 	}
 	if len(cli.Groups) != 5 {
 		t.Fatalf("CLI groups=%#v", cli.Groups)
+	}
+
+	// Revoke visibility after warming the cache. Cached pages must still use
+	// current owner/relation checks, even when writes bypass the RPC process.
+	for _, q := range []string{
+		fmt.Sprintf("DELETE FROM user_relations WHERE from_uid=%d AND to_uid=%d", owner, peer),
+		fmt.Sprintf("UPDATE conversations SET status=1 WHERE conv_id=%d", base+200),
+		fmt.Sprintf("UPDATE commission_definitions SET deleted_at=%d,status='offline' WHERE commission_id=%d", now, base+400),
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, kind := range []string{"friend", "message", "service"} {
+		g := request(term, kind)
+		if len(g) != 1 || g[0].Error != "" || len(g[0].Items) != 0 {
+			t.Fatalf("cached permission leak: %#v", g)
+		}
+	}
+	limited := false
+	for i := 0; i < 31; i++ {
+		req, _ := http.NewRequest("GET", endpoint+"/api/v2/dashboard/search?q=x&type=friend", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		res, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		io.Copy(io.Discard, res.Body)
+		res.Body.Close()
+		if res.StatusCode == 429 {
+			limited = true
+			if res.Header.Get("Retry-After") == "" {
+				t.Fatal("missing retry delay")
+			}
+			break
+		}
+		if res.StatusCode != 200 {
+			t.Fatalf("rate limit HTTP %d", res.StatusCode)
+		}
+	}
+	if !limited {
+		t.Fatal("search burst was not rate limited")
 	}
 	t.Log("Verified five categories across HTTP, trusted Commission delegation, RPC, PostgreSQL and the CLI; foreign records excluded")
 }

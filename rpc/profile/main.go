@@ -32,6 +32,7 @@ func main() {
 	go metrics.StartMetricsServer(cfg.ProfileRPCPort + 1000)
 
 	db.Init(cfg.PgDSN)
+	db.InitRedis(cfg.RedisAddr, cfg.RedisPassword)
 
 	etcdEndpoints := splitEtcdEndpoints(cfg.EtcdAddr)
 	agentIDGen, err := idgen.NewManagedGenerator(context.Background(), idgen.ManagedGeneratorConfig{
