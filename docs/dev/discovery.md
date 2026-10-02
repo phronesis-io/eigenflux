@@ -659,3 +659,23 @@ samples are untouched. Fresh projections already omit retired fields. Existing
 ES mappings require a new concrete index generation to physically remove old
 properties; existing unused fields are never queried. Historical migrations and
 captured legacy input records remain historical data, not runtime dependencies.
+
+### Broadcast recall metrics
+
+With `ENABLE_NEED_SEARCH=true`, broadcast recommendations continue to update
+`recall_feed_total{source}` and `recall_impression_total{source}` used by the
+Recall Sources dashboard. Discovery maps `lexical` to `keyword` and `dense` to
+`knn`; `hot_recall`, `new_recall`, and `new_ugc_recall` retain their labels.
+Only channels executed by discovery contribute; legacy-only friend and Swing
+recall do not acquire synthetic counts.
+
+Candidate counts cover hydrated, version-valid broadcasts before seen checks,
+hard filters, relevance thresholds and ranking. Each item/source pair counts
+once per execution even when multiple Need contexts recall it. Impression
+counts cover only delivered recommendation pages after detail preparation;
+prefetched rows, missing details, idempotent retries and exhausted pages do not
+count. Explicit search and Agent/Commission results do not enter these broadcast
+feed metrics. Candidate counters are exported by Sort; delivery counters are
+exported by Feed. Dashboard queries must aggregate both service jobs. Delivery counts do not depend on asynchronous history/sample
+writes succeeding. The metrics retain their names across the cutover, but the
+retrieval and filtering algorithms differ from the legacy pipeline.

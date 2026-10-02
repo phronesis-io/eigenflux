@@ -5,6 +5,7 @@ import (
 	"eigenflux_server/pkg/featureindex"
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/need"
+	"eigenflux_server/pkg/recallsource"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -359,6 +360,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		return channelOrder(a.channel) < channelOrder(b.channel)
 	})
 	candidates := []Candidate{}
+	recalled := map[int64]recallsource.Source{}
 	anySuccess := false
 	below, exhausted := false, false
 	for ci, c := range contexts {
@@ -453,6 +455,13 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			d.DenseScore = prior.DenseScore
 			d.Channels = prior.Channels
 			d.ExactMatch = prior.ExactMatch
+			if mode == Recommendation {
+				sources := d.RecallSources()
+				for _, name := range recallsource.Names(sources &^ recalled[d.Ref.ID]) {
+					metrics.RecallFeedTotal.WithLabelValues(name).Inc()
+				}
+				recalled[d.Ref.ID] |= sources
+			}
 			if seen[d.Ref.Key()] {
 				exhausted = true
 				metrics.DiscoveryRejected.WithLabelValues(string(d.Ref.Type), "seen").Inc()

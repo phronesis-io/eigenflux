@@ -40,6 +40,10 @@ integration suites' PostgreSQL advisory lock is respected.
 
 ## Coverage
 
+- Broadcast recommendation recall and delivery counters remain visible on the
+  Sort and Feed Prometheus endpoints after the Need Search cutover. Idempotent
+  retries and explicit search do not increment these Feed counters.
+
 - Sort starts with a historical broadcast backing index whose
   `retrieval_slots.lang` is text with a keyword multi-field. The Sort source
   integration test `TestBroadcastHistoricalMappingsAndExactFilters` additionally
