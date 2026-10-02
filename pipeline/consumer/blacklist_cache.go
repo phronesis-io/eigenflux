@@ -2,6 +2,8 @@ package consumer
 
 import (
 	"context"
+	"eigenflux_server/pkg/cache"
+	"eigenflux_server/pkg/cache/keys"
 	"eigenflux_server/pkg/json"
 	"log"
 	"time"
@@ -14,7 +16,7 @@ import (
 )
 
 const (
-	blacklistCacheKey = "cache:blacklist:keywords"
+	blacklistCacheKey = keys.Blacklist
 	blacklistCacheTTL = 60 * time.Second
 )
 
@@ -22,7 +24,7 @@ const (
 // Uses Redis cache with 60s TTL. On any failure, returns nil (skip check).
 func loadBlacklistKeywords(ctx context.Context) []string {
 	// Try Redis cache first
-	cached, err := mq.RDB.Get(ctx, blacklistCacheKey).Result()
+	cached, err := cache.Redis(mq.RDB).Read(ctx, blacklistCacheKey).Result()
 	if err == nil {
 		var keywords []string
 		if json.Unmarshal([]byte(cached), &keywords) == nil {
@@ -41,7 +43,7 @@ func loadBlacklistKeywords(ctx context.Context) []string {
 
 	// Write back to cache (best-effort)
 	if data, err := json.Marshal(keywords); err == nil {
-		if err := mq.RDB.Set(ctx, blacklistCacheKey, string(data), blacklistCacheTTL).Err(); err != nil {
+		if err := cache.Redis(mq.RDB).Write(ctx, blacklistCacheKey, string(data), blacklistCacheTTL).Err(); err != nil {
 			log.Printf("[Blacklist] Redis cache write error: %v", err)
 		}
 	}

@@ -2,6 +2,8 @@ package consolev2
 
 import (
 	"context"
+	"eigenflux_server/pkg/cache"
+	"eigenflux_server/pkg/cache/keys"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -86,7 +88,7 @@ type homeWorthWatchingContentRow struct {
 }
 
 func homeWorthWatchingCacheKey() string {
-	return "console:v2:home:worth-watching:" + homeWorthWatchingCacheVersion + ":" + homepageEvaluationVersion
+	return keys.HomeWorthWatching + homeWorthWatchingCacheVersion + ":" + homepageEvaluationVersion
 }
 
 func (s *Service) getHomeWorthWatching(ctx context.Context, c *app.RequestContext) {
@@ -127,7 +129,7 @@ func (s *Service) readHomeWorthWatchingCache(ctx context.Context, key string) (h
 		recordHomeCache("worth_watching", "disabled")
 		return homeWorthWatchingResponse{}, false
 	}
-	raw, err := s.redisClient.Get(ctx, key).Bytes()
+	raw, err := cache.Redis(s.redisClient).Read(ctx, key).Bytes()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			recordHomeCache("worth_watching", "miss")
@@ -154,7 +156,7 @@ func (s *Service) writeHomeWorthWatchingCache(ctx context.Context, key string, r
 		recordHomeCache("worth_watching", "encode_error")
 		return
 	}
-	if err := s.redisClient.Set(ctx, key, raw, homeWorthWatchingCacheTTL).Err(); err != nil {
+	if err := cache.Redis(s.redisClient).Write(ctx, key, raw, homeWorthWatchingCacheTTL).Err(); err != nil {
 		recordHomeCache("worth_watching", "write_error")
 		return
 	}

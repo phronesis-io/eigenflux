@@ -2,6 +2,8 @@ package relations
 
 import (
 	"context"
+	"eigenflux_server/pkg/cache"
+	cachekeys "eigenflux_server/pkg/cache/keys"
 	"fmt"
 	"time"
 
@@ -12,9 +14,9 @@ import (
 )
 
 const (
-	RedisKeyFriendSet   = "friend:%d"       // SET of friend IDs
-	RedisKeyBlockSet    = "block:%d"        // SET of blocked user IDs
-	RedisKeyFriendCount = "friend_count:%d" // STRING friend count cache
+	RedisKeyFriendSet   = cachekeys.Friends     // SET of friend IDs
+	RedisKeyBlockSet    = cachekeys.Blocks      // SET of blocked user IDs
+	RedisKeyFriendCount = cachekeys.FriendCount // STRING friend count cache
 
 	// Cache TTL for friend and block sets (24 hours)
 	RelationCacheTTL = 24 * time.Hour
@@ -29,20 +31,11 @@ func LoadFriendSet(ctx context.Context, rdb *redis.Client, db *gorm.DB, uid int6
 	}
 
 	key := fmt.Sprintf(RedisKeyFriendSet, uid)
-	pipe := rdb.Pipeline()
-	pipe.Del(ctx, key)
-
-	if len(relations) > 0 {
-		members := make([]interface{}, len(relations))
-		for i, rel := range relations {
-			members[i] = rel.ToUID
-		}
-		pipe.SAdd(ctx, key, members...)
-		pipe.Expire(ctx, key, RelationCacheTTL)
+	members := make([]any, len(relations))
+	for i, rel := range relations {
+		members[i] = rel.ToUID
 	}
-
-	_, err = pipe.Exec(ctx)
-	return err
+	return cache.Redis(rdb).ReplaceSet(ctx, key, members, RelationCacheTTL)
 }
 
 // LoadBlockSet loads blocked user IDs from DB to Redis SET
@@ -54,37 +47,28 @@ func LoadBlockSet(ctx context.Context, rdb *redis.Client, db *gorm.DB, uid int64
 	}
 
 	key := fmt.Sprintf(RedisKeyBlockSet, uid)
-	pipe := rdb.Pipeline()
-	pipe.Del(ctx, key)
-
-	if len(relations) > 0 {
-		members := make([]interface{}, len(relations))
-		for i, rel := range relations {
-			members[i] = rel.ToUID
-		}
-		pipe.SAdd(ctx, key, members...)
-		pipe.Expire(ctx, key, RelationCacheTTL)
+	members := make([]any, len(relations))
+	for i, rel := range relations {
+		members[i] = rel.ToUID
 	}
-
-	_, err = pipe.Exec(ctx)
-	return err
+	return cache.Redis(rdb).ReplaceSet(ctx, key, members, RelationCacheTTL)
 }
 
 // IsFriendCached checks if two users are friends via Redis cache with DB fallback
 func IsFriendCached(ctx context.Context, rdb *redis.Client, db *gorm.DB, uidA, uidB int64) (bool, error) {
 	key := fmt.Sprintf(RedisKeyFriendSet, uidA)
-	exists, err := rdb.Exists(ctx, key).Result()
+	exists, err := cache.Redis(rdb).Exists(ctx, key)
 	if err != nil {
 		return dal.IsFriend(db, uidA, uidB)
 	}
 
-	if exists == 0 {
+	if !exists {
 		if err := LoadFriendSet(ctx, rdb, db, uidA); err != nil {
 			return dal.IsFriend(db, uidA, uidB)
 		}
 	}
 
-	isMember, err := rdb.SIsMember(ctx, key, uidB).Result()
+	isMember, err := cache.Redis(rdb).IsMember(ctx, key, uidB)
 	if err != nil {
 		return dal.IsFriend(db, uidA, uidB)
 	}
@@ -94,18 +78,18 @@ func IsFriendCached(ctx context.Context, rdb *redis.Client, db *gorm.DB, uidA, u
 // IsBlockedCached checks if fromUID has blocked toUID via Redis cache with DB fallback
 func IsBlockedCached(ctx context.Context, rdb *redis.Client, db *gorm.DB, fromUID, toUID int64) (bool, error) {
 	key := fmt.Sprintf(RedisKeyBlockSet, fromUID)
-	exists, err := rdb.Exists(ctx, key).Result()
+	exists, err := cache.Redis(rdb).Exists(ctx, key)
 	if err != nil {
 		return dal.IsBlocked(db, fromUID, toUID)
 	}
 
-	if exists == 0 {
+	if !exists {
 		if err := LoadBlockSet(ctx, rdb, db, fromUID); err != nil {
 			return dal.IsBlocked(db, fromUID, toUID)
 		}
 	}
 
-	isMember, err := rdb.SIsMember(ctx, key, toUID).Result()
+	isMember, err := cache.Redis(rdb).IsMember(ctx, key, toUID)
 	if err != nil {
 		return dal.IsBlocked(db, fromUID, toUID)
 	}
@@ -118,14 +102,11 @@ func InvalidateFriendCache(ctx context.Context, rdb *redis.Client, uid int64) er
 		fmt.Sprintf(RedisKeyFriendSet, uid),
 		fmt.Sprintf(RedisKeyFriendCount, uid),
 	}
-	return rdb.Del(ctx, keys...).Err()
+	return cache.Redis(rdb).Remove(ctx, keys...).Err()
 }
 
 // InvalidateBlockCache deletes block cache key
 func InvalidateBlockCache(ctx context.Context, rdb *redis.Client, uid int64) error {
 	key := fmt.Sprintf(RedisKeyBlockSet, uid)
-	return rdb.Del(ctx, key).Err()
+	return cache.Redis(rdb).Remove(ctx, key).Err()
 }
-
-
-

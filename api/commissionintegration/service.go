@@ -2,6 +2,7 @@ package commissionintegration
 
 import (
 	"context"
+	"eigenflux_server/pkg/cache"
 	"errors"
 	"strconv"
 	"strings"
@@ -385,6 +386,8 @@ const (
 	defaultEmbeddingFailureTTL   = 2 * time.Second
 )
 
+const embeddingReadinessKey = "readiness"
+
 type embeddingReadiness struct {
 	provider   string
 	dimensions int
@@ -399,8 +402,7 @@ type EmbeddingProbe struct {
 	now        func() time.Time
 	successTTL time.Duration
 	failureTTL time.Duration
-	mu         sync.Mutex
-	cache      embeddingReadiness
+	cache      *cache.Local[string, embeddingReadiness]
 	group      singleflight.Group
 }
 
@@ -412,6 +414,7 @@ func newEmbeddingProbeWithClock(provider string, dimensions int, client Embeddin
 	return &EmbeddingProbe{
 		provider: strings.TrimSpace(provider), dimensions: dimensions, client: client,
 		now: now, successTTL: successTTL, failureTTL: failureTTL,
+		cache: cache.NewLocal[string, embeddingReadiness](1),
 	}
 }
 
@@ -422,7 +425,7 @@ func (p *EmbeddingProbe) Ready(ctx context.Context) (string, int, error) {
 	if cached, ok := p.cached(); ok {
 		return cached.provider, cached.dimensions, cached.err
 	}
-	value, _, _ := p.group.Do("readiness", func() (any, error) {
+	value, _, _ := p.group.Do(embeddingReadinessKey, func() (any, error) {
 		if cached, ok := p.cached(); ok {
 			return cached, nil
 		}
@@ -434,9 +437,7 @@ func (p *EmbeddingProbe) Ready(ctx context.Context) (string, int, error) {
 			ttl = p.failureTTL
 		}
 		result.expiresAt = p.now().Add(ttl)
-		p.mu.Lock()
-		p.cache = result
-		p.mu.Unlock()
+		p.cache.PutUntil(embeddingReadinessKey, result, result.expiresAt)
 		return result, nil
 	})
 	result := value.(embeddingReadiness)
@@ -444,10 +445,5 @@ func (p *EmbeddingProbe) Ready(ctx context.Context) (string, int, error) {
 }
 
 func (p *EmbeddingProbe) cached() (embeddingReadiness, bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.cache.expiresAt.IsZero() || !p.now().Before(p.cache.expiresAt) {
-		return embeddingReadiness{}, false
-	}
-	return p.cache, true
+	return p.cache.GetAt(embeddingReadinessKey, p.now())
 }

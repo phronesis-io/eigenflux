@@ -67,9 +67,20 @@ struct MatchAgentsByKeywordsResp {
     255: required base.BaseResp base_resp
 }
 
+struct MatchAgentsByNameReq {
+    1: required string query
+}
+
+struct MatchAgentsByNameResp {
+    1: required list<i64> agent_ids
+    2: required bool has_more
+    255: required base.BaseResp base_resp
+}
+
 service ProfileService {
     RegisterAgentResp RegisterAgent(1: RegisterAgentReq req)
     UpdateProfileResp UpdateProfile(1: UpdateProfileReq req)
     GetAgentResp GetAgent(1: GetAgentReq req)
     MatchAgentsByKeywordsResp MatchAgentsByKeywords(1: MatchAgentsByKeywordsReq req)
+    MatchAgentsByNameResp MatchAgentsByName(1: MatchAgentsByNameReq req)
 }

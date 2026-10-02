@@ -38,7 +38,7 @@ func TestTradeCommissionsDelegatesAuthenticatedSubject(t *testing.T) {
 	defer server.Close()
 	service := configuredService(t, server.URL)
 	ctx := app.NewContext(0)
-	ctx.Request.SetRequestURI("/api/v2/console/bff/trade/commissions?cursor=11&limit=20")
+	ctx.Request.SetRequestURI("/api/v2/console/bff/trade/commissions?commission_id=9007199254740993&cursor=11&limit=20")
 	ctx.Set("agent_id", int64(42))
 	service.TradeCommissions(context.Background(), ctx)
 	if ctx.Response.StatusCode() != http.StatusOK {
@@ -47,7 +47,7 @@ func TestTradeCommissionsDelegatesAuthenticatedSubject(t *testing.T) {
 	if !strings.HasPrefix(authorization, "Bearer "+delegationPrefix+"current.") {
 		t.Fatalf("authorization = %q", authorization)
 	}
-	if requestPath != "/api/v2/console/trade/commissions?cursor=11&limit=20" {
+	if requestPath != "/api/v2/console/trade/commissions?commission_id=9007199254740993&cursor=11&limit=20" {
 		t.Fatalf("request path = %q", requestPath)
 	}
 	claims := tokenClaims(t, strings.TrimPrefix(authorization, "Bearer "))

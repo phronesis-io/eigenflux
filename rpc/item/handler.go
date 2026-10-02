@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"eigenflux_server/pkg/searchguard"
 	"errors"
 	"strings"
 
@@ -17,7 +18,8 @@ import (
 )
 
 type ItemServiceImpl struct {
-	itemIDGen interface {
+	searchGuard searchguard.Guard
+	itemIDGen   interface {
 		NextID() (int64, error)
 	}
 }

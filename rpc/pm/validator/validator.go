@@ -2,6 +2,8 @@ package validator
 
 import (
 	"context"
+	"eigenflux_server/pkg/cache"
+	"eigenflux_server/pkg/cache/keys"
 	"eigenflux_server/pkg/json"
 	"errors"
 	"fmt"
@@ -35,10 +37,10 @@ func NewValidator(db *gorm.DB, rdb *redis.Client) *Validator {
 
 // GetItemOwner returns the cached author_agent_id for an item.
 func (v *Validator) GetItemOwner(ctx context.Context, itemID int64) (int64, error) {
-	cacheKey := fmt.Sprintf("pm:itemowner:%d", itemID)
+	cacheKey := fmt.Sprintf(keys.PMItemOwner, itemID)
 
 	// Try cache first
-	cached, err := v.rdb.Get(ctx, cacheKey).Result()
+	cached, err := cache.Redis(v.rdb).Read(ctx, cacheKey).Result()
 	if err == nil {
 		if cached == "null" {
 			return 0, fmt.Errorf("item not found")
@@ -54,13 +56,13 @@ func (v *Validator) GetItemOwner(ctx context.Context, itemID int64) (int64, erro
 		ownerID, dbErr := dal.GetItemOwner(v.db, itemID)
 		if dbErr != nil {
 			// Cache null result
-			_ = v.rdb.Set(ctx, cacheKey, "null", 300*time.Second).Err()
+			_ = cache.Redis(v.rdb).Write(ctx, cacheKey, "null", 300*time.Second).Err()
 			return int64(0), dbErr
 		}
 
 		// Cache result
 		data, _ := json.Marshal(ownerID)
-		_ = v.rdb.Set(ctx, cacheKey, data, 120*time.Minute).Err()
+		_ = cache.Redis(v.rdb).Write(ctx, cacheKey, data, 120*time.Minute).Err()
 		return ownerID, nil
 	})
 
@@ -91,10 +93,10 @@ func (v *Validator) ValidateItemAvailable(ctx context.Context, itemID int64) err
 
 // ValidateNoReply checks if item has expected_response = 'no_reply'
 func (v *Validator) ValidateNoReply(ctx context.Context, itemID int64) error {
-	cacheKey := fmt.Sprintf("pm:itemresp:%d", itemID)
+	cacheKey := fmt.Sprintf(keys.PMItemResponse, itemID)
 
 	// Try cache first
-	cached, err := v.rdb.Get(ctx, cacheKey).Result()
+	cached, err := cache.Redis(v.rdb).Read(ctx, cacheKey).Result()
 	if err == nil {
 		if cached == "no_reply" {
 			return fmt.Errorf("this item does not accept replies")
@@ -112,7 +114,7 @@ func (v *Validator) ValidateNoReply(ctx context.Context, itemID int64) error {
 		if val == "" {
 			val = "_empty"
 		}
-		_ = v.rdb.Set(ctx, cacheKey, val, 300*time.Second).Err()
+		_ = cache.Redis(v.rdb).Write(ctx, cacheKey, val, 300*time.Second).Err()
 		return resp, nil
 	})
 
@@ -136,10 +138,10 @@ type ConvInfo struct {
 
 // GetConversationInfo returns cached conversation metadata for routing and validation.
 func (v *Validator) GetConversationInfo(ctx context.Context, convID int64) (*ConvInfo, error) {
-	cacheKey := fmt.Sprintf("pm:conv:%d", convID)
+	cacheKey := fmt.Sprintf(keys.PMConversation, convID)
 
 	// Try cache first
-	cached, err := v.rdb.Get(ctx, cacheKey).Result()
+	cached, err := cache.Redis(v.rdb).Read(ctx, cacheKey).Result()
 	if err == nil {
 		var info ConvInfo
 		if err := json.Unmarshal([]byte(cached), &info); err == nil {
@@ -163,7 +165,7 @@ func (v *Validator) GetConversationInfo(ctx context.Context, convID int64) (*Con
 
 		// Cache result
 		data, _ := json.Marshal(info)
-		_ = v.rdb.Set(ctx, cacheKey, data, 300*time.Second).Err()
+		_ = cache.Redis(v.rdb).Write(ctx, cacheKey, data, 300*time.Second).Err()
 		return info, nil
 	})
 
@@ -204,10 +206,10 @@ func (v *Validator) checkMembership(info *ConvInfo, senderID int64) (int64, erro
 
 // GetOrCreateConvID checks if conversation exists via Redis mapping
 func (v *Validator) GetOrCreateConvID(ctx context.Context, participantA, participantB, originID int64) (int64, bool, error) {
-	mapKey := fmt.Sprintf("pm:convmap:%d:%d:%d", participantA, participantB, originID)
+	mapKey := fmt.Sprintf(keys.PMConversationMap, participantA, participantB, originID)
 
 	// Check Redis mapping
-	cached, err := v.rdb.Get(ctx, mapKey).Result()
+	cached, err := cache.Redis(v.rdb).Read(ctx, mapKey).Result()
 	if err == nil {
 		var convID int64
 		if json.Unmarshal([]byte(cached), &convID) == nil {
@@ -220,7 +222,7 @@ func (v *Validator) GetOrCreateConvID(ctx context.Context, participantA, partici
 	if err == nil {
 		// Found in DB, cache it
 		data, _ := json.Marshal(conv.ConvID)
-		_ = v.rdb.Set(ctx, mapKey, data, 7*24*time.Hour).Err()
+		_ = cache.Redis(v.rdb).Write(ctx, mapKey, data, 7*24*time.Hour).Err()
 		return conv.ConvID, true, nil
 	}
 
@@ -230,13 +232,13 @@ func (v *Validator) GetOrCreateConvID(ctx context.Context, participantA, partici
 
 // CacheConvMapping caches the conversation mapping
 func (v *Validator) CacheConvMapping(ctx context.Context, participantA, participantB, originID, convID int64) error {
-	mapKey := fmt.Sprintf("pm:convmap:%d:%d:%d", participantA, participantB, originID)
+	mapKey := fmt.Sprintf(keys.PMConversationMap, participantA, participantB, originID)
 	data, _ := json.Marshal(convID)
-	return v.rdb.Set(ctx, mapKey, data, 7*24*time.Hour).Err()
+	return cache.Redis(v.rdb).Write(ctx, mapKey, data, 7*24*time.Hour).Err()
 }
 
 // InvalidateConvCache removes the cached conversation info so subsequent checks hit DB
 func (v *Validator) InvalidateConvCache(ctx context.Context, convID int64) {
-	cacheKey := fmt.Sprintf("pm:conv:%d", convID)
-	v.rdb.Del(ctx, cacheKey)
+	cacheKey := fmt.Sprintf(keys.PMConversation, convID)
+	cache.Redis(v.rdb).Remove(ctx, cacheKey)
 }

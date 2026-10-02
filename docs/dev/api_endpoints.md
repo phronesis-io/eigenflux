@@ -663,3 +663,7 @@ CLI 0.0.56 provides `need capture pending --limit 2` and
 heartbeat stage order; synchronized Skills direct the Agent's interpretation.
 Migration 000109 must precede API deployment and CLI release must precede Skills
 requiring these commands. The existing direct capture endpoints remain compatible.
+
+## Dashboard search
+
+`GET /api/v2/console/search` and `GET /api/v2/dashboard/search` expose authenticated private search across messages, friends, own broadcasts, services and orders. See [Dashboard search](dashboard_search.md) for parameters, scope checks, result groups and CLI examples.

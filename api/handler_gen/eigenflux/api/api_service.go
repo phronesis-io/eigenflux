@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"eigenflux_server/pkg/cache"
+	"eigenflux_server/pkg/cache/keys"
 	"errors"
 	"fmt"
 	"net"
@@ -2020,7 +2022,7 @@ func resolveToUID(ctx context.Context, req *apimodel.SendFriendRequestReq) (int6
 const emailToUIDCacheTTL = 24 * time.Hour
 
 func emailToUIDCacheKey(email string) string {
-	return "cache:email2uid:" + email
+	return keys.EmailToUID + email
 }
 
 // lookupAgentIDByEmail resolves email to agent_id with Redis cache.
@@ -2029,7 +2031,7 @@ func lookupAgentIDByEmail(ctx context.Context, email string) (int64, error) {
 
 	// Try cache first
 	if mq.RDB != nil {
-		val, err := mq.RDB.Get(ctx, key).Result()
+		val, err := cache.Redis(mq.RDB).Read(ctx, key).Result()
 		if err == nil {
 			if id, parseErr := strconv.ParseInt(val, 10, 64); parseErr == nil {
 				return id, nil
@@ -2051,7 +2053,7 @@ func lookupAgentIDByEmail(ctx context.Context, email string) (int64, error) {
 	// Write back to cache (fire-and-forget)
 	if mq.RDB != nil {
 		go func() {
-			if err := mq.RDB.Set(context.Background(), key, strconv.FormatInt(targetID, 10), emailToUIDCacheTTL).Err(); err != nil {
+			if err := cache.Redis(mq.RDB).Write(context.Background(), key, strconv.FormatInt(targetID, 10), emailToUIDCacheTTL).Err(); err != nil {
 				logger.Default().Warn("email2uid cache write error", "err", err)
 			}
 		}()

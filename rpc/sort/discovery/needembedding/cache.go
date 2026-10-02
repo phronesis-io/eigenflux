@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"eigenflux_server/pkg/cache"
+	"eigenflux_server/pkg/cache/keys"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -65,7 +67,7 @@ func digest(v any) string {
 }
 func (c *Cache) Generation() string { return digest(c.Profile) }
 func (c *Cache) Key(text string) string {
-	return "discovery:need_embedding:v1:" + digest(struct{ TextHash, Generation string }{digest(text), c.Generation()})
+	return keys.NeedEmbedding + digest(struct{ TextHash, Generation string }{digest(text), c.Generation()})
 }
 
 func (c *Cache) valid(v []float32) bool {
@@ -83,7 +85,7 @@ func (c *Cache) valid(v []float32) bool {
 	return norm > 0
 }
 func (c *Cache) Read(ctx context.Context, text string) ([]float32, error) {
-	raw, err := c.Redis.Get(ctx, c.Key(text)).Bytes()
+	raw, err := cache.Redis(c.Redis).Read(ctx, c.Key(text)).Bytes()
 	if errors.Is(err, redis.Nil) {
 		return nil, ErrPending
 	}
@@ -153,7 +155,7 @@ func (c *Cache) Produce(ctx context.Context, text string, embedder Embedder) (ve
 		return nil, err
 	}
 	token := rand.Text()
-	lock := c.Key(text) + ":lock"
+	lock := c.Key(text) + keys.LockSuffix
 	acquired, err := c.Redis.SetNX(ctx, lock, token, LeaseDuration).Result()
 	if err != nil {
 		return nil, err
@@ -185,7 +187,7 @@ func (c *Cache) Produce(ctx context.Context, text string, embedder Embedder) (ve
 	if err != nil {
 		return nil, err
 	}
-	if err = c.Redis.Set(ctx, c.Key(text), raw, CacheTTL).Err(); err != nil {
+	if err = cache.Redis(c.Redis).Write(ctx, c.Key(text), raw, CacheTTL).Err(); err != nil {
 		return nil, err
 	}
 	return v, nil

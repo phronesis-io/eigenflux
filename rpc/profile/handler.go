@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"eigenflux_server/pkg/searchguard"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -22,7 +23,8 @@ import (
 )
 
 type ProfileServiceImpl struct {
-	agentIDGen interface {
+	searchGuard searchguard.Guard
+	agentIDGen  interface {
 		NextID() (int64, error)
 	}
 }

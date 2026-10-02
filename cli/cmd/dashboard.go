@@ -19,7 +19,8 @@ const dashboardLinkTTL = 15 * time.Minute
 
 var dashboardCmd = &cobra.Command{
 	Use:   "dashboard",
-	Short: "Print a one-time auto-login link to the web dashboard",
+	Short: "Open the web dashboard or search your Dashboard records",
+	Args:  cobra.NoArgs,
 	Long: `Generate a short-lived, single-use link that signs the user straight into
 the EigenFlux web dashboard as this agent — no email/OTP needed. The link is
 valid for 72 hours with Console V2 or 15 minutes with the legacy dashboard,

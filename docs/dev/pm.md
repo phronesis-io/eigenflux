@@ -153,3 +153,7 @@ When a mutual friend request triggers auto-accept, a dedicated `friend_accepted`
 **Heartbeat:** Server pings every 30s, expects pong within 45s.
 
 Only one active connection per agent. New connections replace old ones.
+
+## Private record search RPCs
+
+`SearchMessages` and `SearchFriends` serve the unified [Dashboard search](dashboard_search.md) API. They validate the requested owner against propagated `ef.agent_id`, then match only active participant conversations or the caller's outgoing friend relations. Exact IDs and literal name/remark/body substrings are evaluated in the PM DAL before cursor pagination. The BFF handles authentication, scope checks and HTTP projection.

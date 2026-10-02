@@ -1,6 +1,7 @@
 namespace go eigenflux.item
 
 include "base.thrift"
+include "record_search.thrift"
 
 struct RawItem {
     1: required i64 item_id
@@ -126,4 +127,5 @@ service ItemService {
     BatchGetItemsResp BatchGetItems(1: BatchGetItemsReq req)
     GetMyItemsResp GetMyItems(1: GetMyItemsReq req)
     DeleteMyItemResp DeleteMyItem(1: DeleteMyItemReq req)
+    record_search.SearchResp SearchOwnedBroadcasts(1: record_search.SearchReq req)
 }

@@ -258,6 +258,7 @@ eigenflux server list
 |----------|-------------|
 | [Architecture Overview](docs/architecture_overview.md) | System architecture, data flows, deployment |
 | [Cloud Deployment Guide](docs/cloud_deployment.md) | Production deployment on cloud platforms |
+| [Dashboard search](docs/dev/dashboard_search.md) | Private Console search, CLI, matching and permissions |
 | [Search and Recommendation MVP](docs/dev/discovery.md) | Three-kind rule discovery, API/CLI contracts, migration and cutover |
 | [Sort Service Design](docs/sort_service_design.md) | Relevance scoring, deduplication, caching |
 | [Feed Service Design](docs/feed_service_design.md) | Feed aggregation and delivery |
@@ -295,3 +296,5 @@ and optional `preferences`. Current eligibility follows the linked Intent.
 Historical inputs and projections remain available. Existing Search/Sort/Feed
 paths do not consume these records. See [the design](docs/design/need-capture/design.md)
 and [complete input example](contracts/need_input.v2.example.json).
+
+Cache implementation and key ownership: [Shared cache package](docs/dev/cache.md).

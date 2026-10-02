@@ -5,6 +5,7 @@ package itemservice
 import (
 	"context"
 	item "eigenflux_server/kitex_gen/eigenflux/item"
+	recordsearch "eigenflux_server/kitex_gen/eigenflux/recordsearch"
 	"errors"
 	client "github.com/cloudwego/kitex/client"
 	kitex "github.com/cloudwego/kitex/pkg/serviceinfo"
@@ -45,6 +46,13 @@ var serviceMethods = map[string]kitex.MethodInfo{
 		deleteMyItemHandler,
 		newItemServiceDeleteMyItemArgs,
 		newItemServiceDeleteMyItemResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
+	"SearchOwnedBroadcasts": kitex.NewMethodInfo(
+		searchOwnedBroadcastsHandler,
+		newItemServiceSearchOwnedBroadcastsArgs,
+		newItemServiceSearchOwnedBroadcastsResult,
 		false,
 		kitex.WithStreamingMode(kitex.StreamingNone),
 	),
@@ -204,6 +212,24 @@ func newItemServiceDeleteMyItemResult() interface{} {
 	return item.NewItemServiceDeleteMyItemResult()
 }
 
+func searchOwnedBroadcastsHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*item.ItemServiceSearchOwnedBroadcastsArgs)
+	realResult := result.(*item.ItemServiceSearchOwnedBroadcastsResult)
+	success, err := handler.(item.ItemService).SearchOwnedBroadcasts(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newItemServiceSearchOwnedBroadcastsArgs() interface{} {
+	return item.NewItemServiceSearchOwnedBroadcastsArgs()
+}
+
+func newItemServiceSearchOwnedBroadcastsResult() interface{} {
+	return item.NewItemServiceSearchOwnedBroadcastsResult()
+}
+
 type kClient struct {
 	c client.Client
 }
@@ -259,6 +285,16 @@ func (p *kClient) DeleteMyItem(ctx context.Context, req *item.DeleteMyItemReq) (
 	_args.Req = req
 	var _result item.ItemServiceDeleteMyItemResult
 	if err = p.c.Call(ctx, "DeleteMyItem", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
+func (p *kClient) SearchOwnedBroadcasts(ctx context.Context, req *recordsearch.SearchReq) (r *recordsearch.SearchResp, err error) {
+	var _args item.ItemServiceSearchOwnedBroadcastsArgs
+	_args.Req = req
+	var _result item.ItemServiceSearchOwnedBroadcastsResult
+	if err = p.c.Call(ctx, "SearchOwnedBroadcasts", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil

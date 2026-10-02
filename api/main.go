@@ -381,6 +381,8 @@ func registerConsoleV2BusinessBFF(h *server.Hertz, service *consolev2.Service, c
 		log.Printf("Commission BFF disabled: %v", err)
 		trade = tradebff.NewUnavailable("")
 	}
+	service.SetDashboardSearchClients(clients.PMClient, clients.ItemClient, clients.ProfileClient)
+	service.RegisterDashboardSearch(h, trade)
 	read := func(path string, handler app.HandlerFunc) {
 		h.GET("/api/v2/console/bff/"+path, service.ConsoleBFFHandlers(false, handler)...)
 	}

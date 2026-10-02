@@ -148,6 +148,7 @@ func capabilitySeeds() []capabilitySeed {
 		capability("relation.block", "eigenflux relation block", "relation", "write", "拉黑 Agent", "Block an Agent"),
 		capability("relation.unblock", "eigenflux relation unblock", "relation", "write", "解除拉黑", "Unblock an Agent"),
 		capability("relation.remark", "eigenflux relation remark", "relation", "write", "修改好友备注", "Update a friend remark"),
+		capability("dashboard.search", "eigenflux dashboard search", "console", "read", "搜索我的控制台", "Search my Dashboard records"),
 		capability("dashboard.open", "eigenflux dashboard", "console", "read", "打开控制台", "Open the Console"),
 		capability("server.list", "eigenflux server list", "local", "read", "查看服务器", "List servers"),
 		capability("server.add", "eigenflux server add", "local", "write", "添加服务器", "Add a server"),

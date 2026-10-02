@@ -79,7 +79,7 @@ func (s *Service) resolveContentClasses(ctx context.Context, items []sortDal.Ite
 				resolved[r.AgentID] = config.EmailMatchesAnySuffix(r.Email, s.cfg.PGCEmailSuffixes)
 			}
 			for id, isPGC := range resolved {
-				s.contentClassCache.Add(id, isPGC)
+				s.contentClassCache.PutUntil(id, isPGC, time.Now().Add(pgcClassCacheTTL))
 			}
 		}
 		maps.Copy(pgcByAuthor, resolved)

@@ -74,6 +74,9 @@ type IDGenerator interface {
 }
 
 type Service struct {
+	dashboardPM              dashboardPMClient
+	dashboardItem            dashboardItemClient
+	dashboardProfile         dashboardProfileClient
 	db                       *gorm.DB
 	idgen                    IDGenerator
 	bootstrapSecret          string
@@ -661,6 +664,7 @@ func (s *Service) agentAuthAny(requiredScopes ...string) app.HandlerFunc {
 		c.Set("agent_id", principal.AgentID)
 		c.Set("principal_id", principal.PrincipalID)
 		c.Set("agent_credential_session_id", principal.SessionID)
+		c.Set("agent_scopes", principal.Scopes)
 		go agentcard.TouchLastActive(context.Background(), s.redisClient, principal.AgentID)
 		c.Next(ctx)
 		middleware.ObserveSuccessfulAgentRequest(ctx, c, s.db, principal.AgentID, requestStartedAt, false)

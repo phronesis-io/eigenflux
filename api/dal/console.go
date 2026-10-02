@@ -2,6 +2,8 @@ package dal
 
 import (
 	"context"
+	"eigenflux_server/pkg/cache"
+	"eigenflux_server/pkg/cache/keys"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -713,7 +715,7 @@ type BeatSignalAgg struct {
 const beatSignalsCacheTTL = 5 * time.Minute
 
 func beatSignalsCacheKey(window string) string {
-	return "cache:beat_signals:" + window
+	return keys.BeatSignals + window
 }
 
 // GetNetworkSignalAgg aggregates published items network-wide since sinceMs.
@@ -723,7 +725,7 @@ func beatSignalsCacheKey(window string) string {
 func GetNetworkSignalAgg(ctx context.Context, db *gorm.DB, window string, sinceMs int64) (*BeatSignalAgg, error) {
 	cacheKey := beatSignalsCacheKey(window)
 	if mq.RDB != nil {
-		if raw, err := mq.RDB.Get(ctx, cacheKey).Result(); err == nil && raw != "" {
+		if raw, err := cache.Redis(mq.RDB).Read(ctx, cacheKey).Result(); err == nil && raw != "" {
 			var agg BeatSignalAgg
 			if json.Unmarshal([]byte(raw), &agg) == nil {
 				return &agg, nil
@@ -751,7 +753,7 @@ func GetNetworkSignalAgg(ctx context.Context, db *gorm.DB, window string, sinceM
 
 	if mq.RDB != nil {
 		if raw, err := json.Marshal(agg); err == nil {
-			mq.RDB.Set(ctx, cacheKey, raw, beatSignalsCacheTTL)
+			cache.Redis(mq.RDB).Write(ctx, cacheKey, raw, beatSignalsCacheTTL)
 		}
 	}
 	return agg, nil

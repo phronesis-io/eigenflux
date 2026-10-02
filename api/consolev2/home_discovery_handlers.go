@@ -2,6 +2,8 @@ package consolev2
 
 import (
 	"context"
+	"eigenflux_server/pkg/cache"
+	"eigenflux_server/pkg/cache/keys"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -98,7 +100,7 @@ func homeDiscoveryDayStart(now time.Time, location *time.Location) int64 {
 }
 
 func homeDiscoveryCacheKey(timezone string, start int64) string {
-	return "console:v2:home:discovery:" + strings.ReplaceAll(timezone, "/", "_") + ":" + strconv.FormatInt(start, 10)
+	return keys.HomeDiscovery + strings.ReplaceAll(timezone, "/", "_") + ":" + strconv.FormatInt(start, 10)
 }
 
 func homeDiscoveryCountryCode(privateJSON string) string {
@@ -205,7 +207,7 @@ func (s *Service) readHomeDiscoveryCache(ctx context.Context, key string) (homeD
 		recordHomeCache("discovery", "disabled")
 		return homeDiscoveryResponse{}, false
 	}
-	raw, err := s.redisClient.Get(ctx, key).Bytes()
+	raw, err := cache.Redis(s.redisClient).Read(ctx, key).Bytes()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			recordHomeCache("discovery", "miss")
@@ -232,7 +234,7 @@ func (s *Service) writeHomeDiscoveryCache(ctx context.Context, key string, resul
 		recordHomeCache("discovery", "encode_error")
 		return
 	}
-	if err := s.redisClient.Set(ctx, key, raw, homeDiscoveryCacheTTL).Err(); err != nil {
+	if err := cache.Redis(s.redisClient).Write(ctx, key, raw, homeDiscoveryCacheTTL).Err(); err != nil {
 		recordHomeCache("discovery", "write_error")
 		return
 	}
