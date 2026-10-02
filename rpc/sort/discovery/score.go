@@ -124,6 +124,22 @@ func Merge(in []Candidate, kinds []Kind, mode Mode, limit int) []Candidate {
 		return []Candidate{}
 	}
 	in = append([]Candidate(nil), in...)
+	// Source ceilings apply to the user's item across all Need contexts. Keep
+	// attribution even when the winning context recalled it through another lane.
+	sources := map[string][]string{}
+	for _, c := range in {
+		if c.Document.Ref.Type != Broadcast {
+			continue
+		}
+		for _, channel := range c.Document.Channels {
+			sources[c.Document.Ref.Key()] = appendUnique(sources[c.Document.Ref.Key()], channel)
+		}
+	}
+	for i := range in {
+		if in[i].Document.Ref.Type == Broadcast {
+			in[i].Document.Channels = sources[in[i].Document.Ref.Key()]
+		}
+	}
 	sort.SliceStable(in, func(i, j int) bool {
 		a, b := in[i], in[j]
 		if mode == Recommendation && (a.Context.CapturedNeed != nil) != (b.Context.CapturedNeed != nil) {

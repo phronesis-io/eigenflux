@@ -84,7 +84,9 @@ The optional `swing_i2i` channel expands up to `SWING_I2I_RECALL_SEEDS` of the a
 
 For each seed, Sort reads the normalized neighbors produced by `eigenflux-rec-offline` from `rec:swing_i2i:<active_version>:item:<seed_id>:scored_neighbors`. It sums scores when multiple seeds reach the same neighbor, removes all items already present in the impression set, applies a deterministic score/item-ID ordering, and submits the first `SWING_I2I_RECALL_K` candidates to the normal item fetch, rank, threshold, group-collapse, and Bloom-dedup pipeline. Impressions are exclusion state only; if the surface ZSET is empty, this channel returns no candidates and the other recall channels carry the request.
 
-The channel is disabled by default (`ENABLE_SWING_I2I_RECALL=false`). Missing neighbor keys are valid empty lists; a missing active-version pointer or malformed list fails only this recall source, while the other concurrent sources continue.
+The channel is available in both legacy Sort and Need Search recommendations,
+using the same surfaced-item seed projection. It is disabled by default
+(`ENABLE_SWING_I2I_RECALL=false`). Missing neighbor keys are valid empty lists; a missing active-version pointer or malformed list fails only this recall source, while the other concurrent sources continue.
 
 Before first enablement, deploy the FollowupConsumer projection, run `go run ./scripts/recall/backfill_surface_history` to merge the latest 30 days of existing surface labels, validate the resulting ZSETs, and only then set `ENABLE_SWING_I2I_RECALL=true`. The backfill is idempotent, supports `--dry-run`, and is safe alongside live writes because it uses the same `ZADD GT` store rather than deleting/replacing keys.
 
@@ -99,6 +101,11 @@ Before first enablement, deploy the FollowupConsumer projection, run `go run ./s
 - **Observability** — force-inserted-and-delivered items increment `sort_new_ugc_injected_total` and carry an `inject:<pos>` tag in the replay log's `rerank_reasons`; `recall_feed_total{source="new_ugc_recall"}` / `recall_impression_total{source="new_ugc_recall"}` track the channel end to end.
 
 ### Friend content ceiling
+
+In Need Search, friend recall is one parallel user-level lane, independent of
+Need queries and constraints. The ceiling applies after merging all of the
+user's Need and friend results, and to each delivered legacy Feed page. See the
+[discovery recall contract](discovery.md#search-index-and-forward-index).
 
 Friend recall bypasses the relevance threshold so a large friend graph can otherwise dominate a refresh. The `source_limit` policy in `configs/sort/rerank.yaml` caps friend-attributed delivery at `1/2` of the requested feed size. It runs after Bloom dedup and before final truncation, allowing the highest-ranked non-friend candidates to backfill removed friend items. Recall attribution is a bitset: an item marked friend still counts against the ceiling when it also matched keyword, KNN, or another channel. `FRIEND_FEED_MAX_ITEMS` remains a recall-pool bound, not a delivery quota.
 

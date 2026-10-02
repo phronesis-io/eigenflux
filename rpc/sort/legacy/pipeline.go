@@ -500,31 +500,20 @@ func (s *Service) SortItems(ctx context.Context, req *sort.SortItemsReq) (*sort.
 	// bloom dedup still apply (so a friend post shows at most once per group), and
 	// inactive friends who never fetch are not reached — best-effort, not guaranteed.
 	if s.cfg.FriendFeedEnabled {
-		var friendIDs []int64
-		if err := s.db.Table("user_relations").
-			Where("from_uid = ? AND rel_type = ?", req.AgentId, 1).
-			Limit(s.cfg.FriendFeedMaxAuthors).
-			Pluck("to_uid", &friendIDs).Error; err != nil {
-			logger.Ctx(ctx).Warn("friend recall: list friends failed", "err", err)
-		} else if len(friendIDs) > 0 {
-			friendItems, ferr := sortDal.FetchRecentItemsByAuthors(ctx, friendIDs, s.cfg.FriendFeedWindowHours, s.cfg.FriendFeedMaxItems)
-			if ferr != nil {
-				logger.Ctx(ctx).Warn("friend recall: fetch items failed", "err", ferr)
-			} else {
-				existing := make(map[int64]bool, len(esItems))
-				for _, it := range esItems {
+		friendItems, err := sortDal.FetchFriendItems(ctx, s.db, req.AgentId, s.cfg.FriendFeedMaxAuthors, s.cfg.FriendFeedWindowHours, s.cfg.FriendFeedMaxItems)
+		if err != nil {
+			logger.Ctx(ctx).Warn("friend recall failed", "err", err)
+		} else {
+			existing := make(map[int64]bool, len(esItems))
+			for _, it := range esItems {
+				existing[it.ID] = true
+			}
+			for _, it := range friendItems {
+				sourceMap[it.ID] |= recallsource.Friend
+				if !existing[it.ID] {
+					esItems = append(esItems, it)
 					existing[it.ID] = true
 				}
-				added := 0
-				for _, it := range friendItems {
-					sourceMap[it.ID] |= recallsource.Friend
-					if !existing[it.ID] {
-						esItems = append(esItems, it)
-						existing[it.ID] = true
-						added++
-					}
-				}
-				logger.Ctx(ctx).Info("friend recall merge", "friends", len(friendIDs), "candidates", len(friendItems), "newItems", added)
 			}
 		}
 	}

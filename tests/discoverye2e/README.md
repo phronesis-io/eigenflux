@@ -40,6 +40,15 @@ integration suites' PostgreSQL advisory lock is respected.
 
 ## Coverage
 
+- Friend recall runs independently of captured Needs, keeps request-level filters
+  and the user-wide source ceiling, and cannot leak capped prepared Feed items.
+  Swing requires surfaced seeds, ignores impression-only seeds, and excludes
+  already-delivered neighbors. Both channels persist their source attribution.
+
+- Broadcast recommendation recall and delivery counters remain visible on the
+  Sort and Feed Prometheus endpoints after the Need Search cutover. Idempotent
+  retries and explicit search do not increment these Feed counters.
+
 - Sort starts with a historical broadcast backing index whose
   `retrieval_slots.lang` is text with a keyword multi-field. The Sort source
   integration test `TestBroadcastHistoricalMappingsAndExactFilters` additionally

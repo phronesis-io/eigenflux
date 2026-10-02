@@ -176,3 +176,57 @@ func TestEmptyDiscoveryDoesNotBlockDelivery(t *testing.T) {
 		})
 	}
 }
+
+func TestUserFriendLimitAcrossFrozenPages(t *testing.T) {
+	s, e, _ := setup(t)
+	e.x.SourceLimits = []discovery.SourceLimit{{Source: "friend", Numerator: 1, Denominator: 2}}
+	base := e.x.Candidates[0]
+	e.x.Candidates = nil
+	for id := int64(1); id <= 8; id++ {
+		c := base
+		c.Context.ID = id
+		c.Document.Ref.ID = id
+		if id <= 5 {
+			c.Document.Channels = []string{"friend", "lexical"}
+		}
+		e.x.Candidates = append(e.x.Candidates, c)
+	}
+	// A missing friend's details must not consume capacity or be counted.
+	prepare := func(_ context.Context, x *discovery.Execution) error {
+		kept := x.Candidates[:0]
+		for _, c := range x.Candidates {
+			if c.Document.Ref.ID != 1 {
+				kept = append(kept, c)
+			}
+		}
+		x.Candidates = kept
+		return nil
+	}
+	for i, tc := range []struct {
+		limit int
+		want  []int64
+	}{{4, []int64{2, 3, 6, 7}}, {2, []int64{4, 8}}, {1, nil}} {
+		action := "load_more"
+		if i == 0 {
+			action = "refresh"
+		}
+		out, more, err := s.ServePage(context.Background(), 1, action, tc.limit, prepare)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(out.Items) != len(tc.want) {
+			t.Fatalf("page %d: %+v", i, out)
+		}
+		for j, item := range out.Items {
+			if item.Ref.ID != tc.want[j] {
+				t.Fatalf("page %d item %d: %d want %d", i, j, item.Ref.ID, tc.want[j])
+			}
+		}
+		if more != (i < 2) {
+			t.Fatalf("page %d has_more=%v", i, more)
+		}
+	}
+	if e.calls != 1 {
+		t.Fatalf("prefetch called %d times", e.calls)
+	}
+}

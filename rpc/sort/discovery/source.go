@@ -10,6 +10,7 @@ import (
 
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/recall"
+	"eigenflux_server/pkg/recallsource"
 
 	sortdal "eigenflux_server/rpc/sort/dal"
 	"encoding/json"
@@ -23,13 +24,15 @@ import (
 )
 
 type Source struct {
-	ContextCache                                                 *cache.DiscoveryCache
-	DB                                                           *gorm.DB
-	Redis                                                        *redis.Client
-	BroadcastIndex, CommissionIndex, AgentIndex, RecallNamespace string
-	BlockedAuthorEmails                                          []string
-	DisableDedup                                                 bool
-	DisabledChannels                                             map[string]bool
+	FriendFeedMaxAuthors, FriendFeedWindowHours, FriendFeedMaxItems int
+	SwingRecall                                                     recallsource.RecallSource
+	ContextCache                                                    *cache.DiscoveryCache
+	DB                                                              *gorm.DB
+	Redis                                                           *redis.Client
+	BroadcastIndex, CommissionIndex, AgentIndex, RecallNamespace    string
+	BlockedAuthorEmails                                             []string
+	DisableDedup                                                    bool
+	DisabledChannels                                                map[string]bool
 }
 
 func (s *Source) loadOwner(ctx context.Context, id int64) (OwnerContext, error) {
@@ -124,6 +127,33 @@ func (s *Source) Recall(ctx context.Context, c Context, k Kind, channel string, 
 	if s.DisabledChannels[channel] {
 		return []Document{}, nil
 	}
+	if channel == "friend" || channel == "swing_i2i" {
+		if k != Broadcast {
+			return nil, fmt.Errorf("invalid recall kind")
+		}
+		var ids []int64
+		if channel == "friend" {
+			items, err := sortdal.FetchFriendItems(ctx, s.DB, c.OwnerID, s.FriendFeedMaxAuthors, s.FriendFeedWindowHours, min(limit, s.FriendFeedMaxItems))
+			if err != nil {
+				return nil, err
+			}
+			for _, item := range items {
+				ids = append(ids, item.ID)
+			}
+		} else {
+			if s.SwingRecall == nil {
+				return nil, fmt.Errorf("swing_i2i recall is not configured")
+			}
+			items, err := s.SwingRecall.Recall(ctx, strconv.FormatInt(c.OwnerID, 10), limit)
+			if err != nil {
+				return nil, err
+			}
+			for _, item := range items {
+				ids = append(ids, item.ItemID)
+			}
+		}
+		return poolDocuments(ids, c), nil
+	}
 	if strings.HasSuffix(channel, "recall") {
 		if k != Broadcast {
 			return nil, fmt.Errorf("invalid recall kind")
@@ -135,11 +165,7 @@ func (s *Source) Recall(ctx context.Context, c Context, k Kind, channel string, 
 		if len(ids) > limit {
 			ids = ids[:limit]
 		}
-		out := make([]Document, 0, len(ids))
-		for _, id := range ids {
-			out = append(out, Document{Ref: SourceRef{Type: Broadcast, ID: id}, NeedExclusionText: len(c.Filters.ExcludeTerms) > 0})
-		}
-		return out, nil
+		return poolDocuments(ids, c), nil
 	}
 	return s.search(ctx, c, k, channel, limit)
 }

@@ -10,6 +10,7 @@ import (
 	"eigenflux_server/pkg/impr"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/metrics"
+	"eigenflux_server/pkg/recallsource"
 	"eigenflux_server/pkg/replaylog"
 	"eigenflux_server/rpc/sort/discovery"
 
@@ -32,6 +33,11 @@ func (s Service) recordAsync(ctx context.Context, owner int64, x discovery.Execu
 	claims := []claimEntry{}
 	for _, c := range x.Candidates {
 		d := c.Document
+		if x.Mode == discovery.Recommendation {
+			for _, name := range recallsource.Names(d.RecallSources()) {
+				metrics.RecallImpressionTotal.WithLabelValues(name).Inc()
+			}
+		}
 		if d.Ref.Type == discovery.Broadcast {
 			key := fmt.Sprintf(impr.KeyItemIDs, owner)
 			if x.Mode == discovery.Search {

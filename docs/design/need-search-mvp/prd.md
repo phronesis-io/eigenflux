@@ -95,7 +95,7 @@ Need type or query kind `agent` searches public Agent capability/Card content. T
 
 ### 3.5 Feedback and attribution
 
-Broadcast feedback keeps existing event meanings and queue behavior. Preserve exact impression context where known. Commission actions and Agent relationship/PM actions remain in their current domains; neither is coerced into broadcast `item_id` events. Feedback does not auto-edit/complete a Need. Need-seeded Swing remains disabled because `surface` is not confirmed adoption.
+Broadcast feedback keeps existing event meanings and queue behavior. Preserve exact impression context where known. Commission actions and Agent relationship/PM actions remain in their current domains; neither is coerced into broadcast `item_id` events. Feedback does not auto-edit/complete a Need. Need-seeded Swing remains disabled because `surface` is not confirmed adoption. Existing surfaced-item-seeded Swing is supported for Broadcast recommendations. Friend Broadcast recall is a separate user-level lane, with one source ceiling across the user's merged results; it does not inherit captured Need constraints.
 
 ## 4. Functional acceptance requirements
 

@@ -5,6 +5,7 @@ import (
 	"eigenflux_server/pkg/featureindex"
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/need"
+	"eigenflux_server/pkg/recallsource"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -27,20 +28,23 @@ type Sources interface {
 	Seen(context.Context, int64, []Document) (map[string]bool, error)
 }
 type Engine struct {
-	Compiler *Compiler
-	Needs    NeedReader
-	IDs      IDGenerator
-	Sources  Sources
-	Rules    Rules
-	Policies func(context.Context, []Candidate, Mode, int) ([]Candidate, error)
+	FriendFeedEnabled bool
+	SourceLimits      []SourceLimit
+	Compiler          *Compiler
+	Needs             NeedReader
+	IDs               IDGenerator
+	Sources           Sources
+	Rules             Rules
+	Policies          func(context.Context, []Candidate, Mode, int) ([]Candidate, error)
 }
 type Execution struct {
-	Mode           Mode        `json:"mode"`
-	Contexts       []Context   `json:"contexts"`
-	Candidates     []Candidate `json:"candidates"`
-	Status         string      `json:"status"`
-	PartialReasons []string    `json:"partial_reasons,omitempty"`
-	FallbackReason string      `json:"fallback_reason,omitempty"`
+	SourceLimits   []SourceLimit `json:"source_limits,omitempty"`
+	Mode           Mode          `json:"mode"`
+	Contexts       []Context     `json:"contexts"`
+	Candidates     []Candidate   `json:"candidates"`
+	Status         string        `json:"status"`
+	PartialReasons []string      `json:"partial_reasons,omitempty"`
+	FallbackReason string        `json:"fallback_reason,omitempty"`
 }
 
 func (e *Engine) contexts(ctx context.Context, owner int64, r Request, mode Mode, now int64) ([]Context, string, error) {
@@ -197,6 +201,9 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		}
 	}()
 	x = Execution{Mode: mode, Candidates: []Candidate{}}
+	if mode == Recommendation {
+		x.SourceLimits = e.SourceLimits
+	}
 	if owner <= 0 {
 		return x, Failure(401, "unauthorized")
 	}
@@ -268,6 +275,21 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			contexts[i] = c
 		}
 	}
+	if mode == Recommendation && e.FriendFeedEnabled && hasKind(r.SourceKinds, Broadcast) {
+		id, err := e.IDs.NextID()
+		if err != nil {
+			return x, err
+		}
+		// Friendship is a user-level source, independent of every captured Need.
+		// Only request-level filters constrain this parallel lane.
+		plan := compileBase(owner, "friend", "", []Kind{Broadcast}, r.Filters, false)
+		friend, err := plan.execution(owner, id, now, "")
+		if err != nil {
+			return x, err
+		}
+		friend.SpecHash = hashContext(friend)
+		contexts = append(contexts, friend)
+	}
 	x.Contexts = contexts
 	x.FallbackReason = fallback
 	// Missing context is an empty discovery result, not a transport error.
@@ -289,6 +311,14 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+	// Swing seeds depend on the user. Fetch once, then evaluate candidates
+	// against each recommendation context. Friend recall has its own context.
+	type userRecall struct {
+		once sync.Once
+		docs []Document
+		err  error
+	}
+	userRecalls := map[string]*userRecall{"swing_i2i": {}}
 	sem := make(chan struct{}, 6)
 	for ci, c := range contexts {
 		if !c.Active(now) {
@@ -307,10 +337,13 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				channels = append(channels, "dense")
 			}
 			if kind == Broadcast && mode == Recommendation {
-				channels = append(channels, "hot_recall", "new_recall", "new_ugc_recall")
+				channels = append(channels, "hot_recall", "new_recall", "new_ugc_recall", "swing_i2i")
 			}
 			if c.Origin == "baseline" {
-				channels = []string{"hot_recall", "new_recall"}
+				channels = []string{"hot_recall", "new_recall", "swing_i2i"}
+			}
+			if c.Origin == "friend" {
+				channels = []string{"friend"}
 			}
 			if kind == Commission && r.CommissionID > 0 {
 				channels = []string{"exact"}
@@ -330,13 +363,26 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 						return
 					}
 					limit := 80
+					if channel == "friend" || channel == "swing_i2i" {
+						limit = MaxSnapshotCandidates
+					}
 					if strings.HasSuffix(channel, "recall") {
 						limit = 20
 					}
 					if channel == "new_ugc_recall" {
 						limit = 10
 					}
-					docs, err := e.Sources.Recall(ctx, c, kind, channel, limit)
+					var docs []Document
+					var err error
+					if shared := userRecalls[channel]; shared != nil {
+						shared.once.Do(func() { shared.docs, shared.err = e.Sources.Recall(ctx, Context{OwnerID: owner}, kind, channel, limit) })
+						docs, err = append([]Document(nil), shared.docs...), shared.err
+						for i := range docs {
+							docs[i].NeedExclusionText = len(c.Filters.ExcludeTerms) > 0
+						}
+					} else {
+						docs, err = e.Sources.Recall(ctx, c, kind, channel, limit)
+					}
 					mu.Lock()
 					results = append(results, channelResult{ci, kind, channel, docs, err})
 					mu.Unlock()
@@ -359,6 +405,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		return channelOrder(a.channel) < channelOrder(b.channel)
 	})
 	candidates := []Candidate{}
+	recalled := map[int64]recallsource.Source{}
 	anySuccess := false
 	below, exhausted := false, false
 	for ci, c := range contexts {
@@ -453,6 +500,13 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			d.DenseScore = prior.DenseScore
 			d.Channels = prior.Channels
 			d.ExactMatch = prior.ExactMatch
+			if mode == Recommendation {
+				sources := d.RecallSources()
+				for _, name := range recallsource.Names(sources &^ recalled[d.Ref.ID]) {
+					metrics.RecallFeedTotal.WithLabelValues(name).Inc()
+				}
+				recalled[d.Ref.ID] |= sources
+			}
 			if seen[d.Ref.Key()] {
 				exhausted = true
 				metrics.DiscoveryRejected.WithLabelValues(string(d.Ref.Type), "seen").Inc()
@@ -464,6 +518,11 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			}
 			d.Text = ""
 			score := ScoreRules(c, d, e.Rules[d.Ref.Type][mode], now)
+			if mode == Recommendation && d.RecallSources().Has(recallsource.Friend) {
+				score.Eligible = true
+				score.Features["friend_relevance_bypass"] = 1
+				score.Version += ":friend_feed_v1"
+			}
 			if !score.Eligible {
 				below = true
 				metrics.DiscoveryRejected.WithLabelValues(string(d.Ref.Type), "below_threshold").Inc()
@@ -493,7 +552,14 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			return x, err
 		}
 	}
-	x.Candidates = Merge(candidates, r.SourceKinds, mode, resultLimit)
+	mergeLimit := resultLimit
+	if mode == Recommendation && len(x.SourceLimits) > 0 {
+		mergeLimit = MaxSnapshotCandidates
+	}
+	x.Candidates = Merge(candidates, r.SourceKinds, mode, mergeLimit)
+	if mode == Recommendation && !r.Prefetch {
+		x.Candidates, _ = SelectRecommendationPage(x.Candidates, resultLimit, x.SourceLimits)
+	}
 	groupResultPages(x.Candidates, r.SourceKinds, r.Limit)
 	x.Status = "ok"
 	if len(x.Candidates) == 0 {
@@ -502,7 +568,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	return x, nil
 }
 func channelOrder(c string) int {
-	for i, s := range []string{"lexical", "dense", "hot_recall", "new_recall", "new_ugc_recall"} {
+	for i, s := range []string{"lexical", "dense", "hot_recall", "new_recall", "new_ugc_recall", "friend", "swing_i2i"} {
 		if s == c {
 			return i
 		}

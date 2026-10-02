@@ -184,6 +184,13 @@ or issuing model calls during ranking. Broadcast scalar updates are independent
 of its searchable-content fingerprint. The [feature module](../../dev/feature_index.md)
 owns registered fields, versioned access and periodic loading. Source text remains in forward documents for exclusion checks.
 
+Broadcast recommendation also reuses surfaced-item-seeded Swing. Seed expansion
+is user-scoped and runs once per request; Need contexts retain their own
+filtering and scoring. Friend recall is a separate user-level lane with no Need
+binding. Its execution snapshot has `input_origin="friend"`, empty query and only
+request-level filters. Both channels retain their existing configuration switches
+and pool bounds.
+
 ### 3.5 Hard eligibility and authority
 
 Hydrate before scoring and enforce current source state, visibility, self/block
@@ -228,8 +235,11 @@ in samples.
 
 ### 3.7–3.9 Policy, delivery and feedback
 
-Apply existing freshness/boost/injection/source-limit policies only to eligible
-candidates. Deduplicate typed IDs and applicable broadcast groups, select within
+Apply existing freshness/boost/injection policies to eligible candidates. The
+independent friend lane bypasses relevance thresholds while retaining hard
+eligibility. Apply source limits after merging the user's contexts and deduplicating
+items, preserving source attribution across contexts. Legacy Feed snapshots the
+limit fractions and enforces them for each actual page size after detail preparation. Deduplicate typed IDs and applicable broadcast groups, select within
 the requested limit, then group each page by type with exact hits first.
 Need candidates precede missing-kind fallback when filling recommendation limits.
 
