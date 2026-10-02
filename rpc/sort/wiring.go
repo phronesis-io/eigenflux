@@ -49,7 +49,11 @@ func initDiscovery(ctx context.Context, cfg *config.Config, policies func(contex
 	if index == "" {
 		index = cfg.CommissionIndexName
 	}
-	if err := es.EnsureRetrievalSlots(ctx, es.ReadIndexPattern, index, cfg.CommissionIndexName); err != nil {
+	if err := es.EnsureBroadcastRetrievalFields(ctx, es.ReadIndexPattern); err != nil {
+		close()
+		return nil, nil, err
+	}
+	if err := es.EnsureRetrievalSlots(ctx, index, cfg.CommissionIndexName); err != nil {
 		close()
 		return nil, nil, err
 	}

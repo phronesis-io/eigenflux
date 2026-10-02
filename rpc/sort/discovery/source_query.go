@@ -93,7 +93,7 @@ func Query(c Context, k Kind, channel string, limit int) (map[string]any, error)
 	filters, not := []any{}, []any{}
 	author := "author_agent_id"
 	textFields := []string{"content", "summary^2", "keywords.text"}
-	lang := "lang"
+	lang := "lang.keyword"
 	if k == Commission {
 		author = "seller_agent_id"
 		textFields = []string{"search_text", "title^2"}

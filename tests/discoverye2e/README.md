@@ -40,6 +40,13 @@ integration suites' PostgreSQL advisory lock is respected.
 
 ## Coverage
 
+- Sort starts with a historical broadcast backing index whose
+  `retrieval_slots.lang` is text with a keyword multi-field. The Sort source
+  integration test `TestBroadcastHistoricalMappingsAndExactFilters` additionally
+  queries pre-upgrade documents across absent/text/keyword slot generations,
+  verifies exact `en`/`en-US` and `zh`/`zh-CN` filtering in lexical and dense
+  channels, and keeps missing historical region evidence excluded.
+
 - Missing Agent/service context returns HTTP 200 with empty items. All-empty
   discovery still permits a complete Feed response with context delivery, cadence
   and notification fields.

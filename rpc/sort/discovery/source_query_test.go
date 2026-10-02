@@ -28,3 +28,17 @@ func TestAllChannelsCarryExplicitFilters(t *testing.T) {
 		t.Fatal("private field queried")
 	}
 }
+
+func TestBroadcastUsesExactTopLevelLanguageInEveryChannel(t *testing.T) {
+	c := Context{Query: "design", Vector: []float32{1, 0}, Filters: Filters{Lang: []string{"zh-CN"}}}
+	for _, channel := range []string{"lexical", "dense"} {
+		q, err := Query(c, Broadcast, channel, 20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := json.Marshal(q)
+		if !strings.Contains(string(b), `"terms":{"lang.keyword":["zh-CN"]}`) || strings.Contains(string(b), `"terms":{"lang":`) || strings.Contains(string(b), `"retrieval_slots.lang"`) {
+			t.Fatalf("%s must use exact top-level language: %s", channel, b)
+		}
+	}
+}

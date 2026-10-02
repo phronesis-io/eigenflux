@@ -103,7 +103,7 @@ func TestPostgresESRedisThreeKinds(t *testing.T) {
 			resp.Body.Close()
 		}
 	}()
-	mapping := map[string]any{"properties": map[string]any{"content": map[string]any{"type": "text"}, "summary": map[string]any{"type": "text"}, "embedding": map[string]any{"type": "dense_vector", "dims": 2, "index": true, "similarity": "cosine"}, "lang": map[string]any{"type": "keyword"}, "retrieval_slots": searchindex.SlotsMapping()}}
+	mapping := map[string]any{"properties": map[string]any{"content": map[string]any{"type": "text"}, "summary": map[string]any{"type": "text"}, "embedding": map[string]any{"type": "dense_vector", "dims": 2, "index": true, "similarity": "cosine"}, "lang": es.BuildIndexMapping(2)["properties"].(map[string]any)["lang"], "retrieval_slots": searchindex.SlotsMapping()}}
 	for _, x := range []struct {
 		name    string
 		mapping any
