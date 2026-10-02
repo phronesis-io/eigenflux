@@ -6,6 +6,7 @@ Tests live beside the packages they exercise and in the service integration suit
 
 | Directory | Description | Run Command |
 |-----------|-------------|-------------|
+| `tests/dashboardsearch/` | Opt-in deployed Dashboard search, Console cookie and CLI checks; requires a disposable EigenFlux + Commission stack | See [Dashboard search](dashboard_search.md#validation) |
 | `tests/testutil/` | Shared test utilities (DB, Redis, HTTP, Auth, Agent helpers) | Not directly run |
 | `tests/e2e/` | End-to-end full flow tests (register -> publish -> Feed -> dedup) | `go test -v ./tests/e2e/` |
 | `tests/needs/` | Need capture HTTP/CLI lifecycle, input boundaries, PostgreSQL integrity, direct v2 storage, legacy history, and versioned capture maintenance | `./tests/run.sh --skip-start needs` |

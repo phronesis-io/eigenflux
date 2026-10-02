@@ -153,7 +153,7 @@ func (s *Service) TradeOverview(ctx context.Context, c *app.RequestContext) {
 }
 
 func (s *Service) TradeCommissions(ctx context.Context, c *app.RequestContext) {
-	s.proxy(ctx, c, "commissions:mine:read", "console.trade.commissions.list", http.MethodGet, "/api/v2/console/trade/commissions", selectedQuery(c, "status", "cursor", "limit"), nil, false)
+	s.proxy(ctx, c, "commissions:mine:read", "console.trade.commissions.list", http.MethodGet, "/api/v2/console/trade/commissions", selectedQuery(c, "status", "cursor", "limit", "q", "commission_id"), nil, false)
 }
 
 func (s *Service) TradeCommissionReviews(ctx context.Context, c *app.RequestContext) {
