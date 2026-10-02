@@ -57,12 +57,17 @@ func TestDashboardSearchDeployed(t *testing.T) {
 	owner, peer, other := base, base+1, base+2
 	now := time.Now().UnixMilli()
 	term := fmt.Sprintf("查找_%%! %d", base)
+	peerName := fmt.Sprintf("counterparty-only-%d", base)
 	for _, id := range []int64{owner, peer, other} {
 		short, err := agentidentity.GenerateShortID()
 		if err != nil {
 			t.Fatal(err)
 		}
-		run(`INSERT INTO agents(agent_id,short_id,email,agent_name,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$5)`, id, short, fmt.Sprintf("dashboard-search-%d@example.test", id), term, now)
+		name := term
+		if id == peer {
+			name += " " + peerName
+		}
+		run(`INSERT INTO agents(agent_id,short_id,email,agent_name,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$5)`, id, short, fmt.Sprintf("dashboard-search-%d@example.test", id), name, now)
 	}
 	token := fmt.Sprintf("efv2a_dashboard_search_%d", base)
 	hash := sha256.Sum256([]byte(token))
@@ -121,6 +126,12 @@ func TestDashboardSearchDeployed(t *testing.T) {
 		if g.Error != "" || len(g.Items) != 1 {
 			t.Fatalf("%s: %#v", g.Type, g)
 		}
+	}
+	// Only Profile identity contains this text, so this exercises the Profile
+	// RPC -> BFF -> Commission filter rather than a match on the order body.
+	byCounterparty := request(peerName, "order")
+	if len(byCounterparty) != 1 || byCounterparty[0].Error != "" || len(byCounterparty[0].Items) != 1 || byCounterparty[0].Items[0].ID != strconv.FormatInt(base+500, 10) {
+		t.Fatalf("counterparty-name result: %#v", byCounterparty)
 	}
 	for kind, id := range map[string]int64{"broadcast": base + 101, "message": base + 301, "service": base + 401, "order": base + 501} {
 		g := request(strconv.FormatInt(id, 10), kind)

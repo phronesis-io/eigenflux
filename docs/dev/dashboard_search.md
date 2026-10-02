@@ -22,7 +22,7 @@ Broadcast states are `pending`, `processing`, `failed`, `published`, `discarded`
 
 Parameters: required `q`; `type` defaults to `all`; `limit` defaults to 10 and allows 1–50 results per category. `status` and `cursor` require a single type. Each group contains `type`, `items`, `has_more`, and `next_cursor` when applicable. Each item has string `id`, `title`, `preview`, `status`, `url`, `updated_at` and optional conversation/peer IDs. Results use descending entity ID cursors; continue categories independently.
 
-The response uses the Console V2 `data` envelope and private/no-store caching. Failed groups have an `error` and empty `items`; they are not successful empty searches. An eight-second overall timeout and three-second local-query timeout bound work. Order counterparty name lookup rejects queries matching more than 1,000 agents rather than silently truncating matches.
+The response uses the Console V2 `data` envelope and private/no-store caching. Failed groups have an `error` and empty `items`; they are not successful empty searches. An eight-second overall timeout and three-second RPC/domain-query timeout bound work. Order counterparty name lookup rejects queries matching more than 1,000 agents rather than silently truncating matches.
 
 CLI scopes are checked independently: `communication:read`, `relations:read`, `profile:read`, and existing `trade:write` for both trade groups. A valid scope for one category does not grant another category's data. The caller identity always comes from authentication.
 
@@ -37,15 +37,28 @@ eigenflux dashboard search "report" --type service --cursor 123 --format json
 
 `eigenflux dashboard` still generates its login link. `eigenflux search` remains network discovery. JSON output preserves grouped results and continuation cursors; partial category failure produces a nonzero exit after printing available results.
 
+## Service ownership
+
+The BFF authenticates the caller, checks category scopes, invokes service clients and projects grouped HTTP results. It contains no unified-search SQL. Internal RPC IDs remain `i64`; the BFF serializes them as HTTP strings.
+
+| Domain | RPC | Responsibility |
+| --- | --- | --- |
+| PM | `SearchMessages`, `SearchFriends` | Participant/relationship ownership, literal matching, status and cursor pagination |
+| Item | `SearchOwnedBroadcasts` | Author ownership, literal matching, status and cursor pagination |
+| Profile | `MatchAgentsByName` | Literal public-name and exact short-ID matching, bounded to 1,000 candidate IDs with explicit overflow |
+| Commission | Existing owner/participant list RPCs with search filters | Service/order ownership and matching before pagination |
+
+The shared `record_search.thrift` contract carries bounded excerpts, status and pagination without frontend URLs. PM and Item reject missing or mismatched `ef.agent_id` metadata independently of HTTP validation. Profile only returns public identity IDs; Commission intersects candidate IDs with the caller's orders. The shared `pkg/recordsearch` helpers contain validation, escaping and excerpt logic, with no database access.
+
 ## Trade integration and rollout
 
-EigenFlux owns local search orchestration and agent-name resolution. Commission owns service/order matching before pagination. Trusted delegation carries the current identity to the existing list endpoints; the gateway does not read Commission tables. The Commission HTTP `search_version: 1` and RPC `search_applied` markers prevent older services that ignore query fields from returning unfiltered lists as search results.
+The EigenFlux BFF orchestrates searches and uses Profile RPC for agent-name resolution. Commission owns service/order matching before pagination. Trusted delegation carries the current identity to the existing list endpoints; the gateway does not read Commission tables. The Commission HTTP `search_version: 1` and RPC `search_applied` markers prevent older services that ignore query fields from returning unfiltered lists as search results.
 
-Deploy Commission query support first, then the gateway/CLI. Service detail reads use `commission_id` on the owned Console list endpoint, backed by the existing exact owned-record RPC. The response keeps its `url` field for compatibility; the proposed search-page links and matched-message navigation require the deferred frontend implementation. Order details include buyer input and delivery notes.
+Deploy PM, Item, Profile and Commission query support first, then the gateway/CLI. An unavailable or older RPC server produces an explicit group error; the BFF never falls back to reading domain tables. Service detail reads use `commission_id` on the owned Console list endpoint, backed by the existing exact owned-record RPC. The response keeps its `url` field for compatibility; the proposed search-page links and matched-message navigation require the deferred frontend implementation. Order details include buyer input and delivery notes.
 
 ## Validation
 
-Run the colocated Console V2, trade BFF and CLI suites. `tests/dashboardsearch` is an opt-in real HTTP/RPC/PostgreSQL/CLI test against a disposable loopback stack with both repositories' migrations applied:
+Run the colocated PM, Item and Profile handler/DAL suites, shared matching helpers, Console V2, trade BFF and CLI suites. SQL isolation/literal/pagination tests live beside the owning DAL; BFF tests inject RPC clients and run without a database. `tests/dashboardsearch` is an opt-in real HTTP/RPC/PostgreSQL/CLI test against a disposable loopback stack with both repositories' migrations applied:
 
 ```bash
 DASHBOARD_SEARCH_TEST_URL=http://127.0.0.1:18092 \

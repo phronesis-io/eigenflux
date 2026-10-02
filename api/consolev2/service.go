@@ -74,6 +74,9 @@ type IDGenerator interface {
 }
 
 type Service struct {
+	dashboardPM              dashboardPMClient
+	dashboardItem            dashboardItemClient
+	dashboardProfile         dashboardProfileClient
 	db                       *gorm.DB
 	idgen                    IDGenerator
 	bootstrapSecret          string

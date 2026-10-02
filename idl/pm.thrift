@@ -1,6 +1,7 @@
 namespace go eigenflux.pm
 
 include "base.thrift"
+include "record_search.thrift"
 
 struct SendPMReq {
     1: required i64 sender_id
@@ -291,4 +292,6 @@ service PMService {
     ListFriendRequestsResp ListFriendRequests(1: ListFriendRequestsReq req)
     ListFriendsResp ListFriends(1: ListFriendsReq req)
     UpdateFriendRemarkResp UpdateFriendRemark(1: UpdateFriendRemarkReq req)
+    record_search.SearchResp SearchMessages(1: record_search.SearchReq req)
+    record_search.SearchResp SearchFriends(1: record_search.SearchReq req)
 }
