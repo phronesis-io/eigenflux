@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func recallCounter(t *testing.T, portEnv, metric string) float64 {
+func recallCounter(t *testing.T, portEnv, metric string, sources ...string) float64 {
 	t.Helper()
 	port, err := strconv.Atoi(os.Getenv(portEnv))
 	require.NoError(t, err)
@@ -23,7 +23,11 @@ func recallCounter(t *testing.T, portEnv, metric string) float64 {
 	require.Equal(t, http.StatusOK, response.StatusCode)
 	raw, err := io.ReadAll(response.Body)
 	require.NoError(t, err)
-	prefix := metric + `{source="keyword"} `
+	source := "keyword"
+	if len(sources) > 0 {
+		source = sources[0]
+	}
+	prefix := metric + `{source="` + source + `"} `
 	for _, line := range strings.Split(string(raw), "\n") {
 		if strings.HasPrefix(line, prefix) {
 			count, err := strconv.ParseFloat(strings.TrimPrefix(line, prefix), 64)

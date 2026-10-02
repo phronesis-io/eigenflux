@@ -49,21 +49,35 @@ type countIDs int64
 func (i *countIDs) NextID() (int64, error) { *i++; return int64(*i), nil }
 
 type sourceFake struct {
-	mu           sync.Mutex
-	docs         []Document
-	owner        OwnerContext
-	seen         map[string]bool
-	seenCalls    int
-	hydrateCalls int
-	onHydrate    func()
-	fail         bool
-	exact        []Document
+	channelErrors map[string]error
+	channels      map[string][]Document
+	calls         map[string]int
+	mu            sync.Mutex
+	docs          []Document
+	owner         OwnerContext
+	seen          map[string]bool
+	seenCalls     int
+	hydrateCalls  int
+	onHydrate     func()
+	fail          bool
+	exact         []Document
 }
 
 func (s *sourceFake) Owner(context.Context, int64) (OwnerContext, error) { return s.owner, nil }
 func (s *sourceFake) Recall(_ context.Context, _ Context, k Kind, ch string, _ int) ([]Document, error) {
+	s.mu.Lock()
+	if s.calls != nil {
+		s.calls[ch]++
+	}
+	s.mu.Unlock()
+	if err := s.channelErrors[ch]; err != nil {
+		return nil, err
+	}
 	if s.fail {
 		return nil, fmt.Errorf("offline")
+	}
+	if ch == "friend" || ch == "swing_i2i" {
+		return s.channels[ch], nil
 	}
 	if ch == "exact" {
 		return s.exact, nil

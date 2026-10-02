@@ -51,8 +51,8 @@ func TestRecommendationRetainsRecallMetrics(t *testing.T) {
 }
 
 func TestRecallSourcesPreservesLabels(t *testing.T) {
-	d := Document{Ref: SourceRef{Broadcast, 1}, Channels: []string{"lexical", "dense", "hot_recall", "new_recall", "new_ugc_recall", "lexical", "unknown"}}
-	want := recallsource.Keyword | recallsource.KNN | recallsource.HotRecall | recallsource.NewRecall | recallsource.NewUGC
+	d := Document{Ref: SourceRef{Broadcast, 1}, Channels: []string{"lexical", "dense", "hot_recall", "new_recall", "new_ugc_recall", "friend", "swing_i2i", "lexical", "unknown"}}
+	want := recallsource.Keyword | recallsource.KNN | recallsource.HotRecall | recallsource.NewRecall | recallsource.NewUGC | recallsource.Friend | recallsource.SwingI2I
 	if got := d.RecallSources(); got != want {
 		t.Fatalf("sources = %x, want keyword|knn|hot|new|new_ugc", got)
 	}

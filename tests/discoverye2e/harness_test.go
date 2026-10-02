@@ -52,7 +52,7 @@ type stack struct {
 	catalogue                                           *catalogueFixture
 }
 
-func startStack(t *testing.T) *stack {
+func startStack(t *testing.T, overrides ...map[string]string) *stack {
 	t.Helper()
 	if os.Getenv("DISCOVERY_E2E") != "1" {
 		t.Skip("set DISCOVERY_E2E=1 with isolated migrated PG/Redis/ES/etcd and built services")
@@ -166,10 +166,15 @@ func startStack(t *testing.T) *stack {
 		"ENABLE_COMMISSION_AGENT_ID_WHITELIST": "false", "COMMISSION_INTEGRATION_MODE": "false",
 		"EMBEDDING_PROVIDER": "openai", "EMBEDDING_MODEL": "discovery-e2e", "EMBEDDING_BASE_URL": embedding.URL, "EMBEDDING_API_KEY": "test-only",
 		"CONSOLE_V2_BOOTSTRAP_SECRET": "discovery-e2e-test-only", "CONSOLE_V2_OTP_PEPPER": "discovery-e2e-test-only", "CONSOLE_V2_PUBLIC_URL": s.url,
-		"ENABLE_HOT_RECALL": "false", "ENABLE_NEW_RECALL": "false", "ENABLE_NEW_UGC_RECALL": "false", "ENABLE_SWING_I2I_RECALL": "false",
+		"FRIEND_FEED_ENABLED": "false", "ENABLE_HOT_RECALL": "false", "ENABLE_NEW_RECALL": "false", "ENABLE_NEW_UGC_RECALL": "false", "ENABLE_SWING_I2I_RECALL": "false",
 		"DISABLE_DEDUP_IN_TEST": "false", "MONITOR_ENABLED": "false", "LR_RANKER_ENABLED": "false",
 	} {
 		t.Setenv(k, v)
+	}
+	for _, settings := range overrides {
+		for k, v := range settings {
+			t.Setenv(k, v)
+		}
 	}
 	for k, v := range ports {
 		t.Setenv(k, strconv.Itoa(v))

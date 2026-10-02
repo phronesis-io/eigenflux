@@ -14,6 +14,7 @@ import (
 // Legacy pages retain one frozen impression and absolute sample positions.
 func (s *FeedServiceImpl) fetchDiscoveryFeed(ctx context.Context, owner int64, action string, limit int) (*feed.FetchFeedResp, error) {
 	out := &feed.FetchFeedResp{Items: []*feed.FeedItem{}, HasMore: false, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}
+	prepared := map[int64]*feed.FeedItem{}
 	prepare := func(ctx context.Context, x *discovery.Execution) error {
 		if len(x.Candidates) == 0 {
 			return nil
@@ -48,7 +49,9 @@ func (s *FeedServiceImpl) fetchDiscoveryFeed(ctx context.Context, owner int64, a
 		if len(items) != len(ids) {
 			return discovery.Failure(503, "item_hydration_failed")
 		}
-		out.Items = append(out.Items, items...)
+		for i, it := range items {
+			prepared[ids[i]] = it
+		}
 		return nil
 	}
 	service := delivery.Service{Redis: db.RDB, IDs: s.impressionIDGen, Executor: sortExecutor{}, StreamMaxLen: s.config.MqStreamMaxLen, DisableDedup: s.config.ShouldDisableDedup()}
@@ -60,6 +63,9 @@ func (s *FeedServiceImpl) fetchDiscoveryFeed(ctx context.Context, owner int64, a
 			out.BaseResp = &base.BaseResp{Code: int32(e.Code), Msg: e.Reason}
 		}
 		return out, nil
+	}
+	for _, it := range r.Items {
+		out.Items = append(out.Items, prepared[it.Ref.ID])
 	}
 	out.HasMore = hasMore
 	out.ImpressionId = r.ImpressionID

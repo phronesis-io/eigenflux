@@ -356,7 +356,34 @@ even when `ENABLE_NEED_SEARCH=false`; changing the route switch does not restore
 the old ES-feature storage contract.
 
 Recall uses lexical/dense channels and existing hot/new/new-UGC Redis
-lists where enabled. No Swing lane or learned scorer is called by this engine.
+lists where enabled. Broadcast recommendations also run `swing_i2i` when
+`ENABLE_SWING_I2I_RECALL=true`, using the existing surfaced-item seeds and
+neighbor index. The user seed expansion runs once per request, independently
+of Need IDs; each recommendation context still applies its own filters and rule
+score. Swing similarity orders the recall pool, not lexical or semantic evidence
+for a Need. A Swing-only candidate must pass the normal relevance gate unless
+it belongs to the empty-context baseline. No learned scorer is called.
+
+When `FRIEND_FEED_ENABLED=true`, friend Broadcast recall runs once as a parallel
+user-level lane. It has its own `input_origin="friend"` execution snapshot and
+no Need ID. It does not inherit a Need's query, language or other constraints;
+explicit request filters, current visibility/block/expiry checks and seen-state
+deduplication still apply. Friend candidates bypass the relevance gate but
+receive ordinary freshness/quality scores and operator policies. The existing
+`FRIEND_FEED_MAX_AUTHORS`, `FRIEND_FEED_WINDOW_HOURS` and `FRIEND_FEED_MAX_ITEMS`
+bounds apply. Explicit search never runs friend or Swing recommendation lanes.
+
+Friend source limits apply once to the user's final merged recommendation,
+across all Needs and the friend lane. Multi-source items count as friend even
+if a Need's lexical/dense candidate wins deduplication. Legacy Feed freezes the
+configured source-limit fractions with its candidate pool and applies them to
+each actual page size after missing details are removed, backfilling from other
+sources. Overflow may serve later pages; a page with zero admissible candidates
+ends pagination. The default `1/2` ceiling permits at most `floor(limit/2)`
+friend items, and never pads a short response. Missing/malformed Swing index
+data or failed friend recall marks only that lane unavailable. Deploy the updated
+Feed before Sort when rolling services separately, so legacy page delivery
+understands the frozen source-limit fractions before friend recall starts.
 Fan-out is bounded to six concurrent channels, 200 merged documents per context,
 100 commission/Agent candidates per kind, and at most five contexts. Forward reads and current account/relationship checks use bounded batches. Rule features, gates, configuration
 hash, request time, contributions and final policy score are frozen in samples.
@@ -666,8 +693,8 @@ With `ENABLE_NEED_SEARCH=true`, broadcast recommendations continue to update
 `recall_feed_total{source}` and `recall_impression_total{source}` used by the
 Recall Sources dashboard. Discovery maps `lexical` to `keyword` and `dense` to
 `knn`; `hot_recall`, `new_recall`, and `new_ugc_recall` retain their labels.
-Only channels executed by discovery contribute; legacy-only friend and Swing
-recall do not acquire synthetic counts.
+`friend` and `swing_i2i` retain their existing labels and contribute only when
+their channels actually recall or deliver broadcasts.
 
 Candidate counts cover hydrated, version-valid broadcasts before seen checks,
 hard filters, relevance thresholds and ranking. Each item/source pair counts

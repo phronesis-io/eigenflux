@@ -61,7 +61,7 @@ func main() {
 		}
 	}
 
-	discoveryService, closeDiscovery, err := initDiscovery(context.Background(), cfg, legacyService.DiscoveryPolicies)
+	discoveryService, closeDiscovery, err := initDiscovery(context.Background(), cfg, legacyService.DiscoveryPolicies, legacyService.DiscoverySourceLimits())
 	if err != nil {
 		log.Fatalf("failed to initialize discovery: %v", err)
 	}

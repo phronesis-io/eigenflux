@@ -77,10 +77,7 @@ func (s *Service) DiscoveryPolicies(ctx context.Context, in []discovery.Candidat
 				}, Count: rule.Count, Positions: rule.Positions}).Apply(cs)
 			}
 		}
-		for _, rule := range s.itemRerankPolicies.SourceLimits() {
-			rule := rule
-			cs = (&rerank.MatchLimitPolicy{Match: func(c rank.Candidate) bool { return slices.Contains(byID[c.ID()].Document.Channels, rule.Source) }, MaxCount: rule.MaxCount(limit), ReasonTag: "source=" + rule.Source}).Apply(cs)
-		}
+
 		for i, c := range cs {
 			v := byID[c.ID()]
 			v.Order = i + 1
@@ -97,4 +94,15 @@ func (s *Service) DiscoveryPolicies(ctx context.Context, in []discovery.Candidat
 		}
 	}
 	return out, nil
+}
+
+// DiscoverySourceLimits are applied after cross-context merge and again when a
+// legacy Feed page is assembled, using that page's requested size.
+func (s *Service) DiscoverySourceLimits() []discovery.SourceLimit {
+	var out []discovery.SourceLimit
+	for _, rule := range s.itemRerankPolicies.SourceLimits() {
+		numerator, denominator := rule.Ratio()
+		out = append(out, discovery.SourceLimit{Source: rule.Source, Numerator: numerator, Denominator: denominator})
+	}
+	return out
 }

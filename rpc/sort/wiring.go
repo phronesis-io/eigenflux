@@ -11,6 +11,8 @@ import (
 	"eigenflux_server/pkg/idgen"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/need"
+	"eigenflux_server/pkg/recall"
+	"eigenflux_server/pkg/recallsource"
 	"eigenflux_server/rpc/sort/discovery"
 	"eigenflux_server/rpc/sort/discovery/needembedding"
 
@@ -18,7 +20,7 @@ import (
 	"strings"
 )
 
-func initDiscovery(ctx context.Context, cfg *config.Config, policies func(context.Context, []discovery.Candidate, discovery.Mode, int) ([]discovery.Candidate, error)) (*discovery.Service, func(), error) {
+func initDiscovery(ctx context.Context, cfg *config.Config, policies func(context.Context, []discovery.Candidate, discovery.Mode, int) ([]discovery.Candidate, error), sourceLimits []discovery.SourceLimit) (*discovery.Service, func(), error) {
 	if !cfg.EnableNeedSearch {
 		return nil, func() {}, nil
 	}
@@ -59,6 +61,24 @@ func initDiscovery(ctx context.Context, cfg *config.Config, policies func(contex
 	}
 	contexts := &cache.DiscoveryCache{Redis: mq.RDB}
 	vectors := needembedding.New(cfg, db.DB, mq.RDB)
-	engine := &discovery.Engine{Compiler: &discovery.Compiler{Cache: contexts, Embedder: embed, NeedVectors: vectors, EmbeddingVersion: vectors.Generation()}, Needs: discovery.CachedNeeds{NeedReader: need.Store{DB: db.DB}, Cache: contexts}, IDs: ids, Rules: rules, Policies: policies, Sources: &discovery.Source{ContextCache: contexts, DB: db.DB, Redis: mq.RDB, CommissionIndex: index, AgentIndex: cfg.AgentDiscoveryIndex, RecallNamespace: cfg.RecallRedisNamespace, BlockedAuthorEmails: cfg.BlockedAgentEmails, DisableDedup: cfg.ShouldDisableDedup(), DisabledChannels: map[string]bool{"hot_recall": !cfg.EnableHotRecall, "new_recall": !cfg.EnableNewRecall, "new_ugc_recall": !cfg.EnableNewUGCRecall}}}
+	reader := recall.NewRedisRecallReader(mq.RDB, cfg.RecallRedisNamespace)
+	sources := &discovery.Source{
+		ContextCache: contexts, DB: db.DB, Redis: mq.RDB,
+		CommissionIndex: index, AgentIndex: cfg.AgentDiscoveryIndex,
+		RecallNamespace: cfg.RecallRedisNamespace, BlockedAuthorEmails: cfg.BlockedAgentEmails,
+		DisableDedup:         cfg.ShouldDisableDedup(),
+		FriendFeedMaxAuthors: cfg.FriendFeedMaxAuthors, FriendFeedWindowHours: cfg.FriendFeedWindowHours, FriendFeedMaxItems: cfg.FriendFeedMaxItems,
+		SwingRecall: recallsource.NewSwingI2IRecallSource(reader, recall.NewSurfaceHistoryStore(mq.RDB, cfg.RecallRedisNamespace), mq.RDB, cfg.SwingI2IRecallSeeds, cfg.SwingI2IRecallK),
+		DisabledChannels: map[string]bool{
+			"friend": !cfg.FriendFeedEnabled, "swing_i2i": !cfg.EnableSwingI2IRecall,
+			"hot_recall": !cfg.EnableHotRecall, "new_recall": !cfg.EnableNewRecall, "new_ugc_recall": !cfg.EnableNewUGCRecall,
+		},
+	}
+	engine := &discovery.Engine{
+		FriendFeedEnabled: cfg.FriendFeedEnabled, SourceLimits: sourceLimits,
+		Compiler: &discovery.Compiler{Cache: contexts, Embedder: embed, NeedVectors: vectors, EmbeddingVersion: vectors.Generation()},
+		Needs:    discovery.CachedNeeds{NeedReader: need.Store{DB: db.DB}, Cache: contexts},
+		IDs:      ids, Rules: rules, Policies: policies, Sources: sources,
+	}
 	return &discovery.Service{Engine: engine}, close, nil
 }

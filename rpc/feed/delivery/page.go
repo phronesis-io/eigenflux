@@ -70,6 +70,7 @@ func (s Service) ServePage(ctx context.Context, owner int64, action string, limi
 	selected := state.Execution
 	selected.Mode = discovery.Recommendation
 	selected.Candidates = nil
+	deferred := []discovery.Candidate{}
 	for len(state.Execution.Candidates) > 0 && len(selected.Candidates) < limit {
 		count := min(limit-len(selected.Candidates), len(state.Execution.Candidates))
 		batch := state.Execution
@@ -80,7 +81,14 @@ func (s Service) ServePage(ctx context.Context, owner int64, action string, limi
 			}
 		}
 		state.Execution.Candidates = state.Execution.Candidates[count:]
-		selected.Candidates = append(selected.Candidates, batch.Candidates...)
+		var overflow []discovery.Candidate
+		selected.Candidates, overflow = discovery.SelectRecommendationPage(append(selected.Candidates, batch.Candidates...), limit, state.Execution.SourceLimits)
+		deferred = append(deferred, overflow...)
+	}
+	// If no candidate can fit this page (for example a zero source quota), do
+	// not advertise an endlessly empty continuation.
+	if len(selected.Candidates) > 0 {
+		state.Execution.Candidates = append(deferred, state.Execution.Candidates...)
 	}
 	if len(selected.Candidates) == 0 && selected.Status == "ok" {
 		selected.Status = "exhausted"
