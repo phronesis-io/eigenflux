@@ -1,0 +1,116 @@
+{
+  "candidate": {
+    "document": {
+      "source_ref": {
+        "type": "broadcast",
+        "id": "123"
+      },
+      "channels": [
+        "lexical",
+        "new_recall"
+      ]
+    },
+    "context": {
+      "input_origin": "agent_context",
+      "context_id": "88"
+    },
+    "score": {
+      "features": {
+        "lexical": 0.2,
+        "semantic": 0.0,
+        "freshness": 1.0,
+        "quality": 0.5
+      },
+      "value": 0.2,
+      "relevance": 0.2,
+      "missing": [
+        "semantic"
+      ]
+    }
+  },
+  "features": [
+    0.2,
+    0.0,
+    1.0,
+    0.5,
+    0.2,
+    0.2,
+    1.0,
+    0.0,
+    0.0
+  ],
+  "model": {
+    "schema_version": 1,
+    "model_type": "logistic_regression",
+    "model_version": "lr_20261004_1200_abcdef01",
+    "feature_contract_version": "discovery_lr_v1",
+    "feature_names": [
+      "lexical",
+      "semantic",
+      "freshness",
+      "quality",
+      "relevance",
+      "rule_score",
+      "semantic_missing",
+      "origin_baseline",
+      "origin_friend"
+    ],
+    "coefficients": [
+      -0.5,
+      -0.4,
+      -0.30000000000000004,
+      -0.2,
+      -0.1,
+      0.0,
+      0.1,
+      0.2,
+      0.30000000000000004
+    ],
+    "intercept": -0.3,
+    "promotion_passed": true,
+    "self_test_cases": [
+      {
+        "features": [
+          0.2,
+          0.0,
+          1.0,
+          0.5,
+          0.2,
+          0.2,
+          1.0,
+          0.0,
+          0.0
+        ],
+        "probability": 0.32739298293223956
+      },
+      {
+        "features": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "probability": 0.425557483188341
+      },
+      {
+        "features": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "probability": 0.23147521650098232
+      }
+    ]
+  }
+}

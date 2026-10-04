@@ -160,8 +160,8 @@ func Merge(in []Candidate, kinds []Kind, mode Mode, limit int) []Candidate {
 		if a.Order != b.Order {
 			return a.Order < b.Order
 		}
-		if a.Score.Value != b.Score.Value {
-			return a.Score.Value > b.Score.Value
+		if a.RankingScore() != b.RankingScore() {
+			return a.RankingScore() > b.RankingScore()
 		}
 		return a.Document.Ref.ID < b.Document.Ref.ID
 	})

@@ -33,8 +33,8 @@ func (s *Service) DiscoveryPolicies(ctx context.Context, in []discovery.Candidat
 			continue
 		}
 		sort.SliceStable(pool, func(i, j int) bool {
-			if pool[i].Score.Value != pool[j].Score.Value {
-				return pool[i].Score.Value > pool[j].Score.Value
+			if pool[i].RankingScore() != pool[j].RankingScore() {
+				return pool[i].RankingScore() > pool[j].RankingScore()
 			}
 			return pool[i].Document.Ref.ID < pool[j].Document.Ref.ID
 		})
@@ -50,7 +50,7 @@ func (s *Service) DiscoveryPolicies(ctx context.Context, in []discovery.Candidat
 			d := c.Document
 			updated := d.SourceUpdatedAt
 			source := itemRerankSource{contentClass: classes[d.Ref.ID], item: sortdal.Item{ID: d.Ref.ID, Type: d.ContentType, SourceType: d.SourceType, UpdatedAt: time.UnixMilli(updated)}}
-			cs = append(cs, rank.NewCandidate(d.Ref.ID, rank.CandidateItem, c.Score.Value, c.Score.Features, source))
+			cs = append(cs, rank.NewCandidate(d.Ref.ID, rank.CandidateItem, c.RankingScore(), c.Score.Features, source))
 			byID[d.Ref.ID] = c
 			ids = append(ids, d.Ref.ID)
 		}

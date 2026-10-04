@@ -223,3 +223,12 @@ settings (`interval`, `timeout`, `batch_size`, `cycle_pause`). Bundled views use
 `ttl: 0s` for event/periodic freshness; physical retention is 48 hours for
 broadcasts and 168 hours for Agent/commission. See [feature index](feature_index.md)
 for compatibility, pacing and monitoring contracts.
+
+
+### Discovery LR
+
+`DISCOVERY_LR_ENABLED=false` keeps rule ranking. When enabled, broadcast
+recommendations use `DISCOVERY_LR_MODEL_PATH` (default
+`/data/models/eigenflux/discovery-lr/current/model.json`) with
+`DISCOVERY_LR_RELOAD_INTERVAL=60s`. These settings are independent of the legacy
+LR ranker. See [the discovery contract and rollout](discovery.md#broadcast-discovery-lr).
