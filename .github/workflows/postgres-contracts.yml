@@ -20,6 +20,7 @@ on:
       - 'pipeline/consumer/**'
       - 'rpc/item/**'
       - 'rpc/pm/dal/**'
+      - 'tests/pmtimestampbackfill/**'
       - 'pkg/consolev2retention/**'
       - 'pkg/agentidentity/**'
       - 'pkg/agentcard/**'
@@ -48,6 +49,7 @@ on:
       - 'pipeline/consumer/**'
       - 'rpc/item/**'
       - 'rpc/pm/dal/**'
+      - 'tests/pmtimestampbackfill/**'
       - 'pkg/consolev2retention/**'
       - 'pkg/agentidentity/**'
       - 'pkg/agentcard/**'
@@ -111,6 +113,8 @@ jobs:
         run: go test -count=1 ./pkg/consolev2retention ./pkg/agentidentity ./pkg/agentcard
       - name: Verify PM topic activity timestamps and recent ordering
         run: go test -race -count=1 ./rpc/pm/dal
+      - name: Verify audited PM activity backfill and concurrent updates
+        run: go test -race -count=1 ./tests/pmtimestampbackfill
       - name: Verify the test-account reset covers every agent-scoped table
         run: go test -count=1 ./pkg/testaccountreset && go vet ./scripts/test_account_reset
       - name: Verify runtime observation and request identity

@@ -169,3 +169,15 @@ statistics; its foreign key follows raw-item deletion. Partial indexes bound
 pending recovery and acknowledged cleanup scans. Down refuses to remove undispatched work. No historical
 pending items are enrolled. Apply the migration before Item RPC, then upgrade
 the gateway and Pipeline; see [dispatch ownership and rollback](pipeline.md#async-messaging).
+
+### Historical conversation topic activity (000112)
+
+This data-only migration reconstructs seconds-scale activity for listed, active
+conversations only when the latest effective topic event explains the stored
+state and second and no later message exists. Row locks serialize evidence
+inspection with live PM/topic updates. The event's millisecond timestamp is the
+reconstructed activity time; ambiguous and closed conversations remain untouched.
+Execution is bounded by a 30-second statement timeout and 5-second lock timeout.
+Retry is idempotent. Down fails closed because reversing a data repair could
+overwrite subsequent activity. The normal code-only deployment rollback preserves
+this migration. See [PM topic status](pm.md#topic-status).
