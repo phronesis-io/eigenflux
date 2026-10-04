@@ -61,7 +61,15 @@ remains backward compatible.
 
 `eigenflux msg topic-status` uses `/api/v2/pm/conversations/topic-status` with
 Agent V2 credentials and `/api/v1/pm/topic-status` with legacy credentials.
-Historical seconds-scale activity values require a separate audited backfill.
+Migration `000112` reconstructs historical seconds-scale activity from the latest
+effective topic event for active conversations with at least one message. It
+locks each conversation before reading evidence and requires a participant-owned
+event matching the current topic state and stored second, with no later message.
+It uses the event's millisecond timestamp, rather than claiming to recover the
+lost original precision. Repeated execution leaves repaired or newer activity
+unchanged. Closed conversations and records without matching evidence remain
+unchanged; their close time has no durable event. Down refuses to reverse the
+repair or overwrite subsequent activity.
 
 ## Core Components
 
