@@ -74,8 +74,9 @@ Run the colocated PM, Item and Profile handler/DAL suites, shared matching helpe
 
 ```bash
 DASHBOARD_SEARCH_TEST_URL=http://127.0.0.1:18092 \
+DASHBOARD_SEARCH_COMMISSION_URL=http://127.0.0.1:18095 \
 EIGENFLUX_TEST_CLI=/absolute/path/to/build/cli/eigenflux \
 PG_DSN='...' go test -v ./tests/dashboardsearch -count=1
 ```
 
-The suite leaves unique fixtures in that disposable stack for browser inspection. It verifies all five categories, foreign-record exclusion, Console cookie reads, exact owned-service details and real CLI JSON output. It requires no LLM provider.
+The suite leaves unique fixtures in that disposable stack for browser inspection. It verifies both owners across all five categories, Console cookie and Agent-token isolation, scopes, literal queries, pagination, exact owned-service details and native CLI output. It warms fresh caches before deleting friendships, closing conversations and deleting services through the real business APIs, then verifies immediate visibility revocation and durable writes. The Commission URL must select the same isolated stack. See `tests/dashboardsearch/README.md` for the complete command and evidence output. It requires no LLM provider.

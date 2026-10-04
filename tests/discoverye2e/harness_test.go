@@ -30,6 +30,7 @@ import (
 	"eigenflux_server/rpc/sort/discovery"
 	"eigenflux_server/rpc/sort/discovery/needembedding"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"gorm.io/gorm"
@@ -54,6 +55,13 @@ type stack struct {
 
 func startStack(t *testing.T, overrides ...map[string]string) *stack {
 	t.Helper()
+	return startStackWithServices(t, nil, overrides...)
+}
+
+// Optional real services let journeys exercise their public writers without
+// starting unrelated processes for the rest of the discovery suite.
+func startStackWithServices(t *testing.T, extra []string, overrides ...map[string]string) *stack {
+	t.Helper()
 	if os.Getenv("DISCOVERY_E2E") != "1" {
 		t.Skip("set DISCOVERY_E2E=1 with isolated migrated PG/Redis/ES/etcd and built services")
 	}
@@ -62,7 +70,10 @@ func startStack(t *testing.T, overrides ...map[string]string) *stack {
 	require.NotEmpty(t, os.Getenv("PG_DSN"), "explicit isolated PG_DSN is required")
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)
-	for _, name := range []string{"sort", "feed", "api", "item"} {
+	services := append([]string{"sort", "item", "feed"}, extra...)
+	portNames := map[string]string{"sort": "SORT_RPC_PORT", "item": "ITEM_RPC_PORT", "feed": "FEED_RPC_PORT", "api": "API_PORT", "pm": "PM_RPC_PORT"}
+	for _, name := range append(append([]string{}, services...), "api") {
+		require.Contains(t, portNames, name, "unsupported discovery fixture service")
 		_, err := os.Stat(filepath.Join(root, "build", name))
 		require.NoError(t, err, "run bash scripts/common/build.sh first")
 	}
@@ -88,8 +99,7 @@ func startStack(t *testing.T, overrides ...map[string]string) *stack {
 		_, _ = lock.ExecContext(context.Background(), "SELECT pg_advisory_unlock(2026030501)")
 		_ = lock.Close()
 	})
-	mq.Init(cfg.RedisAddr, cfg.RedisPassword)
-	t.Cleanup(func() { _ = mq.RDB.Close() })
+	initFixtureRedis(t, cfg.RedisAddr, cfg.RedisPassword)
 	require.NoError(t, es.InitES(cfg.EmbeddingDimensions))
 	seed := time.Now().UnixNano() / 10
 	s := &stack{root: root, db: db.DB, cfg: cfg, owner: seed, other: seed + 1, author: seed + 2, item: seed + 3,
@@ -154,8 +164,13 @@ func startStack(t *testing.T, overrides ...map[string]string) *stack {
 	rulesPath := filepath.Join(s.logs, "rules.json")
 	writeJSON(t, rulesPath, rules)
 	ports := map[string]int{}
-	for _, name := range []string{"SORT_RPC_PORT", "FEED_RPC_PORT", "ITEM_RPC_PORT", "API_PORT"} {
-		ports[name] = freePort(t)
+	portLeases := map[string]*servicePortLease{}
+	for _, name := range append(append([]string{}, services...), "api") {
+		lease, err := reserveServicePort()
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, lease.release()) })
+		portLeases[name] = lease
+		ports[portNames[name]] = lease.port
 	}
 	s.url = fmt.Sprintf("http://127.0.0.1:%d", ports["API_PORT"])
 	for k, v := range map[string]string{
@@ -184,13 +199,19 @@ func startStack(t *testing.T, overrides ...map[string]string) *stack {
 	s.needWorker = &consumer.NeedEmbeddingWorker{Cache: s.needVectors, Embedder: embeddingclient.NewClient(vectorConfig.EmbeddingProvider, vectorConfig.EmbeddingApiKey, vectorConfig.EmbeddingBaseURL, vectorConfig.EmbeddingModel, vectorConfig.EmbeddingDimensions)}
 	s.seed(t)
 	s.startCatalogue(t)
-	for _, name := range []string{"sort", "item", "feed"} {
-		s.startProcess(t, name, ports[map[string]string{"sort": "SORT_RPC_PORT", "item": "ITEM_RPC_PORT", "feed": "FEED_RPC_PORT", "api": "API_PORT"}[name]])
+	for _, name := range services {
+		s.startProcess(t, name, portLeases[name])
 	}
 	// Listening precedes Kitex registration. Avoid caching an empty resolver
 	// result in the gateway while downstream services are still starting.
+	registrationsNeeded := []string{"SortService", "ItemService", "FeedService", "DiscoveryE2ECommission", "DiscoveryE2EOrder"}
+	for _, name := range extra {
+		if name == "pm" {
+			registrationsNeeded = append(registrationsNeeded, "PMService")
+		}
+	}
 	require.Eventually(t, func() bool {
-		for _, service := range []string{"SortService", "ItemService", "FeedService", "DiscoveryE2ECommission", "DiscoveryE2EOrder"} {
+		for _, service := range registrationsNeeded {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			result, err := etcdClient.Get(ctx, "kitex/registry-etcd/"+service+"/", clientv3.WithPrefix())
 			cancel()
@@ -200,7 +221,7 @@ func startStack(t *testing.T, overrides ...map[string]string) *stack {
 		}
 		return true
 	}, 20*time.Second, 100*time.Millisecond, "RPC registration readiness")
-	s.startProcess(t, "api", ports["API_PORT"])
+	s.startProcess(t, "api", portLeases["api"])
 	ids, err := idgen.NewManagedGenerator(context.Background(), idgen.ManagedGeneratorConfig{Endpoints: strings.Split(cfg.EtcdAddr, ","), WorkerPrefix: cfg.IDWorkerPrefix, ServiceName: "discovery-e2e-replay", LeaseTTLSecond: cfg.IDWorkerLeaseTTL, EpochMS: cfg.IDSnowflakeEpoch})
 	require.NoError(t, err)
 	workerCtx, stop := context.WithCancel(context.Background())
@@ -226,13 +247,20 @@ func startStack(t *testing.T, overrides ...map[string]string) *stack {
 	return s
 }
 
-func freePort(t *testing.T) int {
+// Production mq.Init borrows a process-wide pool. A per-test fixture must own
+// a different client so cleanup cannot leave the next test a closed cached pool.
+func initFixtureRedis(t *testing.T, addr, password string) {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	p := l.Addr().(*net.TCPAddr).Port
-	require.NoError(t, l.Close())
-	return p
+	previous := mq.RDB
+	client := redis.NewClient(&redis.Options{Addr: addr, Password: password, ContextTimeoutEnabled: true})
+	mq.RDB = client
+	t.Cleanup(func() {
+		require.NoError(t, client.Close())
+		mq.RDB = previous
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, client.Ping(ctx).Err(), "isolated fixture Redis readiness")
 }
 
 func writeJSON(t *testing.T, path string, value any) {
@@ -242,7 +270,7 @@ func writeJSON(t *testing.T, path string, value any) {
 	require.NoError(t, os.WriteFile(path, b, 0600))
 }
 
-func (s *stack) startProcess(t *testing.T, name string, port int) {
+func (s *stack) startProcess(t *testing.T, name string, lease *servicePortLease) {
 	t.Helper()
 	f, err := os.Create(filepath.Join(s.logs, name+".log"))
 	require.NoError(t, err)
@@ -251,6 +279,10 @@ func (s *stack) startProcess(t *testing.T, name string, port int) {
 	cmd.Env = os.Environ()
 	cmd.Stdout = f
 	cmd.Stderr = f
+	// Keep both listeners reserved through fixture setup and command preparation.
+	// These production binaries cannot inherit a listener, so only the immediate
+	// release-to-exec handoff remains; startup failures are still fatal.
+	require.NoError(t, lease.release())
 	require.NoError(t, cmd.Start())
 	done := make(chan struct{})
 	go func() { _ = cmd.Wait(); close(done) }()
@@ -270,7 +302,7 @@ func (s *stack) startProcess(t *testing.T, name string, port int) {
 			t.Fatalf("%s exited during startup; inspect %s", name, filepath.Join(s.logs, name+".log"))
 		default:
 		}
-		c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 100*time.Millisecond)
+		c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", lease.port), 100*time.Millisecond)
 		if err != nil {
 			return false
 		}
