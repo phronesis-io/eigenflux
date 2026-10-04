@@ -15,9 +15,11 @@ import (
 	"eigenflux_server/pkg/recallsource"
 	"eigenflux_server/rpc/sort/discovery"
 	"eigenflux_server/rpc/sort/discovery/needembedding"
+	"eigenflux_server/rpc/sort/discoverylr"
 
 	"os"
 	"strings"
+	"time"
 )
 
 func initDiscovery(ctx context.Context, cfg *config.Config, policies func(context.Context, []discovery.Candidate, discovery.Mode, int) ([]discovery.Candidate, error), sourceLimits []discovery.SourceLimit) (*discovery.Service, func(), error) {
@@ -80,5 +82,12 @@ func initDiscovery(ctx context.Context, cfg *config.Config, policies func(contex
 		Needs:    discovery.CachedNeeds{NeedReader: need.Store{DB: db.DB}, Cache: contexts},
 		IDs:      ids, Rules: rules, Policies: policies, Sources: sources,
 	}
-	return &discovery.Service{Engine: engine}, close, nil
+	interval, err := time.ParseDuration(cfg.DiscoveryLRReloadInterval)
+	if err != nil && cfg.DiscoveryLREnabled {
+		close()
+		return nil, nil, err
+	}
+	learned := discoverylr.New(cfg.DiscoveryLREnabled, cfg.DiscoveryLRModelPath, interval)
+	engine.Learned = learned
+	return &discovery.Service{Engine: engine}, func() { learned.Close(); close() }, nil
 }

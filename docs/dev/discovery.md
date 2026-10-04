@@ -1,7 +1,7 @@
 # Search and Recommendation MVP
 
 The server-controlled `ENABLE_NEED_SEARCH` switch enables the three-kind,
-rule-only discovery pipeline. Its default is `false`. With the switch enabled,
+discovery pipeline with rule gates and optional broadcast LR ordering. Its default is `false`. With the switch enabled,
 unified APIs and CLI capabilities appear when the existing `ENABLE_CONSOLE_V2`
 gateway is enabled, and existing Feed/commission query and
 recommendation routes use the new engine, including explicit commission-ID
@@ -148,7 +148,7 @@ literal equality. Query text and vectors never appear in result cards.
 Responses include `pipeline_version`, `input_origin`, `context_id`,
 `effective_filters`, `constraint_mode`, `result_status`, partial/fallback reasons,
 and typed `source_ref` results. Only broadcasts include `item_id`. Per-result
-match metadata contains rule type/version/kind. Numeric ranking scores stay in
+match metadata contains scorer type/version/kind. Numeric ranking scores stay in
 internal serving envelopes/samples; the existing commission compatibility DTO
 retains its numeric score contract.
 Internal private context snapshots and feature vectors are not returned in results.
@@ -362,7 +362,7 @@ neighbor index. The user seed expansion runs once per request, independently
 of Need IDs; each recommendation context still applies its own filters and rule
 score. Swing similarity orders the recall pool, not lexical or semantic evidence
 for a Need. A Swing-only candidate must pass the normal relevance gate unless
-it belongs to the empty-context baseline. No learned scorer is called.
+it belongs to the empty-context baseline. Broadcast recommendation ordering can use the optional discovery LR scorer after rule gates.
 
 When `FRIEND_FEED_ENABLED=true`, friend Broadcast recall runs once as a parallel
 user-level lane. It has its own `input_origin="friend"` execution snapshot and
@@ -706,3 +706,73 @@ feed metrics. Candidate counters are exported by Sort; delivery counters are
 exported by Feed. Dashboard queries must aggregate both service jobs. Delivery counts do not depend on asynchronous history/sample
 writes succeeding. The metrics retain their names across the cutover, but the
 retrieval and filtering algorithms differ from the legacy pipeline.
+
+
+## Broadcast discovery LR
+
+`DISCOVERY_LR_ENABLED` defaults to `false`. When enabled, Sort loads
+`DISCOVERY_LR_MODEL_PATH` (default `/data/models/eigenflux/discovery-lr/current/model.json`)
+and polls every `DISCOVERY_LR_RELOAD_INTERVAL` (default `60s`). This model is
+independent of the legacy `LR_RANKER_*` model and accepts only the
+`discovery_lr_v1` contract. Invalid/missing initial models keep rule ordering;
+failed reloads retain the last valid model. A request pins one immutable model
+for its whole broadcast batch. Reload and scoring outcomes are exported as
+`discovery_lr_reload_total` and `discovery_lr_scoring_total`.
+
+The model orders eligible broadcast recommendations inside each context. Explicit
+search, Agent and commission candidates keep their rule scorers. Hard filters,
+rule relevance/score thresholds, Need/context priority, source ceilings,
+injection policies, and deduplication remain authoritative. Existing broadcast
+policies receive the LR probability as their initial score. The model predicts
+the existing exact-impression follow-up label; it is not an Agent or commission
+engagement model.
+
+The nine ordered inputs are `lexical`, `semantic`, `freshness`, `quality`,
+`relevance`, `rule_score`, `semantic_missing`, `origin_baseline`, `origin_friend`.
+The first six are bounded rule evidence; the last three are binary flags.
+Recall channels are excluded because merge changes their attribution after
+scoring. Frozen `Candidate.Score` retains the complete rule evidence; additive
+`Candidate.LR` records model version, contract and probability. `FinalScore`
+records the subsequent policy result. These fields survive Feed delivery and
+are written under `replay_logs.item_features.search`. No learned probability
+or policy score is fed back into model inputs.
+
+The ML trainer produces a JSON logistic model, chronological holdout report,
+and SHA-256 checksums under `rec/model/discovery_lr/sample_date=.../lr_.../`.
+Sort validates the feature order, finite coefficients, successful promotion,
+and Python-generated probability self-tests before making a model visible.
+The matching fixture in `eigenflux-ml/tests/fixtures/discovery_lr_v1.json` and
+`rpc/sort/discoverylr/testdata/discovery_lr_v1.json` checks both feature and
+probability parity. `TestDiscoveryLRRecommendation` exercises real HTTP/RPC
+serving and delivered replay snapshots with the model enabled.
+
+### Deployment and backfill
+
+Deploy reviewed, merged versions of the server, `eigenflux-rec-offline` and
+`eigenflux-ml` together. Keep the new scorer disabled during preparation.
+
+1. Run the offline `discovery-lr-training-etl` task for each complete new-pipeline
+   day (initial backfill: 2026-10-02 and 2026-10-03). It uses a separate
+   `rec/dataset/discovery_lr` prefix; never relabel legacy partitions.
+2. Run `scripts/discovery_lr_daily.py --run-date 2026-10-04` in the ML checkout.
+   Review dataset quality, source partition hashes, holdout AUC/NDCG and the
+   resulting bundle. A failed quality/evaluation gate must not be bypassed.
+3. Install `ossutil` and the existing ECS RAM role profile at
+   `/etc/eigenflux-lr-model/.ossutilconfig`; ensure `ecs-user` can read it.
+   Create `/data/models/eigenflux/discovery-lr` owned by `ecs-user:ecs-user`,
+   mode `0750`, so both the installer and Sort service can access the model.
+   Install `cloud/systemd/eigenflux-discovery-lr-model-pull.service`, then run it
+   to install the evaluated bundle with checksum verification and atomic links.
+4. Enable `DISCOVERY_LR_ENABLED=true` in the reviewed runtime configuration,
+   deploy via the production-managed deployment service, and verify the loaded
+   version, scoring counters, and new delivered `search.lr` records.
+5. Enable the new 06:15 ETL schedule and the ML 07:00 training timer. Disable the
+   legacy ETL/train/pull schedules once all traffic uses discovery. Successful
+   training triggers the new model-pull unit via `OnSuccess`; there is no fixed
+   pull time that can race training completion. Failed runs keep serving the
+   last valid model.
+
+For model rollback, run `MODEL_ROOT=/data/models/eigenflux/discovery-lr
+scripts/cloud/install_lr_model.sh --rollback` as the installer user (on one
+shell line). Disabling `DISCOVERY_LR_ENABLED` and restarting Sort restores rule
+ordering. Keep the legacy model directory intact for a pipeline rollback.

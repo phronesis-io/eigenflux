@@ -7,6 +7,7 @@ import (
 	"eigenflux_server/pkg/need"
 	searchindex "eigenflux_server/rpc/sort/discovery/index"
 	"eigenflux_server/rpc/sort/discovery/queryprocessing"
+	"eigenflux_server/rpc/sort/discoverylr"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -215,13 +216,14 @@ type Score struct {
 	Missing       []string           `json:"missing,omitempty"`
 }
 type Candidate struct {
-	FinalScore      float64  `json:"final_score"`
-	Order           int      `json:"policy_order,omitempty"`
-	ClaimTTLSeconds int64    `json:"claim_ttl_seconds,omitempty"`
-	Context         Context  `json:"context"`
-	Document        Document `json:"document"`
-	Score           Score    `json:"score"`
-	Reasons         []string `json:"policy_reasons,omitempty"`
+	LR              *discoverylr.Result `json:"lr,omitempty"`
+	FinalScore      float64             `json:"final_score"`
+	Order           int                 `json:"policy_order,omitempty"`
+	ClaimTTLSeconds int64               `json:"claim_ttl_seconds,omitempty"`
+	Context         Context             `json:"context"`
+	Document        Document            `json:"document"`
+	Score           Score               `json:"score"`
+	Reasons         []string            `json:"policy_reasons,omitempty"`
 }
 type ResultItem struct {
 	Ref          SourceRef         `json:"source_ref"`
@@ -252,6 +254,12 @@ type Response struct {
 
 func PublicItem(c Candidate) ResultItem {
 	r := ResultItem{Ref: c.Document.Ref, ContextID: c.Context.ID, Preview: map[string]string{"text": c.Document.Preview}, Match: map[string]any{"score": c.Score.Value, "scorer_type": c.Score.ScorerType, "scorer_version": c.Score.Version, "score_kind": c.Score.Kind}}
+	if c.LR != nil {
+		r.Match["score"] = c.LR.Probability
+		r.Match["scorer_type"] = "lr"
+		r.Match["scorer_version"] = c.LR.ModelVersion
+		r.Match["score_kind"] = "followup_probability"
+	}
 	if c.Document.ExactMatch != "" {
 		r.Match["exact"] = c.Document.ExactMatch
 	}

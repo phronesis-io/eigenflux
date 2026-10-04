@@ -28,6 +28,7 @@ type Sources interface {
 	Seen(context.Context, int64, []Document) (map[string]bool, error)
 }
 type Engine struct {
+	Learned           LearnedRanker
 	FriendFeedEnabled bool
 	SourceLimits      []SourceLimit
 	Compiler          *Compiler
@@ -546,6 +547,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		}
 		return x, nil
 	}
+	e.rankLearned(candidates, mode)
 	if e.Policies != nil {
 		candidates, err = e.Policies(ctx, candidates, mode, resultLimit)
 		if err != nil {
