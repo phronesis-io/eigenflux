@@ -69,14 +69,16 @@ ossutil_cmd() {
 # find the most recent bundle.
 resolve_latest_oss() {
   local base="oss://$OSS_BUCKET/$OSS_MODEL_PREFIX/"
-  local latest_date
-  latest_date="$(ossutil_cmd ls "$base" -d 2>/dev/null \
-    | grep -oE 'sample_date=[0-9]{4}-[0-9]{2}-[0-9]{2}/?' | tr -d '/' | sort -u | tail -1)"
+  local listing latest_date
+  listing="$(ossutil_cmd ls "$base" -d)" || die "failed to list $base"
+  latest_date="$(printf '%s\n' "$listing" \
+    | grep -oE 'sample_date=[0-9]{4}-[0-9]{2}-[0-9]{2}/?' | tr -d '/' | sort -u | tail -1)" || true
   [ -n "$latest_date" ] || die "no sample_date= partitions under $base"
   local date_uri="$base$latest_date/"
   local latest_version
-  latest_version="$(ossutil_cmd ls "$date_uri" -d 2>/dev/null \
-    | grep -oE 'lr_[0-9]{8}_[0-9]{4}_[0-9a-f]+/?' | tr -d '/' | sort -u | tail -1)"
+  listing="$(ossutil_cmd ls "$date_uri" -d)" || die "failed to list $date_uri"
+  latest_version="$(printf '%s\n' "$listing" \
+    | grep -oE 'lr_[0-9]{8}_[0-9]{4}_[0-9a-f]+/?' | tr -d '/' | sort -u | tail -1)" || true
   [ -n "$latest_version" ] || die "no lr_* model_version dir under $date_uri"
   printf '%s%s/' "$date_uri" "$latest_version"
 }
