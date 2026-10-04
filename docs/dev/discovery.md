@@ -407,10 +407,14 @@ once per context before filtering and scoring; it performs no extra
 post-ranking hydration or `Revalidate` RPC. Later Need/source changes affect new
 requests. Assembled response caches may remain stale for their TTL.
 
-History/claim updates and delivered sample publication run independently in the
+History/claim updates, broadcast consumption events and delivered sample publication run independently in the
 background, each with a two-second timeout detached from request cancellation.
 They do not share a transaction with response/page caches and cannot fail the
 response. Failures emit logs and `discovery_recording_failures_total{stage}`.
+Delivered broadcasts from both search and recommendation publish the existing
+`consumed` event to `stream:item:stats`; Agent/Commission results, prefetched or
+skipped candidates, exhausted pages and cached response retries do not.
+Consumption failures use stage `consumed` in the same recording-failure metric.
 No durable retry/outbox is added: transient history gaps may permit repeated
 recommendations, and missing samples may cause feedback joins to miss. Cached
 response retries do not publish another exposure or repair missing samples.
@@ -445,10 +449,15 @@ measurement cannot interpret new delivery samples. It resumes legacy behavior
 when the routing flag is off.
 
 CLI 0.0.55 adds `search`, `recommend`, and Need capture
-commands via the existing `need input` group. The ef-broadcast Skill is 0.14.23. Broadcast feedback retains existing
+commands via the existing `need input` group. The ef-broadcast Skill is 0.14.29. Broadcast feedback retains existing
 meaning; `feed event record --impression-id` selects the exact cached impression
 when the same item appeared in multiple searches. Nonbroadcast IDs never enter
-broadcast feedback. People results do not trigger messages or friend requests.
+broadcast feedback. The CLI fills missing score-feedback impression IDs from
+the latest unexpired cached broadcast exposure, preserving explicit IDs. Pass
+each item's originating `impression_id` when scoring earlier results; cache
+lookup cannot infer which of several exposures caused a judgment. Uncached or
+expired items remain unattributed. See the [attribution audit](../discovery-attribution-audit.md)
+for join contracts, production evidence and the read-only diagnostic query. People results do not trigger messages or friend requests.
 
 ## Need Capture integration
 

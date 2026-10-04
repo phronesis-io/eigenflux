@@ -8,6 +8,7 @@ import (
 
 	"eigenflux_server/pkg/bloomfilter"
 	"eigenflux_server/pkg/impr"
+	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/recallsource"
@@ -23,14 +24,15 @@ type claimEntry struct {
 	ttl time.Duration
 }
 
-// Snapshot recording data before starting background work. Neither writer owns
-// the response, and a failure in one must not prevent the other from running.
+// Snapshot recording data before starting background work. No writer owns the
+// response, and a failure in one must not prevent the others from running.
 func (s Service) recordAsync(ctx context.Context, owner int64, x discovery.Execution, impression string, position int, now int64) {
 	if len(x.Candidates) == 0 {
 		return
 	}
 	history := []historyEntry{}
 	claims := []claimEntry{}
+	consumed := []int64{}
 	for _, c := range x.Candidates {
 		d := c.Document
 		if x.Mode == discovery.Recommendation {
@@ -39,6 +41,7 @@ func (s Service) recordAsync(ctx context.Context, owner int64, x discovery.Execu
 			}
 		}
 		if d.Ref.Type == discovery.Broadcast {
+			consumed = append(consumed, d.Ref.ID)
 			key := fmt.Sprintf(impr.KeyItemIDs, owner)
 			if x.Mode == discovery.Search {
 				key = fmt.Sprintf("impr:search:agent:%d:items", owner)
@@ -63,6 +66,23 @@ func (s Service) recordAsync(ctx context.Context, owner int64, x discovery.Execu
 		}
 	}
 	bg := context.WithoutCancel(ctx)
+	if len(consumed) > 0 {
+		go func() {
+			writeCtx, cancel := context.WithTimeout(bg, 2*time.Second)
+			defer cancel()
+			_, err := s.Redis.Pipelined(writeCtx, func(p redis.Pipeliner) error {
+				for _, id := range consumed {
+					p.XAdd(writeCtx, &redis.XAddArgs{Stream: itemstats.StreamName, MaxLen: s.StreamMaxLen, Approx: s.StreamMaxLen > 0, Values: map[string]interface{}{
+						"event_type": itemstats.EventTypeConsumed,
+						"agent_id":   fmt.Sprint(owner),
+						"item_id":    fmt.Sprint(id),
+					}})
+				}
+				return nil
+			})
+			recordingError(writeCtx, "consumed", err)
+		}()
+	}
 	go func() {
 		writeCtx, cancel := context.WithTimeout(bg, 2*time.Second)
 		defer cancel()

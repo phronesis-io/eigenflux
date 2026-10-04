@@ -79,7 +79,7 @@ func TestFeedV2PollSupportsFeedbackAndBehaviorWithoutIDTranslation(t *testing.T)
 	if err := feedEventRecordCmd.RunE(feedEventRecordCmd, nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(feedback) != 1 || feedback[0]["item_id"] != itemID {
+	if len(feedback) != 1 || feedback[0]["item_id"] != itemID || feedback[0]["impression_id"] != "imp-v2" {
 		t.Fatalf("feedback lost broadcast ID: %v", feedback)
 	}
 	if len(events) != 1 || events[0]["item_id"] != itemID || events[0]["impression_id"] != "imp-v2" || events[0]["dedup_key"] == "" {

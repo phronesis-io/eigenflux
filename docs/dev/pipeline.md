@@ -166,11 +166,11 @@ Captures ranking context at feed serve time for offline training. Records what w
 - **Toggle**: `ENABLE_REPLAY_LOG` env var (default `true`). When `false`, FeedService skips publishing
 - **Data captured per served item**: agent features (keywords, domains, geo), item features (domains, keywords, broadcast_type, quality_score, etc.), ES `_score`, position in feed
 - **Delivered flag**: `delivered` BOOLEAN column marks items actually returned to the agent (`TRUE`, both fresh-sort and cache-hit paths). The feed only publishes delivered items — below-threshold/filtered items are no longer logged. Historical `FALSE` rows and NULL rows (predating the column or from pre-upgrade feed binaries) may still exist and are excluded from the beat-coverage "pushed" counter
-- **Table**: `replay_logs` — denormalized, one row per (feed request, served item) pair. `request_id` groups items from the same feed request
+- **Table**: `replay_logs` — denormalized, one row per (feed request, served item) pair. `impression_id` groups items from the same delivery, including its frozen pages
 - **SortService extension**: `SortItemsResp.sorted_items` carries per-item `SortedItem{item_id, score, agent_features, item_features}` from SortService to FeedService
 - **Consumer**: `pipeline/consumer/replay_consumer.go` — 5 workers, snowflake ID generation via etcd-managed generator (`replay-log-id` service name), batch INSERT to PG
 - **Time-range index**: `idx_replay_logs_served_at` supports cross-agent daily training exports and the retention cleanup scan; per-agent windows continue to use `idx_replay_logs_agent_served`
-- **Feedback joining**: Feedback is NOT in this table. Join `replay_logs` with `stream:item:stats` feedback events at export/training time by `(agent_id, item_id, timestamp proximity)`
+- **Feedback joining**: Feedback is NOT in this table. Join persisted `feedback_logs` or `followup_labels` by `(impression_id, agent_id, item_id)`. Missing impression IDs remain unattributed; do not infer them from timestamp proximity. Discovery LR uses follow-up labels on delivered `need_search_v1` broadcast recommendation rows only
 - **Retention**: `pipeline/cron/replay_cleanup.go` purges rows older than `REPLAY_LOG_RETENTION_DAYS` (default 0 = disabled, keep all rows) on a `REPLAY_LOG_CLEANUP_INTERVAL_SEC` cycle (default 86400 = daily). A non-positive retention skips the cron entirely. When enabled, deletes run in 5000-row batches (bounded by `ctid`) under the `lock:cron:replay_cleanup` Redis lock so only one instance purges at a time
 
 ## Official Account Welcome (pipeline/consumer/official_welcome_consumer.go)
