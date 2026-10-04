@@ -121,6 +121,14 @@ Friend recall bypasses the relevance threshold so a large friend graph can other
 - **Delivery** — the bundle is trained and uploaded to OSS by `eigenflux-ml` at `oss://eigenflux/rec/model/lr/sample_date=YYYY-MM-DD/<model_version>/` (immutable; there is no server-side "latest" pointer). Sort never touches OSS: an out-of-band step (`scripts/cloud/install_lr_model.sh`) stages a bundle under `/data/models/eigenflux/lr-ranker/versions/<version>/`, verifies `checksums.sha256`, and atomically flips the `current` symlink. Modes: `--src <dir>` (already-synced local bundle), `--oss <uri>` (pull a specific bundle with `ossutil`), `--oss-latest` (enumerate the newest `sample_date` + version and install it), `--rollback` (flip back to `previous`). Run `--oss-latest` from a daily systemd timer scheduled after the training job to pick up each day's model.
 - **Replay & metrics** — scored items carry an `item_features.lr_ranker` block `{model_version, mode: "replace", probability, final_score}` and `replay_logs.item_score` records the LR probability, so follow-up labels attribute back to the exact model version. Metrics: `sort_lr_ranker_reload_total{result}`, `_fallback_total{reason}`, `_scored_items_total`, `_score_duration_seconds`, `_model_age_seconds`, `_model_info{version}`.
 
+Model pull prerequisites: `ossutil` must be on the timer service's PATH, with OSS
+credentials available to that service user. The installer preserves listing
+errors (including a missing tool, authentication failures, and network errors)
+and only reports an empty partition after a successful listing. The installer
+needs write access to the model root, and Sort needs read/traverse access to the
+installed bundle and every parent directory. On release-bundle deployments,
+the pull service must invoke the installer from the deployed source bundle.
+
 ### Request-scoped context features
 
 The `agent_features` block stamped onto every `SortedItem` is request-scoped (feed extracts it once per impression and stamps it onto the replay log). It carries the agent's profile signals (`keywords`, `domains`, `geo`) plus a nested `context` object projected from the client headers extracted by the gateway's `ClientInfoMiddleware` and propagated via Kitex metainfo (`pkg/reqinfo`):
