@@ -10,7 +10,7 @@ existing `replay_logs` table.
 
 Provide a disposable, migrated local stack through `.env` or exported settings:
 `PG_DSN`, `REDIS_ADDR`, `REDIS_PASSWORD`, `ES_URL`, `ETCD_ADDR`, and the matching
-`EMBEDDING_DIMENSIONS`. Apply migrations through 108. No application services may
+`EMBEDDING_DIMENSIONS`. Apply all repository migrations. No application services may
 be registered in that etcd instance; the suite owns application startup and
 shutdown. Do not run it against production or concurrently with other suites
 using the same infrastructure.
@@ -34,6 +34,10 @@ The runner supplies `APP_ENV=test`. Without `DISCOVERY_E2E=1`, the suite skips.
 The suite enables the new pipeline in its child processes, uses dynamic ports,
 and waits for both RPC registration and HTTP readiness. Process logs and test
 rule assets are saved in `build/discovery-e2e-<fixture-id>/`.
+Service and derived metrics ports remain reserved during fixture setup until
+immediately before each child launches. Startup failures are reported, never
+silently retried. A small release-to-exec handoff is necessary because the
+production binaries do not inherit the fixture's listening sockets.
 
 Fixture accounts and rows use unique IDs larger than JavaScript's safe integer
 range. Cleanup removes owned rows, Redis keys and ES documents/indices without
@@ -47,6 +51,20 @@ integration suites' PostgreSQL advisory lock is respected.
   and the user-wide source ceiling, and cannot leak capped prepared Feed items.
   Swing requires surfaced seeds, ignores impression-only seeds, and excludes
   already-delivered neighbors. Both channels persist their source attribution.
+- `TestDiscoveryAPIFriendAndCLISurfaceJourney` additionally starts the real PM
+  process. Friend application/acceptance, unfriend and block use authenticated
+  HTTP writers; a real CLI search followed by impression-free Surface recording
+  and queue flush reaches the production Followup consumer, joins the exact
+  search exposure, and activates Swing recall. Neighbor bundles remain local
+  deterministic fixtures. Fresh deliveries suppress seen neighbors; retries
+  retain the same exposure.
+- `TestDiscoveryLRReloadWithoutServiceRestart` begins with a missing model and
+  confirms rule-only serving, installs two valid bundles while Sort stays alive,
+  and rejects an unpromoted replacement while retaining the last valid model.
+  Frozen retries and replay evidence retain their original model generation;
+  language constraints and explicit search remain authoritative. Only this
+  model-reload fixture disables seen suppression to reuse one broadcast across
+  generations; normal deduplication remains covered by the other journeys.
 
 - Broadcast recommendation recall and delivery counters remain visible on the
   Sort and Feed Prometheus endpoints after the Need Search cutover. Idempotent
@@ -118,6 +136,10 @@ asynchronous content processing, index refresh scheduling, semantic quality,
 the remote commission deployment, model training or production load targets.
 The replay consumer is real but runs in the test process instead of launching the
 entire asynchronous pipeline.
+The additional social journey uses actual friend HTTP writers and the CLI event
+queue/Followup consumer, but does not test asynchronous broadcast publication or
+offline Swing neighbor generation. Each test owns a dedicated Redis client;
+fixture cleanup leaves process-wide borrowed connection pools open.
 
 The cold-start regression verifies that a constrained broadcast Need cannot
 broaden its own route while Agent and commission routes use owner-context
