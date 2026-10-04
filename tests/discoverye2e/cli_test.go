@@ -23,6 +23,7 @@ func TestDiscoveryCLIE2E(t *testing.T) {
 		t.Skip("EIGENFLUX_TEST_CLI required")
 	}
 	s := startStack(t)
+	s.token = s.seedSession(t, s.owner, "{feed:read,feed:feedback,context:read,context:write}")
 	captured := s.saved(t, "agent")
 	home := filepath.Join(t.TempDir(), ".eigenflux")
 	dir := filepath.Join(home, "servers", "eigenflux")
@@ -95,4 +96,5 @@ func TestDiscoveryCLIE2E(t *testing.T) {
 	require.Len(t, batch.Items, 2, "return multiple eligible results without padding to limit")
 	require.Equal(t, batch, run("recommend", "--limit", "5", "--idempotency-key", "cli-batch-recommend"))
 	s.waitSamples(t, batch.ImpressionID, 2)
+	s.checkCLIAttribution(t, binary, home, batch.ImpressionID)
 }

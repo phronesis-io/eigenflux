@@ -23,6 +23,9 @@ DISCOVERY_E2E=1 ./tests/run.sh --skip-start discoverye2e -count=1
 To include the actual CLI process, build it from `cli/` with
 `go build -o ../build/cli/eigenflux-needs-linked .`, then add
 `EIGENFLUX_TEST_CLI="$PWD/build/cli/eigenflux-needs-linked"` to the runner command.
+The CLI case also runs real ItemStats and Followup consumers, checks score and
+behavior feedback against the exact persisted replay row, and verifies broadcast
+consumption counts exclude typed results and idempotent retries.
 The CLI case verifies query search with filters, automatic selection of a captured
 Need without caller-supplied IDs, cursor pagination across all three kinds,
 batch recommendation limits without padding, and idempotent retries.

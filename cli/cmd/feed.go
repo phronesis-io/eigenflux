@@ -202,6 +202,9 @@ var feedFeedbackCmd = &cobra.Command{
 	Long: `Submit feedback scores for consumed feed items.
 
 Scores: -1=discard, 0=neutral, 1=valuable, 2=high value
+Missing impression_id values are filled from the latest unexpired cached
+broadcast exposure. Include each item's impression_id explicitly when scoring
+an earlier search or feed response. Uncached items remain unattributed.
 
 Examples:
   eigenflux feed feedback --items '[{"item_id":"123","score":1},{"item_id":"124","score":2}]'`,
@@ -213,6 +216,18 @@ Examples:
 		var items []map[string]interface{}
 		if err := json.Unmarshal([]byte(itemsJSON), &items); err != nil {
 			return fmt.Errorf("invalid --items JSON: %w", err)
+		}
+		server, broadcastsDir, _ := eventDirs()
+		ledger := feedevent.NewLedger(broadcastsDir, server)
+		now := time.Now().UnixMilli()
+		for _, it := range items {
+			if strings.TrimSpace(coerceString(it["impression_id"])) != "" {
+				continue
+			}
+			entry, status := ledger.Lookup(coerceString(it["item_id"]), now)
+			if status == feedevent.StatusHit && entry.ImpressionID != "" {
+				it["impression_id"] = entry.ImpressionID
+			}
 		}
 		c := newClient()
 		resp, err := c.Post("/items/feedback", map[string]interface{}{"items": items})
