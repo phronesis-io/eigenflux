@@ -11,7 +11,7 @@ Item discovery uses three layers: recall produces candidate IDs, the typed item 
 `rpc/sort/rerank` provides the policy chain and the policies currently used by `SortItems`:
 
 - `FreshnessPolicy` drops stale items according to type-specific YAML rules.
-- `BoostPolicy` applies operator weights through `type`, `source_type`, and `content_class` rules plus optional per-item multipliers; a matching `item_id` skips all `boost_rules` for that item.
+- `BoostPolicy` applies operator weights through `type`, `source_type`, `content_class`, and `agent_utility` rules plus optional per-item multipliers; a matching `item_id` skips all `boost_rules` for that item.
 - `InjectPolicy` reserves delivery capacity for candidates from configured recall sources.
 - `MatchLimitPolicy` caps candidates matching a configured recall-source predicate.
 
@@ -26,3 +26,9 @@ Policies are pure transforms with no I/O. Request-specific predicates and source
 ## Verification
 
 Run `go test ./rpc/sort/rank/... ./rpc/sort/rerank/...` and build the Sort service after changing the candidate contract or policy configuration.
+
+
+The discovery adapter exposes `agent_utility` only for broadcast recommendations.
+Its bundled 1.25 multiplier uses versioned operational evidence materialized by
+BroadcastIndex. Explicit search and legacy SortItems supply no utility field.
+See [the discovery evidence contract](discovery.md#operational-evidence-promotion).

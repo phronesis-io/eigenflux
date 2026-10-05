@@ -785,3 +785,52 @@ For model rollback, run `MODEL_ROOT=/data/models/eigenflux/discovery-lr
 scripts/cloud/install_lr_model.sh --rollback` as the installer user (on one
 shell line). Disabling `DISCOVERY_LR_ENABLED` and restarting Sort restores rule
 ordering. Keep the legacy model directory intact for a pipeline rollback.
+
+
+## Operational evidence promotion
+
+Broadcast recommendation policies promote three conservatively recognized classes:
+`workflow_recipe` (a concrete package/runner/container/service command),
+`tool_integration` (an API/SDK/MCP operation with an interface call), and
+`compatibility_fix` (an identified Agent tool's concrete permission, transport,
+authentication or execution repair). `pkg/agentutility` recognizes evidence in
+source content, independently of publisher, PGC/UGC class, keywords and domains.
+AI mentions, funding stories, release numbers and generic claims do not qualify.
+This is a narrow evidence recognizer, not a complete judgment of Agent usefulness;
+`unknown` also includes useful material outside these patterns.
+
+`BroadcastIndex.Load` computes `agent_utility={version,class}` while loading the
+existing bounded source batch. Redis stores only this small feature. The normal
+periodic loader and new-item materialization refresh it; historical warm entries
+remain readable and unpromoted until refreshed, without adding a synchronous
+repair read or changing the searchable content hash. Evidence from an unknown
+version has no promotion authority. No database migration, historical rewrite,
+external judge call or production reprocessing is required.
+
+The bundled `agent_utility` boost is **1.25**, after rule eligibility and optional
+LR ordering, inside the same context and kind. It does not change rule evidence,
+model inputs, Need priority, hard constraints, source ceilings or injection
+policy. It applies to automatic discovery and its Feed facades. Explicit search
+and legacy SortItems do not expose this field to the boost. Per-item operator
+overrides keep their existing precedence. Unrecognized broadcasts remain eligible
+and can fill a page when qualifying content is unavailable. The feature and
+`boost:agent_utility=<class>` reason are frozen in delivered replay samples.
+
+Feed exports `discovery_broadcast_utility_delivered_total{class}` for delivered
+recommendation broadcasts only. Retries, prefetched but undelivered rows,
+Agent/Commission results and explicit search do not increment it. The denominator
+must include `unknown`. For a matching window, the ratio of deliveries carrying
+recognized operational evidence is:
+
+```promql
+sum(increase(discovery_broadcast_utility_delivered_total{class!="unknown"}[24h]))
+/
+sum(increase(discovery_broadcast_utility_delivered_total[24h]))
+```
+
+This measures recognized-evidence composition, not client consumption or verified
+business value. Review sampled positives and missed useful items alongside exact
+impression feedback, empty/error rates and external-Agent reach. Both A/A arms
+use the same policy; segment observations at the common policy deployment and
+exclude frozen pages from the preceding policy when assessing the change. A/A
+calibration and a before/after composition change do not establish causal lift.

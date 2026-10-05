@@ -27,3 +27,4 @@ fields:
   - expire_time
   - quality_score
   - retrieval_slots
+  - agent_utility

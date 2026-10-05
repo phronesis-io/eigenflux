@@ -250,7 +250,7 @@ func (pc PolicyConfig) newBoostPolicy() (*BoostPolicy, error) {
 
 	rules := make([]BoostRule, 0, len(pc.BoostRules))
 	for _, rc := range pc.BoostRules {
-		if rc.Field != "type" && rc.Field != "source_type" && rc.Field != "content_class" {
+		if rc.Field != "type" && rc.Field != "source_type" && rc.Field != "content_class" && rc.Field != "agent_utility" {
 			return nil, fmt.Errorf("boost rule uses unsupported field %q", rc.Field)
 		}
 		if len(rc.Values) == 0 {
