@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'api/consolev2/**'
+      - 'rpc/auth/**'
       - 'api/dal/**'
       - 'api/middleware/**'
       - 'pkg/reqinfo/**'
@@ -33,6 +34,7 @@ on:
     branches: [main]
     paths:
       - 'api/consolev2/**'
+      - 'rpc/auth/**'
       - 'api/dal/**'
       - 'api/middleware/**'
       - 'pkg/reqinfo/**'
@@ -123,6 +125,11 @@ jobs:
         run: go test -count=1 ./api/install -run '^TestPostgresShortIDInviteAttribution$'
       - name: Verify Console V2 PostgreSQL flow and races
         run: go test -count=1 ./api/consolev2 -run 'Test(ConsoleV2ProvisionHandoffAndOnboardingFlow|HistoricalRecovery.*|Postgres.*|RuntimeObservationPostgresHTTP)'
+      - name: Verify isolated OTP retry and concurrent consumption
+        env:
+          AUTH_RETRY_PG_DSN: postgres://postgres:postgres@127.0.0.1:5432/eigenflux?sslmode=disable
+          AUTH_RETRY_REDIS_ADDR: 127.0.0.1:6379
+        run: go test -race -p 1 -count=1 ./rpc/auth ./api/consolev2 -run '^TestAuthRetryV[12]OTPBoundaries$'
       - name: Verify broadcast detail ownership and reader permissions
         run: go test -count=1 ./api/handler_gen/eigenflux/api -run 'Test(PostgresBroadcastDetail.*|GetItemAggregateStats|BroadcastCountryCode)'
       - name: Verify Attention schema and golden corpus

@@ -74,10 +74,14 @@ func (s *stack) seed(t *testing.T) {
 			}
 		}
 		for _, id := range append(append([]int64{}, owners...), s.item) {
-			keys, err := mq.RDB.Keys(context.Background(), fmt.Sprintf("*:%d:*", id)).Result()
-			require.NoError(t, err)
-			if len(keys) > 0 {
-				require.NoError(t, mq.RDB.Del(context.Background(), keys...).Err())
+			// Owner IDs also terminate keys such as pm:notify:<owner> and
+			// agentcard:la:gate:<owner>; both patterns preserve ID boundaries.
+			for _, pattern := range []string{fmt.Sprintf("*:%d:*", id), fmt.Sprintf("*:%d", id)} {
+				keys, err := mq.RDB.Keys(context.Background(), pattern).Result()
+				require.NoError(t, err)
+				if len(keys) > 0 {
+					require.NoError(t, mq.RDB.Del(context.Background(), keys...).Err())
+				}
 			}
 		}
 	})

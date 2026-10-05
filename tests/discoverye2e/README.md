@@ -141,6 +141,46 @@ queue/Followup consumer, but does not test asynchronous broadcast publication or
 offline Swing neighbor generation. Each test owns a dedicated Redis client;
 fixture cleanup leaves process-wide borrowed connection pools open.
 
+### Retry and revocation regressions
+
+`TestAuthRetryConcurrentNeedCapture`, `TestAuthRetryContextRevisionCompetition`
+and `TestAuthRetryWarmSearchRevocation` use the same disposable process stack.
+PostgreSQL advisory/row locks hold real HTTP writers until `pg_blocking_pids`
+proves the intended competition, then release them and check durable results.
+Identical Need capture requests create one operation and replay the same response;
+competing context revisions preserve the winning update. The search case warms
+private PM results, observes a real unfriend transaction blocked before commit,
+and verifies the private friend result, its identifier and link disappear after
+commit, including concurrent reads of the unchanged warm cache. Its PM process
+also belongs to the fixture.
+
+```sh
+DISCOVERY_E2E=1 APP_ENV=test go test -race -count=1 ./tests/discoverye2e \
+  -run '^(TestAuthRetryConcurrentNeedCapture|TestAuthRetryContextRevisionCompetition|TestAuthRetryWarmSearchRevocation|TestRecommendationAAHTTP)$'
+```
+
+The separate `TestAuthRetryV1OTPBoundaries` (`rpc/auth`) and
+`TestAuthRetryV2OTPBoundaries` (`api/consolev2`) require
+`AUTH_RETRY_PG_DSN` and `AUTH_RETRY_REDIS_ADDR` pointing to migrated loopback
+PostgreSQL and disposable Redis. They clone current table definitions into
+unique schemas with independent sequences and reserve an initially empty DB14
+through an owner-checked lease. Run packages serially:
+
+```sh
+go test -race -p 1 -count=1 ./rpc/auth ./api/consolev2 \
+  -run '^TestAuthRetryV[12]OTPBoundaries$'
+```
+
+These OTP tests call the actual RPC handler and Console HTTP handler with fixed
+local codes. They check expiry, attempt exhaustion, owner/purpose binding,
+concurrent verification, durable session counts and issuance limits. V1's
+documented matching-code replay must return its existing session; V2 issuance
+does not promise to revoke every other pending challenge. Missing fixture
+variables produce explicit skips, which the manual Arena `auth-boundaries`
+runner rejects. The PostgreSQL Contracts CI job supplies both variables and
+runs the OTP suite. No real mailbox, mail provider, model or production account
+is used, and these tests do not certify delivery, semantic quality or load SLOs.
+
 The cold-start regression verifies that a constrained broadcast Need cannot
 broaden its own route while Agent and commission routes use owner-context
 fallback. It waits for asynchronous history writes and removes only its own
