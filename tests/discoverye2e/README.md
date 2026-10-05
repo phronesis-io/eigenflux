@@ -47,10 +47,6 @@ integration suites' PostgreSQL advisory lock is respected.
 
 ## Coverage
 
-- `TestDiscoveryAgentUtility` verifies source materialization, baseline promotion,
-  hard language rejection, frozen reasons, unknown-item backfill, and utility
-  delivery counters excluding retries and explicit search.
-
 - Friend recall runs independently of captured Needs, keeps request-level filters
   and the user-wide source ceiling, and cannot leak capped prepared Feed items.
   Swing requires surfaced seeds, ignores impression-only seeds, and excludes

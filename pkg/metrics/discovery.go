@@ -1,13 +1,9 @@
 package metrics
 
-import (
-	"eigenflux_server/pkg/agentutility"
-	"github.com/prometheus/client_golang/prometheus"
-)
+import "github.com/prometheus/client_golang/prometheus"
 
 // Labels contain bounded modes, source kinds and evaluator reason codes only.
 var (
-	DiscoveryUtilityDelivered  = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "discovery_broadcast_utility_delivered_total", Help: "Delivered recommendation broadcasts by operational evidence class; unknown is not evidence of uselessness."}, []string{"class"})
 	DiscoveryLRScoring         = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "discovery_lr_scoring_total", Help: "Discovery LR candidate batches by outcome."}, []string{"result"})
 	DiscoveryLRReload          = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "discovery_lr_reload_total", Help: "Discovery LR local model load outcomes."}, []string{"result"})
 	DiscoveryContextCache      = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "discovery_context_cache_total", Help: "Discovery input and compiled-value cache outcomes."}, []string{"scope", "outcome"})
@@ -20,9 +16,6 @@ var (
 )
 
 func init() {
-	for _, class := range []string{agentutility.Unknown, agentutility.WorkflowRecipe, agentutility.ToolIntegration, agentutility.CompatibilityFix} {
-		DiscoveryUtilityDelivered.WithLabelValues(class).Add(0)
-	}
-	Registry.MustRegister(DiscoveryLRScoring, DiscoveryLRReload, DiscoveryUtilityDelivered)
+	Registry.MustRegister(DiscoveryLRScoring, DiscoveryLRReload)
 	Registry.MustRegister(DiscoveryContextCache, DiscoveryNeedEmbedding, DiscoveryRecordingFailures, DiscoveryDuration, DiscoveryRejected, DiscoveryChannelFailures, DiscoveryFallback)
 }

@@ -2,7 +2,6 @@ package featureindex
 
 import (
 	"context"
-	"eigenflux_server/pkg/agentutility"
 	"testing"
 	"time"
 
@@ -34,27 +33,4 @@ func TestWarmReadDoesNotNeedSourceAndMissingIsNotEmpty(t *testing.T) {
 	rows, err = s.Read(ctx, []int64{7})
 	require.NoError(t, err)
 	require.False(t, rows[7].Active)
-}
-
-func TestBroadcastUtilityProjectionKeepsEvidenceWithoutText(t *testing.T) {
-	r := redis.NewClient(&redis.Options{Addr: miniredis.RunT(t).Addr()})
-	t.Cleanup(func() { r.Close() })
-	store := BroadcastIndex{Redis: r}
-	ctx := context.Background()
-	d := BroadcastDocument{ItemID: 8, Version: 1, Active: true, ContentHash: "digest", AgentUtility: agentutility.Classify("uvx mcp-server-git")}
-	require.NoError(t, store.Write(ctx, d))
-	rows, err := store.Read(ctx, []int64{8})
-	require.NoError(t, err)
-	require.Equal(t, d.AgentUtility, rows[8].AgentUtility)
-	raw := r.HGet(ctx, store.Forward().Key(8, "item"), "data").Val()
-	require.Contains(t, raw, agentutility.Version)
-	require.NotContains(t, raw, "mcp-server-git")
-	// Historical warm projections are readable without a new DB lookup and have
-	// no authority to boost. The bounded periodic source loader fills evidence.
-	d.ItemID = 9
-	d.AgentUtility = agentutility.Evidence{}
-	require.NoError(t, store.Write(ctx, d))
-	rows, err = store.Read(ctx, []int64{9})
-	require.NoError(t, err)
-	require.Equal(t, agentutility.Unknown, rows[9].AgentUtility.Label())
 }
