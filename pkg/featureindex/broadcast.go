@@ -3,6 +3,7 @@ package featureindex
 import (
 	"context"
 	"crypto/sha256"
+	"eigenflux_server/pkg/agentutility"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -15,21 +16,22 @@ import (
 const BroadcastGeneration = "v1"
 
 type BroadcastDocument struct {
-	ItemID        int64             `json:"item_id"`
-	Version       int64             `json:"version"`
-	AuthorID      int64             `json:"author_id"`
-	Active        bool              `json:"active"`
-	ContentHash   string            `json:"content_hash"`
-	URL           string            `json:"url"`
-	CreatedAt     int64             `json:"created_at"`
-	UpdatedAt     int64             `json:"updated_at"`
-	GroupID       int64             `json:"group_id"`
-	BroadcastType string            `json:"broadcast_type"`
-	SourceType    string            `json:"source_type"`
-	Lang          string            `json:"lang"`
-	ExpireTime    string            `json:"expire_time"`
-	QualityScore  float64           `json:"quality_score"`
-	Slots         searchindex.Slots `json:"retrieval_slots"`
+	AgentUtility  agentutility.Evidence `json:"agent_utility"`
+	ItemID        int64                 `json:"item_id"`
+	Version       int64                 `json:"version"`
+	AuthorID      int64                 `json:"author_id"`
+	Active        bool                  `json:"active"`
+	ContentHash   string                `json:"content_hash"`
+	URL           string                `json:"url"`
+	CreatedAt     int64                 `json:"created_at"`
+	UpdatedAt     int64                 `json:"updated_at"`
+	GroupID       int64                 `json:"group_id"`
+	BroadcastType string                `json:"broadcast_type"`
+	SourceType    string                `json:"source_type"`
+	Lang          string                `json:"lang"`
+	ExpireTime    string                `json:"expire_time"`
+	QualityScore  float64               `json:"quality_score"`
+	Slots         searchindex.Slots     `json:"retrieval_slots"`
 }
 
 type BroadcastIndex struct {
@@ -93,7 +95,7 @@ func (s BroadcastIndex) Load(ctx context.Context, ids []int64) (out map[int64]Br
 		if r.Lang != "" {
 			slots.Lang = []string{r.Lang}
 		}
-		values[r.ItemID] = BroadcastDocument{ItemID: r.ItemID, Version: fence, AuthorID: r.AuthorID, Active: r.Active, ContentHash: BroadcastContentHash(r.ItemID, r.AuthorID, r.Content+"\n"+r.Summary, slots), URL: r.URL, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, GroupID: r.GroupID, BroadcastType: r.BroadcastType, SourceType: r.SourceType, Lang: r.Lang, ExpireTime: r.ExpireTime, QualityScore: r.QualityScore, Slots: slots}
+		values[r.ItemID] = BroadcastDocument{ItemID: r.ItemID, Version: fence, AuthorID: r.AuthorID, Active: r.Active, ContentHash: BroadcastContentHash(r.ItemID, r.AuthorID, r.Content+"\n"+r.Summary, slots), URL: r.URL, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, GroupID: r.GroupID, BroadcastType: r.BroadcastType, SourceType: r.SourceType, Lang: r.Lang, ExpireTime: r.ExpireTime, QualityScore: r.QualityScore, Slots: slots, AgentUtility: agentutility.Classify(r.Content)}
 	}
 	docs := make([]BroadcastDocument, 0, len(values))
 	for _, d := range values {

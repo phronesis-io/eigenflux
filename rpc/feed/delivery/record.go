@@ -41,6 +41,9 @@ func (s Service) recordAsync(ctx context.Context, owner int64, x discovery.Execu
 			}
 		}
 		if d.Ref.Type == discovery.Broadcast {
+			if x.Mode == discovery.Recommendation {
+				metrics.DiscoveryUtilityDelivered.WithLabelValues(d.AgentUtility.Label()).Inc()
+			}
 			consumed = append(consumed, d.Ref.ID)
 			key := fmt.Sprintf(impr.KeyItemIDs, owner)
 			if x.Mode == discovery.Search {

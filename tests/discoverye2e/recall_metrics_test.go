@@ -27,7 +27,11 @@ func recallCounter(t *testing.T, portEnv, metric string, sources ...string) floa
 	if len(sources) > 0 {
 		source = sources[0]
 	}
-	prefix := metric + `{source="` + source + `"} `
+	label := "source"
+	if metric == "discovery_broadcast_utility_delivered_total" {
+		label = "class"
+	}
+	prefix := metric + `{` + label + `="` + source + `"} `
 	for _, line := range strings.Split(string(raw), "\n") {
 		if strings.HasPrefix(line, prefix) {
 			count, err := strconv.ParseFloat(strings.TrimPrefix(line, prefix), 64)
