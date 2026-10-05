@@ -32,6 +32,11 @@ class RecommendationAATest(unittest.TestCase):
         with self.assertRaises(ValueError): summarize([row(1,"one",count=None)], 1)
         self.assertIn("nonempty_without_impression_id", summarize([row(1,"one","nonempty",1)],1)["measurement_issues"])
 
+    def test_in_progress_is_separate_from_service_failure(self):
+        report = summarize([row(1,"busy","in_progress",None)],1)
+        self.assertEqual(report["arms"]["a2"]["agent_weighted_error_rate"],0)
+        self.assertEqual(report["arms"]["a2"]["agent_weighted_in_progress_rate"],1)
+
     def test_exact_binomial_tail(self):
         self.assertAlmostEqual(srm_p_value(0, 10), 2 / 1024)
         self.assertEqual(srm_p_value(50, 50), 1)

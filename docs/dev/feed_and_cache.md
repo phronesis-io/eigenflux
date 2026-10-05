@@ -213,3 +213,11 @@ impression counter. Quantity-less legacy activities retain the one-impression
 fallback. Counters accumulated before this correction can include duplicate V2
 pulls and empty-pull inflation; compare post-deployment windows separately.
 Historical counter rewrites require a separately reviewed reconciliation.
+
+Concurrent Feed pulls share an Agent-scoped delivery lock. The V2 gateway
+returns `409 FEED_REQUEST_IN_PROGRESS` with `Retry-After: 1` for the Feed RPC's
+`409 request_in_progress`; transport/source failures still return 503. Legacy V1
+retains its HTTP-200 business-code envelope. A/A records both recognized
+conflicts as `in_progress`, separate from HTTP/business errors, with a bounded
+error code. The offline report includes an Agent-weighted in-progress rate;
+conflicting requests remain enrolled but do not imply a service outage.

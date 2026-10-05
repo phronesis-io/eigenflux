@@ -28,6 +28,7 @@ type recommendationObservation struct {
 	StartedAt           int64  `json:"started_at"`
 	CompletedAt         int64  `json:"completed_at"`
 	HTTPStatus          int    `json:"http_status"`
+	ErrorCode           string `json:"error_code"`
 	Outcome             string `json:"outcome"`
 	ItemCount           *int   `json:"item_count"`
 	ImpressionID        string `json:"impression_id"`
@@ -94,7 +95,6 @@ func buildRecommendationObservation(c *app.RequestContext, agentID, startedAt in
 	}
 	if o.HTTPStatus < 200 || o.HTTPStatus >= 300 {
 		o.Outcome = "http_error"
-		return o, true
 	}
 	body := c.Response.Body()
 	if len(body) > observationBodyLimit {
@@ -104,12 +104,36 @@ func buildRecommendationObservation(c *app.RequestContext, agentID, startedAt in
 		Code  *int            `json:"code"`
 		Error json.RawMessage `json:"error"`
 		Data  json.RawMessage `json:"data"`
+		Msg   string          `json:"msg"`
 	}
 	if json.Unmarshal(body, &envelope) != nil {
 		return o, true
 	}
+	if envelope.Code != nil && *envelope.Code != 0 {
+		o.ErrorCode = strconv.Itoa(*envelope.Code)
+	}
+	if len(envelope.Error) > 0 && string(envelope.Error) != "null" {
+		var apiError struct {
+			Code string `json:"code"`
+		}
+		if json.Unmarshal(envelope.Error, &apiError) == nil {
+			switch apiError.Code {
+			case "FEED_REQUEST_IN_PROGRESS", "FEED_SOURCE_UNAVAILABLE", "FEED_V2_UNAVAILABLE", "FEED_READ_FAILED", "FEED_CONTEXT_READ_FAILED", "FEED_PAYLOAD_TOO_LARGE", "AGENT_AUTH_INVALID", "AGENT_SCOPE_REQUIRED", "ONBOARDING_REQUIRED", "INVALID_REQUEST":
+				o.ErrorCode = apiError.Code
+			}
+		}
+	}
+	if o.HTTPStatus < 200 || o.HTTPStatus >= 300 {
+		if o.HTTPStatus == 409 && (o.ErrorCode == "FEED_REQUEST_IN_PROGRESS" || (o.ErrorCode == "409" && envelope.Msg == "request_in_progress")) {
+			o.Outcome = "in_progress"
+		}
+		return o, true
+	}
 	if (envelope.Code != nil && *envelope.Code != 0) || (len(envelope.Error) > 0 && string(envelope.Error) != "null") {
 		o.Outcome = "business_error"
+		if o.ErrorCode == "409" && envelope.Msg == "request_in_progress" {
+			o.Outcome = "in_progress"
+		}
 		return o, true
 	}
 	var data struct {
