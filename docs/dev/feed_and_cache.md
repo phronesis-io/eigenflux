@@ -150,3 +150,66 @@ Physical retention is 48 hours for broadcast and 7 days for Agent/commission.
 A bounded request cache shares payloads across Need contexts; all types are
 prefetched in one Redis pipeline. This cache is separate
 from owner/Need compilation caches, query vectors and frozen delivery pages.
+
+## Recommendation A/A observation
+
+Authenticated completions on `GET /api/v1/items/feed`, `POST /api/v2/feed` and
+`POST /api/v2/discovery/recommendations` emit one
+`recommendation_aa_observation` structured API log. The fixed experiment is
+`recommendation_aa_v1`; SHA-256 of `experiment_id + ":" + decimal_agent_id`, low
+bit of the first byte, assigns `a1` (0) or `a2` (1). Both arms use identical
+serving policies. Explicit search, unauthenticated requests and Console routes
+are excluded. Authenticated scope/onboarding rejections remain enrolled.
+
+The observation describes the final buffered server response, not confirmed
+client receipt. It records unique observation IDs, decimal-string Agent IDs,
+endpoint/caller cohorts, request/completion times, HTTP status, final item count,
+impression ID, pipeline/status, response input origin, fallback reason and
+partial-result markers. Empty success has
+count zero; failures retain an unknown count. Unexpected response shapes are
+`invalid_response`. It excludes request bodies, content, credentials and private
+context. Response metadata is restricted to known values. Unknown pipeline or
+caller evidence remains unknown.
+
+`recommendation_aa_http_requests_total{endpoint,arm,outcome}` independently counts
+the same completions without per-Agent labels. Logs require INFO verbosity and
+can be lost in best-effort collection; reconcile exported observations against
+independent completion counts for exactly the same window and scope. Export
+bounded, paginated Loki results by observation ID, finish after an ingestion
+lag allowance, and never treat a limit-saturated export as complete. Keep caller
+and endpoint cohorts separate. Internal accounts must be identified through
+owner-authorized read-only account metadata, rather than guessing from activity.
+
+Run the offline standard-library diagnostic on a complete JSONL export:
+
+```sh
+python3 scripts/diagnostics/recommendation_aa.py observations.jsonl --expected-requests 1000
+python3 -m unittest discover -s scripts/diagnostics -p 'test_recommendation_aa.py'
+```
+
+The expected count must come from independent evidence, not the number of rows
+in the export. The diagnostic validates allocation, deduplicates exported log
+rows and tests the sample ratio on unique enrolled Agents, including failed and
+empty requests. Request frequencies are not independent randomization units.
+It reports Agent-weighted empty/error rates and descriptive strata; strata
+based on response/pipeline outcomes must not redefine enrollment. There is no
+automatic passing decision from a nonsignificant result. Predefine a complete
+business-cycle window, evaluation times, minimum sample size, acceptable metric
+differences and feedback delay before drawing an A/A conclusion; avoid repeated
+significance-based stopping. A/A cannot establish recommendation lift.
+
+Join nonempty observations to samples by exact `impression_id` and `agent_id`,
+then feedback by `impression_id`, `agent_id` and typed item identity. Do not infer
+missing joins from nearby timestamps. Repeated HTTP requests may reuse one
+frozen impression; request and unique exposure denominators must be reported
+separately. The response input origin describes the first selected candidate (or the first
+execution context for empty results), not every item in a mixed response.
+PGC/topic coverage uses each selected candidate context and snapshot
+provenance, not all execution contexts or the Agent's current legacy profile.
+
+Each successful V1/V2 Feed produces one `feed_pull` activity with the final
+response item count. Empty pulls count as requests but add zero to the all-time
+impression counter. Quantity-less legacy activities retain the one-impression
+fallback. Counters accumulated before this correction can include duplicate V2
+pulls and empty-pull inflation; compare post-deployment windows separately.
+Historical counter rewrites require a separately reviewed reconciliation.

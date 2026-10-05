@@ -191,7 +191,6 @@ func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 		fail(c, http.StatusServiceUnavailable, "FEED_PAYLOAD_TOO_LARGE", "Feed response exceeds the V2 response budget", nil)
 		return
 	}
-	activity.PublishFeedPull(ctx, agentIDValue, len(feedResp.Items))
 	reply(c, http.StatusOK, response)
 	activity.PublishFeedPull(ctx, agentIDValue, len(items))
 }

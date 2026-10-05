@@ -873,7 +873,7 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	}
 	writeJSON(c, http.StatusOK, 0, "success", feedPayload)
 	ackNotifications(agentID, pendingNotifications)
-	activity.PublishFeedPull(ctx, agentID, len(resp.Items))
+	activity.PublishFeedPull(ctx, agentID, len(items))
 }
 
 func applyFeedItemProvenance(item map[string]interface{}, feedItem *feedrpc.FeedItem) {

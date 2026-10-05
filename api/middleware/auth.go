@@ -93,6 +93,7 @@ func AuthMiddleware() app.HandlerFunc {
 			ctx = metainfo.WithPersistentValue(ctx, reqinfo.KeyEmail, *resp.Email)
 		}
 		c.Next(ctx)
+		ObserveRecommendationRequest(ctx, c, resp.AgentId, requestStartedAt)
 		ObserveSuccessfulAgentRequest(ctx, c, db.DB, resp.AgentId, requestStartedAt, true)
 	}
 }
