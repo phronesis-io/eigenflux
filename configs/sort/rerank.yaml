@@ -12,9 +12,6 @@ policies:
       - field: content_class
         values: [ugc]
         weight: 1.2
-      - field: agent_utility
-        values: [workflow_recipe, tool_integration, compatibility_fix]
-        weight: 1.25
     item_boosts:
       - item_id: 350893866519363584
         weight: 2.0

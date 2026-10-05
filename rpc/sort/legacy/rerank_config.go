@@ -96,14 +96,11 @@ type itemRerankSource struct {
 	// contentClass is "ugc"/"pgc" resolved at request time from the author's
 	// email suffix (empty for the pre-rank freshness path, which never reads it).
 	contentClass string
-	agentUtility string
 }
 
 func (s itemRerankSource) ItemFreshnessFields() (string, time.Time) {
 	return s.item.Type, s.item.UpdatedAt
 }
-
-func (s itemRerankSource) ItemAgentUtility() string { return s.agentUtility }
 
 func (s itemRerankSource) ItemBoostFields() (string, string, string) {
 	return s.item.Type, s.item.SourceType, s.contentClass

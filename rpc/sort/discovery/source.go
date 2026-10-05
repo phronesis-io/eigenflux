@@ -236,7 +236,7 @@ func (s *Source) Hydrate(ctx context.Context, owner int64, mode Mode, docs []Doc
 			d := Document{Ref: SourceRef{Type: Broadcast, ID: r.ItemID}, AuthorID: r.AuthorID,
 				Version: r.ContentHash, Active: r.Active && state.Status == 3, Visible: true,
 				GroupID: r.GroupID, FreshAt: r.CreatedAt, SourceUpdatedAt: r.UpdatedAt,
-				AgentUtility: r.AgentUtility, Quality: r.QualityScore, ContentType: r.BroadcastType, SourceType: r.SourceType, URL: r.URL, Slots: r.Slots}
+				Quality: r.QualityScore, ContentType: r.BroadcastType, SourceType: r.SourceType, URL: r.URL, Slots: r.Slots}
 			if r.Lang != "" {
 				d.Slots.Lang = []string{r.Lang}
 			}
