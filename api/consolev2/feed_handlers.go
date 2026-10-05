@@ -91,8 +91,17 @@ func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 	feedResp, rpcErr := s.feedClient.FetchFeed(ctx, &feedrpc.FetchFeedReq{
 		AgentId: agentIDValue, Action: &action, Limit: &req.Limit,
 	})
-	if rpcErr != nil || feedResp == nil || feedResp.BaseResp == nil || feedResp.BaseResp.Code != 0 {
+	if rpcErr != nil || feedResp == nil || feedResp.BaseResp == nil {
 		fail(c, http.StatusServiceUnavailable, "FEED_SOURCE_UNAVAILABLE", "could not fetch Feed source data", nil)
+		return
+	}
+	if feedResp.BaseResp.Code != 0 {
+		if feedResp.BaseResp.Code == http.StatusConflict && feedResp.BaseResp.Msg == "request_in_progress" {
+			c.Header("Retry-After", "1")
+			fail(c, http.StatusConflict, "FEED_REQUEST_IN_PROGRESS", "another Feed request is in progress; retry later", nil)
+		} else {
+			fail(c, http.StatusServiceUnavailable, "FEED_SOURCE_UNAVAILABLE", "could not fetch Feed source data", nil)
+		}
 		return
 	}
 	var discoveryMeta map[string]any

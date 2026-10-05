@@ -8,7 +8,7 @@ import math
 from pathlib import Path
 
 EXPERIMENT = "recommendation_aa_v1"
-OUTCOMES = {"empty", "nonempty", "http_error", "business_error", "invalid_response"}
+OUTCOMES = {"empty", "nonempty", "http_error", "business_error", "invalid_response", "in_progress"}
 
 
 def arm(agent_id):
@@ -70,6 +70,7 @@ def summarize(rows, expected_requests=None):
             "unique_agents": len(agents), "requests": len(events),
             "outcomes": dict(collections.Counter(o["outcome"] for o in events)),
             "agent_weighted_empty_rate": sum(sum(o["outcome"] == "empty" for o in group) / len(group) for group in agents) / len(agents) if agents else None,
+            "agent_weighted_in_progress_rate": sum(sum(o["outcome"] == "in_progress" for o in group) / len(group) for group in agents) / len(agents) if agents else None,
             "agent_weighted_error_rate": sum(sum(o["outcome"] in {"http_error", "business_error"} for o in group) / len(group) for group in agents) / len(agents) if agents else None,
         }
     p = srm_p_value(arms["a1"]["unique_agents"], arms["a2"]["unique_agents"])

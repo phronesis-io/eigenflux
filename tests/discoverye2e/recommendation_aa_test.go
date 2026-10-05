@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"eigenflux_server/pkg/activity"
+	"eigenflux_server/pkg/cache/keys"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/rpc/sort/discovery"
 	"github.com/stretchr/testify/require"
@@ -28,6 +29,15 @@ func TestRecommendationAAHTTP(t *testing.T) {
 	}
 	s.call(t, "POST", "/api/v2/feed", s.otherToken, "", map[string]any{"unknown_field": true}, 400)
 	s.call(t, "POST", "/api/v2/feed", "invalid-token", "", map[string]any{}, 401)
+	lockKey := fmt.Sprintf(keys.DeliveryPage, s.other) + keys.LockSuffix
+	locked, err := mq.RDB.SetNX(context.Background(), lockKey, "aa-e2e-held-lock", time.Minute).Result()
+	require.NoError(t, err)
+	require.True(t, locked)
+	s.call(t, "POST", "/api/v2/feed", s.otherToken, "", map[string]any{}, 409)
+	token, err := mq.RDB.Get(context.Background(), lockKey).Result()
+	require.NoError(t, err)
+	require.Equal(t, "aa-e2e-held-lock", token, "conflicting request cannot release another request's lock")
+	require.NoError(t, mq.RDB.Del(context.Background(), lockKey).Err())
 	s.sql(t, `UPDATE agent_credential_sessions SET scopes=ARRAY[]::text[] WHERE principal_id IN (SELECT principal_id FROM agent_principals WHERE agent_id=?)`, s.other)
 	s.call(t, "POST", "/api/v2/feed", s.otherToken, "", map[string]any{}, 403)
 	input := s.saved(t, "broadcast")
@@ -68,6 +78,7 @@ func TestRecommendationAAHTTP(t *testing.T) {
 		Pipeline     string `json:"pipeline_version"`
 		ID           string `json:"observation_id"`
 		ImpressionID string `json:"impression_id"`
+		ErrorCode    string `json:"error_code"`
 	}
 	var observations []observation
 	var deliveries []observation
@@ -89,7 +100,7 @@ func TestRecommendationAAHTTP(t *testing.T) {
 			deliveries = append(deliveries, o)
 		}
 	}
-	require.Len(t, observations, 4, "authenticated empty/error completions only; bad bearer cannot enroll")
+	require.Len(t, observations, 5, "authenticated empty/error completions only; bad bearer cannot enroll")
 	require.Equal(t, observations[0].Arm, observations[1].Arm)
 	require.Equal(t, observations[0].Arm, observations[2].Arm)
 	require.NotEqual(t, observations[0].ID, observations[1].ID)
@@ -99,8 +110,13 @@ func TestRecommendationAAHTTP(t *testing.T) {
 		require.Zero(t, *o.ItemCount)
 		require.Equal(t, "need_search_v1", o.Pipeline)
 	}
-	for _, o := range observations[2:] {
-		require.Equal(t, "http_error", o.Outcome)
+	for i, o := range observations[2:] {
+		if i == 1 {
+			require.Equal(t, "in_progress", o.Outcome)
+			require.Equal(t, "FEED_REQUEST_IN_PROGRESS", o.ErrorCode)
+		} else {
+			require.Equal(t, "http_error", o.Outcome)
+		}
 		require.Nil(t, o.ItemCount)
 		require.Equal(t, observations[0].Arm, o.Arm)
 	}

@@ -23,6 +23,11 @@ func TestRecommendationObservationResponseBoundaries(t *testing.T) {
 		{"v1 empty", "GET", "/api/v1/items/feed", `{"code":0,"data":{"items":[],"impression_id":"365412762643333120"}}`, "empty", "unknown", "unknown", 200, 0, true},
 		{"v2 nonempty", "POST", "/api/v2/feed", `{"data":{"items":[{"private":"never log"}],"impression_id":"365412762643333120","discovery":{"pipeline_version":"need_search_v1","result_status":"ok","partial":true,"input_origin":"need_input","fallback_reason":"missing_kind_needs"}}}`, "nonempty", "need_search_v1", "ok", 200, 1, true},
 		{"recommendation empty", "POST", "/api/v2/discovery/recommendations", `{"code":0,"data":{"items":[],"pipeline_version":"need_search_v1","result_status":"exhausted"}}`, "empty", "need_search_v1", "exhausted", 200, 0, true},
+
+		{"V1 concurrent request", "GET", "/api/v1/items/feed", `{"code":409,"msg":"request_in_progress"}`, "in_progress", "unknown", "unknown", 200, -1, true},
+		{"V2 concurrent request", "POST", "/api/v2/feed", `{"error":{"code":"FEED_REQUEST_IN_PROGRESS"}}`, "in_progress", "unknown", "unknown", 409, -1, true},
+		{"unrelated conflict", "POST", "/api/v2/feed", `{"error":{"code":"ONBOARDING_REQUIRED"}}`, "http_error", "unknown", "unknown", 409, -1, true},
+		{"source outage", "POST", "/api/v2/feed", `{"error":{"code":"FEED_SOURCE_UNAVAILABLE"}}`, "http_error", "unknown", "unknown", 503, -1, true},
 		{"HTTP failure", "POST", "/api/v2/feed", `{"error":{"message":"private context"}}`, "http_error", "unknown", "unknown", 503, -1, true},
 		{"scope failure", "POST", "/api/v2/discovery/recommendations", `{}`, "http_error", "unknown", "unknown", 403, -1, true},
 		{"business failure", "GET", "/api/v1/items/feed", `{"code":500,"data":{"items":[]}}`, "business_error", "unknown", "unknown", 200, -1, true},
@@ -61,6 +66,15 @@ func TestRecommendationObservationResponseBoundaries(t *testing.T) {
 			}
 			if o.AgentID != "365412762643333120" || o.StartedAt != 1234 || o.ObservationID == "" {
 				t.Fatalf("identity/timing=%+v", o)
+			}
+			if tt.name == "V1 concurrent request" && o.ErrorCode != "409" {
+				t.Fatalf("legacy conflict not attributed: %+v", o)
+			}
+			if tt.name == "V2 concurrent request" && o.ErrorCode != "FEED_REQUEST_IN_PROGRESS" {
+				t.Fatalf("V2 conflict not attributed: %+v", o)
+			}
+			if tt.name == "source outage" && o.ErrorCode != "FEED_SOURCE_UNAVAILABLE" {
+				t.Fatalf("source failure not attributed: %+v", o)
 			}
 			if tt.name == "v2 nonempty" && (o.ResponseInputOrigin != "need_input" || o.FallbackReason != "missing_kind_needs") {
 				t.Fatalf("context markers missing: %+v", o)
