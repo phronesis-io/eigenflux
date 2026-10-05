@@ -182,6 +182,9 @@ func TestAuthRetryV1OTPBoundaries(t *testing.T) {
 				if err != nil || resp == nil || resp.BaseResp == nil {
 					t.Fatalf("VerifyLogin failed: %#v, %v", resp, err)
 				}
+				if resp.BaseResp.Code == 0 && resp.AgentId != 101 {
+					t.Fatalf("successful verification returned unexpected owner %d", resp.AgentId)
+				}
 				return resp
 			}
 			countSessions := func(want int64) {
@@ -189,6 +192,9 @@ func TestAuthRetryV1OTPBoundaries(t *testing.T) {
 				var count int64
 				if err := gdb.Model(&dal.AgentSession{}).Count(&count).Error; err != nil || count != want {
 					t.Fatalf("durable session count=%d want=%d err=%v", count, want, err)
+				}
+				if err := gdb.Model(&dal.AgentSession{}).Where("agent_id = ?", 101).Count(&count).Error; err != nil || count != want {
+					t.Fatalf("owned session count=%d want=%d err=%v", count, want, err)
 				}
 			}
 			id := start(emailAddr)

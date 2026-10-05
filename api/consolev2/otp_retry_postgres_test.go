@@ -193,6 +193,10 @@ func (f *otpRetryV2Fixture) sessions(t *testing.T, want int64) {
 	if err := f.db.Table("console_v2_sessions").Count(&count).Error; err != nil || count != want {
 		t.Fatalf("durable Console sessions=%d want=%d err=%v", count, want, err)
 	}
+	if err := f.db.Table("console_v2_sessions AS cs").Joins("JOIN agent_principals AS p ON p.principal_id = cs.principal_id").
+		Where("cs.agent_id = ? AND p.agent_id = ?", 101, 101).Count(&count).Error; err != nil || count != want {
+		t.Fatalf("owned Console sessions=%d want=%d err=%v", count, want, err)
+	}
 }
 
 func assertOTPRetryV2Rejected(t *testing.T, status int, payload map[string]interface{}, cookies [][]byte) {
