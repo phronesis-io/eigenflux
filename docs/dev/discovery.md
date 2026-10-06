@@ -140,6 +140,29 @@ plus their separator), independently of the explicit query weighted-length limit
 Oversized internal clauses are shortened at a rune boundary and marked
 `context_query_truncated`; stored inputs remain unchanged.
 
+Broadcast keyword ES queries exclude expired documents before the
+candidate limit, while accepting documents without an expiry. Current PostgreSQL
+state and expiry are still checked after hydration. Automatic broadcast discovery
+also recalls at most 20 keyword-matching documents from the preceding seven days,
+ordered by creation time, through `lexical_recent`. Its ES scores remain BM25
+scores; it does not bypass relevance gates, hard filters, history or group dedup.
+This adds one bounded ES query per broadcast context within the existing six-call
+per-request concurrency and 200-candidate merge limits. Recent calls have a
+separate shared four-call limit per Sort process and a one-call limit per request.
+The per-request recent gate is acquired before a general recall slot, so waiting
+recent contexts cannot occupy the ordinary slots. A one-second budget includes
+all admission waiting, ES execution and response reads; an earlier parent deadline
+still wins. ES also receives a one-second server timeout. Failed/expired recent
+work is reported through the existing channel-failure metric and partial reasons;
+ordinary channels continue without relaxing gates. These controls limit the
+added lane, not every ES query across the whole service. Explicit search, friend-only contexts
+and empty-context baseline do not add this lane. Samples retain the distinct
+channel; public match metadata and feed counters classify it as `keyword`.
+The request clock bounds keyword expiry and recency, including simulated execution
+time. Dense broadcast retrieval keeps its existing ES filters; authoritative
+hydration still excludes expired dense candidates. Changing vector prefilters
+requires a separate representative vector-load comparison.
+
 Public `match.match_types` contains deduplicated `exact`, `keyword`, `semantic`
 and `recall` labels. These describe retrieval paths, not confidence or guaranteed
 literal equality. Query text and vectors never appear in result cards.
