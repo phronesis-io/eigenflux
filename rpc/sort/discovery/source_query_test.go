@@ -45,7 +45,7 @@ func TestBroadcastUsesExactTopLevelLanguageInEveryChannel(t *testing.T) {
 
 func TestBroadcastRetrievalFiltersExpiryAtRequestClock(t *testing.T) {
 	c := Context{Query: "EigenFlux", Vector: []float32{1, 0}, retrievalAt: 1791017820000}
-	for _, channel := range []string{"lexical"} {
+	for _, channel := range []string{"lexical", "lexical_recent"} {
 		q, err := Query(c, Broadcast, channel, 20)
 		if err != nil {
 			t.Fatal(err)
@@ -63,5 +63,20 @@ func TestBroadcastRetrievalFiltersExpiryAtRequestClock(t *testing.T) {
 	denseJSON, _ := json.Marshal(dense)
 	if strings.Contains(string(denseJSON), "expire_time") || strings.Contains(string(denseJSON), `"timeout"`) {
 		t.Fatalf("dense retrieval policy changed: %s", denseJSON)
+	}
+	q, err := Query(c, Broadcast, "lexical_recent", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(q)
+	for _, want := range []string{`"gte":"2026-09-26T08:57:00Z"`, `"lte":"2026-10-03T08:57:00Z"`, `"track_scores":true`, `"timeout":"1s"`, `"created_at":"desc"`, `"multi_match"`} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("recent query omits %s: %s", want, b)
+		}
+	}
+	for _, kind := range []Kind{Agent, Commission} {
+		if _, err := Query(c, kind, "lexical_recent", 20); err == nil {
+			t.Fatal("non-broadcast recent channel accepted")
+		}
 	}
 }

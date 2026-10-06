@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -24,6 +25,8 @@ import (
 )
 
 type Source struct {
+	recentOnce                                                      sync.Once
+	recentSlots                                                     chan struct{}
 	FriendFeedMaxAuthors, FriendFeedWindowHours, FriendFeedMaxItems int
 	SwingRecall                                                     recallsource.RecallSource
 	ContextCache                                                    *cache.DiscoveryCache
@@ -166,6 +169,20 @@ func (s *Source) Recall(ctx context.Context, c Context, k Kind, channel string, 
 			ids = ids[:limit]
 		}
 		return poolDocuments(ids, c), nil
+	}
+	if channel == "lexical_recent" {
+		// This Source is shared by the Sort process. Bound added work across
+		// requests; the Engine's six-slot semaphore only bounds one request.
+		s.recentOnce.Do(func() { s.recentSlots = make(chan struct{}, recentRecallConcurrency) })
+		work, cancel := context.WithTimeout(ctx, recentRecallBudget)
+		defer cancel()
+		select {
+		case s.recentSlots <- struct{}{}:
+			defer func() { <-s.recentSlots }()
+		case <-work.Done():
+			return nil, work.Err()
+		}
+		return s.search(work, c, k, channel, limit)
 	}
 	return s.search(ctx, c, k, channel, limit)
 }
