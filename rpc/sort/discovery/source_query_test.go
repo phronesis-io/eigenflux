@@ -42,3 +42,26 @@ func TestBroadcastUsesExactTopLevelLanguageInEveryChannel(t *testing.T) {
 		}
 	}
 }
+
+func TestBroadcastRetrievalFiltersExpiryAtRequestClock(t *testing.T) {
+	c := Context{Query: "EigenFlux", Vector: []float32{1, 0}, retrievalAt: 1791017820000}
+	for _, channel := range []string{"lexical"} {
+		q, err := Query(c, Broadcast, channel, 20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := json.Marshal(q)
+		if !strings.Contains(string(b), `"expire_time":{"gt":"2026-10-03T08:57:00Z"}`) || !strings.Contains(string(b), `"exists":{"field":"expire_time"}`) {
+			t.Fatalf("expiry filter missing: %s", b)
+		}
+	}
+
+	dense, err := Query(c, Broadcast, "dense", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	denseJSON, _ := json.Marshal(dense)
+	if strings.Contains(string(denseJSON), "expire_time") || strings.Contains(string(denseJSON), `"timeout"`) {
+		t.Fatalf("dense retrieval policy changed: %s", denseJSON)
+	}
+}

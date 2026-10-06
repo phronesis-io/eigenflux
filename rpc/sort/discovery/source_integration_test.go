@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -386,4 +387,80 @@ func TestESChinesePhraseBoost(t *testing.T) {
 		}
 	}
 
+}
+
+// Expired broadcasts must not occupy lexical candidate slots.
+func TestESBroadcastExpiryPrefilterPreservesEligibleCandidates(t *testing.T) {
+	url := os.Getenv("DISCOVERY_TEST_ES")
+	if url == "" {
+		t.Skip("isolated DISCOVERY_TEST_ES required")
+	}
+	t.Setenv("ES_URL", url)
+	require.NoError(t, es.InitClient())
+	index := fmt.Sprintf("discovery-expiry-%d", time.Now().UnixNano())
+	response, err := es.Client.Indices.Create(index, es.Client.Indices.Create.WithBody(strings.NewReader(`{"mappings":{"properties":{"created_at":{"type":"date"},"expire_time":{"type":"date"},"content":{"type":"text"},"summary":{"type":"text"}}}}`)))
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+	require.False(t, response.IsError())
+	defer func() {
+		r, e := es.Client.Indices.Delete([]string{index})
+		if e == nil {
+			require.NoError(t, r.Body.Close())
+		}
+	}()
+	now := time.Now().UTC()
+	past, future := now.Add(-time.Hour), now.Add(24*time.Hour)
+	var bulk bytes.Buffer
+	for i := 1; i <= 164; i++ {
+		d := sortdal.Item{ID: int64(i), AuthorAgentID: 2, Content: "EigenFlux", CreatedAt: now.Add(-time.Minute)}
+		if i <= 160 {
+			d.Summary = strings.Repeat("EigenFlux ", 20)
+			d.CreatedAt = now.Add(-30 * 24 * time.Hour)
+			d.ExpireTime = &future
+		}
+		if i <= 80 {
+			d.ExpireTime = &past
+		}
+		if i == 162 {
+			d.Content = "unrelated recipe"
+		}
+		if i == 163 {
+			d.ExpireTime = &past
+		}
+		if i == 164 {
+			d.AuthorAgentID = 99
+		}
+		fmt.Fprintf(&bulk, "{\"index\":{\"_id\":\"%d\"}}\n", i)
+		raw, _ := json.Marshal(d)
+		bulk.Write(raw)
+		bulk.WriteByte('\n')
+	}
+	response, err = es.Client.Bulk(&bulk, es.Client.Bulk.WithIndex(index), es.Client.Bulk.WithRefresh("true"))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, response.Body.Close()) }()
+	require.False(t, response.IsError())
+	var result struct {
+		Errors bool `json:"errors"`
+	}
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&result))
+	require.False(t, result.Errors)
+	source := &discovery.Source{BroadcastIndex: index}
+	c := discovery.Context{Query: "EigenFlux", Filters: discovery.Filters{ExcludeAuthors: []string{"99"}}}
+	lexical, err := source.Recall(context.Background(), c, discovery.Broadcast, "lexical", 80)
+	require.NoError(t, err)
+	require.Len(t, lexical, 80)
+	for _, d := range lexical {
+		require.Greater(t, d.Ref.ID, int64(80))
+		require.NotEqual(t, int64(161), d.Ref.ID)
+	}
+	all, err := source.Recall(context.Background(), c, discovery.Broadcast, "lexical", 200)
+	require.NoError(t, err)
+	require.Len(t, all, 81)
+	found := false
+	for _, d := range all {
+		if d.Ref.ID == 161 {
+			found = true
+		}
+	}
+	require.True(t, found, "a broadcast with missing expiry remains eligible")
 }

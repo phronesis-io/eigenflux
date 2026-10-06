@@ -122,6 +122,8 @@ func (r *Request) UnmarshalJSON(raw []byte) error {
 }
 
 type Context struct {
+	// Request-local clock; excluded from persisted context/hash contracts.
+	retrievalAt          int64
 	UnverifiedNeedReason string                    `json:"unverified_need_reason,omitempty"`
 	CapturedNeed         *need.Snapshot            `json:"captured_need,omitempty"`
 	QueryAnalysis        *queryprocessing.Analysis `json:"query_analysis,omitempty"`
