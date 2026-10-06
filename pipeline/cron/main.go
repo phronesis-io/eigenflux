@@ -132,6 +132,7 @@ func main() {
 	go StartConsoleV2Cleanup(ctx, mq.RDB)
 	go StartPGCFeedbackSnapshot(ctx, mq.RDB)
 	go StartPGCDemandSnapshot(ctx, mq.RDB)
+	go StartRecommendationEffect(ctx, mq.RDB)
 	profileCleanupDone := make(chan struct{})
 	go func() {
 		defer close(profileCleanupDone)

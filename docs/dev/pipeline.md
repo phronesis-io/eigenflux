@@ -242,6 +242,10 @@ per-user-per-day (`OFFICIAL_CHAT_DAILY_PER_USER`), and a global per-minute cap
 
 ## Feedback Log
 
+The independent [recommendation effect observations](recommendation_effect.md)
+use exact per-item attribution and bounded anonymous daily and hourly snapshots. They are
+observation-only and do not change recommendation weights or ingestion.
+
 Captures append-only feedback events for offline analysis and replay-log joins. Records every feedback submission that reaches the `item_stats` pipeline, without replacing the aggregate counters in `item_stats`.
 
 - **Write path**: API `POST /api/v1/items/feedback` → `stream:item:stats` (Redis Stream) → `ItemStatsConsumer` → `feedback_logs` + `item_stats` (PostgreSQL). The gateway resolves item authors in one batched `raw_items` query and drops an author's score on their own broadcast before publishing, so self feedback never enters the stream or the aggregates
