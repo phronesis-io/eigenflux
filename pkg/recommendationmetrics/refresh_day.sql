@@ -31,17 +31,16 @@ WITH bounds AS NOT MATERIALIZED (
 ), replay_ids AS MATERIALIZED (
     SELECT id FROM day_ids
     UNION
-    SELECT r.id FROM (SELECT DISTINCT impression_id FROM match_keys) k CROSS JOIN LATERAL (
+    SELECT r.id FROM match_keys k CROSS JOIN LATERAL (
       -- Keep exact-key attribution as an indexed lookup. Otherwise estimates
       -- for the materialized key set can select a scan of all replay history.
-      -- Read each shared batch once, then check the full item/Agent identity.
-      -- Impression stays the selective leading key instead of an Agent scan.
-      SELECT r.id,r.agent_id,r.item_id,r.impression_id,r.delivered,r.source_kind FROM replay_logs r
+      -- Impression is the selective leading key. Apply the other identity
+      -- checks after lookup, rather than bitmap-scanning an Agent's history.
+      SELECT r.id,r.agent_id,r.item_id,r.delivered,r.source_kind FROM replay_logs r
       WHERE r.impression_id=k.impression_id
       OFFSET 0
-    ) r JOIN match_keys m ON r.agent_id=m.agent_id AND r.item_id=m.item_id
-      AND r.impression_id=m.impression_id
-    WHERE r.delivered IS TRUE AND r.source_kind='broadcast'
+    ) r WHERE r.agent_id=k.agent_id AND r.item_id=k.item_id
+      AND r.delivered IS TRUE AND r.source_kind='broadcast'
 ), classified AS MATERIALIZED (
     SELECT r.agent_id,r.item_id,r.impression_id,r.served_at,
       CASE

@@ -96,8 +96,8 @@ than filling failed calculations with zero. Logs include day and error, never
 private facts or context payloads.
 
 Day bounds are inlined so PostgreSQL can use date-range estimates. Attribution
-looks up each distinct nonempty impression once through the existing impression
-index, then verifies the full Agent/item key and duplicate count. It does not
+looks up requested nonempty impressions through the existing impression index,
+then verifies the full Agent/item key and duplicate count. It does not
 scan all replay history to resolve a day's keys. Production query plans and
 bounded read-only timings must be checked before enabling a release; fixture
 timings are not a production capacity guarantee.
