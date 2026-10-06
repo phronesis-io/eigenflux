@@ -1,9 +1,10 @@
 # Recommendation effect observations
 
-Migration `000113` creates `recommendation_effect_daily` and the read-only,
-anonymous `grafana_recommendation_effect_daily` view. It performs no historical
+Migration `000113` creates daily and hourly derived tables and read-only,
+anonymous `grafana_recommendation_effect_daily` /
+`grafana_recommendation_effect_hourly` views. It performs no historical
 fact scan during deployment. Apply the migration before upgrading pipeline-cron.
-Only the view is granted to `grafana_ro_v2`; private facts and context snapshots
+Only the views are granted to `grafana_ro_v2`; private facts and context snapshots
 remain inaccessible to that role. The matching independent Grafana page is
 owned by `eigenflux-observability`.
 
@@ -38,8 +39,8 @@ is preserved even when the recommendation basis cannot be attributed.
 
 ## Units and maturity
 
-Each row covers one `Asia/Shanghai` calendar day and one of seven fixed bases
-and four fixed content classes. Delivery metrics use delivery time; feedback
+Each daily row covers one `Asia/Shanghai` calendar day and one of seven fixed
+bases and four fixed content classes. Delivery metrics use delivery time; feedback
 and follow-up metrics use event time. Only scores `-1,0,1,2` are valid. Positive
 events are `1+2`, strong positive events are `2`, and negative events are `-1`;
 all four scores contribute to the denominator. Empty denominators are unknown,
@@ -58,11 +59,25 @@ late-ingested event within the window is picked up by subsequent refreshes.
 Scores at or after hour 48 do not alter that cohort. Empty/ambiguous identities
 are excluded from coverage and reported as unidentifiable delivery rows.
 
+Hourly activity uses the same classified deliveries and attributed scores as
+its daily counterpart, grouped by actual delivery/feedback timestamps. A
+successful refresh writes all 28 category rows for each elapsed hour of the day
+(including the current partial hour); future hours have no rows. An observed
+hour without events has zero counts and an unknown rate. Daily and hourly
+activity totals reconcile, and both grids commit in the same SQL transaction.
+The hourly view contains only delivery and valid-score counts, not private
+identities, content, or fixed-maturity cohort measures.
+
+The compact Grafana page defaults to hourly activity over the last 24 hours,
+including the partial current hour, and supports a daily chart switch. Today
+and the current hour can still change. The existing daily mature cohort remains
+available for separate evaluations; changing graph granularity does not create
+additional feedback or establish causal impact.
+
 For a **whole delivery day** to be mature, its snapshot cutoff must be at least
-Shanghai midnight at `day+3`. Today is displayed separately. Before/after
-comparison excludes the change day and requires seven completely mature,
-observed days on each side before showing either side's percentages. It does
-not establish causal impact; traffic, content mix, exposure volume and scoring
+Shanghai midnight at `day+3`. A mature before/after evaluation should exclude the change day and require seven
+completely mature, observed days on each side. That comparison is outside the
+compact activity page. It does not establish causal impact; traffic, content mix, exposure volume and scoring
 participation can change. A/A validates plumbing, not efficacy.
 
 ## Refresh, failure and rollback
@@ -73,7 +88,8 @@ the normal historical refresh cycle is about 30 minutes. Each day gets its own
 20-second context, 15-second SQL timeout and transaction. The batch deadline is
 three minutes, below the five-minute Redis lease. A transaction advisory lock
 also serializes each day across connections, and older cutoffs cannot overwrite
-newer rows. No date is marked observed until its entire 28-row grid commits.
+newer rows. No date is marked observed until its daily 28-row grid and
+elapsed-hour grids commit together. Day selection also detects missing historical hourly grids.
 One failed day leaves its old snapshot intact and does not prevent independent
 dates in the batch from progressing. Grafana shows missing/stale dates rather
 than filling failed calculations with zero. Logs include day and error, never
@@ -103,6 +119,7 @@ RECOMMENDATION_METRICS_TEST_DSN="$LOCAL_METRICS_TEST_DSN" \
 
 The native database fixtures verify mixed-batch attribution, typed-source
 isolation, duplicate and undelivered samples, score denominators, internal
-consumer exclusion, Shanghai midnight, strict maturity, repeats, stale writers,
+consumer exclusion, hour boundaries, current/future hours, daily/hourly
+reconciliation, Shanghai midnight, strict maturity, repeats, stale writers,
 interrupted transactions and a competing connection's advisory lock. Ordinary
 Go tests without the explicit database setting skip the PostgreSQL cases.

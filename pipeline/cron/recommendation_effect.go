@@ -13,7 +13,7 @@ import (
 const lockKeyRecommendationEffect = "lock:cron:recommendation_effect"
 
 // StartRecommendationEffect refreshes anonymous observations in serial bounded
-// day batches. Grafana reads only the completed aggregates, never fact tables.
+// day batches containing daily and hourly activity. Grafana reads only the completed aggregates, never fact tables.
 func StartRecommendationEffect(ctx context.Context, rdb *redis.Client) {
 	refreshRecommendationEffectWithLock(ctx, rdb, refreshRecommendationEffect)
 	ticker := time.NewTicker(5 * time.Minute)

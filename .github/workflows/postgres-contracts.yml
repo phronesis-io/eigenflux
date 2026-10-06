@@ -121,7 +121,7 @@ jobs:
         run: go test -race -count=1 ./scripts/diagnostics/reconcile_reach
       - name: Verify migration source contracts
         run: go test -count=1 ./migrations
-      - name: Verify recommendation attribution and daily snapshot transactions
+      - name: Verify recommendation attribution and daily/hourly snapshot transactions
         run: |
           psql "$PG_DSN" -c 'CREATE DATABASE recommendation_metrics_ci;'
           RECOMMENDATION_METRICS_TEST_DSN='postgres://postgres:postgres@127.0.0.1:5432/recommendation_metrics_ci?sslmode=disable' \

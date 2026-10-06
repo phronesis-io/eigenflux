@@ -1,4 +1,4 @@
-// Package recommendationmetrics builds anonymous daily observations without
+// Package recommendationmetrics builds anonymous daily and hourly observations without
 // changing recommendation, feedback ingestion, or private context storage.
 package recommendationmetrics
 
@@ -26,9 +26,16 @@ func PendingDays(ctx context.Context, conn *sql.DB, cutoff time.Time) ([]string,
 		)
 		SELECT d.day::text FROM days d
 		LEFT JOIN recommendation_effect_daily s USING(day)
-		GROUP BY d.day,d.today
+        LEFT JOIN LATERAL (
+          SELECT count(*) AS hour_rows,min(snapshot_at) AS snapshot_at
+          FROM recommendation_effect_hourly h
+          WHERE h.hour_start >= d.day::timestamp AT TIME ZONE 'Asia/Shanghai'
+            AND h.hour_start < (d.day+1)::timestamp AT TIME ZONE 'Asia/Shanghai'
+        ) h ON true
+        GROUP BY d.day,d.today,h.hour_rows,h.snapshot_at
 		ORDER BY (d.day=d.today) DESC,
-		 CASE WHEN count(s.day)=28 THEN min(s.snapshot_at) END NULLS FIRST,d.day DESC
+		 CASE WHEN count(s.day)=28 AND (d.day=d.today OR h.hour_rows=672)
+          THEN LEAST(min(s.snapshot_at),h.snapshot_at) END NULLS FIRST,d.day DESC
 		LIMIT 6`, cutoff)
 	if err != nil {
 		return nil, fmt.Errorf("select recommendation observation days: %w", err)
@@ -45,8 +52,8 @@ func PendingDays(ctx context.Context, conn *sql.DB, cutoff time.Time) ([]string,
 	return days, rows.Err()
 }
 
-// RefreshDay commits all dimension rows together. SQL timeouts and an advisory
-// transaction lock bound concurrent replicas even if their Redis lease is lost.
+// RefreshDay commits daily and hourly dimension rows together. SQL timeouts and
+// an advisory transaction lock bound concurrent replicas even if their Redis lease is lost.
 // Older cutoffs cannot overwrite newer observations.
 func RefreshDay(ctx context.Context, conn *sql.DB, day string, cutoff time.Time) error {
 	if _, err := time.Parse("2006-01-02", day); err != nil {

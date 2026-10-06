@@ -166,6 +166,17 @@ func TestPostgresRecommendationAttributionAndMaturity(t *testing.T) {
 			t.Errorf("%s/%s/%s=%d want %d", row.basis, row.lane, row.column, got, row.want)
 		}
 	}
+	var mismatches int
+	err = c.QueryRow(`SELECT count(*) FROM recommendation_effect_daily d JOIN (
+      SELECT basis,lane,sum(delivery_rows) deliveries,sum(feedback_events) events,
+        sum(score_neg1) neg,sum(score_0) zero,sum(score_1) pos,sum(score_2) strong
+      FROM recommendation_effect_hourly GROUP BY basis,lane) h USING(basis,lane)
+      WHERE d.day='2026-10-02' AND (d.delivery_rows,d.feedback_events,d.score_neg1,d.score_0,d.score_1,d.score_2)
+        IS DISTINCT FROM (h.deliveries,h.events,h.neg,h.zero,h.pos,h.strong)`).Scan(&mismatches)
+	if err != nil || mismatches != 0 {
+		t.Fatalf("daily/hourly attribution mismatch=%d err=%v", mismatches, err)
+	}
+
 	// Repeated, older and interrupted snapshots must not partially replace a day.
 	if err := RefreshDay(ctx, c, "2026-10-02", cutoff); err != nil {
 		t.Fatal(err)
@@ -199,6 +210,70 @@ func TestPostgresRecommendationAttributionAndMaturity(t *testing.T) {
 	}
 	if err := c.QueryRow(`SELECT min(snapshot_at) FROM recommendation_effect_daily WHERE day='2026-10-02'`).Scan(&minCutoff); err != nil || !minCutoff.Equal(cutoff) {
 		t.Fatalf("interruption committed partial data: %v %v", minCutoff, err)
+	}
+}
+
+func TestPostgresRecommendationHourlyActivity(t *testing.T) {
+	c := fixtureDB(t)
+	ctx := context.Background()
+	served := instant("2026-10-02T09:00:00+08:00").UnixMilli()
+	_, err := c.Exec(`INSERT INTO replay_logs VALUES
+      (1,1,10,'hourly',$1,true,'broadcast','need_search_v1',2,'recommendation',0,
+       '{"search":{"context":{"input_origin":"agent_context"}}}');
+      `, served)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.Exec(`INSERT INTO feedback_logs(agent_id,item_id,impression_id,feedback_at,score) VALUES
+      (1,10,'hourly',$1::bigint+3599999,1),
+      (1,10,'hourly',$1::bigint+3600000,-1),
+      (1,10,'hourly',$1::bigint+7200000,0),
+      (1,10,'hourly',$1::bigint+10800000,2);`, served)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cutoff := instant("2026-10-02T12:30:00+08:00")
+	if err := RefreshDay(ctx, c, "2026-10-02", cutoff); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := c.QueryRow(`SELECT count(*) FROM recommendation_effect_hourly`).Scan(&count); err != nil || count != 13*28 {
+		t.Fatalf("observed hourly grid=%d err=%v", count, err)
+	}
+	for _, want := range []struct {
+		hour                                   string
+		deliveries, events, positive, negative int
+	}{
+		{"08:00", 0, 0, 0, 0}, {"09:00", 1, 1, 1, 0}, {"10:00", 0, 1, 0, 1},
+		{"11:00", 0, 1, 0, 0}, {"12:00", 0, 1, 1, 0},
+	} {
+		var deliveries, events, positive, negative int
+		err := c.QueryRow(`SELECT delivery_rows,feedback_events,score_1+score_2,score_neg1
+        FROM recommendation_effect_hourly WHERE hour_start=$1::timestamptz
+        AND basis='profile' AND lane='pgc'`, "2026-10-02 "+want.hour+"+08").Scan(&deliveries, &events, &positive, &negative)
+		if err != nil || deliveries != want.deliveries || events != want.events || positive != want.positive || negative != want.negative {
+			t.Fatalf("hour=%s got=%v err=%v", want.hour, []int{deliveries, events, positive, negative}, err)
+		}
+	}
+	if err := RefreshDay(ctx, c, "2026-10-02", cutoff.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	var snapshot time.Time
+	if err := c.QueryRow(`SELECT min(snapshot_at) FROM recommendation_effect_hourly`).Scan(&snapshot); err != nil || !snapshot.Equal(cutoff) {
+		t.Fatalf("older hourly cutoff replaced fresh data: %v %v", snapshot, err)
+	}
+	// An hourly write failure also rolls back the daily observation.
+	_, err = c.Exec(`CREATE FUNCTION reject_hour() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF NEW.basis='need' THEN RAISE EXCEPTION 'fixture hourly interruption'; END IF; RETURN NEW; END $$;
+      CREATE TRIGGER reject_hour BEFORE INSERT ON recommendation_effect_hourly FOR EACH ROW EXECUTE FUNCTION reject_hour();`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := RefreshDay(ctx, c, "2026-10-02", cutoff.Add(time.Hour)); err == nil {
+		t.Fatal("hourly interruption reported success")
+	}
+	if err := c.QueryRow(`SELECT min(snapshot_at) FROM recommendation_effect_daily`).Scan(&snapshot); err != nil || !snapshot.Equal(cutoff) {
+		t.Fatalf("hourly interruption committed a daily snapshot: %v %v", snapshot, err)
 	}
 }
 

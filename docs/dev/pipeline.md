@@ -243,7 +243,7 @@ per-user-per-day (`OFFICIAL_CHAT_DAILY_PER_USER`), and a global per-minute cap
 ## Feedback Log
 
 The independent [recommendation effect observations](recommendation_effect.md)
-use exact per-item attribution and bounded anonymous daily snapshots. They are
+use exact per-item attribution and bounded anonymous daily and hourly snapshots. They are
 observation-only and do not change recommendation weights or ingestion.
 
 Captures append-only feedback events for offline analysis and replay-log joins. Records every feedback submission that reaches the `item_stats` pipeline, without replacing the aggregate counters in `item_stats`.

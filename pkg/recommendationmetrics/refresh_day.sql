@@ -74,7 +74,7 @@ WITH bounds AS (
     FROM day_deliveries d LEFT JOIN exact_matches m USING(agent_id,item_id,impression_id)
     GROUP BY d.basis,d.lane
 ), attributed_feedback AS MATERIALIZED (
-    SELECT f.agent_id,f.score,
+    SELECT f.agent_id,f.score,f.feedback_at,
       CASE WHEN m.matches=1 AND m.served_at<=f.feedback_at THEN m.basis ELSE 'unattributed' END AS basis,
       CASE WHEN m.matches=1 AND m.served_at<=f.feedback_at THEN m.lane
         WHEN lower(a.email) LIKE '%@pgc.eigenflux.one' THEN 'pgc'
@@ -126,7 +126,34 @@ WITH bounds AS (
 ), dimensions AS (
     SELECT basis,lane FROM unnest(ARRAY['profile','need','baseline','friend','unknown','unattributed','search']) basis
       CROSS JOIN unnest(ARRAY['pgc','ugc','official','unknown']) lane
+), hourly_deliveries AS (
+    SELECT to_timestamp((served_at/3600000)*3600) AS hour_start,basis,lane,count(*) AS delivery_rows
+    FROM day_deliveries GROUP BY hour_start,basis,lane
+), hourly_scores AS (
+    SELECT to_timestamp((feedback_at/3600000)*3600) AS hour_start,basis,lane,
+      count(*) AS feedback_events,count(*) FILTER(WHERE score=-1) AS score_neg1,
+      count(*) FILTER(WHERE score=0) AS score_0,count(*) FILTER(WHERE score=1) AS score_1,
+      count(*) FILTER(WHERE score=2) AS score_2
+    FROM attributed_feedback GROUP BY hour_start,basis,lane
+), hours AS (
+    SELECT to_timestamp((b.lo+n*3600000)/1000.0) AS hour_start,b.cutoff
+    FROM bounds b CROSS JOIN generate_series(0,23) n WHERE b.lo+n*3600000<b.cutoff
+), hourly_write AS (
+    INSERT INTO recommendation_effect_hourly
+    SELECT h.hour_start,g.basis,g.lane,COALESCE(d.delivery_rows,0),
+      COALESCE(s.feedback_events,0),COALESCE(s.score_neg1,0),COALESCE(s.score_0,0),
+      COALESCE(s.score_1,0),COALESCE(s.score_2,0),to_timestamp(h.cutoff/1000.0),1
+    FROM dimensions g CROSS JOIN hours h
+    LEFT JOIN hourly_deliveries d USING(hour_start,basis,lane)
+    LEFT JOIN hourly_scores s USING(hour_start,basis,lane)
+    ON CONFLICT(hour_start,basis,lane) DO UPDATE SET
+      delivery_rows=EXCLUDED.delivery_rows,feedback_events=EXCLUDED.feedback_events,
+      score_neg1=EXCLUDED.score_neg1,score_0=EXCLUDED.score_0,score_1=EXCLUDED.score_1,
+      score_2=EXCLUDED.score_2,snapshot_at=EXCLUDED.snapshot_at
+    WHERE recommendation_effect_hourly.snapshot_at<=EXCLUDED.snapshot_at
+    RETURNING hour_start
 )
+
 INSERT INTO recommendation_effect_daily
 SELECT b.day,g.basis,g.lane,
     COALESCE(d.delivery_rows,0),COALESCE(d.delivery_items,0),COALESCE(d.delivery_agents,0),COALESCE(d.unidentifiable_deliveries,0),
