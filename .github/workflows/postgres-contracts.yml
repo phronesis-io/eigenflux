@@ -28,6 +28,7 @@ on:
       - 'pkg/testaccountreset/**'
       - 'pkg/config/**'
       - 'scripts/test_account_reset/**'
+      - 'scripts/diagnostics/reconcile_reach/**'
       - 'scripts/common/**'
       - '.github/workflows/postgres-contracts.yml'
   push:
@@ -58,6 +59,7 @@ on:
       - 'pkg/testaccountreset/**'
       - 'pkg/config/**'
       - 'scripts/test_account_reset/**'
+      - 'scripts/diagnostics/reconcile_reach/**'
       - 'scripts/common/**'
       - '.github/workflows/postgres-contracts.yml'
   workflow_dispatch:
@@ -101,6 +103,10 @@ jobs:
           cache: true
       - name: Apply every migration and rollout helper
         run: bash scripts/common/migrate_up.sh
+      - name: Verify historical Reach floor and concurrent consumption
+        env:
+          REACH_TEST_DSN: postgres://postgres:postgres@127.0.0.1:5432/eigenflux?sslmode=disable
+        run: go test -race -count=1 ./scripts/diagnostics/reconcile_reach
       - name: Verify migration source contracts
         run: go test -count=1 ./migrations
       - name: Verify atomic publication and durable dispatch
