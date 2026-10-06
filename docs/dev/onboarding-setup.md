@@ -126,20 +126,23 @@ The consumer frontend integration should:
 1. Reuse its authoritative onboarding completion response, then enter the home
    page and display the first-check popup. Do not infer completion from opening
    the handoff URL, email verification alone, or the user's copied phrase.
-2. Show the localized `first_check_request` phrase from `messages.md`, a copy
+2. Show `website_popup` with the localized `first_check_request` phrase from `messages.md`, a copy
    action, an instruction to return to the original Agent conversation and send
    it, and a dismiss action. Copy success means clipboard success only. If copy
-   fails, keep the phrase selectable for manual copying.
+   fails, keep the phrase selectable for manual copying. Use `website_copied`
+   only after success; explain switching back and pasting at that moment.
 3. Keep a visible home-page entry to reopen the instructions after dismissal or
    refresh, scoped to the active account. No Agent name or new friend is needed.
 4. Do not mark the first check complete, trigger a check automatically, or add a
    backend completion flag solely for this popup. The host verifies live access
    and reports the actual check outcome through the existing Skill.
 
-Until that separate frontend is deployed and verified, `return_host` explicitly
-asks the user to finish email verification and all four steps, reach the home
-page, then copy the same phrase from the conversation and send it. This is the
-current usable fallback, not a claim that the popup has shipped.
+Before the link opens, the future `return_website` variant only previews the
+first check; it does not ask the user to remember copying, switching apps and
+pasting. The website explains those actions when they become relevant.
+Until that separate frontend is deployed and verified, `return_host` retains
+one short instruction to return after setup and send the shared phrase. This
+is the current usable fallback, not a claim that the popup has shipped.
 
 ## Validation and release
 

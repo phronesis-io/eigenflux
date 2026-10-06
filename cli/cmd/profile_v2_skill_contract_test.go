@@ -327,7 +327,7 @@ func TestOnboardingFixedTemplateCoverage(t *testing.T) {
 	}
 	for _, id := range []string{"welcome", "schedule", "execution", "scope_codex", "execution_existing", "paused", "restart",
 		"prefill_choice", "profile_ready", "profile_manual", "handoff", "return_host", "return_website",
-		"first_check_request", "action_peers", "action_detail", "action_broadcast", "action_need",
+		"first_check_request", "website_popup", "website_copied", "action_peers", "action_detail", "action_broadcast", "action_need",
 		"website_incomplete", "check_start", "check_done", "check_empty", "followup_active", "followup_paused", "followup_unknown", "action_menu", "check_unavailable", "check_failed", "setup_failed", "preparing_draft", "preparing_manual", "preparing_network", "link_refreshed", "clarify_permission"} {
 		if !seen[id] {
 			t.Errorf("missing template %s", id)

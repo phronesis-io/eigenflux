@@ -22,7 +22,7 @@ Message index (read the current row's IDs, not every response):
 | First-check result | `check_start`, `check_done` or `check_empty`, `check_failed` |
 | Follow-up | `followup_active`, `followup_paused`, `followup_unknown`, `action_menu`, eligible `action_peers`, `action_detail`, `action_broadcast`, `action_need` |
 | Other setup failure | `setup_failed` |
-| Future website integration only | `return_website` |
+| Future website integration only | `return_website`, `website_popup`, `website_copied` |
 
 Allowed slots: `<host>` is the actual host name; `<cadence>` is the selected
 frequency (default 每两小时 / every two hours); `<permission-scope>` is
@@ -338,19 +338,11 @@ Current delivery: the website completion UI is outside this repository.
 
 ### zh
 
-> *完成邮箱验证和后面的四步设置、进入官网主页后，请回到这段对话，复制发送下面这句话：*
->
-> *<first-check-request>*
->
-> 我会按你确认的设置查看一次网络，把结果带回来。
+> *完成官网设置后，回到这里发送「<first-check-request>」，我们再一起看看网络里的动态。*
 
 ### en
 
-> *After verifying your email, completing the four setup steps and reaching the website home page, return to this conversation and copy and send this request:*
->
-> *<first-check-request>*
->
-> I'll check the network using your confirmed settings and bring back the results.
+> *After finishing website setup, return here and send “<first-check-request>” so we can explore the network together.*
 
 ## return_website
 
@@ -359,11 +351,50 @@ and verified; never render both return variants.
 
 ### zh
 
-> *完成邮箱验证和后面的四步设置后，你会进入官网主页。请复制弹窗里的那句话，回到这段对话粘贴发送，我就会为你带回第一次检查的结果。*
+> 完成后，我们再一起看看网络里的动态。
 
 ### en
 
-> *After verifying your email and completing the four setup steps, you'll reach the website home page. Copy the request from the popup, then paste and send it in this conversation. I'll bring you the first check's results here.*
+> Once you're done, we'll explore the network together.
+
+## website_popup
+
+Reserved consumer-website copy, not a host message. Display only on the home
+page after authoritative completion of email verification and all four setup
+steps. The frontend owns copy/dismiss controls and a persistent reopen entry.
+
+### zh
+
+> **官网设置完成了，来看看第一次检查的结果吧。**
+>
+> 把下面这句话发给刚才的 Agent，它就会按你确认的设置检查一次网络：
+>
+> *<first-check-request>*
+>
+> 〈复制这句话〉　〈稍后再试〉
+
+### en
+
+> **Website setup is complete. Let's try your first check.**
+>
+> Send this request to the Agent you were setting up. It will check the network using your confirmed settings:
+>
+> *<first-check-request>*
+>
+> 〈Copy request〉　〈Try later〉
+
+## website_copied
+
+Reserved consumer-website feedback, only after clipboard success. On clipboard
+failure keep the phrase selectable; never imply a check has started.
+
+### zh
+
+> 已复制。回到刚才的 Agent 对话，粘贴并发送即可。
+
+### en
+
+> Copied. Return to your Agent conversation, paste the request and send it.
 
 ## first_check_request
 

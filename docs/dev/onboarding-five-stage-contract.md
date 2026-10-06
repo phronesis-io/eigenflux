@@ -99,6 +99,22 @@ SQL, scheduler, or durable menu state is introduced.
 Manual cases assess language and Agent behavior; static template checks cannot
 prove model adherence. The consumer website is not delivered by this branch.
 
+The next copy revision preserves that website boundary: the pre-link website
+variant only previews the next experience; copy/paste instructions belong to
+the completion popup and clipboard-success feedback. The host fallback remains
+one short return instruction until the frontend ships. Reserved website copy
+lives in messages.md and never renders as a host popup. Check both locales,
+clipboard success/failure timing and unchanged completed-access gating.
+
+Local preview packaging is test scaffolding on a separate preview branch,
+not production onboarding. It must use a dedicated root, binary, Skills target
+and Agent Home; preserve those in an explicit receipt across restart; disable
+only that test Home's automatic Skills sync; and never pre-authorize Rules,
+create schedulers, provision identities or reuse production credentials.
+Check installation twice under a non-default path with spaces, receipt reuse,
+foreign-root rejection, and unchanged global files. Test packaging does not
+simulate website completion or alter the production templates.
+
 Run the full CLI suite, CLI build, Skill validation, migrated-reference checks,
 and non-default Home/server integration tests. Preserve existing identity,
 recovery, baseline, runtime reporting, and scheduler tests. Manually review both
