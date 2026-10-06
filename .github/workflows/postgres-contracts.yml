@@ -26,6 +26,7 @@ on:
       - 'pkg/agentidentity/**'
       - 'pkg/agentcard/**'
       - 'pkg/testaccountreset/**'
+      - 'pkg/recommendationmetrics/**'
       - 'pkg/config/**'
       - 'scripts/test_account_reset/**'
       - 'scripts/diagnostics/reconcile_reach/**'
@@ -57,6 +58,7 @@ on:
       - 'pkg/agentidentity/**'
       - 'pkg/agentcard/**'
       - 'pkg/testaccountreset/**'
+      - 'pkg/recommendationmetrics/**'
       - 'pkg/config/**'
       - 'scripts/test_account_reset/**'
       - 'scripts/diagnostics/reconcile_reach/**'
@@ -109,6 +111,11 @@ jobs:
         run: go test -race -count=1 ./scripts/diagnostics/reconcile_reach
       - name: Verify migration source contracts
         run: go test -count=1 ./migrations
+      - name: Verify recommendation attribution and daily snapshot transactions
+        run: |
+          psql "$PG_DSN" -c 'CREATE DATABASE recommendation_metrics_ci;'
+          RECOMMENDATION_METRICS_TEST_DSN='postgres://postgres:postgres@127.0.0.1:5432/recommendation_metrics_ci?sslmode=disable' \
+            go test -race -count=1 ./pkg/recommendationmetrics ./pipeline/cron -run 'TestPostgresRecommendation|TestRecommendationEffect'
       - name: Verify atomic publication and durable dispatch
         run: |
           psql "$PG_DSN" -c 'CREATE DATABASE pgc_publish_ci;'
