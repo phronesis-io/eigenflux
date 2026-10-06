@@ -320,6 +320,9 @@ func TestPostgresRecommendationRepresentativeDay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := c.Exec(`ANALYZE agents; ANALYZE replay_logs; ANALYZE feedback_logs;`); err != nil {
+		t.Fatal(err)
+	}
 	started := time.Now()
 	if err := RefreshDay(context.Background(), c, "2026-10-02", instant("2026-10-05T12:00:00+08:00")); err != nil {
 		t.Fatal(err)
@@ -330,5 +333,42 @@ func TestPostgresRecommendationRepresentativeDay(t *testing.T) {
 	 FROM recommendation_effect_daily WHERE day='2026-10-02'`).Scan(&rows, &exposures, &covered, &events)
 	if err != nil || rows != 50000 || exposures != 50000 || covered != 20000 || events != 20000 {
 		t.Fatalf("representative day counts = %d,%d,%d,%d; err=%v", rows, exposures, covered, events, err)
+	}
+}
+
+func TestPostgresRecommendationHistoricalDuplicate(t *testing.T) {
+	c := fixtureDB(t)
+	served := instant("2026-10-02T12:00:00+08:00").UnixMilli()
+	if _, err := c.Exec(`CREATE INDEX ON replay_logs(impression_id)`); err != nil {
+		t.Fatal(err)
+	}
+	_, err := c.Exec(`INSERT INTO replay_logs
+	 SELECT id,1,10,'reused-key',$1::bigint+offset_ms,true,'broadcast',
+	 'need_search_v1',2,'recommendation',0,
+	 '{"search":{"context":{"input_origin":"agent_context"}}}'::jsonb
+	 FROM (VALUES(1,-86400000),(2,0)) r(id,offset_ms)`, served)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Exec(`INSERT INTO feedback_logs(agent_id,item_id,impression_id,feedback_at,score)
+	 VALUES(1,10,'reused-key',$1::bigint+1000,1)`, served); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Exec(`INSERT INTO followup_labels VALUES(1,10,'reused-key',$1::bigint+2000,'task')`, served); err != nil {
+		t.Fatal(err)
+	}
+	if err := RefreshDay(context.Background(), c, "2026-10-02", instant("2026-10-05T00:00:00+08:00")); err != nil {
+		t.Fatal(err)
+	}
+	var delivered, ambiguous, mature, scores, tasks int64
+	err = c.QueryRow(`SELECT delivery_rows,unidentifiable_deliveries,mature_exposures
+	 FROM recommendation_effect_daily WHERE day='2026-10-02' AND basis='profile' AND lane='pgc'`).Scan(&delivered, &ambiguous, &mature)
+	if err != nil || delivered != 1 || ambiguous != 1 || mature != 0 {
+		t.Fatalf("historical duplicate delivery=%d ambiguous=%d mature=%d err=%v", delivered, ambiguous, mature, err)
+	}
+	err = c.QueryRow(`SELECT feedback_events,task_events FROM recommendation_effect_daily
+	 WHERE day='2026-10-02' AND basis='unattributed' AND lane='pgc'`).Scan(&scores, &tasks)
+	if err != nil || scores != 1 || tasks != 1 {
+		t.Fatalf("historical duplicate score=%d task=%d err=%v", scores, tasks, err)
 	}
 }
