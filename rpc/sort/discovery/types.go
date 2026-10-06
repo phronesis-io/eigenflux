@@ -316,7 +316,7 @@ func (c Context) lexicalQuery() string {
 func matchTypes(channels []string) []string {
 	out := []string{}
 	for _, channel := range channels {
-		kind := map[string]string{"exact": "exact", "lexical": "keyword", "dense": "semantic", "hot_recall": "recall", "new_recall": "recall", "new_ugc_recall": "recall", "friend": "recall", "swing_i2i": "recall"}[channel]
+		kind := map[string]string{"exact": "exact", "lexical": "keyword", "lexical_recent": "keyword", "dense": "semantic", "hot_recall": "recall", "new_recall": "recall", "new_ugc_recall": "recall", "friend": "recall", "swing_i2i": "recall"}[channel]
 		if kind != "" {
 			out = appendUnique(out, kind)
 		}

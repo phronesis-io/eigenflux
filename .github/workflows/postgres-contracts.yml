@@ -21,6 +21,7 @@ on:
       - 'pipeline/consumer/**'
       - 'rpc/item/**'
       - 'rpc/sort/discovery/**'
+      - 'scripts/diagnostics/discovery_load/**'
       - 'rpc/pm/dal/**'
       - 'tests/pmtimestampbackfill/**'
       - 'pkg/consolev2retention/**'
@@ -52,6 +53,7 @@ on:
       - 'pipeline/consumer/**'
       - 'rpc/item/**'
       - 'rpc/sort/discovery/**'
+      - 'scripts/diagnostics/discovery_load/**'
       - 'rpc/pm/dal/**'
       - 'tests/pmtimestampbackfill/**'
       - 'pkg/consolev2retention/**'
@@ -103,6 +105,10 @@ jobs:
           cache: true
       - name: Apply every migration and rollout helper
         run: bash scripts/common/migrate_up.sh
+      - name: Verify recent recall concurrency and cancellation
+        run: |
+          go test -race -count=1 ./rpc/sort/discovery -run '^(TestRecentRecall|TestRecentAdmission)'
+          go test -count=1 ./scripts/diagnostics/discovery_load
       - name: Verify broadcast keyword expiry query
         run: go test -race -count=1 ./rpc/sort/discovery -run '^TestBroadcastRetrievalFiltersExpiryAtRequestClock$'
       - name: Verify migration source contracts

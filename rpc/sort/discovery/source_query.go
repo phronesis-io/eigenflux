@@ -16,6 +16,12 @@ import (
 	"time"
 )
 
+const (
+	recentRecallConcurrency = 4
+	// Includes admission waiting, ES execution and reading its response.
+	recentRecallBudget = time.Second
+)
+
 // Decimal identity queries never fall through to fuzzy Agent retrieval, including
 // unknown and overflowing IDs. Keep IDs as strings until the checked conversion.
 func decimalAgentQuery(query string) bool {
@@ -91,8 +97,11 @@ func Query(c Context, k Kind, channel string, limit int) (map[string]any, error)
 	if limit < 1 || limit > 200 {
 		return nil, fmt.Errorf("invalid retrieval limit")
 	}
+	if channel == "lexical_recent" && k != Broadcast {
+		return nil, fmt.Errorf("recent lexical retrieval requires broadcasts")
+	}
 	filters, not := []any{}, []any{}
-	if k == Broadcast && channel == "lexical" {
+	if k == Broadcast && (channel == "lexical" || channel == "lexical_recent") {
 		at := time.Now()
 		if c.retrievalAt != 0 {
 			at = time.UnixMilli(c.retrievalAt)
@@ -103,6 +112,12 @@ func Query(c Context, k Kind, channel string, limit int) (map[string]any, error)
 				rangeFilter("expire_time", "gt", at.UTC().Format(time.RFC3339Nano)),
 			}, "minimum_should_match": 1,
 		}})
+		if channel == "lexical_recent" {
+			filters = append(filters, map[string]any{"range": map[string]any{"created_at": map[string]any{
+				"gte": at.Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339Nano),
+				"lte": at.UTC().Format(time.RFC3339Nano),
+			}}})
+		}
 	}
 	author := "author_agent_id"
 	textFields := []string{"content", "summary^2", "keywords.text"}
@@ -170,7 +185,12 @@ func Query(c Context, k Kind, channel string, limit int) (map[string]any, error)
 		boolq["filter"] = append(filters, term("commission_id", id))
 		body["size"] = 1
 		body["query"] = map[string]any{"bool": boolq}
-	case "lexical":
+	case "lexical", "lexical_recent":
+		if channel == "lexical_recent" {
+			body["sort"] = []any{map[string]any{"created_at": "desc"}, map[string]any{"_score": "desc"}}
+			body["track_scores"] = true
+			body["timeout"] = recentRecallBudget.String()
+		}
 		original := []any{map[string]any{"multi_match": map[string]any{"query": c.lexicalQuery(), "fields": textFields}}}
 		// Existing analyzers need not fold width/Unicode identically. Retain the
 		// caller's text as a parallel lexical clause until those indices migrate.
@@ -274,7 +294,7 @@ func (s *Source) search(ctx context.Context, c Context, k Kind, channel string, 
 			}
 			d.SourceIndex = h.Index
 		}
-		if channel == "lexical" {
+		if channel == "lexical" || channel == "lexical_recent" {
 			d.Lexical = h.Score
 		}
 		if channel == "exact" {

@@ -11,7 +11,7 @@ func (d Document) RecallSources() recallsource.Source {
 	var sources recallsource.Source
 	for _, channel := range d.Channels {
 		switch channel {
-		case "lexical":
+		case "lexical", "lexical_recent":
 			sources |= recallsource.Keyword
 		case "dense":
 			sources |= recallsource.KNN
