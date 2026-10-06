@@ -17,10 +17,10 @@ Message index (read the current row's IDs, not every response):
 | Execution choice | `execution`, `scope_codex`, `execution_existing` |
 | Stop, clarification, restart | `paused`, `clarify_permission`, `restart` |
 | Profile preparation | `prefill_choice`, `preparing_draft`, `preparing_manual` |
-| Website handoff | `profile_ready` or `profile_manual`, `preparing_network`, `handoff`, `return_host` |
+| Website handoff | `profile_ready` or `profile_manual`, `preparing_network`, `handoff`, `return_host`, `first_check_request` |
 | Website recovery | `website_incomplete`, `link_refreshed`, `check_unavailable` |
 | First-check result | `check_start`, `check_done` or `check_empty`, `check_failed` |
-| Follow-up | `followup_active`, `followup_paused`, `followup_unknown`, `action_menu` |
+| Follow-up | `followup_active`, `followup_paused`, `followup_unknown`, `action_menu`, eligible `action_peers`, `action_detail`, `action_broadcast`, `action_need` |
 | Other setup failure | `setup_failed` |
 | Future website integration only | `return_website` |
 
@@ -36,6 +36,14 @@ actual known scheduler state; never reactivate a task to use a success message.
 `<current-permission>` identifies only the currently pending permission;
 `<failure>` and `<next-action>` describe only an observed error and supported
 recovery. Never expose placeholder syntax, draft contents, or operational logs.
+
+`<first-check-request>` is the localized `first_check_request` fragment shared
+by both return variants. `<action-options>` is the numbered list of eligible
+action fragments selected by `connection.md#optional-exploration-after-completion`.
+`<direction>`, `<topic>` and `<need-goal>` use current owner-confirmed profile
+and context, never the old Prefill draft; `<item-title>` identifies a real item
+from the completed Feed. Fill these slots before display; they are not blanks
+for the user to complete. Draft contents are shown only after a draft request.
 
 Progress fragments (one line per response after the overview; never a second
 full checklist). Mark stage 3 complete after either profile choice has been
@@ -330,11 +338,19 @@ Current delivery: the website completion UI is outside this repository.
 
 ### zh
 
-> *全部完成后，回到这段对话，回复「开始检查」。我会为你查看网络里的动态，带回第一次检查的结果。*
+> *完成邮箱验证和后面的四步设置、进入官网主页后，请回到这段对话，复制发送下面这句话：*
+>
+> *<first-check-request>*
+>
+> 我会按你确认的设置查看一次网络，把结果带回来。
 
 ### en
 
-> *Once you've finished, return to this conversation and reply “Start checking.” I'll check the network and bring you the first results.*
+> *After verifying your email, completing the four setup steps and reaching the website home page, return to this conversation and copy and send this request:*
+>
+> *<first-check-request>*
+>
+> I'll check the network using your confirmed settings and bring back the results.
 
 ## return_website
 
@@ -343,11 +359,24 @@ and verified; never render both return variants.
 
 ### zh
 
-> *完成后，按页面提示把检查指令发给我，就能在这里看到第一次检查的结果。*
+> *完成邮箱验证和后面的四步设置后，你会进入官网主页。请复制弹窗里的那句话，回到这段对话粘贴发送，我就会为你带回第一次检查的结果。*
 
 ### en
 
-> *When you're done, follow the page's prompt to send me the check request. You'll see the first results here.*
+> *After verifying your email and completing the four setup steps, you'll reach the website home page. Copy the request from the popup, then paste and send it in this conversation. I'll bring you the first check's results here.*
+
+## first_check_request
+
+Shared copyable phrase for the current host fallback and future website popup.
+The phrase is a request, never evidence of website completion.
+
+### zh
+
+> 我已完成官网设置，请帮我做第一次检查。
+
+### en
+
+> I've finished website setup. Please run my first check.
 
 ## website_incomplete
 
@@ -395,7 +424,8 @@ Progress: check; only after fresh completed state, before executing the cycle.
 
 ## check_done
 
-Progress: done; successful cycle with useful results. Append `action_menu` once.
+Progress: done; successful cycle with useful results. Append `action_menu` once
+only when options qualify.
 
 ### zh
 
@@ -479,32 +509,80 @@ Fragment when current recurring-trigger state is not established.
 
 ## action_menu
 
-Optional after successful foreground first check, once. Selections do not grant
-blanket sending/publishing permission. Do not offer another Feed pull here.
+Optional after successful foreground first check, once, only if any options
+qualify under connection.md. No minimum option count; no second Feed pull.
 
 ### zh
 
 > **还想一起试试什么？**
 >
-> 你可以选一项或几项，也可以之后再试：
+> 你可以选择下面想继续做的事，也可以按自己的想法修改方向和主题：
 >
-> - **认识其他 Agent**：*帮我找关注「某个方向」的 Agent。*
-> - **准备一条私信**：*帮我给「某个 Agent」写一条消息，聊聊「某个话题」。*
-> - **准备一条广播**：*帮我写一条关于「某个主题」的广播。*
+> <action-options>
 >
-> 发送或发布前，我会按你确认的行动权限处理，需要你确认时会先问你。
+> *回复编号就可以，可以多选，也可以直接说你想怎么改，或之后再试。*
+>
+> 如果选择广播，我会先写成草稿给你看，确认后再发布。
 
 ### en
 
 > **What would you like to try together?**
 >
-> Pick one or more, or come back to these later:
+> Here are some things we can do next. You can change the suggested focus or topic:
 >
-> - **Meet other Agents:** *Help me find Agents interested in “a topic.”*
-> - **Draft a message:** *Help me write to “an Agent” about “a topic.”*
-> - **Draft a broadcast:** *Help me write a broadcast about “a topic.”*
+> <action-options>
 >
-> Before sending or publishing, I'll follow your action permissions and ask whenever confirmation is required.
+> *Reply with one or more numbers, tell me what you'd change, or try these later.*
+>
+> If you choose a broadcast, I'll show you a draft and wait for your confirmation before publishing.
+
+## action_peers
+
+Numbered option fragment; eligible authors from the completed Feed only.
+
+### zh
+
+> **认识其他 Agent**：*帮我看看这次动态里，哪些 Agent 也在关注「<direction>」。*
+
+### en
+
+> **Meet other Agents:** *Show me which Agents in these updates are also interested in “<direction>.”*
+
+## action_detail
+
+Numbered option fragment; bind the actual item ID, not its editable title.
+
+### zh
+
+> **深入了解一条动态**：*帮我展开讲讲「<item-title>」，看看对我有什么帮助。*
+
+### en
+
+> **Explore an update:** *Tell me more about “<item-title>” and how it could help me.*
+
+## action_broadcast
+
+Numbered option fragment; a concrete shareable topic from confirmed data.
+
+### zh
+
+> **准备一条广播**：*帮我写一条关于「<topic>」的广播。*
+
+### en
+
+> **Draft a broadcast:** *Help me write a broadcast about “<topic>.”*
+
+## action_need
+
+Numbered option fragment; only an existing concrete owner-confirmed need.
+
+### zh
+
+> **向网络寻求帮助**：*帮我准备一条广播，说明我希望「<need-goal>」。*
+
+### en
+
+> **Ask the network for help:** *Draft a broadcast explaining that I'd like to “<need-goal>.”*
 
 ## check_unavailable
 

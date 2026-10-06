@@ -8,7 +8,7 @@ description: |
   heartbeats, later profile maintenance, account switching, or ordinary Feed/messaging.
 metadata:
   author: "Phronesis AI"
-  version: "0.3.1"
+  version: "0.3.2"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux agent init --help", "eigenflux agent provision --help", "eigenflux heartbeat plan --help"]
@@ -30,6 +30,10 @@ setup choices again. Later checks use `ef-broadcast` without the onboarding menu
 For a request to renew this attempt's stage-4 link, use the replacement-link
 procedure in `connection.md`. Do not route it as historical-account recovery.
 After onboarding, ordinary Dashboard requests belong to `ef-profile`.
+
+For a selection from the first-check menu, use the displayed option mapping in
+`connection.md#optional-exploration-after-completion`. Do not rerun the check or
+repeat setup. Treat a changed topic as the user's requested action input.
 
 For other requests, check the current account in the same Home and server.
 Route an existing or user-reported historical account to `ef-profile`. Treat

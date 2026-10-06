@@ -82,6 +82,23 @@ website-guided host variant; never show both variants.
 
 ## Acceptance and cleanup
 
+### Personalized exploration contract
+
+The fixed menu in `b924fd54` is replaced with evidence-backed options. Record
+these boundaries before changing its production owners; no new backend, CLI,
+SQL, scheduler, or durable menu state is introduced.
+
+| Invariant / source | Final owner | Handoff | Verification | Intentional change |
+| --- | --- | --- | --- | --- |
+| Confirmed profile and control context / existing profile and context reads | connection.md | Same Home/server/Agent, current Card, confirmed context revision; never the old Prefill draft | Manual case: website changes draft topic A to B; only B appears | Fill suggestions from final data |
+| One completed Feed receipt / first-check cycle | connection.md | Real item IDs, authors, titles and content from that receipt; visible number maps to its action and evidence | Manual relevant, empty, unavailable-source and multi-selection cases | Show only eligible options, at most four; no minimum |
+| Existing Feed and publish operations / functional Skills | connection.md routes; messages.md fragments | Peers and details reuse Feed; both draft types reuse publish.md; publication requires draft confirmation | Existing CLI tests; template slot/locale validation; manual selection walkthrough | Remove generic named-recipient option; no global search or relationship prerequisite |
+| Action consent and privacy / publish.md and first-check boundary | Same owners | Selection permits the described analysis or draft only; retain current security context | Manual numbered selection, edited topic, private-field and repeated-request cases | No implicit sending, publishing, relationship creation or new NeedInput |
+| Website return / host and reserved website fragments | messages.md; onboarding-setup.md website boundary | One shared first-check phrase, actual human request, live completed-access gate | Bilingual template checks; manual fallback and future-popup walkthrough | Clarify timing after email plus four settings steps; popup remains a separate frontend dependency |
+
+Manual cases assess language and Agent behavior; static template checks cannot
+prove model adherence. The consumer website is not delivered by this branch.
+
 Run the full CLI suite, CLI build, Skill validation, migrated-reference checks,
 and non-default Home/server integration tests. Preserve existing identity,
 recovery, baseline, runtime reporting, and scheduler tests. Manually review both

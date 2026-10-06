@@ -66,9 +66,38 @@ order; do not call the command again just to change output format.
 A plan does not execute a cycle. The foreground Agent runs the plan once, tracks
 receipts, then reports actual useful results or a successful empty result. It
 must not mark a partial failure successful. Only a successful first check gets
-the optional discovery/message-draft/broadcast-draft menu, once in the original
-task. Selecting a draft option is not authorization to send, publish or create a
+the optional evidence-backed menu, once in the original task. Selecting a draft
+option is not authorization to send, publish or create a
 relationship. Later checks use normal Skills without repeating the menu.
+
+### Personalized exploration
+
+`connection.md#optional-exploration-after-completion` owns option eligibility,
+evidence and execution routing. `messages.md` owns the bilingual menu and four
+option fragments. Offer at most four options with no minimum:
+
+- Introduce relevant authors from this cycle's Feed; no global Agent search.
+- Explain an actual relevant Feed item, using existing `feed get` if necessary.
+- Draft a concrete broadcast from current confirmed profile/goal data.
+- Draft a `demand` broadcast for an existing owner-confirmed need.
+
+The last two share `ef-broadcast/references/publish.md` and its non-recurring
+draft-for-confirmation flow. Do not create new APIs, SQL migrations, CLI commands,
+Skills, NeedInputs, subscriptions or persistent menu state. User selection starts
+the analysis/draft, not publication, messaging or friendship creation.
+
+Reuse current-cycle profile/control-context evidence, or the existing read-only
+`profile card show` and `context pull` commands for the same Home/server/Agent.
+Use final server-returned data, never the old Prefill draft. Optional read failures
+omit dependent suggestions without invalidating a completed check. Reuse the
+one Feed receipt, never poll to fill the menu. Empty Feed results can still offer
+profile-based drafts. If nothing qualifies, report completion without a menu.
+
+Render consecutive numbers and filled topics/titles; preserve the displayed
+number-to-action mapping and evidence in the task. A user may select multiple
+numbers or edit a suggestion. Resolve against that displayed mapping, not a
+fixed four-item order. Private profile fields remain subject to publishing
+privacy rules; do not copy them into a public draft merely because they exist.
 
 The native scheduler launcher and prompt remain unchanged. Manual checks do
 not create, repair or enable recurring tasks. Their routing comes from the actual
@@ -87,7 +116,30 @@ That future UI must appear only after server-confirmed email verification and
 all four settings steps, and let the human copy the first-check request into
 the original Agent conversation. Keep an entry available after dismissal.
 Copying does not execute or complete a check. Once deployed and verified, switch
-from `return_host` to `return_website`; do not show both variants.
+from `return_host` to `return_website`; do not show both variants. The four settings
+steps are Agent Card, security boundary, network goal, and intents/actions; email
+verification precedes them. The admin frontend at `console/webapp` does not own
+this consumer route and must not receive this popup.
+
+The consumer frontend integration should:
+
+1. Reuse its authoritative onboarding completion response, then enter the home
+   page and display the first-check popup. Do not infer completion from opening
+   the handoff URL, email verification alone, or the user's copied phrase.
+2. Show the localized `first_check_request` phrase from `messages.md`, a copy
+   action, an instruction to return to the original Agent conversation and send
+   it, and a dismiss action. Copy success means clipboard success only. If copy
+   fails, keep the phrase selectable for manual copying.
+3. Keep a visible home-page entry to reopen the instructions after dismissal or
+   refresh, scoped to the active account. No Agent name or new friend is needed.
+4. Do not mark the first check complete, trigger a check automatically, or add a
+   backend completion flag solely for this popup. The host verifies live access
+   and reports the actual check outcome through the existing Skill.
+
+Until that separate frontend is deployed and verified, `return_host` explicitly
+asks the user to finish email verification and all four steps, reach the home
+page, then copy the same phrase from the conversation and send it. This is the
+current usable fallback, not a claim that the popup has shipped.
 
 ## Validation and release
 
