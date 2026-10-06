@@ -13,6 +13,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Decimal identity queries never fall through to fuzzy Agent retrieval, including
@@ -91,6 +92,18 @@ func Query(c Context, k Kind, channel string, limit int) (map[string]any, error)
 		return nil, fmt.Errorf("invalid retrieval limit")
 	}
 	filters, not := []any{}, []any{}
+	if k == Broadcast && channel == "lexical" {
+		at := time.Now()
+		if c.retrievalAt != 0 {
+			at = time.UnixMilli(c.retrievalAt)
+		}
+		filters = append(filters, map[string]any{"bool": map[string]any{
+			"should": []any{
+				map[string]any{"bool": map[string]any{"must_not": []any{map[string]any{"exists": map[string]any{"field": "expire_time"}}}}},
+				rangeFilter("expire_time", "gt", at.UTC().Format(time.RFC3339Nano)),
+			}, "minimum_should_match": 1,
+		}})
+	}
 	author := "author_agent_id"
 	textFields := []string{"content", "summary^2", "keywords.text"}
 	lang := "lang.keyword"

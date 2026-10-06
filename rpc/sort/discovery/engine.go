@@ -322,6 +322,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	userRecalls := map[string]*userRecall{"swing_i2i": {}}
 	sem := make(chan struct{}, 6)
 	for ci, c := range contexts {
+		c.retrievalAt = now
 		if !c.Active(now) {
 			return x, Failure(409, "inactive_context")
 		}

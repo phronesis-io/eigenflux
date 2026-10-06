@@ -140,6 +140,12 @@ plus their separator), independently of the explicit query weighted-length limit
 Oversized internal clauses are shortened at a rune boundary and marked
 `context_query_truncated`; stored inputs remain unchanged.
 
+Broadcast keyword ES queries exclude expired documents before the candidate
+limit, while accepting documents without an expiry. The request-local execution
+clock is used for this predicate, including simulated executions. Current
+PostgreSQL state and expiry are still checked after hydration. Dense query filters
+remain unchanged. This fix adds no recall channel or ES query per request.
+
 Public `match.match_types` contains deduplicated `exact`, `keyword`, `semantic`
 and `recall` labels. These describe retrieval paths, not confidence or guaranteed
 literal equality. Query text and vectors never appear in result cards.

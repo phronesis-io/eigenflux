@@ -20,6 +20,7 @@ on:
       - 'pkg/mq/**'
       - 'pipeline/consumer/**'
       - 'rpc/item/**'
+      - 'rpc/sort/discovery/**'
       - 'rpc/pm/dal/**'
       - 'tests/pmtimestampbackfill/**'
       - 'pkg/consolev2retention/**'
@@ -51,6 +52,7 @@ on:
       - 'pkg/mq/**'
       - 'pipeline/consumer/**'
       - 'rpc/item/**'
+      - 'rpc/sort/discovery/**'
       - 'rpc/pm/dal/**'
       - 'tests/pmtimestampbackfill/**'
       - 'pkg/consolev2retention/**'
@@ -103,6 +105,8 @@ jobs:
           cache: true
       - name: Apply every migration and rollout helper
         run: bash scripts/common/migrate_up.sh
+      - name: Verify broadcast keyword expiry query
+        run: go test -race -count=1 ./rpc/sort/discovery -run '^TestBroadcastRetrievalFiltersExpiryAtRequestClock$'
       - name: Verify historical Reach floor and concurrent consumption
         env:
           REACH_TEST_DSN: postgres://postgres:postgres@127.0.0.1:5432/eigenflux?sslmode=disable
