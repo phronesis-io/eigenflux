@@ -57,3 +57,26 @@ review generated audit patches, run original CLI/installer tests and snapshot
 HTTP integration, then verify every published artifact checksum. Manual testing
 will still be required for host approvals, restart continuation, website setup
 and actual user-visible first-check results. Publishing does not install locally.
+
+## Distribution-switch rollback contract
+
+A signed sequence belongs to its signing authority, not every distribution
+sharing a host Skills directory. The immutable snapshot uses its own signing
+key and sequence 1. The source syncDecision compares sequences across authorities;
+a prior production manifest at sequence 33 with all four managed directories
+removed therefore blocks first snapshot installation.
+
+The snapshot build overlay scopes that sequence comparison to identical key IDs.
+Keep trusted remote signature verification, equal-sequence/different-revision
+rejection and lower-sequence rejection within the same authority unchanged.
+Keep managed edit and unrelated Skill preservation, atomic swap, explicit Home,
+server and native host routing unchanged. No installed local files are deleted
+by the builder or publisher, and no production CLI source is edited.
+
+Cross-authority installation must still end on the compiled snapshot revision,
+verify its local signature and all managed hashes, and fail if preserved edits
+prevent that postcondition. It cannot accept an old foreign installation as a
+successful snapshot. Regress with a real independently signed local sequence-33
+manifest both with missing managed folders and with intact old folders; preserve
+an unrelated Skill. Then verify repeated sync, same-authority rollback/reuse,
+signature tampering and non-default identity/server handoffs.

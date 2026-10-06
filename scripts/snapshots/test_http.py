@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Native CLI and installer checks against a real local HTTP fixture."""
+import base64
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib.util
@@ -8,6 +9,8 @@ import os
 from pathlib import Path
 import platform
 import shlex
+import shutil
+import tarfile
 import subprocess
 import tempfile
 import threading
@@ -86,13 +89,40 @@ def main():
             # Regression: same semver, wrong bytes must still be replaced.
             binary.write_text("#!/bin/sh\nprintf '0.0.55\\n'\n")
             binary.chmod(0o755)
+            # A prior independently signed release can leave its manifest after
+            # managed folders are removed. Reproduce the observed sequence-33
+            # failure through the real installer, without touching user files.
+            foreign_stage = root / "foreign release"
+            shutil.copytree(build / "skills", foreign_stage)
+            for entry in foreign_stage.glob("*/SKILL.md"):
+                entry.write_bytes(entry.read_bytes() + b"\nPrior channel fixture\n")
+            foreign_tar = root / "foreign.tar.gz"
+            with tarfile.open(foreign_tar, "w:gz") as archive:
+                for directory in foreign_stage.iterdir():
+                    archive.add(directory, arcname=directory.name)
+            foreign_seed = root / "foreign-seed"
+            foreign_seed.write_text(base64.b64encode(os.urandom(32)).decode())
+            foreign_manifest = root / "foreign-manifest.json"
+            subprocess.run(["go", "run", "./cmd/manifestgen", "--skills-dir", str(foreign_stage),
+                            "--cli-version", "0.0.55", "--sequence", "33", "--signing-key-file", str(foreign_seed),
+                            "--tarball", str(foreign_tar), "--out", str(foreign_manifest)],
+                           cwd=build / "source/cli", check=True, capture_output=True, text=True)
+            foreign_seed.unlink()
+            foreign = json.loads(foreign_manifest.read_bytes())
+            assert foreign["key_id"] != json.loads((public / "skills/latest/manifest.json").read_bytes())["key_id"]
+            skills.mkdir()
+            (skills / ".ef-manifest.json").write_bytes(foreign_manifest.read_bytes())
+            unrelated = skills / "unrelated-skill/SKILL.md"
+            unrelated.parent.mkdir()
+            unrelated.write_text("Unrelated skill must survive")
             installer = root / "installer-functions.sh"
             installer.write_text((public / "install.sh").read_text().split("# ── Main ──", 1)[0])
             install_env = dict(env, PATH=str(bindir) + os.pathsep + env["PATH"],
                                EIGENFLUX_HOME=str(home), EIGENFLUX_SKILLS_DIR=str(skills),
                                EIGENFLUX_INSTALL_DIR=str(bindir), EIGENFLUX_CDN_URL="http://127.0.0.1:1/incorrect")
-            subprocess.run(["sh", "-c", '. "$1"; install_cli; verify_snapshot_cli; install_skills', "snapshot-installer", str(installer)],
-                           env=install_env, check=True, capture_output=True, text=True)
+            installed = subprocess.run(["sh", "-c", '. "$1"; install_cli; verify_snapshot_cli; install_skills', "snapshot-installer", str(installer)],
+                                       env=install_env, capture_output=True, text=True)
+            assert installed.returncode == 0, installed.stdout + installed.stderr
             expected_binary = public / "cli/0.0.55" / ("eigenflux-" + target_os + "-" + arch)
             assert builder.digest(binary) == builder.digest(expected_binary), "same-version installer failed to replace binary"
             def call(*args, success=True, extra=None, agent_home=home):
@@ -102,6 +132,16 @@ def main():
                     assert result.returncode == 0, result.stdout + result.stderr
                 return result
             call("skills", "target", "set", "--path", str(skills), "--host", "codex")
+            assert unrelated.read_text() == "Unrelated skill must survive"
+            # Switching with intact old managed folders must also install the
+            # requested signed snapshot, preserving unrelated skill content.
+            intact_home, intact_target = root / "intact/.eigenflux", root / "intact skills"
+            shutil.copytree(foreign_stage, intact_target)
+            (intact_target / ".ef-manifest.json").write_bytes(foreign_manifest.read_bytes())
+            call("skills", "target", "set", "--path", str(intact_target), "--host", "codex", agent_home=intact_home)
+            intact_result = json.loads(call("skills", "sync", "--format", "json", agent_home=intact_home).stdout)
+            assert intact_result["verified_manifest"]
+            assert json.loads((intact_target / ".ef-manifest.json").read_bytes())["revision"] == proof["skills_revision"]
             for _ in range(3):
                 synced = json.loads(call("skills", "sync", "--format", "json", extra={"EIGENFLUX_CDN_URL": "http://127.0.0.1:1"}).stdout)
                 assert synced["verified_manifest"]
@@ -139,6 +179,12 @@ def main():
             manifest_file.write_text(json.dumps(stale))
             assert call("skills", "sync", success=False).returncode != 0, "wrong higher-sequence fallback accepted"
             manifest_file.write_bytes(original_manifest)
+            reused = json.loads(original_manifest)
+            reused["revision"] = "different-content-at-same-sequence"
+            manifest_file.write_text(json.dumps(reused))
+            rejected = call("skills", "sync", success=False)
+            assert rejected.returncode != 0 and "sequence reused" in rejected.stderr, rejected.stderr
+            manifest_file.write_bytes(original_manifest)
             state["tamper_signature"] = True
             fresh_home, fresh_target = root / "fresh/.eigenflux", root / "fresh skills"
             call("skills", "target", "set", "--path", str(fresh_target), agent_home=fresh_home)
@@ -146,7 +192,7 @@ def main():
             # No grading/test instructions were added to the public entry.
             entry = (public / "install.md").read_text().replace(proof["base_url"] + "/install.sh", "https://www.eigenflux.ai/install.sh").replace(proof["base_url"] + "/install.ps1", "https://eigenflux.ai/install.ps1")
             assert entry == (build / "source/skills/install.md").read_text()
-            print("PASS: real HTTP install, binary replacement, repeated signed sync, lifecycle plans, metadata, drift/signature rejection and unchanged entry prose")
+            print("PASS: real HTTP install with signed foreign sequence-33 residue, intact channel switch, unrelated-skill preservation, repeated signed sync, lifecycle plans, same-authority rollback/reuse, drift/signature rejection and unchanged entry prose")
         finally:
             server.shutdown()
             server.server_close()

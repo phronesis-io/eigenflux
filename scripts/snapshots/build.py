@@ -186,7 +186,14 @@ def make(build_dir, base, platforms):
         }
     }()
 '''.replace("__REVISION__", revision)
-    patch("internal/skills/sync.go", replace_once(original, "func Sync(opts SyncOptions) (result *SyncResult, err error) {", postcondition))
+    # Release sequence numbers are local to each immutable signing authority.
+    # Switching from production/another snapshot retains all normal integrity
+    # and preservation checks, while avoiding an unrelated sequence comparison.
+    amended_sync = replace_once(original, "func Sync(opts SyncOptions) (result *SyncResult, err error) {", postcondition)
+    amended_sync = replace_once(amended_sync,
+                                "if local != nil && local.Sequence > 0 {",
+                                "if local != nil && local.Sequence > 0 && local.KeyID == remote.KeyID {")
+    patch("internal/skills/sync.go", amended_sync)
     patch("cmd/doctor.go", (cli / "cmd/doctor.go").read_text().replace("https://www.eigenflux.ai/install.sh", base + "/install.sh"))
     overlay_file = overlay / "overlay.json"
     overlay_file.write_text(json.dumps({"Replace": replacements}, indent=2))

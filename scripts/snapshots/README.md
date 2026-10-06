@@ -29,9 +29,11 @@ prompt or scheduler body. Operators manage rule toggles and collect evidence
 outside the tested conversation.
 
 The distribution is intended for a clean installation, as in the manual
-onboarding tests. An existing manifest from a different signer/sequence or
-modified installed Skills may be rejected; it is never silently accepted as the
-requested revision. Preserve and clean old installations through the normal
+onboarding tests. Existing production or earlier-snapshot sequence numbers are scoped to their
+signing authority. Switching authorities installs the requested trusted snapshot
+without comparing unrelated sequence numbers. Modified managed Skills remain
+preserved and may block successful installation; an old foreign installation is
+never silently accepted as the requested revision. Preserve and clean old installations through the normal
 operator process rather than weakening rollback or signature verification.
 
 Validation:
