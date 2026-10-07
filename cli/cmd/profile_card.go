@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
@@ -17,6 +18,10 @@ import (
 )
 
 const maxProfilePatchBytes = 128 << 10
+
+// profileRefreshCompleteHeader carries the evaluated profile_version on the
+// refresh-complete version check so the server can log a no-change refresh.
+const profileRefreshCompleteHeader = "X-EF-Profile-Refresh-Complete"
 
 var profileCardCmd = &cobra.Command{
 	Use:   "card",
@@ -114,7 +119,11 @@ still current before recording completion.`,
 			return fmt.Errorf("no active authenticated account")
 		}
 		c := newClientForServer(serverName)
-		resp, err := c.Get("/agents/me/card/refresh-context", nil)
+		// The header lets the server count no-change evaluations; the
+		// response is the same.
+		resp, err := c.GetWithHeaders("/agents/me/card/refresh-context", nil, map[string]string{
+			profileRefreshCompleteHeader: strconv.FormatInt(expectedVersion, 10),
+		})
 		if err != nil {
 			return err
 		}
@@ -130,12 +139,10 @@ still current before recording completion.`,
 		if current.ProfileVersion != expectedVersion {
 			return fmt.Errorf("profile changed since version %d (current version %d); run 'eigenflux profile refresh-context' and evaluate again", expectedVersion, current.ProfileVersion)
 		}
-		runID, trigger, err := completeProfileRefreshFor(serverName, agentID, kvProfileRefreshCheckedAt)
-		if err != nil {
+		if err := stampProfileRefreshKeyFor(serverName, agentID, kvProfileRefreshCheckedAt); err != nil {
 			return fmt.Errorf("record completed profile refresh: %w", err)
 		}
 		output.PrintMessage("Profile refresh check completed (no changes)")
-		reportProfileRefreshCompleted(serverName, runID, trigger, nil)
 		return nil
 	},
 }
@@ -254,11 +261,8 @@ Examples:
 		output.PrintMessage("Profile patched")
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
 		if source == "cli_daily_refresh" {
-			runID, trigger, stampErr := completeProfileRefreshFor(serverName, agentID, kvProfileRefreshAt)
-			if stampErr != nil {
+			if stampErr := stampProfileRefreshKeyFor(serverName, agentID, kvProfileRefreshAt); stampErr != nil {
 				output.PrintMessage("warning: profile was updated but local refresh state could not be saved: %v", stampErr)
-			} else {
-				reportProfileRefreshCompleted(serverName, runID, trigger, patchChangedPaths(resp.Data))
 			}
 		}
 		return nil

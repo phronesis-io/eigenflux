@@ -62,17 +62,27 @@ var profilePromptWriter io.Writer = os.Stderr
 // real block the "extra command" shape the contract treats as a forgery. The
 // procedure lives in the ef-profile skill instead.
 
-// completeProfileRefreshFor stamps a completed refresh (kvProfileRefreshAt for
-// a successful automated field write, kvProfileRefreshCheckedAt for an
-// explicitly completed no-change evaluation) and, in the same locked update,
-// takes the pending dispatched run it completes. It returns the run_id and
-// trigger to report. Merely reading refresh-context never calls it.
-func completeProfileRefreshFor(srv, agentID, key string) (string, string, error) {
+// stampProfileRefreshed records a successful automated field refresh.
+// Best-effort: a write failure only costs one extra prompt later.
+func stampProfileRefreshed() error { return stampProfileRefreshKey(kvProfileRefreshAt) }
+
+// stampProfileChecked records an explicitly completed no-change evaluation.
+// Merely reading refresh-context never calls this function.
+func stampProfileChecked() error { return stampProfileRefreshKey(kvProfileRefreshCheckedAt) }
+
+func stampProfileRefreshKey(key string) error {
+	srv, agentID := activeProfileStateScope()
+	if srv == "" || agentID == "" {
+		return fmt.Errorf("no active authenticated account")
+	}
+	return stampProfileRefreshKeyFor(srv, agentID, key)
+}
+
+func stampProfileRefreshKeyFor(srv, agentID, key string) error {
 	now := time.Now().Unix()
 	if key != kvProfileRefreshAt && key != kvProfileRefreshCheckedAt {
-		return "", "", fmt.Errorf("unknown profile refresh state key %q", key)
+		return fmt.Errorf("unknown profile refresh state key %q", key)
 	}
-	var runID, trigger string
 	_, err := profilestate.Update(config.HomeDir(), srv, agentID, func(state *profilestate.State) bool {
 		if key == kvProfileRefreshAt {
 			state.LastRefreshUnix = now
@@ -80,13 +90,9 @@ func completeProfileRefreshFor(srv, agentID, key string) (string, string, error)
 			state.LastCheckedUnix = now
 		}
 		state.LastPromptedUnix = 0
-		runID, trigger = takePendingProfileRefreshRun(state, now)
 		return true
 	})
-	if err != nil {
-		return "", "", err
-	}
-	return runID, trigger, nil
+	return err
 }
 
 // shouldPromptProfileRefresh is the pure decision. lastTouch is the newer of
@@ -130,7 +136,6 @@ func maybePromptProfileRefreshFor(srv, agentID string) {
 	}
 	now := time.Now().Unix()
 	emit := false
-	var dispatch profileRefreshDispatch
 	claimStamp := now - int64((profilePromptCooldown-profilePromptClaimLease)/time.Second)
 	_, err := profilestate.Update(config.HomeDir(), srv, agentID, func(state *profilestate.State) bool {
 		lastTouch := maxInt64(
@@ -151,9 +156,6 @@ func maybePromptProfileRefreshFor(srv, agentID string) {
 		// Claim briefly before writing so concurrent polls cannot duplicate the
 		// task. A failed write is retried after the short lease, not one hour.
 		state.LastPromptedUnix = claimStamp
-		// Record the run before the line is visible so a fast completion
-		// always finds it.
-		dispatch = setPendingProfileRefreshRun(state, profileRefreshTriggerPendingLine, now)
 		emit = true
 		return true
 	})
@@ -161,7 +163,6 @@ func maybePromptProfileRefreshFor(srv, agentID string) {
 		return
 	}
 	if err := output.PrintMessageTo(profilePromptWriter, "\n%s", output.ProfileRefreshPromptLine); err != nil {
-		clearUndeliveredProfileRefreshRun(config.HomeDir(), srv, agentID, dispatch)
 		return
 	}
 	_, _ = profilestate.Update(config.HomeDir(), srv, agentID, func(state *profilestate.State) bool {
@@ -171,7 +172,6 @@ func maybePromptProfileRefreshFor(srv, agentID string) {
 		state.LastPromptedUnix = now
 		return true
 	})
-	reportProfileRefreshDispatched(srv, dispatch)
 }
 
 func pluginOwnsProfileRefresh(_ string, mode string) bool {
