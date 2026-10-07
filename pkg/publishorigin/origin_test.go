@@ -43,15 +43,3 @@ func TestContextRoundTripCarriesOnlyRecognizedValues(t *testing.T) {
 		t.Fatalf("absent origin = %q, want empty", got)
 	}
 }
-
-func TestColumnStoresNullForUnknown(t *testing.T) {
-	if Column("") != nil || Column("bogus") != nil {
-		t.Fatal("unknown origin must be stored as NULL")
-	}
-	if got := Column(Heartbeat); got == nil || *got != Heartbeat {
-		t.Fatalf("Column(heartbeat) = %v", got)
-	}
-	if got := Column(Owner); got == nil || *got != Owner {
-		t.Fatalf("Column(owner) = %v", got)
-	}
-}

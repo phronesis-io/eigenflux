@@ -64,7 +64,6 @@ func (s *ItemServiceImpl) PublishItem(ctx context.Context, req *item.PublishItem
 		RawContent:    req.RawContent,
 		RawNotes:      req.GetRawNotes(),
 		RawURL:        req.GetRawUrl(),
-		PublishOrigin: publishorigin.Column(publishorigin.FromContext(ctx)),
 	}
 	expectedResponse := ""
 	if req.AcceptReply != nil && !*req.AcceptReply {
@@ -75,9 +74,19 @@ func (s *ItemServiceImpl) PublishItem(ctx context.Context, req *item.PublishItem
 		Status:           dal.StatusPending,
 		ExpectedResponse: expectedResponse,
 	}
+	origin := publishorigin.FromContext(ctx)
 	err := db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := dal.CreateRawItem(tx, raw); err != nil {
 			return err
+		}
+		if origin != "" {
+			skipped, err := dal.RecordPublishOrigin(tx, raw.ItemID, origin)
+			if err != nil {
+				return err
+			}
+			if skipped != nil {
+				logger.Ctx(ctx).Warn("PublishItem origin not recorded", "itemID", raw.ItemID, "origin", origin, "err", skipped)
+			}
 		}
 		if err := dal.CreateProcessedItem(tx, pi); err != nil {
 			return err

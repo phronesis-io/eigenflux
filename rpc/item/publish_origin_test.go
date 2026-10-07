@@ -21,11 +21,19 @@ func storedPublishOrigin(t *testing.T, gdb *gorm.DB) sql.NullString {
 	return origin
 }
 
+// The DAL model does not map publish_origin; SQLite fixtures add the column the
+// way migration 000115 does.
+func addPublishOriginColumn(t *testing.T, gdb *gorm.DB) {
+	t.Helper()
+	require.NoError(t, gdb.Exec("ALTER TABLE raw_items ADD COLUMN publish_origin TEXT").Error)
+}
+
 func TestPublishRecordsRecognizedOrigin(t *testing.T) {
 	for _, origin := range []string{publishorigin.Heartbeat, publishorigin.Owner} {
 		t.Run(origin, func(t *testing.T) {
 			gdb := newDeleteItemTestDB(t)
 			seedPublishAuthor(t, gdb)
+			addPublishOriginColumn(t, gdb)
 			ctx := publishorigin.WithOrigin(publishContext(), origin)
 			resp, err := (&ItemServiceImpl{itemIDGen: publishFixtureID{}}).PublishItem(ctx, publishRequest())
 			require.NoError(t, err)
@@ -40,12 +48,13 @@ func TestPublishStoresNullForAbsentOrUnrecognizedOrigin(t *testing.T) {
 	cases := map[string]context.Context{
 		"absent": publishContext(),
 		// A gateway bug or a foreign caller cannot smuggle an arbitrary value.
-		"unrecognized": metainfo.WithPersistentValue(publishContext(), "item-publish-origin", "scheduled"),
+		"unrecognized": metainfo.WithValue(publishContext(), "item-publish-origin", "scheduled"),
 	}
 	for name, ctx := range cases {
 		t.Run(name, func(t *testing.T) {
 			gdb := newDeleteItemTestDB(t)
 			seedPublishAuthor(t, gdb)
+			addPublishOriginColumn(t, gdb)
 			resp, err := (&ItemServiceImpl{itemIDGen: publishFixtureID{}}).PublishItem(ctx, publishRequest())
 			require.NoError(t, err)
 			require.Zero(t, resp.BaseResp.Code)
@@ -55,25 +64,29 @@ func TestPublishStoresNullForAbsentOrUnrecognizedOrigin(t *testing.T) {
 	}
 }
 
-// Publishes without an origin must not reference the new column, so they keep
-// working on a database where migration 000115 has not run yet.
-func TestPublishWithoutOriginSucceedsBeforeColumnExists(t *testing.T) {
-	gdb := newDeleteItemTestDB(t)
-	seedPublishAuthor(t, gdb)
-	require.NoError(t, gdb.Exec("ALTER TABLE raw_items DROP COLUMN publish_origin").Error)
-	resp, err := (&ItemServiceImpl{itemIDGen: publishFixtureID{}}).PublishItem(publishContext(), publishRequest())
-	require.NoError(t, err)
-	require.Zero(t, resp.BaseResp.Code)
-	assertPublishRowCounts(t, gdb, 1)
+// Origin is telemetry: before migration 000115 (or after its Down) every
+// publish, with or without an origin, still succeeds and writes every row.
+func TestPublishSucceedsBeforeColumnExists(t *testing.T) {
+	for _, origin := range []string{"", publishorigin.Heartbeat, publishorigin.Owner} {
+		t.Run("origin="+origin, func(t *testing.T) {
+			gdb := newDeleteItemTestDB(t)
+			seedPublishAuthor(t, gdb)
+			ctx := publishorigin.WithOrigin(publishContext(), origin)
+			resp, err := (&ItemServiceImpl{itemIDGen: publishFixtureID{}}).PublishItem(ctx, publishRequest())
+			require.NoError(t, err)
+			require.Zero(t, resp.BaseResp.Code)
+			assertPublishRowCounts(t, gdb, 1)
+		})
+	}
 }
 
 func TestPostgresPublishOriginAcrossMigration000115(t *testing.T) {
 	gdb := publishPostgresDB(t)
-	require.NoError(t, gdb.Exec("ALTER TABLE raw_items DROP COLUMN publish_origin").Error)
 	svc := &ItemServiceImpl{itemIDGen: publishFixtureID{}}
 
-	// Before the migration: a publish without origin is unchanged.
-	resp, err := svc.PublishItem(publishContext(), publishRequest())
+	// Before the migration: a heartbeat publish still commits every row; the
+	// failed origin update is confined to its savepoint.
+	resp, err := svc.PublishItem(publishorigin.WithOrigin(publishContext(), publishorigin.Heartbeat), publishRequest())
 	require.NoError(t, err)
 	require.Zero(t, resp.BaseResp.Code)
 	assertPublishRowCounts(t, gdb, 1)

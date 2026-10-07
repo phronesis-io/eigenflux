@@ -27,28 +27,18 @@ func Normalize(raw string) string {
 	}
 }
 
-// WithOrigin carries a recognized origin from the gateway to the item RPC.
-// Unrecognized values leave ctx unchanged.
+// WithOrigin carries a recognized origin from the gateway to the item RPC as a
+// transient (single-hop) RPC value. Unrecognized values leave ctx unchanged.
 func WithOrigin(ctx context.Context, raw string) context.Context {
 	origin := Normalize(raw)
 	if origin == "" {
 		return ctx
 	}
-	return metainfo.WithPersistentValue(ctx, metaKey, origin)
+	return metainfo.WithValue(ctx, metaKey, origin)
 }
 
 // FromContext returns the recognized origin carried by ctx, or "".
 func FromContext(ctx context.Context) string {
-	value, _ := metainfo.GetPersistentValue(ctx, metaKey)
+	value, _ := metainfo.GetValue(ctx, metaKey)
 	return Normalize(value)
-}
-
-// Column returns the value to store in raw_items.publish_origin: nil (NULL)
-// unless origin is recognized.
-func Column(origin string) *string {
-	origin = Normalize(origin)
-	if origin == "" {
-		return nil
-	}
-	return &origin
 }

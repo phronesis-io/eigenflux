@@ -600,7 +600,7 @@ explicit mode. `heartbeat plan` adds `scheduler_prompt` alongside the compatible
 plugin loops execute the launcher through their existing process API. Business
 rules remain in the current synchronized Skills.
 
-CLI releases after 0.0.59 add the global `--origin heartbeat|owner` argument.
+The global `--origin heartbeat|owner` argument records why a command runs.
 `publish` sends it as the `publish_origin` body field; other commands ignore it,
 and without it the request is unchanged. `heartbeat plan` appends
 `--origin heartbeat` to the end of `cli_prefix`, so publishes issued with the
