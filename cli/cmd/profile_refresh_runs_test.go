@@ -342,3 +342,29 @@ func TestSendProfileRefreshRunSkipsExpiredV2TokenWithoutRefresh(t *testing.T) {
 		t.Fatalf("telemetry made %d network requests with an expired token", requests)
 	}
 }
+
+func TestSetPendingProfileRefreshRunReusesUnfinishedRun(t *testing.T) {
+	now := time.Now().Unix()
+	reuse := int64(profileRefreshRunReuseWindow / time.Second)
+	for _, tc := range []struct {
+		name    string
+		state   profilestate.State
+		trigger string
+		wantID  string
+		wantAt  int64
+	}{
+		{"hourly re-prompt keeps run", profilestate.State{PendingRunID: "run-a", PendingRunTrigger: profileRefreshTriggerPendingLine, PendingRunDispatchedUnix: now - 3600}, profileRefreshTriggerPendingLine, "run-a", now - 3600},
+		{"stale run is replaced", profilestate.State{PendingRunID: "run-a", PendingRunTrigger: profileRefreshTriggerPendingLine, PendingRunDispatchedUnix: now - reuse}, profileRefreshTriggerPendingLine, "run-b", now},
+		{"different trigger is replaced", profilestate.State{PendingRunID: "run-a", PendingRunTrigger: profileRefreshTriggerPendingLine, PendingRunDispatchedUnix: now - 60}, profileRefreshTriggerPluginTask, "run-b", now},
+		{"manual force always starts a run", profilestate.State{PendingRunID: "run-a", PendingRunTrigger: profileRefreshTriggerManualForce, PendingRunDispatchedUnix: now - 60}, profileRefreshTriggerManualForce, "run-b", now},
+		{"no pending run", profilestate.State{}, profileRefreshTriggerPluginTask, "run-b", now},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := tc.state
+			got := setPendingProfileRefreshRun(&state, "run-b", tc.trigger, now)
+			if got != tc.wantID || state.PendingRunID != tc.wantID || state.PendingRunDispatchedUnix != tc.wantAt {
+				t.Fatalf("got id=%q state=%+v, want id=%q at=%d", got, state, tc.wantID, tc.wantAt)
+			}
+		})
+	}
+}

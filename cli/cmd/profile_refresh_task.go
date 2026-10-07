@@ -69,7 +69,7 @@ var profileRefreshTaskCmd = &cobra.Command{
 		if force {
 			trigger = profileRefreshTriggerManualForce
 		}
-		claimed, err := claimProfileReview(config.HomeDir(), srv, agentID, now, runID, trigger, force)
+		claimed, err := claimProfileReview(config.HomeDir(), srv, agentID, now, &runID, trigger, force)
 		if err != nil {
 			return err
 		}
@@ -88,7 +88,7 @@ var profileRefreshTaskCmd = &cobra.Command{
 	},
 }
 
-func claimProfileReview(home, server, agentID string, now int64, runID, trigger string, force ...bool) (bool, error) {
+func claimProfileReview(home, server, agentID string, now int64, runID *string, trigger string, force ...bool) (bool, error) {
 	claimed := false
 	manual := len(force) > 0 && force[0]
 	_, err := profilestate.Update(home, server, agentID, func(state *profilestate.State) bool {
@@ -103,7 +103,7 @@ func claimProfileReview(home, server, agentID string, now int64, runID, trigger 
 		state.LastPromptedUnix = now - int64((profilePromptCooldown-profilePromptClaimLease)/time.Second)
 		// Record the run before the task is delivered so a fast completion
 		// always finds it.
-		setPendingProfileRefreshRun(state, runID, trigger, now)
+		*runID = setPendingProfileRefreshRun(state, *runID, trigger, now)
 		claimed = true
 		return true
 	})

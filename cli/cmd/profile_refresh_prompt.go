@@ -172,7 +172,7 @@ func maybePromptProfileRefreshFor(srv, agentID string) {
 		state.LastPromptedUnix = claimStamp
 		// Record the run before the line is visible so a fast completion
 		// always finds it.
-		setPendingProfileRefreshRun(state, runID, profileRefreshTriggerPendingLine, now)
+		runID = setPendingProfileRefreshRun(state, runID, profileRefreshTriggerPendingLine, now)
 		emit = true
 		return true
 	})

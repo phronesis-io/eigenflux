@@ -37,6 +37,8 @@ const (
 
 	profileRefreshRunReportTimeout = 3 * time.Second
 	profileRefreshRunLinkWindow    = 72 * time.Hour
+	// Matches the 24h window of the server-side failure metric.
+	profileRefreshRunReuseWindow = 24 * time.Hour
 
 	legacyProfileRefreshRunsPath = "/agents/me/card/refresh-runs"
 	v2ProfileRefreshRunsPath     = "/agent-profile/refresh-runs"
@@ -62,15 +64,25 @@ func newProfileRefreshRunID() string {
 }
 
 // setPendingProfileRefreshRun records a dispatched run inside a profilestate
-// mutation. A newer dispatch replaces an unfinished one; the replaced run is
-// then counted as not completed by the server-side failure metric.
-func setPendingProfileRefreshRun(state *profilestate.State, runID, trigger string, now int64) {
+// mutation and returns the run_id to report. A repeat reminder for a run that
+// is still unfinished, has the same trigger, and is younger than
+// profileRefreshRunReuseWindow keeps the original run_id and dispatch time, so
+// hourly re-prompts of one ignored refresh count as one failed run rather than
+// one per reminder. Manual forced reviews always start a new run.
+func setPendingProfileRefreshRun(state *profilestate.State, runID, trigger string, now int64) string {
 	if runID == "" {
-		return
+		return ""
+	}
+	if trigger != profileRefreshTriggerManualForce &&
+		state.PendingRunID != "" && state.PendingRunTrigger == trigger &&
+		state.PendingRunDispatchedUnix > 0 && state.PendingRunDispatchedUnix <= now &&
+		now-state.PendingRunDispatchedUnix < int64(profileRefreshRunReuseWindow/time.Second) {
+		return state.PendingRunID
 	}
 	state.PendingRunID = runID
 	state.PendingRunTrigger = trigger
 	state.PendingRunDispatchedUnix = now
+	return runID
 }
 
 // takePendingProfileRefreshRun clears the pending run inside a profilestate

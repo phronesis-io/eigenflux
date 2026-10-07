@@ -51,10 +51,13 @@ than this telemetry.
 
 Over `dispatched` rows created in the week that are at least 24 hours old: the
 share with no `completed` row for the same `(agent_id, run_id)` within 24 hours
-of dispatch. Reported per trigger and mode, with a total row.
+of dispatch. Reported per trigger and mode, with a total row. Hourly
+re-reminders of an unfinished run (same trigger, under 24 hours old) reuse its
+`run_id`, so one ignored refresh counts as one failure; manual forced reviews
+always start a new run.
 
 > 24 小时失败率 = 当周派发（dispatched）且已满 24 小时的任务中，24 小时内没有对应完成记录（同 agent、同 run_id 的 completed）的比例。按触发方式、接入模式拆分，并有总计行。
-> 注意：同一 Agent 在上一个任务未完成时被再次派发，旧任务会被新 run_id 替换，按失败计。
+> 注意：上一个任务还没完成时每小时的重复提醒（同一触发方式、派发不满 24 小时）沿用原 run_id，一次被忽略的刷新只算一次失败；超过 24 小时或触发方式不同才换新 run_id，旧任务按失败计。手动强制刷新总是新开一次。
 
 ## Layer 2 — is the card content healthy
 
