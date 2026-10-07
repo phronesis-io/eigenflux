@@ -188,3 +188,14 @@ this migration. See [PM topic status](pm.md#topic-status).
 114 reserved. Production never applied the earlier table-creating version. A
 development database that did keeps an unused `agent_profile_refresh_runs`
 table, which can be dropped by hand.
+
+### Publish origin (000115)
+
+`raw_items.publish_origin` is a nullable telemetry column: `heartbeat` for a
+broadcast published during an automatic heartbeat cycle, `owner` for one the
+owner asked for, and NULL when unknown. Adding it is catalog-only. Item RPC
+writes it with a separate update under a savepoint in the publish transaction,
+so a missing column or failed update only skips the telemetry (logged as
+`PublishItem origin not recorded`) and never fails the publish. Down drops the
+column and its telemetry. Daily shares come from
+`scripts/diagnostics/publish_origin_daily.sql`.

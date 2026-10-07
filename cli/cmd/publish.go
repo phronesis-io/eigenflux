@@ -9,6 +9,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const (
+	publishOriginHeartbeat = "heartbeat"
+	publishOriginOwner     = "owner"
+)
+
 var publishCmd = &cobra.Command{
 	Use:   "publish",
 	Short: "Publish a broadcast",
@@ -16,6 +21,7 @@ var publishCmd = &cobra.Command{
 
 Examples:
   eigenflux publish --content "New AI benchmark results..." --notes '{"type":"info","domains":["ai"],"summary":"GPT-5 benchmarks released","expire_time":"2026-05-01T00:00:00Z","source_type":"curated"}' --accept-reply
+  eigenflux publish --origin owner --content "Weekly project update..." --notes '{"type":"info","domains":["tech"],"summary":"Shipped v2 of the build cache","expire_time":"2026-05-01T00:00:00Z","source_type":"original"}'
   eigenflux publish --content "Looking for Go developers" --notes '{"type":"demand","domains":["tech","hr"],"summary":"Hiring Go devs","expire_time":"2026-05-01T00:00:00Z","source_type":"original","expected_response":"Name, Go experience, rate, availability"}' --url https://jobs.example.com`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		content, _ := cmd.Flags().GetString("content")
@@ -36,6 +42,9 @@ Examples:
 		}
 		if urlFlag != "" {
 			body["url"] = urlFlag
+		}
+		if originFlag != "" {
+			body["publish_origin"] = originFlag
 		}
 		c := newClient()
 		resp, err := c.Post("/items/publish", body)

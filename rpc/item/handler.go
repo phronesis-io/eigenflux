@@ -11,6 +11,7 @@ import (
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/itemdispatch"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/publishorigin"
 	"eigenflux_server/pkg/validator"
 	"eigenflux_server/rpc/item/dal"
 
@@ -73,9 +74,19 @@ func (s *ItemServiceImpl) PublishItem(ctx context.Context, req *item.PublishItem
 		Status:           dal.StatusPending,
 		ExpectedResponse: expectedResponse,
 	}
+	origin := publishorigin.FromContext(ctx)
 	err := db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := dal.CreateRawItem(tx, raw); err != nil {
 			return err
+		}
+		if origin != "" {
+			recorded, err := dal.RecordPublishOrigin(tx, raw.ItemID, origin)
+			if err != nil {
+				return err
+			}
+			if !recorded {
+				logger.Ctx(ctx).Warn("PublishItem origin not recorded", "itemID", raw.ItemID, "origin", origin)
+			}
 		}
 		if err := dal.CreateProcessedItem(tx, pi); err != nil {
 			return err

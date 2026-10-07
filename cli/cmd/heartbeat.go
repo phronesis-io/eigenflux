@@ -103,6 +103,10 @@ var heartbeatPlanCmd = &cobra.Command{
 			cliPrefix += " --runtime-mode " + shellQuote(meta.Mode)
 		}
 		launcher := cliPrefix + " heartbeat plan --format agent"
+		// Commands issued with this cycle's prefix run inside an automatic
+		// heartbeat, so a publish records origin=heartbeat. The persisted launcher
+		// stays without it.
+		cliPrefix += " --origin " + publishOriginHeartbeat
 		plan := heartbeatPlan{
 			SchemaVersion: "eigenflux_heartbeat_plan.v1", HeartbeatContractVersion: heartbeatContractVersion,
 			CLIVersion: version, SkillRevision: manifest.Revision, SkillsTarget: res.SkillsDir,

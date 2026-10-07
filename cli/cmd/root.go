@@ -23,6 +23,7 @@ var (
 	clientMeta       client.Meta
 	runtimeModeFlag  string
 	runtimeModelFlag string
+	originFlag       string
 )
 
 func SetVersion(v string) {
@@ -65,6 +66,9 @@ Examples:
 		if cmd.Flags().Changed("runtime-model") {
 			clientMeta.Model = strings.TrimSpace(runtimeModelFlag)
 		}
+		if cmd.Flags().Changed("origin") && originFlag != publishOriginHeartbeat && originFlag != publishOriginOwner {
+			return fmt.Errorf("--origin must be %s or %s", publishOriginHeartbeat, publishOriginOwner)
+		}
 		return nil
 	},
 }
@@ -72,6 +76,7 @@ Examples:
 func init() {
 	rootCmd.PersistentFlags().StringVar(&runtimeModeFlag, "runtime-mode", "", "installation mode for this invocation: plugin or skill (overrides EIGENFLUX_MODE)")
 	rootCmd.PersistentFlags().StringVar(&runtimeModelFlag, "runtime-model", "", "current host model for this invocation (overrides EIGENFLUX_MODEL)")
+	rootCmd.PersistentFlags().StringVar(&originFlag, "origin", "", "why this invocation runs: heartbeat (automatic cycle) or owner (the owner asked); recorded on publish")
 	rootCmd.PersistentFlags().StringVar(&homeDirFlag, "homedir", "", "data directory (default: $EIGENFLUX_HOME or ~/.eigenflux)")
 	rootCmd.PersistentFlags().StringVarP(&serverFlag, "server", "s", "", "target server name (default: current server)")
 	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "", "output format: json, table, or agent (feed poll only: contract preamble + payload). Default: json in non-TTY, table in TTY")
