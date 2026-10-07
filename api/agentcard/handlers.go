@@ -102,7 +102,6 @@ func Register(h *server.Hertz) {
 	h.GET("/api/v1/agents/me/card", middleware.AuthMiddleware(), GetMyCard)
 	h.GET("/api/v1/agents/me/card/refresh-context", middleware.AuthMiddleware(), GetRefreshContext)
 	h.PUT("/api/v1/agents/me/profile/fields", middleware.AuthMiddleware(), PutProfileFields)
-	h.POST("/api/v1/agents/me/card/refresh-runs", middleware.AuthMiddleware(), PostRefreshRun)
 	h.GET("/api/v1/agents/:agent_id/card", middleware.AuthMiddleware(), GetPublicCard)
 }
 
@@ -761,6 +760,9 @@ func GetRefreshContext(ctx context.Context, c *app.RequestContext) {
 		editable[spec.Name] = entry
 	}
 
+	if outcome, ok := refreshCompleteOutcome(string(c.GetHeader(ProfileRefreshCompleteHeader)), version); ok {
+		logProfileRefreshRun(ctx, c, agentID, outcome)
+	}
 	respond(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"profile_version": version,
 		"editable_fields": editable,
@@ -1034,6 +1036,13 @@ func PutProfileFields(ctx context.Context, c *app.RequestContext) {
 	}
 	if !noChanges {
 		agentcard.PublishRebuild(ctx, agentID, "profile_fields_update")
+	}
+	if req.Source == "cli_daily_refresh" {
+		outcome := "changed"
+		if noChanges {
+			outcome = "unchanged"
+		}
+		logProfileRefreshRun(ctx, c, agentID, outcome)
 	}
 
 	respond(c, http.StatusOK, 0, "success", map[string]interface{}{

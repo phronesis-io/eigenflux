@@ -477,7 +477,6 @@ func (s *Service) Register(h *server.Hertz) {
 	h.GET("/api/v2/agent-profile", s.agentAuth("profile:read"), s.requireCompleted, apihandler.GetMe)
 	h.GET("/api/v2/agent-profile/card", s.agentAuth("profile:read"), s.requireCompleted, agentcardapi.GetMyCard)
 	h.PUT("/api/v2/agent-profile/fields", s.agentAuth("profile:write"), s.requireCompleted, agentcardapi.PutProfileFields)
-	h.POST("/api/v2/agent-profile/refresh-runs", s.agentAuth("profile:write"), s.requireCompleted, agentcardapi.PostRefreshRun)
 	h.GET("/api/v2/agent-settings", s.agentAuth("settings:read"), s.requireCompleted, apihandler.GetMySettings)
 	h.PUT("/api/v2/agent-settings", middleware.ClientInfoMiddleware(), s.agentAuth("settings:write"), s.requireCompleted, apihandler.PutMySettings)
 

@@ -33,8 +33,7 @@ return 0
 `)
 
 // StartProfileChangeCleanup bounds profile audit growth without deleting the
-// newest event for any field, and removes refresh-run telemetry older than the
-// same retention window. The newest per-field record is durable because
+// newest event for any field. The newest per-field record is durable because
 // refresh-context needs its actor/time/previous-value metadata even when the
 // field has not changed for more than the retention period.
 func StartProfileChangeCleanup(ctx context.Context, rdb *redis.Client) {
@@ -94,24 +93,15 @@ func cleanupProfileChangesWithLock(ctx context.Context, rdb *redis.Client) time.
 		logger.Default().Error("failed to cleanup superseded profile changes", "err", err, "trimmed_rows", trimmed, "deleted", deleted)
 		return profileChangeCleanupRetry
 	}
-	// Refresh-run telemetry has no "latest per field" invariant: every row
-	// older than the retention window is removed.
-	deletedRuns, runsSaturated, err := profiledal.DeleteProfileRefreshRunsBefore(
-		db.DB.WithContext(cleanupCtx), cutoffMs, profileChangeCleanupBatchSize, profileChangeCleanupMaxBatches,
-	)
-	if err != nil {
-		logger.Default().Error("failed to cleanup profile refresh runs", "err", err, "trimmed_rows", trimmed, "deleted", deleted, "deleted_runs", deletedRuns)
-		return profileChangeCleanupRetry
-	}
-	if trimSaturated || deleteSaturated || runsSaturated {
-		logger.Default().Warn("profile change cleanup batch limit reached; continuing shortly", "trimmed_rows", trimmed, "deleted", deleted, "deleted_runs", deletedRuns, "duration", time.Since(startedAt))
+	if trimSaturated || deleteSaturated {
+		logger.Default().Warn("profile change cleanup batch limit reached; continuing shortly", "trimmed_rows", trimmed, "deleted", deleted, "duration", time.Since(startedAt))
 		return profileChangeCleanupContinue
 	}
 	if markErr := rdb.Set(ctx, lastProfileChangeCleanupKey, time.Now().UnixMilli(), 24*time.Hour).Err(); markErr != nil {
-		logger.Default().Warn("profile change cleanup completed but completion marker failed", "err", markErr, "trimmed_rows", trimmed, "deleted", deleted, "deleted_runs", deletedRuns)
+		logger.Default().Warn("profile change cleanup completed but completion marker failed", "err", markErr, "trimmed_rows", trimmed, "deleted", deleted)
 		return profileChangeCleanupRetry
 	}
-	logger.Default().Info("profile change cleanup completed", "trimmed_rows", trimmed, "deleted", deleted, "deleted_runs", deletedRuns, "duration", time.Since(startedAt))
+	logger.Default().Info("profile change cleanup completed", "trimmed_rows", trimmed, "deleted", deleted, "duration", time.Since(startedAt))
 	return 24 * time.Hour
 }
 

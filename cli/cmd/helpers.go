@@ -1,10 +1,8 @@
 package cmd
 
 import (
-	"fmt"
 	"strings"
 	"sync"
-	"time"
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
@@ -29,7 +27,11 @@ func newClientForServer(serverName string) *client.Client {
 }
 
 func newClientForServerOptionalAuth(serverName string, requireAuth bool) *client.Client {
-	srv, err := loadActiveServer(serverName)
+	cfg, err := config.Load()
+	if err != nil {
+		output.Die(output.ExitUsageError, "load config: %v", err)
+	}
+	srv, err := cfg.GetActive(serverName)
 	if err != nil {
 		output.Die(output.ExitUsageError, "%v", err)
 	}
@@ -43,7 +45,7 @@ func newClientForServerOptionalAuth(serverName string, requireAuth bool) *client
 			if credentialErr != nil {
 				output.Die(output.ExitAuthRequired, "Agent V2 authentication failed for server %q: %v", srv.Name, credentialErr)
 			}
-			result := v2ClientForResolvedServer(srv, credentials.AccessToken)
+			result := client.New(strings.TrimRight(srv.Endpoint, "/")+"/api/v2", credentials.AccessToken, version, clientMetaForServer(srv))
 			result.OnUnauthorized = func() (string, error) {
 				refreshed, refreshErr := refreshV2Credentials(srv.Name, srv.Endpoint, true)
 				if refreshErr != nil {
@@ -57,58 +59,12 @@ func newClientForServerOptionalAuth(serverName string, requireAuth bool) *client
 	return newLegacyClientForResolvedServer(srv, requireAuth)
 }
 
-// newStoredCredentialClientForServer builds a client from the stored access
-// token without exiting the process and without any credential side effect:
-// it never refreshes or rotates a V2 session, never extends a legacy expiry,
-// and installs no OnUnauthorized or OnSuccess hook. An expired token is an
-// error. It serves best-effort side requests such as health telemetry.
-func newStoredCredentialClientForServer(serverName string) (*client.Client, bool, error) {
-	srv, err := loadActiveServer(serverName)
-	if err != nil {
-		return nil, false, err
-	}
-	hasV2, err := auth.HasV2Credentials(srv.Name)
-	if err != nil {
-		return nil, false, err
-	}
-	if hasV2 {
-		credentials, err := auth.LoadV2Credentials(srv.Name)
-		if err != nil {
-			return nil, false, err
-		}
-		if credentials.AccessToken == "" || credentials.ExpiresAt <= time.Now().UnixMilli() {
-			return nil, false, fmt.Errorf("agent v2 access token is expired")
-		}
-		return v2ClientForResolvedServer(srv, credentials.AccessToken), true, nil
-	}
-	credentials, err := auth.LoadCredentials(srv.Name)
-	if err != nil {
-		return nil, false, err
-	}
-	if credentials.IsExpired() {
-		return nil, false, fmt.Errorf("access token is expired")
-	}
-	return legacyClientForResolvedServer(srv, credentials.AccessToken), false, nil
-}
-
-func loadActiveServer(serverName string) (*config.Server, error) {
+func newLegacyClientForServer(serverName string) *client.Client {
 	cfg, err := config.Load()
 	if err != nil {
-		return nil, fmt.Errorf("load config: %w", err)
+		output.Die(output.ExitUsageError, "load config: %v", err)
 	}
-	return cfg.GetActive(serverName)
-}
-
-func v2ClientForResolvedServer(srv *config.Server, token string) *client.Client {
-	return client.New(strings.TrimRight(srv.Endpoint, "/")+"/api/v2", token, version, clientMetaForServer(srv))
-}
-
-func legacyClientForResolvedServer(srv *config.Server, token string) *client.Client {
-	return client.New(strings.TrimRight(srv.Endpoint, "/")+"/api/v1", token, version, clientMetaForServer(srv))
-}
-
-func newLegacyClientForServer(serverName string) *client.Client {
-	srv, err := loadActiveServer(serverName)
+	srv, err := cfg.GetActive(serverName)
 	if err != nil {
 		output.Die(output.ExitUsageError, "%v", err)
 	}
@@ -127,7 +83,8 @@ func newLegacyClientForResolvedServer(srv *config.Server, requireAuth bool) *cli
 		}
 		token = creds.AccessToken
 	}
-	c := legacyClientForResolvedServer(srv, token)
+	baseURL := strings.TrimRight(srv.Endpoint, "/") + "/api/v1"
+	c := client.New(baseURL, token, version, clientMetaForServer(srv))
 	if requireAuth {
 		serverName := srv.Name
 		c.OnSuccess = sync.OnceFunc(func() {
