@@ -659,7 +659,6 @@ func (s *Service) agentAuthAny(requiredScopes ...string) app.HandlerFunc {
 			} else {
 				fail(c, http.StatusForbidden, "AGENT_SCOPE_REQUIRED", "Agent V2 session lacks the required scope", details)
 			}
-			middleware.ObserveRecommendationRequest(ctx, c, principal.AgentID, requestStartedAt)
 			c.Abort()
 			return
 		}
@@ -669,7 +668,6 @@ func (s *Service) agentAuthAny(requiredScopes ...string) app.HandlerFunc {
 		c.Set("agent_scopes", principal.Scopes)
 		go agentcard.TouchLastActive(context.Background(), s.redisClient, principal.AgentID)
 		c.Next(ctx)
-		middleware.ObserveRecommendationRequest(ctx, c, principal.AgentID, requestStartedAt)
 		middleware.ObserveSuccessfulAgentRequest(ctx, c, s.db, principal.AgentID, requestStartedAt, false)
 	}
 }
