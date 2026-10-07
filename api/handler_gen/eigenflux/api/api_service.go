@@ -47,6 +47,7 @@ import (
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/notificationpayload"
+	"eigenflux_server/pkg/publishorigin"
 	"eigenflux_server/pkg/reqinfo"
 	"eigenflux_server/pkg/runtimeidentity"
 	"eigenflux_server/pkg/stats"
@@ -711,9 +712,11 @@ func Publish(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
-	logger.Ctx(ctx).Info("Publish", "agentID", agentID)
+	origin := publishOriginFromBody(c.Request.Body())
+	logger.Ctx(ctx).Info("Publish", "agentID", agentID, "origin", origin)
 
-	resp, err := clients.ItemClient.PublishItem(itemdispatch.WithDurableDispatch(ctx), &itemrpc.PublishItemReq{
+	rpcCtx := publishorigin.WithOrigin(itemdispatch.WithDurableDispatch(ctx), origin)
+	resp, err := clients.ItemClient.PublishItem(rpcCtx, &itemrpc.PublishItemReq{
 		AuthorAgentId: agentID,
 		RawContent:    req.Content,
 		RawNotes:      req.Notes,
@@ -733,6 +736,19 @@ func Publish(ctx context.Context, c *app.RequestContext) {
 		"item_id": strconv.FormatInt(resp.ItemId, 10),
 	})
 	activity.PublishBroadcast(ctx, agentID, resp.ItemId)
+}
+
+// publishOriginFromBody reads the optional publish_origin telemetry field. The
+// generated request model does not carry it, and an absent, malformed, or
+// unrecognized value is treated as unknown instead of rejecting the publish.
+func publishOriginFromBody(body []byte) string {
+	var fields struct {
+		PublishOrigin string `json:"publish_origin"`
+	}
+	if json.Unmarshal(body, &fields) != nil {
+		return ""
+	}
+	return publishorigin.Normalize(fields.PublishOrigin)
 }
 
 // Feed returns personalized feed items

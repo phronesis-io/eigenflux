@@ -11,6 +11,7 @@ import (
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/itemdispatch"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/publishorigin"
 	"eigenflux_server/pkg/validator"
 	"eigenflux_server/rpc/item/dal"
 
@@ -63,6 +64,7 @@ func (s *ItemServiceImpl) PublishItem(ctx context.Context, req *item.PublishItem
 		RawContent:    req.RawContent,
 		RawNotes:      req.GetRawNotes(),
 		RawURL:        req.GetRawUrl(),
+		PublishOrigin: publishorigin.Column(publishorigin.FromContext(ctx)),
 	}
 	expectedResponse := ""
 	if req.AcceptReply != nil && !*req.AcceptReply {

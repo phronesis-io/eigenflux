@@ -284,6 +284,12 @@ func TestHeartbeatPlanAcceptsLegacyEnvironmentMode(t *testing.T) {
 					t.Fatalf("legacy identity lost %q: %+v", part, plan)
 				}
 			}
+			if !strings.HasSuffix(plan.CLIPrefix, " --origin heartbeat") || !strings.Contains(plan.AgentPrompt, "in this cycle: "+plan.CLIPrefix+"\n") {
+				t.Fatalf("cycle prefix must mark publishes as heartbeat: %q", plan.CLIPrefix)
+			}
+			if strings.Contains(plan.SchedulerLauncher, "--origin") || strings.Contains(plan.SchedulerPrompt, "--origin") || strings.Contains(plan.SchedulerMigration, "--origin") {
+				t.Fatalf("persisted launcher must not change: %q", plan.SchedulerLauncher)
+			}
 			if !strings.Contains(plan.SchedulerMigration, "Reuse working existing triggers") || !strings.Contains(plan.AgentPrompt, "including legacy EIGENFLUX_MODE launchers") {
 				t.Fatal("missing existing-user compatibility guidance")
 			}

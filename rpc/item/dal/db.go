@@ -18,6 +18,8 @@ type RawItem struct {
 	RawNotes      string `gorm:"column:raw_notes;type:text;default:''"`
 	RawURL        string `gorm:"column:raw_url;type:varchar(300);default:''"`
 	CreatedAt     int64  `gorm:"column:created_at;not null"`
+	// PublishOrigin is heartbeat, owner, or nil (NULL) for unknown.
+	PublishOrigin *string `gorm:"column:publish_origin;type:text"`
 }
 
 func (RawItem) TableName() string { return "raw_items" }
@@ -102,6 +104,11 @@ const (
 
 func CreateRawItem(db *gorm.DB, item *RawItem) error {
 	item.CreatedAt = time.Now().UnixMilli()
+	if item.PublishOrigin == nil {
+		// Publishes without an origin never reference the column, so they keep
+		// working on a database that has not applied migration 000115.
+		db = db.Omit("PublishOrigin")
+	}
 	return db.Create(item).Error
 }
 
