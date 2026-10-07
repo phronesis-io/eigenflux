@@ -11,8 +11,8 @@ import (
 	"eigenflux_server/rpc/sort/discovery/queryprocessing"
 )
 
-const contextCompilerVersion = "context_rules_v6"
-const needCompilerVersion = "need_input_context_v5"
+const contextCompilerVersion = "context_rules_v7"
+const needCompilerVersion = "need_input_context_v6"
 
 // CompiledContext is an immutable retrieval value. It contains no execution ID,
 // request clock, vector or runtime warning. Context is its per-execution wire

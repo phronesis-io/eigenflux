@@ -137,7 +137,7 @@ func Query(c Context, k Kind, channel string, limit int) (map[string]any, error)
 	f := c.Filters
 	not = append(not, terms(author, f.ExcludeAuthors))
 	if len(f.Lang) > 0 {
-		filters = append(filters, terms(lang, f.Lang))
+		filters = append(filters, languageFilter(lang, f.Lang))
 	}
 	if len(f.ProviderRegion) > 0 {
 		filters = append(filters, terms("retrieval_slots.provider_region", f.ProviderRegion))

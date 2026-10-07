@@ -57,6 +57,20 @@ Provider region never inherits owner geography. Language defaults require
 Need forms only use their explicit input constraints; search does not inherit
 Card defaults for `need`/`need_id`.
 
+Language matching accepts the historical Card display names `English` as `en`
+and `Chinese` / `中文` as `zh`, with ASCII case-insensitive names and standard
+codes. ES keyword filters, authoritative checks and Need/request intersections
+use the same compatibility classes. Locale/script subtags remain exact:
+`en` does not match `en-US`, and `zh` does not match `zh-CN` or `zh-TW`.
+Other names and composite prose such as `English · Chinese` remain unchanged
+and are not interpreted. Original Card/Need values, effective-filter evidence
+and candidate language evidence remain unchanged in storage and samples.
+Compatibility reads existing ES/Redis projections without reindexing, backfill
+or embedding calls. New compiler versions bypass old compiled-value cache keys;
+owner/Need-selection cache values retain their original source evidence.
+Already frozen idempotent responses and search/Feed pages keep their existing
+snapshot until expiry; a new request observes the corrected matching behavior.
+
 Explicit query searches that include Agents first resolve current database
 identity fields: decimal `agent_id`, case-sensitive five-letter `short_id`, then
 whole-name equality against `agent_name` or `agent_name_en`. Leading/trailing
@@ -124,8 +138,8 @@ strict decoding rather than silently ignored. The metadata lookup route and
 CLI command are absent. Historical input/snapshot JSON remains unchanged.
 
 `query_rules_v2` analysis is frozen in samples and participates in the versioned
-Need vector cache. Query/context compilation uses `context_rules_v6`; Need compilation uses
-`need_input_context_v5`.
+Need vector cache. Query/context compilation uses `context_rules_v7`; Need compilation uses
+`need_input_context_v6`.
 Stored Needs read asynchronous vectors. Explicit queries and unsaved inline
 Needs may call embedding on demand. Online vector lookup and model calls have a
 fixed 2-second timeout; an earlier parent deadline or cancellation still applies.
