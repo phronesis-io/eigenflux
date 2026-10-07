@@ -1,6 +1,9 @@
 package consolev2retention
 
 import (
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -59,5 +62,88 @@ func TestCommandExpiryRespectsLiveClaimLease(t *testing.T) {
 		if !strings.Contains(expiry, required) {
 			t.Fatalf("command expiry is not lease-safe; missing %q", required)
 		}
+	}
+}
+
+// TestRetentionDeletesGuardNonCascadingReferences fails when a migration adds a
+// foreign key without ON DELETE to a table that a retention job deletes from,
+// unless the job excludes rows still referenced through that column. Such a
+// reference makes the whole bounded DELETE fail and stalls retention.
+func TestRetentionDeletesGuardNonCascadingReferences(t *testing.T) {
+	deleteTable := regexp.MustCompile(`DELETE FROM (\w+) row`)
+	deletes := map[string][]string{}
+	for _, job := range Jobs() {
+		if match := deleteTable.FindStringSubmatch(job.SQL); match != nil {
+			deletes[match[1]] = append(deletes[match[1]], job.Name)
+		}
+	}
+	jobSQL := map[string]string{}
+	for _, job := range Jobs() {
+		jobSQL[job.Name] = job.SQL
+	}
+
+	paths, err := filepath.Glob("../../migrations/*.sql")
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("migrations not found: %v", err)
+	}
+	tableStmt := regexp.MustCompile(`(?i)^\s*(?:CREATE TABLE(?: IF NOT EXISTS)?|ALTER TABLE(?: IF EXISTS)?)\s+(\w+)`)
+	inlineRef := regexp.MustCompile(`(?i)^\s*(?:ADD COLUMN(?: IF NOT EXISTS)?\s+)?(\w+)\s+[^,]*?\bREFERENCES\s+(\w+)\s*\(`)
+	foreignKey := regexp.MustCompile(`(?i)FOREIGN KEY\s*\(([^)]*)\)`)
+	tableRef := regexp.MustCompile(`(?i)\bREFERENCES\s+(\w+)\s*\(`)
+	checked := 0
+	for _, path := range paths {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		up, _, _ := strings.Cut(string(raw), "-- +goose Down")
+		lines := strings.Split(up, "\n")
+		current := ""
+		for i, line := range lines {
+			if match := tableStmt.FindStringSubmatch(line); match != nil {
+				current = strings.ToLower(match[1])
+			}
+			ref := tableRef.FindStringSubmatch(line)
+			if ref == nil {
+				continue
+			}
+			target := strings.ToLower(ref[1])
+			jobs := deletes[target]
+			if len(jobs) == 0 || strings.Contains(strings.ToUpper(line), "ON DELETE") {
+				continue
+			}
+			var columns []string
+			if match := foreignKey.FindStringSubmatch(line); match != nil {
+				columns = strings.Split(match[1], ",")
+			} else if match := inlineRef.FindStringSubmatch(line); match != nil && !strings.EqualFold(match[1], "FOREIGN") {
+				columns = []string{match[1]}
+			} else if i > 0 {
+				if match := foreignKey.FindStringSubmatch(lines[i-1]); match != nil {
+					columns = strings.Split(match[1], ",")
+				}
+			}
+			if current == "" || len(columns) == 0 {
+				t.Fatalf("%s:%d: cannot resolve the referencing table or column for %q", filepath.Base(path), i+1, strings.TrimSpace(line))
+			}
+			for _, name := range jobs {
+				// A composite reference is excluded when any of its columns is
+				// correlated to the deleted row (the remaining columns only
+				// narrow an already unique match).
+				sql := jobSQL[name]
+				guarded := false
+				for _, column := range columns {
+					column = strings.ToLower(strings.TrimSpace(column))
+					guarded = guarded || strings.Contains(sql, "."+column+" = row.")
+				}
+				if !strings.Contains(sql, current) || !guarded {
+					t.Errorf("%s:%d: %s(%s) references %s without ON DELETE, but retention job %q does not exclude referenced rows",
+						filepath.Base(path), i+1, current, strings.Join(columns, ","), target, name)
+				}
+				checked++
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no non-cascading references to retention tables were found; the migration scan is broken")
 	}
 }
