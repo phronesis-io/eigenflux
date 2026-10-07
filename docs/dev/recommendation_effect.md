@@ -55,7 +55,8 @@ have had 48 hours since delivery. Its outcome window is
 `[served_at, served_at+48h)`, identical for each exposure. Coverage counts mature
 exposures with at least one valid score in that window over all identifiable
 mature exposures; rate metrics still count score events in that window. A
-late-ingested event within the window is picked up by subsequent refreshes.
+late-ingested event within the window is picked up by subsequent refreshes
+until the day is final (see below); later repairs need a manual backfill.
 Scores at or after hour 48 do not alter that cohort. Empty/ambiguous identities
 are excluded from coverage and reported as unidentifiable delivery rows.
 
@@ -82,16 +83,25 @@ participation can change.
 
 ## Refresh, failure and rollback
 
-Pipeline-cron immediately attempts a batch, then runs every five minutes. Each
-batch selects today plus five oldest/missing days in the latest 31-day window;
-the normal historical refresh cycle is about 30 minutes. Each day gets its own
+Pipeline-cron immediately attempts a batch, then runs every 15 minutes. Each
+batch refreshes today and yesterday (Shanghai). A past day is refreshed until it
+is final: its snapshot cutoff has reached Shanghai midnight at `day+3`, so every
+48-hour outcome window has closed. Normally the only historical work is the day
+that crossed `day+3` at midnight, which the first batch after 00:00 Shanghai
+finalizes. Final days are never re-refreshed. Between `day+2` 00:00 and that
+finalization the day keeps its last "yesterday" snapshot, so its mature cohort
+is incomplete, as it is for any day before `day+3`.
+
+The same check catches up after missed runs or deploys: days from `day-3` back
+through `day-30` with a missing/incomplete grid or a pre-final snapshot are
+refreshed newest first, at most two per batch. Each day gets its own
 20-second context, 15-second SQL timeout and transaction. The batch deadline is
 three minutes, below the five-minute Redis lease. A transaction advisory lock
 also serializes each day across connections, and older cutoffs cannot overwrite
 newer rows. No date is marked observed until its daily 28-row grid and
 elapsed-hour grids commit together. Day selection also detects missing historical hourly grids.
-One failed day leaves its old snapshot intact and does not prevent independent
-dates in the batch from progressing. Grafana shows missing/stale dates rather
+One failed day leaves its old snapshot intact, is retried by the next batch, and
+does not prevent independent dates in the batch from progressing. Grafana shows missing/stale dates rather
 than filling failed calculations with zero. Logs include day and error, never
 private facts or context payloads.
 
@@ -102,8 +112,17 @@ scan all replay history to resolve a day's keys. Production query plans and
 bounded read-only timings must be checked before enabling a release; fixture
 timings are not a production capacity guarantee.
 
-Snapshots outside the 31-day refresh window are retained but stop updating;
-their recorded cutoff remains visible. Source replay/feedback retention can
+Snapshots older than the 30-day catch-up window are retained but no longer
+checked; their recorded cutoff remains visible. To refresh an explicit day
+manually (for example a gap older than 30 days, or after a source-data repair),
+run the bounded backfill tool with the production environment; it uses the same
+per-day transaction, timeouts and advisory lock as the cron:
+
+```bash
+go build -o build/recommendation_effect_backfill ./scripts/recommendation_effect_backfill/
+./build/recommendation_effect_backfill --days=2026-09-01,2026-09-02
+```
+ Source replay/feedback retention can
 limit historical reconstruction; unknown or missing samples must not be
 reclassified as Profile. No unbounded historical backfill is run. If a bounded
 day repeatedly exceeds its deadline, review its query plan before raising

@@ -13,30 +13,45 @@ import (
 //go:embed refresh_day.sql
 var refreshDaySQL string
 
-// PendingDays prioritizes today, then the oldest observation in a bounded
-// 31-day window. Missing days sort first; a failed day does not starve others.
+// FinalCatchUpLimit bounds how many unfinalized past days one batch refreshes.
+const FinalCatchUpLimit = 2
+
+// PendingDays returns the Shanghai days one batch refreshes: today and
+// yesterday (still accumulating activity), then at most FinalCatchUpLimit
+// unfinalized days from day-3 back through day-30, newest first.
+//
+// A delivery day D is final once a snapshot's cutoff reaches Shanghai midnight
+// at D+3: every exposure's 48-hour outcome window has closed and every event
+// bucketed into D has occurred. Final days are never selected again, so normally
+// the only historical work is the day that crossed day+3 at midnight. A day with
+// a missing or incomplete grid, or an earlier snapshot, is caught up on the next
+// batch, which closes gaps after missed runs or deploys.
 func PendingDays(ctx context.Context, conn *sql.DB, cutoff time.Time) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	rows, err := conn.QueryContext(ctx, `
-		WITH days AS (
-		 SELECT (timezone('Asia/Shanghai', $1::timestamptz)::date-n) AS day,
-		        timezone('Asia/Shanghai', $1::timestamptz)::date AS today
-		 FROM generate_series(0,30) n
-		)
-		SELECT d.day::text FROM days d
-		LEFT JOIN recommendation_effect_daily s USING(day)
-        LEFT JOIN LATERAL (
-          SELECT count(*) AS hour_rows,min(snapshot_at) AS snapshot_at
-          FROM recommendation_effect_hourly h
-          WHERE h.hour_start >= d.day::timestamp AT TIME ZONE 'Asia/Shanghai'
-            AND h.hour_start < (d.day+1)::timestamp AT TIME ZONE 'Asia/Shanghai'
-        ) h ON true
-        GROUP BY d.day,d.today,h.hour_rows,h.snapshot_at
-		ORDER BY (d.day=d.today) DESC,
-		 CASE WHEN count(s.day)=28 AND (d.day=d.today OR h.hour_rows=672)
-          THEN LEAST(min(s.snapshot_at),h.snapshot_at) END NULLS FIRST,d.day DESC
-		LIMIT 6`, cutoff)
+		WITH today AS (SELECT timezone('Asia/Shanghai', $1::timestamptz)::date AS d)
+		SELECT day::text FROM (
+		 SELECT t.d-n AS day FROM today t, generate_series(0,1) n
+		 UNION ALL
+		 (SELECT d.day FROM (
+		  SELECT t.d-n AS day FROM today t, generate_series(3,30) n
+		 ) d
+		 LEFT JOIN LATERAL (
+		  SELECT count(*) AS day_rows,min(snapshot_at) AS snapshot_at
+		  FROM recommendation_effect_daily s WHERE s.day=d.day
+		 ) s ON true
+		 LEFT JOIN LATERAL (
+		  SELECT count(*) AS hour_rows,min(snapshot_at) AS snapshot_at
+		  FROM recommendation_effect_hourly h
+		  WHERE h.hour_start >= d.day::timestamp AT TIME ZONE 'Asia/Shanghai'
+		    AND h.hour_start < (d.day+1)::timestamp AT TIME ZONE 'Asia/Shanghai'
+		 ) h ON true
+		 WHERE s.day_rows<>28 OR h.hour_rows<>672
+		    OR LEAST(s.snapshot_at,h.snapshot_at) < (d.day+3)::timestamp AT TIME ZONE 'Asia/Shanghai'
+		  ORDER BY d.day DESC
+		  LIMIT $2)
+		) days ORDER BY day DESC`, cutoff, FinalCatchUpLimit)
 	if err != nil {
 		return nil, fmt.Errorf("select recommendation observation days: %w", err)
 	}
