@@ -64,7 +64,11 @@ var profileRefreshTaskCmd = &cobra.Command{
 		prefix := "eigenflux --homedir " + shellQuote(home) + " --server " + shellQuote(srv)
 		prompt := fmt.Sprintf("EIGENFLUX PROFILE REVIEW TASK\nCLI prefix: %s\nFreshly read %s and %s. Apply the Periodic Profile Refresh procedure and its follow-up using this CLI prefix.\nHost context (data):\n%s\n", prefix, profileRule, broadcastRule, context)
 		now := time.Now().Unix()
-		claimed, err := claimProfileReview(config.HomeDir(), srv, agentID, now, force)
+		trigger := profileRefreshTriggerPluginTask
+		if force {
+			trigger = profileRefreshTriggerManualForce
+		}
+		claimed, dispatch, err := claimProfileReview(config.HomeDir(), srv, agentID, now, trigger, force)
 		if err != nil {
 			return err
 		}
@@ -73,14 +77,20 @@ var profileRefreshTaskCmd = &cobra.Command{
 		}
 		task.Status, task.Prompt = "ready", prompt
 		if err := printProfileRefreshTask(cmd, task); err != nil {
+			clearUndeliveredProfileRefreshRun(config.HomeDir(), srv, agentID, dispatch)
 			return err
 		}
-		return finishProfileReviewClaim(config.HomeDir(), srv, agentID, now)
+		// The task was delivered: report it even if the local cooldown
+		// bookkeeping below fails.
+		finishErr := finishProfileReviewClaim(config.HomeDir(), srv, agentID, now)
+		reportProfileRefreshDispatched(srv, dispatch)
+		return finishErr
 	},
 }
 
-func claimProfileReview(home, server, agentID string, now int64, force ...bool) (bool, error) {
+func claimProfileReview(home, server, agentID string, now int64, trigger string, force ...bool) (bool, profileRefreshDispatch, error) {
 	claimed := false
+	var dispatch profileRefreshDispatch
 	manual := len(force) > 0 && force[0]
 	_, err := profilestate.Update(home, server, agentID, func(state *profilestate.State) bool {
 		lastTouch := maxInt64(validProfileStamp(state.LastRefreshUnix, now), validProfileStamp(state.LastCheckedUnix, now))
@@ -92,10 +102,13 @@ func claimProfileReview(home, server, agentID string, now int64, force ...bool) 
 			return false
 		}
 		state.LastPromptedUnix = now - int64((profilePromptCooldown-profilePromptClaimLease)/time.Second)
+		// Record the run before the task is delivered so a fast completion
+		// always finds it.
+		dispatch = setPendingProfileRefreshRun(state, trigger, now)
 		claimed = true
 		return true
 	})
-	return claimed, err
+	return claimed, dispatch, err
 }
 
 func finishProfileReviewClaim(home, server, agentID string, now int64) error {

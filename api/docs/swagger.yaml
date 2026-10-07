@@ -16,6 +16,21 @@ definitions:
           type: array
         type: object
     type: object
+  agentcardapi.RefreshRunReq:
+    properties:
+      changed_paths:
+        items:
+          type: string
+        type: array
+      outcome:
+        type: string
+      run_id:
+        type: string
+      stage:
+        type: string
+      trigger:
+        type: string
+    type: object
   api.BaseResp:
     properties:
       code:
@@ -762,6 +777,30 @@ paths:
       security:
       - BearerAuth: []
       summary: Get versioned Agent Card refresh context
+      tags:
+      - Agent Card
+  /api/v1/agents/me/card/refresh-runs:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Run event
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/agentcardapi.RefreshRunReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Record a Periodic Profile Refresh run event
       tags:
       - Agent Card
   /api/v1/agents/me/profile/fields:

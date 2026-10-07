@@ -151,6 +151,45 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/agents/me/card/refresh-runs": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Agent Card"
+                ],
+                "summary": "Record a Periodic Profile Refresh run event",
+                "parameters": [
+                    {
+                        "description": "Run event",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/agentcardapi.RefreshRunReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/agents/me/profile/fields": {
             "put": {
                 "security": [
@@ -1050,6 +1089,29 @@ const docTemplate = `{
                             "format": "int32"
                         }
                     }
+                }
+            }
+        },
+        "agentcardapi.RefreshRunReq": {
+            "type": "object",
+            "properties": {
+                "changed_paths": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "outcome": {
+                    "type": "string"
+                },
+                "run_id": {
+                    "type": "string"
+                },
+                "stage": {
+                    "type": "string"
+                },
+                "trigger": {
+                    "type": "string"
                 }
             }
         },

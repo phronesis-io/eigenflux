@@ -130,10 +130,12 @@ still current before recording completion.`,
 		if current.ProfileVersion != expectedVersion {
 			return fmt.Errorf("profile changed since version %d (current version %d); run 'eigenflux profile refresh-context' and evaluate again", expectedVersion, current.ProfileVersion)
 		}
-		if err := stampProfileRefreshKeyFor(serverName, agentID, kvProfileRefreshCheckedAt); err != nil {
+		runID, trigger, err := completeProfileRefreshFor(serverName, agentID, kvProfileRefreshCheckedAt)
+		if err != nil {
 			return fmt.Errorf("record completed profile refresh: %w", err)
 		}
 		output.PrintMessage("Profile refresh check completed (no changes)")
+		reportProfileRefreshCompleted(serverName, runID, trigger, nil)
 		return nil
 	},
 }
@@ -252,8 +254,11 @@ Examples:
 		output.PrintMessage("Profile patched")
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
 		if source == "cli_daily_refresh" {
-			if stampErr := stampProfileRefreshKeyFor(serverName, agentID, kvProfileRefreshAt); stampErr != nil {
+			runID, trigger, stampErr := completeProfileRefreshFor(serverName, agentID, kvProfileRefreshAt)
+			if stampErr != nil {
 				output.PrintMessage("warning: profile was updated but local refresh state could not be saved: %v", stampErr)
+			} else {
+				reportProfileRefreshCompleted(serverName, runID, trigger, patchChangedPaths(resp.Data))
 			}
 		}
 		return nil

@@ -298,7 +298,7 @@ func TestProfileRefreshTaskFinalizationDoesNotOverwriteCompletion(t *testing.T) 
 		t.Fatal(err)
 	}
 	writer := profileTaskWriterFunc(func(data []byte) (int, error) {
-		if err := stampProfileRefreshKeyFor(server, "agent-1", kvProfileRefreshCheckedAt); err != nil {
+		if _, _, err := completeProfileRefreshFor(server, "agent-1", kvProfileRefreshCheckedAt); err != nil {
 			return 0, err
 		}
 		return len(data), nil

@@ -102,6 +102,7 @@ func Register(h *server.Hertz) {
 	h.GET("/api/v1/agents/me/card", middleware.AuthMiddleware(), GetMyCard)
 	h.GET("/api/v1/agents/me/card/refresh-context", middleware.AuthMiddleware(), GetRefreshContext)
 	h.PUT("/api/v1/agents/me/profile/fields", middleware.AuthMiddleware(), PutProfileFields)
+	h.POST("/api/v1/agents/me/card/refresh-runs", middleware.AuthMiddleware(), PostRefreshRun)
 	h.GET("/api/v1/agents/:agent_id/card", middleware.AuthMiddleware(), GetPublicCard)
 }
 
