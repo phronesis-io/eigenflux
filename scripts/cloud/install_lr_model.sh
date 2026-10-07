@@ -132,11 +132,16 @@ install_from_dir() {
   fi
 
   # Remember the outgoing version as `previous` before flipping `current`.
+  local target; target="$(readlink -f "$dest")"
   if [ -L "$CURRENT_LINK" ]; then
     local cur; cur="$(readlink -f "$CURRENT_LINK" || true)"
+    if [ "$cur" = "$target" ]; then
+      log "current already points to $version; rollback target unchanged"
+      return
+    fi
     [ -n "$cur" ] && atomic_relink "$PREVIOUS_LINK" "$cur"
   fi
-  atomic_relink "$CURRENT_LINK" "$dest"
+  atomic_relink "$CURRENT_LINK" "$target"
   log "current -> $version (sort hot-reloads within its reload interval)"
 }
 

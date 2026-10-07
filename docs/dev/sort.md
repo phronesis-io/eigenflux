@@ -128,6 +128,9 @@ and only reports an empty partition after a successful listing. The installer
 needs write access to the model root, and Sort needs read/traverse access to the
 installed bundle and every parent directory. On release-bundle deployments,
 the pull service must invoke the installer from the deployed source bundle.
+Reinstalling the active model verifies both the incoming and installed bundles
+without changing `current` or `previous`, preserving the rollback target for
+repeated pulls. This applies to the shared legacy and discovery LR installer.
 
 ### Request-scoped context features
 
