@@ -739,16 +739,19 @@ func Publish(ctx context.Context, c *app.RequestContext) {
 }
 
 // publishOriginFromBody reads the optional publish_origin telemetry field. The
-// generated request model does not carry it, and an absent, malformed, or
-// unrecognized value is treated as unknown instead of rejecting the publish.
+// generated request model does not carry it; only the exact lowercase key is
+// read, and an absent, malformed, or unrecognized value is treated as unknown
+// instead of rejecting the publish.
 func publishOriginFromBody(body []byte) string {
-	var fields struct {
-		PublishOrigin string `json:"publish_origin"`
-	}
+	var fields map[string]json.RawMessage
 	if json.Unmarshal(body, &fields) != nil {
 		return ""
 	}
-	return publishorigin.Normalize(fields.PublishOrigin)
+	var origin string
+	if json.Unmarshal(fields["publish_origin"], &origin) != nil {
+		return ""
+	}
+	return publishorigin.Normalize(origin)
 }
 
 // Feed returns personalized feed items

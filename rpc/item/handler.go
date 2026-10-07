@@ -80,12 +80,12 @@ func (s *ItemServiceImpl) PublishItem(ctx context.Context, req *item.PublishItem
 			return err
 		}
 		if origin != "" {
-			skipped, err := dal.RecordPublishOrigin(tx, raw.ItemID, origin)
+			recorded, err := dal.RecordPublishOrigin(tx, raw.ItemID, origin)
 			if err != nil {
 				return err
 			}
-			if skipped != nil {
-				logger.Ctx(ctx).Warn("PublishItem origin not recorded", "itemID", raw.ItemID, "origin", origin, "err", skipped)
+			if !recorded {
+				logger.Ctx(ctx).Warn("PublishItem origin not recorded", "itemID", raw.ItemID, "origin", origin)
 			}
 		}
 		if err := dal.CreateProcessedItem(tx, pi); err != nil {

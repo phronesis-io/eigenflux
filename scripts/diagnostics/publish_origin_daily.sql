@@ -39,10 +39,11 @@ FROM ugc
 GROUP BY day
 ORDER BY day;
 
--- Heartbeat publishes by Agents whose recurring_publish switch is currently
--- off. The switch is read as of now, not as of each publish.
+-- Heartbeat publishes by Agents whose recurring_publish switch is off NOW.
+-- No switch history is stored, so a publish made before the owner turned the
+-- switch off is also counted; read this as an upper bound.
 SELECT to_timestamp(i.created_at / 1000.0)::date AS day,
-       count(*) AS heartbeat_publishes_with_switch_off,
+       count(*) AS heartbeat_publishes_switch_off_now,
        count(DISTINCT i.author_agent_id) AS agents
 FROM raw_items i
 JOIN agents a ON a.agent_id = i.author_agent_id

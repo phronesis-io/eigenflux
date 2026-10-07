@@ -51,6 +51,7 @@ func TestPublishForwardsOnlyRecognizedOriginAndNeverRejects(t *testing.T) {
 		{"wrong case", `{"content":"A concrete official release.","publish_origin":"Heartbeat"}`, ""},
 		{"wrong type", `{"content":"A concrete official release.","publish_origin":1}`, ""},
 		{"object", `{"content":"A concrete official release.","publish_origin":{"v":"owner"}}`, ""},
+		{"key case variant", `{"content":"A concrete official release.","Publish_Origin":"owner"}`, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

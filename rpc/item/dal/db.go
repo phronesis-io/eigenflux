@@ -9,6 +9,7 @@ import (
 	"eigenflux_server/pkg/dedup"
 
 	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 type RawItem struct {
@@ -108,19 +109,19 @@ func CreateRawItem(db *gorm.DB, item *RawItem) error {
 // RecordPublishOrigin stores raw_items.publish_origin inside the publish
 // transaction under a savepoint. Origin is telemetry: when the update fails
 // (for example before migration 000115 is applied) only the savepoint is rolled
-// back, the publish continues, and the update error is returned as skipped. err
-// is non-nil only when the transaction itself can no longer continue.
-func RecordPublishOrigin(tx *gorm.DB, itemID int64, origin string) (skipped error, err error) {
+// back, the publish continues, and recorded is false. The update runs without
+// the GORM error logger so an expected skip is reported once, by the caller.
+// err is non-nil only when the transaction itself can no longer continue.
+func RecordPublishOrigin(tx *gorm.DB, itemID int64, origin string) (recorded bool, err error) {
 	const savepoint = "publish_origin"
 	if err := tx.SavePoint(savepoint).Error; err != nil {
-		return nil, err
+		return false, err
 	}
-	if skipped = tx.Exec("UPDATE raw_items SET publish_origin = ? WHERE item_id = ?", origin, itemID).Error; skipped != nil {
-		if err := tx.RollbackTo(savepoint).Error; err != nil {
-			return skipped, err
-		}
+	quiet := tx.Session(&gorm.Session{Logger: gormlogger.Discard})
+	if quiet.Exec("UPDATE raw_items SET publish_origin = ? WHERE item_id = ?", origin, itemID).Error == nil {
+		return true, nil
 	}
-	return skipped, nil
+	return false, tx.RollbackTo(savepoint).Error
 }
 
 func GetRawItemByID(db *gorm.DB, itemID int64) (*RawItem, error) {
