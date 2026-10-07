@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -488,6 +489,9 @@ func TestUndeliveredProfileRefreshTaskClearsOnlyItsOwnRun(t *testing.T) {
 }
 
 func TestDeliveredProfileRefreshTaskReportsWhenFinalizationFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("read-only directory permissions are not enforced on Windows")
+	}
 	home, server := profileTaskFixture(t, false)
 	captured := captureProfileRefreshRuns(t)
 	if err := profilestate.Save(home, server, "agent-1", profilestate.State{LastRefreshUnix: time.Now().Add(-48 * time.Hour).Unix()}); err != nil {
