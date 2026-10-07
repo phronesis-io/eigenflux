@@ -196,7 +196,7 @@ func TestPostgresRecommendationAttributionAndMaturity(t *testing.T) {
 		t.Fatalf("Shanghai midnight / immature cohort counts: %d,%d err=%v", deliveries, mature, err)
 	}
 	days, err := PendingDays(ctx, c, cutoff)
-	if err != nil || len(days) != 6 || days[0] != "2026-10-04" {
+	if err != nil || strings.Join(days, ",") != "2026-10-04,2026-10-03,2026-10-01,2026-09-30" {
 		t.Fatalf("bounded priority: %v %v", days, err)
 	}
 	_, err = c.Exec(`CREATE FUNCTION reject_refresh() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
@@ -370,5 +370,63 @@ func TestPostgresRecommendationHistoricalDuplicate(t *testing.T) {
 	 WHERE day='2026-10-02' AND basis='unattributed' AND lane='pgc'`).Scan(&scores, &tasks)
 	if err != nil || scores != 1 || tasks != 1 {
 		t.Fatalf("historical duplicate score=%d task=%d err=%v", scores, tasks, err)
+	}
+}
+
+func TestPostgresRecommendationPendingDaysFinalization(t *testing.T) {
+	c := fixtureDB(t)
+	ctx := context.Background()
+	pending := func(cutoff time.Time) string {
+		t.Helper()
+		days, err := PendingDays(ctx, c, cutoff)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(days, ",")
+	}
+	// Seed every historical day in the window as already final.
+	seed := instant("2026-10-10T00:30:00+08:00")
+	for day := instant("2026-09-10T12:00:00+08:00"); day.Before(instant("2026-10-08T00:00:00+08:00")); day = day.AddDate(0, 0, 1) {
+		if err := RefreshDay(ctx, c, day.Format("2006-01-02"), seed); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Just before Shanghai midnight only today and yesterday are refreshed;
+	// 10-08 (day-2) waits for its 48-hour windows to close.
+	if got := pending(instant("2026-10-10T23:59:00+08:00")); got != "2026-10-10,2026-10-09" {
+		t.Fatalf("steady state: %s", got)
+	}
+	if err := RefreshDay(ctx, c, "2026-10-08", instant("2026-10-10T23:45:00+08:00")); err != nil {
+		t.Fatal(err)
+	}
+	// The first batch after midnight finalizes the day that reached day+3.
+	// UTC is still 10-10, so this also checks the Shanghai date boundary.
+	firstAfterMidnight := instant("2026-10-11T00:05:00+08:00")
+	if got := pending(firstAfterMidnight); got != "2026-10-11,2026-10-10,2026-10-08" {
+		t.Fatalf("nightly finalization: %s", got)
+	}
+	if err := RefreshDay(ctx, c, "2026-10-08", firstAfterMidnight); err != nil {
+		t.Fatal(err)
+	}
+	if got := pending(firstAfterMidnight.Add(15 * time.Minute)); got != "2026-10-11,2026-10-10" {
+		t.Fatalf("final day was selected again: %s", got)
+	}
+	// Missed runs: a missing grid and a stale snapshot are caught up newest
+	// first, bounded per batch, and days outside the window are left alone.
+	if _, err := c.Exec(`DELETE FROM recommendation_effect_hourly WHERE hour_start='2026-10-01T05:00:00+08:00';
+	 DELETE FROM recommendation_effect_daily WHERE day IN ('2026-09-20','2026-09-10');
+	 UPDATE recommendation_effect_daily SET snapshot_at='2026-10-06T23:00:00+08:00' WHERE day='2026-10-04'`); err != nil {
+		t.Fatal(err)
+	}
+	if got := pending(firstAfterMidnight); got != "2026-10-11,2026-10-10,2026-10-04,2026-10-01" {
+		t.Fatalf("catch-up: %s", got)
+	}
+	for _, day := range []string{"2026-10-04", "2026-10-01"} {
+		if err := RefreshDay(ctx, c, day, firstAfterMidnight); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := pending(firstAfterMidnight); got != "2026-10-11,2026-10-10,2026-09-20" {
+		t.Fatalf("bounded catch-up or window edge: %s", got)
 	}
 }

@@ -175,3 +175,14 @@ Per account, in order (search and cache first, so a failure there leaves Postgre
 An account with any row in `trading_services`, `trade_orders` or `trade_order_events` is **refused**: those rows involve a counterparty and payment receipts and must be dealt with by a person first. Other agents' `inviter_agent_id` pointing at the reset account is left in place and reported as a warning. Conversations, messages and relations with the account disappear for the other party too. The daily `bf:global:*` bloom filters are not touched; their members embed the old agent id and expire with the key.
 
 The command is idempotent and every failure is safe to rerun: PostgreSQL is only touched after Elasticsearch and Redis succeeded, and a PostgreSQL error rolls the whole account back. Reset an account while nobody is using it; rows written mid-reset (a broadcast still in the pipeline) are left orphaned.
+
+## Observability
+
+### recommendation_effect_backfill
+
+Re-derive recommendation effect observations for explicit Shanghai days (for example a day older than the cron's 30-day catch-up window). Uses the same per-day transaction, timeouts and advisory lock as pipeline-cron. See [recommendation effect observations](../docs/dev/recommendation_effect.md).
+
+```bash
+go build -o build/recommendation_effect_backfill ./scripts/recommendation_effect_backfill/
+./build/recommendation_effect_backfill --days=2026-09-01,2026-09-02
+```

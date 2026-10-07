@@ -12,11 +12,17 @@ import (
 
 const lockKeyRecommendationEffect = "lock:cron:recommendation_effect"
 
+// recommendationEffectInterval keeps the default 24-hour activity page within
+// 15 minutes. Each batch refreshes today and yesterday; past days are refreshed
+// only until final (see recommendationmetrics.PendingDays), so the day that
+// crosses day+3 is finalized by the first batch after Shanghai midnight.
+const recommendationEffectInterval = 15 * time.Minute
+
 // StartRecommendationEffect refreshes anonymous observations in serial bounded
 // day batches containing daily and hourly activity. Grafana reads only the completed aggregates, never fact tables.
 func StartRecommendationEffect(ctx context.Context, rdb *redis.Client) {
 	refreshRecommendationEffectWithLock(ctx, rdb, refreshRecommendationEffect)
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(recommendationEffectInterval)
 	defer ticker.Stop()
 	for {
 		select {
