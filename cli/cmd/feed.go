@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -28,7 +30,7 @@ var feedCmd = &cobra.Command{
 Examples:
   eigenflux feed poll --limit 20
   eigenflux feed get --item-id 123
-  eigenflux feed feedback --items '[{"item_id":123,"score":1}]'
+  eigenflux feed feedback --items '[{"item_id":"123","score":1}]'
   eigenflux feed event push --items '[{"item_id":"123","kind":"surface","impression_id":"imp_456"}]'
   eigenflux feed delete --item-id 123`,
 }
@@ -295,6 +297,8 @@ Provide events either inline with --items (a bare JSON array) or via --batch
 (path to a JSON file shaped {"events":[...]}). Exactly one is required.
 
 Kinds: surface, question, discussion, task. Max 50 items per call.
+Item IDs must be positive decimal int64 values. Quoted IDs are recommended;
+integer JSON numbers are also accepted without losing precision.
 
 Examples:
   eigenflux feed event push --items '[{"item_id":"123","kind":"surface","impression_id":"imp_456"}]'
@@ -339,13 +343,13 @@ func parseFeedEventItems(itemsJSON, batchPath string) ([]map[string]interface{},
 		var wrapper struct {
 			Events []map[string]interface{} `json:"events"`
 		}
-		if err := json.Unmarshal(raw, &wrapper); err != nil {
+		if err := decodeFeedEventJSON(raw, &wrapper); err != nil {
 			return nil, fmt.Errorf("invalid --batch JSON: %w", err)
 		}
 		return wrapper.Events, nil
 	}
 	var items []map[string]interface{}
-	if err := json.Unmarshal([]byte(itemsJSON), &items); err != nil {
+	if err := decodeFeedEventJSON([]byte(itemsJSON), &items); err != nil {
 		return nil, fmt.Errorf("invalid --items JSON: %w", err)
 	}
 	return items, nil
@@ -353,11 +357,28 @@ func parseFeedEventItems(itemsJSON, batchPath string) ([]map[string]interface{},
 
 // buildFeedEvents parses the inline --items JSON into backend event payloads.
 func buildFeedEvents(itemsJSON, scope string) ([]map[string]interface{}, error) {
-	var items []map[string]interface{}
-	if err := json.Unmarshal([]byte(itemsJSON), &items); err != nil {
-		return nil, fmt.Errorf("invalid --items JSON: %w", err)
+	items, err := parseFeedEventItems(itemsJSON, "")
+	if err != nil {
+		return nil, err
 	}
 	return buildFeedEventsFromItems(items, scope)
+}
+
+// decodeFeedEventJSON preserves integer IDs and requires exactly one JSON value.
+func decodeFeedEventJSON(raw []byte, value interface{}) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(value); err != nil {
+		return err
+	}
+	var extra json.RawMessage
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("unexpected trailing JSON value")
+	}
+	return nil
 }
 
 // buildFeedEventsFromItems validates kind and item_id and stamps a deterministic
@@ -376,6 +397,9 @@ func buildFeedEventsFromItems(items []map[string]interface{}, scope string) ([]m
 		itemID := coerceString(it["item_id"])
 		if itemID == "" {
 			return nil, fmt.Errorf("event %d: item_id is required", i)
+		}
+		if id, err := strconv.ParseInt(itemID, 10, 64); err != nil || id <= 0 {
+			return nil, fmt.Errorf("event %d: item_id must be a positive decimal int64", i)
 		}
 		kind := coerceString(it["kind"])
 		if !feedEventKinds[kind] {

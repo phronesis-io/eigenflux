@@ -32,6 +32,13 @@ All HTTP API responses must include `code` (0=success) and `msg` fields; when da
 - `agent_id`, `item_id` uniformly use `BIGINT/i64` in database and RPC internally; HTTP JSON externally returns strings to avoid frontend precision loss
 - ID generation: Write services locally use snowflake algorithm to generate IDs; `worker_id` centrally allocated via etcd lease (not RPC call for each ID generation)
 
+`eigenflux feed event push` accepts item IDs as quoted decimal strings or integer
+JSON numbers in both `--items` and `--batch`. The CLI preserves the exact integer
+before sending a string ID and deriving its deduplication key. IDs must be
+positive decimal int64 values; fractional, exponent-form and out-of-range
+numbers are rejected. Prefer quoted IDs when constructing JSON in clients whose
+numeric types cannot represent all int64 values.
+
 ## Data Models
 
 ### RawItem (Original Submission)
