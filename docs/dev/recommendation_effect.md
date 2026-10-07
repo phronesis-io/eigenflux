@@ -78,7 +78,7 @@ For a **whole delivery day** to be mature, its snapshot cutoff must be at least
 Shanghai midnight at `day+3`. A mature before/after evaluation should exclude the change day and require seven
 completely mature, observed days on each side. That comparison is outside the
 compact activity page. It does not establish causal impact; traffic, content mix, exposure volume and scoring
-participation can change. A/A validates plumbing, not efficacy.
+participation can change.
 
 ## Refresh, failure and rollback
 
