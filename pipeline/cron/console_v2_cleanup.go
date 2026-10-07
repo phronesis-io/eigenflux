@@ -59,11 +59,8 @@ func cleanupConsoleV2WithLock(ctx context.Context, rdb *redis.Client) {
 			result := db.DB.WithContext(statementCtx).Exec(job.SQL, consoleV2CleanupBatch)
 			cancel()
 			if result.Error != nil {
-				// One failing job must not starve the rest of the retention
-				// matrix; skip it for this run and continue with the others.
 				logger.Default().Error("Console V2 cleanup job failed", "job", job.Name, "err", result.Error)
-				completed[job.Name] = true
-				continue
+				return
 			}
 			totals[job.Name] += result.RowsAffected
 			completed[job.Name] = result.RowsAffected < consoleV2CleanupBatch

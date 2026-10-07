@@ -90,6 +90,7 @@ func TestRetentionDeletesGuardNonCascadingReferences(t *testing.T) {
 	inlineRef := regexp.MustCompile(`(?i)^\s*(?:ADD COLUMN(?: IF NOT EXISTS)?\s+)?(\w+)\s+[^,]*?\bREFERENCES\s+(\w+)\s*\(`)
 	foreignKey := regexp.MustCompile(`(?i)FOREIGN KEY\s*\(([^)]*)\)`)
 	tableRef := regexp.MustCompile(`(?i)\bREFERENCES\s+(\w+)\s*\(`)
+	nonBlockingDelete := regexp.MustCompile(`(?i)\bON DELETE\s+(CASCADE|SET NULL|SET DEFAULT)\b`)
 	checked := 0
 	for _, path := range paths {
 		raw, err := os.ReadFile(path)
@@ -109,7 +110,8 @@ func TestRetentionDeletesGuardNonCascadingReferences(t *testing.T) {
 			}
 			target := strings.ToLower(ref[1])
 			jobs := deletes[target]
-			if len(jobs) == 0 || strings.Contains(strings.ToUpper(line), "ON DELETE") {
+			// RESTRICT and NO ACTION block the delete like an unqualified key.
+			if len(jobs) == 0 || nonBlockingDelete.MatchString(line) {
 				continue
 			}
 			var columns []string
