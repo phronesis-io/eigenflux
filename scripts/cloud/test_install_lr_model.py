@@ -30,6 +30,22 @@ class InstallerFailures(unittest.TestCase):
             checksum.chmod(0o755)
         self.env = dict(os.environ, PATH=str(self.bin), MODEL_ROOT=str(self.root / "models"))
 
+    def make_bundle(self, version):
+        bundle = self.root / ("bundle-" + version)
+        bundle.mkdir()
+        model = json.dumps({"model_version": version}).encode()
+        (bundle / "model.json").write_bytes(model)
+        (bundle / "checksums.sha256").write_text(hashlib.sha256(model).hexdigest() + "  model.json\n")
+        return bundle
+
+    def run_command(self, *args):
+        return subprocess.run(["/bin/bash", str(SCRIPT), *map(str, args)],
+                              env=self.env, text=True, capture_output=True)
+
+    def install_bundle(self, bundle):
+        result = self.run_command("--src", bundle)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def run_installer(self, oss=None):
         if oss is not None:
             path = self.bin / "ossutil"
@@ -91,6 +107,72 @@ esac
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual((self.root / "models/current").resolve().name, version)
         self.assertIn("sample_date=2026-10-01/" + version, result.stdout)
+
+    def test_repeat_install_preserves_previous_and_rollback(self):
+        first = self.make_bundle("lr_20261001_0700_aaaa")
+        second = self.make_bundle("lr_20261002_0700_bbbb")
+        self.install_bundle(first)
+        self.install_bundle(second)
+        models = Path(self.env["MODEL_ROOT"])
+        previous = (models / "previous").readlink()
+        self.install_bundle(second)
+        self.assertEqual((models / "previous").readlink(), previous)
+        result = self.run_command("--rollback")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((models / "current").resolve().name, "lr_20261001_0700_aaaa")
+        self.assertEqual((models / "previous").resolve().name, "lr_20261002_0700_bbbb")
+
+    def test_first_version_repeat_does_not_create_previous(self):
+        bundle = self.make_bundle("lr_20261001_0700_aaaa")
+        self.install_bundle(bundle)
+        self.install_bundle(bundle)
+        models = Path(self.env["MODEL_ROOT"])
+        self.assertEqual((models / "current").resolve().name, "lr_20261001_0700_aaaa")
+        self.assertFalse(os.path.lexists(models / "previous"))
+
+    def test_repeat_install_compares_canonical_targets(self):
+        first = self.make_bundle("lr_20261001_0700_aaaa")
+        second = self.make_bundle("lr_20261002_0700_bbbb")
+        for spelling in ("relative-current", "aliased-root"):
+            with self.subTest(spelling=spelling):
+                models = self.root / spelling
+                self.env["MODEL_ROOT"] = str(models)
+                self.install_bundle(first)
+                self.install_bundle(second)
+                previous = (models / "previous").readlink()
+                current = models / "current"
+                if spelling == "relative-current":
+                    current.unlink()
+                    current.symlink_to("versions/lr_20261002_0700_bbbb")
+                else:
+                    alias = self.root / "model-root-alias"
+                    alias.symlink_to(models, target_is_directory=True)
+                    self.env["MODEL_ROOT"] = str(alias)
+                current_target = current.readlink()
+                self.install_bundle(second)
+                self.assertEqual(current.readlink(), current_target)
+                self.assertEqual((models / "previous").readlink(), previous)
+
+    def test_repeat_install_still_rejects_corrupt_bundles(self):
+        first = self.make_bundle("lr_20261001_0700_aaaa")
+        second = self.make_bundle("lr_20261002_0700_bbbb")
+        for corrupted in ("staged", "installed"):
+            with self.subTest(corrupted=corrupted):
+                models = self.root / corrupted
+                self.env["MODEL_ROOT"] = str(models)
+                self.install_bundle(first)
+                self.install_bundle(second)
+                previous = (models / "previous").readlink()
+                current = (models / "current").readlink()
+                path = second / "model.json" if corrupted == "staged" else models / "current/model.json"
+                original = path.read_bytes()
+                path.write_text("corrupt bundle\n")
+                result = self.run_command("--src", second)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("checksum verification failed", result.stdout + result.stderr)
+                self.assertEqual((models / "current").readlink(), current)
+                self.assertEqual((models / "previous").readlink(), previous)
+                path.write_bytes(original)
 
 
 if __name__ == "__main__":
