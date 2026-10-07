@@ -326,3 +326,135 @@ func TestPostgresAttentionExpirySkipsConcurrentResponse(t *testing.T) {
 		t.Fatalf("concurrent response was overwritten by expiry: status=%s", status)
 	}
 }
+
+// TestPostgresDeletesKeepRowsWithNonCascadingReferences reproduces the
+// production foreign keys from account recovery and CLI account switching:
+// referenced expired challenges and sessions stay, the rest is deleted, and
+// the batch loop terminates without an error.
+func TestPostgresDeletesKeepRowsWithNonCascadingReferences(t *testing.T) {
+	dsn := os.Getenv("PG_DSN")
+	if dsn == "" {
+		t.Skip("PG_DSN is required for PostgreSQL retention semantics")
+	}
+	gdb, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := gdb.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := fmt.Sprintf("retention_fk_%d", time.Now().UnixNano())
+	if err := gdb.Exec("CREATE SCHEMA " + schema).Error; err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = gdb.Exec("DROP SCHEMA IF EXISTS " + schema + " CASCADE").Error })
+	ctx := context.Background()
+	conn, err := sqlDB.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "SET search_path TO "+schema); err != nil {
+		t.Fatal(err)
+	}
+	for _, ddl := range []string{
+		`CREATE TABLE console_v2_sessions (
+			session_id varchar(128) PRIMARY KEY, absolute_expires_at bigint NOT NULL)`,
+		`CREATE TABLE v2_email_challenges (
+			challenge_id varchar(64) PRIMARY KEY, expires_at bigint NOT NULL,
+			console_session_id varchar(128) NULL REFERENCES console_v2_sessions(session_id) ON DELETE SET NULL)`,
+		`CREATE TABLE agent_account_recoveries (
+			recovery_id_hash varchar(128) PRIMARY KEY,
+			console_session_id varchar(128) NOT NULL REFERENCES console_v2_sessions(session_id),
+			email_challenge_id varchar(64) NOT NULL REFERENCES v2_email_challenges(challenge_id))`,
+		`CREATE TABLE agent_cli_account_switches (
+			switch_id_hash varchar(128) PRIMARY KEY,
+			source_console_session_id varchar(128) NOT NULL REFERENCES console_v2_sessions(session_id),
+			target_console_session_id varchar(128) NULL REFERENCES console_v2_sessions(session_id))`,
+	} {
+		if _, err := conn.ExecContext(ctx, ddl); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now().UnixMilli()
+	expiredSession := now - 91*DayMS
+	expiredChallenge := now - 31*DayMS
+	if _, err := conn.ExecContext(ctx, `INSERT INTO console_v2_sessions(session_id, absolute_expires_at)
+		SELECT 'stale-' || n, $1::bigint FROM generate_series(1, 7) n
+		UNION ALL VALUES ('recovery-session', $1::bigint), ('switch-source', $1::bigint), ('switch-target', $1::bigint), ('live', $2::bigint)`,
+		expiredSession, now+DayMS); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, `INSERT INTO v2_email_challenges(challenge_id, expires_at, console_session_id)
+		SELECT 'stale-' || n, $1::bigint, NULL FROM generate_series(1, 7) n
+		UNION ALL VALUES ('recovery-challenge', $1::bigint, 'stale-1'), ('fresh', $2::bigint, NULL)`,
+		expiredChallenge, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, `INSERT INTO agent_account_recoveries(recovery_id_hash, console_session_id, email_challenge_id)
+		VALUES ('recovery', 'recovery-session', 'recovery-challenge')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, `INSERT INTO agent_cli_account_switches(switch_id_hash, source_console_session_id, target_console_session_id)
+		VALUES ('switch', 'switch-source', 'switch-target')`); err != nil {
+		t.Fatal(err)
+	}
+
+	jobs := map[string]string{}
+	for _, job := range Jobs() {
+		jobs[job.Name] = job.SQL
+	}
+	// Mirror the cron loop with a batch smaller than the backlog: a job is
+	// done once a batch deletes fewer rows than the limit. Excluded rows must
+	// neither fail the statement nor keep the loop spinning.
+	const batch = 3
+	for _, name := range []string{"email_challenges", "console_sessions"} {
+		for run := 0; ; run++ {
+			if run >= 10 {
+				t.Fatalf("%s did not finish within 10 batches", name)
+			}
+			result, err := conn.ExecContext(ctx, jobs[name], batch)
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			if affected, _ := result.RowsAffected(); affected < batch {
+				break
+			}
+		}
+	}
+
+	remaining := func(table, key string) []string {
+		rows, err := conn.QueryContext(ctx, "SELECT "+key+" FROM "+table+" ORDER BY "+key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var ids []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, id)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return ids
+	}
+	if got, want := fmt.Sprint(remaining("v2_email_challenges", "challenge_id")), "[fresh recovery-challenge]"; got != want {
+		t.Fatalf("email challenges left %s, want %s", got, want)
+	}
+	if got, want := fmt.Sprint(remaining("console_v2_sessions", "session_id")), "[live recovery-session switch-source switch-target]"; got != want {
+		t.Fatalf("console sessions left %s, want %s", got, want)
+	}
+	var recoveries, switches int
+	if err := conn.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM agent_account_recoveries),
+		(SELECT count(*) FROM agent_cli_account_switches)`).Scan(&recoveries, &switches); err != nil {
+		t.Fatal(err)
+	}
+	if recoveries != 1 || switches != 1 {
+		t.Fatalf("retention removed audit records: recoveries=%d switches=%d", recoveries, switches)
+	}
+}

@@ -21,9 +21,18 @@ func Jobs() []Job {
 	return []Job{
 		{"bootstrap_grants", boundedDelete("agent_bootstrap_grants", "expires_at < clock_ms() - 7*day_ms()")},
 		{"signature_nonces", boundedDelete("agent_signature_nonces", "expires_at < clock_ms() - 7*day_ms()")},
-		{"email_challenges", boundedDelete("v2_email_challenges", "expires_at < clock_ms() - 30*day_ms()")},
+		// Account recovery rows are permanent security history and reference
+		// their challenge without ON DELETE; keep those challenges so the batch
+		// does not abort on the foreign key.
+		{"email_challenges", boundedDelete("v2_email_challenges", `expires_at < clock_ms() - 30*day_ms()
+			AND NOT EXISTS (SELECT 1 FROM agent_account_recoveries recovery WHERE recovery.email_challenge_id = row.challenge_id)`)},
 		{"handoffs", boundedDelete("console_v2_handoffs", "expires_at < clock_ms() - 7*day_ms()")},
-		{"console_sessions", boundedDelete("console_v2_sessions", "absolute_expires_at < clock_ms() - 90*day_ms()")},
+		// Recovery and CLI account-switch rows reference Console sessions
+		// without ON DELETE; keep the referenced sessions.
+		{"console_sessions", boundedDelete("console_v2_sessions", `absolute_expires_at < clock_ms() - 90*day_ms()
+			AND NOT EXISTS (SELECT 1 FROM agent_account_recoveries recovery WHERE recovery.console_session_id = row.session_id)
+			AND NOT EXISTS (SELECT 1 FROM agent_cli_account_switches account_switch WHERE account_switch.source_console_session_id = row.session_id)
+			AND NOT EXISTS (SELECT 1 FROM agent_cli_account_switches account_switch WHERE account_switch.target_console_session_id = row.session_id)`)},
 		{"credential_sessions", boundedDelete("agent_credential_sessions", "absolute_expires_at < clock_ms() - 90*day_ms()")},
 		{"idempotency_responses", boundedDelete("agent_idempotency_requests", "expires_at < clock_ms()")},
 		{"telemetry_events", boundedDelete("telemetry_events_v2", "expires_at < clock_ms()")},
