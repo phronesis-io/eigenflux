@@ -114,4 +114,5 @@ observed traffic, not an unrestricted rollout guarantee. Normal rollout must
 observe Discovery latency/channel errors and ES search queues, rejections, CPU,
 heap and GC against the baseline. Sustained queuing, new timeouts or a material
 latency regression require reverting the Sort change or reassessing the lane.
-Historical Reach repair is delivered separately in PR #369.
+Historical Reach repair was proposed separately in PR #369; that one-off tool
+was never run in production and has since been removed.
