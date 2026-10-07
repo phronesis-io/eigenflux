@@ -21,10 +21,16 @@ var errLockTimeout = errors.New("profile state lock timeout")
 // deliberately kept outside config.json: feed polling and settings sync are
 // separate processes, and using the shared config read-modify-write path can
 // silently lose a just-completed profile evaluation.
+//
+// The pending run fields link one dispatched refresh task to its completion
+// report. They are health telemetry only and never affect due/cooldown logic.
 type State struct {
-	LastRefreshUnix  int64 `json:"last_refresh_unix"`
-	LastCheckedUnix  int64 `json:"last_checked_unix"`
-	LastPromptedUnix int64 `json:"last_prompted_unix"`
+	LastRefreshUnix          int64  `json:"last_refresh_unix"`
+	LastCheckedUnix          int64  `json:"last_checked_unix"`
+	LastPromptedUnix         int64  `json:"last_prompted_unix"`
+	PendingRunID             string `json:"pending_run_id,omitempty"`
+	PendingRunTrigger        string `json:"pending_run_trigger,omitempty"`
+	PendingRunDispatchedUnix int64  `json:"pending_run_dispatched_unix,omitempty"`
 }
 
 // FilePath returns a stable, path-safe per-server/per-agent state file.

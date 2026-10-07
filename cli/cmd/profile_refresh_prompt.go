@@ -79,10 +79,19 @@ func stampProfileRefreshKey(key string) error {
 }
 
 func stampProfileRefreshKeyFor(srv, agentID, key string) error {
+	_, _, err := completeProfileRefreshFor(srv, agentID, key)
+	return err
+}
+
+// completeProfileRefreshFor stamps a completed refresh and, in the same locked
+// update, takes the pending dispatched run it completes. It returns the run_id
+// and trigger to report.
+func completeProfileRefreshFor(srv, agentID, key string) (string, string, error) {
 	now := time.Now().Unix()
 	if key != kvProfileRefreshAt && key != kvProfileRefreshCheckedAt {
-		return fmt.Errorf("unknown profile refresh state key %q", key)
+		return "", "", fmt.Errorf("unknown profile refresh state key %q", key)
 	}
+	var runID, trigger string
 	_, err := profilestate.Update(config.HomeDir(), srv, agentID, func(state *profilestate.State) bool {
 		if key == kvProfileRefreshAt {
 			state.LastRefreshUnix = now
@@ -90,9 +99,13 @@ func stampProfileRefreshKeyFor(srv, agentID, key string) error {
 			state.LastCheckedUnix = now
 		}
 		state.LastPromptedUnix = 0
+		runID, trigger = takePendingProfileRefreshRun(state, now)
 		return true
 	})
-	return err
+	if err != nil {
+		return "", "", err
+	}
+	return runID, trigger, nil
 }
 
 // shouldPromptProfileRefresh is the pure decision. lastTouch is the newer of
@@ -136,6 +149,7 @@ func maybePromptProfileRefreshFor(srv, agentID string) {
 	}
 	now := time.Now().Unix()
 	emit := false
+	runID := newProfileRefreshRunID()
 	claimStamp := now - int64((profilePromptCooldown-profilePromptClaimLease)/time.Second)
 	_, err := profilestate.Update(config.HomeDir(), srv, agentID, func(state *profilestate.State) bool {
 		lastTouch := maxInt64(
@@ -156,6 +170,9 @@ func maybePromptProfileRefreshFor(srv, agentID string) {
 		// Claim briefly before writing so concurrent polls cannot duplicate the
 		// task. A failed write is retried after the short lease, not one hour.
 		state.LastPromptedUnix = claimStamp
+		// Record the run before the line is visible so a fast completion
+		// always finds it.
+		setPendingProfileRefreshRun(state, runID, profileRefreshTriggerPendingLine, now)
 		emit = true
 		return true
 	})
@@ -172,6 +189,7 @@ func maybePromptProfileRefreshFor(srv, agentID string) {
 		state.LastPromptedUnix = now
 		return true
 	})
+	reportProfileRefreshDispatched(srv, runID, profileRefreshTriggerPendingLine)
 }
 
 func pluginOwnsProfileRefresh(_ string, mode string) bool {

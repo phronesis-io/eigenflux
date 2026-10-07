@@ -181,3 +181,16 @@ Execution is bounded by a 30-second statement timeout and 5-second lock timeout.
 Retry is idempotent. Down fails closed because reversing a data repair could
 overwrite subsequent activity. The normal code-only deployment rollback preserves
 this migration. See [PM topic status](pm.md#topic-status).
+
+### Profile refresh runs (000114)
+
+`agent_profile_refresh_runs` is append-only Periodic Profile Refresh telemetry:
+one `dispatched` and at most one `completed` row per client-generated `run_id`,
+enforced by a unique `(agent_id, run_id, stage)` index. CHECK constraints bind
+`stage`, `trigger` and `outcome` to their enums, require `outcome` and an array
+`changed_paths` exactly on completed rows, and are written NULL-safe. Rows
+cascade with agent deletion; `(agent_id, created_at)` and `(created_at, id)`
+indexes serve per-agent reads, weekly metrics and the 90-day cleanup. The
+migration creates an empty table, so apply it before deploying the gateway; the
+CLI ignores 404 until then. See
+[refresh run telemetry](api_endpoints.md#refresh-run-telemetry).
