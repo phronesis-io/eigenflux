@@ -20,9 +20,11 @@ import (
 
 const (
 	maxRefreshRunBodyBytes = 4 << 10
-	// A cooperative CLI reports at most one dispatch per hour per unresolved
-	// reminder plus its completion. The rolling daily cap bounds a misbehaving
-	// or hostile client without dropping legitimate hourly retries.
+	// Only new rows are charged: hourly re-reminders reuse their run_id and
+	// retries repeat (run_id, stage), so both are answered as duplicates
+	// before the quota. A cooperative CLI adds a few rows per day (one run per
+	// 24h freshness window, manual reviews, and their completions); the
+	// rolling cap bounds a misbehaving or hostile client minting new run_ids.
 	refreshRunDailyLimit  = 60
 	refreshRunDailyWindow = 24 * time.Hour
 )
@@ -98,8 +100,9 @@ func (r *RefreshRunReq) validate() (*string, error) {
 }
 
 // PostRefreshRun records one dispatched or completed Periodic Profile Refresh
-// run. Reports are idempotent on (agent, run_id, stage). Client metadata uses
-// the same headers and bounds as runtime observation.
+// run. Reports are idempotent on (agent, run_id, stage); a repeat is answered
+// as a duplicate without charging the daily quota. Client metadata uses the
+// same headers and bounds as runtime observation (reqinfo.BoundedClientHeaders).
 // @Summary Record a Periodic Profile Refresh run event
 // @Tags Agent Card
 // @Accept json
@@ -132,6 +135,18 @@ func PostRefreshRun(ctx context.Context, c *app.RequestContext) {
 		respond(c, http.StatusBadRequest, 400, verr.Error(), nil)
 		return
 	}
+	// Retries and hourly re-reminders repeat an already recorded (run_id,
+	// stage). Answer them from the unique index without charging the quota.
+	exists, err := profiledal.ProfileRefreshRunExists(db.DB.WithContext(ctx), agentID, req.RunID, req.Stage)
+	if err != nil {
+		logger.Ctx(ctx).Error("PostRefreshRun lookup failed", "agentID", agentID, "stage", req.Stage, "err", err)
+		respond(c, http.StatusInternalServerError, 500, "failed to record refresh run", nil)
+		return
+	}
+	if exists {
+		respondRefreshRunRecorded(c, false)
+		return
+	}
 	// Fail closed like profile writes: an unbounded telemetry endpoint would
 	// grow the table without limit while Redis is unavailable.
 	allowed, rateErr := checkFixedWindow(ctx, mq.RDB, agentID, "refresh-runs", refreshRunDailyLimit, refreshRunDailyWindow, time.Now())
@@ -147,27 +162,17 @@ func PostRefreshRun(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	header := func(name string, limit int) string {
-		value := string(c.GetHeader(name))
-		if len(value) > limit {
-			return ""
-		}
-		return value
-	}
-	mode := header("X-Client-Mode", 16)
-	if mode != "plugin" && mode != "skill" {
-		mode = ""
-	}
+	headers := reqinfo.BoundedClientHeaders(func(name string) string { return string(c.GetHeader(name)) })
 	run := &profiledal.ProfileRefreshRun{
 		AgentID:       agentID,
 		RunID:         req.RunID,
 		Stage:         req.Stage,
 		ChangedPaths:  changedPaths,
 		Trigger:       req.Trigger,
-		ClientHost:    header("X-Client-Host", 129),
-		ClientMode:    mode,
-		CLIVersion:    header("X-CLI-Ver", 32),
-		PluginVersion: reqinfo.SafePluginVersion(string(c.GetHeader("X-Client-Plugin-Version"))),
+		ClientHost:    headers.Host,
+		ClientMode:    headers.Mode,
+		CLIVersion:    headers.CLIVersion,
+		PluginVersion: headers.PluginVersion,
 	}
 	if req.Stage == "completed" {
 		outcome := req.Outcome
@@ -179,6 +184,10 @@ func PostRefreshRun(ctx context.Context, c *app.RequestContext) {
 		respond(c, http.StatusInternalServerError, 500, "failed to record refresh run", nil)
 		return
 	}
+	respondRefreshRunRecorded(c, inserted)
+}
+
+func respondRefreshRunRecorded(c *app.RequestContext, inserted bool) {
 	respond(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"recorded":  inserted,
 		"duplicate": !inserted,

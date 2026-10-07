@@ -28,6 +28,8 @@ SELECT (extract(epoch FROM :'week_start'::date::timestamptz) * 1000)::bigint AS 
 -- auto_run_rate: share of the cohort with >= 1 completed run (changed or
 -- unchanged) dispatched by the CLI schedule (plugin_task / pending_line).
 -- any_run_rate also counts manual_force and untracked completions.
+-- Run rates read completed rows only, by their own trigger, so a completion
+-- still counts when its best-effort dispatched report was lost.
 WITH cohort AS (
     SELECT a.agent_id
     FROM agents a
@@ -94,7 +96,9 @@ ORDER BY 3 DESC, 1, 2;
 -- ── Layer 1b: 24h failure rate ──────────────────────────────────────────────
 -- Dispatches in the week (all agents) that have had 24h to mature. A dispatch
 -- fails when no completion with the same (agent_id, run_id) arrived within 24h.
--- The NULL trigger row is the overall total.
+-- The NULL trigger row is the overall total. The rate is defined over
+-- dispatched rows only: a dispatch whose best-effort report was lost is absent
+-- from the denominator (known undercount). The next query sizes that gap.
 WITH dispatches AS (
     SELECT d.agent_id, d.run_id, d.trigger, COALESCE(NULLIF(d.client_mode, ''), '(unknown)') AS client_mode, d.created_at
     FROM agent_profile_refresh_runs d
@@ -119,6 +123,21 @@ SELECT trigger,
 FROM outcomes
 GROUP BY ROLLUP (trigger, client_mode)
 ORDER BY trigger NULLS FIRST, client_mode NULLS FIRST;
+
+-- Linked completions (trigger other than untracked) in the week whose
+-- dispatched row is missing, i.e. the dispatch report was lost or rejected.
+-- These runs count for run rate but are invisible to the failure rate.
+SELECT c.trigger,
+       count(*) AS linked_completions,
+       count(*) FILTER (WHERE NOT EXISTS (
+           SELECT 1 FROM agent_profile_refresh_runs d
+           WHERE d.agent_id = c.agent_id AND d.run_id = c.run_id AND d.stage = 'dispatched'
+       )) AS completions_without_dispatch
+FROM agent_profile_refresh_runs c
+WHERE c.stage = 'completed' AND c.trigger <> 'untracked'
+  AND c.created_at >= :week_start_ms AND c.created_at < :week_end_ms
+GROUP BY ROLLUP (c.trigger)
+ORDER BY c.trigger NULLS FIRST;
 
 -- ── Layer 2a: weekly need-field change counts ───────────────────────────────
 -- One row per agent with need-field changes in the week (any actor/source).

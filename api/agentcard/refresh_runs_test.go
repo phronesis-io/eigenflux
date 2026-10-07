@@ -3,6 +3,7 @@ package agentcardapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -61,17 +62,6 @@ func TestRefreshRunReqValidate(t *testing.T) {
 				t.Fatalf("changed_paths = %q, want %q", got, tc.wantPaths)
 			}
 		})
-	}
-}
-
-func TestPostRefreshRunFailsClosedWithoutRedis(t *testing.T) {
-	previous := mq.RDB
-	mq.RDB = nil
-	t.Cleanup(func() { mq.RDB = previous })
-	h := refreshRunTestServer(42)
-	resp := postRefreshRun(h, `{"run_id":"run_0001","stage":"dispatched","trigger":"pending_line"}`, nil)
-	if resp.StatusCode() != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503: %s", resp.StatusCode(), resp.Body())
 	}
 }
 
@@ -151,12 +141,33 @@ func TestPostRefreshRunPostgres(t *testing.T) {
 	other := refreshRunTestServer(43)
 	assertRecorded(t, postRefreshRun(other, dispatch, nil), true)
 
-	// Daily quota rejects further reports once exhausted.
-	for i := 0; i < refreshRunDailyLimit; i++ {
-		postRefreshRun(other, dispatch, nil)
+	// Duplicates never charge the quota: re-reminders and retries of a
+	// recorded (run_id, stage) stay answerable after many repeats.
+	if got := mr.Exists("agentcard:rl:refresh-runs:43"); !got {
+		t.Fatal("the first new row must charge the quota")
 	}
-	if resp := postRefreshRun(other, dispatch, nil); resp.StatusCode() != http.StatusTooManyRequests {
+	for i := 0; i < refreshRunDailyLimit+5; i++ {
+		assertRecorded(t, postRefreshRun(other, dispatch, nil), false)
+	}
+	// New rows exhaust the daily quota; one row was already charged above.
+	for i := 1; i < refreshRunDailyLimit; i++ {
+		assertRecorded(t, postRefreshRun(other, fmt.Sprintf(`{"run_id":"quota_%04d","stage":"dispatched","trigger":"pending_line"}`, i), nil), true)
+	}
+	if resp := postRefreshRun(other, `{"run_id":"quota_over","stage":"dispatched","trigger":"pending_line"}`, nil); resp.StatusCode() != http.StatusTooManyRequests {
 		t.Fatalf("status above quota = %d, want 429", resp.StatusCode())
+	}
+	// A duplicate is still answered after the quota is exhausted.
+	assertRecorded(t, postRefreshRun(other, dispatch, nil), false)
+
+	// Without Redis, duplicates still answer and new rows fail closed.
+	mq.RDB = nil
+	assertRecorded(t, postRefreshRun(other, dispatch, nil), false)
+	if resp := postRefreshRun(other, `{"run_id":"no_redis_1","stage":"dispatched","trigger":"pending_line"}`, nil); resp.StatusCode() != http.StatusServiceUnavailable {
+		t.Fatalf("new row without Redis status = %d, want 503: %s", resp.StatusCode(), resp.Body())
+	}
+	mq.RDB = rdb
+	if err := tx.Exec(`DELETE FROM agent_profile_refresh_runs WHERE agent_id = 43 AND run_id <> 'run_0001'`).Error; err != nil {
+		t.Fatal(err)
 	}
 
 	// Retention removes only rows older than the cutoff.

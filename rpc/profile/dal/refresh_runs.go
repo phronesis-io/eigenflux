@@ -48,6 +48,18 @@ func InsertProfileRefreshRun(db *gorm.DB, run *ProfileRefreshRun) (bool, error) 
 	return res.RowsAffected == 1, nil
 }
 
+// ProfileRefreshRunExists reports whether (agent, run, stage) is already
+// recorded. It is a lookup on the unique idempotency index, so retries can be
+// answered before any per-agent quota is charged.
+func ProfileRefreshRunExists(db *gorm.DB, agentID int64, runID, stage string) (bool, error) {
+	var exists bool
+	err := db.Raw(`SELECT EXISTS (
+			SELECT 1 FROM agent_profile_refresh_runs
+			WHERE agent_id = ? AND run_id = ? AND stage = ?)`,
+		agentID, runID, stage).Scan(&exists).Error
+	return exists, err
+}
+
 // DeleteProfileRefreshRunsBefore removes run telemetry older than the cutoff
 // in bounded batches. It reports saturated=true when maxBatches were all full.
 func DeleteProfileRefreshRunsBefore(db *gorm.DB, beforeCreatedAtMs int64, batchSize, maxBatches int) (int64, bool, error) {

@@ -138,3 +138,42 @@ func SafePluginVersion(raw string) string {
 	}
 	return value
 }
+
+// ClientHeaders is bounded Agent client metadata read from request headers.
+type ClientHeaders struct {
+	Host          string
+	Mode          string
+	Model         string
+	CLIVersion    string
+	PluginVersion string
+}
+
+const (
+	maxClientHeaderBytes     = 128
+	maxClientHostHeaderBytes = 129
+)
+
+// BoundedClientHeaders reads X-Client-Host, X-Client-Mode, X-Client-Model,
+// X-CLI-Ver, and X-Client-Plugin-Version through get. Oversized values are
+// dropped rather than truncated, Mode keeps only "plugin" or "skill", and the
+// plugin version passes SafePluginVersion. Unknown values stay empty.
+func BoundedClientHeaders(get func(name string) string) ClientHeaders {
+	bounded := func(name string, limit int) string {
+		value := get(name)
+		if len(value) > limit {
+			return ""
+		}
+		return value
+	}
+	headers := ClientHeaders{
+		Host:          bounded("X-Client-Host", maxClientHostHeaderBytes),
+		Mode:          bounded("X-Client-Mode", maxClientHeaderBytes),
+		Model:         bounded("X-Client-Model", maxClientHeaderBytes),
+		CLIVersion:    bounded("X-CLI-Ver", maxClientHeaderBytes),
+		PluginVersion: SafePluginVersion(bounded("X-Client-Plugin-Version", maxClientHeaderBytes)),
+	}
+	if headers.Mode != "plugin" && headers.Mode != "skill" {
+		headers.Mode = ""
+	}
+	return headers
+}

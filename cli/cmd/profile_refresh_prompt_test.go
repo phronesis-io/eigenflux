@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
@@ -84,7 +85,7 @@ func TestActiveProfileStateScopeDoesNotFallBackFromInvalidV2Account(t *testing.T
 
 func TestV2ProfileStateStampsRoundTrip(t *testing.T) {
 	tempV2AuthenticatedProfileHome(t)
-	if err := stampProfileRefreshed(); err != nil {
+	if err := completeActiveProfileRefresh(kvProfileRefreshAt); err != nil {
 		t.Fatalf("stamp V2 profile refresh: %v", err)
 	}
 	srv, agentID := activeProfileStateScope()
@@ -227,16 +228,15 @@ func TestServerKVUnixRejectsUntrustedValues(t *testing.T) {
 // reader uses — a scope mismatch would compile fine and silently nag forever.
 func TestStampsRoundTripAndSuppressPrompt(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		stamp func() error
-		key   string
+		name string
+		key  string
 	}{
-		{"write stamp", stampProfileRefreshed, kvProfileRefreshAt},
-		{"evaluate stamp", stampProfileChecked, kvProfileRefreshCheckedAt},
+		{"write stamp", kvProfileRefreshAt},
+		{"evaluate stamp", kvProfileRefreshCheckedAt},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tempAuthenticatedProfileHome(t)
-			if err := tc.stamp(); err != nil {
+			if err := completeActiveProfileRefresh(tc.key); err != nil {
 				t.Fatalf("stamp: %v", err)
 			}
 
@@ -305,7 +305,7 @@ func TestMaybePromptUsesOneHourCooldown(t *testing.T) {
 	}
 
 	// A completed evaluation settles the task and clears the retry stamp.
-	if err := stampProfileChecked(); err != nil {
+	if err := completeActiveProfileRefresh(kvProfileRefreshCheckedAt); err != nil {
 		t.Fatalf("settle profile state: %v", err)
 	}
 	settled := profilestate.Load(config.HomeDir(), srv, agentID)
@@ -320,4 +320,13 @@ func TestMaybePromptUsesOneHourCooldown(t *testing.T) {
 	if shouldPromptProfileRefresh(touch, 0, now) {
 		t.Error("evaluating the profile must settle the prompt")
 	}
+}
+
+func completeActiveProfileRefresh(key string) error {
+	srv, agentID := activeProfileStateScope()
+	if srv == "" || agentID == "" {
+		return fmt.Errorf("no active authenticated account")
+	}
+	_, _, err := completeProfileRefreshFor(srv, agentID, key)
+	return err
 }

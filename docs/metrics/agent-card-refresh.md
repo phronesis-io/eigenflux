@@ -35,11 +35,16 @@ Need fields / 需求字段: `seeking`, `offering`, `current_focus`, `demands`,
 
 `auto_run_rate` = cohort agents with ≥1 `completed` run (outcome `changed` or
 `unchanged`) whose trigger is `plugin_task` or `pending_line` during the week ÷
-cohort size. `any_run_rate` also counts `manual_force` and `untracked`.
+cohort size. `any_run_rate` also counts `manual_force` and `untracked`. Run
+rates read completed rows by their own trigger and never require the matching
+`dispatched` row, so a completion counts even when its best-effort dispatch
+report was lost.
 
 > 周运行率 = 当周至少完成 1 次「自动刷新」的 Agent 数 ÷ 当周活跃已 onboard Agent 数。
 > 「完成」包括改了卡（changed）和评估后没改（unchanged）。「自动」= 由 CLI 定时派发：插件宿主的 `profile refresh-task`（plugin_task）或 skill 宿主 feed poll 打出的 `[PENDING TASK]` 行（pending_line）。
 > 手动 `--force`（manual_force）和找不到对应派发记录的完成（untracked，例如 Agent 自发刷新、或派发已超过 72 小时）不计入自动口径，单列在 `any_run_rate`。
+> 运行率只看完成记录自身的触发方式，不要求能找到对应的派发记录：派发上报是尽力而为的，丢了也不影响完成被计入。
+> 手动 `--force` 时如果还有不满 24 小时、尚未完成的自动任务，这次手动评估直接完成那个自动任务，完成记录沿用自动任务的 run_id 和触发方式（计入自动口径）。
 
 The script also splits the rate by the latest reported `client_mode` and
 `cli_version`. Agents with no report at all (`(none)`) usually run a CLI older
@@ -53,11 +58,18 @@ Over `dispatched` rows created in the week that are at least 24 hours old: the
 share with no `completed` row for the same `(agent_id, run_id)` within 24 hours
 of dispatch. Reported per trigger and mode, with a total row. Hourly
 re-reminders of an unfinished run (same trigger, under 24 hours old) reuse its
-`run_id`, so one ignored refresh counts as one failure; manual forced reviews
-always start a new run.
+`run_id`, so one ignored refresh counts as one failure. A manual forced review
+while an automatic run younger than 24 hours is unfinished completes that run
+instead of starting its own; otherwise it starts a `manual_force` run.
+
+The rate is defined over `dispatched` rows only. A dispatch whose best-effort
+report was lost is missing from the denominator, so dispatches are undercounted.
+The script also lists, per trigger, linked completions whose `dispatched` row is
+missing (`completions_without_dispatch`) to size that gap.
 
 > 24 小时失败率 = 当周派发（dispatched）且已满 24 小时的任务中，24 小时内没有对应完成记录（同 agent、同 run_id 的 completed）的比例。按触发方式、接入模式拆分，并有总计行。
-> 注意：上一个任务还没完成时每小时的重复提醒（同一触发方式、派发不满 24 小时）沿用原 run_id，一次被忽略的刷新只算一次失败；超过 24 小时或触发方式不同才换新 run_id，旧任务按失败计。手动强制刷新总是新开一次。
+> 注意：上一个任务还没完成时每小时的重复提醒（同一触发方式、派发不满 24 小时）沿用原 run_id，一次被忽略的刷新只算一次失败；超过 24 小时或触发方式不同才换新 run_id，旧任务按失败计。手动强制刷新时如果还有不满 24 小时的未完成自动任务，就算作完成那个自动任务，不会把它挤成失败；没有时才新开一次 manual_force。
+> 已知偏差：分母只含成功上报的派发记录。派发上报是尽力而为的，丢失的派发不在分母里。脚本另外按触发方式列出「有完成、找不到派发记录」的数量（`completions_without_dispatch`），用来估计漏报规模。
 
 ## Layer 2 — is the card content healthy
 

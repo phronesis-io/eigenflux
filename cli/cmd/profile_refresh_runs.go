@@ -8,12 +8,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
-	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
-	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/profilestate"
 )
 
@@ -23,10 +20,18 @@ import (
 // `profile refresh-complete` or a `profile patch --source cli_daily_refresh`.
 // Both share a client-generated run_id kept in the profile-refresh sidecar.
 //
-// Reporting is strictly best-effort: it runs after the command's own output,
-// uses a short timeout, never refreshes credentials, never writes to stdout,
-// and ignores every failure (including 404 from servers without the endpoint).
-// Failures are visible on stderr only with --verbose.
+// The pending run is recorded before delivery so a fast completion always
+// finds it. If delivery fails, a run created by that dispatch is cleared again;
+// once delivery succeeds the dispatched event is reported even when later
+// local bookkeeping fails.
+//
+// Reporting is strictly best-effort: it only runs on commands that actually
+// dispatch or complete a refresh, after the command's own output, with a one
+// second timeout. It never refreshes credentials, never writes to stdout, and
+// ignores every failure (including 404 from servers without the endpoint).
+// Failures are visible on stderr only with --verbose. A lost dispatched event
+// leaves its completion without a dispatched row; server metrics account for
+// that.
 const (
 	profileRefreshTriggerPluginTask  = "plugin_task"
 	profileRefreshTriggerPendingLine = "pending_line"
@@ -35,7 +40,7 @@ const (
 	// such as an agent-initiated refresh or a dispatch older than the link window.
 	profileRefreshTriggerUntracked = "untracked"
 
-	profileRefreshRunReportTimeout = 3 * time.Second
+	profileRefreshRunReportTimeout = time.Second
 	profileRefreshRunLinkWindow    = 72 * time.Hour
 	// Matches the 24h window of the server-side failure metric.
 	profileRefreshRunReuseWindow = 24 * time.Hour
@@ -55,7 +60,9 @@ type profileRefreshRunEvent struct {
 // reportProfileRefreshRun is replaceable in tests.
 var reportProfileRefreshRun = postProfileRefreshRun
 
-func newProfileRefreshRunID() string {
+// newProfileRefreshRunID returns "" when the system random source fails. It is
+// replaceable in tests.
+var newProfileRefreshRunID = func() string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		return ""
@@ -63,26 +70,66 @@ func newProfileRefreshRunID() string {
 	return hex.EncodeToString(b)
 }
 
+// profileRefreshDispatch is the run a dispatch reports. Created is true only
+// when this dispatch started the run, so an undelivered dispatch can clear it.
+type profileRefreshDispatch struct {
+	RunID   string
+	Trigger string
+	Created bool
+}
+
+func isAutomaticProfileRefreshTrigger(trigger string) bool {
+	return trigger == profileRefreshTriggerPluginTask || trigger == profileRefreshTriggerPendingLine
+}
+
 // setPendingProfileRefreshRun records a dispatched run inside a profilestate
-// mutation and returns the run_id to report. A repeat reminder for a run that
-// is still unfinished, has the same trigger, and is younger than
-// profileRefreshRunReuseWindow keeps the original run_id and dispatch time, so
-// hourly re-prompts of one ignored refresh count as one failed run rather than
-// one per reminder. Manual forced reviews always start a new run.
-func setPendingProfileRefreshRun(state *profilestate.State, runID, trigger string, now int64) string {
-	if runID == "" {
-		return ""
-	}
-	if trigger != profileRefreshTriggerManualForce &&
-		state.PendingRunID != "" && state.PendingRunTrigger == trigger &&
+// mutation and returns the run to report. A run_id is generated only when a
+// new run starts.
+//
+//   - An automatic dispatch (plugin_task, pending_line) for a run that is still
+//     unfinished, has the same trigger, and is younger than
+//     profileRefreshRunReuseWindow keeps the original run_id and dispatch
+//     time, so hourly re-prompts of one ignored refresh count as one failed
+//     run rather than one per reminder.
+//   - A manual forced review never replaces an unfinished automatic run
+//     younger than the reuse window: the forced review completes that run and
+//     the completion keeps its automatic trigger. Otherwise manual force
+//     starts its own manual_force run.
+//
+// When the random source fails and nothing can be reused, the state is left
+// unchanged and the returned RunID is empty, so nothing is reported.
+func setPendingProfileRefreshRun(state *profilestate.State, trigger string, now int64) profileRefreshDispatch {
+	unfinished := state.PendingRunID != "" &&
 		state.PendingRunDispatchedUnix > 0 && state.PendingRunDispatchedUnix <= now &&
-		now-state.PendingRunDispatchedUnix < int64(profileRefreshRunReuseWindow/time.Second) {
-		return state.PendingRunID
+		now-state.PendingRunDispatchedUnix < int64(profileRefreshRunReuseWindow/time.Second)
+	if unfinished && isAutomaticProfileRefreshTrigger(state.PendingRunTrigger) &&
+		(state.PendingRunTrigger == trigger || trigger == profileRefreshTriggerManualForce) {
+		return profileRefreshDispatch{RunID: state.PendingRunID, Trigger: state.PendingRunTrigger}
+	}
+	runID := newProfileRefreshRunID()
+	if runID == "" {
+		return profileRefreshDispatch{}
 	}
 	state.PendingRunID = runID
 	state.PendingRunTrigger = trigger
 	state.PendingRunDispatchedUnix = now
-	return runID
+	return profileRefreshDispatch{RunID: runID, Trigger: trigger, Created: true}
+}
+
+// clearUndeliveredProfileRefreshRun removes a run created by a dispatch whose
+// task or line was never delivered, so a later completion is not linked to
+// it. A reused run was delivered earlier and is kept, as is any newer run.
+func clearUndeliveredProfileRefreshRun(home, server, agentID string, dispatch profileRefreshDispatch) {
+	if !dispatch.Created || dispatch.RunID == "" {
+		return
+	}
+	_, _ = profilestate.Update(home, server, agentID, func(state *profilestate.State) bool {
+		if state.PendingRunID != dispatch.RunID {
+			return false
+		}
+		state.PendingRunID, state.PendingRunTrigger, state.PendingRunDispatchedUnix = "", "", 0
+		return true
+	})
 }
 
 // takePendingProfileRefreshRun clears the pending run inside a profilestate
@@ -103,8 +150,8 @@ func takePendingProfileRefreshRun(state *profilestate.State, now int64) (string,
 	return runID, trigger
 }
 
-func reportProfileRefreshDispatched(serverName, runID, trigger string) {
-	reportProfileRefreshRun(serverName, profileRefreshRunEvent{RunID: runID, Stage: "dispatched", Trigger: trigger})
+func reportProfileRefreshDispatched(serverName string, dispatch profileRefreshDispatch) {
+	reportProfileRefreshRun(serverName, profileRefreshRunEvent{RunID: dispatch.RunID, Stage: "dispatched", Trigger: dispatch.Trigger})
 }
 
 func reportProfileRefreshCompleted(serverName, runID, trigger string, changedPaths []string) {
@@ -126,42 +173,15 @@ func postProfileRefreshRun(serverName string, event profileRefreshRunEvent) {
 }
 
 func sendProfileRefreshRun(serverName string, event profileRefreshRunEvent) error {
-	cfg, err := config.Load()
+	// Never rotate or extend credentials for telemetry; the triggering
+	// command already refreshed them when needed.
+	c, v2, err := newStoredCredentialClientForServer(serverName)
 	if err != nil {
 		return err
 	}
-	srv, err := cfg.GetActive(serverName)
-	if err != nil {
-		return err
-	}
-	endpoint := strings.TrimRight(srv.Endpoint, "/")
-	var c *client.Client
 	path := legacyProfileRefreshRunsPath
-	hasV2, err := auth.HasV2Credentials(srv.Name)
-	if err != nil {
-		return err
-	}
-	if hasV2 {
-		credentials, credErr := auth.LoadV2Credentials(srv.Name)
-		if credErr != nil {
-			return credErr
-		}
-		// Never rotate credentials for telemetry; the triggering command
-		// already refreshed them when needed.
-		if credentials.AccessToken == "" || credentials.ExpiresAt <= time.Now().UnixMilli() {
-			return fmt.Errorf("agent v2 access token is expired")
-		}
-		c = client.New(endpoint+"/api/v2", credentials.AccessToken, version, clientMetaForServer(srv))
+	if v2 {
 		path = v2ProfileRefreshRunsPath
-	} else {
-		credentials, credErr := auth.LoadCredentials(srv.Name)
-		if credErr != nil {
-			return credErr
-		}
-		if credentials.IsExpired() {
-			return fmt.Errorf("access token is expired")
-		}
-		c = client.New(endpoint+"/api/v1", credentials.AccessToken, version, clientMetaForServer(srv))
 	}
 	c.HTTPClient.Timeout = profileRefreshRunReportTimeout
 	resp, err := c.Post(path, event)

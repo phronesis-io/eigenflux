@@ -188,17 +188,29 @@ The CLI generates a 32-hex `run_id` at dispatch and stores it in the
 profile-refresh sidecar (`pending_run_id`, `pending_run_trigger`,
 `pending_run_dispatched_unix`) before the task becomes visible. A completion
 reuses that run when it was dispatched within 72 hours; otherwise it gets a new
-`run_id` with `trigger=untracked`. A newer dispatch replaces an unfinished one.
+`run_id` with `trigger=untracked`. The run_id is generated only when a dispatch
+starts a new run. An automatic dispatch (`plugin_task`, `pending_line`) reuses
+an unfinished run with the same trigger that is under 24 hours old, so hourly
+re-reminders report the same `run_id`; an older run, or one with another
+trigger, is replaced. A `--force` review never replaces an unfinished automatic
+run under 24 hours old: it reports and completes that run under its automatic
+trigger. Otherwise `--force` starts its own `manual_force` run. If the task or
+line cannot be written, a run created by that dispatch is cleared again and
+nothing is reported; once it is delivered, `dispatched` is reported even when
+later local bookkeeping fails.
 
 The request body is `{run_id, stage, outcome?, changed_paths?, trigger}`.
 `run_id` is 8–64 characters of `[A-Za-z0-9_-]`; `changed_paths` must be known
 editable fields. Reports are idempotent on `(agent_id, run_id, stage)`; a retry
-returns `recorded=false, duplicate=true`. Valid reports share a rolling quota of
-60 per agent per 24 hours that fails closed when Redis is unavailable; invalid
+returns `recorded=false, duplicate=true`. A duplicate is answered from the
+unique index before any quota is charged. New rows share a rolling quota of 60
+per agent per 24 hours that fails closed when Redis is unavailable; invalid
 bodies are rejected before the quota is consumed. Client host, mode, CLI and
 plugin versions come from the standard `X-Client-*`/`X-CLI-Ver` headers with the
-runtime-observation bounds. Reporting is best-effort: it runs after the
-command's own output with a 3-second timeout, never rotates credentials, never
+runtime-observation bounds (`reqinfo.BoundedClientHeaders`). Reporting is
+best-effort and synchronous: it runs only on commands that dispatch or complete
+a refresh (a feed poll reports only when it emits the line), after the
+command's own output, with a 1-second timeout. It never rotates credentials, never
 writes to stdout, and ignores all failures including 404 from older servers
 (`--verbose` prints the reason on stderr). The profile-change cleanup cron
 deletes rows older than 90 days. Metric definitions and queries:

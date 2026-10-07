@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -163,6 +164,9 @@ func TestFailedPendingLineWriteReportsNothing(t *testing.T) {
 	maybePromptProfileRefresh()
 	if events := captured.all(); len(events) != 0 {
 		t.Fatalf("undelivered line reported %+v", events)
+	}
+	if state := profilestate.Load(config.HomeDir(), srv, agentID); state.PendingRunID != "" || state.PendingRunTrigger != "" || state.PendingRunDispatchedUnix != 0 {
+		t.Fatalf("undelivered line kept its run: %+v", state)
 	}
 }
 
@@ -343,28 +347,178 @@ func TestSendProfileRefreshRunSkipsExpiredV2TokenWithoutRefresh(t *testing.T) {
 	}
 }
 
+func stubProfileRefreshRunID(t *testing.T, id string) {
+	t.Helper()
+	previous := newProfileRefreshRunID
+	newProfileRefreshRunID = func() string { return id }
+	t.Cleanup(func() { newProfileRefreshRunID = previous })
+}
+
 func TestSetPendingProfileRefreshRunReusesUnfinishedRun(t *testing.T) {
+	stubProfileRefreshRunID(t, "run-b")
 	now := time.Now().Unix()
 	reuse := int64(profileRefreshRunReuseWindow / time.Second)
+	pending := func(trigger string, at int64) profilestate.State {
+		return profilestate.State{PendingRunID: "run-a", PendingRunTrigger: trigger, PendingRunDispatchedUnix: at}
+	}
 	for _, tc := range []struct {
-		name    string
-		state   profilestate.State
-		trigger string
-		wantID  string
-		wantAt  int64
+		name        string
+		state       profilestate.State
+		trigger     string
+		wantID      string
+		wantTrigger string
+		wantAt      int64
+		wantCreated bool
 	}{
-		{"hourly re-prompt keeps run", profilestate.State{PendingRunID: "run-a", PendingRunTrigger: profileRefreshTriggerPendingLine, PendingRunDispatchedUnix: now - 3600}, profileRefreshTriggerPendingLine, "run-a", now - 3600},
-		{"stale run is replaced", profilestate.State{PendingRunID: "run-a", PendingRunTrigger: profileRefreshTriggerPendingLine, PendingRunDispatchedUnix: now - reuse}, profileRefreshTriggerPendingLine, "run-b", now},
-		{"different trigger is replaced", profilestate.State{PendingRunID: "run-a", PendingRunTrigger: profileRefreshTriggerPendingLine, PendingRunDispatchedUnix: now - 60}, profileRefreshTriggerPluginTask, "run-b", now},
-		{"manual force always starts a run", profilestate.State{PendingRunID: "run-a", PendingRunTrigger: profileRefreshTriggerManualForce, PendingRunDispatchedUnix: now - 60}, profileRefreshTriggerManualForce, "run-b", now},
-		{"no pending run", profilestate.State{}, profileRefreshTriggerPluginTask, "run-b", now},
+		{"hourly re-prompt keeps run", pending(profileRefreshTriggerPendingLine, now-3600), profileRefreshTriggerPendingLine, "run-a", profileRefreshTriggerPendingLine, now - 3600, false},
+		{"stale run is replaced", pending(profileRefreshTriggerPendingLine, now-reuse), profileRefreshTriggerPendingLine, "run-b", profileRefreshTriggerPendingLine, now, true},
+		{"different automatic trigger is replaced", pending(profileRefreshTriggerPendingLine, now-60), profileRefreshTriggerPluginTask, "run-b", profileRefreshTriggerPluginTask, now, true},
+		{"manual force completes unfinished plugin task", pending(profileRefreshTriggerPluginTask, now-60), profileRefreshTriggerManualForce, "run-a", profileRefreshTriggerPluginTask, now - 60, false},
+		{"manual force completes unfinished pending line", pending(profileRefreshTriggerPendingLine, now-3600), profileRefreshTriggerManualForce, "run-a", profileRefreshTriggerPendingLine, now - 3600, false},
+		{"manual force replaces stale automatic run", pending(profileRefreshTriggerPluginTask, now-reuse), profileRefreshTriggerManualForce, "run-b", profileRefreshTriggerManualForce, now, true},
+		{"manual force after manual force starts a run", pending(profileRefreshTriggerManualForce, now-60), profileRefreshTriggerManualForce, "run-b", profileRefreshTriggerManualForce, now, true},
+		{"automatic dispatch replaces a manual run", pending(profileRefreshTriggerManualForce, now-60), profileRefreshTriggerPendingLine, "run-b", profileRefreshTriggerPendingLine, now, true},
+		{"no pending run", profilestate.State{}, profileRefreshTriggerPluginTask, "run-b", profileRefreshTriggerPluginTask, now, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			state := tc.state
-			got := setPendingProfileRefreshRun(&state, "run-b", tc.trigger, now)
-			if got != tc.wantID || state.PendingRunID != tc.wantID || state.PendingRunDispatchedUnix != tc.wantAt {
-				t.Fatalf("got id=%q state=%+v, want id=%q at=%d", got, state, tc.wantID, tc.wantAt)
+			got := setPendingProfileRefreshRun(&state, tc.trigger, now)
+			want := profileRefreshDispatch{RunID: tc.wantID, Trigger: tc.wantTrigger, Created: tc.wantCreated}
+			if got != want || state.PendingRunID != tc.wantID || state.PendingRunTrigger != tc.wantTrigger || state.PendingRunDispatchedUnix != tc.wantAt {
+				t.Fatalf("got %+v state=%+v, want %+v at=%d", got, state, want, tc.wantAt)
 			}
 		})
+	}
+}
+
+func TestSetPendingProfileRefreshRunHandlesRandomFailure(t *testing.T) {
+	stubProfileRefreshRunID(t, "")
+	now := time.Now().Unix()
+	reusable := profilestate.State{PendingRunID: "run-a", PendingRunTrigger: profileRefreshTriggerPendingLine, PendingRunDispatchedUnix: now - 3600}
+	state := reusable
+	if got := setPendingProfileRefreshRun(&state, profileRefreshTriggerPendingLine, now); got.RunID != "run-a" || got.Created || state != reusable {
+		t.Fatalf("reusable run must still be reported without a new id: got %+v state %+v", got, state)
+	}
+	stale := profilestate.State{PendingRunID: "run-a", PendingRunTrigger: profileRefreshTriggerPendingLine, PendingRunDispatchedUnix: now - int64(profileRefreshRunReuseWindow/time.Second)}
+	state = stale
+	if got := setPendingProfileRefreshRun(&state, profileRefreshTriggerPendingLine, now); got != (profileRefreshDispatch{}) || state != stale {
+		t.Fatalf("random failure without a reusable run must change nothing: got %+v state %+v", got, state)
+	}
+}
+
+func TestPendingLineReportsReusedRunWhenRandomFails(t *testing.T) {
+	tempAuthenticatedProfileHome(t)
+	captured := captureProfileRefreshRuns(t)
+	stubProfileRefreshRunID(t, "")
+	previousWriter := profilePromptWriter
+	profilePromptWriter = io.Discard
+	t.Cleanup(func() { profilePromptWriter = previousWriter })
+	srv, agentID := activeProfileStateScope()
+	now := time.Now().Unix()
+	if err := profilestate.Save(config.HomeDir(), srv, agentID, profilestate.State{
+		LastRefreshUnix: now - 48*3600, LastPromptedUnix: now - 2*3600,
+		PendingRunID: "run-reused-1", PendingRunTrigger: profileRefreshTriggerPendingLine, PendingRunDispatchedUnix: now - 2*3600,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	maybePromptProfileRefresh()
+	events := captured.all()
+	if len(events) != 1 || events[0].RunID != "run-reused-1" || events[0].Trigger != profileRefreshTriggerPendingLine {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestProfileRefreshTaskManualForceCompletesUnfinishedAutomaticRun(t *testing.T) {
+	home, server := profileTaskFixture(t, false)
+	captured := captureProfileRefreshRuns(t)
+	now := time.Now().Unix()
+	if err := profilestate.Save(home, server, "agent-1", profilestate.State{
+		LastRefreshUnix: now - 48*3600, PendingRunID: "run-auto-1", PendingRunTrigger: profileRefreshTriggerPluginTask, PendingRunDispatchedUnix: now - 600,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := runProfileTask(&out, nil, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	events := captured.all()
+	if len(events) != 1 || events[0].RunID != "run-auto-1" || events[0].Trigger != profileRefreshTriggerPluginTask {
+		t.Fatalf("manual force must report the unfinished automatic run: %+v", events)
+	}
+	state := profilestate.Load(home, server, "agent-1")
+	if state.PendingRunID != "run-auto-1" || state.PendingRunTrigger != profileRefreshTriggerPluginTask || state.PendingRunDispatchedUnix != now-600 {
+		t.Fatalf("manual force replaced the automatic run: %+v", state)
+	}
+}
+
+func TestUndeliveredProfileRefreshTaskClearsOnlyItsOwnRun(t *testing.T) {
+	failing := profileTaskWriterFunc(func([]byte) (int, error) { return 0, errors.New("closed stdout") })
+	t.Run("created run is cleared", func(t *testing.T) {
+		home, server := profileTaskFixture(t, false)
+		captured := captureProfileRefreshRuns(t)
+		if err := profilestate.Save(home, server, "agent-1", profilestate.State{LastRefreshUnix: time.Now().Add(-48 * time.Hour).Unix()}); err != nil {
+			t.Fatal(err)
+		}
+		if err := runProfileTask(failing, nil, nil); err == nil {
+			t.Fatal("failed delivery must return an error")
+		}
+		if events := captured.all(); len(events) != 0 {
+			t.Fatalf("undelivered task reported %+v", events)
+		}
+		if state := profilestate.Load(home, server, "agent-1"); state.PendingRunID != "" || state.PendingRunTrigger != "" || state.PendingRunDispatchedUnix != 0 {
+			t.Fatalf("undelivered run was kept: %+v", state)
+		}
+	})
+	t.Run("reused run is kept", func(t *testing.T) {
+		home, server := profileTaskFixture(t, false)
+		captureProfileRefreshRuns(t)
+		now := time.Now().Unix()
+		if err := profilestate.Save(home, server, "agent-1", profilestate.State{
+			LastRefreshUnix: now - 48*3600, PendingRunID: "run-auto-1", PendingRunTrigger: profileRefreshTriggerPluginTask, PendingRunDispatchedUnix: now - 7200,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := runProfileTask(failing, nil, nil); err == nil {
+			t.Fatal("failed delivery must return an error")
+		}
+		if state := profilestate.Load(home, server, "agent-1"); state.PendingRunID != "run-auto-1" {
+			t.Fatalf("an earlier delivered run was cleared: %+v", state)
+		}
+	})
+}
+
+func TestDeliveredProfileRefreshTaskReportsWhenFinalizationFails(t *testing.T) {
+	home, server := profileTaskFixture(t, false)
+	captured := captureProfileRefreshRuns(t)
+	if err := profilestate.Save(home, server, "agent-1", profilestate.State{LastRefreshUnix: time.Now().Add(-48 * time.Hour).Unix()}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(home, 0o700) })
+	writer := profileTaskWriterFunc(func(data []byte) (int, error) {
+		// The task reached the agent; local bookkeeping then cannot be saved.
+		if err := os.Chmod(home, 0o500); err != nil {
+			return 0, err
+		}
+		return len(data), nil
+	})
+	if err := runProfileTask(writer, nil, nil); err == nil {
+		t.Fatal("finalization failure must still be returned")
+	}
+	events := captured.all()
+	if len(events) != 1 || events[0].Stage != "dispatched" || events[0].Trigger != profileRefreshTriggerPluginTask || events[0].RunID == "" {
+		t.Fatalf("delivered task must be reported: %+v", events)
+	}
+}
+
+func TestStoredCredentialClientHasNoCredentialHooks(t *testing.T) {
+	for _, v2 := range []bool{false, true} {
+		_, serverName := runtimeTestConfig(t, "http://127.0.0.1:1", v2)
+		c, gotV2, err := newStoredCredentialClientForServer(serverName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if gotV2 != v2 || c.OnUnauthorized != nil || c.OnSuccess != nil {
+			t.Fatalf("v2=%v: got v2=%v, hooks unauthorized=%v success=%v", v2, gotV2, c.OnUnauthorized != nil, c.OnSuccess != nil)
+		}
 	}
 }
