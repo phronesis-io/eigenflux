@@ -37,7 +37,7 @@ func TestBroadcastUsesExactTopLevelLanguageInEveryChannel(t *testing.T) {
 			t.Fatal(err)
 		}
 		b, _ := json.Marshal(q)
-		if !strings.Contains(string(b), `"terms":{"lang.keyword":["zh-CN"]}`) || strings.Contains(string(b), `"terms":{"lang":`) || strings.Contains(string(b), `"retrieval_slots.lang"`) {
+		if !strings.Contains(string(b), `"term":{"lang.keyword":{"case_insensitive":true,"value":"zh-cn"}}`) || strings.Contains(string(b), `"term":{"lang":`) || strings.Contains(string(b), `"retrieval_slots.lang"`) {
 			t.Fatalf("%s must use exact top-level language: %s", channel, b)
 		}
 	}

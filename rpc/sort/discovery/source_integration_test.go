@@ -87,9 +87,11 @@ func TestPostgresESRedisThreeKinds(t *testing.T) {
 		db.Exec("DELETE FROM agent_cards WHERE agent_id IN ?", []int64{owner, author})
 		db.Exec("DELETE FROM agents WHERE agent_id IN ?", []int64{owner, author})
 	}()
-	card := `{"display_name":"designer","agent_description":"landing page design 平面设计","working_languages":["en"],"offering":["design"],"runtime_name":"known","geo":"must-not-index","secret":"must-not-index"}`
-	if err = db.Exec("INSERT INTO agent_cards(agent_id,public_card,private_card,schema_version,source_version,card_version,generated_at,rebuild_fence,public_card_version,public_card_generated_at) VALUES(?,?::jsonb,'{}',1,1,1,?,1,1,?)", author, card, now, now).Error; err != nil {
-		t.Fatal(err)
+	card := `{"display_name":"designer","agent_description":"landing page design 平面设计","working_languages":["English"],"offering":["design"],"runtime_name":"known","geo":"must-not-index","secret":"must-not-index"}`
+	for _, id := range []int64{owner, author} {
+		if err = db.Exec("INSERT INTO agent_cards(agent_id,public_card,private_card,schema_version,source_version,card_version,generated_at,rebuild_fence,public_card_version,public_card_generated_at) VALUES(?,?::jsonb,'{}',1,1,1,?,1,1,?)", id, card, now, now).Error; err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err = db.Exec("INSERT INTO raw_items(item_id,author_agent_id,raw_content,created_at) VALUES(?,?,?,?)", itemID, author, "landing page design 平面设计", now).Error; err != nil {
 		t.Fatal(err)
@@ -195,6 +197,26 @@ func TestPostgresESRedisThreeKinds(t *testing.T) {
 	if err != nil || again.ImpressionID != response.ImpressionID {
 		t.Fatal(again, err)
 	}
+	t.Run("HistoricalLanguageWithoutReprojection", func(t *testing.T) {
+		// Both public Card and forward view retain the historical display name.
+		rows, err := (featureindex.AgentIndex{Redis: r, IndexName: ai}).Read(ctx, []int64{author})
+		require.NoError(t, err)
+		require.Equal(t, []string{"English"}, rows[author].Slots.Lang)
+		for _, request := range []discovery.Request{
+			{Query: "landing", SourceKinds: []discovery.Kind{discovery.Agent}, Filters: discovery.Filters{Lang: []string{"en"}}},
+			{Query: "landing", SourceKinds: []discovery.Kind{discovery.Broadcast}, Defaults: discovery.Defaults{Language: "card"}},
+		} {
+			result, err := serve.Serve(ctx, owner, request, discovery.Search, "")
+			require.NoError(t, err)
+			require.Len(t, result.Items, 1)
+		}
+		result, err := serve.Serve(ctx, owner, discovery.Request{Query: "landing", SourceKinds: []discovery.Kind{discovery.Agent}, Filters: discovery.Filters{Lang: []string{"en-US"}}}, discovery.Search, "")
+		require.NoError(t, err)
+		require.Empty(t, result.Items, "a historical generic English value does not prove an en-US locale")
+		var storedCard string
+		require.NoError(t, db.Table("agent_cards").Select("public_card::text").Where("agent_id=?", author).Scan(&storedCard).Error)
+		require.JSONEq(t, card, storedCard, "compatibility must not rewrite the public Card")
+	})
 
 	t.Run("SlimForwardPreservesExclusionsAndPresentation", func(t *testing.T) {
 		for _, item := range response.Items {

@@ -39,7 +39,7 @@ func IntersectFilters(a, b Filters) (Filters, error) {
 	a.MinDurationMS = high(a.MinDurationMS, b.MinDurationMS)
 	a.MaxDurationMS = low(a.MaxDurationMS, b.MaxDurationMS)
 	a.DeadlineMS = low(a.DeadlineMS, b.DeadlineMS)
-	both := func(x, y []string) ([]string, error) {
+	both := func(x, y []string, equal func(string, string) bool) ([]string, error) {
 		if len(x) == 0 {
 			return y, nil
 		}
@@ -49,7 +49,7 @@ func IntersectFilters(a, b Filters) (Filters, error) {
 		out := []string{}
 		for _, v := range x {
 			for _, w := range y {
-				if v == w {
+				if equal(v, w) {
 					out = appendUnique(out, v)
 				}
 			}
@@ -60,11 +60,11 @@ func IntersectFilters(a, b Filters) (Filters, error) {
 		return out, nil
 	}
 	var err error
-	a.Lang, err = both(a.Lang, b.Lang)
+	a.Lang, err = both(a.Lang, b.Lang, equalLanguage)
 	if err != nil {
 		return a, err
 	}
-	a.ProviderRegion, err = both(a.ProviderRegion, b.ProviderRegion)
+	a.ProviderRegion, err = both(a.ProviderRegion, b.ProviderRegion, func(x, y string) bool { return x == y })
 	if err != nil {
 		return a, err
 	}

@@ -86,7 +86,7 @@ func Check(c Context, d Document, mode Mode, now int64) string {
 			return "excluded_author"
 		}
 	}
-	if len(f.Lang) > 0 && !intersects(f.Lang, d.Slots.Lang) {
+	if len(f.Lang) > 0 && !intersectsLanguages(f.Lang, d.Slots.Lang) {
 		return "language"
 	}
 	if len(f.ProviderRegion) > 0 && !intersects(f.ProviderRegion, d.Slots.ProviderRegion) {
