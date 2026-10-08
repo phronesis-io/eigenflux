@@ -761,7 +761,7 @@ func GetRefreshContext(ctx context.Context, c *app.RequestContext) {
 	}
 
 	if outcome, ok := refreshCompleteOutcome(string(c.GetHeader(ProfileRefreshCompleteHeader)), version); ok {
-		logProfileRefreshRun(ctx, c, agentID, outcome, normalizeRefreshTrigger(string(c.GetHeader(ProfileRefreshTriggerHeader))))
+		logProfileRefreshRun(ctx, c, agentID, outcome, string(c.GetHeader(ProfileRefreshTriggerHeader)))
 	}
 	respond(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"profile_version": version,

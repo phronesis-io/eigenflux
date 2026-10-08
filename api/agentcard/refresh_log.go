@@ -76,18 +76,20 @@ func normalizeRefreshTrigger(header string) string {
 	}
 }
 
-// refreshTriggerFor resolves the trigger for one logged run. A manual-refresh
-// source is authoritative; otherwise the header decides.
+// refreshTriggerFor resolves the raw trigger for one logged run. A
+// manual-refresh source is authoritative; otherwise the header decides.
+// logProfileRefreshRun normalizes the result.
 func refreshTriggerFor(source, header string) string {
 	if source == profileRefreshSourceManual {
 		return refreshTriggerManual
 	}
-	return normalizeRefreshTrigger(header)
+	return header
 }
 
 // logProfileRefreshRun emits one structured line per finished refresh
-// evaluation. Only bounded enum and version values are logged, never raw
-// host strings or request bodies.
+// evaluation. trigger is the raw client value and is bounded here. Only
+// bounded enum and version values are logged, never raw host strings or
+// request bodies.
 func logProfileRefreshRun(ctx context.Context, c *app.RequestContext, agentID int64, outcome, trigger string) {
 	headers := reqinfo.BoundedClientHeaders(func(name string) string { return string(c.GetHeader(name)) })
 	identity, _ := runtimeidentity.Parse(headers.Host)

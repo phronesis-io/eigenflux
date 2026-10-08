@@ -42,7 +42,7 @@ func TestSettleProfileRefreshTriggerKeepsOnlyFollowUpGrace(t *testing.T) {
 	grace := int64(profileRefreshTriggerGrace / time.Second)
 
 	state := profilestate.State{}
-	recordProfileRefreshDispatch(&state, "manual", now)
+	recordProfileRefreshDispatch(&state, "manual", now, profileRefreshTriggerTTL)
 	settleProfileRefreshTrigger(&state, now)
 	if state.RefreshTrigger != "manual" || state.RefreshTriggerExpiresUnix != now+grace {
 		t.Fatalf("settled record = %+v, want manual until now+grace", state)
@@ -66,18 +66,36 @@ func TestSettleProfileRefreshTriggerKeepsOnlyFollowUpGrace(t *testing.T) {
 	}
 }
 
-func TestProfileRefreshWriteSource(t *testing.T) {
-	for _, tc := range []struct{ source, trigger, want string }{
-		{"cli_daily_refresh", "manual", "cli_manual_refresh"},
-		{"cli_daily_refresh", "scheduled", "cli_daily_refresh"},
-		{"cli_daily_refresh", "unknown", "cli_daily_refresh"},
-		{"cli_manual_refresh", "unknown", "cli_manual_refresh"},
-		{"owner_request", "manual", "owner_request"},
-		{"", "manual", ""},
+func TestProfileRefreshAttribution(t *testing.T) {
+	for _, tc := range []struct{ source, recorded, wantSource, wantTrigger string }{
+		{"cli_daily_refresh", "manual", "cli_manual_refresh", "manual"},
+		{"cli_daily_refresh", "scheduled", "cli_daily_refresh", "scheduled"},
+		{"cli_daily_refresh", "unknown", "cli_daily_refresh", "unknown"},
+		{"cli_manual_refresh", "unknown", "cli_manual_refresh", "manual"},
+		{"cli_manual_refresh", "scheduled", "cli_manual_refresh", "manual"},
 	} {
-		if got := profileRefreshWriteSource(tc.source, tc.trigger); got != tc.want {
-			t.Errorf("profileRefreshWriteSource(%q, %q) = %q, want %q", tc.source, tc.trigger, got, tc.want)
+		source, trigger := profileRefreshAttribution(tc.source, tc.recorded)
+		if source != tc.wantSource || trigger != tc.wantTrigger {
+			t.Errorf("profileRefreshAttribution(%q, %q) = %q, %q; want %q, %q", tc.source, tc.recorded, source, trigger, tc.wantSource, tc.wantTrigger)
 		}
+	}
+}
+
+func TestLostClaimDoesNotOverwriteNewerDispatch(t *testing.T) {
+	home := t.TempDir()
+	now := time.Now().Unix()
+	// A forced task claimed and recorded "manual" after this slower scheduled
+	// process claimed; the scheduled finish must not relabel the manual run.
+	newer := profilestate.State{LastPromptedUnix: now + 1}
+	recordProfileRefreshDispatch(&newer, "manual", now+1, profileRefreshTriggerTTL)
+	if err := profilestate.Save(home, "srv", "agent-1", newer); err != nil {
+		t.Fatal(err)
+	}
+	if err := finishProfileReviewClaim(home, "srv", "agent-1", now, "scheduled"); err != nil {
+		t.Fatal(err)
+	}
+	if got := profilestate.Load(home, "srv", "agent-1"); got != newer {
+		t.Fatalf("lost claim overwrote newer state: %+v, want %+v", got, newer)
 	}
 }
 
@@ -246,7 +264,7 @@ func TestRefreshWithoutDispatchKeepsSourceAndReportsUnknown(t *testing.T) {
 func TestNonRefreshPatchCarriesNoTrigger(t *testing.T) {
 	run, server := newRefreshRunFixture(t)
 	state := profilestate.State{}
-	recordProfileRefreshDispatch(&state, "manual", time.Now().Unix())
+	recordProfileRefreshDispatch(&state, "manual", time.Now().Unix(), profileRefreshTriggerTTL)
 	if err := profilestate.Save(config.HomeDir(), server, "agent-1", state); err != nil {
 		t.Fatal(err)
 	}
@@ -280,6 +298,9 @@ func TestPendingLineRecordsScheduledDispatch(t *testing.T) {
 	state := profilestate.Load(config.HomeDir(), srv, agentID)
 	if got := activeProfileRefreshTrigger(state, time.Now().Unix()); got != "scheduled" {
 		t.Fatalf("pending line trigger = %q (%+v), want scheduled", got, state)
+	}
+	if remaining := state.RefreshTriggerExpiresUnix - time.Now().Unix(); remaining > int64(profilePendingLineTriggerTTL/time.Second) {
+		t.Fatalf("pending line record outlives its turn window: %+v", state)
 	}
 	if state.LastPromptedUnix < time.Now().Unix()-5 {
 		t.Fatalf("pending line delivery was not finalized: %+v", state)

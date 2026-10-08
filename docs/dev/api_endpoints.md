@@ -168,8 +168,11 @@ field patch, `last_checked_unix` records an explicit no-change completion, and
 the latest delivered refresh task: `scheduled` for `profile refresh-task`
 without `--force` (plugin heartbeats) and for the feed-poll `[PENDING TASK]`
 reminder, `manual` for `profile refresh-task --force` (an explicit user
-request such as OpenClaw `/eigenflux refresh`). The record is valid for six
-hours after dispatch and shrinks to fifteen minutes once the run records its
+request such as OpenClaw `/eigenflux refresh`). A record from
+`refresh-task` is valid for six hours after dispatch and one from the reminder
+for one hour, because the reminder is handled in the turn that reads it. Only
+the process that still holds the delivery claim records it, so a slower
+scheduled process cannot overwrite a newer manual record. The record shrinks to fifteen minutes once the run records its
 first completion, so follow-up writes of the same run keep it while a later
 refresh the Agent starts on its own does not. `profile refresh-status` shows
 the current value as `refresh_trigger`.
@@ -201,7 +204,7 @@ Missing or unrecognized header values, including every request from CLIs
 before this header existed, log `unknown`, as does a refresh the Agent started
 without a CLI dispatch. The header never causes a request to be rejected.
 
-Change events keep the same split: a scheduled run is stored with
+Change events from the CLI keep the same split: a scheduled run is stored with
 `source='cli_daily_refresh'`, and a manual run is stored with
 `source='cli_manual_refresh'` because the CLI rewrites a `cli_daily_refresh`
 patch while the manual record is valid. `unknown` runs keep the source the

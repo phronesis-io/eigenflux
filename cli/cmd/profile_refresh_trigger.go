@@ -32,9 +32,14 @@ const (
 	profileRefreshSourceScheduled = "cli_daily_refresh"
 	profileRefreshSourceManual    = "cli_manual_refresh"
 
-	// profileRefreshTriggerTTL bounds how long a dispatch is attributed to
-	// later refresh writes; host delivery can lag behind the dispatch.
+	// profileRefreshTriggerTTL bounds how long a refresh-task dispatch is
+	// attributed to later refresh writes; host delivery (plugin channel or
+	// agent route) can lag behind the dispatch.
 	profileRefreshTriggerTTL = 6 * time.Hour
+	// profilePendingLineTriggerTTL is shorter: the feed-poll reminder is
+	// handled in the same agent turn that read it, so a longer window would
+	// only attribute later, agent-initiated refreshes to the reminder.
+	profilePendingLineTriggerTTL = time.Hour
 	// profileRefreshTriggerGrace keeps the attribution for follow-up writes
 	// of the same run (a second patch, a retry after a stale completion) once
 	// the run has recorded its first completion.
@@ -45,11 +50,15 @@ func isProfileRefreshSource(source string) bool {
 	return source == profileRefreshSourceScheduled || source == profileRefreshSourceManual
 }
 
-// recordProfileRefreshDispatch marks a delivered refresh task. The newest
-// dispatch wins.
-func recordProfileRefreshDispatch(state *profilestate.State, trigger string, now int64) {
+// recordProfileRefreshDispatch marks a delivered refresh task for ttl. The
+// newest dispatch wins; callers record only while they still hold the claim
+// they delivered under, so a slower process cannot overwrite a newer record.
+func recordProfileRefreshDispatch(state *profilestate.State, trigger string, now int64, ttl time.Duration) {
+	if ttl > profileRefreshTriggerTTL {
+		ttl = profileRefreshTriggerTTL
+	}
 	state.RefreshTrigger = trigger
-	state.RefreshTriggerExpiresUnix = now + int64(profileRefreshTriggerTTL/time.Second)
+	state.RefreshTriggerExpiresUnix = now + int64(ttl/time.Second)
 }
 
 // activeProfileRefreshTrigger returns the recorded trigger while it is valid.
@@ -87,11 +96,17 @@ func currentProfileRefreshTrigger(srv, agentID string) string {
 	return activeProfileRefreshTrigger(state, time.Now().Unix())
 }
 
-// profileRefreshWriteSource returns the source recorded for a refresh patch.
-// Only a scheduled-source patch inside a manual run is rewritten.
-func profileRefreshWriteSource(source, trigger string) string {
-	if source == profileRefreshSourceScheduled && trigger == profileRefreshTriggerManual {
-		return profileRefreshSourceManual
+// profileRefreshAttribution resolves the source sent with a refresh patch and
+// the trigger reported for it. An explicit manual source is always manual;
+// a scheduled-source patch inside a manual run is rewritten so change events
+// and the run log agree.
+func profileRefreshAttribution(source, recorded string) (writeSource, trigger string) {
+	switch {
+	case source == profileRefreshSourceManual:
+		return source, profileRefreshTriggerManual
+	case source == profileRefreshSourceScheduled && recorded == profileRefreshTriggerManual:
+		return profileRefreshSourceManual, profileRefreshTriggerManual
+	default:
+		return source, recorded
 	}
-	return source
 }

@@ -232,11 +232,8 @@ Examples:
 		var headers map[string]string
 		writeSource := source
 		if isProfileRefreshSource(source) {
-			trigger := currentProfileRefreshTrigger(serverName, agentID)
-			if source == profileRefreshSourceManual {
-				trigger = profileRefreshTriggerManual
-			}
-			writeSource = profileRefreshWriteSource(source, trigger)
+			var trigger string
+			writeSource, trigger = profileRefreshAttribution(source, currentProfileRefreshTrigger(serverName, agentID))
 			headers = map[string]string{profileRefreshTriggerHeader: trigger}
 		}
 		body := map[string]interface{}{

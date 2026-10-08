@@ -107,10 +107,11 @@ func claimProfileReview(home, server, agentID string, now int64, force ...bool) 
 func finishProfileReviewClaim(home, server, agentID string, now int64, trigger string) error {
 	claimStamp := now - int64((profilePromptCooldown-profilePromptClaimLease)/time.Second)
 	_, err := profilestate.Update(home, server, agentID, func(state *profilestate.State) bool {
-		if state.LastPromptedUnix == claimStamp {
-			state.LastPromptedUnix = now
+		if state.LastPromptedUnix != claimStamp {
+			return false
 		}
-		recordProfileRefreshDispatch(state, trigger, now)
+		state.LastPromptedUnix = now
+		recordProfileRefreshDispatch(state, trigger, now, profileRefreshTriggerTTL)
 		return true
 	})
 	return err

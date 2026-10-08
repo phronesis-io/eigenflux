@@ -70,7 +70,7 @@ func TestRefreshTriggerNeverRejectsAndStaysBounded(t *testing.T) {
 		{"cli_manual_refresh", "scheduled", "manual"},
 	}
 	for _, tc := range cases {
-		if got := refreshTriggerFor(tc.source, tc.header); got != tc.want {
+		if got := normalizeRefreshTrigger(refreshTriggerFor(tc.source, tc.header)); got != tc.want {
 			t.Errorf("refreshTriggerFor(%q, %q) = %q, want %q", tc.source, tc.header, got, tc.want)
 		}
 	}

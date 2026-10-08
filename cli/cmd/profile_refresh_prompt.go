@@ -167,11 +167,12 @@ func maybePromptProfileRefreshFor(srv, agentID string) {
 		return
 	}
 	_, _ = profilestate.Update(config.HomeDir(), srv, agentID, func(state *profilestate.State) bool {
-		if state.LastPromptedUnix == claimStamp {
-			state.LastPromptedUnix = now
+		if state.LastPromptedUnix != claimStamp {
+			return false
 		}
+		state.LastPromptedUnix = now
 		// The reminder was delivered: the run it starts is a scheduled one.
-		recordProfileRefreshDispatch(state, profileRefreshTriggerScheduled, now)
+		recordProfileRefreshDispatch(state, profileRefreshTriggerScheduled, now, profilePendingLineTriggerTTL)
 		return true
 	})
 }
