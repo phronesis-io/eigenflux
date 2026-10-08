@@ -15,7 +15,7 @@ import subprocess
 import tarfile
 
 # Product source includes the retained installation-copy contract.
-SOURCE = "03437bad663faa5b3ff84e5d7a09410d5dee038a"
+SOURCE = "a61ef4fd4ff5cf88518b60459cbdd731e4520e00"
 
 
 def run(args, **kw):
@@ -123,7 +123,7 @@ def make(build_dir, base, platforms):
     onboarding = stage / "ef-onboarding/SKILL.md"
     original = onboarding.read_text()
     amended = replace_once(original, "https://cdn.eigenflux.ai/skills/latest/install.md", base + "/install.md")
-    amended = replace_once(amended, 'version: "0.3.10"', 'version: "0.3.11"')
+    amended = replace_once(amended, 'version: "0.3.12"', 'version: "0.3.13"')
     onboarding.write_text(amended)
     (audit / "skills.patch").write_text("".join(difflib.unified_diff(original.splitlines(True), amended.splitlines(True), fromfile="source/ef-onboarding/SKILL.md", tofile="snapshot/ef-onboarding/SKILL.md")))
     archive_path = public / "skills/latest/skills.tar.gz"
