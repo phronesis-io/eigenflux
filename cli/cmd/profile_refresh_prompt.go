@@ -90,6 +90,7 @@ func stampProfileRefreshKeyFor(srv, agentID, key string) error {
 			state.LastCheckedUnix = now
 		}
 		state.LastPromptedUnix = 0
+		settleProfileRefreshTrigger(state, now)
 		return true
 	})
 	return err
@@ -170,6 +171,8 @@ func maybePromptProfileRefreshFor(srv, agentID string) {
 			return false
 		}
 		state.LastPromptedUnix = now
+		// The reminder was delivered: the run it starts is a scheduled one.
+		recordProfileRefreshDispatch(state, profileRefreshTriggerScheduled, now, profilePendingLineTriggerTTL)
 		return true
 	})
 }

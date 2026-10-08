@@ -75,7 +75,11 @@ var profileRefreshTaskCmd = &cobra.Command{
 		if err := printProfileRefreshTask(cmd, task); err != nil {
 			return err
 		}
-		return finishProfileReviewClaim(config.HomeDir(), srv, agentID, now)
+		trigger := profileRefreshTriggerScheduled
+		if force {
+			trigger = profileRefreshTriggerManual
+		}
+		return finishProfileReviewClaim(config.HomeDir(), srv, agentID, now, trigger)
 	},
 }
 
@@ -98,13 +102,16 @@ func claimProfileReview(home, server, agentID string, now int64, force ...bool) 
 	return claimed, err
 }
 
-func finishProfileReviewClaim(home, server, agentID string, now int64) error {
+// finishProfileReviewClaim finalizes a delivered task and records what
+// dispatched it, so the completion of this run can report its trigger.
+func finishProfileReviewClaim(home, server, agentID string, now int64, trigger string) error {
 	claimStamp := now - int64((profilePromptCooldown-profilePromptClaimLease)/time.Second)
 	_, err := profilestate.Update(home, server, agentID, func(state *profilestate.State) bool {
 		if state.LastPromptedUnix != claimStamp {
 			return false
 		}
 		state.LastPromptedUnix = now
+		recordProfileRefreshDispatch(state, trigger, now, profileRefreshTriggerTTL)
 		return true
 	})
 	return err
