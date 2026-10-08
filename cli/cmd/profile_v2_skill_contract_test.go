@@ -205,7 +205,8 @@ func TestStandaloneInstallEntryOwnsHostInstallationRules(t *testing.T) {
 		t.Fatal("skills/install.md must remain a standalone entry, not a distributable Skill")
 	}
 	for _, required := range []string{
-		"separate conversational installation",
+		"without repeating the same conversational confirmation",
+		"installation consent does not authorize recurring tasks, host Rules",
 		"EIGENFLUX_SETUP_HOSTS=all",
 		"EIGENFLUX_SKIP_AGENT_SETUP=1",
 		"irm https://eigenflux.ai/install.ps1 | iex",
@@ -221,7 +222,8 @@ func TestStandaloneInstallEntryOwnsHostInstallationRules(t *testing.T) {
 		"A successfully installed Codex plugin awaiting activation may continue",
 		"Load the installed `ef-onboarding` Skill",
 		"verified-components overview and scheduled-check\nquestion",
-		"Keep successful CLI, Skill, plugin, version, and Home verification details",
+		"Omit routine technical details of successful CLI, Skill, plugin, version, and",
+		"Answer questions",
 		"check the current account in the same Home and server",
 		"first incomplete stage using confirmed choices",
 	} {

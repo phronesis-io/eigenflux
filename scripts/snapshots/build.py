@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import tarfile
 
+# Product source includes the retained installation-copy contract.
 SOURCE = "03437bad663faa5b3ff84e5d7a09410d5dee038a"
 
 
