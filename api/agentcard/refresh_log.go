@@ -17,6 +17,26 @@ import (
 // Agent evaluated.
 const ProfileRefreshCompleteHeader = "X-EF-Profile-Refresh-Complete"
 
+// ProfileRefreshTriggerHeader is sent by the CLI on refresh-complete and on
+// refresh patches. It says what dispatched the refresh the CLI is finishing:
+// "scheduled" (a host timer or the CLI's due reminder), "manual" (an explicit
+// user request such as `profile refresh-task --force`) or "unknown".
+const ProfileRefreshTriggerHeader = "X-EF-Profile-Refresh-Trigger"
+
+// Change-event sources written by Periodic Profile Refresh. Scheduled runs
+// keep the historical value so existing history stays comparable; the CLI
+// rewrites the source of a manually requested refresh.
+const (
+	profileRefreshSourceScheduled = "cli_daily_refresh"
+	profileRefreshSourceManual    = "cli_manual_refresh"
+)
+
+const (
+	refreshTriggerScheduled = "scheduled"
+	refreshTriggerManual    = "manual"
+	refreshTriggerUnknown   = "unknown"
+)
+
 // profileRefreshRunLogMsg is the Loki message for one finished Periodic
 // Profile Refresh evaluation; see docs/dev/api_endpoints.md.
 const profileRefreshRunLogMsg = "agent_profile_refresh_run"
@@ -36,15 +56,45 @@ func refreshCompleteOutcome(header string, currentVersion int64) (string, bool) 
 	return "unchanged", true
 }
 
+// isProfileRefreshSource reports whether a profile-fields write finishes a
+// Periodic Profile Refresh run.
+func isProfileRefreshSource(source string) bool {
+	return source == profileRefreshSourceScheduled || source == profileRefreshSourceManual
+}
+
+// normalizeRefreshTrigger bounds the client-supplied trigger to the known
+// enum. Old CLIs send no header and are reported as unknown; nothing is ever
+// rejected because of this header.
+func normalizeRefreshTrigger(header string) string {
+	switch strings.ToLower(strings.TrimSpace(header)) {
+	case refreshTriggerScheduled:
+		return refreshTriggerScheduled
+	case refreshTriggerManual:
+		return refreshTriggerManual
+	default:
+		return refreshTriggerUnknown
+	}
+}
+
+// refreshTriggerFor resolves the trigger for one logged run. A manual-refresh
+// source is authoritative; otherwise the header decides.
+func refreshTriggerFor(source, header string) string {
+	if source == profileRefreshSourceManual {
+		return refreshTriggerManual
+	}
+	return normalizeRefreshTrigger(header)
+}
+
 // logProfileRefreshRun emits one structured line per finished refresh
 // evaluation. Only bounded enum and version values are logged, never raw
 // host strings or request bodies.
-func logProfileRefreshRun(ctx context.Context, c *app.RequestContext, agentID int64, outcome string) {
+func logProfileRefreshRun(ctx context.Context, c *app.RequestContext, agentID int64, outcome, trigger string) {
 	headers := reqinfo.BoundedClientHeaders(func(name string) string { return string(c.GetHeader(name)) })
 	identity, _ := runtimeidentity.Parse(headers.Host)
 	logger.Ctx(ctx).Info(profileRefreshRunLogMsg,
 		"agent_id", agentID,
 		"outcome", outcome,
+		"trigger", normalizeRefreshTrigger(trigger),
 		"mode", headers.Mode,
 		"runtime_name", identity.Name,
 		"cli_version", reqinfo.SafePluginVersion(headers.CLIVersion),

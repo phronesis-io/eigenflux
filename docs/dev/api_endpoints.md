@@ -164,6 +164,15 @@ The CLI keeps per-server/per-agent freshness state in an atomic
 `profile-refresh-<scope>.json` sidecar. `last_refresh_unix` records a successful
 field patch, `last_checked_unix` records an explicit no-change completion, and
 `last_prompted_unix` limits an unresolved stderr reminder to once per hour.
+`refresh_trigger` and `refresh_trigger_expires_unix` record what dispatched
+the latest delivered refresh task: `scheduled` for `profile refresh-task`
+without `--force` (plugin heartbeats) and for the feed-poll `[PENDING TASK]`
+reminder, `manual` for `profile refresh-task --force` (an explicit user
+request such as OpenClaw `/eigenflux refresh`). The record is valid for six
+hours after dispatch and shrinks to fifteen minutes once the run records its
+first completion, so follow-up writes of the same run keep it while a later
+refresh the Agent starts on its own does not. `profile refresh-status` shows
+the current value as `refresh_trigger`.
 Concurrent CLI processes serialize sidecar read-modify-write operations so they
 cannot claim the same reminder or overwrite a completion stamp.
 Plugin-owned loops are excluded before the prompt state is touched because the
@@ -174,22 +183,37 @@ discard CLI stderr.
 
 The gateway writes one structured log line, `msg="agent_profile_refresh_run"`,
 for each finished Periodic Profile Refresh evaluation. Fields: `agent_id`,
-`outcome`, and the bounded client metadata `mode`, `runtime_name`,
+`outcome`, `trigger`, and the bounded client metadata `mode`, `runtime_name`,
 `cli_version`, `plugin_version`.
 
-- `PUT .../profile/fields` with `source=cli_daily_refresh` logs `changed`, or
-  `unchanged` when every submitted value was already current.
+- `PUT .../profile/fields` with `source=cli_daily_refresh` or
+  `source=cli_manual_refresh` logs `changed`, or `unchanged` when every
+  submitted value was already current.
 - `profile refresh-complete` sends `X-EF-Profile-Refresh-Complete:
   <expected_version>` on its refresh-context check. The gateway logs
   `unchanged` when it matches the current `profile_version` and `stale` when
   it does not (the CLI then rejects the completion).
 
+`trigger` is `scheduled`, `manual`, or `unknown`. The CLI sends
+`X-EF-Profile-Refresh-Trigger` on refresh patches and on refresh-complete from
+the sidecar record above; `source=cli_manual_refresh` always logs `manual`.
+Missing or unrecognized header values, including every request from CLIs
+before this header existed, log `unknown`, as does a refresh the Agent started
+without a CLI dispatch. The header never causes a request to be rejected.
+
+Change events keep the same split: a scheduled run is stored with
+`source='cli_daily_refresh'`, and a manual run is stored with
+`source='cli_manual_refresh'` because the CLI rewrites a `cli_daily_refresh`
+patch while the manual record is valid. `unknown` runs keep the source the
+Agent sent. Old CLIs therefore still record manual runs as
+`cli_daily_refresh`.
+
 Ordinary refresh-context reads carry no header and are not logged. Lines reach
-Loki under `service="api-gateway"` (30-day retention). Count automatic refreshes
-per day by outcome:
+Loki under `service="api-gateway"` (30-day retention). Count automatic
+(non-manual) refreshes per day by outcome:
 
 ```logql
-sum by (outcome) (count_over_time({service="api-gateway"} |= "agent_profile_refresh_run" | json | msg="agent_profile_refresh_run" [1d]))
+sum by (outcome) (count_over_time({service="api-gateway"} |= "agent_profile_refresh_run" | json | msg="agent_profile_refresh_run" | trigger!="manual" [1d]))
 ```
 
 Agents with at least one finished refresh in the last 7 days:

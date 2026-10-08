@@ -41,19 +41,60 @@ func TestLogProfileRefreshRunWritesBoundedFields(t *testing.T) {
 	c.Request.Header.Set("X-Client-Mode", "plugin")
 	c.Request.Header.Set("X-CLI-Ver", "0.0.60")
 	c.Request.Header.Set("X-Client-Plugin-Version", "bad version; drop")
-	logProfileRefreshRun(context.Background(), c, 42, "unchanged")
+	logProfileRefreshRun(context.Background(), c, 42, "unchanged", "scheduled")
 
 	var line map[string]interface{}
 	if err := json.Unmarshal(buf.Bytes(), &line); err != nil {
 		t.Fatalf("log line is not JSON: %v (%q)", err, buf.String())
 	}
 	want := map[string]interface{}{
-		"msg": profileRefreshRunLogMsg, "agent_id": float64(42), "outcome": "unchanged",
+		"msg": profileRefreshRunLogMsg, "agent_id": float64(42), "outcome": "unchanged", "trigger": "scheduled",
 		"mode": "plugin", "cli_version": "0.0.60", "plugin_version": "",
 	}
 	for key, value := range want {
 		if line[key] != value {
 			t.Errorf("%s = %#v, want %#v", key, line[key], value)
 		}
+	}
+}
+
+func TestRefreshTriggerNeverRejectsAndStaysBounded(t *testing.T) {
+	cases := []struct {
+		source, header, want string
+	}{
+		{"cli_daily_refresh", "", "unknown"}, // old CLI
+		{"cli_daily_refresh", "scheduled", "scheduled"},
+		{"cli_daily_refresh", " Manual ", "manual"},
+		{"cli_daily_refresh", "cron; drop table", "unknown"},
+		{"cli_manual_refresh", "", "manual"},
+		{"cli_manual_refresh", "scheduled", "manual"},
+	}
+	for _, tc := range cases {
+		if got := refreshTriggerFor(tc.source, tc.header); got != tc.want {
+			t.Errorf("refreshTriggerFor(%q, %q) = %q, want %q", tc.source, tc.header, got, tc.want)
+		}
+	}
+	for source, want := range map[string]bool{
+		"cli_daily_refresh": true, "cli_manual_refresh": true, "console_v2": false, "": false,
+	} {
+		if got := isProfileRefreshSource(source); got != want {
+			t.Errorf("isProfileRefreshSource(%q) = %v, want %v", source, got, want)
+		}
+	}
+}
+
+func TestLogProfileRefreshRunBoundsTrigger(t *testing.T) {
+	var buf bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	logProfileRefreshRun(context.Background(), app.NewContext(0), 7, "changed", "anything-else")
+	var line map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &line); err != nil {
+		t.Fatalf("log line is not JSON: %v (%q)", err, buf.String())
+	}
+	if line["trigger"] != "unknown" {
+		t.Fatalf("trigger = %#v, want unknown", line["trigger"])
 	}
 }

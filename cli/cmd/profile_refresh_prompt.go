@@ -90,6 +90,7 @@ func stampProfileRefreshKeyFor(srv, agentID, key string) error {
 			state.LastCheckedUnix = now
 		}
 		state.LastPromptedUnix = 0
+		settleProfileRefreshTrigger(state, now)
 		return true
 	})
 	return err
@@ -166,10 +167,11 @@ func maybePromptProfileRefreshFor(srv, agentID string) {
 		return
 	}
 	_, _ = profilestate.Update(config.HomeDir(), srv, agentID, func(state *profilestate.State) bool {
-		if state.LastPromptedUnix != claimStamp {
-			return false
+		if state.LastPromptedUnix == claimStamp {
+			state.LastPromptedUnix = now
 		}
-		state.LastPromptedUnix = now
+		// The reminder was delivered: the run it starts is a scheduled one.
+		recordProfileRefreshDispatch(state, profileRefreshTriggerScheduled, now)
 		return true
 	})
 }

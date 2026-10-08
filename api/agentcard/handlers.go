@@ -761,7 +761,7 @@ func GetRefreshContext(ctx context.Context, c *app.RequestContext) {
 	}
 
 	if outcome, ok := refreshCompleteOutcome(string(c.GetHeader(ProfileRefreshCompleteHeader)), version); ok {
-		logProfileRefreshRun(ctx, c, agentID, outcome)
+		logProfileRefreshRun(ctx, c, agentID, outcome, normalizeRefreshTrigger(string(c.GetHeader(ProfileRefreshTriggerHeader))))
 	}
 	respond(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"profile_version": version,
@@ -1037,12 +1037,12 @@ func PutProfileFields(ctx context.Context, c *app.RequestContext) {
 	if !noChanges {
 		agentcard.PublishRebuild(ctx, agentID, "profile_fields_update")
 	}
-	if req.Source == "cli_daily_refresh" {
+	if isProfileRefreshSource(req.Source) {
 		outcome := "changed"
 		if noChanges {
 			outcome = "unchanged"
 		}
-		logProfileRefreshRun(ctx, c, agentID, outcome)
+		logProfileRefreshRun(ctx, c, agentID, outcome, refreshTriggerFor(req.Source, string(c.GetHeader(ProfileRefreshTriggerHeader))))
 	}
 
 	respond(c, http.StatusOK, 0, "success", map[string]interface{}{

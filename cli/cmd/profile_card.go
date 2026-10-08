@@ -123,6 +123,7 @@ still current before recording completion.`,
 		// response is the same.
 		resp, err := c.GetWithHeaders("/agents/me/card/refresh-context", nil, map[string]string{
 			profileRefreshCompleteHeader: strconv.FormatInt(expectedVersion, 10),
+			profileRefreshTriggerHeader:  currentProfileRefreshTrigger(serverName, agentID),
 		})
 		if err != nil {
 			return err
@@ -170,6 +171,7 @@ var profileRefreshStatusCmd = &cobra.Command{
 			"last_checked_unix":  state.LastCheckedUnix,
 			"last_prompted_unix": state.LastPromptedUnix,
 			"last_touch_unix":    lastTouch,
+			"refresh_trigger":    activeProfileRefreshTrigger(state, now),
 			"due":                shouldPromptProfileRefresh(lastTouch, validProfileStamp(state.LastPromptedUnix, now), now),
 		}, resolveFormat())
 		return nil
@@ -224,10 +226,23 @@ Examples:
 		if serverName == "" || agentID == "" {
 			return fmt.Errorf("no active authenticated account")
 		}
+		// A refresh write reports what dispatched the run; a manually
+		// requested run is recorded under its own source so scheduled
+		// history keeps the exact cli_daily_refresh value.
+		var headers map[string]string
+		writeSource := source
+		if isProfileRefreshSource(source) {
+			trigger := currentProfileRefreshTrigger(serverName, agentID)
+			if source == profileRefreshSourceManual {
+				trigger = profileRefreshTriggerManual
+			}
+			writeSource = profileRefreshWriteSource(source, trigger)
+			headers = map[string]string{profileRefreshTriggerHeader: trigger}
+		}
 		body := map[string]interface{}{
 			"expected_version": expectedVersion,
 			"updates":          updates,
-			"source":           source,
+			"source":           writeSource,
 			"reason":           reason,
 		}
 		c := newClientForServer(serverName)
@@ -245,7 +260,7 @@ Examples:
 		} else if hasV2 {
 			fieldsPath = "/agent-profile/fields"
 		}
-		resp, err := c.Put(fieldsPath, body)
+		resp, err := c.PutWithHeaders(fieldsPath, body, headers)
 		if err != nil {
 			var apiErr *client.APIError
 			if errors.As(err, &apiErr) && apiErr.StatusCode == 409 {
@@ -260,7 +275,7 @@ Examples:
 		}
 		output.PrintMessage("Profile patched")
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
-		if source == "cli_daily_refresh" {
+		if isProfileRefreshSource(source) {
 			if stampErr := stampProfileRefreshKeyFor(serverName, agentID, kvProfileRefreshAt); stampErr != nil {
 				output.PrintMessage("warning: profile was updated but local refresh state could not be saved: %v", stampErr)
 			}

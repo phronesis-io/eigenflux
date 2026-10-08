@@ -21,10 +21,17 @@ var errLockTimeout = errors.New("profile state lock timeout")
 // deliberately kept outside config.json: feed polling and settings sync are
 // separate processes, and using the shared config read-modify-write path can
 // silently lose a just-completed profile evaluation.
+//
+// RefreshTrigger records what dispatched the most recent refresh task
+// ("scheduled" or "manual") until RefreshTriggerExpiresUnix, so the commands
+// that finish the run can report it. It is advisory telemetry only and never
+// gates whether a refresh is due.
 type State struct {
-	LastRefreshUnix  int64 `json:"last_refresh_unix"`
-	LastCheckedUnix  int64 `json:"last_checked_unix"`
-	LastPromptedUnix int64 `json:"last_prompted_unix"`
+	LastRefreshUnix           int64  `json:"last_refresh_unix"`
+	LastCheckedUnix           int64  `json:"last_checked_unix"`
+	LastPromptedUnix          int64  `json:"last_prompted_unix"`
+	RefreshTrigger            string `json:"refresh_trigger,omitempty"`
+	RefreshTriggerExpiresUnix int64  `json:"refresh_trigger_expires_unix,omitempty"`
 }
 
 // FilePath returns a stable, path-safe per-server/per-agent state file.
