@@ -11,6 +11,9 @@ on:
       - 'cli/.cli.config'
       - 'skills/**'
       - 'static/install.sh'
+      - 'static/install.ps1'
+      - 'cli/scripts/**'
+      - '.github/workflows/release-cli.yml'
       - 'tests/cli_release/**'
       - 'tests/installer_release/**'
       - 'scripts/release/publish-installer.py'
@@ -33,6 +36,9 @@ on:
       - 'cli/.cli.config'
       - 'skills/**'
       - 'static/install.sh'
+      - 'static/install.ps1'
+      - 'cli/scripts/**'
+      - '.github/workflows/release-cli.yml'
       - 'tests/cli_release/**'
       - 'tests/installer_release/**'
       - 'scripts/release/publish-installer.py'
@@ -90,3 +96,19 @@ jobs:
         with:
           name: eigenflux-windows-identity-fix
           path: build/eigenflux.exe
+
+  windows-download-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+      - name: Build Windows CLI for download integration tests
+        working-directory: cli
+        run: |
+          New-Item -ItemType Directory -Force ../build | Out-Null
+          go build -o ../build/eigenflux.exe .
+      - name: Test Windows installer downloads on PowerShell 5.1 and 7
+        run: python -m unittest discover -s tests/cli_release -p 'test_windows_download.py'

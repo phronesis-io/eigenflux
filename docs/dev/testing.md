@@ -166,3 +166,31 @@ exercise the real embedding HTTP client, worker, generation-specific job leases
 and Redis cache. `tests/discoverye2e` additionally verifies cold/warm vector use
 through real API/Feed/Sort processes. Unit tests under
 `rpc/sort/discovery/needembedding` verify cache identity and invalid vectors.
+
+## CLI release integrity and Windows download tests
+
+Run `python3 -m unittest discover -s tests/cli_release -p 'test_cli_artifacts.py'`
+for checksum generation, publisher preflight, failed uploads, public CDN
+verification and version-promotion ordering. Tests use temporary directories,
+a stub object-store client and a local HTTP server, with no production writes.
+
+On Windows, build the CLI and run the download suite:
+
+```powershell
+New-Item -ItemType Directory -Force build | Out-Null
+Push-Location cli
+go build -o ../build/eigenflux.exe .
+Pop-Location
+python -m unittest discover -s tests/cli_release -p 'test_windows_download.py'
+```
+
+Both Windows PowerShell 5.1 (`powershell`) and PowerShell 7 (`pwsh`) must be on
+PATH. The suite parses the production installer's download helper, downloads
+and executes the real CLI from a loopback server, and checks missing/malformed/
+mismatched checksums, HTTP errors, retry exhaustion and temporary-file cleanup.
+Failed verification must preserve the previously installed bytes. The existing
+CLI Auth Cross-Platform workflow runs these tests in an independent Windows
+download job, separate from the identity tests.
+Non-Windows hosts skip this suite. This is download integration coverage, not
+full host onboarding or Smart App Control acceptance; see [CLI release
+integrity](cli-release.md).

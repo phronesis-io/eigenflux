@@ -360,7 +360,8 @@ one row per Agent/language; a new local day overwrites the previous day.
 `GET /install.sh` and `HEAD /install.sh` return a non-cacheable 307 redirect to
 `https://cdn.eigenflux.ai/installers/latest/install.sh`. The shell installer is
 published independently of backend deployments; `/install.ps1` remains a local
-static file.
+static file. Its CLI download requires a matching SHA-256 sidecar; see
+[CLI release integrity and rollout order](cli-release.md).
 
 Release Installer runs after a PR merges into `main` and publishes only when
 that PR changes `static/install.sh`. It paginates the PR file list, checks out

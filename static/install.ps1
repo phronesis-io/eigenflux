@@ -39,7 +39,7 @@ function Download-WithRetry {
     param(
         [string]$Url,
         [string]$Destination,
-        [int]$MaxRetries = 3,
+        [ValidateRange(1, 10)][int]$MaxRetries = 3,
         [string]$Sha256Url = ""
     )
 
@@ -47,41 +47,51 @@ function Download-WithRetry {
     $attempt = 0
     $downloaded = $false
 
-    while ($attempt -lt $MaxRetries -and -not $downloaded) {
-        $attempt++
-        try {
-            if ($attempt -gt 1) { Info "Retry ${attempt}/${MaxRetries}..." }
-            Invoke-WebRequest -Uri $Url -OutFile $tmpFile -UseBasicParsing
-            $downloaded = $true
-        } catch {
-            if ($attempt -ge $MaxRetries) {
+    try {
+        while ($attempt -lt $MaxRetries -and -not $downloaded) {
+            $attempt++
+            try {
+                if ($attempt -gt 1) { Info "Retry ${attempt}/${MaxRetries}..." }
+                Invoke-WebRequest -Uri $Url -OutFile $tmpFile -UseBasicParsing -TimeoutSec 30
+                $downloaded = $true
+            } catch {
+                if ($attempt -ge $MaxRetries) {
+                    throw "Download failed after ${MaxRetries} attempts: ${Url}`n$($_.Exception.Message)"
+                }
                 Remove-Item -Force $tmpFile -ErrorAction SilentlyContinue
-                throw "Download failed after ${MaxRetries} attempts: ${Url}`n$($_.Exception.Message)"
+                Start-Sleep -Seconds (2 * $attempt)
             }
-            Remove-Item -Force $tmpFile -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds (2 * $attempt)
         }
-    }
 
-    if ($Sha256Url) {
-        try {
-            $expectedHash = (Invoke-RestMethod -Uri $Sha256Url).Trim().Split(" ")[0]
-            $actualHash = (Get-FileHash -Path $tmpFile -Algorithm SHA256).Hash.ToLower()
-            if ($actualHash -ne $expectedHash.ToLower()) {
-                Remove-Item -Force $tmpFile -ErrorAction SilentlyContinue
+        if ($Sha256Url) {
+            # A missing checksum is a failed release, not permission to install
+            # unverified bytes. Use text explicitly on both PowerShell 5.1 and 7.
+            try {
+                $response = Invoke-WebRequest -Uri $Sha256Url -UseBasicParsing -TimeoutSec 30
+            } catch {
+                throw "Failed to fetch SHA256 checksum from ${Sha256Url}: $($_.Exception.Message)"
+            }
+            $checksum = $response.Content
+            if ($checksum -is [byte[]]) { $checksum = [System.Text.Encoding]::UTF8.GetString($checksum) }
+            $expectedHash = ([string]$checksum).Trim()
+            if ($expectedHash -notmatch '^[a-fA-F0-9]{64}$') {
+                throw "Invalid SHA256 checksum from ${Sha256Url}"
+            }
+            $actualHash = (Get-FileHash -Path $tmpFile -Algorithm SHA256).Hash
+            if ($actualHash -ne $expectedHash) {
                 throw "SHA256 mismatch for ${Url}: expected ${expectedHash}, got ${actualHash}"
             }
             Ok "SHA256 verified"
-        } catch [System.Net.WebException] {
-            Info "SHA256 checksum not available, skipping verification"
         }
-    }
 
-    $destDir = Split-Path -Parent $Destination
-    if (-not (Test-Path $destDir)) {
-        New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+        $destDir = Split-Path -Parent $Destination
+        if (-not (Test-Path $destDir)) {
+            New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+        }
+        Move-Item -Path $tmpFile -Destination $Destination -Force
+    } finally {
+        Remove-Item -Force $tmpFile -ErrorAction SilentlyContinue
     }
-    Move-Item -Path $tmpFile -Destination $Destination -Force
 }
 
 # ── Step 1: Install CLI binary ────────────────────────────────
