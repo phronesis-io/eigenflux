@@ -1125,12 +1125,10 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 	}
 	var agentIDValue, principalID int64
 	var scopes, clientCapabilities pq.StringArray
-	handoffRevoked := false
+	handoffErrorCode := ""
 	selectedSlot := 0
 	replacedSessionID := ""
 	accountSwitchToken := ""
-	resumed := false
-	cookieMaxAge := int(consoleAbsoluteTTL / time.Second)
 	var accountLimitAccounts []consoleAccountView
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		var handoff struct {
@@ -1144,17 +1142,16 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 			Capabilities       pq.StringArray `gorm:"column:client_capabilities;type:text[]"`
 			BrowserNonceHash   *string        `gorm:"column:browser_nonce_hash"`
 			ExpiresAt          int64          `gorm:"column:expires_at"`
-			ConsumedAt         *int64         `gorm:"column:consumed_at"`
-			ConsumedSessionID  *string        `gorm:"column:consumed_session_id"`
+			RevokedAt          *int64         `gorm:"column:revoked_at"`
 		}
 		if err := tx.Raw(`SELECT h.agent_id, h.principal_id, p.agent_id AS principal_agent_id,
 			p.status AS principal_status, p.revoked_at AS principal_revoked_at, a.identity_state,
 			h.console_scope, h.client_capabilities,
-				h.browser_nonce_hash, h.expires_at, h.consumed_at, h.consumed_session_id
+				h.browser_nonce_hash, h.expires_at, h.revoked_at
 				FROM console_v2_handoffs h
-				JOIN agent_principals p ON p.principal_id = h.principal_id
-				JOIN agents a ON a.agent_id = h.agent_id
-				WHERE h.ticket_hash = ? AND h.revoked_at IS NULL
+				LEFT JOIN agent_principals p ON p.principal_id = h.principal_id
+				LEFT JOIN agents a ON a.agent_id = h.agent_id
+				WHERE h.ticket_hash = ?
 				FOR UPDATE OF h`, hashString(req.Ticket)).
 			Scan(&handoff).Error; err != nil {
 			return err
@@ -1163,33 +1160,33 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 		if err := tx.Raw(`SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint`).Scan(&now).Error; err != nil {
 			return err
 		}
-		providedNonceHash := hashString(req.BrowserNonce)
-		if !validActiveIdentityBinding(handoff.AgentID, handoff.PrincipalAgentID, handoff.IdentityState,
-			handoff.PrincipalStatus, handoff.PrincipalRevokedAt) ||
-			handoff.ExpiresAt < now || handoff.BrowserNonceHash == nil ||
-			subtle.ConstantTimeCompare([]byte(providedNonceHash), []byte(*handoff.BrowserNonceHash)) != 1 {
-			if handoff.AgentID != 0 && !validActiveIdentityBinding(handoff.AgentID, handoff.PrincipalAgentID,
-				handoff.IdentityState, handoff.PrincipalStatus, handoff.PrincipalRevokedAt) {
-				if err := tx.Exec(`UPDATE console_v2_handoffs SET revoked_at = COALESCE(revoked_at, ?)
-					WHERE ticket_hash = ?`, now, hashString(req.Ticket)).Error; err != nil {
-					return err
-				}
-				handoffRevoked = true
-				return nil
-			}
+		if handoff.AgentID == 0 {
+			handoffErrorCode = "HANDOFF_NOT_FOUND"
 			return errUnauthorized
 		}
-		agentIDValue, principalID, scopes, clientCapabilities = handoff.AgentID, handoff.PrincipalID, handoff.Scopes, handoff.Capabilities
-		if handoff.ConsumedAt != nil {
-			if handoff.ConsumedSessionID == nil {
-				return errUnauthorized
-			}
-			var resumeErr error
-			selectedSlot, csrfSecret, cookieMaxAge, resumeErr = s.resumeHandoffSession(tx, c,
-				*handoff.ConsumedSessionID, agentIDValue, principalID, now, containsScope(clientCapabilities, "account_switch_v1"))
-			resumed = resumeErr == nil
-			return resumeErr
+		providedNonceHash := hashString(req.BrowserNonce)
+		if handoff.BrowserNonceHash == nil || subtle.ConstantTimeCompare([]byte(providedNonceHash), []byte(*handoff.BrowserNonceHash)) != 1 {
+			handoffErrorCode = "HANDOFF_NONCE_INVALID"
+			return errUnauthorized
 		}
+		if handoff.RevokedAt != nil {
+			handoffErrorCode = "HANDOFF_REVOKED"
+			return errUnauthorized
+		}
+		if handoff.ExpiresAt < now {
+			handoffErrorCode = "HANDOFF_EXPIRED"
+			return errUnauthorized
+		}
+		if !validActiveIdentityBinding(handoff.AgentID, handoff.PrincipalAgentID, handoff.IdentityState,
+			handoff.PrincipalStatus, handoff.PrincipalRevokedAt) {
+			if err := tx.Exec(`UPDATE console_v2_handoffs SET revoked_at = COALESCE(revoked_at, ?)
+				WHERE ticket_hash = ?`, now, hashString(req.Ticket)).Error; err != nil {
+				return err
+			}
+			handoffErrorCode = "HANDOFF_IDENTITY_INVALID"
+			return nil
+		}
+		agentIDValue, principalID, scopes, clientCapabilities = handoff.AgentID, handoff.PrincipalID, handoff.Scopes, handoff.Capabilities
 		var slotErr error
 		selectedSlot, replacedSessionID, accountLimitAccounts, slotErr = s.chooseConsoleSessionSlot(
 			tx, c, agentIDValue, replacementAgentID, now,
@@ -1197,9 +1194,13 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 		if slotErr != nil {
 			return slotErr
 		}
-		consume := tx.Exec(`UPDATE console_v2_handoffs SET consumed_at = ?
-				WHERE ticket_hash = ? AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at >= ?`, now, hashString(req.Ticket), now)
-		if consume.Error != nil || consume.RowsAffected != 1 {
+		consume := tx.Exec(`UPDATE console_v2_handoffs SET consumed_at = COALESCE(consumed_at, ?)
+				WHERE ticket_hash = ? AND revoked_at IS NULL AND expires_at >= ?`, now, hashString(req.Ticket), now)
+		if consume.Error != nil {
+			return consume.Error
+		}
+		if consume.RowsAffected != 1 {
+			handoffErrorCode = "HANDOFF_INVALID"
 			return errUnauthorized
 		}
 		if replacedSessionID != "" {
@@ -1214,10 +1215,6 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 				VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, 'handoff')`, sessionID, hashString(sessionSecret),
 			agentIDValue, principalID, hashString(csrfSecret), pq.Array([]string(scopes)), pq.Array([]string(clientCapabilities)), now,
 			now+int64(consoleIdleTTL/time.Millisecond), now+int64(consoleAbsoluteTTL/time.Millisecond), now).Error; err != nil {
-			return err
-		}
-		if err := tx.Exec(`UPDATE console_v2_handoffs SET consumed_session_id = ? WHERE ticket_hash = ?`,
-			sessionID, hashString(req.Ticket)).Error; err != nil {
 			return err
 		}
 		if !containsScope(clientCapabilities, "account_switch_v1") {
@@ -1244,8 +1241,8 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 			VALUES (?, ?, ?, ?, 'pending_target', ?, ?)`, hashString(accountSwitchToken), agentIDValue,
 			principalID, sessionID, now+int64(cliAccountSwitchTTL/time.Millisecond), now).Error
 	})
-	if handoffRevoked || errors.Is(err, errUnauthorized) {
-		fail(c, http.StatusUnauthorized, "HANDOFF_INVALID", "handoff is invalid, consumed, or expired", nil)
+	if handoffErrorCode != "" && (err == nil || errors.Is(err, errUnauthorized)) {
+		fail(c, http.StatusUnauthorized, handoffErrorCode, handoffFailureMessage(handoffErrorCode), nil)
 		return
 	}
 	if errors.Is(err, errConsoleAccountLimit) {
@@ -1260,11 +1257,9 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusInternalServerError, "HANDOFF_EXCHANGE_FAILED", "could not establish Console V2 session", nil)
 		return
 	}
-	if !resumed {
-		s.setConsoleCookieAtSlot(c, selectedSlot, sessionID+"."+sessionSecret, cookieMaxAge)
-		s.setCSRFCookieAtSlot(c, selectedSlot, csrfSecret, cookieMaxAge)
-	}
-	s.setActiveConsoleSlot(c, selectedSlot, cookieMaxAge)
+	s.setConsoleCookieAtSlot(c, selectedSlot, sessionID+"."+sessionSecret, int(consoleAbsoluteTTL/time.Second))
+	s.setCSRFCookieAtSlot(c, selectedSlot, csrfSecret, int(consoleAbsoluteTTL/time.Second))
+	s.setActiveConsoleSlot(c, selectedSlot, int(consoleAbsoluteTTL/time.Second))
 	if accountSwitchToken != "" {
 		s.setCLIAccountSwitchCookie(c, accountSwitchToken, int(cliAccountSwitchTTL/time.Second))
 	}
@@ -1273,6 +1268,6 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 		"csrf_token":          csrfSecret,
 		"slot":                selectedSlot,
 		"client_capabilities": []string(clientCapabilities),
-		"account_switch":      containsScope(clientCapabilities, "account_switch_v1"),
+		"account_switch":      accountSwitchToken != "",
 	})
 }
