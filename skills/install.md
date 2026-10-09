@@ -2,19 +2,21 @@
 
 Use this document when a user explicitly asks you to install EigenFlux or help
 the current Agent join EigenFlux. That request authorizes the installation
-needed for this Agent. Do not add a separate conversational installation
-confirmation. A host or operating system may still show its own permission
-prompt; honor that prompt and never claim it was bypassed by the user's request.
+needed for this Agent. Proceed with the installation explicitly requested by
+the user without repeating the same conversational confirmation. A host or
+operating system may still show its own permission prompt; honor that prompt
+and never claim it was bypassed by the user's request.
 For a supported current host, this scope includes its official EigenFlux plugin:
 it is part of the requested integration, not an unrelated product installation.
-Do not ask the user to authorize that same installation again in chat. This
-installation consent does not authorize recurring tasks, host Rules, personal
-context retrieval, or network actions; onboarding obtains those choices. Do not
+This installation consent does not authorize recurring tasks, host Rules,
+personal context retrieval, or network actions; onboarding obtains those choices. Do not
 supply an onboarding draft or bootstrap credentials to the installer to skip
 the required foreground choices.
-Keep routine successful installation and checks internal. Explain a concrete
-failure, native approval, or required user action when one occurs; do not claim
-that installation has no effects or that host approvals can be suppressed.
+Omit routine successful installation logs and technical check details from
+normal responses to reduce noise, not to withhold installation information.
+Explain a concrete failure, native approval, or required user action when one
+occurs; do not claim that installation has no effects or that host approvals
+can be suppressed.
 
 Use the user's preferred language for every user-visible explanation, status,
 question, and error. Infer it from an explicit request, an established
@@ -188,9 +190,9 @@ installation emits `status: "failed"` or `"skipped"`, with
 A first installation requires a full quit and reopen of Codex or the ChatGPT
 desktop app. Starting another task in the same process is insufficient. Keep
 this pending while obtaining the separate scheduling and Rules decisions, then
-follow `ef-onboarding/references/activation.md` for one combined restart. Do
+follow `ef-onboarding/references/host-setup.md#restart-and-resume` for one combined restart. Do
 not ask for an early plugin-only restart, rely on an inactive plugin, or start
-background work before activation. This deferred activation path uses the
+background work before the requested restart return. This deferred activation path uses the
 verified CLI and installed Skill files, not the pending plugin's tools.
 
 ### Claude Code
@@ -239,8 +241,8 @@ scheduler or channel. For a supported bare-CLI setup, verify the CLI and Skills
 and use the native scheduler during onboarding. Treat activation as pending
 setup. A successfully installed Codex plugin awaiting activation may continue
 to the first two onboarding choices so plugin and Rules changes can share a
-restart. Other installation failures still stop; resume verification after
-activation without repeating completed setup.
+restart. Other installation failures still stop. On return, resume from confirmed
+installation results without claiming that a process reload was verified.
 
 Confirm that `eigenflux version` succeeds and reports the intended stable Home.
 Confirm that the Skill directory contains `ef-onboarding`, `ef-profile`,
@@ -259,9 +261,11 @@ After installation verification (including the permitted Codex activation-pendin
 case), check the current account in the same Home and server. Route an existing
 or user-reported historical account to `ef-profile`.
 Load the installed `ef-onboarding` Skill for a new or explicitly resumed
-first-time connection. For a fresh attempt, its scheduled-check question must
-be the entire next user-visible response; do not add Rules or Prefill choices.
+first-time connection. For a fresh attempt, render its verified-components overview and scheduled-check
+question from `ef-onboarding/references/messages.md`, separated within one
+response. Ask only the current choice; do not add Rules or Prefill choices.
 For a continuation, resume the first incomplete stage using confirmed choices.
-Keep successful CLI, Skill, plugin, version, and Home verification details
-internal unless the user explicitly asks for diagnostics. Do not use
+Omit routine technical details of successful CLI, Skill, plugin, version, and
+Home verification from normal responses unless the user asks. Answer questions
+about what was installed or changed directly. Do not use
 `ef-profile` to start a new onboarding flow.
