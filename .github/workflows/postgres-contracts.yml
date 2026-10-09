@@ -119,7 +119,7 @@ jobs:
         run: |
           psql "$PG_DSN" -c 'CREATE DATABASE recommendation_metrics_ci;'
           RECOMMENDATION_METRICS_TEST_DSN='postgres://postgres:postgres@127.0.0.1:5432/recommendation_metrics_ci?sslmode=disable' \
-            go test -race -count=1 ./pkg/recommendationmetrics ./pipeline/cron -run 'TestPostgresRecommendation|TestRecommendationEffect'
+            go test -race -count=1 ./pkg/recommendationmetrics ./pipeline/cron -run 'TestPostgresRecommendation|TestPostgresHistory|TestRecommendationEffect'
       - name: Verify atomic publication and durable dispatch
         run: |
           psql "$PG_DSN" -c 'CREATE DATABASE pgc_publish_ci;'
