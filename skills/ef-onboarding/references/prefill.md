@@ -4,7 +4,25 @@ After the separate optional Prefill choice in `host-setup.md`, use the host's av
 conversation-retrieval tools to read relevant user preferences, recent
 substantive work, ongoing projects, and goals only within the approved scope.
 Do not rely only on the latest onboarding message or scan unrelated sources.
-Distinguish context that was read from context that was unavailable or denied.
+After affirmative Prefill consent, inspect host tool declarations and use tool
+discovery if needed to identify supported memory and conversation-history
+sources within the approved scope. A new conversation, absent project, or empty
+working directory does not establish that history is unavailable. Do not open
+personal files or invoke content-bearing tools, including task listings with
+titles or summaries, before consent.
+
+On Codex, use `list_threads` to locate relevant recent work and `read_thread`
+to retrieve selected conversations, or equivalent host tools. Do not filter
+history to the current directory or project unless the user limited that scope.
+Read enough substantive context to support each inferred field; task titles alone
+are not profile evidence. Do not treat the installation conversation as the only
+candidate or scan unrelated histories exhaustively.
+
+Distinguish uninspected sources, unavailable capabilities, denied or failed
+retrieval, and successful retrieval with no relevant evidence. Do not describe
+an unattempted or failed history lookup as proof that no work context exists.
+Respect access denials without bypassing them through raw session files; use
+remaining approved sources and leave unsupported fields empty.
 On the manual path, skip retrieval and inference and use the empty draft shape
 below.
 

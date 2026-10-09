@@ -8,19 +8,27 @@ import (
 )
 
 func TestOnboardingResultAndHostRouting(t *testing.T) {
+	for _, newline := range []string{"\n", "\r\n"} {
+		t.Run(map[string]string{"\n": "LF", "\r\n": "CRLF"}[newline], func(t *testing.T) {
+			testOnboardingResultAndHostRouting(t, newline)
+		})
+	}
+}
+
+func testOnboardingResultAndHostRouting(t *testing.T, newline string) {
 	read := func(path string) string {
 		t.Helper()
 		b, err := os.ReadFile("../../skills/ef-onboarding/references/" + path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return string(b)
+		return strings.ReplaceAll(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n", newline)
 	}
 	messages, connection, host := read("messages.md"), read("connection.md"), read("host-setup.md")
 	section := func(id string) string {
 		t.Helper()
 		r := regexp.MustCompile(`(?s)## ` + regexp.QuoteMeta(id) + `\n(.*?)(?:\n## |$)`)
-		m := r.FindStringSubmatch(messages)
+		m := r.FindStringSubmatch(strings.ReplaceAll(messages, "\r\n", "\n"))
 		if m == nil {
 			t.Fatalf("missing %s", id)
 		}
@@ -106,5 +114,31 @@ func TestOnboardingCommunityInvitation(t *testing.T) {
 	}
 	if !strings.HasPrefix(read("assets/wechat-group-qr.png"), "\x89PNG\r\n\x1a\n") {
 		t.Error("missing bundled PNG")
+	}
+}
+
+func TestOnboardingPrefillContextDiscovery(t *testing.T) {
+	body, err := os.ReadFile("../../skills/ef-onboarding/references/prefill.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefill := strings.ReplaceAll(string(body), "\r\n", "\n")
+	for _, phrase := range []string{
+		"After affirmative Prefill consent", "tool declarations", "tool\ndiscovery",
+		"`list_threads`", "`read_thread`", "unless the user limited that scope",
+		"task titles alone\nare not profile evidence", "before consent",
+		"uninspected sources", "denied or failed", "successful retrieval with no relevant evidence",
+		"without bypassing them through raw session files", "On the manual path, skip retrieval and inference",
+	} {
+		if !strings.Contains(prefill, phrase) {
+			t.Errorf("missing context discovery boundary: %s", phrase)
+		}
+	}
+	host, err := os.ReadFile("../../skills/ef-onboarding/references/host-setup.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(host), "`prefill_choice` for every user") {
+		t.Fatal("context discovery must preserve the common optional Prefill question")
 	}
 }

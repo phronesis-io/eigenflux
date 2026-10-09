@@ -118,7 +118,7 @@ A manual choice continues without retrieval or inference. Generic continuation,
 no reply or ambiguity never grants Prefill; clarify that choice only. Reuse a
 confirmed choice on retries without asking per source, field or submission.
 When preparation requires a wait, use `preparing_draft` or `preparing_manual`
-without exposing context or draft values. Read `prefill.md` for schema/privacy
+without exposing context or draft values. Read `prefill.md` for supported context discovery, retrieval and schema/privacy
 constraints. Host-native denials remain
 execution failures, not reasons to repeat the business authorization question.
 
