@@ -170,6 +170,25 @@ OTP challenge or handoff remains unconsumed. Retrying with `replace_agent_id`
 atomically revokes the selected session, consumes the proof, creates the new
 session, and activates its slot. Credentials are never stored in localStorage.
 
+## Console handoff confirmation and resumption
+
+Console handoff links expire after 72 hours. The browser exchanges a ticket only
+after the user clicks the entry button. The URL retains its ticket and nonce
+until exchange and target-session verification both succeed.
+
+Migration `000117` binds each newly consumed ticket to the exact Console session
+created in the exchange transaction. A repeated exchange validates the ticket,
+nonce, identity, expiry, original session cookie and matching CSRF cookie across
+all browser account slots. It activates that existing slot without creating a
+session, rotating credentials, or extending session lifetime. Another session
+for the same Agent is insufficient. Account-switch resumption also requires the
+original, unexpired switch cookie and record; it never creates another switch.
+
+Apply the migration before deploying the gateway. Tickets consumed before this
+change have no session binding and remain single-use. Revoked/expired tickets
+and sessions cannot resume. If the first response never reached the browser and
+no session cookie was saved, the user needs a new link.
+
 ## Agent CLI Account Switching
 
 `eigenflux agent switch-account` creates a handoff with the dedicated
