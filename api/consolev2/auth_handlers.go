@@ -1142,12 +1142,13 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 			Capabilities       pq.StringArray `gorm:"column:client_capabilities;type:text[]"`
 			BrowserNonceHash   *string        `gorm:"column:browser_nonce_hash"`
 			ExpiresAt          int64          `gorm:"column:expires_at"`
+			ConsumedAt         *int64         `gorm:"column:consumed_at"`
 			RevokedAt          *int64         `gorm:"column:revoked_at"`
 		}
 		if err := tx.Raw(`SELECT h.agent_id, h.principal_id, p.agent_id AS principal_agent_id,
 			p.status AS principal_status, p.revoked_at AS principal_revoked_at, a.identity_state,
 			h.console_scope, h.client_capabilities,
-				h.browser_nonce_hash, h.expires_at, h.revoked_at
+				h.browser_nonce_hash, h.expires_at, h.revoked_at, h.consumed_at
 				FROM console_v2_handoffs h
 				LEFT JOIN agent_principals p ON p.principal_id = h.principal_id
 				LEFT JOIN agents a ON a.agent_id = h.agent_id
@@ -1186,6 +1187,10 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 			handoffErrorCode = "HANDOFF_IDENTITY_INVALID"
 			return nil
 		}
+		if handoff.ConsumedAt != nil {
+			handoffErrorCode = "HANDOFF_CONSUMED"
+			return errUnauthorized
+		}
 		agentIDValue, principalID, scopes, clientCapabilities = handoff.AgentID, handoff.PrincipalID, handoff.Scopes, handoff.Capabilities
 		var slotErr error
 		selectedSlot, replacedSessionID, accountLimitAccounts, slotErr = s.chooseConsoleSessionSlot(
@@ -1194,8 +1199,8 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 		if slotErr != nil {
 			return slotErr
 		}
-		consume := tx.Exec(`UPDATE console_v2_handoffs SET consumed_at = COALESCE(consumed_at, ?)
-				WHERE ticket_hash = ? AND revoked_at IS NULL AND expires_at >= ?`, now, hashString(req.Ticket), now)
+		consume := tx.Exec(`UPDATE console_v2_handoffs SET consumed_at = ?
+				WHERE ticket_hash = ? AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at >= ?`, now, hashString(req.Ticket), now)
 		if consume.Error != nil {
 			return consume.Error
 		}

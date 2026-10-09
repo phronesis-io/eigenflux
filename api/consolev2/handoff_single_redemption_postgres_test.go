@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestHandoffReusablePostgres(t *testing.T) {
+func TestHandoffSingleRedemptionPostgres(t *testing.T) {
 	dsn := os.Getenv("PG_DSN")
 	if dsn == "" {
 		t.Skip("loopback PG_DSN required")
@@ -63,6 +63,7 @@ func TestHandoffReusablePostgres(t *testing.T) {
 	svc := &Service{db: tx, publicURL: "https://console.example.test"}
 	h := server.New()
 	h.POST("/api/v2/console/handoffs/exchange", svc.requireSameOrigin(), svc.exchangeHandoff)
+	h.POST("/api/v2/console/handoffs/status", svc.requireSameOrigin(), svc.handoffStatus)
 	nonce := strings.Repeat("n", 32)
 	request := func(ticket, requestNonce, cookies string) (int, map[string]interface{}, [][]byte) {
 		return performJSON(t, h, http.MethodPost, "/api/v2/console/handoffs/exchange", map[string]interface{}{"ticket": ticket, "browser_nonce": requestNonce},
@@ -80,6 +81,28 @@ func TestHandoffReusablePostgres(t *testing.T) {
 				capabilities = "{account_switch_v1}"
 			}
 			exec(`INSERT INTO console_v2_handoffs (ticket_hash,agent_id,principal_id,console_scope,client_capabilities,browser_nonce_hash,expires_at) VALUES (?,17,1,ARRAY['console:read'],?::text[],?,?)`, hashString(ticket), capabilities, hashString(nonce), now+int64(handoffTTL/time.Millisecond))
+			// Repeated page loads are read-only; wrong nonces never burn tickets.
+			for i := 0; i < 2; i++ {
+				status, payload, _ := performJSON(t, h, http.MethodPost, "/api/v2/console/handoffs/status", map[string]interface{}{"ticket": ticket, "browser_nonce": nonce}, ut.Header{Key: "Origin", Value: "https://console.example.test"})
+				if status != 200 || responseData(t, payload)["available"] != true {
+					t.Fatalf("available status: %d %#v", status, payload)
+				}
+			}
+			failedStatus, failedPayload, _ := request(ticket, strings.Repeat("x", 32), "")
+			if failedStatus != 401 || responseErrorCode(t, failedPayload) != "HANDOFF_NONCE_INVALID" {
+				t.Fatalf("invalid nonce: %d %#v", failedStatus, failedPayload)
+			}
+			exec(`ALTER TABLE console_v2_sessions ADD CONSTRAINT fail_session CHECK (agent_id <> 17)`)
+			failedStatus, _, _ = request(ticket, nonce, "")
+			if failedStatus != 500 {
+				t.Fatalf("expected session creation failure: %d", failedStatus)
+			}
+			var consumedAfterFailure *int64
+			tx.Raw(`SELECT consumed_at FROM console_v2_handoffs WHERE ticket_hash=?`, hashString(ticket)).Row().Scan(&consumedAfterFailure)
+			if consumedAfterFailure != nil {
+				t.Fatal("failed session creation consumed ticket")
+			}
+			exec(`ALTER TABLE console_v2_sessions DROP CONSTRAINT fail_session`)
 			status, payload, cookies := request(ticket, nonce, "")
 			if status != 200 {
 				t.Fatalf("first exchange: %d %#v", status, payload)
@@ -91,18 +114,20 @@ func TestHandoffReusablePostgres(t *testing.T) {
 			if firstConsumed == 0 {
 				t.Fatal("first exchange not recorded")
 			}
-			// A fresh browser can use an already exchanged link, without any cookies.
-			status, payload, secondCookies := request(ticket, nonce, "")
-			if status != 200 || responseData(t, payload)["account_switch"] != switchFlow {
-				t.Fatalf("another browser: %d %#v", status, payload)
+			for _, cookies := range []string{"", browser} {
+				status, payload, _ = request(ticket, nonce, cookies)
+				if status != 401 || responseErrorCode(t, payload) != "HANDOFF_CONSUMED" {
+					t.Fatalf("repeated exchange: %d %#v", status, payload)
+				}
 			}
-			if cookiePair(secondCookies, consoleCookieName) == firstSession {
-				t.Fatal("browsers shared credentials")
+			status, payload, _ = performJSON(t, h, http.MethodPost, "/api/v2/console/handoffs/status", map[string]interface{}{"ticket": ticket, "browser_nonce": nonce}, ut.Header{Key: "Origin", Value: "https://console.example.test"})
+			if status != 401 || responseErrorCode(t, payload) != "HANDOFF_CONSUMED" {
+				t.Fatalf("consumed status: %d %#v", status, payload)
 			}
-			// A refresh/retry from the first browser can also exchange again.
-			status, payload, _ = request(ticket, nonce, browser)
-			if status != 200 {
-				t.Fatalf("same browser retry: %d %#v", status, payload)
+			var sessions int64
+			tx.Raw(`SELECT COUNT(*) FROM console_v2_sessions`).Scan(&sessions)
+			if sessions != 1 {
+				t.Fatalf("expected one session, got %d", sessions)
 			}
 			var consumed int64
 			tx.Raw(`SELECT consumed_at FROM console_v2_handoffs WHERE ticket_hash=?`, hashString(ticket)).Scan(&consumed)
@@ -123,9 +148,13 @@ func TestHandoffReusablePostgres(t *testing.T) {
 					if tc.mutation != "" {
 						exec(tc.mutation)
 					}
+					status, payload, _ := performJSON(t, h, http.MethodPost, "/api/v2/console/handoffs/status", map[string]interface{}{"ticket": tc.ticket, "browser_nonce": tc.nonce}, ut.Header{Key: "Origin", Value: "https://console.example.test"})
+					if status != 401 || responseErrorCode(t, payload) != tc.code {
+						t.Fatalf("invalid status: %d %#v", status, payload)
+					}
 					var before, after int64
 					tx.Raw(`SELECT COUNT(*) FROM console_v2_sessions`).Scan(&before)
-					status, payload, _ := request(tc.ticket, tc.nonce, "")
+					status, payload, _ = request(tc.ticket, tc.nonce, "")
 					if status != 401 || responseErrorCode(t, payload) != tc.code {
 						t.Fatalf("%d %#v", status, payload)
 					}

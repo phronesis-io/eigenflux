@@ -376,6 +376,7 @@ func (s *Service) Register(h *server.Hertz) {
 	h.DELETE("/api/v2/agents/me/principals/:principal_id", s.consoleAuth(true), s.revokePrincipal)
 	h.POST("/api/v2/console/handoffs", s.agentAuth("console:handoff:create"), s.createHandoff)
 	h.PUT("/api/v2/agent-settings/heartbeat-compatibility", middleware.ClientInfoMiddleware(), s.agentAuth("commands:claim"), s.requireCompleted, s.reportHeartbeatCompatibility)
+	h.POST("/api/v2/console/handoffs/status", s.requireSameOrigin(), s.handoffStatus)
 	h.POST("/api/v2/console/handoffs/exchange", s.requireSameOrigin(), s.exchangeHandoff)
 	h.GET("/api/v2/console/session", s.consoleAuth(false), s.getConsoleSession)
 	h.DELETE("/api/v2/console/session", s.consoleAuth(true), s.deleteConsoleSession)
