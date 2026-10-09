@@ -257,7 +257,7 @@ func localizedOrderNotification(language, role, state string) (string, string) {
 		summary := map[string]string{
 			"awaiting_payment": "等待买方付款", "pending_payment": "等待买方付款",
 			"awaiting_materials": "历史材料状态（已废弃，系统自动推进）", "preparing_materials": "历史材料状态（已废弃，系统自动推进）",
-			"awaiting_seller": "系统自动接单中", "in_progress": "卖方履约中",
+			"awaiting_seller": "等待卖方 Agent 检查接单", "in_progress": "卖方履约中",
 			"validating": "平台验收中", "delivered": "交付待买方验收",
 			"awaiting_buyer_confirmation": "交付待买方确认", "completed": "订单已完成",
 			"cancelled": "订单已取消", "rejected": "订单已拒绝", "expired": "订单已过期",
@@ -275,7 +275,7 @@ func localizedOrderNotification(language, role, state string) (string, string) {
 	summary := map[string]string{
 		"awaiting_payment": "Waiting for buyer payment", "pending_payment": "Waiting for buyer payment",
 		"awaiting_materials": "Retired material state; automatic transition pending", "preparing_materials": "Retired material state; automatic transition pending",
-		"awaiting_seller": "Automatic acceptance in progress", "in_progress": "Fulfillment in progress",
+		"awaiting_seller": "Awaiting seller Agent inspection and acceptance", "in_progress": "Fulfillment in progress",
 		"validating": "Platform validation in progress", "delivered": "Delivery awaiting buyer review",
 		"awaiting_buyer_confirmation": "Delivery awaiting buyer confirmation", "completed": "Order completed",
 		"cancelled": "Order cancelled", "rejected": "Order rejected", "expired": "Order expired",

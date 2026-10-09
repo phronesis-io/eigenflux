@@ -225,6 +225,18 @@ func (j *Journal) SetCommissionFulfillmentDirectory(id, directory string) error 
 }
 
 func (j *Journal) CompleteCommissionFulfillment(id string, result CommissionFulfillmentResult, sessionID string) error {
+	return j.saveCommissionFulfillment(id, result, sessionID, false)
+}
+
+// BeginCommissionDelivery persists exact artifact evidence before any upload.
+func (j *Journal) BeginCommissionDelivery(id string, result CommissionFulfillmentResult, sessionID string) error {
+	if result.Decision.Outcome != "artifacts_ready" {
+		return errors.New("commission_delivery_requires_artifacts")
+	}
+	return j.saveCommissionFulfillment(id, result, sessionID, true)
+}
+
+func (j *Journal) saveCommissionFulfillment(id string, result CommissionFulfillmentResult, sessionID string, sending bool) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	next := cloneJournal(j.state)
@@ -242,6 +254,9 @@ func (j *Journal) CompleteCommissionFulfillment(id string, result CommissionFulf
 		job.CommissionFulfillment = &result
 		job.Status = commissionFulfillmentStatus(result.Decision.Outcome)
 		job.Code = "commission_fulfillment_" + result.Decision.Outcome
+		if sending {
+			job.Status, job.Code = "sending", "commission_delivery_sending"
+		}
 		if sessionID != "" {
 			job.SessionID = sessionID
 		}
@@ -301,6 +316,16 @@ func validCommissionFulfillmentJob(job Job, binding Binding) bool {
 		}
 		if job.Code == "operator_verified" {
 			return job.Status == "completed" || job.Status == "failed"
+		}
+		if result.Decision.Outcome == "artifacts_ready" {
+			switch job.Code {
+			case "commission_delivery_sending":
+				return job.Status == "sending"
+			case "commission_delivery_confirmed":
+				return job.Status == "completed"
+			case "commission_delivery_unconfirmed", "interrupted_execution":
+				return job.Status == "unknown"
+			}
 		}
 		return job.Status == commissionFulfillmentStatus(result.Decision.Outcome) && job.Code == "commission_fulfillment_"+result.Decision.Outcome
 	}

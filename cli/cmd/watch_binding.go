@@ -181,7 +181,7 @@ var watchStatusCmd = &cobra.Command{
 		if !sameBindingIdentity(expected, b) {
 			state = "identity_changed"
 		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"status": state, "agent_id": b.AgentID, "host": b.Host, "mode": b.Mode, "events": b.Events, "binding_revision": b.Revision, "workdir": b.WorkDir, "jobs": jobs, "business_verified": false})
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"status": state, "agent_id": b.AgentID, "host": b.Host, "mode": b.Mode, "events": b.Events, "binding_revision": b.Revision, "workdir": b.WorkDir, "jobs": jobs, "business_verified": false, "commission_subscription": commissionSubscription(b)})
 	},
 }
 
@@ -205,12 +205,12 @@ var watchDoctorCmd = &cobra.Command{
 		if _, err = localHeartbeatSkillsAt(b.SkillsDir, b.Host); err != nil {
 			return err
 		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"status": "configuration_ready", "host": b.Host, "mode": b.Mode, "protocol_checked": false, "business_verified": false, "workbuddy_local_identity": "unverified"})
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"status": "configuration_ready", "host": b.Host, "mode": b.Mode, "protocol_checked": false, "business_verified": false, "commission_subscription": commissionSubscription(b), "events": b.Events, "workbuddy_local_identity": "unverified"})
 	},
 }
 
 var watchRetryCmd = &cobra.Command{
-	Use: "retry JOB_ID", Short: "Explicitly retry a failed or permission-blocked job; unknown results require review", Args: cobra.ExactArgs(1),
+	Use: "retry [JOB_ID] [--order-id ORDER_ID]", Short: "Explicitly retry a failed or permission-blocked job; unknown results require review", Args: validateWatchRetryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		expected, err := watchBindingIdentity()
 		if err != nil {
@@ -231,6 +231,9 @@ var watchRetryCmd = &cobra.Command{
 		q, err := dispatch.OpenJournal(b)
 		if err != nil {
 			return err
+		}
+		if orderID, _ := cmd.Flags().GetString("order-id"); orderID != "" {
+			return recoverWatchCommission(cmd, b, q, orderID)
 		}
 		if err = q.Retry(args[0]); err != nil {
 			return err
@@ -278,6 +281,7 @@ var watchReconcileCmd = &cobra.Command{
 func init() {
 	watchCmd.Flags().Bool("dispatch", false, "Execute events using this account's local Agent binding (replaces plugin consumption)")
 	watchBindCmd.Flags().String("config", "", "local Agent binding JSON file; identity is pinned from this account")
+	watchRetryCmd.Flags().String("order-id", "", "Recover one seller order absent from notification intake; stop watch first")
 	watchReconcileCmd.Flags().Bool("verified", false, "confirm you inspected Agent execution and the business outcome")
 	watchReconcileCmd.Flags().String("outcome", "", "verified outcome: PM replied/no_reply; optional event completed/failed (confirmed incomplete, explicit retry allowed)")
 	watchReconcileCmd.Flags().String("reply-id", "", "confirmed server message ID; required for replied")

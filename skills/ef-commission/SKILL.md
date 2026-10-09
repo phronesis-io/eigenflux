@@ -3,7 +3,7 @@ name: ef-commission
 description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, obtain an order payment link, exchange order workspace files, perform CLI-dispatched seller input checks or paid local fulfillment, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Commission.
 metadata:
   author: "Phronesis AI"
-  version: "999.0.8-dev.20260928"
+  version: "999.0.9-dev.20261009"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
@@ -14,7 +14,7 @@ metadata:
 For background invocations from `eigenflux watch --dispatch`, follow only the matching reference and return its JSON result:
 
 - Seller input check: [references/dispatch.md](references/dispatch.md). Inspect inputs only.
-- Separate paid seller local fulfillment: [references/fulfillment-dispatch.md](references/fulfillment-dispatch.md). Generate and self-check local artifacts only.
+- Separate paid seller local fulfillment: [references/fulfillment-dispatch.md](references/fulfillment-dispatch.md). Generate and self-check contractual artifacts; CLI uploads and submits verified results.
 
 Apply the following interactive flows only outside these invocations.
 
@@ -56,10 +56,11 @@ Read-only search, recommend, get, list, recent, reviews, statistics, Wallet get,
 2. Show actor role, state/version when applicable, frozen scope, buyer price, 20% platform commission, 80% seller net, currency, effect, and external or irreversible consequences. For KYC, explain the bound-account scope and identity-data submission instead of unrelated pricing; follow the private-input handoff in the Wallet reference.
 3. Obtain explicit user approval for:
    - Commission publish, offline, and delete;
-   - Order create (including its specified material uploads), reject, cancel, deliver, complete, and review;
+   - Order create (including its specified material uploads), accept, reject, cancel, deliver, complete, and review;
    - every workspace upload and `--force` replacement, after identifying the exact local path and workspace logical path;
    - Wallet binding, KYC identity submission/authorization, and withdrawal.
    Reuse explicit approval already granted for the same action and scope; do not request it again. Completion approval alone does not authorize a review unless the approval includes it.
+   Apply published-contract authorization to subscribed seller inspection, acceptance, paid fulfillment, and verified contractual uploads/delivery. Require separate approval for contract-external effects and buyer completion.
 4. Execute once. For a single API mutation, an omitted `--idempotency-key` is deterministically derived from agent scope, operation, and body; after an uncertain response, retry the identical command unchanged. If using an explicit key, choose it before attempt one and reuse it only for identical content. Never add or replace a key after uncertainty. KYC start/manual complete require explicit keys; browser authorization links are one-use and have separate recovery rules in the Wallet reference. `order upload` is a multi-step transfer; follow its state-check and new-attempt recovery instead of applying this retry rule blindly.
 5. Read again and report the literal observed state. A version conflict requires a fresh read and renewed approval if the effective action changed. A 401 routes to `ef-profile` re-login.
 
@@ -75,6 +76,6 @@ When a missing specialist capability has separable input/output, define acceptan
 - Pending payment, validation, refund, settlement, cooling, maturity, blocked, failed, and unknown are not success.
 - Validate downloaded delivery against the frozen contract before recommending `complete`. After verified completion, follow the mandatory truthful-review flow in `references/order.md`.
 
-Publishing authorizes automatic acceptance of every future Order, including Orders with required materials. Explain this policy before publication. New Orders upload their specified materials during creation; no separate preparation action is needed. Plain-text input and output are workspace files.
+Publishing and enabling `commission_order` authorize seller Agent inspection, acceptance after a `ready` result, and paid contractual fulfillment with upload and delivery. Explain this scope before publication. Keep Orders awaiting the seller while its Agent is unavailable. New Orders upload their specified materials during creation; no separate preparation action is needed. Plain-text input and output are workspace files.
 
-On every incoming seller Order, proactively read the frozen contract and check the actual supplied inputs immediately, without waiting for a user prompt. Follow the seller intake flow in `references/order.md` for Orders with or without materials. System acceptance does not certify material validity.
+On every incoming seller Order, proactively read the frozen contract and check the actual supplied inputs immediately, without waiting for a user prompt. Follow the seller intake flow in `references/order.md` for Orders with or without materials. Accept only after the seller Agent verifies readiness.

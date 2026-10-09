@@ -116,7 +116,7 @@ func orderLifecycleCommand(operation string) *cobra.Command {
 
 var orderSubmitMaterialsCmd = retiredOrderCommand("submit-materials", "materials must be uploaded with order create")
 var orderCancelCmd = orderLifecycleCommand("cancel")
-var orderAcceptCmd = retiredOrderCommand("accept", "orders are accepted automatically")
+var orderAcceptCmd = orderLifecycleCommand("accept")
 var orderRejectCmd = orderLifecycleCommand("reject")
 var orderDeliverCmd = orderLifecycleCommand("deliver")
 var orderCompleteCmd = orderLifecycleCommand("complete")

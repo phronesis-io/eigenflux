@@ -2,7 +2,7 @@
 
 Apply this contract only to a separate paid seller fulfillment invocation from
 `eigenflux watch --dispatch`. Perform authorized local work and return the result
-to the CLI without messaging the user's current task.
+to the CLI. The CLI uploads verified contractual artifacts and submits delivery.
 
 ## Execute
 
@@ -31,7 +31,7 @@ to the CLI without messaging the user's current task.
    deliverables; a status summary cannot replace a contractual artifact.
 7. Return `needs_input` for missing, invalid, or insufficient inputs; `needs_user`
    for unavailable capabilities, permissions, or unresolved scope; `failed` for
-   execution errors. Stop at local generation and self-check. Never claim upload,
+   execution errors. Return after local generation and self-check. Never claim upload,
    delivery, buyer acceptance, or notification occurred.
 
 ## Return

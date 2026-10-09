@@ -123,7 +123,7 @@ func readJournal(b Binding) (journalState, bool, error) {
 			if completedStatus(job.Status) && len(job.Data) == 0 {
 				continue
 			}
-			key, err := parseCommissionNotification(job.Data, b.AgentID)
+			key, err := parseCommissionIntakeData(job.Data, b.AgentID)
 			if err != nil || job.ID != commissionJournalID(b, key) {
 				return journalState{}, false, errors.New("invalid_journal_commission")
 			}
@@ -477,7 +477,7 @@ func (j *Journal) CompleteCommissionIntakeAndQueue(id string, result CommissionI
 		if job.Kind != "commission_order" || job.Status != "running" {
 			return errors.New("commission_intake_requires_running_job")
 		}
-		key, err := parseCommissionNotification(job.Data, j.binding.AgentID)
+		key, err := parseCommissionIntakeData(job.Data, j.binding.AgentID)
 		if err != nil || !commissionResultMatchesNotification(result, key) {
 			return errors.New("commission_result_notification_mismatch")
 		}
@@ -558,7 +558,7 @@ func validTransition(from, to string) bool {
 	case "running":
 		return to == "sending" || to == "replied" || to == "no_reply" || to == "needs_user" || to == "failed" || to == "unknown" || to == "completed" || to == "accepted"
 	case "sending":
-		return to == "replied" || to == "failed" || to == "unknown" || to == "needs_user"
+		return to == "replied" || to == "completed" || to == "failed" || to == "unknown" || to == "needs_user"
 	}
 	return false
 }

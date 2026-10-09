@@ -86,6 +86,52 @@ func testCommissionOrder() commissionIntakeOrder {
 	return commissionIntakeOrder{OrderID: 901, BuyerID: 41, SellerID: 42, Version: 3, State: "pending_payment", SnapshotID: 902, BuyerInput: "Inspect these instructions", Contract: json.RawMessage(`{"fulfillment_skill":"input-review","requires_materials":false}`)}
 }
 
+func TestCommissionAwaitingSellerAcceptedOnlyAfterReadyAgent(t *testing.T) {
+	for _, outcome := range []string{"ready", "needs_input", "needs_user", "failed"} {
+		t.Run(outcome, func(t *testing.T) {
+			order := testCommissionOrder()
+			order.State = "awaiting_seller"
+			var ran, accepted bool
+			server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v1/orders/901":
+					materialTestResponse(out, map[string]any{"order": order})
+				case "/api/v2/console/trade/orders/901":
+					materialTestResponse(out, map[string]any{"order_id": "901", "role": "seller", "version": 3, "state": "awaiting_seller", "counterparty": map[string]string{"agent_id": "41"}, "files": map[string]any{"input": []any{}}})
+				case "/api/v1/orders/901/accept":
+					var body struct {
+						Version int64 `json:"expected_version"`
+					}
+					if !ran || outcome != "ready" || r.Method != "POST" || r.Header.Get(idempotencyHeader) != "watch-accept-901-3" || json.NewDecoder(r.Body).Decode(&body) != nil || body.Version != 3 {
+						t.Error("acceptance bypassed verified Agent")
+					}
+					accepted = true
+					acceptedOrder := order
+					acceptedOrder.State, acceptedOrder.Version = "pending_payment", order.Version+1
+					materialTestResponse(out, map[string]any{"order": acceptedOrder})
+				default:
+					t.Errorf("unexpected %s", r.URL.Path)
+				}
+			}))
+			defer server.Close()
+			w := newCommissionWatch(t, server.URL, "commission_order")
+			installCommissionIntakeRules(t, w)
+			job := claimCommissionIntake(t, w)
+			w.runAgent = func(_ context.Context, request dispatch.Request) (dispatch.Result, error) {
+				ran = true
+				raw, _ := json.Marshal(dispatch.CommissionIntakeDecision{Version: 1, RequestID: request.ID, OrderID: "901", OrderVersion: 3, Outcome: outcome, Summary: "Inspected actual input", InspectedFiles: []string{}})
+				return dispatch.Result{Text: string(raw)}, nil
+			}
+			if err := w.dispatchCommissionIntake(context.Background(), job); err != nil {
+				t.Fatal(err)
+			}
+			if accepted != (outcome == "ready") {
+				t.Fatalf("outcome %s accepted=%v", outcome, accepted)
+			}
+		})
+	}
+}
+
 func TestCommissionIntakeWorkerChecksAndPersistsActualDecision(t *testing.T) {
 	for _, scenario := range []string{"ready", "needs_input", "run_error", "permission", "wrong_files", "changed_order", "changed_identity", "wrong_seller", "missing_skill", "unsigned_rule", "invalid_result"} {
 		t.Run(scenario, func(t *testing.T) {

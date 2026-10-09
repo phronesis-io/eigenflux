@@ -177,7 +177,7 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 	default:
 		return w.finishDispatch(job, "completed", "commission_order_not_actionable", "", "")
 	}
-	// Creation and automatic acceptance can emit different notification versions
+	// Creation and seller acceptance can emit different notification versions
 	// before either arrives. Reuse only an actual decision for the same latest
 	// authoritative version; explicit operator retries still rerun the inspection.
 	if job.Code != "operator_retry" {
@@ -240,6 +240,11 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 	if err != nil || !sameCommissionIntakeOrder(order, current) {
 		return w.finishDispatch(job, "failed", "commission_order_changed", result.SessionID, "")
 	}
+	if order.State == "awaiting_seller" && decision.Outcome == "ready" {
+		if err := w.acceptInspectedCommission(ctx, order); err != nil {
+			return w.finishDispatch(job, "unknown", "commission_accept_unconfirmed", result.SessionID, "")
+		}
+	}
 	return auth.WithV2CredentialsLockContext(ctx, w.server.Name, 35*time.Second, func() error {
 		if err := w.commissionIdentityOK(); err != nil {
 			if saveErr := w.finishDispatch(job, "failed", "identity_changed", result.SessionID, ""); saveErr != nil {
@@ -251,6 +256,40 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 			return err
 		}
 		return w.emit("dispatch_status", map[string]string{"job_id": job.ID, "kind": job.Kind, "order_id": id, "code": "commission_intake_" + decision.Outcome, "outcome": decision.Outcome})
+	})
+}
+
+// Acceptance is a seller-authenticated mutation following an actual Agent
+// inspection. The version and deterministic key fence concurrent notifications.
+func (w *accountWatch) acceptInspectedCommission(ctx context.Context, order commissionIntakeOrder) error {
+	api, err := w.commissionAPI(ctx)
+	if err != nil {
+		return err
+	}
+	id := strconv.FormatInt(int64(order.OrderID), 10)
+	return auth.WithV2CredentialsLockContext(ctx, w.server.Name, 35*time.Second, func() error {
+		if err := w.commissionIdentityOK(); err != nil {
+			return err
+		}
+		credentials, err := auth.LoadV2Credentials(w.server.Name)
+		if err != nil {
+			return err
+		}
+		api.Token, api.OnUnauthorized = credentials.AccessToken, nil
+		response, err := api.PostWithHeaders("/orders/"+id+"/accept", map[string]any{"expected_version": order.Version}, map[string]string{idempotencyHeader: "watch-accept-" + id + "-" + strconv.FormatInt(order.Version, 10)})
+		if err != nil {
+			return err
+		}
+		if response.Code != 0 {
+			return errors.New("commission_accept_rejected")
+		}
+		var data struct {
+			Order commissionIntakeOrder `json:"order"`
+		}
+		if json.Unmarshal(response.Data, &data) != nil || data.Order.OrderID != order.OrderID || data.Order.SellerID != order.SellerID || data.Order.BuyerID != order.BuyerID || data.Order.Version != order.Version+1 || data.Order.State != "pending_payment" {
+			return errors.New("commission_accept_receipt_invalid")
+		}
+		return w.emit("dispatch_status", map[string]string{"kind": "commission_order", "order_id": id, "code": "commission_accept_confirmed"})
 	})
 }
 
