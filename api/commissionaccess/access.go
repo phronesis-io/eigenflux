@@ -2,7 +2,10 @@
 package commissionaccess
 
 import (
+	"context"
 	"errors"
+	"github.com/cloudwego/hertz/pkg/app"
+	"net/http"
 	"strconv"
 	"strings"
 )
@@ -43,4 +46,54 @@ func (a *Allowlist) Allows(agentID int64) bool {
 	}
 	_, ok := a.agentIDs[agentID]
 	return ok
+}
+
+func (a *Allowlist) allowed(agentID int64) bool {
+	if a == nil || agentID <= 0 {
+		return false
+	}
+	_, ok := a.agentIDs[agentID]
+	return ok
+}
+
+func contextAgentID(c *app.RequestContext) (int64, bool) {
+	value, exists := c.Get("agent_id")
+	agentID, ok := value.(int64)
+	return agentID, exists && ok && agentID > 0
+}
+
+func (a *Allowlist) V1Middleware() app.HandlerFunc {
+	return func(ctx context.Context, c *app.RequestContext) {
+		if a != nil && !a.enabled {
+			c.Next(ctx)
+			return
+		}
+		agentID, ok := contextAgentID(c)
+		if !ok || !a.allowed(agentID) {
+			c.JSON(http.StatusForbidden, map[string]any{"code": 403, "msg": "commission access is not allowed"})
+			c.Abort()
+			return
+		}
+		c.Next(ctx)
+	}
+}
+
+func (a *Allowlist) ConsoleMiddleware() app.HandlerFunc {
+	return func(ctx context.Context, c *app.RequestContext) {
+		if a != nil && !a.enabled {
+			c.Next(ctx)
+			return
+		}
+		agentID, ok := contextAgentID(c)
+		if !ok || !a.allowed(agentID) {
+			c.Header("Cache-Control", "private, no-store")
+			c.JSON(http.StatusForbidden, map[string]any{"error": map[string]any{
+				"code":    "COMMISSION_ACCESS_FORBIDDEN",
+				"message": "Commission access is not enabled for this Agent",
+			}})
+			c.Abort()
+			return
+		}
+		c.Next(ctx)
+	}
 }
