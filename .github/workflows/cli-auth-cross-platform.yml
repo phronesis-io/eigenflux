@@ -11,6 +11,9 @@ on:
       - 'cli/.cli.config'
       - 'skills/**'
       - 'static/install.sh'
+      - 'static/install.ps1'
+      - 'cli/scripts/**'
+      - '.github/workflows/release-cli.yml'
       - 'tests/cli_release/**'
       - 'tests/installer_release/**'
       - 'scripts/release/publish-installer.py'
@@ -33,6 +36,9 @@ on:
       - 'cli/.cli.config'
       - 'skills/**'
       - 'static/install.sh'
+      - 'static/install.ps1'
+      - 'cli/scripts/**'
+      - '.github/workflows/release-cli.yml'
       - 'tests/cli_release/**'
       - 'tests/installer_release/**'
       - 'scripts/release/publish-installer.py'
@@ -84,6 +90,10 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force ../build | Out-Null
           go build -o ../build/eigenflux.exe .
+      - name: Test Windows installer downloads on PowerShell 5.1 and 7
+        if: runner.os == 'Windows'
+        working-directory: .
+        run: python -m unittest discover -s tests/cli_release -p 'test_windows_download.py'
       - name: Upload Windows test binary
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4

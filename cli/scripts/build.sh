@@ -135,6 +135,7 @@ build_skills_bundle
 
 echo ""
 if [[ $failed -eq 0 ]]; then
+  python3 "$SCRIPT_DIR/cli-artifacts.py" generate "$BUILD_DIR"
   echo -e "${GREEN}All platforms compiled → build/cli/${NC}"
   ls -lh "$BUILD_DIR"
 else

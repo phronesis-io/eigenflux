@@ -22,7 +22,9 @@ jobs:
           cache-dependency-path: cli/go.sum
       - name: Provide GNU tar
         run: sudo ln -sf "$(command -v tar)" /usr/local/bin/gtar
-      - name: Build signed release artifacts
+      - name: Test CLI artifact publication
+        run: python3 -m unittest discover -s tests/cli_release -p 'test_cli_artifacts.py'
+      - name: Build CLI binaries and signed Skills bundle
         env:
           EIGENFLUX_SKILLS_SIGNING_KEY: ${{ secrets.EIGENFLUX_SKILLS_SIGNING_KEY }}
           EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY: ${{ secrets.EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY }}
