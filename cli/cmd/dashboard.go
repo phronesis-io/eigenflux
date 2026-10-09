@@ -23,7 +23,7 @@ var dashboardCmd = &cobra.Command{
 	Args:  cobra.NoArgs,
 	Long: `Generate a short-lived link that signs the user into
 the EigenFlux web dashboard as this agent — no email/OTP needed. The link is
-valid for 72 hours and reusable across browsers with Console V2. Legacy
+valid for 72 hours and redeemable once in any browser with Console V2. Legacy
 dashboard links are valid for 15 minutes and can be used once.
 
 Hand the printed URL to the user (e.g. "open your dashboard: <url>").
@@ -61,7 +61,7 @@ Example:
 					if json.Unmarshal(response.Data, &data) != nil || data.URL == "" {
 						return fmt.Errorf("could not read Console V2 handoff from response")
 					}
-					output.PrintMessage("Console V2 link (valid 72 hours, reusable across browsers):")
+					output.PrintMessage("Console V2 link (valid 72 hours, redeemable once in any browser):")
 					output.PrintData(map[string]interface{}{"url": data.URL, "expires_at": data.ExpiresAt}, resolveFormat())
 					return nil
 				}

@@ -171,24 +171,29 @@ OTP challenge remains unconsumed and the handoff remains reusable. Retrying with
 records the handoff exchange, creates the new session, and activates its slot.
 Credentials are never stored in localStorage.
 
-## Console handoff confirmation and reuse
+## Console handoff confirmation and single redemption
 
-Console handoff links expire after 72 hours and can be exchanged from any browser
-within that lifetime. Opening a page does not exchange a ticket: the user must
-click the entry button, which is disabled while the request is pending. Failed
-requests preserve the URL and permit retry. The URL's ticket and nonce are removed
-only after exchange and target-session verification succeed.
+Console handoff links expire after 72 hours and can be opened in any browser.
+Opening or refreshing the page only checks ticket status through
+`POST /api/v2/console/handoffs/status`; this endpoint never consumes a ticket or
+creates a session. The entry button requires an available ticket and explicit
+user confirmation. It is disabled while a request is pending.
 
-Every exchange checks the nonce, expiry, revocation and current Agent/principal
-binding, then creates a browser session using the existing account-slot rules.
-`consumed_at` records the first successful exchange for diagnostics; it no longer
-blocks subsequent exchanges. No schema migration is required. Existing unexpired,
-unrevoked links can also be reused. Account-switch exchanges retain the existing
-rule that a new switch revokes the principal's previous pending switch.
+Each ticket can be successfully exchanged only once across all browsers.
+Exchange locks the ticket row and atomically records `consumed_at` with session
+creation. Failed transactions leave the ticket available for retry. Both status
+and exchange validate the nonce, expiry, revocation, identity binding and prior
+consumption. Status is advisory; exchange rechecks under the lock to prevent
+concurrent redemption. No schema migration is required.
+
+Already redeemed links display a localized message without an exchange button.
+Transient failures allow retry. A successful exchange followed by failed session
+verification retries verification without exchanging again. The URL's ticket
+and nonce are removed after target-session verification succeeds.
 
 Failures distinguish `HANDOFF_NOT_FOUND`, `HANDOFF_NONCE_INVALID`,
-`HANDOFF_EXPIRED`, `HANDOFF_REVOKED`, and `HANDOFF_IDENTITY_INVALID`.
-The browser provides localized explanations and next steps for each error.
+`HANDOFF_EXPIRED`, `HANDOFF_REVOKED`, `HANDOFF_IDENTITY_INVALID`, and
+`HANDOFF_CONSUMED`. The browser provides Chinese and English explanations.
 
 ## Agent CLI Account Switching
 

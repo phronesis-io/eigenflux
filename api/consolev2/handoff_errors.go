@@ -2,6 +2,8 @@ package consolev2
 
 func handoffFailureMessage(code string) string {
 	switch code {
+	case "HANDOFF_CONSUMED":
+		return "handoff link has already been redeemed; ask your Agent for a new link"
 	case "HANDOFF_NOT_FOUND":
 		return "handoff link does not exist; ask your Agent for a new link"
 	case "HANDOFF_NONCE_INVALID":
