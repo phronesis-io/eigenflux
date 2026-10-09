@@ -60,11 +60,12 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 	if order.State != "in_progress" || order.Version != queued.OrderVersion {
 		return w.finishDispatch(job, "needs_user", "commission_fulfillment_order_changed", "", "")
 	}
-	// Cancellation interrupts local work if the identity or authoritative paid
-	// order changes. No host or order mutation is attempted by this worker.
+	// Cancellation interrupts local work if the identity or paid order changes.
+	// Stop this read-only guard before our own delivery changes the version.
 	guardDone := make(chan struct{})
-	go w.guardCommissionFulfillment(ctx, cancel, order, guardDone)
-	defer func() { cancel(); <-guardDone }()
+	guardCtx, guardCancel := context.WithCancel(ctx)
+	go w.guardCommissionFulfillment(guardCtx, cancel, order, guardDone)
+	defer func() { guardCancel(); <-guardDone }()
 	directory, err := os.MkdirTemp(w.binding.WorkDir, ".eigenflux-fulfillment-"+queued.OrderID+"-")
 	if err != nil {
 		return w.finishDispatch(job, "needs_user", "commission_output_directory_unavailable", "", "")
@@ -130,6 +131,11 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 		return w.finishDispatch(job, "failed", "commission_fulfillment_order_changed", result.SessionID, "")
 	}
 	saved := dispatch.CommissionFulfillmentResult{Decision: decision, OutputDirectory: directory, Artifacts: artifacts}
+	if decision.Outcome == "artifacts_ready" {
+		guardCancel()
+		<-guardDone
+		return w.deliverCommissionArtifacts(ctx, job, order, saved, result.SessionID)
+	}
 	return auth.WithV2CredentialsLockContext(ctx, w.server.Name, 35*time.Second, func() error {
 		if err := w.commissionIdentityOK(); err != nil {
 			if saveErr := w.finishDispatch(job, "failed", "identity_changed", result.SessionID, ""); saveErr != nil {
@@ -145,6 +151,7 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 }
 
 func (w *accountWatch) guardCommissionFulfillment(ctx context.Context, cancel context.CancelFunc, expected commissionIntakeOrder, done chan<- struct{}) {
+	ctx, stop := context.WithCancel(ctx)
 	// Network reads must never block the one-second local identity check.
 	identityDone := make(chan struct{})
 	go func() {
@@ -163,7 +170,7 @@ func (w *accountWatch) guardCommissionFulfillment(ctx context.Context, cancel co
 			}
 		}
 	}()
-	defer func() { cancel(); <-identityDone; close(done) }()
+	defer func() { stop(); <-identityDone; close(done) }()
 	orderTick := time.NewTicker(10 * time.Second)
 	defer orderTick.Stop()
 	for {

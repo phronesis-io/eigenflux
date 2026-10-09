@@ -47,7 +47,7 @@ func commissionInput(cmd *cobra.Command) (commissionapi.CommissionInput, error) 
 }
 
 func addCommissionInputFlags(command *cobra.Command) {
-	command.Flags().Bool("requires-materials", true, "require material files during creation; all orders are accepted automatically")
+	command.Flags().Bool("requires-materials", true, "require material files during creation; seller Agent inspection precedes acceptance")
 	command.Flags().String("title", "", "commission title")
 	command.Flags().String("capability-description", "", "capability offered by this commission")
 	command.Flags().String("request-spec-text", "", "human-readable buyer input specification")

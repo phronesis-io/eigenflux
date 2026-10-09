@@ -298,6 +298,28 @@ func TestCommissionFulfillmentResultPersistenceRetryAndReconciliation(t *testing
 	}
 }
 
+func TestCommissionDeliveryEvidenceSurvivesInterruptedSending(t *testing.T) {
+	j, job, result := preparedFulfillment(t)
+	if err := j.BeginCommissionDelivery(job.ID, result, "delivery-session"); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenJournal(j.binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, got := range reopened.Snapshot() {
+		if got.ID == job.ID && (got.Status != "unknown" || got.CommissionFulfillment == nil || got.Code != "interrupted_execution") {
+			t.Fatalf("lost uncertain evidence: %+v", got)
+		}
+	}
+	if _, err := OpenJournal(j.binding); err != nil {
+		t.Fatalf("recovered record cannot reopen: %v", err)
+	}
+	if err := reopened.Retry(job.ID); err == nil {
+		t.Fatal("uncertain delivery automatically retried")
+	}
+}
+
 func TestCommissionFulfillmentRejectsInvalidEvidenceAndPaths(t *testing.T) {
 	for name, change := range map[string]func(*CommissionFulfillmentResult){
 		"directory":         func(r *CommissionFulfillmentResult) { r.OutputDirectory = "relative" },

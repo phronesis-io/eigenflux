@@ -24,7 +24,7 @@ func TestCommissionNativeCodexLocalFulfillment(t *testing.T) {
 	}
 	order := paidCommissionTestOrder()
 	order.BuyerInput = "Write exactly two lines: alpha and beta, in that order, each followed by a newline."
-	server := commissionFulfillmentServer(t, func() commissionIntakeOrder { return order })
+	server := commissionFulfillmentServer(t, func() commissionIntakeOrder { return order }, true)
 	defer server.Close()
 	w := newCommissionWatch(t, server.URL, "commission_order")
 	installCommissionIntakeRules(t, w)

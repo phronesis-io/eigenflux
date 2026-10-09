@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -26,15 +27,52 @@ func paidCommissionTestOrder() commissionIntakeOrder {
 	return order
 }
 
-func commissionFulfillmentServer(t *testing.T, current func() commissionIntakeOrder) *httptest.Server {
+func commissionFulfillmentServer(t *testing.T, current func() commissionIntakeOrder, delivery ...bool) *httptest.Server {
 	t.Helper()
+	var delivered atomic.Bool
+	var uploadedDigest atomic.Value
 	return httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
+			if len(delivery) > 0 && delivery[0] {
+				if r.URL.Path != "/storage" && r.Header.Get(idempotencyHeader) == "" {
+					t.Error("missing stable mutation key")
+				}
+				switch r.URL.Path {
+				case "/api/v1/orders/901/uploads":
+					materialTestResponse(out, map[string]any{"grant": map[string]any{"object_id": 903, "url": "http://" + r.Host + "/storage", "method": "PUT"}})
+				case "/storage":
+					if r.Header.Get("Authorization") != "" {
+						t.Error("credentials leaked to object storage")
+					}
+					data, _ := io.ReadAll(r.Body)
+					digest := sha256.Sum256(data)
+					uploadedDigest.Store(hex.EncodeToString(digest[:]))
+					out.WriteHeader(http.StatusOK)
+				case "/api/v1/orders/901/uploads/confirm":
+					materialTestResponse(out, map[string]any{})
+				case "/api/v1/orders/901/deliver":
+					var body struct {
+						Version int64          `json:"expected_version"`
+						Files   []materialFile `json:"output_files"`
+					}
+					if json.NewDecoder(r.Body).Decode(&body) != nil || body.Version != 3 || len(body.Files) != 1 || body.Files[0].LogicalPath != "outputs/report.txt" || body.Files[0].SHA256 != uploadedDigest.Load() {
+						t.Error("invalid delivery manifest")
+					}
+					delivered.Store(true)
+					materialTestResponse(out, map[string]any{})
+				default:
+					t.Errorf("unexpected mutation %s", r.URL.Path)
+				}
+				return
+			}
 			t.Error("fulfillment performed a mutation")
 			http.Error(out, "mutation", 400)
 			return
 		}
 		order := current()
+		if delivered.Load() {
+			order.State, order.Version = "awaiting_buyer_confirmation", order.Version+1
+		}
 		switch r.URL.Path {
 		case "/api/v1/orders/901":
 			materialTestResponse(out, map[string]any{"order": order})
@@ -81,7 +119,7 @@ func fulfillmentTestPayload(t *testing.T, request dispatch.Request) struct {
 
 func TestCommissionPaidIntakeRunsLocalFulfillmentAndRetainsEvidence(t *testing.T) {
 	order := paidCommissionTestOrder()
-	server := commissionFulfillmentServer(t, func() commissionIntakeOrder { return order })
+	server := commissionFulfillmentServer(t, func() commissionIntakeOrder { return order }, true)
 	defer server.Close()
 	w := newCommissionWatch(t, server.URL, "commission_order")
 	installCommissionIntakeRules(t, w)
@@ -154,8 +192,8 @@ func TestCommissionPaidIntakeRunsLocalFulfillmentAndRetainsEvidence(t *testing.T
 			got = job
 		}
 	}
-	if got.Status != "needs_user" || got.Code != "commission_fulfillment_artifacts_ready" || got.CommissionFulfillment == nil {
-		t.Fatalf("local work misreported as delivered: %+v", got)
+	if got.Status != "completed" || got.Code != "commission_delivery_confirmed" || got.CommissionFulfillment == nil {
+		t.Fatalf("delivery receipt missing: %+v", got)
 	}
 	result := got.CommissionFulfillment
 	if len(result.Artifacts) != 1 || result.OutputDirectory != got.CommissionDirectory {

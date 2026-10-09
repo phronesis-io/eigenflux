@@ -1,8 +1,9 @@
 # Background Seller Input Check
 
 Apply this contract to a seller input check created by `eigenflux watch --dispatch`.
-Inspect readiness only. Leave acceptance, payment, fulfillment, uploads, delivery,
-private messages, and user notification to their separately authorized flows.
+Inspect readiness and authorize seller acceptance with `ready`. The CLI accepts
+`awaiting_seller` Orders only after this result, then waits for confirmed payment.
+Leave all mutations and notifications to the CLI.
 
 ## Inspect
 
