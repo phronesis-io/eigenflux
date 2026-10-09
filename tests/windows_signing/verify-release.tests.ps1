@@ -34,17 +34,17 @@ try {
         param([string]$LiteralPath)
         $isArm = $LiteralPath.EndsWith('arm64.exe')
         [pscustomobject]@{
-            Status = $(if ($script:scenario -eq 'invalid' -and $isArm) { 'HashMismatch' } else { 'Valid' })
-            SignatureType = $(if ($script:scenario -eq 'catalog') { 'Catalog' } else { 'Authenticode' })
-            SignerCertificate = [pscustomobject]@{ Subject = $(if ($script:scenario -eq 'publisher') { 'CN=Other' } else { 'CN=Test publisher' }) }
-            TimeStamperCertificate = $(if ($script:scenario -eq 'timestamp') { $null } else { [pscustomobject]@{ Subject = 'CN=Timestamp' } })
+            Status = $(if ($scenario -eq 'invalid' -and $isArm) { 'HashMismatch' } else { 'Valid' })
+            SignatureType = $(if ($scenario -eq 'catalog') { 'Catalog' } else { 'Authenticode' })
+            SignerCertificate = [pscustomobject]@{ Subject = $(if ($scenario -eq 'publisher') { 'CN=Other' } else { 'CN=Test publisher' }) }
+            TimeStamperCertificate = $(if ($scenario -eq 'timestamp') { $null } else { [pscustomobject]@{ Subject = 'CN=Timestamp' } })
         }
     }
-    foreach ($script:scenario in @('invalid', 'catalog', 'publisher', 'timestamp', 'valid')) {
+    foreach ($scenario in @('invalid', 'catalog', 'publisher', 'timestamp', 'valid')) {
         $failed = $false
-        try { & $verifier -BuildDirectory $testDir -ExpectedSubject 'CN=Test publisher' } catch { $failed = $true }
-        if ($failed -ne ($script:scenario -ne 'valid')) { throw "Unexpected result: $script:scenario" }
-        if ($script:scenario -ne 'valid' -and @(Get-ChildItem $testDir -Filter '*.sha256').Count -ne 0) {
+        try { & $verifier -BuildDirectory $testDir -ExpectedSubject 'CN=Test publisher' } catch { $failed = $true; Write-Host $_ }
+        if ($failed -ne ($scenario -ne 'valid')) { throw "Unexpected result: $scenario" }
+        if ($scenario -ne 'valid' -and @(Get-ChildItem $testDir -Filter '*.sha256').Count -ne 0) {
             throw 'A failed verification emitted checksums'
         }
     }
