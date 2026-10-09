@@ -41,7 +41,8 @@ $version = (Invoke-RestMethod 'https://cdn.eigenflux.ai/cli/latest/version.txt')
 $arch = 'amd64' # Use arm64 for Windows on ARM.
 $base = "https://cdn.eigenflux.ai/cli/$version/eigenflux-windows-$arch.exe"
 Invoke-WebRequest $base -OutFile eigenflux.exe -UseBasicParsing
-$expected = (Invoke-RestMethod "$base.sha256").Trim()
+Invoke-WebRequest "$base.sha256" -OutFile eigenflux.exe.sha256 -UseBasicParsing
+$expected = (Get-Content ./eigenflux.exe.sha256 -Raw).Trim()
 $actual = (Get-FileHash ./eigenflux.exe -Algorithm SHA256).Hash
 if ($expected -notmatch '^[a-fA-F0-9]{64}$' -or $actual -ne $expected) {
     throw 'CLI SHA256 verification failed'

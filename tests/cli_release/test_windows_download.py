@@ -82,10 +82,22 @@ if ($LASTEXITCODE -ne 0) { throw 'Downloaded CLI did not execute successfully' }
                            INSTALLER_SOURCE=str(ROOT / 'static/install.ps1'),
                            TEST_URL=url, TEST_DESTINATION=str(destination),
                            TEST_CHECKSUM='' if case == 'without_checksum' else url + '/eigenflux.exe.sha256')
+                # pwsh -> Python -> powershell otherwise inherits PS7 modules,
+                # which can shadow the incompatible PS5.1 system modules.
+                # Let each shell construct its own default module search path.
+                env = {key: value for key, value in env.items() if key.upper() != 'PSMODULEPATH'}
                 result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-File', str(harness)],
                                         env=env, capture_output=True, text=True, timeout=45)
                 success = case in ('valid', 'fresh', 'uppercase', 'retry', 'without_checksum')
                 self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
+                if not success:
+                    expected_error = {
+                        'missing': '404', 'checksum_server_error': '503',
+                        'malformed': 'Invalid SHA256 checksum',
+                        'mismatch': 'SHA256 mismatch',
+                        'exhausted': 'Download failed after 2 attempts',
+                    }[case]
+                    self.assertIn(expected_error, result.stdout + result.stderr)
                 self.assertEqual(destination.read_bytes(), payload if success else b'previous installation')
                 self.assertEqual(list(directory.glob('eigenflux-dl-*')), [])
                 self.assertEqual(requests.count('/eigenflux.exe'), 2 if case in ('retry', 'exhausted') else 1)
