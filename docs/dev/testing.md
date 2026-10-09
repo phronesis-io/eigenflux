@@ -189,7 +189,8 @@ PATH. The suite parses the production installer's download helper, downloads
 and executes the real CLI from a loopback server, and checks missing/malformed/
 mismatched checksums, HTTP errors, retry exhaustion and temporary-file cleanup.
 Failed verification must preserve the previously installed bytes. The existing
-CLI Auth Cross-Platform workflow runs these tests after its Windows build.
+CLI Auth Cross-Platform workflow runs these tests in an independent Windows
+download job, separate from the identity tests.
 Non-Windows hosts skip this suite. This is download integration coverage, not
 full host onboarding or Smart App Control acceptance; see [CLI release
 integrity](cli-release.md).
