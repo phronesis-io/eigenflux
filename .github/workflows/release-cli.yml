@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release-cli:
+  build:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
@@ -22,7 +22,7 @@ jobs:
           cache-dependency-path: cli/go.sum
       - name: Provide GNU tar
         run: sudo ln -sf "$(command -v tar)" /usr/local/bin/gtar
-      - name: Build signed release artifacts
+      - name: Build CLI binaries and signed Skills bundle
         env:
           EIGENFLUX_SKILLS_SIGNING_KEY: ${{ secrets.EIGENFLUX_SKILLS_SIGNING_KEY }}
           EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY: ${{ secrets.EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY }}
@@ -32,6 +32,79 @@ jobs:
           chmod 600 "$signing_key_file"
           export EIGENFLUX_SKILLS_SIGNING_KEY_FILE="$signing_key_file"
           bash cli/scripts/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-cli
+          path: build/cli/
+          if-no-files-found: error
+          retention-days: 1
+
+  sign-windows:
+    needs: build
+    runs-on: windows-latest
+    environment: windows-signing
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      SIGNING_ENDPOINT: ${{ vars.WINDOWS_SIGNING_ENDPOINT }}
+      SIGNING_ACCOUNT: ${{ vars.WINDOWS_SIGNING_ACCOUNT }}
+      SIGNING_PROFILE: ${{ vars.WINDOWS_SIGNING_PROFILE }}
+      SIGNING_SUBJECT: ${{ vars.WINDOWS_SIGNING_SUBJECT }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require production signing configuration
+        shell: pwsh
+        run: |
+          foreach ($name in @('AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID', 'SIGNING_ENDPOINT', 'SIGNING_ACCOUNT', 'SIGNING_PROFILE', 'SIGNING_SUBJECT')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Missing windows-signing environment variable: $name"
+            }
+          }
+      - uses: actions/download-artifact@v4
+        with:
+          name: unsigned-cli
+          path: build/cli/
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+      - name: Authenticode sign both Windows binaries
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2
+        with:
+          endpoint: ${{ env.SIGNING_ENDPOINT }}
+          signing-account-name: ${{ env.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ env.SIGNING_PROFILE }}
+          files: |
+            ${{ github.workspace }}\build\cli\eigenflux-windows-amd64.exe
+            ${{ github.workspace }}\build\cli\eigenflux-windows-arm64.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          cache-dependencies: false
+      - name: Verify signatures and checksum final bytes
+        shell: pwsh
+        run: ./cli/scripts/verify-windows-release.ps1 -BuildDirectory build/cli -ExpectedSubject $env:SIGNING_SUBJECT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-cli
+          path: build/cli/
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: sign-windows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: signed-cli
+          path: build/cli/
       - name: Publish CLI binaries
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}

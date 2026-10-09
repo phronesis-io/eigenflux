@@ -166,3 +166,9 @@ exercise the real embedding HTTP client, worker, generation-specific job leases
 and Redis cache. `tests/discoverye2e` additionally verifies cold/warm vector use
 through real API/Feed/Sort processes. Unit tests under
 `rpc/sort/discovery/needembedding` verify cache identity and invalid vectors.
+
+## Windows release signatures
+
+The Windows signing verification workflow runs real signed/unsigned/tampered
+binary checks and policy failure tests. See [Windows CLI signing](windows-signing.md)
+for configuration, the local test command and production SAC acceptance criteria.
