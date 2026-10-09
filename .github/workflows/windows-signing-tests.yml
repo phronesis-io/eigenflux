@@ -1,0 +1,25 @@
+name: Windows signing verification
+on:
+  pull_request:
+    paths:
+      - 'cli/scripts/verify-windows-release.ps1'
+      - 'tests/windows_signing/**'
+      - '.github/workflows/release-cli.yml'
+      - '.github/workflows/windows-signing-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'cli/scripts/verify-windows-release.ps1'
+      - 'tests/windows_signing/**'
+      - '.github/workflows/release-cli.yml'
+      - '.github/workflows/windows-signing-tests.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test signature verification and post-signing checksums
+        shell: pwsh
+        run: ./tests/windows_signing/verify-release.tests.ps1
