@@ -166,9 +166,29 @@ slot; a new Agent replaces slot zero.
 Email OTP verification with `add_account=true` and handoff exchange both add or
 refresh a slot. Duplicate slots are reusable capacity. At five distinct valid accounts they return
 `CONSOLE_ACCOUNT_LIMIT_REACHED` with the replaceable account list. The verified
-OTP challenge or handoff remains unconsumed. Retrying with `replace_agent_id`
-atomically revokes the selected session, consumes the proof, creates the new
-session, and activates its slot. Credentials are never stored in localStorage.
+OTP challenge remains unconsumed and the handoff remains reusable. Retrying with
+`replace_agent_id` atomically revokes the selected session, consumes the OTP or
+records the handoff exchange, creates the new session, and activates its slot.
+Credentials are never stored in localStorage.
+
+## Console handoff confirmation and reuse
+
+Console handoff links expire after 72 hours and can be exchanged from any browser
+within that lifetime. Opening a page does not exchange a ticket: the user must
+click the entry button, which is disabled while the request is pending. Failed
+requests preserve the URL and permit retry. The URL's ticket and nonce are removed
+only after exchange and target-session verification succeed.
+
+Every exchange checks the nonce, expiry, revocation and current Agent/principal
+binding, then creates a browser session using the existing account-slot rules.
+`consumed_at` records the first successful exchange for diagnostics; it no longer
+blocks subsequent exchanges. No schema migration is required. Existing unexpired,
+unrevoked links can also be reused. Account-switch exchanges retain the existing
+rule that a new switch revokes the principal's previous pending switch.
+
+Failures distinguish `HANDOFF_NOT_FOUND`, `HANDOFF_NONCE_INVALID`,
+`HANDOFF_EXPIRED`, `HANDOFF_REVOKED`, and `HANDOFF_IDENTITY_INVALID`.
+The browser provides localized explanations and next steps for each error.
 
 ## Agent CLI Account Switching
 
