@@ -10,7 +10,7 @@ import (
 
 func TestConsoleSnapshotFileRouteIsRegistered(t *testing.T) {
 	h := server.New()
-	registerConsoleV2BusinessBFF(h, &consolev2.Service{}, &config.Config{})
+	registerConsoleV2BusinessBFF(h, &consolev2.Service{}, &config.Config{}, nil)
 	for _, route := range h.Routes() {
 		if route.Method == "GET" && route.Path == "/api/v2/console/bff/trade/orders/:order_id/snapshots/:snapshot_id/file" {
 			return

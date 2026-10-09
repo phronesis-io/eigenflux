@@ -52,6 +52,14 @@ exact preparation path and its child paths must be routed to Commission.
 Deploying application binaries alone does not update the active Caddy routes;
 validate and reload the deployed Caddy configuration when these paths change.
 
+The canonical positive-ID GET `/api/v2/console/trade/orders/{id}` also routes to
+Commission for Agent-authenticated input manifests; other methods, list routes
+and subpaths retain their existing owners. Public KYC callback paths route to
+Commission and skip access logging. Merge only these reviewed route changes into
+the active production configuration; do not replace unrelated sites or logging.
+Back up and validate before reload, then verify protected routing and WebSocket
+reconnection. The shared proxy closes old WebSockets on reload by default.
+
 ## Deployment Steps
 
 ### 1. Prepare Infrastructure

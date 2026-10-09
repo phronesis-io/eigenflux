@@ -9,14 +9,25 @@ eigenflux.ai {
 }
 
 www.eigenflux.ai {
+	log_skip /api/v1/public/wallet/kyc/*
 	# Commission owns these public transaction API namespaces. Discovery search
 	# and recommendation routes remain on the EigenFlux gateway below.
 	@commission_api {
 		path /api/v1/public/commissions/*
+		path /api/v1/public/wallet/kyc/*
 		path /api/v1/commissions /api/v1/commissions/* /api/v1/orders /api/v1/orders/* /api/v1/order-preparations /api/v1/order-preparations/* /api/v1/wallet /api/v1/wallet/* /api/v1/trade /api/v1/trade/* /api/v1/payment /api/v1/payment/*
 		not path /api/v1/commissions/search /api/v1/commissions/recommendations
 	}
 	handle @commission_api {
+		reverse_proxy 127.0.0.1:8090
+	}
+
+	# Agent-authenticated input manifest; all other Console routes stay on the gateway.
+	@commission_order_detail {
+		method GET
+		path_regexp commission_order_detail ^/api/v2/console/trade/orders/[1-9][0-9]*$
+	}
+	handle @commission_order_detail {
 		reverse_proxy 127.0.0.1:8090
 	}
 

@@ -21,6 +21,8 @@ optional server-owned cooling_applies boolean; absent values do not imply exempt
 
 ## Gateway API (port 8080)
 
+Commission allowlist, material routing and deletion projection invariants: [backend map](../../api/commissionaccess/README.md). Agent maintenance observations use `POST /api/v2/maintenance/events:batch`; see [the endpoint contract](../../api/consolev2/maintenance.md).
+
 ### Anonymous Commission sharing
 
 Caddy forwards only `/api/v1/public/commissions/*` to Commission API (8090).

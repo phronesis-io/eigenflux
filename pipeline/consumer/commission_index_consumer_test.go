@@ -117,3 +117,25 @@ func TestCommissionStatisticsProjectionRetries(t *testing.T) {
 		})
 	}
 }
+
+func TestCommissionDeletionAndDelayedEventsKeepTombstone(t *testing.T) {
+	for _, topic := range []string{featureindex.CommissionDeletedTopic, commissionPublishedTopic, commissionStatsTopic} {
+		t.Run(topic, func(t *testing.T) {
+			catalogue := featureindex.CommissionCatalogueSnapshot{CommissionID: 4, Status: "offline", CatalogueVersion: 9}
+			statistics := featureindex.CommissionStatisticsSnapshot{CommissionID: 4, StatisticsVersion: 3}
+			store := &commissionTestStore{}
+			if topic == commissionStatsTopic {
+				store.document = featureindex.CommissionTombstone(catalogue, statistics)
+			}
+			c := &CommissionIndexConsumer{source: commissionTestSource{catalogue: catalogue, statistics: statistics, forbidCatalogue: topic == commissionStatsTopic}, store: store, embedder: commissionTestEmbedder{}}
+			aggregate, _ := featureindex.CommissionAggregateType(topic)
+			result := c.Handle(context.Background(), "9-0", map[string]any{"event_id": "9", "schema_version": "1", "topic": topic, "aggregate_type": aggregate, "aggregate_id": "4", "aggregate_version": "3", "occurred_at": "9", "payload_json": "{}"})
+			if result != HandleSuccess || store.document.Active || store.document.CatalogueVersion != 9 {
+				t.Fatalf("deleted commission reappeared: %#v result=%v", store.document, result)
+			}
+			if topic == commissionStatsTopic && store.statistics.StatisticsVersion != 3 {
+				t.Fatalf("statistics were not updated independently: %#v", store.statistics)
+			}
+		})
+	}
+}
