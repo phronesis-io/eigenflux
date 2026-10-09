@@ -66,7 +66,11 @@ function Download-WithRetry {
         if ($Sha256Url) {
             # A missing checksum is a failed release, not permission to install
             # unverified bytes. Use text explicitly on both PowerShell 5.1 and 7.
-            $response = Invoke-WebRequest -Uri $Sha256Url -UseBasicParsing -TimeoutSec 30
+            try {
+                $response = Invoke-WebRequest -Uri $Sha256Url -UseBasicParsing -TimeoutSec 30
+            } catch {
+                throw "Failed to fetch SHA256 checksum from ${Sha256Url}: $($_.Exception.Message)"
+            }
             $checksum = $response.Content
             if ($checksum -is [byte[]]) { $checksum = [System.Text.Encoding]::UTF8.GetString($checksum) }
             $expectedHash = ([string]$checksum).Trim()
