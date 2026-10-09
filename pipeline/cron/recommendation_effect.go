@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"eigenflux_server/pkg/db"
@@ -51,6 +52,22 @@ func refreshRecommendationEffect(ctx context.Context) error {
 		}
 		if err := recommendationmetrics.RefreshDay(ctx, conn, day, cutoff); err != nil {
 			logger.Default().Warn("recommendation observation day failed", "day", day, "err", err)
+			if firstError == nil {
+				firstError = err
+			}
+		}
+	}
+
+	historyDays, historyErr := recommendationmetrics.HistoryPendingDays(ctx, conn, cutoff)
+	if historyErr != nil {
+		return fmt.Errorf("select feedback history days: %w", historyErr)
+	}
+	for _, day := range historyDays {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err := recommendationmetrics.RefreshHistoryDay(ctx, conn, day, cutoff); err != nil {
+			logger.Default().Warn("feedback history day failed", "day", day, "err", err)
 			if firstError == nil {
 				firstError = err
 			}

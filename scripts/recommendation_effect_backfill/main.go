@@ -17,6 +17,7 @@ import (
 )
 
 func main() {
+	history := flag.Bool("history", false, "refresh all-score history instead of strict recommendation attribution")
 	daysFlag := flag.String("days", "", "comma-separated Shanghai days, e.g. 2026-09-01,2026-09-02")
 	flag.Parse()
 	var days []string
@@ -37,7 +38,11 @@ func main() {
 	failed := false
 	for _, day := range days {
 		started := time.Now()
-		if err := recommendationmetrics.RefreshDay(context.Background(), conn, day, time.Now()); err != nil {
+		refresh := recommendationmetrics.RefreshDay
+		if *history {
+			refresh = recommendationmetrics.RefreshHistoryDay
+		}
+		if err := refresh(context.Background(), conn, day, time.Now()); err != nil {
 			log.Printf("day %s failed: %v", day, err)
 			failed = true
 			continue
