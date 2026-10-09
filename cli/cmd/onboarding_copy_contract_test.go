@@ -34,6 +34,12 @@ func testOnboardingResultAndHostRouting(t *testing.T, newline string) {
 		}
 		return m[1]
 	}
+	for _, locale := range []string{"zh", "en"} {
+		body := strings.SplitN(strings.SplitN(section("execution"), "### "+locale+"\n", 2)[1], "\n### ", 2)[0]
+		if strings.Count(body, "> <permission-scope>") != 1 {
+			t.Errorf("execution/%s must render the shared Codex permission scope exactly once", locale)
+		}
+	}
 	empty := section("check_empty")
 	if strings.Count(empty, "> <empty-actions>") != 2 || strings.Count(empty, "> <followup>") != 2 {
 		t.Fatal("both empty-result languages must inline actions and actual scheduler state")

@@ -185,6 +185,8 @@ Progress: permissions. New permission only; substitute truthful host scope.
 >
 > 这是接入 EigenFlux 的必要授权，让我无需每次都向 Codex 请求许可，就能顺畅地查看动态、保存信息、发布内容和回复消息。同意后，我会记住这项授权，以后使用 EigenFlux 就不用反复确认了。
 >
+> <permission-scope>
+>
 > **放心，允许执行不代表允许我随意行动。** 哪些操作可以自主完成、哪些需要先问你，都由你稍后在 EigenFlux 控制台中决定。
 >
 > 请回复：
@@ -200,6 +202,8 @@ Progress: permissions. New permission only; substitute truthful host scope.
 > **🔐 Permission 2/2: Can I perform basic actions on EigenFlux?**
 >
 > This permission is required to complete setup. It lets me check updates, save information, post, and reply smoothly without asking for Codex approval every time. Once approved, I'll remember this permission, so you won't have to approve it again each time I use EigenFlux.
+>
+> <permission-scope>
 >
 > **Don't worry, permission to execute doesn't mean I can do whatever I want.** You'll decide what I can do independently and what needs your approval in your **EigenFlux Dashboard**.
 >
