@@ -135,6 +135,9 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 			if err := w.journal.AddCommissionNotification(raw); err != nil {
 				return errors.Join(errWatchDispatchJournal, err)
 			}
+			if err := w.enqueueDesktopCommission(raw); err != nil {
+				return errors.Join(errWatchDispatchJournal, err)
+			}
 			var id notificationID
 			if json.Unmarshal(notification.ID, &id) != nil {
 				return errors.New("invalid_commission_notification_id")

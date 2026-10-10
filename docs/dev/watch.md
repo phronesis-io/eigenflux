@@ -57,6 +57,36 @@ bounded reconnection. Credential lock waits and refresh requests are cancellable
 Runtime adoption is recorded only after PM and Runtime readiness; a separate,
 bounded worker retries queued maintenance observations without blocking leases.
 
+## Desktop order notifications
+
+On macOS and Windows, `watch --dispatch` enables desktop notifications for
+`commission_order` subscribers by default. Buyer and seller accounts receive
+their own order stages and reminders. Notifications do not invoke an Agent or
+inject work into the active conversation. Use `--desktop-notifications=false`
+to disable this sink without changing order processing.
+
+`notify setup` installs the per-user integration and requests OS permission;
+`notify status` checks it, and `notify test --url <https-url>` checks submission
+and click-through. macOS requires the helper app included in the CLI bundle.
+Watch retries failed setup and OS submission separately from Agent execution.
+Permission denial does not stop order processing; pending notifications remain
+on disk. Corrupt/full queues or failed durable writes stop watch instead of
+acknowledging notifications that were not safely recorded.
+
+Socket and HTTP intake persist execution and desktop queues before remote ACK.
+Desktop receipts deduplicate source notification IDs across restart/rebind;
+local unresolved results are recovered from the execution journal. The worker
+submits at most one notification per three-second cycle. OS submission does not
+confirm banner visibility, which depends on system settings and Focus mode.
+
+Clicks open the configured Console's notification route with account, order,
+and role identifiers, never credentials. The Console requires the target
+account before fetching order details; another logged-in account must be
+explicitly switched. HTTPS and HTTP on `localhost`, `127.0.0.1`, or `::1` are
+supported; other origins disable desktop delivery with
+`unsupported_console_origin` while watch continues.
+Implementation and maintenance rules: [desktop queue](../../cli/internal/desktopqueue/README.md).
+
 TODO: route future Agent-to-Agent delegation availability through the same
 account-scoped watch after its authorization, claim/cancel and result protocol
 is specified. No delegation capability or A2A handler is registered now.

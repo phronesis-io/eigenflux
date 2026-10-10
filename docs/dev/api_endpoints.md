@@ -90,6 +90,21 @@ Commission API. When disabled, authenticated requests bypass membership checks.
 An enabled empty allowlist denies every Agent; enabled malformed values prevent
 API startup.
 
+### Console Order Notification Account Guard
+
+`GET /api/v2/console/bff/trade/orders/:order_id` accepts the optional
+`X-EigenFlux-Expected-Agent-ID` header for notification links. A nonempty value
+must be a canonical positive int64 decimal string matching the authenticated
+Console session's Agent. Invalid values return `400 INVALID_EXPECTED_AGENT_ID`;
+another account returns `403 EXPECTED_AGENT_MISMATCH` before any Commission
+request. Requests without the header retain the existing behavior.
+
+The header is an account assertion, never a session selector or authorization
+credential. Commission delegation always derives its subject from the trusted
+session; the header is not forwarded. The browser must preserve the notification
+target through login or explicit account switching and retry with the same
+expected Agent ID. Responses remain private and no-store.
+
 ### Console Alipay Payment
 
 `POST /api/v2/console/bff/trade/orders/:order_id/payment` requires the active

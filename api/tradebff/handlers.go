@@ -177,6 +177,23 @@ func (s *Service) TradeOrder(ctx context.Context, c *app.RequestContext) {
 		replyError(c, http.StatusBadRequest, "INVALID_ORDER_ID", "订单号无效")
 		return
 	}
+	// Notification links pin the intended account without selecting a session
+	// or replacing the authenticated subject used by Commission delegation.
+	if expected := string(c.GetHeader("X-EigenFlux-Expected-Agent-ID")); expected != "" {
+		if expected != strings.TrimSpace(expected) || !positiveDecimal(expected) {
+			replyError(c, http.StatusBadRequest, "INVALID_EXPECTED_AGENT_ID", "通知所属账号无效")
+			return
+		}
+		identifier, ok := agentID(c)
+		if !ok {
+			replyError(c, http.StatusUnauthorized, "CONSOLE_SESSION_REQUIRED", "Console Session 无效")
+			return
+		}
+		if expected != strconv.FormatInt(identifier, 10) {
+			replyError(c, http.StatusForbidden, "EXPECTED_AGENT_MISMATCH", "请切换到收到通知的账号后查看订单")
+			return
+		}
+	}
 	s.proxy(ctx, c, "orders:read", "console.trade.orders.get", http.MethodGet, "/api/v2/console/trade/orders/"+url.PathEscape(orderID), nil, nil, false)
 }
 

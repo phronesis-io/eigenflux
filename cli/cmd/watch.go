@@ -24,6 +24,7 @@ import (
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/controlcontext"
+	"cli.eigenflux.ai/internal/desktopqueue"
 	"cli.eigenflux.ai/internal/dispatch"
 	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/profilestate"
@@ -50,18 +51,21 @@ type watchEvent struct {
 }
 
 type accountWatch struct {
-	home, scope   string
-	server        config.Server
-	identity      auth.V2Credentials
-	emit          func(string, interface{}) error
-	wsOnline      atomic.Bool
-	runtimeOnline atomic.Bool
-	ready         atomic.Bool
-	adopted       atomic.Bool
-	wake          chan struct{}
-	binding       *dispatch.Binding
-	journal       *dispatch.Journal
-	runAgent      func(context.Context, dispatch.Request) (dispatch.Result, error)
+	home, scope           string
+	server                config.Server
+	identity              auth.V2Credentials
+	emit                  func(string, interface{}) error
+	wsOnline              atomic.Bool
+	runtimeOnline         atomic.Bool
+	ready                 atomic.Bool
+	adopted               atomic.Bool
+	wake                  chan struct{}
+	binding               *dispatch.Binding
+	journal               *dispatch.Journal
+	runAgent              func(context.Context, dispatch.Request) (dispatch.Result, error)
+	desktop               *desktopqueue.Queue
+	desktopProvider       desktopProvider
+	desktopDisabledReason string
 }
 
 var watchCmd = &cobra.Command{
@@ -101,11 +105,19 @@ var watchCmd = &cobra.Command{
 				return err
 			}
 		}
+		if enabled, _ := cmd.Flags().GetBool("desktop-notifications"); enabled {
+			if err := w.enableDesktop(); err != nil {
+				return err
+			}
+		}
 		return w.run(ctx, cmd.OutOrStdout())
 	},
 }
 
-func init() { rootCmd.AddCommand(watchCmd) }
+func init() {
+	watchCmd.Flags().Bool("desktop-notifications", nativeDesktopSupported(), "show account-scoped desktop notifications for subscribed Commission orders")
+	rootCmd.AddCommand(watchCmd)
+}
 
 func (w *accountWatch) run(parent context.Context, out io.Writer) error {
 	ctx, cancel := context.WithCancel(parent)
@@ -172,7 +184,7 @@ func (w *accountWatch) run(parent context.Context, out io.Writer) error {
 		return err
 	}
 	var workers sync.WaitGroup
-	runners := []func(context.Context) error{w.pmLoop, w.controlLoop, w.runtimeLoop, w.checkLoop, w.maintenanceLoop, w.pmFallbackLoop, w.commissionFallbackLoop}
+	runners := []func(context.Context) error{w.pmLoop, w.controlLoop, w.runtimeLoop, w.checkLoop, w.maintenanceLoop, w.pmFallbackLoop, w.commissionFallbackLoop, w.desktopLoop}
 	if w.journal != nil {
 		runners = append(runners, w.dispatchLoop, w.commissionDispatchLoop, w.commissionFulfillmentLoop)
 	}

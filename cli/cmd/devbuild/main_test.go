@@ -1,10 +1,12 @@
 package main
 
 import (
+	"archive/zip"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,6 +18,57 @@ import (
 
 	"cli.eigenflux.ai/internal/skills"
 )
+
+func TestZipDirectoryPreservesExecutableModes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX executable modes are produced by the macOS bundle builder")
+	}
+	directory := t.TempDir()
+	modes := map[string]os.FileMode{
+		"eigenflux": 0755,
+		"EigenFlux Notifications.app/Contents/MacOS/EigenFluxNotifications": 0755,
+		"EigenFlux Notifications.app/Contents/Info.plist":                   0644,
+	}
+	for name, mode := range modes {
+		path := filepath.Join(directory, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(name), mode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	archive := filepath.Join(t.TempDir(), "test-bundle.zip")
+	if err := zipDirectory(directory, archive); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := zip.OpenReader(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	if len(reader.File) != len(modes) {
+		t.Fatalf("unexpected ZIP entries: %d", len(reader.File))
+	}
+	for _, file := range reader.File {
+		want, exists := modes[file.Name]
+		if !exists || !file.Mode().IsRegular() || file.Mode().Perm() != want {
+			t.Fatalf("ZIP entry %q has mode %v; want %v", file.Name, file.Mode(), want)
+		}
+		stream, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		content, err := io.ReadAll(stream)
+		stream.Close()
+		if err != nil || string(content) != file.Name {
+			t.Fatalf("ZIP entry %q lost content: %v", file.Name, err)
+		}
+	}
+}
 
 func TestPublicKeyRequired(t *testing.T) {
 	for _, value := range []string{"", "garbage", base64.StdEncoding.EncodeToString([]byte("short"))} {

@@ -121,6 +121,13 @@ func run() error {
 	if err := build(root, *target, binary, ".", ldflags); err != nil {
 		return err
 	}
+	if parts[0] == "darwin" {
+		command := exec.Command("bash", filepath.Join(root, "cli", "scripts", "build-notifier-macos.sh"), *out, parts[1])
+		command.Stdout, command.Stderr = os.Stdout, os.Stderr
+		if err := command.Run(); err != nil {
+			return fmt.Errorf("build macOS notification helper: %w", err)
+		}
+	}
 	if *testBundle {
 		if err := packageSkills(root, *out, version, minimum, private); err != nil {
 			return err
@@ -324,7 +331,17 @@ func zipDirectory(dir, path string) error {
 		if err != nil {
 			return err
 		}
-		w, err := z.Create(filepath.ToSlash(rel))
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+		header.Name = filepath.ToSlash(rel)
+		header.Method = zip.Deflate
+		w, err := z.CreateHeader(header)
 		if err != nil {
 			return err
 		}
