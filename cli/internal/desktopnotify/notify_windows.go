@@ -18,6 +18,9 @@ import (
 //go:embed windows.ps1
 var windowsScript string
 
+//go:embed macos/Icon.png
+var windowsIconPNG []byte
+
 func platformRequest(ctx context.Context, action string, message Message) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -29,12 +32,17 @@ func platformRequest(ctx context.Context, action string, message Message) error 
 	if err != nil {
 		return err
 	}
+	var iconPNG []byte
+	if action == "enable" {
+		iconPNG = windowsIconPNG
+	}
 	input, err := json.Marshal(struct {
 		Action     string `json:"action"`
 		Executable string `json:"executable"`
 		XML        string `json:"xml"`
 		Tag        string `json:"tag"`
-	}{action, executable, xml, tag})
+		IconPNG    []byte `json:"icon_png,omitempty"`
+	}{action, executable, xml, tag, iconPNG})
 	if err != nil {
 		return err
 	}

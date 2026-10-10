@@ -60,6 +60,14 @@ administrator access is required. Setup creates only the current user's
 `HKCU\Software\Classes\AppUserModelId\ai.eigenflux.notifications` registration.
 The shortcut contains EigenFlux's own AUMID and stub activator CLSID.
 
+Setup displays `EigenFlux`, writes the embedded brand PNG into
+`%LOCALAPPDATA%\EigenFlux\Notifications`, sets the notification registration's
+`IconUri` to the PNG. Content-hashed filenames
+and atomic creation keep concurrent accounts from reading partial assets or
+reusing an old cached icon. Keep the AUMID, activator, and shortcut path stable.
+Both platforms reuse `macos/Icon.png`. The Windows CLI embeds it, so it needs no
+adjacent resource or download. Verify the source icon and name on a new toast.
+
 WinRT `ToastGeneric` notifications use `activationType="protocol"`. Clicking
 opens the validated URL in the default browser even after the sender exits.
 No COM activation server or message-supplied command is executed. XML escaping

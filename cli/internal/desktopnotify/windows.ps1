@@ -9,6 +9,27 @@ try {
     $registration = 'HKCU:\Software\Classes\AppUserModelId\' + $appId
     $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'EigenFlux Notifications.lnk'
     if ($request.action -eq 'enable') {
+        # Versioned files avoid stale icon caches; atomic creation lets account
+        # loops share the same assets without exposing partially written files.
+        function Save-BrandIcon([string]$directory, [string]$encoded) {
+            $bytes = [Convert]::FromBase64String($encoded)
+            $hash = [Security.Cryptography.SHA256]::Create()
+            try { $digest = [BitConverter]::ToString($hash.ComputeHash($bytes)).Replace('-', '').ToLowerInvariant() }
+            finally { $hash.Dispose() }
+            $path = Join-Path $directory ($digest + '.png')
+            if (-not [IO.File]::Exists($path)) {
+                $temporary = $path + '.' + [Guid]::NewGuid().ToString('N')
+                try {
+                    [IO.File]::WriteAllBytes($temporary, $bytes)
+                    try { [IO.File]::Move($temporary, $path) }
+                    catch { if (-not [IO.File]::Exists($path)) { throw } }
+                } finally { if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) } }
+            }
+            return $path
+        }
+        $iconDirectory = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'EigenFlux\Notifications'
+        [IO.Directory]::CreateDirectory($iconDirectory) | Out-Null
+        $iconPNG = Save-BrandIcon $iconDirectory $request.icon_png
         # A Start shortcut carries the AUMID and stub CLSID. Protocol activation
         # opens the HTTPS target in the default browser without a COM server.
         Add-Type -TypeDefinition @'
@@ -62,7 +83,7 @@ namespace EigenFluxNotifications {
                 var link = (IShellLinkW)item;
                 link.SetPath(target);
                 link.SetArguments("version --short");
-                link.SetDescription("EigenFlux notifications");
+                link.SetDescription("EigenFlux");
                 var store = (IPropertyStore)item;
                 var key = new PropertyKey { format = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), id = 5 };
                 var value = new PropVariant { type = 31, value = Marshal.StringToCoTaskMemUni(appId) };
@@ -82,7 +103,8 @@ namespace EigenFluxNotifications {
 '@
         [EigenFluxNotifications.Registration]::Create($request.executable, $shortcut, $appId, $stubId)
         New-Item -Path $registration -Force | Out-Null
-        New-ItemProperty -Path $registration -Name DisplayName -Value 'EigenFlux Notifications' -PropertyType String -Force | Out-Null
+        New-ItemProperty -Path $registration -Name DisplayName -Value 'EigenFlux' -PropertyType String -Force | Out-Null
+        New-ItemProperty -Path $registration -Name IconUri -Value $iconPNG -PropertyType String -Force | Out-Null
         New-ItemProperty -Path $registration -Name CustomActivator -Value $stubId -PropertyType String -Force | Out-Null
     }
     if (-not (Test-Path -LiteralPath $shortcut) -or -not (Test-Path -LiteralPath $registration)) {
