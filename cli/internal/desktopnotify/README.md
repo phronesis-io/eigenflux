@@ -20,6 +20,12 @@ and remains available for notification-click callbacks. The click delegate
 validates the URL again and opens it using `NSWorkspace`, without a shell.
 The helper is a background accessory without a Dock icon.
 
+macOS displays the name `EigenFlux` and `Resources/EigenFlux.icns`. The build
+converts `macos/Icon.png`, copied from the website's `public/apple-touch-icon.png`,
+into the icon before signing. Keep the bundle ID and installation path stable
+when changing branding. System permission descriptions and buttons are owned by
+macOS; notification titles and bodies are supplied by the caller.
+
 Build on macOS with Xcode Command Line Tools:
 
 ```

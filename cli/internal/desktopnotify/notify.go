@@ -13,7 +13,7 @@ import (
 
 var (
 	ErrUnsupported   = errors.New("desktop notifications require macOS or Windows")
-	ErrPermission    = errors.New("enable EigenFlux Notifications in system notification settings")
+	ErrPermission    = errors.New("enable notifications for EigenFlux in system notification settings")
 	ErrHelperMissing = errors.New("macOS notification helper missing; install the complete CLI bundle")
 )
 

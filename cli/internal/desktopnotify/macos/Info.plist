@@ -2,12 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>CFBundleIdentifier</key><string>ai.eigenflux.notifications</string>
-  <key>CFBundleName</key><string>EigenFlux Notifications</string>
-  <key>CFBundleDisplayName</key><string>EigenFlux Notifications</string>
+  <key>CFBundleName</key><string>EigenFlux</string>
+  <key>CFBundleDisplayName</key><string>EigenFlux</string>
+  <key>CFBundleIconFile</key><string>EigenFlux.icns</string>
   <key>CFBundleExecutable</key><string>EigenFluxNotifications</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>1.0.0</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleVersion</key><string>2</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
