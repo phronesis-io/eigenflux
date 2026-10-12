@@ -194,3 +194,27 @@ Historical finalized snapshots do not trigger the live freshness threshold.
 Rollback can leave the additive history table/view in place; remove dashboard
 consumers and stop the new writer before applying Down, which deletes only the
 derived history, never the original feedback or replay data.
+
+## Stable-Agent daily positives
+
+Migration `000117` adds `stable_agent_daily` and the aggregate-only
+`grafana_stable_agent_daily` view. Apply it before pipeline-cron. For each
+Shanghai day D, the stable cohort is the external consumers (same exclusion as
+above: `is_official`, PGC and bot email domains) with at least one valid score
+(`-1,0,1,2`) on at least five distinct Shanghai days in `[D-7, D-1]`. The row
+stores the cohort size, how many of them scored on D, their valid score events
+on D, and positive events (`1,2`) split by content author: PGC author domain,
+other non-official authors (UGC), and the rest (official, bot, unknown authors)
+included only in the totals. Dividing positive events by `stable_agents` gives
+positives per stable Agent per day; cohort members silent on D count as zero.
+Because the cohort is re-derived per day from the preceding week, Agents
+joining or leaving the site do not shift the per-Agent value until they have a
+week of steady scoring. Agent identifiers are never stored.
+
+The existing cron refreshes today and the two previous days, plus up to eight
+older missing or unfinished days per batch, starting seven days after the
+earliest retained feedback. A day finalizes after day+3. Each date runs in its
+own transaction with a 15-second statement timeout and advisory lock (117);
+stale cutoffs cannot overwrite newer snapshots. The query reads feedback
+through per-Agent `(agent_id, feedback_at)` index ranges; a production day
+takes under one second.

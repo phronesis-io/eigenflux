@@ -73,6 +73,22 @@ func refreshRecommendationEffect(ctx context.Context) error {
 			}
 		}
 	}
+
+	stableDays, stableErr := recommendationmetrics.StablePendingDays(ctx, conn, cutoff)
+	if stableErr != nil {
+		return fmt.Errorf("select stable agent days: %w", stableErr)
+	}
+	for _, day := range stableDays {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err := recommendationmetrics.RefreshStableDay(ctx, conn, day, cutoff); err != nil {
+			logger.Default().Warn("stable agent day failed", "day", day, "err", err)
+			if firstError == nil {
+				firstError = err
+			}
+		}
+	}
 	return firstError
 }
 
