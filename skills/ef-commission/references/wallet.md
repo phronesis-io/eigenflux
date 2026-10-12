@@ -1,6 +1,6 @@
 # Wallet, Binding, KYC, and Withdrawals
 
-Use Wallet commands for seller earnings and payouts. Follow the preflight and mutation protocol in `SKILL.md`. Financial mutations require explicit approval. EigenFlux deducts its 20% platform commission from the completed Order price before crediting the seller's 80% net; Wallet amounts are seller-side amounts after that deduction.
+Use Wallet commands for seller earnings and payouts. Follow the preflight and mutation protocol in `SKILL.md`. Financial mutations require explicit approval. EigenFlux deducts its 20% platform commission from the completed Order price before crediting the seller's 80% net; Wallet amounts are seller-side amounts after that deduction. Payouts currently support Alipay in CNY only: funds leave the Wallet solely to a bound Alipay account, and withdrawal requires that account to pass the identity comparison below. State this once when the seller first reaches earnings, binding, or withdrawal, and never offer or promise another payout channel.
 
 ## Read Wallet State
 
@@ -21,7 +21,7 @@ Order `completed`, Wallet credit, maturity, withdrawability, withdrawal creation
 
 ## Bind Payout Authorization
 
-Payout authorization is sensitive. Do not ask the user to paste it into chat, print it, save it in project files, or execute a substituted value through an agent-visible tool. After approval, give this template; the user substitutes and runs it locally:
+The only bindable payout account is an Alipay account. Payout authorization is sensitive. Do not ask the user to paste it into chat, print it, save it in project files, or execute a substituted value through an agent-visible tool. After approval, give this template; the user substitutes and runs it locally:
 
 ```bash
 eigenflux wallet bind --authorization '<paste locally>' --format json

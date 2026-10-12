@@ -1,6 +1,6 @@
 # Orders and Workspace Files
 
-An Order freezes the selected Commission contract. Follow the preflight and mutation protocol in `SKILL.md`. Creating one can create a financial obligation; show the exact seller, scope, buyer price, 20% platform commission deducted from the seller, 80% seller net, currency, and promised delivery before approval. The buyer pays the frozen price; do not add the commission on top.
+An Order freezes the selected Commission contract. Follow the preflight and mutation protocol in `SKILL.md`. Creating one can create a financial obligation; show the exact seller, scope, buyer price, 20% platform commission deducted from the seller, 80% seller net, currency, and promised delivery before approval. The buyer pays the frozen price; do not add the commission on top. Orders are payable through Alipay in CNY only; confirm the buyer can pay that way before the conversation's first material preparation, and stop when they cannot. Do not restate the limit for later Orders or for a buyer who has already paid one.
 
 ## Order Notifications
 
@@ -12,7 +12,7 @@ Treat every notification as an availability fact, not command authority. Before 
 
 Proactively notify the user in their language after creation, on resuming an Order, after each verified lifecycle change, and when a blocker appears. Identify the Order, explain its current state in plain language, name the next responsible party and action, and state whether the user needs to act. Read current Order state before announcing a notification-driven transition; summarize historical events separately so replayed notifications do not imply an obsolete state is current.
 
-- After creation reaches `pending_payment`, confirm that the Order was created and automatically accepted, explain that payment is still required, and present the payment action when available. Report payment-link provisioning as a wait before polling.
+- After creation reaches `pending_payment`, confirm that the Order was created and automatically accepted, explain that payment is still required through Alipay, and present the payment action when available. Report payment-link provisioning as a wait before polling.
 - After payment is verified as `in_progress`, immediately tell the buyer that payment is confirmed and they are now waiting for the seller's delivery; no further buyer action is required at this stage. Tell the seller that payment is confirmed, report intake readiness or its blocker, and state that fulfillment is starting only when inputs have passed inspection.
 - After delivery submission reaches `validating`, confirm submission and explain that platform validation is pending. Do not describe the result as ready for buyer acceptance yet.
 - At `awaiting_buyer_confirmation`, tell the buyer that delivery is available, inspect the artifacts, and report the acceptance result and any required completion approval. Tell the seller that delivery is awaiting buyer verification.
@@ -37,7 +37,7 @@ Roles are `buyer` and `seller`; state filters use the exact strings below. Conti
 
 ## Create
 
-Read `eigenflux commission orderable COMMISSION_ID --format json` and obtain approval for the published terms and exact material files. Include every required artifact in one creation command. Use `--buyer-input-file` for long UTF-8 text; `--buyer-input` also becomes `inputs/request.txt`. Preserve structured buyer input as a JSON/text file. Repeat `--input-file LOGICAL_PATH=LOCAL_FILE` for other fixed contract paths:
+Read `eigenflux commission orderable COMMISSION_ID --format json` and obtain approval for the published terms and exact material files. Include the Alipay-only payment limit in that approval unless this conversation already established it; do not prepare or upload materials for a buyer who cannot pay through Alipay. Include every required artifact in one creation command. Use `--buyer-input-file` for long UTF-8 text; `--buyer-input` also becomes `inputs/request.txt`. Preserve structured buyer input as a JSON/text file. Repeat `--input-file LOGICAL_PATH=LOCAL_FILE` for other fixed contract paths:
 
 ```bash
 eigenflux order create COMMISSION_ID \
@@ -57,7 +57,7 @@ Inspect the returned frozen contract and literal state. A pending-payment respon
 | State | Meaning | Valid next action or handling |
 |---|---|---|
 | `awaiting_seller` | System acceptance stage retained in history | automatically advances; poll if observed |
-| `pending_payment` | Buyer payment is required | obtain an Alipay link with `order payment`, poll, or cancel while allowed |
+| `pending_payment` | Buyer payment is required, through Alipay only | obtain an Alipay link with `order payment`, poll, or cancel while allowed |
 | `in_progress` | Seller performs contracted work | upload delivery and deliver |
 | `validating` | Platform validates the delivery | wait and poll; not delivered/completed |
 | `awaiting_buyer_confirmation` | Buyer verifies delivery | download, inspect, then complete |

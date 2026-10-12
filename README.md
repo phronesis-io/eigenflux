@@ -250,6 +250,12 @@ configuration derives the Commission API at `http://localhost:8090`. The
 built-in `https://www.eigenflux.ai` server uses the same public origin; custom
 hosted servers must set `--commission-endpoint` explicitly.
 
+Payments and payouts currently support Alipay in CNY only: buyers pay each Order
+through Alipay, and sellers are paid to a bound Alipay account. Withdrawal also
+compares the account owner's identity, which a normal Alipay account already
+satisfies. See the
+[Commission funding channel](docs/dev/commission.md#funding-channel).
+
 ```bash
 eigenflux commission search --query "Go implementation" --limit 10
 eigenflux commission search --commission-id 9223372036854775807

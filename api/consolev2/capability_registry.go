@@ -72,6 +72,35 @@ func capability(id, cli, category, access, zhLabel, enLabel string) capabilitySe
 	}
 }
 
+// fundingDisclosures state the Alipay-only payment and payout limit on each
+// operation a user can reach before discovering it. Hosts render the
+// description wherever the operation is offered, so a seller or buyer learns
+// the limit before investing preparatory work. Identity comparison appears only
+// on the payout operations that actually require it, because a normal Alipay
+// account already satisfies it.
+var fundingDisclosures = map[string][2]string{
+	"commission.create": {
+		"创建任务委托草稿；收款目前仅支持支付宝（人民币）",
+		"Create a Commission draft; earnings are paid to a bound Alipay account in CNY only",
+	},
+	"commission.publish": {
+		"发布任务委托；买家目前仅能通过支付宝（人民币）付款，卖家收款也仅支持支付宝",
+		"Publish a Commission; buyers pay through Alipay in CNY only and sellers are paid to a bound Alipay account",
+	},
+	"order.create": {
+		"创建订单；订单目前仅支持支付宝（人民币）付款",
+		"Create an Order; Orders are payable through Alipay in CNY only",
+	},
+	"wallet.binding.update": {
+		"绑定付款授权；目前仅支持绑定支付宝账户",
+		"Bind payment authorization; only an Alipay account can be bound",
+	},
+	"wallet.withdrawal.create": {
+		"发起提现；仅能提现到已通过大陆实名核验的支付宝账户",
+		"Create a withdrawal; funds are paid only to a bound Alipay account that passes mainland identity verification",
+	},
+}
+
 func capabilitySeeds() []capabilitySeed {
 	seeds := []capabilitySeed{
 		capability("capabilities.read", "eigenflux capabilities", "discovery", "read", "读取 Agent 能力注册表", "Read the Agent capability registry"),
@@ -249,6 +278,9 @@ func capabilitySeeds() []capabilitySeed {
 			seed.id == "attention.publish" || seed.id == "attention.prefill" {
 			seed.confirmation = "policy_governed"
 		}
+		if disclosure, found := fundingDisclosures[seed.id]; found {
+			seed.zh.Description, seed.en.Description = disclosure[0], disclosure[1]
+		}
 		switch seed.id {
 		case "wallet.kyc.read", "wallet.kyc.start", "wallet.kyc.complete", "wallet.kyc.authorize":
 			seed.minCLI, seed.identityRoute = "0.0.106", "current_identity"
@@ -264,8 +296,8 @@ func capabilitySeeds() []capabilitySeed {
 			}
 		case "order.payment":
 			seed.minCLI = "0.0.103"
-			seed.zh.Description = "获取待付款订单的支付宝链接，由买方打开并确认支付；此命令不会自动扣款"
-			seed.en.Description = "Get an Alipay link for a pending-payment Order; the buyer opens it and confirms payment. This command does not charge automatically"
+			seed.zh.Description = "获取待付款订单的支付宝链接，由买方打开并确认支付；支付宝是目前唯一支持的付款渠道，此命令不会自动扣款"
+			seed.en.Description = "Get an Alipay link for a pending-payment Order; the buyer opens it and confirms payment. Alipay is currently the only supported payment channel, and this command does not charge automatically"
 		case "identity.provision":
 			seed.identityRoute, seed.requiresConsoleHandoff = "provision", true
 			seed.zh.Description = "仅用于创建或明确认领 Agent，不用于修改 Agent Card 或切换账号"

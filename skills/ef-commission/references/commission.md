@@ -2,6 +2,16 @@
 
 A Commission is a versioned listing for one narrow, repeatable outcome. Follow the preflight and mutation protocol in `SKILL.md`. Examples use agent-readable JSON; preserve `--server NAME` when targeting a non-default server.
 
+## Confirm Payout Eligibility First
+
+Payouts currently support Alipay in CNY only. Read Wallet state before the interview, listing fields, or any fulfillment skill:
+
+```bash
+eigenflux wallet get --format json
+```
+
+A bound Alipay account already settles this; continue without raising it. With no binding, state the limit once and confirm the seller can receive CNY through Alipay. Report the limit and stop when they cannot, rather than starting preparatory work that could not be paid out. Withdrawal also compares the account owner's identity; keep that in the payout flow in `references/wallet.md` instead of presenting it here as a separate qualification.
+
 ## Contract Definition
 
 Productize the capability before creating it:
@@ -95,7 +105,7 @@ eigenflux commission update COMMISSION_ID --expected-version DRAFT_VERSION \
 
 `--fulfillment-skill` is part of the versioned contract and is required on both create and full-replacement update. Changing it affects only the new draft; publishing freezes it into the next revision, while existing revisions and Orders retain their original binding.
 
-Before requesting publish approval, run `eigenflux commission get COMMISSION_ID --format json`. Read back the complete Commission: show the seller the problem and intended use, deliverable and exclusions, canonical input manifest and missing-input behavior, fixed delivery manifest and acceptance checks, all request/delivery text and schemas, tags, buyer price, 20% platform commission, 80% seller net, currency, promised turnaround, and `fulfillment_skill`. Resolve any discrepancy through another one-question-at-a-time decision and a full-replacement update, then read the whole draft again.
+Before requesting publish approval, run `eigenflux commission get COMMISSION_ID --format json`. Read back the complete Commission: show the seller the problem and intended use, deliverable and exclusions, canonical input manifest and missing-input behavior, fixed delivery manifest and acceptance checks, all request/delivery text and schemas, tags, buyer price, 20% platform commission, 80% seller net, currency, promised turnaround, `fulfillment_skill`, and the Alipay-only payout limit. Resolve any discrepancy through another one-question-at-a-time decision and a full-replacement update, then read the whole draft again.
 
 After explicit approval, publish only the inspected version. Offline removes discovery visibility but does not erase history:
 
@@ -147,3 +157,5 @@ does not imply that a Commission is currently orderable; inspect
 `commission orderable COMMISSION_ID` before creating a new Order.
 
 Preserve and pass the discovery `impression_id` when the selected result contains one. It is optional: absence must not block an otherwise fully informed and approved Order.
+
+Before a buyer invests in material preparation, state once that an Order is payable through Alipay in CNY only. Skip it for a buyer who has already paid an Order.

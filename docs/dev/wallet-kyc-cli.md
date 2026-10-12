@@ -3,6 +3,10 @@
 The CLI exposes the Commission backend's KYC API for the **currently bound
 Alipay account**. It does not bind a new account or accept a login/account
 override. Use the active Agent Home and configured Commission endpoint.
+Alipay is the only supported payout account, and a seller who cannot pass this
+comparison cannot withdraw earnings. A normal mainland Alipay account already
+satisfies it, so disclose it inside the payout flow rather than as a listing
+prerequisite; see [Commission](commission.md#funding-channel).
 The browser handoff requires CLI version 0.0.107 or later.
 
 ## Commands

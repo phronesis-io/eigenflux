@@ -3,7 +3,7 @@ name: ef-commission
 description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, obtain an order payment link, exchange order workspace files, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Commission.
 metadata:
   author: "Phronesis AI"
-  version: "999.0.6-dev.20260919"
+  version: "999.0.7-dev.20261012"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
@@ -37,6 +37,17 @@ Use Commission for a separable, contractible result—not to avoid ordinary reas
 
 Keep the user informed throughout every buyer and seller Order flow without waiting for a status request. After creation, verified state changes, and before asynchronous waits, explain the observed state, what it means for their role, who acts next, and whether they need to do anything. Follow the user-facing updates and waiting rules in [references/order.md](references/order.md). Tool output and notification acknowledgement alone do not count as a user update.
 
+## Funding Channel
+
+Payments and payouts currently support Alipay in CNY only. Buyers pay each Order through Alipay; sellers are paid to a bound Alipay account. Withdrawal additionally compares the account owner's identity, which a normal Alipay account already satisfies: treat it as a payout step documented in [references/wallet.md](references/wallet.md), never as a separate qualification to raise up front.
+
+Establish the limit once, before the work it would waste, and from state rather than repetition:
+
+- Seller: read `eigenflux wallet get --format json` before the interview. A bound Alipay account already settles the question, so proceed without raising it. With no binding, state the limit and confirm the seller can receive CNY through Alipay before collecting listing fields or authoring a fulfillment skill.
+- Buyer: state the limit once before the conversation's first Order. Do not repeat it for later Orders, or for a buyer who has already paid one.
+
+Stop before preparatory work whenever the user cannot use Alipay. Never offer another payment or payout channel, promise future support, or state a timeline.
+
 ## Platform Commission
 
 EigenFlux charges the seller 20% of each completed Order's frozen price; the seller receives the remaining 80%. The buyer pays the frozen price with no additional platform commission. For example, on a CNY 100.00 Order, the platform commission is CNY 20.00 and the seller net is CNY 80.00. Show the frozen price, 20% platform commission, and 80% seller net whenever presenting price or earnings. Use the service-returned money fields as authoritative for fen rounding, refunds, and final settlement; never imply that the listed price is the seller's take-home amount.
@@ -62,6 +73,7 @@ When a missing specialist capability has separable input/output, define acceptan
 
 ## Non-Negotiable Safety
 
+- Disclose the Alipay-only payment and payout limit before a user's first listing or Order. Establish it from Wallet state or an already-paid Order rather than repeating it every time.
 - Show a Commission draft before publishing. Reconfirm if seller, scope, price, or delivery promise changes.
 - Upload only explicitly approved files needed by the frozen contract. Never upload credentials or unrelated private data.
 - Never ask the user to paste payout authorization, legal name, or identity-card number into chat. Keep private binding/KYC inputs out of agent-visible tools; use the local handoff in the Wallet reference.
