@@ -321,9 +321,6 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	}
 	userRecalls := map[string]*userRecall{"swing_i2i": {}}
 	sem := make(chan struct{}, 6)
-	// Admit only one recent call per request before taking a general recall
-	// slot. Waiters must not occupy slots needed by ordinary channels.
-	recent := make(chan struct{}, 1)
 	for ci, c := range contexts {
 		c.retrievalAt = now
 		if !c.Active(now) {
@@ -342,7 +339,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				channels = append(channels, "dense")
 			}
 			if kind == Broadcast && mode == Recommendation {
-				channels = append(channels, "lexical_recent", "hot_recall", "new_recall", "new_ugc_recall", "swing_i2i")
+				channels = append(channels, "hot_recall", "new_recall", "new_ugc_recall", "swing_i2i")
 			}
 			if c.Origin == "baseline" {
 				channels = []string{"hot_recall", "new_recall", "swing_i2i"}
@@ -358,27 +355,12 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					work := ctx
-					if channel == "lexical_recent" {
-						var cancel context.CancelFunc
-						work, cancel = context.WithTimeout(ctx, recentRecallBudget)
-						defer cancel()
-						select {
-						case recent <- struct{}{}:
-							defer func() { <-recent }()
-						case <-work.Done():
-							mu.Lock()
-							results = append(results, channelResult{ci: ci, kind: kind, channel: channel, err: work.Err()})
-							mu.Unlock()
-							return
-						}
-					}
 					select {
 					case sem <- struct{}{}:
 						defer func() { <-sem }()
-					case <-work.Done():
+					case <-ctx.Done():
 						mu.Lock()
-						results = append(results, channelResult{ci: ci, kind: kind, channel: channel, err: work.Err()})
+						results = append(results, channelResult{ci: ci, kind: kind, channel: channel, err: ctx.Err()})
 						mu.Unlock()
 						return
 					}
@@ -387,9 +369,6 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 						limit = MaxSnapshotCandidates
 					}
 					if strings.HasSuffix(channel, "recall") {
-						limit = 20
-					}
-					if channel == "lexical_recent" {
 						limit = 20
 					}
 					if channel == "new_ugc_recall" {
@@ -404,7 +383,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 							docs[i].NeedExclusionText = len(c.Filters.ExcludeTerms) > 0
 						}
 					} else {
-						docs, err = e.Sources.Recall(work, c, kind, channel, limit)
+						docs, err = e.Sources.Recall(ctx, c, kind, channel, limit)
 					}
 					mu.Lock()
 					results = append(results, channelResult{ci, kind, channel, docs, err})
@@ -592,7 +571,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	return x, nil
 }
 func channelOrder(c string) int {
-	for i, s := range []string{"lexical", "lexical_recent", "dense", "hot_recall", "new_recall", "new_ugc_recall", "friend", "swing_i2i"} {
+	for i, s := range []string{"lexical", "dense", "hot_recall", "new_recall", "new_ugc_recall", "friend", "swing_i2i"} {
 		if s == c {
 			return i
 		}
