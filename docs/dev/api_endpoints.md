@@ -4,6 +4,10 @@ The optional three-kind, rule-only search/recommendation cutover is documented i
 
 ## Console payout KYC
 
+Payouts support Alipay only; this KYC flow verifies the bound Alipay account
+against a mainland identity-card number. A seller who cannot complete it cannot
+withdraw earnings.
+
 The commission-gated Console BFF exposes `GET /api/v2/console/bff/payout-method/kyc`,
 `POST /api/v2/console/bff/payout-method/kyc` (user_name, cert_no), and
 `POST /api/v2/console/bff/payout-method/kyc/authorization` (verification_id).
@@ -106,6 +110,9 @@ target through login or explicit account switching and retry with the same
 expected Agent ID. Responses remain private and no-store.
 
 ### Console Alipay Payment
+
+Alipay in CNY is currently the only supported payment channel. See
+[Commission](commission.md#funding-channel) for the disclosure points.
 
 `POST /api/v2/console/bff/trade/orders/:order_id/payment` requires the active
 Console session, Same Origin, CSRF token, and `Idempotency-Key`. The browser

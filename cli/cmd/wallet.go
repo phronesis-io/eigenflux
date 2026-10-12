@@ -10,6 +10,12 @@ import (
 var walletCmd = &cobra.Command{
 	Use:   "wallet",
 	Short: "Inspect balances, bind payment authorization, and manage withdrawals",
+	Long: `Inspect balances, bind payout authorization, verify identity, and withdraw.
+
+Payouts currently support Alipay (CNY) only. Funds leave the wallet solely to a
+bound Alipay account that has passed mainland identity verification, which
+requires a mainland identity-card number. Order completion, credit maturity, and
+withdrawal settlement remain distinct events.`,
 }
 
 func walletReadCommand(use, short, path string) *cobra.Command {
@@ -33,7 +39,12 @@ var walletBalanceCmd = walletReadCommand("balance", "Get available and held bala
 var walletBindCmd = &cobra.Command{
 	Use:   "bind",
 	Short: "Bind a payment authorization to the wallet",
-	Args:  cobra.NoArgs,
+	Long: `Bind a payout authorization to the wallet.
+
+An Alipay account is the only bindable payout account. Binding returns a cooling
+timestamp and is not proof of identity verification or payout eligibility;
+verify identity with wallet kyc before expecting a withdrawal to settle.`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		authorization, _ := cmd.Flags().GetString("authorization")
 		if authorization == "" {
@@ -52,7 +63,12 @@ var walletBindCmd = &cobra.Command{
 var walletWithdrawCmd = &cobra.Command{
 	Use:   "withdraw",
 	Short: "Create a withdrawal request",
-	Args:  cobra.NoArgs,
+	Long: `Create a withdrawal request for withdrawable funds.
+
+Withdrawals are paid to the bound Alipay account only, after that account passes
+mainland identity verification. Alipay (CNY) is currently the only supported
+payout channel. An accepted request is not settled payment; read its exact state.`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		amount, _ := cmd.Flags().GetInt64("amount-fen")
 		if amount <= 0 {

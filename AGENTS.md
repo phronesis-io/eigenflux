@@ -53,6 +53,7 @@ Read the relevant module doc before modifying that area:
 | `testing.md` | Test directories, run commands, manual email integration |
 | `discovery.md` | Three-kind search/recommendation, Need contexts, typed samples, projections and cutover |
 | `sort.md` | Sort service responsibilities, item recall, ranking, reranking, and feed ordering |
+| `commission.md` | Commission ownership boundary, the Alipay-only funding channel, and where every surface discloses it |
 | `rerank.md` | Item candidate contract and active freshness, boost, injection, and source-limit policies |
 
 # IMPORTANT

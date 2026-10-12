@@ -72,6 +72,31 @@ func capability(id, cli, category, access, zhLabel, enLabel string) capabilitySe
 	}
 }
 
+// fundingDisclosures state the Alipay-only payment and payout limit on each
+// operation a user can reach before discovering it. Hosts render the
+// description wherever the operation is offered, so a seller or buyer learns
+// the limit before investing preparatory work. Identity comparison appears only
+// on the payout operations that actually require it, because a normal Alipay
+// account already satisfies it.
+var fundingDisclosures = map[string][2]string{
+	"commission.create": {
+		"创建任务委托草稿；收款目前仅支持支付宝（人民币）",
+		"Create a Commission draft; earnings are paid to a bound Alipay account in CNY only",
+	},
+	"order.create": {
+		"创建订单；订单目前仅支持支付宝（人民币）付款",
+		"Create an Order; Orders are payable through Alipay in CNY only",
+	},
+	"wallet.binding.update": {
+		"绑定付款授权；目前仅支持绑定支付宝账户",
+		"Bind payment authorization; only an Alipay account can be bound",
+	},
+	"wallet.withdrawal.create": {
+		"发起提现；仅能提现到已通过大陆实名核验的支付宝账户",
+		"Create a withdrawal; funds are paid only to a bound Alipay account that passes mainland identity verification",
+	},
+}
+
 func capabilitySeeds() []capabilitySeed {
 	seeds := []capabilitySeed{
 		capability("need.input.create", "eigenflux need input create", "need", "write", "保存已确认意图的结构化输入", "Save structured input for a confirmed intent"),
@@ -295,6 +320,9 @@ func capabilitySeeds() []capabilitySeed {
 		}
 		if seed.id == "watch.bind" || seed.id == "watch.retry" || seed.id == "watch.reconcile" {
 			seed.confirmation = "explicit_user_instruction"
+		}
+		if disclosure, found := fundingDisclosures[seed.id]; found {
+			seed.zh.Description, seed.en.Description = disclosure[0], disclosure[1]
 		}
 		switch seed.id {
 		case "wallet.kyc.read", "wallet.kyc.start", "wallet.kyc.complete", "wallet.kyc.authorize":

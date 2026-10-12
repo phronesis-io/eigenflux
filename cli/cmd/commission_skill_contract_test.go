@@ -16,8 +16,21 @@ func TestCommissionSkillContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(skillBody), `version: "999.0.9-dev.20261009"`) {
+	if !strings.Contains(string(skillBody), `version: "999.0.10-dev.20261012"`) {
 		t.Error("ef-commission version is stale")
+	}
+	skill := string(skillBody)
+	for _, required := range []string{
+		"## Funding Channel",
+		"Payments and payouts currently support Alipay in CNY only",
+		"never as a separate qualification to raise up front",
+		"read `eigenflux wallet get --format json` before the interview",
+		"Do not repeat it for later Orders, or for a buyer who has already paid one",
+		"Never offer another payment or payout channel, promise future support, or state a timeline",
+	} {
+		if !strings.Contains(skill, required) {
+			t.Errorf("funding channel disclosure is missing %q", required)
+		}
 	}
 	commissionBody, err := os.ReadFile(filepath.Join(repoRoot, "skills/ef-commission/references/commission.md"))
 	if err != nil {
@@ -40,6 +53,9 @@ func TestCommissionSkillContract(t *testing.T) {
 		"missing required input",
 		"Read back the complete Commission",
 		"Current CLI and service validation are authoritative",
+		"## Confirm Payout Eligibility First",
+		"A bound Alipay account already settles this; continue without raising it",
+		"rather than starting preparatory work that could not be paid out",
 	} {
 		if !strings.Contains(commission, required) {
 			t.Errorf("Commission listing workflow is missing %q", required)
@@ -62,9 +78,27 @@ func TestCommissionSkillContract(t *testing.T) {
 		"Current CLI and service validation are authoritative",
 		"eigenflux stream --once",
 		"availability fact",
+		"Orders are payable through Alipay in CNY only",
+		"unless this conversation already established it",
 	} {
 		if !strings.Contains(order, required) {
 			t.Errorf("seller Order workflow is missing %q", required)
+		}
+	}
+
+	walletBody, err := os.ReadFile(filepath.Join(repoRoot, "skills/ef-commission/references/wallet.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wallet := string(walletBody)
+	for _, required := range []string{
+		"Payouts currently support Alipay in CNY only",
+		"withdrawal requires that account to pass the identity comparison below",
+		"State this once when the seller first reaches earnings, binding, or withdrawal",
+		"never offer or promise another payout channel",
+	} {
+		if !strings.Contains(wallet, required) {
+			t.Errorf("Wallet payout disclosure is missing %q", required)
 		}
 	}
 }

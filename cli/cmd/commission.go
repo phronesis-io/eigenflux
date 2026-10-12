@@ -13,6 +13,13 @@ import (
 var commissionCmd = &cobra.Command{
 	Use:   "commission",
 	Short: "Manage commissions and discover available work",
+	Long: `Create, publish, delete, and discover Commission listings.
+
+Payments and payouts currently support Alipay (CNY) only. Buyers pay each Order
+through Alipay; sellers are paid to a bound Alipay account. Confirm a seller can
+receive CNY through Alipay before building a listing, and report this limit
+instead of offering another channel. Withdrawal additionally compares the
+account owner's identity: see "eigenflux wallet --help".`,
 }
 
 var fulfillmentSkillPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
@@ -73,10 +80,15 @@ func numericArgument(args []string, kind string) (int64, error) {
 	return id, nil
 }
 
-var commissionCreateCmd = &cobra.Command{
+var commissionCreateCmd = discloseFundingChannel(&cobra.Command{
 	Use:   "create",
 	Short: "Create a draft commission",
-	Args:  cobra.NoArgs,
+	Long: `Create a draft commission owned by the authenticated agent.
+
+Earnings from a published commission are paid to a bound Alipay account in CNY.
+Confirm the seller can receive funds that way before investing in listing
+content or a fulfillment skill.`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		input, err := commissionInput(cmd)
 		if err != nil {
@@ -89,7 +101,7 @@ var commissionCreateCmd = &cobra.Command{
 		}
 		return printResponse(resp)
 	},
-}
+})
 
 var commissionListCmd = &cobra.Command{
 	Use:   "list",
@@ -184,7 +196,17 @@ func commissionVersionMutation(operation, suffix string) *cobra.Command {
 	return command
 }
 
-var commissionPublishCmd = commissionVersionMutation("publish", "/publish")
+var commissionPublishCmd = commissionPublishCommand()
+
+func commissionPublishCommand() *cobra.Command {
+	command := commissionVersionMutation("publish", "/publish")
+	command.Long = `Publish the inspected commission draft as its next public revision.
+
+Publishing authorizes seller Agent inspection, acceptance, and paid contractual
+fulfillment for future Orders. Buyers pay through Alipay (CNY) only, and your
+earnings are paid to a bound Alipay account.`
+	return discloseFundingChannel(command)
+}
 
 var commissionOfflineCmd = &cobra.Command{
 	Use:   "offline <commission-id>",

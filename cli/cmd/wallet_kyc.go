@@ -135,7 +135,12 @@ func newWalletKYCCmd() *cobra.Command {
 		resp, err := newCommissionClient().Get("/wallet/kyc", nil)
 		return printWalletKYC(resp, err, false)
 	}}
-	start := &cobra.Command{Use: "start --stdin --idempotency-key <key>", Short: "Read name and ID from stdin; begin KYC for the bound account", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	start := &cobra.Command{Use: "start --stdin --idempotency-key <key>", Short: "Read name and ID from stdin; begin KYC for the bound account", Long: `Begin identity verification for the currently bound Alipay account.
+
+Alipay is the only supported payout account, and verification requires the
+account owner's legal name and mainland identity-card number. A seller who
+cannot complete this verification cannot withdraw earnings. Supply the private
+JSON through a trusted local pipe, never through command arguments or chat.`, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		var input struct {
 			Name string `json:"user_name"`
 			ID   string `json:"cert_no"`
