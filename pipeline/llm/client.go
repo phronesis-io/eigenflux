@@ -21,6 +21,7 @@ import (
 )
 
 type Client struct {
+	summaryFidelity bool
 	client          openai.Client
 	model           string
 	maxTokens       int
@@ -39,6 +40,7 @@ func NewClient(cfg *config.Config, prompts *PromptRegistry) *Client {
 		maxTokens:       cfg.LLMMaxTokens,
 		reasoningEffort: shared.ReasoningEffort(cfg.LLMReasoningEffort),
 		prompts:         prompts,
+		summaryFidelity: cfg.LLMSummaryFidelity,
 	}
 }
 
@@ -147,7 +149,7 @@ func validateProfileKeywords(keywords []string) error {
 
 // ProcessItem generates structured information for a content item
 func (c *Client) ProcessItem(ctx context.Context, rawContent, rawNotes string) (*ExtractResult, error) {
-	result, err := ProcessItemPrompt.Execute(ctx, c, ProcessItemInput{Content: rawContent, Notes: rawNotes})
+	result, err := ProcessItemPrompt.Execute(ctx, c, ProcessItemInput{Content: rawContent, Notes: rawNotes, SummaryFidelity: c.summaryFidelity})
 	if err != nil {
 		return nil, err
 	}

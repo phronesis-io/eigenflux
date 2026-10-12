@@ -2,8 +2,9 @@ package llm
 
 // ProcessItemInput is the input for the process_item prompt.
 type ProcessItemInput struct {
-	Content string
-	Notes   string
+	SummaryFidelity bool
+	Content         string
+	Notes           string
 }
 
 // ProcessItemPrompt extracts structured information from raw content.

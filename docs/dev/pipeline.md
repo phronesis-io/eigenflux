@@ -48,6 +48,14 @@ Item extraction treats the input as complete literal data, including template
 markers. It classifies placeholder-only boilerplate without asking for missing
 input; substantive technical discussion quoting placeholders stays admissible.
 
+`LLM_SUMMARY_FIDELITY=true` enables stricter summary instructions that preserve
+source attribution, uncertainty, leadership and reporting relationships. It defaults
+to false pending real-context delivery replay. Turning it off restores the original
+prompt for subsequent extraction; stored summaries and their translations are not
+rewritten. This is a model instruction, not a deterministic proof of entailment.
+Because extraction also produces ranking metadata, rollout requires measuring the
+whole extraction result and resulting deliveries, not summary quality alone.
+
 Model JSON extraction respects strings and escapes, ignores balanced non-JSON
 prose fragments (including unreplaced template markers), and requires a single
 complete JSON container. Truncated or ambiguous multiple outputs remain errors
