@@ -98,7 +98,7 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 	fixture := func(t *testing.T) (string, string, func(...string) ([]byte, error)) {
 		dir := t.TempDir()
 		bin := filepath.Join(dir, name)
-		home := filepath.Join(dir, "agent", ".eigenflux")
+		home := filepath.Join(dir, "agent 中文路径", ".eigenflux")
 		if err := os.WriteFile(bin, binary, 0755); err != nil {
 			t.Fatal(err)
 		}
@@ -159,6 +159,79 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		reason, _ := os.ReadFile(filepath.Join(home, "uninstall.json"))
 		if !strings.Contains(string(reason), "fixture retirement") {
 			t.Fatal("reason not preserved locally")
+		}
+	})
+	t.Run("official_wrapper_and_native_cleanup_attempt", func(t *testing.T) {
+		bin, home, invoke := fixture(t)
+		before := snapshotUninstallTree(t, filepath.Dir(bin))
+		if _, err := invoke("uninstall"); err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(before, snapshotUninstallTree(t, filepath.Dir(bin))) {
+			t.Fatal("wrapper registration broke preview immutability")
+		}
+		out, err := invoke("uninstall", "--begin", "--source", "agent", "--reason", "中文原因：暂时不用")
+		if err != nil {
+			t.Fatalf("begin: %v %s", err, out)
+		}
+		var start struct {
+			Attempt string `json:"attempt_id"`
+		}
+		if err := json.Unmarshal(out, &start); err != nil || start.Attempt == "" {
+			t.Fatalf("missing attempt: %s", out)
+		}
+		if _, err := os.Stat(bin); err != nil {
+			t.Fatal("begin removed executable")
+		}
+		if out, err = invoke("uninstall", "--attempt", start.Attempt, "--record-result", "blocked"); err != nil {
+			t.Fatalf("record host failure: %v %s", err, out)
+		}
+		data, _ := os.ReadFile(filepath.Join(home, "uninstall.json"))
+		if !strings.Contains(string(data), "host_cleanup_failed") || !strings.Contains(string(data), "中文原因") {
+			t.Fatalf("wrong local audit: %s", data)
+		}
+		out, err = invoke("uninstall", "--begin", "--source", "agent")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = json.Unmarshal(out, &start)
+		var command *exec.Cmd
+		if runtime.GOOS == "windows" {
+			root := os.Getenv("SystemRoot")
+			command = exec.Command(filepath.Join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-File", bin+".uninstall.ps1", bin, "--homedir", home, "--attempt", start.Attempt, "--apply", "--host-cleanup-confirmed", "--source", "agent")
+		} else {
+			command = exec.Command("sh", bin+".uninstall.sh", bin, "--homedir", home, "--attempt", start.Attempt, "--apply", "--host-cleanup-confirmed", "--source", "agent")
+		}
+		if out, err = command.CombinedOutput(); err != nil {
+			t.Fatalf("official wrapper: %v %s", err, out)
+		}
+		if _, err := os.Stat(bin); !os.IsNotExist(err) {
+			t.Fatal("wrapper left original executable")
+		}
+		data, _ = os.ReadFile(filepath.Join(home, "uninstall.json"))
+		if strings.Contains(string(data), "中文原因") || !strings.Contains(string(data), "removed") {
+			t.Fatalf("previous attempt reason carried over: %s", data)
+		}
+	})
+	t.Run("changed_registration_blocks_resumed_attempt", func(t *testing.T) {
+		bin, _, invoke := fixture(t)
+		out, err := invoke("uninstall", "--begin")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var start struct {
+			Attempt string `json:"attempt_id"`
+		}
+		_ = json.Unmarshal(out, &start)
+		data, _ := os.ReadFile(bin + ".install.json")
+		if err := os.WriteFile(bin+".install.json", append(data, '\n'), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if out, err = invoke("uninstall", "--attempt", start.Attempt, "--apply", "--host-cleanup-confirmed"); err == nil || !strings.Contains(string(out), "changed since") {
+			t.Fatalf("changed registration accepted: %v %s", err, out)
+		}
+		if _, err := os.Stat(bin); err != nil {
+			t.Fatal("changed installation removed")
 		}
 	})
 	t.Run("shared_homes_require_review", func(t *testing.T) {

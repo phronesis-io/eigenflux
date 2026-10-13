@@ -13,6 +13,31 @@ import (
 func validMaintenanceEvent() maintenanceEvent {
 	return maintenanceEvent{EventID: strings.Repeat("a", 64), AttemptID: strings.Repeat("b", 32), EventAt: time.Now().UnixMilli(), Component: "cli", Trigger: "auto", Phase: "execute", Result: "executed", ToVersion: "1.0.0", RunningVersion: "1.0.0"}
 }
+
+func TestUninstallMaintenanceContract(t *testing.T) {
+	now := time.Now()
+	for _, result := range []string{"started", "removed", "partial", "failed", "blocked"} {
+		e := maintenanceEvent{EventID: strings.Repeat("a", 64), AttemptID: strings.Repeat("b", 32), EventAt: now.UnixMilli(), Component: "cli", Trigger: "manual", Phase: "uninstall", Result: result, Source: "agent", Platform: "darwin", ReasonCategory: "not_provided"}
+		if err := validateMaintenanceEvent(e, now); err != nil {
+			t.Fatal(err)
+		}
+		bad := e
+		bad.ReasonCategory = "owner@example.com"
+		if validateMaintenanceEvent(bad, now) == nil {
+			t.Fatal("private reason accepted")
+		}
+		bad = e
+		bad.Phase = "install"
+		if validateMaintenanceEvent(bad, now) == nil {
+			t.Fatal("uninstall result accepted for install")
+		}
+		bad = e
+		bad.Trigger = "auto"
+		if validateMaintenanceEvent(bad, now) == nil {
+			t.Fatal("automatic uninstall accepted")
+		}
+	}
+}
 func TestMaintenanceEventContractRejectsUnsafeOrImpossibleClaims(t *testing.T) {
 	now := time.Now()
 	good := validMaintenanceEvent()

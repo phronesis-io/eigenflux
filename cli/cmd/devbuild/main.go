@@ -28,6 +28,7 @@ import (
 
 	"cli.eigenflux.ai/internal/selfupdate"
 	"cli.eigenflux.ai/internal/skills"
+	"cli.eigenflux.ai/internal/uninstallscript"
 )
 
 //go:embed run-test.ps1.txt
@@ -120,6 +121,14 @@ func run() error {
 	ldflags := "-X main.Version=" + version + " -X main.Commit=" + commit + " -X cli.eigenflux.ai/internal/skills.VerifyPublicKeyBase64=" + *keyText
 	if err := build(root, *target, binary, ".", ldflags); err != nil {
 		return err
+	}
+	for name, data := range map[string][]byte{"uninstall.sh": uninstallscript.POSIX, "uninstall.ps1": uninstallscript.Windows} {
+		if err := writeFile(filepath.Join(*out, name), data); err != nil {
+			return err
+		}
+		if err := os.Chmod(filepath.Join(*out, name), 0755); err != nil {
+			return err
+		}
 	}
 	if parts[0] == "darwin" {
 		command := exec.Command("bash", filepath.Join(root, "cli", "scripts", "build-notifier-macos.sh"), *out, parts[1])

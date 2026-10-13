@@ -8,6 +8,34 @@ try {
     $stubId = '{C743DF52-A840-40D1-9789-17F595E56A01}'
     $registration = 'HKCU:\Software\Classes\AppUserModelId\' + $appId
     $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'EigenFlux Notifications.lnk'
+    if ($request.action -eq 'remove') {
+        if (Test-Path -LiteralPath $shortcut) {
+            $item = Get-Item -LiteralPath $shortcut -Force
+            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'preserve linked shortcut' }
+            $shell = New-Object -ComObject WScript.Shell
+            try {
+                $link = $shell.CreateShortcut($shortcut)
+                if ($link.TargetPath -ne $request.executable -or $link.Arguments -ne 'version --short') { throw 'preserve shared or changed shortcut' }
+            } finally { [Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell) | Out-Null }
+        }
+        $icon = $null
+        if (Test-Path -LiteralPath $registration) {
+            $properties = Get-ItemProperty -LiteralPath $registration
+            if ($properties.CustomActivator -ne $stubId -or $properties.DisplayName -ne 'EigenFlux') { throw 'preserve changed registration' }
+            $icon = $properties.IconUri
+            $iconDirectory = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'EigenFlux\Notifications'
+            if ([IO.Path]::GetDirectoryName($icon) -ne $iconDirectory -or [IO.Path]::GetFileName($icon) -notmatch '^[a-f0-9]{64}\.png$') { throw 'preserve unknown icon' }
+            if (Test-Path -LiteralPath $icon) {
+                $item = Get-Item -LiteralPath $icon -Force
+                if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'preserve linked icon' }
+                if ((Get-FileHash -LiteralPath $icon -Algorithm SHA256).Hash.ToLowerInvariant() -ne [IO.Path]::GetFileNameWithoutExtension($icon)) { throw 'preserve changed icon' }
+            }
+        }
+        if (Test-Path -LiteralPath $shortcut) { Remove-Item -LiteralPath $shortcut -ErrorAction Stop }
+        if (Test-Path -LiteralPath $registration) { Remove-Item -LiteralPath $registration -ErrorAction Stop }
+        if ($icon -and (Test-Path -LiteralPath $icon)) { Remove-Item -LiteralPath $icon -ErrorAction Stop }
+        [Console]::Out.WriteLine('accepted'); exit 0
+    }
     if ($request.action -eq 'enable') {
         # Versioned files avoid stale icon caches; atomic creation lets account
         # loops share the same assets without exposing partially written files.

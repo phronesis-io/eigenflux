@@ -31,6 +31,9 @@ type maintenanceEvent struct {
 	RunningVersion string `json:"running_version,omitempty"`
 	ErrorCode      string `json:"error_code,omitempty"`
 	DurationMS     int64  `json:"duration_ms,omitempty"`
+	Source         string `json:"source,omitempty"`
+	Platform       string `json:"platform,omitempty"`
+	ReasonCategory string `json:"reason_category,omitempty"`
 }
 
 var maintenanceID = regexp.MustCompile(`^[a-f0-9]{32,64}$`)
@@ -50,6 +53,21 @@ func validateMaintenanceEvent(e maintenanceEvent, now time.Time) error {
 	}
 	if e.EventAt < now.Add(-7*24*time.Hour).UnixMilli() || e.EventAt > now.Add(5*time.Minute).UnixMilli() {
 		return fmt.Errorf("maintenance event outside retention window")
+	}
+	if e.Phase == "uninstall" {
+		if !maintenanceOneOf(e.Component, "cli", "skills", "plugin", "scheduler", "notifier") || e.Trigger != "manual" || !maintenanceOneOf(e.Result, "started", "removed", "partial", "failed", "blocked") {
+			return fmt.Errorf("invalid uninstall category")
+		}
+		if !maintenanceOneOf(e.Source, "agent", "manual") || !maintenanceOneOf(e.Platform, "darwin", "windows", "linux") || !maintenanceOneOf(e.ReasonCategory, "not_provided", "other", "usability", "cost", "performance", "privacy", "no_longer_needed") {
+			return fmt.Errorf("invalid uninstall metadata")
+		}
+		if !maintenanceValue.MatchString(e.Host) || !maintenanceValue.MatchString(e.FromVersion) || !maintenanceValue.MatchString(e.ErrorCode) || e.DurationMS < 0 || e.DurationMS > int64(24*time.Hour/time.Millisecond) || !maintenanceOneOf(e.Mode, "", "skill", "plugin") || e.ToVersion != "" || e.RunningVersion != "" {
+			return fmt.Errorf("invalid uninstall observation")
+		}
+		return nil
+	}
+	if e.Source != "" || e.Platform != "" || e.ReasonCategory != "" {
+		return fmt.Errorf("uninstall metadata requires uninstall phase")
 	}
 	if !maintenanceOneOf(e.Component, "cli", "skills", "plugin", "scheduler") || !maintenanceOneOf(e.Trigger, "auto", "manual", "adoption") || !maintenanceOneOf(e.Phase, "check", "download", "verify", "probe", "install", "execute", "adoption", "load", "read", "migration") {
 		return fmt.Errorf("invalid maintenance category")

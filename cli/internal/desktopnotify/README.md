@@ -91,3 +91,14 @@ permission, and verify an explicit failure without blocking order processing.
 - [Microsoft desktop toast registration](https://learn.microsoft.com/en-us/windows/win32/shell/quickstart-sending-desktop-toast)
 
 Keep this implementation map updated whenever notification logic changes.
+
+## Owned cleanup
+
+CLI uninstall removes this integration only with explicit shared-user cleanup
+confirmation. macOS setup records the installed bundle digest in `.bundle-owner`;
+cleanup requires a matching digest, uses the helper quit protocol and removes
+only the owned application and marker. Older installations without this evidence
+remain intact until ownership is established. Windows cleanup verifies the
+shortcut target/arguments, dedicated AUMID, activator and content-addressed icon
+before removing them. Changed or unknown assets are preserved. This never edits
+the OS notification permission store or removes other accounts' configuration.

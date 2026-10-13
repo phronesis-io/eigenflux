@@ -51,6 +51,7 @@ fi
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
+cp "$PROJECT_ROOT/static/uninstall.sh" "$PROJECT_ROOT/static/uninstall.ps1" "$BUILD_DIR/"
 
 echo -e "${CYAN}Building eigenflux CLI v${CLI_VERSION} (commit ${CLI_COMMIT})${NC}"
 echo ""

@@ -134,7 +134,7 @@ func installedHelper(ctx context.Context, install bool) (string, error) {
 		return "", err
 	}
 	if have, err := bundleDigest(destination); err == nil && have == want {
-		return destination, nil
+		return destination, recordBundleOwner(destination, want)
 	}
 	if err := os.MkdirAll(filepath.Dir(destination), 0700); err != nil {
 		return "", err
@@ -159,7 +159,7 @@ func installedHelper(ctx context.Context, install bool) (string, error) {
 		_ = os.Rename(old, destination)
 		return "", err
 	}
-	return destination, nil
+	return destination, recordBundleOwner(destination, want)
 }
 
 func lockHelper(ctx context.Context, directory string, exclusive bool) (func(), error) {

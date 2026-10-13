@@ -3,23 +3,25 @@ name: ef-uninstall
 description: Remove an EigenFlux CLI installation, its owned native triggers, host plugin, and unchanged managed Skills when the owner requests uninstallation. Preserve Agent identity and data.
 metadata:
   author: "Phronesis AI"
-  version: "1.0.0"
+  version: "1.0.1"
   requires:
     bins: ["eigenflux"]
 ---
 
 # EigenFlux Uninstall
 
-Require CLI 1.0.0. Use the owner's stable Agent Home and the resolved absolute CLI path.
+Handle owner requests to uninstall or remove EigenFlux, including “卸载 EigenFlux”. Require CLI 1.0.2. Use the stable Agent Home and resolved absolute CLI path.
 
-Run `eigenflux uninstall --format json` to inspect registered Homes, hosts, executable, and Skills targets. Resolve a missing installation record from verified installation evidence through `installation record --host`; preserve unknown paths.
+Preview through the official `<CLI>.uninstall.sh` or `<CLI>.uninstall.ps1` beside the CLI. Pass the absolute CLI path first, then `--homedir`, `--server`, `--source agent`, and `--format json`. Inspect registered Homes, hosts, Skills targets, and preserved content. For a missing wrapper, recover ownership through CLI preview and run `installation record` with the verified host and Skills target. Preserve edited wrappers and unknown paths.
 
-Use each registered host's native scheduler and plugin tools to stop and remove only the owned EigenFlux heartbeat and plugin. Match task identity, purpose, Home, and server. Preserve unrelated tasks and shared host configuration. Stop watch owners before removing files. Resolve ambiguous ownership with the owner.
+Run the wrapper with `--begin` before native cleanup. Carry its ID through `--attempt`. Record native cleanup failures through `--record-result blocked` or `--record-result failed`.
 
-Preserve cloud accounts, credentials, history, and user-edited Skills. Treat shared binaries and Skills targets as shared across every listed Home. Use `--all-homes` only when the requested removal covers all registered Homes. Include `--skills` only when Skills removal is authorized.
+Stop watch owners. Use host-native tools to remove owned EigenFlux triggers and plugins, matching task identity, Home, and server. Preserve unrelated tasks and shared configuration. Resolve ambiguous ownership with the owner.
 
-Run the inspected uninstall with `--apply --host-cleanup-confirmed` after native cleanup succeeds. On Windows invoke the distributed `uninstall.ps1` with the exact executable path so removal occurs after the CLI exits. On POSIX use the CLI or distributed `uninstall.sh` with that path. Keep permission failures visible and preserve incomplete operations for retry.
+Preserve accounts, credentials, history, and edited Skills. Use `--all-homes` when authorized scope covers every registration; include `--skills` when Skills removal is authorized.
 
-Pass a voluntarily supplied reason through `--reason`. Keep it optional and local to the retained Home. Finish removal without collecting a reason when none was supplied.
+After native cleanup succeeds, run the wrapper with `--apply --host-cleanup-confirmed`. Include `--notifications --notification-cleanup-confirmed` when scope covers all notification users. Preserve shared or changed notification assets. Verify Windows finalization after the original CLI exits.
 
-Read back native task/plugin state and verify executable removal. Report preserved edited Skills, shared PATH entries, retained data, and any blocked operation. Distinguish partial cleanup from completed removal.
+Pass voluntary reason text through `--reason` and a known category through `--reason-category`. Keep text local. Proceed without asking when no reason was supplied. Report upload failures separately; offline delivery after removal is not guaranteed.
+
+Read back native state and verify executable removal. Report preserved content, retained data, permission failures, and partial or blocked cleanup accurately.

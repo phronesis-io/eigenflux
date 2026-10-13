@@ -54,6 +54,45 @@ func TestQueueBoundedIsolatedAndReplaySafe(t *testing.T) {
 	}
 }
 
+func TestUninstallFlushBypassesUnrelatedBacklogAndBackoff(t *testing.T) {
+	scope := Scope{Home: t.TempDir(), Server: "test", AgentID: "42"}
+	for i := 0; i < 55; i++ {
+		if err := Record(scope, NewEvent(NewID(), "cli", "auto", "check", "started")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+	_ = Flush(scope, now, func([]Event) error { return errors.New("offline") })
+	attempt := NewID()
+	for _, result := range []string{"started", "removed"} {
+		e := NewEvent(attempt, "cli", "manual", "uninstall", result)
+		e.Source, e.Platform, e.ReasonCategory = "agent", "windows", "not_provided"
+		if err := Record(scope, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := FlushUninstall(scope, now, attempt, func(events []Event) error {
+		if len(events) != 2 {
+			t.Fatalf("uninstall blocked by old backlog: %d", len(events))
+		}
+		for _, e := range events {
+			if e.AttemptID != attempt || e.Phase != "uninstall" {
+				t.Fatal("unrelated history uploaded")
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	state, err := Snapshot(scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Events) != 55 {
+		t.Fatalf("unrelated history lost: %d", len(state.Events))
+	}
+}
+
 func TestQueueConcurrentRecordAndFlushPreservesNewEvents(t *testing.T) {
 	s := Scope{Home: t.TempDir(), Server: "server", AgentID: "42"}
 	first := NewEvent(NewID(), "skills", "auto", "install", "installed")

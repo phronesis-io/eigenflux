@@ -7,11 +7,16 @@ on:
       - 'cli/internal/profilestate/**'
       - 'cli/internal/client/**'
       - 'cli/internal/config/**'
+      - 'cli/internal/maintenance/**'
+      - 'cli/internal/uninstallscript/**'
+      - 'cli/internal/desktopnotify/**'
       - 'cli/cmd/**'
       - 'cli/scripts/build.ps1'
       - 'cli/.cli.config'
       - 'skills/**'
       - 'static/install.sh'
+      - 'static/uninstall.sh'
+      - 'static/uninstall.ps1'
       - 'tests/cli_release/**'
       - 'tests/installer_release/**'
       - 'scripts/release/publish-installer.py'
@@ -30,11 +35,16 @@ on:
       - 'cli/internal/profilestate/**'
       - 'cli/internal/client/**'
       - 'cli/internal/config/**'
+      - 'cli/internal/maintenance/**'
+      - 'cli/internal/uninstallscript/**'
+      - 'cli/internal/desktopnotify/**'
       - 'cli/cmd/**'
       - 'cli/scripts/build.ps1'
       - 'cli/.cli.config'
       - 'skills/**'
       - 'static/install.sh'
+      - 'static/uninstall.sh'
+      - 'static/uninstall.ps1'
       - 'tests/cli_release/**'
       - 'tests/installer_release/**'
       - 'scripts/release/publish-installer.py'
@@ -70,7 +80,7 @@ jobs:
       - name: Test identity and credential storage
         run: go test ./internal/auth -count=1
       - name: Test runtime identity persistence and automatic reporting
-        run: go test -count=1 ./internal/profilestate ./internal/client ./internal/config ./cmd
+        run: go test -count=1 ./internal/profilestate ./internal/client ./internal/config ./internal/maintenance ./internal/uninstallscript ./internal/desktopnotify ./cmd
       - name: Test signed Skills installation and upgrade compatibility
         if: runner.os == 'Linux'
         run: go test ./tests

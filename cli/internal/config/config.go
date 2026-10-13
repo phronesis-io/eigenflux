@@ -39,6 +39,14 @@ func SetHomeDir(dir string) {
 	homeDirOverride = dir
 }
 
+// UseHomeDir temporarily selects a Home without changing how future invocations
+// resolve flags, environment and defaults after the returned restore is called.
+func UseHomeDir(dir string) func() {
+	previous := homeDirOverride
+	homeDirOverride = dir
+	return func() { homeDirOverride = previous }
+}
+
 func HomeDir() string {
 	dir, _ := HomeDirInfo()
 	return dir

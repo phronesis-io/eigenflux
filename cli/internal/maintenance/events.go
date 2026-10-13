@@ -38,6 +38,9 @@ type Event struct {
 	RunningVersion string `json:"running_version,omitempty"`
 	ErrorCode      string `json:"error_code,omitempty"`
 	DurationMS     int64  `json:"duration_ms,omitempty"`
+	Source         string `json:"source,omitempty"`
+	Platform       string `json:"platform,omitempty"`
+	ReasonCategory string `json:"reason_category,omitempty"`
 }
 
 type State struct {
@@ -64,6 +67,24 @@ func NewEvent(attempt, component, trigger, phase, result string) Event {
 func Validate(e Event) error {
 	if !idValue.MatchString(e.EventID) || !idValue.MatchString(e.AttemptID) {
 		return errors.New("invalid maintenance identity")
+	}
+	if e.Phase == "uninstall" {
+		if !contains([]string{"cli", "skills", "plugin", "scheduler", "notifier"}, e.Component) || e.Trigger != "manual" || !contains([]string{"started", "removed", "partial", "failed", "blocked"}, e.Result) {
+			return errors.New("invalid uninstall category")
+		}
+		if !contains([]string{"agent", "manual"}, e.Source) || !contains([]string{"darwin", "windows", "linux"}, e.Platform) || !contains([]string{"not_provided", "other", "usability", "cost", "performance", "privacy", "no_longer_needed"}, e.ReasonCategory) {
+			return errors.New("invalid uninstall metadata")
+		}
+		if !safeValue.MatchString(e.Host) || !safeValue.MatchString(e.FromVersion) || !safeValue.MatchString(e.ErrorCode) || e.DurationMS < 0 || e.DurationMS > int64(24*time.Hour/time.Millisecond) || e.Mode != "" && e.Mode != "skill" && e.Mode != "plugin" {
+			return errors.New("invalid uninstall observation")
+		}
+		if e.ToVersion != "" || e.RunningVersion != "" {
+			return errors.New("uninstall cannot claim runtime adoption")
+		}
+		return nil
+	}
+	if e.Source != "" || e.Platform != "" || e.ReasonCategory != "" {
+		return errors.New("uninstall metadata requires uninstall phase")
 	}
 	if !contains([]string{"cli", "skills", "plugin", "scheduler"}, e.Component) || !contains([]string{"auto", "manual", "adoption"}, e.Trigger) {
 		return errors.New("invalid maintenance component or trigger")
@@ -252,16 +273,33 @@ func MarkAttempt(s Scope, now time.Time) error {
 // Flush sends at most one batch. Network work is outside the state lock; stable
 // event IDs make overlapping flushes harmless. Only acknowledged IDs are removed.
 func Flush(s Scope, now time.Time, send func([]Event) error) error {
+	return flush(s, now, "", send)
+}
+
+// FlushUninstall prioritizes the current physical attempt before the CLI leaves.
+// It does not drain unrelated history or inherit automatic-maintenance backoff.
+func FlushUninstall(s Scope, now time.Time, attempt string, send func([]Event) error) error {
+	if !idValue.MatchString(attempt) {
+		return errors.New("invalid uninstall flush attempt")
+	}
+	return flush(s, now, attempt, send)
+}
+
+func flush(s Scope, now time.Time, uninstallAttempt string, send func([]Event) error) error {
 	var batch []Event
 	if err := update(s, func(st *State) error {
-		if now.UnixMilli() < st.NextFlush {
+		if uninstallAttempt == "" && now.UnixMilli() < st.NextFlush {
 			return nil
 		}
-		n := len(st.Events)
-		if n > 50 {
-			n = 50
+		for _, event := range st.Events {
+			if uninstallAttempt != "" && (event.Phase != "uninstall" || event.AttemptID != uninstallAttempt) {
+				continue
+			}
+			batch = append(batch, event)
+			if len(batch) == 50 {
+				break
+			}
 		}
-		batch = append(batch, st.Events[:n]...)
 		return nil
 	}); err != nil {
 		return err
