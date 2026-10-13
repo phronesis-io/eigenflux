@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode"
 
 	"cli.eigenflux.ai/internal/desktopqueue"
 	"cli.eigenflux.ai/internal/dispatch"
@@ -46,7 +47,7 @@ func TestDesktopAllStagesAndSameVersionReminder(t *testing.T) {
 	states := []string{"preparing_materials", "awaiting_seller", "pending_payment", "in_progress", "validating", "awaiting_buyer_confirmation", "completed", "cancelled", "refund_pending", "refunded"}
 	for _, state := range states {
 		raw := strings.ReplaceAll(string(commissionTestNotification(81, 9007199254740995, "42")), "in_progress", state)
-		m, err := commissionDesktopMessage(json.RawMessage(raw), "https://example.com", "42")
+		m, err := commissionDesktopMessage(json.RawMessage(raw), "https://example.com", "42", "zh")
 		if err != nil || strings.Contains(m.Title, "订单已更新") {
 			t.Fatalf("%s: %v %s", state, err, m.Title)
 		}
@@ -55,14 +56,78 @@ func TestDesktopAllStagesAndSameVersionReminder(t *testing.T) {
 		}
 	}
 	raw := strings.ReplaceAll(string(commissionTestNotification(82, 9007199254740995, "42")), "order.state.changed.v1", "order.reminder.buyer_confirmation_24h.v1")
-	m, err := commissionDesktopMessage(json.RawMessage(raw), "https://example.com", "42")
+	m, err := commissionDesktopMessage(json.RawMessage(raw), "https://example.com", "42", "zh")
 	if err != nil || m.ID != "commission:82" || !strings.Contains(m.Title, "及时确认") {
 		t.Fatal(m, err)
 	}
-	if _, err := commissionDesktopMessage(commissionTestNotification(1, 2, "43"), "https://example.com", "42"); err == nil {
+	if _, err := commissionDesktopMessage(commissionTestNotification(1, 2, "43"), "https://example.com", "42", "zh"); err == nil {
 		t.Fatal("accepted wrong recipient")
 	}
 }
+
+func TestDesktopCopyUsesOneLanguageAndPreservesRouting(t *testing.T) {
+	states := []string{"awaiting_payment", "pending_payment", "awaiting_materials", "preparing_materials", "awaiting_seller", "in_progress", "validating", "delivered", "awaiting_buyer_confirmation", "completed", "cancelled", "rejected", "expired", "refunding", "refund_pending", "refunded", "future_state"}
+	for _, language := range []string{"en", "fr", "ja", ""} {
+		for _, state := range states {
+			raw := strings.ReplaceAll(string(commissionTestNotification(81, 901, "42")), "in_progress", state)
+			message, err := commissionDesktopMessage(json.RawMessage(raw), "https://example.com", "42", language)
+			if err != nil || !strings.HasPrefix(message.Title, "Commission · ") || message.Body != "Seller · Order 901 · Account 42" {
+				t.Fatalf("%s/%s: %+v %v", language, state, message, err)
+			}
+			for _, r := range message.Title + message.Body {
+				if unicode.Is(unicode.Han, r) {
+					t.Fatalf("mixed-language notification: %+v", message)
+				}
+			}
+			chinese, err := commissionDesktopMessage(json.RawMessage(raw), "https://example.com", "42", "zh")
+			if err != nil || !strings.HasPrefix(chinese.Title, "任务委托 · ") || chinese.Body != "卖方 · 订单 901 · 账号 42" || chinese.ID != message.ID || chinese.URL != message.URL {
+				t.Fatalf("localization changed routing: %+v %+v %v", chinese, message, err)
+			}
+		}
+	}
+	for _, tc := range commissionResultTextCases {
+		raw := commissionResultTestNotification(t, 81, 901, "42", tc.kind, tc.state)
+		message, err := commissionDesktopMessage(raw, "https://example.com", "42", "en")
+		if err != nil || message.Title != "Commission · "+tc.en || message.Body != "Seller · Order 901 · Account 42" {
+			t.Fatalf("result notification: %+v %v", message, err)
+		}
+	}
+	for _, tt := range []struct{ kind, command, state, summary string }{
+		{"order.reminder.buyer_confirmation_24h.v1", "", "awaiting_buyer_confirmation", "Please confirm the delivery before the deadline"},
+		{"order.state.changed.v1", "reject_order", "cancelled", "Seller declined the order"},
+	} {
+		var fact desktopOrderFact
+		if err := json.Unmarshal(commissionTestNotification(81, 901, "42"), &fact); err != nil {
+			t.Fatal(err)
+		}
+		fact.Type, fact.Payload.CommandKind, fact.Payload.ToState, fact.Payload.RecipientRole = tt.kind, tt.command, tt.state, "buyer"
+		raw, _ := json.Marshal(fact)
+		message, err := commissionDesktopMessage(raw, "https://example.com", "42", "en")
+		if err != nil || message.Title != "Commission · "+tt.summary || message.Body != "Buyer · Order 901 · Account 42" {
+			t.Fatalf("buyer notification: %+v %v", message, err)
+		}
+	}
+}
+
+func TestDesktopBlockerLanguages(t *testing.T) {
+	for _, tt := range []struct{ status, zh, en string }{
+		{"needs_user", "需要你处理", "Your action is required"},
+		{"failed", "自动处理失败", "Automatic processing failed"},
+		{"unknown", "处理结果需要核对", "Processing result needs review"},
+	} {
+		for _, language := range []string{"zh", "en", "fr", ""} {
+			title, body := desktopBlockerText(language, tt.status, "901")
+			wantTitle, wantBody := "Commission · "+tt.en, "Order 901 · Open the Console to review, or check the background activity log."
+			if language == "zh" {
+				wantTitle, wantBody = "任务委托 · "+tt.zh, "订单 901 · 请打开控制台核对，或查看外循环处理记录。"
+			}
+			if title != wantTitle || body != wantBody {
+				t.Fatalf("%s/%s: %s / %s", language, tt.status, title, body)
+			}
+		}
+	}
+}
+
 func TestDesktopPersistedBeforeACKAndDedupAcrossTransports(t *testing.T) {
 	var w *accountWatch
 	path := filepath.Join(t.TempDir(), "desktop.json")
@@ -139,7 +204,8 @@ func TestDesktopLocalBlockerRecoveredOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry, ok := w.desktop.Next(time.Now())
-	if !ok || !strings.Contains(entry.Message.Title, "需要你处理") {
+	wantTitle, _ := desktopBlockerText(desktopnotify.SystemLanguage(), "needs_user", "901")
+	if !ok || entry.Message.Title != wantTitle {
 		t.Fatal(entry)
 	}
 	if pending, _ := w.desktop.Counts(); pending != 1 {

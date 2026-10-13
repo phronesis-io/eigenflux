@@ -25,7 +25,7 @@ func newNotifyCommand() *cobra.Command {
 	}}
 	test := &cobra.Command{Use: "test", Short: "Send a test notification that opens a specified safe URL", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		target, _ := cmd.Flags().GetString("url")
-		message := desktopnotify.Message{ID: fmt.Sprintf("test:%d", time.Now().UnixNano()), Title: "EigenFlux 通知测试", Body: "点击这条通知，验证浏览器能否打开指定页面。", URL: target}
+		message := notificationTestMessage(desktopnotify.SystemLanguage(), fmt.Sprintf("test:%d", time.Now().UnixNano()), target)
 		if err := desktopnotify.Validate(message); err != nil {
 			return err
 		}
@@ -43,4 +43,13 @@ func newNotifyCommand() *cobra.Command {
 	root.AddCommand(setup, status, test)
 	return root
 }
+
+func notificationTestMessage(language, id, target string) desktopnotify.Message {
+	title, body := "EigenFlux notification test", "Click this notification to check that your browser opens the specified page."
+	if language == "zh" {
+		title, body = "EigenFlux 通知测试", "点击这条通知，验证浏览器能否打开指定页面。"
+	}
+	return desktopnotify.Message{ID: id, Title: title, Body: body, URL: target}
+}
+
 func init() { rootCmd.AddCommand(newNotifyCommand()) }

@@ -70,6 +70,11 @@ notification ID. Terminal and desktop use the same fixed text resolver:
 recognized `payload.event_kind`, then envelope `type`, then order state. Seller
 rejection uses `command_kind=reject_order`. Wallet credit does not mean withdrawal.
 
+Desktop copy follows the current user's first OS UI language: Chinese variants
+use Simplified Chinese; other languages or detection failures use English.
+Restart watch after changing OS language; already queued messages keep their
+text. Detection and native boundaries live in `desktopnotify/README.md`.
+
 `Next` excludes both Commission kinds; `NextKind` serializes their separate workers. Buyer notifications are recorded without invoking a seller Agent. The worker re-reads seller identity, order state, frozen contract and fulfillment Skill. Only `awaiting_seller`, `pending_payment` and `in_progress` allow inspection. Read-only preparation and execution share a local 180-second ceiling, excluding queue time; the host's shorter timeout still applies.
 
 Official dispatch rules must be signed manifest members, read through `skills.ReadSignedFile`; third-party fulfillment Skills remain explicitly bound local content. Fetch the authenticated V2 order-detail input manifest, then each immutable snapshot/path grant using pinned credentials. Check manifest role/version/buyer, SHA-256 and byte count before passing local files to the Agent. Inputs use their own snapshot IDs, not the current order snapshot. Bound downloads to 128 files / 64 MiB total; keep URLs and credentials out of prompts. The public endpoint requires the exact GET detail Caddy route.

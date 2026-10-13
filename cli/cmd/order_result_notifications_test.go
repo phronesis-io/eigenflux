@@ -75,7 +75,7 @@ func TestCommissionResultNotificationTextSharedByTerminalAndDesktop(t *testing.T
 					t.Fatalf("event_kind priority: %s", got)
 				}
 			}
-			message, err := commissionDesktopMessage(raw, "https://example.com", "9007199254740997")
+			message, err := commissionDesktopMessage(raw, "https://example.com", "9007199254740997", "zh")
 			if err != nil || message.Title != "任务委托 · "+tc.zh || strings.Contains(message.Body, "secret") {
 				t.Fatalf("unexpected desktop text: %+v %v", message, err)
 			}
@@ -83,7 +83,7 @@ func TestCommissionResultNotificationTextSharedByTerminalAndDesktop(t *testing.T
 			if target.Query().Get("agent_id") != "9007199254740997" || target.Query().Get("order_id") != "9007199254740995" || target.Query().Get("role") != "seller" {
 				t.Fatal("lost account/order identity", message.URL)
 			}
-			if _, err := commissionDesktopMessage(raw, "https://example.com", "9007199254740998"); err == nil {
+			if _, err := commissionDesktopMessage(raw, "https://example.com", "9007199254740998", "zh"); err == nil {
 				t.Fatal("result notice crossed accounts")
 			}
 		})

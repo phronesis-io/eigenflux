@@ -54,7 +54,7 @@ type desktopOrderFact struct {
 	} `json:"payload"`
 }
 
-func commissionDesktopMessage(raw json.RawMessage, endpoint, agentID string) (desktopnotify.Message, error) {
+func commissionDesktopMessage(raw json.RawMessage, endpoint, agentID, language string) (desktopnotify.Message, error) {
 	var fact desktopOrderFact
 	if json.Unmarshal(raw, &fact) != nil || fact.ID <= 0 || fact.Source != "commission_order" || strconv.FormatInt(int64(fact.Payload.AgentID), 10) != agentID {
 		return desktopnotify.Message{}, errors.New("invalid_desktop_commission_identity")
@@ -65,8 +65,12 @@ func commissionDesktopMessage(raw json.RawMessage, endpoint, agentID string) (de
 	if err != nil {
 		return desktopnotify.Message{}, err
 	}
-	role, summary := localizedOrderNotificationText("zh", fact.Type, p.orderNotificationPayload)
-	return desktopnotify.Message{ID: "commission:" + strconv.FormatInt(int64(fact.ID), 10), Title: "任务委托 · " + summary, Body: fmt.Sprintf("%s · 订单 %s · 账号 %s", role, orderID, agentID), URL: target}, nil
+	role, summary := localizedOrderNotificationText(language, fact.Type, p.orderNotificationPayload)
+	title, body := "Commission · "+summary, fmt.Sprintf("%s · Order %s · Account %s", role, orderID, agentID)
+	if language == "zh" {
+		title, body = "任务委托 · "+summary, fmt.Sprintf("%s · 订单 %s · 账号 %s", role, orderID, agentID)
+	}
+	return desktopnotify.Message{ID: "commission:" + strconv.FormatInt(int64(fact.ID), 10), Title: title, Body: body, URL: target}, nil
 }
 func (w *accountWatch) enableDesktop() error {
 	if !w.receivesCommission() {
@@ -88,7 +92,7 @@ func (w *accountWatch) enqueueDesktopCommission(raw json.RawMessage) error {
 	if w.desktop == nil {
 		return nil
 	}
-	m, err := commissionDesktopMessage(raw, w.server.Endpoint, w.identity.AgentID)
+	m, err := commissionDesktopMessage(raw, w.server.Endpoint, w.identity.AgentID, desktopnotify.SystemLanguage())
 	if err != nil {
 		return err
 	}
@@ -112,14 +116,24 @@ func (w *accountWatch) enqueueDesktopBlockers() error {
 			return err
 		}
 		sum := sha256.Sum256([]byte(w.scope + ":" + job.ID + ":" + job.Status + ":" + job.Code))
-		summary := map[string]string{"needs_user": "需要你处理", "failed": "自动处理失败", "unknown": "处理结果需要核对"}[job.Status]
-		m := desktopnotify.Message{ID: "local:" + hex.EncodeToString(sum[:]), Title: "任务委托 · " + summary, Body: "订单 " + orderID + " · 请打开控制台核对，或查看外循环处理记录。", URL: target}
+		title, body := desktopBlockerText(desktopnotify.SystemLanguage(), job.Status, orderID)
+		m := desktopnotify.Message{ID: "local:" + hex.EncodeToString(sum[:]), Title: title, Body: body, URL: target}
 		if err := w.desktop.Enqueue(m); err != nil {
 			return err
 		}
 	}
 	return nil
 }
+
+func desktopBlockerText(language, status, orderID string) (string, string) {
+	if language == "zh" {
+		summary := map[string]string{"needs_user": "需要你处理", "failed": "自动处理失败", "unknown": "处理结果需要核对"}[status]
+		return "任务委托 · " + summary, "订单 " + orderID + " · 请打开控制台核对，或查看外循环处理记录。"
+	}
+	summary := map[string]string{"needs_user": "Your action is required", "failed": "Automatic processing failed", "unknown": "Processing result needs review"}[status]
+	return "Commission · " + summary, "Order " + orderID + " · Open the Console to review, or check the background activity log."
+}
+
 func (w *accountWatch) desktopLoop(ctx context.Context) error {
 	if w.desktopDisabledReason != "" {
 		return w.emit("desktop_notification_status", map[string]string{"status": "unavailable", "code": w.desktopDisabledReason})

@@ -20,6 +20,16 @@ Wallet credit means platform balance, not withdrawal. These notices do not call
 Agents or initiate money operations. Keep account/notification-ID queue dedup
 and persistence before ACK separate from order-execution dedup.
 
+`SystemLanguage` selects copy from the current user's first preferred OS UI
+language: `AppleLanguages` on macOS (a bounded two-second `defaults` read),
+`GetUserPreferredUILanguages` on Windows. Any `zh` variant uses Simplified
+Chinese; other languages, missing settings and read failures use English.
+Ignore later preferences, terminal locale variables and CLI `--lang`. Cache the
+result once per process; restart watch after changing OS language. Commission,
+local blocker and test titles/bodies use this rule when created. Already queued
+messages keep their original text. Terminal output keeps its existing language
+selection. OS-owned permission dialogs remain controlled by the operating system.
+
 ## macOS 11+
 
 `macos/` is a Swift AppKit application using `UNUserNotificationCenter`. It

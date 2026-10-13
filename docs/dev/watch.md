@@ -100,6 +100,11 @@ their own order stages and reminders. Notifications do not invoke an Agent or
 inject work into the active conversation. Use `--desktop-notifications=false`
 to disable this sink without changing order processing.
 
+Desktop titles and bodies follow the current user's first OS UI language.
+Chinese variants use Simplified Chinese; other languages or detection failures
+use English. Restart watch after changing OS language. Already queued messages
+keep their text; OS-owned permission dialogs follow the OS independently.
+
 `notify setup` installs the per-user integration and requests OS permission;
 `notify status` checks it, and `notify test --url <https-url>` checks submission
 and click-through. macOS requires the helper app included in the CLI bundle.
