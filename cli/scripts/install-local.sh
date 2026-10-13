@@ -3,12 +3,38 @@ set -e
 
 # ============================================================
 # install-local.sh - Build and install eigenflux CLI locally
-# Usage: ./cli/scripts/install-local.sh
+# Usage: ./cli/scripts/install-local.sh [--watch-launch-agent /absolute/path.plist]
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "$0")"; pwd)"
 CLI_DIR="$(cd "$SCRIPT_DIR/.."; pwd)"
 PROJECT_ROOT="$(cd "$CLI_DIR/.."; pwd)"
+INSTALL_OS="$(uname -s)"
+WATCH_LAUNCH_AGENT=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --watch-launch-agent)
+      if [[ $# -lt 2 || -z "$2" || "$2" == --* || -n "$WATCH_LAUNCH_AGENT" ]]; then
+        echo "--watch-launch-agent requires exactly one existing absolute plist path." >&2
+        exit 2
+      fi
+      WATCH_LAUNCH_AGENT="$2"
+      shift 2
+      ;;
+    *)
+      echo "Usage: $0 [--watch-launch-agent /absolute/path.plist]" >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -n "$WATCH_LAUNCH_AGENT" ]]; then
+  if [[ "$INSTALL_OS" != Darwin || "$WATCH_LAUNCH_AGENT" != /* || "$WATCH_LAUNCH_AGENT" != *.plist || ! -f "$WATCH_LAUNCH_AGENT" || ! -r "$WATCH_LAUNCH_AGENT" || -L "$WATCH_LAUNCH_AGENT" || "$(dirname "$WATCH_LAUNCH_AGENT")" != "$HOME/Library/LaunchAgents" ]]; then
+    echo "--watch-launch-agent requires a readable regular .plist in this macOS user's ~/Library/LaunchAgents directory." >&2
+    exit 2
+  fi
+fi
 
 source "$CLI_DIR/.cli.config"
 [[ -f "$CLI_DIR/.cli.env" ]] && source "$CLI_DIR/.cli.env"
@@ -25,7 +51,6 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 INSTALL_DIR="$HOME/.local/bin"
-INSTALL_OS="$(uname -s)"
 BUILD_STAGE=""
 INSTALL_STAGE=""
 HELPER_REPLACED=0
@@ -203,8 +228,23 @@ setup_notifications() {
 build_and_install_cli
 install_skills
 post_install
-echo "Restart any existing watch using its original Agent Home, server and arguments to load this build."
-setup_notifications
+POST_INSTALL_FAILED=0
+if ! setup_notifications; then
+  POST_INSTALL_FAILED=1
+fi
+if [[ -n "$WATCH_LAUNCH_AGENT" ]]; then
+  echo "Restarting the specified watch LaunchAgent with its existing configuration."
+  if ! "$INSTALL_DIR/eigenflux" watch restart --launch-agent "$WATCH_LAUNCH_AGENT"; then
+    echo "CLI and Skills are installed, but watch restart failed; inspect the error above." >&2
+    printf 'Retry: %q watch restart --launch-agent %q\n' "$INSTALL_DIR/eigenflux" "$WATCH_LAUNCH_AGENT" >&2
+    POST_INSTALL_FAILED=1
+  fi
+else
+  echo "Restart any existing watch using its original Agent Home, server and arguments to load this build."
+fi
+if [[ "$POST_INSTALL_FAILED" == 1 ]]; then
+  exit 1
+fi
 
 echo
 if [ -t 1 ]; then

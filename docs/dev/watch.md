@@ -57,6 +57,41 @@ bounded reconnection. Credential lock waits and refresh requests are cancellable
 Runtime adoption is recorded only after PM and Runtime readiness; a separate,
 bounded worker retries queued maintenance observations without blocking leases.
 
+## Restart an existing background watch
+
+CLI 1.0.3 adds `watch restart`. Update the existing task's wrapper/package paths, then invoke the new CLI from
+a separate foreground session. Keep its original account, server and environment.
+On macOS use the signed-in desktop user, without sudo:
+
+```sh
+./eigenflux watch restart --launch-agent "$HOME/Library/LaunchAgents/ai.eigenflux.jax.watch-test.plist"
+```
+
+The plist must already exist in that user's LaunchAgents directory. An unloaded
+task is loaded; a loaded task is stopped and reloaded to apply changed arguments.
+The command preserves its wrapper, including any paired `test-source` startup.
+It does not copy a workspace plist or repair its paths automatically.
+
+On Windows, select the exact existing interactive current-user task:
+
+```powershell
+.\Run-Test.ps1 watch restart --scheduled-task '\EigenFlux\watch-test'
+```
+
+Neither command creates a service, enables a disabled task, or selects an account
+from CLI Home/server flags. Use the actual task path for the intended account.
+`process_started` confirms three seconds of stable OS process/instance state;
+`runtime_verified:false` requires checking fresh `runtime_ready` in watch logs
+with the expected `cli_commit` and new watch `pid` (a wrapper PID may differ),
+and an actual message separately. Notification `ready` is a separate check.
+Reload/start errors return nonzero; inspect the task's existing stderr log.
+
+For source installation, `bash cli/scripts/install-local.sh --watch-launch-agent
+<absolute-plist-path>` calls the same restart after updating CLI/Skills, even if
+notification permission is denied. Without this option, installation still
+requires explicit restart. A stopped process cannot recover its own unloaded
+OS task; the upgrade procedure must invoke this step.
+
 ## Desktop order notifications
 
 On macOS and Windows, `watch --dispatch` enables desktop notifications for

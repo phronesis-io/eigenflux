@@ -220,7 +220,7 @@ func (w *accountWatch) run(parent context.Context, out io.Writer) error {
 }
 
 func (w *accountWatch) runtimeData() map[string]interface{} {
-	return map[string]interface{}{"cli_version": version, "home": w.home, "server": w.server.Name, "agent_id": w.identity.AgentID, "principal_id": w.identity.PrincipalID, "pm_connected": w.wsOnline.Load(), "runtime_connected": w.runtimeOnline.Load()}
+	return map[string]interface{}{"cli_version": version, "cli_commit": commit, "pid": os.Getpid(), "home": w.home, "server": w.server.Name, "agent_id": w.identity.AgentID, "principal_id": w.identity.PrincipalID, "pm_connected": w.wsOnline.Load(), "runtime_connected": w.runtimeOnline.Load()}
 }
 func (w *accountWatch) reportReady() {
 	if (!w.receivesPM() || w.wsOnline.Load()) && w.runtimeOnline.Load() && w.ready.CompareAndSwap(false, true) {

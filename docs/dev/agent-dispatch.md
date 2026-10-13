@@ -87,6 +87,10 @@ run `./eigenflux notify setup` and `./eigenflux notify status` before testing or
 notifications. Packaging and Skills sync do not request permission. After an
 update, restart watch with the same Home/server and dispatch arguments. If
 previously denied, enable EigenFlux in System Settings > Notifications.
+When replacing a package used by a background watch, update that task's wrapper
+path and finish with `watch restart --launch-agent <plist>` on macOS or
+`watch restart --scheduled-task <task-path>` on Windows. Preserve its account
+environment and paired local source; verify fresh `runtime_ready` after restart.
 
 ## Acceptance and limits
 

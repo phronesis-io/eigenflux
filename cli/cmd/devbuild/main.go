@@ -165,8 +165,12 @@ func run() error {
 		}
 		instructions := "TEST ONLY. This CLI trusts only its paired local Skills/CDN. Do not install it over a production CLI. Run-Test.ps1 uses isolated state and does not change PATH. Private signing keys are not included.\n"
 		if parts[0] == "darwin" {
-			instructions += "macOS: keep EigenFlux Notifications.app beside the real eigenflux executable. From this directory, run ./eigenflux notify setup, then ./eigenflux notify status. Building or syncing Skills alone does not request permission. macOS prompts only on first request; if denied, enable EigenFlux in System Settings > Notifications. Restart an existing watch with its original account parameters after updating.\n"
+			instructions += "macOS: keep EigenFlux Notifications.app beside the real eigenflux executable. From this directory, run ./eigenflux notify setup, then ./eigenflux notify status. Building or syncing Skills alone does not request permission. macOS prompts only on first request; if denied, enable EigenFlux in System Settings > Notifications. After updating the existing wrapper to this complete package, run ./eigenflux watch restart --launch-agent <absolute-plist-path-in-your-Library/LaunchAgents>. Run from a separate foreground session; preserve the original account parameters.\n"
 		}
+		if parts[0] == "windows" {
+			instructions += "After updating the existing watch task/wrapper to this complete package, run .\\Run-Test.ps1 watch restart --scheduled-task <exact-existing-task-path> from a separate foreground session. The task must run as the current interactive user without elevation.\n"
+		}
+		instructions += "Restart reports process_started with runtime_verified:false. Confirm a fresh runtime_ready in watch logs, notification status, and an actual message separately. Building or syncing Skills alone never restarts a background task.\n"
 		if err := writeFile(filepath.Join(*out, "TEST-ONLY.txt"), []byte(instructions)); err != nil {
 			return err
 		}
@@ -185,9 +189,10 @@ func run() error {
 	fmt.Printf("Built %s\nZIP: %s.zip\n", binary, *out)
 	if *testBundle && parts[0] == "windows" {
 		fmt.Println("PowerShell: .\\Run-Test.ps1 version; .\\Run-Test.ps1 skills sync; .\\Run-Test.ps1 heartbeat plan")
+		fmt.Println("After updating the existing background task's package path: .\\Run-Test.ps1 watch restart --scheduled-task <exact-existing-task-path>. Check a fresh runtime_ready in watch logs.")
 	}
 	if parts[0] == "darwin" {
-		fmt.Println("macOS: from the output directory, run ./eigenflux notify setup, then ./eigenflux notify status. Keep EigenFlux Notifications.app beside the CLI; restart an existing watch with its original account parameters.")
+		fmt.Println("macOS: from the output directory, run ./eigenflux notify setup, then ./eigenflux notify status. Keep EigenFlux Notifications.app beside the CLI. After updating the existing wrapper's package path, run ./eigenflux watch restart --launch-agent <absolute-plist-path> from a separate foreground session.")
 	}
 	return nil
 }

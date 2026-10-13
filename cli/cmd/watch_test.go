@@ -105,6 +105,12 @@ func TestWatchTransportsReadyAndCancellation(t *testing.T) {
 					t.Fatalf("socket source missing: %#v", e.Data)
 				}
 			}
+			if e.Type == "started" || e.Type == "runtime_ready" {
+				data, ok := e.Data.(map[string]interface{})
+				if !ok || data["pid"] != float64(os.Getpid()) || data["cli_commit"] != commit || data["cli_version"] != version {
+					t.Fatalf("running build identity missing: %#v", e.Data)
+				}
+			}
 			seen[e.Type] = true
 		case <-ctx.Done():
 			t.Fatalf("missing events: %v", seen)

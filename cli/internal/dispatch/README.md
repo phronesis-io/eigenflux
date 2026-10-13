@@ -9,6 +9,7 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 |---|---|
 | [watch.go](../../cmd/watch.go) | `accountWatch.run`, `pmLoop`, `deliverPM`: account lock, WS/SSE, heartbeat, event lifecycle |
 | [watch_binding.go](../../cmd/watch_binding.go) | Bind/doctor/status/retry/reconcile; `applyDispatchOwnership` |
+| [watch_restart.go](../../cmd/watch_restart.go), [watch service](../watchservice/README.md) | Restart an explicit existing OS task; preserve its account/wrapper; distinguish process startup from runtime readiness |
 | [watch_commission.go](../../cmd/watch_commission.go) | Commission notification intake, durable enqueue before ACK, bounded HTTP reconciliation |
 | [watch_commission_intake.go](../../cmd/watch_commission_intake.go), [watch_commission_materials.go](../../cmd/watch_commission_materials.go) | Seller inspection, fixed identity/order/Skill, verified downloads, atomic paid-work enqueue |
 | [watch_commission_fulfillment.go](../../cmd/watch_commission_fulfillment.go), [watch_commission_artifacts.go](../../cmd/watch_commission_artifacts.go), [commission_fulfillment.go](commission_fulfillment.go) | Separate paid local work, strict decision/evidence, retained outputs and recovery |
@@ -52,6 +53,13 @@ unrequested permission, denied permission, timeout, unsupported platform or
 other setup failure. Never expose raw provider data. Update the complete Mac
 CLI/helper package, run `notify setup`, and restart watch with its pinned account
 parameters; replacing CLI/Skills alone does not upgrade a running process.
+`watch restart --launch-agent <plist>` or `--scheduled-task <task-path>` restarts
+the explicit existing OS task. Its definition selects the account, not CLI Home
+flags. Source installation can invoke it with `--watch-launch-agent`; notification
+setup failure does not skip that restart. A `process_started` result does not
+establish network readiness; require fresh `runtime_ready` and business evidence.
+`started` and `runtime_ready` include the running `cli_commit` and `pid` so two
+test builds with the same version can be distinguished after restart.
 
 Refund processing errors, cancelled-order late-payment refunds, wallet credit
 success/errors, and validation processing errors are informational. The intake

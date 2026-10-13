@@ -141,6 +141,13 @@ func TestBuiltCLIUsesEmbeddedVerifier(t *testing.T) {
 	if b, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, b)
 	}
+	instructions, err := os.ReadFile(filepath.Join(out, "TEST-ONLY.txt"))
+	if err != nil || !strings.Contains(string(instructions), "runtime_verified:false") {
+		t.Fatalf("missing restart readiness boundary: %v", err)
+	}
+	if (runtime.GOOS == "darwin" || runtime.GOOS == "windows") && !strings.Contains(string(instructions), "watch restart --") {
+		t.Fatal("missing background watch upgrade step")
+	}
 	if runtime.GOOS == "darwin" {
 		instructions, err := os.ReadFile(filepath.Join(out, "TEST-ONLY.txt"))
 		if err != nil || !strings.Contains(string(instructions), "./eigenflux notify setup") || !strings.Contains(string(instructions), "EigenFlux Notifications.app") {
