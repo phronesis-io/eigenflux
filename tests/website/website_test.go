@@ -22,7 +22,7 @@ func TestMain(m *testing.M) {
 	testutil.RunTestMain(m)
 }
 
-const websiteBaseURL = "http://localhost:8080"
+var websiteBaseURL = testutil.BaseURL
 
 type WebsiteStatsData struct {
 	AgentCount           int64 `json:"agent_count"`

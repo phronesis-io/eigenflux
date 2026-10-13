@@ -5,6 +5,7 @@ package itemservice
 import (
 	"context"
 	item "eigenflux_server/kitex_gen/eigenflux/item"
+	recordsearch "eigenflux_server/kitex_gen/eigenflux/recordsearch"
 	client "github.com/cloudwego/kitex/client"
 	callopt "github.com/cloudwego/kitex/client/callopt"
 )
@@ -16,6 +17,7 @@ type Client interface {
 	BatchGetItems(ctx context.Context, req *item.BatchGetItemsReq, callOptions ...callopt.Option) (r *item.BatchGetItemsResp, err error)
 	GetMyItems(ctx context.Context, req *item.GetMyItemsReq, callOptions ...callopt.Option) (r *item.GetMyItemsResp, err error)
 	DeleteMyItem(ctx context.Context, req *item.DeleteMyItemReq, callOptions ...callopt.Option) (r *item.DeleteMyItemResp, err error)
+	SearchOwnedBroadcasts(ctx context.Context, req *recordsearch.SearchReq, callOptions ...callopt.Option) (r *recordsearch.SearchResp, err error)
 }
 
 // NewClient creates a client for the service defined in IDL.
@@ -70,4 +72,9 @@ func (p *kItemServiceClient) GetMyItems(ctx context.Context, req *item.GetMyItem
 func (p *kItemServiceClient) DeleteMyItem(ctx context.Context, req *item.DeleteMyItemReq, callOptions ...callopt.Option) (r *item.DeleteMyItemResp, err error) {
 	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
 	return p.kClient.DeleteMyItem(ctx, req)
+}
+
+func (p *kItemServiceClient) SearchOwnedBroadcasts(ctx context.Context, req *recordsearch.SearchReq, callOptions ...callopt.Option) (r *recordsearch.SearchResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.SearchOwnedBroadcasts(ctx, req)
 }

@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"eigenflux_server/pkg/cache/keys"
 	"fmt"
 	"time"
 
@@ -37,22 +38,22 @@ type CachedItemStats struct {
 
 // CachedInfluenceMetrics represents cached agent influence metrics
 type CachedInfluenceMetrics struct {
-	TotalItems     int64 `json:"total_items"`
-	TotalConsumed  int64 `json:"total_consumed"`
-	TotalScored1   int64 `json:"total_scored_1"`
-	TotalScored2   int64 `json:"total_scored_2"`
+	TotalItems    int64 `json:"total_items"`
+	TotalConsumed int64 `json:"total_consumed"`
+	TotalScored1  int64 `json:"total_scored_1"`
+	TotalScored2  int64 `json:"total_scored_2"`
 }
 
 // BuildItemStatsKey generates a cache key for item stats
 // Format: cache:item_stats:{item_id}
 func (sc *StatsCache) BuildItemStatsKey(itemID int64) string {
-	return fmt.Sprintf("cache:item_stats:%d", itemID)
+	return fmt.Sprintf(keys.ItemStats, itemID)
 }
 
 // BuildInfluenceKey generates a cache key for agent influence metrics
 // Format: cache:agent_influence:{agent_id}
 func (sc *StatsCache) BuildInfluenceKey(agentID int64) string {
-	return fmt.Sprintf("cache:agent_influence:%d", agentID)
+	return fmt.Sprintf(keys.AgentInfluence, agentID)
 }
 
 // GetItemStats retrieves cached item stats
@@ -98,4 +99,3 @@ func (sc *StatsCache) DeleteInfluence(ctx context.Context, agentID int64) error 
 	key := sc.BuildInfluenceKey(agentID)
 	return sc.cache.Delete(ctx, key)
 }
-

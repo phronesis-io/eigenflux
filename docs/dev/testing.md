@@ -6,8 +6,10 @@ Tests live beside the packages they exercise and in the service integration suit
 
 | Directory | Description | Run Command |
 |-----------|-------------|-------------|
+| `tests/dashboardsearch/` | Opt-in deployed Dashboard search, Console cookie and CLI checks; requires a disposable EigenFlux + Commission stack | See [Dashboard search](dashboard_search.md#validation) |
 | `tests/testutil/` | Shared test utilities (DB, Redis, HTTP, Auth, Agent helpers) | Not directly run |
 | `tests/e2e/` | End-to-end full flow tests (register -> publish -> Feed -> dedup) | `go test -v ./tests/e2e/` |
+| `tests/needs/` | Need capture HTTP/CLI lifecycle, input boundaries, PostgreSQL integrity, direct v2 storage, legacy history, and versioned capture maintenance | `./tests/run.sh --skip-start needs` |
 | `tests/auth/` | Authentication flow tests (OTP, session, Profile completion) | `go test -v ./tests/auth/` |
 | `tests/console/` | Console API tests (agent/item list queries) | `go test -v ./tests/console/` |
 | `tests/cache/` | Cache-specific tests (unit + e2e + perf) | `go test -v ./tests/cache/` |
@@ -20,6 +22,12 @@ Tests live beside the packages they exercise and in the service integration suit
 | `tests/installhome/` | Installer Home selection and persisted ref handoff, including failure before onboarding | `go test ./tests/installhome/` |
 | `tests/installv2/` | Install ref through signed V2 provision, email binding, identity reuse, and transaction rollback | `go test -v ./tests/installv2/` |
 | `tests/replay/` | Offline replay service tests (sort simulation with custom params, inline profiles) | `go test -v ./tests/replay/` |
+
+## Codex installer compatibility
+
+Run `python3 -m unittest discover -s tests/cli_release -p 'test_codex_install.py'`
+for isolated full-installer selection and receipt tests. The suite preserves a
+non-default `CODEX_HOME`, explicit Agent Home, unrelated config, and opt-outs.
 
 ## Commission Deployed Boundary
 
@@ -59,6 +67,27 @@ Only a positive Order ID matching the preparation permits skipping uploads on
 a finalized retry; malformed, negative or mismatched IDs stop the command.
 
 ## Running Tests
+
+Publish persistence has colocated failure, cancellation and own-listing tests
+in `rpc/item`. Native PostgreSQL tests also exercise competing dispatchers,
+Redis failures, lost SQL acknowledgements, interrupted cleanup, legacy ownership
+and migration rollback guards. These contracts accept only
+an explicitly configured loopback `pgc_publish_*` test database:
+
+```bash
+PUBLISH_PG_TEST_DSN='postgres://user:password@127.0.0.1:5432/pgc_publish_atomic?sslmode=disable' \
+  go test -race ./rpc/item -run '^TestPostgresPublish' -count=1
+```
+
+Each case creates and drops its own schema. The PostgreSQL cases skip when that
+dedicated variable is absent; a skipped case does not establish native database
+acceptance. Ordinary service suites continue to use `PG_DSN` separately.
+
+The [Need capture case matrix and execution flow](../design/need-capture/e2e.md)
+distinguishes real-gateway HTTP/CLI coverage from Store integration and manual
+cases. Set `NEED_TEST_API_URL` to the isolated loopback gateway and
+`EIGENFLUX_TEST_CLI` to this checkout's native CLI for the gateway run; `PG_DSN`
+must reference the same migrated local database.
 
 The Agent authorization regression tests in `api/consolev2` and `rpc/auth`
 require a loopback `PG_DSN`. They use transaction-scoped temporary tables and
@@ -120,3 +149,55 @@ CLI integration subprocesses isolate `HOME`, `EIGENFLUX_HOME`, and
 `EIGENFLUX_SKILLS_DIR` in their temporary fixture directory. Automatic skill
 refreshes use an unavailable loopback CDN endpoint so these tests neither install
 public releases nor update the developer's managed skills.
+
+## Search and recommendation discovery
+
+The opt-in [process E2E suite](../../tests/discoverye2e/README.md) starts actual
+API/Feed/Sort/Item binaries and verifies the enabled online pipeline through HTTP,
+real stores and replay consumption. Build first, then run
+`DISCOVERY_E2E=1 ./tests/run.sh --skip-start discoverye2e -count=1` against isolated,
+migrated infrastructure with no other RPC services registered in its etcd.
+It owns service startup; do not run `start_local.sh` for this suite. Embedding and
+external commission/order RPCs use deterministic fixtures.
+
+Run `go test ./rpc/sort/... ./rpc/feed/... ./pkg/replaylog ./api/consolev2 ./pipeline/consumer` for contract, ownership, page, idempotency and replay checks.
+
+Real-store tests require `DISCOVERY_TEST_DSN` (an isolated migrated PostgreSQL database), `DISCOVERY_TEST_ES` (isolated Elasticsearch URL), and `DISCOVERY_TEST_REDIS` (isolated Redis address). Run `go test ./rpc/sort/discovery ./pipeline/consumer -run 'TestPostgres|TestDiscoveryReplayPostgres' -count=1`. These tests use temporary schemas/indices and fixture rows; do not point them at production or run alongside integration suites that reset the same database. Agent projection and ranking hydration use real stores; Commission catalogue/statistics snapshots are fixtures written through the projection store. Validating remote Commission event production remains a cutover check.
+
+CLI checks run in the independent `cli` module: `go test ./cmd ./internal/client ./internal/cache ./internal/feedevent`. Signed release builds still use the existing signing workflow; a local compilation uses `go build -o ../build/eigenflux-cli .`.
+
+For asynchronous Need vectors, migrate the isolated database through 000110 and
+set `DISCOVERY_TEST_REDIS` to its loopback Redis address. Run
+`go test ./tests/needs -run TestNeedEmbedding -count=1` with `PG_DSN` set. Tests
+exercise the real embedding HTTP client, worker, generation-specific job leases
+and Redis cache. `tests/discoverye2e` additionally verifies cold/warm vector use
+through real API/Feed/Sort processes. Unit tests under
+`rpc/sort/discovery/needembedding` verify cache identity and invalid vectors.
+
+## CLI release integrity and Windows download tests
+
+Run `python3 -m unittest discover -s tests/cli_release -p 'test_cli_artifacts.py'`
+for checksum generation, publisher preflight, failed uploads, public CDN
+verification and version-promotion ordering. Tests use temporary directories,
+a stub object-store client and a local HTTP server, with no production writes.
+
+On Windows, build the CLI and run the download suite:
+
+```powershell
+New-Item -ItemType Directory -Force build | Out-Null
+Push-Location cli
+go build -o ../build/eigenflux.exe .
+Pop-Location
+python -m unittest discover -s tests/cli_release -p 'test_windows_download.py'
+```
+
+Both Windows PowerShell 5.1 (`powershell`) and PowerShell 7 (`pwsh`) must be on
+PATH. The suite parses the production installer's download helper, downloads
+and executes the real CLI from a loopback server, and checks missing/malformed/
+mismatched checksums, HTTP errors, retry exhaustion and temporary-file cleanup.
+Failed verification must preserve the previously installed bytes. The existing
+CLI Auth Cross-Platform workflow runs these tests in an independent Windows
+download job, separate from the identity tests.
+Non-Windows hosts skip this suite. This is download integration coverage, not
+full host onboarding or Smart App Control acceptance; see [CLI release
+integrity](cli-release.md).

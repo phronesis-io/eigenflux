@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/skills"
 	"github.com/spf13/cobra"
 )
@@ -26,21 +27,26 @@ func TestRenderHeartbeatPlanForAgentIsThinAndCurrent(t *testing.T) {
 		SchedulerLauncher:  "eigenflux --homedir /tmp/home heartbeat plan --format agent",
 		SchedulerMigration: "migrate owned task",
 		Access:             runtimeAccess{Mode: "intent_aligned", OnboardingState: "completed"},
-		ExecutionOrder:     []string{"commands", "feed", "attention", "communication", "publish", "settings_report"},
+		ExecutionOrder:     []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report"},
 	}
 	text := renderHeartbeatPlanForAgent(plan)
 	for _, required := range []string{
 		heartbeatContractVersion, "rev-123", "ef-future", "Freshly read, from disk",
-		"commands → feed → attention → communication → publish → settings_report",
+		"commands → feed → attention → communication → publish → need_capture → settings_report",
 		"CLI prefix for every EigenFlux command in this cycle: eigenflux --homedir /tmp/home",
 		"Never run a bare eigenflux command",
 		"Apply runtime-model.md before subsequent CLI calls",
-		"pass it through EIGENFLUX_MODEL for each invocation",
+		"pass it through --runtime-model for each invocation",
 		"If unavailable, keep it unset and continue permitted Feed work",
 		"Apply the current Skills to each stage",
 		"A Feed payload supplied by the host is this cycle's completed pull",
-		"Follow the current Skills for onboarding restrictions, recovery, user-visible output, and silent completion",
-		"scheduler stores only the launcher",
+		"Follow the current Skills for onboarding restrictions and recovery",
+		"Host harness output and notification requirements take precedence",
+		"scheduler stores this fixed execution prompt",
+		"Store it verbatim, without additions",
+		"Even with no updates, return the complete required response (XML when prescribed)",
+		"never an empty message or silence token",
+		"Routine cycle completion alone does not warrant notification",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("heartbeat plan missing %q:\n%s", required, text)
@@ -89,7 +95,7 @@ func TestHeartbeatPlanJSONCarriesCurrentPromptAndAccessDecision(t *testing.T) {
 			if err := json.Unmarshal([]byte(text), &plan); err != nil {
 				t.Fatalf("invalid JSON %q: %v", text, err)
 			}
-			wantStages := []string{"commands", "feed", "attention", "communication", "publish", "settings_report"}
+			wantStages := []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report"}
 			if baseline {
 				wantStages = []string{"feed"}
 			}
@@ -244,5 +250,49 @@ func TestSchedulerMigrationUsesNativeHostOwnership(t *testing.T) {
 func TestHeartbeatCommandsAreRegistered(t *testing.T) {
 	if heartbeatPlanCmd.Parent() != heartbeatCmd || heartbeatCmd.Parent() != rootCmd {
 		t.Fatal("heartbeat plan command is not registered under the root command")
+	}
+}
+
+func TestHeartbeatPlanAcceptsLegacyEnvironmentMode(t *testing.T) {
+	for _, mode := range []string{"plugin", "skill"} {
+		t.Run(mode, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(`{"code":0,"data":{"context_revision":1}}`))
+			}))
+			defer server.Close()
+			_, serverName := runtimeTestConfig(t, server.URL, true)
+			installHeartbeatTestRules(t)
+			t.Setenv("EIGENFLUX_MODE", mode)
+			oldFormat, oldMeta := formatFlag, clientMeta
+			t.Cleanup(func() { formatFlag, clientMeta = oldFormat, oldMeta })
+			formatFlag = "json"
+			command := &cobra.Command{}
+			if err := rootCmd.PersistentPreRunE(command, nil); err != nil {
+				t.Fatal(err)
+			}
+			text, err := captureHeartbeatStdout(t, func() error { return heartbeatPlanCmd.RunE(command, nil) })
+			if err != nil {
+				t.Fatal(err)
+			}
+			var plan heartbeatPlan
+			if err := json.Unmarshal([]byte(text), &plan); err != nil {
+				t.Fatal(err)
+			}
+			home, _ := config.HomeDirInfo()
+			for _, part := range []string{"--homedir " + shellQuote(home), "--server " + shellQuote(serverName), "--runtime-mode " + shellQuote(mode)} {
+				if !strings.Contains(plan.CLIPrefix, part) || !strings.Contains(plan.SchedulerLauncher, part) {
+					t.Fatalf("legacy identity lost %q: %+v", part, plan)
+				}
+			}
+			if !strings.HasSuffix(plan.CLIPrefix, " --origin heartbeat") || !strings.Contains(plan.AgentPrompt, "in this cycle: "+plan.CLIPrefix+"\n") {
+				t.Fatalf("cycle prefix must mark publishes as heartbeat: %q", plan.CLIPrefix)
+			}
+			if strings.Contains(plan.SchedulerLauncher, "--origin") || strings.Contains(plan.SchedulerPrompt, "--origin") || strings.Contains(plan.SchedulerMigration, "--origin") {
+				t.Fatalf("persisted launcher must not change: %q", plan.SchedulerLauncher)
+			}
+			if !strings.Contains(plan.SchedulerMigration, "Reuse working existing triggers") || !strings.Contains(plan.AgentPrompt, "including legacy EIGENFLUX_MODE launchers") {
+				t.Fatal("missing existing-user compatibility guidance")
+			}
+		})
 	}
 }

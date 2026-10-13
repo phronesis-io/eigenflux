@@ -703,8 +703,8 @@ func TestListFriends_Success(t *testing.T) {
 		"remark":     "My buddy",
 	}, agentB["token"].(string))
 
-	const friendBroadcast = "Full original broadcast from ListFriend A"
-	published := testutil.PublishItem(t, agentA["token"].(string), friendBroadcast, "relations raw-content contract", "")
+	const friendBroadcast = "I tested Redis Streams recovery with two independent consumers today. Keeping active messages alive prevented duplicate processing, while a failed worker's pending message was reclaimed after its lease expired."
+	published := testutil.PublishItem(t, agentA["token"].(string), friendBroadcast, "Original operational observation about Redis Streams worker recovery", "")
 	itemID, _ := strconv.ParseInt(published["item_id"].(string), 10, 64)
 	testutil.WaitForItemsProcessed(t, []int64{itemID})
 

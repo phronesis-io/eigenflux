@@ -3,7 +3,9 @@ package skills
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -30,6 +32,11 @@ func checkSyncReadAccess(real, parent string) (err error) {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	if err == nil {
+		if err := checkCleanupReadAccess(real + newSuffix); err != nil {
+			return err
+		}
+	}
 	if old := strings.TrimSpace(string(data)); old != "" {
 		paths = append(paths, old)
 	}
@@ -48,4 +55,50 @@ func checkSyncReadAccess(real, parent string) (err error) {
 		}
 	}
 	return nil
+}
+
+// checkReplacementReadAccess runs only before a content replacement. Official
+// files normally use the local manifest; the remote list covers a lost manifest.
+// Only third-party directories that preserveUnmanaged will copy need extra reads.
+func checkReplacementReadAccess(real string, local, remote *Manifest) (err error) {
+	defer func() { err = permissionFailure(err, "read") }()
+	if err := checkCleanupReadAccess(real + newSuffix); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(real)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	inRemote := remote.names()
+	recorded := map[string]string{}
+	if local != nil && local.ManagedBy == ManagedByValue {
+		recorded = local.names()
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		_, official := inRemote[entry.Name()]
+		_, managed := recorded[entry.Name()]
+		if (local == nil && official) || (!official && !managed) {
+			if _, err := dirSHA256(filepath.Join(real, entry.Name())); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// Cleanup traverses directories but does not read the contents of deleted files.
+// WalkDir does not follow symlinks, matching RemoveAll.
+func checkCleanupReadAccess(root string) error {
+	return filepath.WalkDir(root, func(path string, _ fs.DirEntry, err error) error {
+		if path == root && os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	})
 }

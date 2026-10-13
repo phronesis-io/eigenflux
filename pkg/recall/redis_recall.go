@@ -2,10 +2,10 @@ package recall
 
 import (
 	"context"
+	"eigenflux_server/pkg/cache"
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -16,19 +16,8 @@ type RedisRecallReader struct {
 	rdb       *redis.Client
 	namespace string // key prefix, typically "rec"
 
-	mu          sync.RWMutex
-	cache       map[string]cacheEntry
-	scoredCache map[string]scoredCacheEntry
-}
-
-type cacheEntry struct {
-	data      []int64
-	fetchedAt time.Time
-}
-
-type scoredCacheEntry struct {
-	data      []ScoredCandidate
-	fetchedAt time.Time
+	cache       *cache.Local[string, []int64]
+	scoredCache *cache.Local[string, []ScoredCandidate]
 }
 
 // ScoredCandidate is one item candidate with an optional precomputed score
@@ -39,14 +28,15 @@ type ScoredCandidate struct {
 }
 
 const cacheTTL = 30 * time.Second
+const recallCacheCapacity = 10000
 
 // NewRedisRecallReader creates a new reader with the given Redis client and namespace.
 func NewRedisRecallReader(rdb *redis.Client, namespace string) *RedisRecallReader {
 	return &RedisRecallReader{
 		rdb:         rdb,
 		namespace:   namespace,
-		cache:       make(map[string]cacheEntry),
-		scoredCache: make(map[string]scoredCacheEntry),
+		cache:       cache.NewLocal[string, []int64](recallCacheCapacity),
+		scoredCache: cache.NewLocal[string, []ScoredCandidate](recallCacheCapacity),
 	}
 }
 
@@ -195,48 +185,18 @@ func (r *RedisRecallReader) activeVersion(ctx context.Context, key string) (stri
 }
 
 func (r *RedisRecallReader) getCache(key string) ([]int64, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	entry, ok := r.cache[key]
-	if !ok || time.Since(entry.fetchedAt) > cacheTTL {
-		return nil, false
-	}
-	if len(entry.data) == 0 {
-		return nil, true // cached empty result
-	}
-	return entry.data, true
+	v, ok := r.cache.Get(key)
+	return append([]int64(nil), v...), ok
 }
-
 func (r *RedisRecallReader) setCache(key string, data []int64) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.cache[key] = cacheEntry{data: data, fetchedAt: time.Now()}
+	r.cache.PutUntil(key, append([]int64(nil), data...), time.Now().Add(cacheTTL))
 }
-
 func (r *RedisRecallReader) getScoredCache(key string) ([]ScoredCandidate, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	entry, ok := r.scoredCache[key]
-	if !ok || time.Since(entry.fetchedAt) > cacheTTL {
-		return nil, false
-	}
-	if len(entry.data) == 0 {
-		return nil, true // cached empty result
-	}
-	return entry.data, true
+	v, ok := r.scoredCache.Get(key)
+	return append([]ScoredCandidate(nil), v...), ok
 }
-
 func (r *RedisRecallReader) setScoredCache(key string, data []ScoredCandidate) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	now := time.Now()
-	// Evict expired entries to prevent unbounded growth from per-user keys.
-	for k, v := range r.scoredCache {
-		if now.Sub(v.fetchedAt) > cacheTTL {
-			delete(r.scoredCache, k)
-		}
-	}
-	r.scoredCache[key] = scoredCacheEntry{data: data, fetchedAt: now}
+	r.scoredCache.PutUntil(key, append([]ScoredCandidate(nil), data...), time.Now().Add(cacheTTL))
 }
 
 // parseIDList parses a comma-separated list of int64 IDs.

@@ -83,7 +83,7 @@ func SaveFeedResponse(serverName string, rawData json.RawMessage) {
 		log.Printf("cache: mkdir %s: %v", dir, err)
 		return
 	}
-	path := filepath.Join(dir, fmt.Sprintf("feeds-%s.json", now.Format("20060102-150405")))
+	path := filepath.Join(dir, fmt.Sprintf("feeds-%s.json", now.Format("20060102-150405.000000000")))
 	if err := os.WriteFile(path, rawData, filePerm); err != nil {
 		log.Printf("cache: write %s: %v", path, err)
 	}

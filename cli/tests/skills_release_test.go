@@ -155,7 +155,7 @@ func TestSignedSequenceConflictAndAtomicRecovery(t *testing.T) {
 	}
 }
 
-func TestConfiguredReleaseRequiresCompatibleCLI(t *testing.T) {
+func TestConfiguredReleaseRequiresSupportedCLI(t *testing.T) {
 	configBytes, err := os.ReadFile("../.cli.config")
 	if err != nil {
 		t.Fatal(err)
@@ -203,12 +203,11 @@ func TestConfiguredReleaseRequiresCompatibleCLI(t *testing.T) {
 	options := skills.SyncOptions{
 		Into: filepath.Join(t.TempDir(), "skills"), CLIVersion: "0.0.42", CDNBase: server.URL,
 	}
-	// Reject versions without signed install referrals or Wallet KYC commands
-	// before downloading a bundle that instructs agents to use those features.
-	for _, version := range []string{"0.0.42", "0.0.105", "0.0.106"} {
-		options.CLIVersion = version
+	// These published CLIs lack required attribution or direct runtime/JSON flags.
+	for _, oldVersion := range []string{"0.0.42", "0.0.49", "0.0.50", "0.0.51", "0.0.105", "0.0.106"} {
+		options.CLIVersion = oldVersion
 		if _, err := skills.Sync(options); err == nil || !strings.Contains(err.Error(), "upgrade the CLI") {
-			t.Fatalf("incompatible CLI %s was not rejected: %v", version, err)
+			t.Fatalf("incompatible CLI %s was not rejected: %v", oldVersion, err)
 		}
 	}
 	if tarRequests.Load() != 0 {

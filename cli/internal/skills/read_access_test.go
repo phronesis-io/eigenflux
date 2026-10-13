@@ -2,10 +2,148 @@ package skills
 
 import (
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestSyncReplacementReadDenialDoesNotCreateLock(t *testing.T) {
+	for _, scope := range []string{"missing-manifest", "corrupt-manifest", "third-party", "recovery-stage", "replacement-stage", "nested-recovery-stage"} {
+		t.Run(scope, func(t *testing.T) {
+			opts, _, _ := installedSyncFixture(t)
+			src := stageSkills(t, map[string]map[string]string{"ef-broadcast": {"SKILL.md": "updated"}})
+			server, _ := serveBundleAtSequence(t, "1.0.0", src, []string{"ef-broadcast"}, 101)
+			opts.CDNBase, opts.Quiet = server.URL, true
+			blocked := filepath.Join(opts.Into, "ef-broadcast", "SKILL.md")
+			directory := false
+			switch scope {
+			case "missing-manifest":
+				if err := os.Remove(filepath.Join(opts.Into, ManifestFileName)); err != nil {
+					t.Fatal(err)
+				}
+			case "corrupt-manifest":
+				if err := os.WriteFile(filepath.Join(opts.Into, ManifestFileName), []byte("{"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			case "third-party":
+				blocked = filepath.Join(opts.Into, "user-skill", "SKILL.md")
+				if err := os.MkdirAll(filepath.Dir(blocked), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(blocked, []byte("user"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			default:
+				directory = true
+				blocked = opts.Into + newSuffix
+				if scope == "nested-recovery-stage" {
+					blocked = filepath.Join(blocked, "nested")
+				}
+				if err := os.MkdirAll(blocked, 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(blocked, "partial"), []byte("partial"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				if scope != "replacement-stage" {
+					if err := writeJournal(opts.Into+journalSuffix, ""); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			mode := os.FileMode(0)
+			if directory {
+				mode = 0300
+			}
+			if err := os.Chmod(blocked, mode); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chmod(blocked, 0700) })
+			var probe error
+			if directory {
+				_, probe = os.ReadDir(blocked)
+			} else {
+				_, probe = os.ReadFile(blocked)
+			}
+			if probe == nil {
+				t.Skip("filesystem does not enforce read permissions")
+			}
+			if !errors.Is(probe, os.ErrPermission) {
+				t.Fatal(probe)
+			}
+			tarRequested := false
+			opts.HTTPClient = &http.Client{Transport: syncTestTransport(func(r *http.Request) (*http.Response, error) {
+				if strings.HasSuffix(r.URL.Path, ".tar.gz") {
+					tarRequested = true
+				}
+				return http.DefaultTransport.RoundTrip(r)
+			})}
+			parent := filepath.Dir(opts.Into)
+			before, err := os.Stat(parent)
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := Sync(opts)
+			if res != nil || !errors.Is(err, os.ErrPermission) || !errors.Is(err, errSkillsPermissionRequired) {
+				t.Fatalf("expected permission refusal: %+v, %v", res, err)
+			}
+			if !strings.Contains(err.Error(), "operation=read") || tarRequested {
+				t.Fatalf("denial was not caught before installation: download=%v, %v", tarRequested, err)
+			}
+			after, err := os.Stat(parent)
+			if err != nil || !before.ModTime().Equal(after.ModTime()) {
+				t.Fatalf("read denial created/removed a lock: %v", err)
+			}
+			if _, err := os.Lstat(filepath.Join(parent, lockFileName)); !os.IsNotExist(err) {
+				t.Fatalf("read denial left a lock: %v", err)
+			}
+		})
+	}
+}
+
+func TestSyncUnchangedIgnoresUnreadableThirdParty(t *testing.T) {
+	opts, _, _ := installedSyncFixture(t)
+	blocked := filepath.Join(opts.Into, "user-skill")
+	if err := os.Mkdir(blocked, 0300); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(blocked, 0700) })
+	if _, err := os.ReadDir(blocked); err == nil {
+		t.Skip("filesystem does not enforce read permissions")
+	}
+	before, _ := os.Stat(filepath.Dir(opts.Into))
+	res, err := Sync(opts)
+	if err != nil || res == nil || !res.VerifiedManifest || res.Atomic {
+		t.Fatalf("unneeded directory read blocked unchanged sync: %+v, %v", res, err)
+	}
+	after, _ := os.Stat(filepath.Dir(opts.Into))
+	if !before.ModTime().Equal(after.ModTime()) {
+		t.Fatal("unchanged sync modified parent")
+	}
+}
+
+func TestSyncRecoveryDoesNotReadDeletedFileContents(t *testing.T) {
+	opts, _, _ := installedSyncFixture(t)
+	stage := opts.Into + newSuffix
+	if err := os.Mkdir(stage, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stage, "partial"), []byte("partial"), 0000); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeJournal(opts.Into+journalSuffix, ""); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Sync(opts)
+	if err != nil || res == nil || !res.VerifiedManifest {
+		t.Fatalf("cleanup read file contents unnecessarily: %+v, %v", res, err)
+	}
+	if _, err := os.Lstat(stage); !os.IsNotExist(err) {
+		t.Fatalf("staging directory was not cleaned: %v", err)
+	}
+}
 
 func TestSyncReadAccessFailureDoesNotCreateLock(t *testing.T) {
 	for _, scope := range []string{"parent", "directory", "manifest", "skill", "journal", "rollback"} {

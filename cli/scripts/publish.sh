@@ -27,6 +27,17 @@ if [[ -z "$R2_ACCESS_KEY_ID" || -z "$R2_SECRET_ACCESS_KEY" ]]; then
   exit 1
 fi
 
+# Reject incomplete or changed artifacts before making any remote writes.
+ARTIFACTS=$(python3 "$SCRIPT_DIR/cli-artifacts.py" list "$BUILD_DIR")
+if [[ "$(cat "$BUILD_DIR/version.txt")" != "$CLI_VERSION" ]]; then
+  echo "build/cli/version.txt does not match CLI_VERSION; rebuild before publishing" >&2
+  exit 1
+fi
+if [[ -z "$R2_PUBLIC_URL" ]]; then
+  echo "R2_PUBLIC_URL is required to verify published artifacts" >&2
+  exit 1
+fi
+
 # Route the legacy emergency entry point through the serialized Skills publisher.
 # Unset the switch after dispatch so this invocation only uploads CLI binaries.
 if [[ "${EIGENFLUX_PUBLISH_SKILLS_WITH_CLI:-false}" == "true" ]]; then
@@ -42,22 +53,27 @@ S3_ARGS="--endpoint-url $R2_ENDPOINT"
 echo -e "${CYAN}Publishing eigenflux CLI v${CLI_VERSION} to R2${NC}"
 echo ""
 
-for file in "$BUILD_DIR"/eigenflux-*; do
-  name=$(basename "$file")
+while IFS= read -r name; do
+  file="$BUILD_DIR/$name"
   echo -ne "${CYAN}Uploading $name ...${NC} "
 
   # Upload to versioned path
-  aws s3 cp "$file" "s3://$R2_BUCKET/cli/$CLI_VERSION/$name" $S3_ARGS --quiet && \
-    echo -ne "${GREEN}v${CLI_VERSION} ${NC}"
+  aws s3 cp "$file" "s3://$R2_BUCKET/cli/$CLI_VERSION/$name" $S3_ARGS --quiet
+  echo -ne "${GREEN}v${CLI_VERSION} ${NC}"
 
   # Also upload to latest/
-  aws s3 cp "$file" "s3://$R2_BUCKET/cli/latest/$name" $S3_ARGS --quiet && \
-    echo -e "${GREEN}latest${NC}"
-done
+  aws s3 cp "$file" "s3://$R2_BUCKET/cli/latest/$name" $S3_ARGS --quiet
+  echo -e "${GREEN}latest${NC}"
+done <<< "$ARTIFACTS"
 
-# Upload version.txt
-aws s3 cp "$BUILD_DIR/version.txt" "s3://$R2_BUCKET/cli/latest/version.txt" $S3_ARGS --quiet
+python3 "$SCRIPT_DIR/cli-artifacts.py" verify-public "$BUILD_DIR" \
+  --base-url "$R2_PUBLIC_URL/cli/$CLI_VERSION"
+python3 "$SCRIPT_DIR/cli-artifacts.py" verify-public "$BUILD_DIR" \
+  --base-url "$R2_PUBLIC_URL/cli/latest"
+
+# Advertise the version only after all payloads are available and verified.
 aws s3 cp "$BUILD_DIR/version.txt" "s3://$R2_BUCKET/cli/$CLI_VERSION/version.txt" $S3_ARGS --quiet
+aws s3 cp "$BUILD_DIR/version.txt" "s3://$R2_BUCKET/cli/latest/version.txt" $S3_ARGS --quiet
 
 # Skills are published by the Linux-only Release Skills workflow. Keeping that
 # path single-writer prevents different gzip implementations from producing

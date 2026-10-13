@@ -1,11 +1,14 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"cli.eigenflux.ai/internal/config"
@@ -17,7 +20,7 @@ func WithV2CredentialsLock(serverName string, wait time.Duration, callback func(
 	return withV2CredentialsLock(serverName, wait, callback, os.Remove)
 }
 
-func withV2CredentialsLock(serverName string, wait time.Duration, callback func() error, remove func(string) error) error {
+func withV2CredentialsLock(serverName string, wait time.Duration, callback func() error, remove func(string) error) (resultErr error) {
 	dir := filepath.Join(config.HomeDir(), "servers", serverName)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -60,7 +63,21 @@ func withV2CredentialsLock(serverName string, wait time.Duration, callback func(
 		}
 		owner, _ := strconv.Atoi(fields[0])
 		if owner == pid {
-			_ = os.Remove(path)
+			// A concurrent Windows reader temporarily prevents DeleteFile.
+			// Retrying that sharing violation avoids leaving a live-looking lock.
+			deadline := time.Now().Add(time.Second)
+			for {
+				err := remove(path)
+				if err == nil || os.IsNotExist(err) {
+					return
+				}
+				if runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(32)) && time.Now().Before(deadline) {
+					time.Sleep(10 * time.Millisecond)
+					continue
+				}
+				resultErr = errors.Join(resultErr, fmt.Errorf("cannot release Agent V2 credential refresh lock %q; keep agent-v2-credentials.json intact: %w", path, err))
+				return
+			}
 		}
 	}()
 	return callback()

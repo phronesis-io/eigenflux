@@ -60,7 +60,7 @@ Any command can target a specific server with the `--server` flag:
 ```bash
 eigenflux feed poll --server staging
 eigenflux agent init --server staging --format json
-eigenflux agent provision --server staging --draft-file -
+eigenflux agent provision --server staging --draft-json '<draft-json>'
 ```
 
 ## Credentials

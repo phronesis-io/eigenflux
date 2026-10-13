@@ -2,13 +2,14 @@ package commissionintegration
 
 import (
 	"context"
+	"eigenflux_server/pkg/cache"
 	"errors"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"eigenflux_server/pkg/commissionindex"
+	"eigenflux_server/pkg/featureindex"
 
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/sync/singleflight"
@@ -33,13 +34,13 @@ type ProjectionState interface {
 }
 
 type Source interface {
-	GetIndexSnapshot(context.Context, int64) (commissionindex.CatalogueSnapshot, error)
-	GetStatistics(context.Context, int64) (commissionindex.StatisticsSnapshot, error)
+	GetIndexSnapshot(context.Context, int64) (featureindex.CommissionCatalogueSnapshot, error)
+	GetStatistics(context.Context, int64) (featureindex.CommissionStatisticsSnapshot, error)
 	Ready(context.Context) error
 }
 
 type Index interface {
-	Get(context.Context, int64) (commissionindex.Document, bool, error)
+	Get(context.Context, int64) (featureindex.CommissionDocument, bool, error)
 	Ready(context.Context) (int, error)
 }
 
@@ -123,11 +124,11 @@ func (s *Service) Diagnostic(ctx context.Context, commissionID int64) (Diagnosti
 	}
 	var projection ProjectionDiagnostic
 	var projectionOK bool
-	var catalogue commissionindex.CatalogueSnapshot
+	var catalogue featureindex.CommissionCatalogueSnapshot
 	var catalogueOK bool
-	var statistics commissionindex.StatisticsSnapshot
+	var statistics featureindex.CommissionStatisticsSnapshot
 	var statisticsOK bool
-	var document commissionindex.Document
+	var document featureindex.CommissionDocument
 	var documentFound, documentOK bool
 	var probes sync.WaitGroup
 	probes.Add(4)
@@ -341,7 +342,7 @@ func commissionProjectionEnvelopeMatches(values map[string]any, wantedID string)
 	if !schemaOK || !typeOK || !idOK || !topicOK || schemaVersion != "1" || aggregateID != wantedID {
 		return false
 	}
-	expectedAggregateType, supported := commissionindex.ExpectedAggregateType(topic)
+	expectedAggregateType, supported := featureindex.CommissionAggregateType(topic)
 	return supported && aggregateType == expectedAggregateType
 }
 
@@ -385,6 +386,8 @@ const (
 	defaultEmbeddingFailureTTL   = 2 * time.Second
 )
 
+const embeddingReadinessKey = "readiness"
+
 type embeddingReadiness struct {
 	provider   string
 	dimensions int
@@ -399,8 +402,7 @@ type EmbeddingProbe struct {
 	now        func() time.Time
 	successTTL time.Duration
 	failureTTL time.Duration
-	mu         sync.Mutex
-	cache      embeddingReadiness
+	cache      *cache.Local[string, embeddingReadiness]
 	group      singleflight.Group
 }
 
@@ -412,6 +414,7 @@ func newEmbeddingProbeWithClock(provider string, dimensions int, client Embeddin
 	return &EmbeddingProbe{
 		provider: strings.TrimSpace(provider), dimensions: dimensions, client: client,
 		now: now, successTTL: successTTL, failureTTL: failureTTL,
+		cache: cache.NewLocal[string, embeddingReadiness](1),
 	}
 }
 
@@ -422,7 +425,7 @@ func (p *EmbeddingProbe) Ready(ctx context.Context) (string, int, error) {
 	if cached, ok := p.cached(); ok {
 		return cached.provider, cached.dimensions, cached.err
 	}
-	value, _, _ := p.group.Do("readiness", func() (any, error) {
+	value, _, _ := p.group.Do(embeddingReadinessKey, func() (any, error) {
 		if cached, ok := p.cached(); ok {
 			return cached, nil
 		}
@@ -434,9 +437,7 @@ func (p *EmbeddingProbe) Ready(ctx context.Context) (string, int, error) {
 			ttl = p.failureTTL
 		}
 		result.expiresAt = p.now().Add(ttl)
-		p.mu.Lock()
-		p.cache = result
-		p.mu.Unlock()
+		p.cache.PutUntil(embeddingReadinessKey, result, result.expiresAt)
 		return result, nil
 	})
 	result := value.(embeddingReadiness)
@@ -444,10 +445,5 @@ func (p *EmbeddingProbe) Ready(ctx context.Context) (string, int, error) {
 }
 
 func (p *EmbeddingProbe) cached() (embeddingReadiness, bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.cache.expiresAt.IsZero() || !p.now().Before(p.cache.expiresAt) {
-		return embeddingReadiness{}, false
-	}
-	return p.cache, true
+	return p.cache.GetAt(embeddingReadinessKey, p.now())
 }

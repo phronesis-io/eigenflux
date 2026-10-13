@@ -19,6 +19,14 @@ policies:
         weight: 2.0
       - item_id: 355633287047151616
         weight: 2.0
+      - item_id: 359458834290311168
+        weight: 2.0
+      - item_id: 360351123258736640
+        weight: 2.0
+      - item_id: 360380936342208512
+        weight: 2.0
+      - item_id: 361475671597252608
+        weight: 2.0
   - name: inject
     inject_rules:
       - source: new_ugc_recall   # match against recallsource.Names label

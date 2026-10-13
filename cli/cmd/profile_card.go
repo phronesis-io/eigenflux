@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
@@ -17,6 +18,10 @@ import (
 )
 
 const maxProfilePatchBytes = 128 << 10
+
+// profileRefreshCompleteHeader carries the evaluated profile_version on the
+// refresh-complete version check so the server can log a no-change refresh.
+const profileRefreshCompleteHeader = "X-EF-Profile-Refresh-Complete"
 
 var profileCardCmd = &cobra.Command{
 	Use:   "card",
@@ -77,7 +82,12 @@ version conflict (409), run it again and re-evaluate.
 Examples:
   eigenflux profile refresh-context
   eigenflux profile refresh-context --format json`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, args []string) (resultErr error) {
+		defer func() {
+			if resultErr != nil {
+				reportCurrentProfileFailure(resultErr)
+			}
+		}()
 		serverName := activeServerName()
 		if serverName == "" {
 			return fmt.Errorf("no active server")
@@ -103,7 +113,12 @@ changed. Run this only after 'profile refresh-context' when no patch is needed,
 and pass that response's profile_version. The command verifies the version is
 still current before recording completion.`,
 	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, args []string) (resultErr error) {
+		defer func() {
+			if resultErr != nil {
+				reportCurrentProfileFailure(resultErr)
+			}
+		}()
 		expectedVersion, _ := cmd.Flags().GetInt64("expected-version")
 		if !cmd.Flags().Changed("expected-version") {
 			return fmt.Errorf("--expected-version is required (get it from 'eigenflux profile refresh-context')")
@@ -114,7 +129,13 @@ still current before recording completion.`,
 			return fmt.Errorf("no active authenticated account")
 		}
 		c := newClientForServer(serverName)
-		resp, err := c.Get("/agents/me/card/refresh-context", nil)
+		// The header lets the server count no-change evaluations; the
+		// response is the same.
+		resp, err := c.GetWithHeaders("/agents/me/card/refresh-context", nil, map[string]string{
+			profileRefreshCompleteHeader: strconv.FormatInt(expectedVersion, 10),
+			profileRefreshTriggerHeader:  currentProfileRefreshTrigger(serverName, agentID),
+			profileRefreshRunHeader:      currentProfileRunID(serverName, agentID),
+		})
 		if err != nil {
 			return err
 		}
@@ -161,6 +182,7 @@ var profileRefreshStatusCmd = &cobra.Command{
 			"last_checked_unix":  state.LastCheckedUnix,
 			"last_prompted_unix": state.LastPromptedUnix,
 			"last_touch_unix":    lastTouch,
+			"refresh_trigger":    activeProfileRefreshTrigger(state, now),
 			"due":                shouldPromptProfileRefresh(lastTouch, validProfileStamp(state.LastPromptedUnix, now), now),
 		}, resolveFormat())
 		return nil
@@ -186,10 +208,15 @@ Examples:
   printf '%s' '{"seeking":["AI infra"]}' | eigenflux profile patch --file - --expected-version 18
   eigenflux profile patch --file patch.json --expected-version 18 \
     --source cli_daily_refresh --reason "recent focus changed"`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, args []string) (resultErr error) {
 		file, _ := cmd.Flags().GetString("file")
 		expectedVersion, _ := cmd.Flags().GetInt64("expected-version")
 		source, _ := cmd.Flags().GetString("source")
+		defer func() {
+			if resultErr != nil && isProfileRefreshSource(source) {
+				reportCurrentProfileFailure(resultErr)
+			}
+		}()
 		reason, _ := cmd.Flags().GetString("reason")
 		if file == "" {
 			return fmt.Errorf("--file is required")
@@ -215,10 +242,20 @@ Examples:
 		if serverName == "" || agentID == "" {
 			return fmt.Errorf("no active authenticated account")
 		}
+		// A refresh write reports what dispatched the run; a manually
+		// requested run is recorded under its own source so scheduled
+		// history keeps the exact cli_daily_refresh value.
+		var headers map[string]string
+		writeSource := source
+		if isProfileRefreshSource(source) {
+			var trigger string
+			writeSource, trigger = profileRefreshAttribution(source, currentProfileRefreshTrigger(serverName, agentID))
+			headers = map[string]string{profileRefreshTriggerHeader: trigger, profileRefreshRunHeader: currentProfileRunID(serverName, agentID)}
+		}
 		body := map[string]interface{}{
 			"expected_version": expectedVersion,
 			"updates":          updates,
-			"source":           source,
+			"source":           writeSource,
 			"reason":           reason,
 		}
 		c := newClientForServer(serverName)
@@ -236,7 +273,7 @@ Examples:
 		} else if hasV2 {
 			fieldsPath = "/agent-profile/fields"
 		}
-		resp, err := c.Put(fieldsPath, body)
+		resp, err := c.PutWithHeaders(fieldsPath, body, headers)
 		if err != nil {
 			var apiErr *client.APIError
 			if errors.As(err, &apiErr) && apiErr.StatusCode == 409 {
@@ -251,7 +288,7 @@ Examples:
 		}
 		output.PrintMessage("Profile patched")
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
-		if source == "cli_daily_refresh" {
+		if isProfileRefreshSource(source) {
 			if stampErr := stampProfileRefreshKeyFor(serverName, agentID, kvProfileRefreshAt); stampErr != nil {
 				output.PrintMessage("warning: profile was updated but local refresh state could not be saved: %v", stampErr)
 			}

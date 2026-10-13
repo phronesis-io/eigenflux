@@ -265,6 +265,7 @@ deploy_main_api_only() {
       http://127.0.0.1:8080/api/v1/website/stats >/dev/null &&
     deploy_main_api_matches "${release_dir}"; then
     printf '%s\n' "${target}" > "${state_dir}/api-deployed-sha"
+    deploy_main_record_annotations "${release_dir}/source" "${state_dir}" "${target}" api
     echo "API-only deployment completed: ${target}; other services and migrations unchanged"
     return 0
   fi
@@ -281,6 +282,23 @@ deploy_main_api_only() {
   systemctl daemon-reload
   bash "${release_dir}/source/scripts/cloud/restart.sh" api
   return 1
+}
+
+# The installed root-owned helper is independent of the release being rolled back.
+deploy_main_annotation_tool() {
+  python3 /usr/local/libexec/eigenflux/release_annotations.py "$@"
+}
+
+deploy_main_record_annotations() {
+  local source_dir=$1 state_dir=$2 target=$3 scope=$4
+  if ! deploy_main_annotation_tool --state-dir "${state_dir}/annotations" record \
+    --manifest "${source_dir}/deploy/release-events.json" --scope "${scope}" --commit "${target}"; then
+    echo "WARNING: healthy deployment annotation receipt failed; operator repair required for ${target}." >&2
+    return 0
+  fi
+  # An inactive/misconfigured worker does not roll back healthy application code.
+  systemctl start --no-block eigenflux-release-annotations.service || \
+    echo "WARNING: release annotation writer unavailable; durable events await the retry timer." >&2
 }
 
 deploy_main_run() {
@@ -359,6 +377,8 @@ deploy_main_run() {
   local source_dir release_dir
   source_dir="$(deploy_main_prepare_source "${project_root}" "${state_dir}" "${target}" \
     "${runtime_env}" "${deploy_user}" "${deploy_home}")" || return 1
+  deploy_main_annotation_tool --state-dir "${state_dir}/annotations" validate \
+    --manifest "${source_dir}/deploy/release-events.json" || return 1
   if [[ "${mode}" == "api-only" ]]; then
     deploy_main_assert_clean "${project_root}" "before API build" "${deploy_user}" "${deploy_home}" || return 1
     deploy_main_api_only "${source_dir}" "${state_dir}" "${target}" || return 1
@@ -389,6 +409,7 @@ deploy_main_run() {
 
   deploy_main_assert_clean "${project_root}" "after deployment" "${deploy_user}" "${deploy_home}" || return 1
   printf '%s\n' "${target}" > "${state_dir}/deployed-sha"
+  deploy_main_record_annotations "${source_dir}" "${state_dir}" "${target}" full
   deploy_main_prune_artifacts "${state_dir}" 2 || return 1
 
   echo "EigenFlux deployment completed: ${target}"

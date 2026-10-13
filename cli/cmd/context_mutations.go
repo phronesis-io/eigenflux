@@ -18,6 +18,7 @@ import (
 )
 
 type cliIntentAction struct {
+	Version           int64  `json:"version"`
 	IntentID          string `json:"intent_id"`
 	WatchFor          string `json:"watch_for"`
 	TriggerWhen       string `json:"trigger_when"`
@@ -174,13 +175,15 @@ var contextIntentListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List the latest owner-confirmed intents and actions",
 	RunE: func(_ *cobra.Command, _ []string) error {
-		_, _, _, current, err := contextMutationClient()
+		clientV2, _, err := newV2ClientForServer(serverFlag, true)
 		if err != nil {
 			return err
 		}
-		output.PrintData(map[string]interface{}{
-			"context_revision": current.ContextRevision, "intent_actions": current.IntentActions,
-		}, resolveFormat())
+		response, err := clientV2.Get("/agent-context/intent-actions", nil)
+		if err != nil {
+			return err
+		}
+		output.PrintData(response.Data, resolveFormat())
 		return nil
 	},
 }

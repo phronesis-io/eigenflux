@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"eigenflux_server/pkg/cache/keys"
 	"fmt"
 	"time"
 
@@ -26,12 +27,12 @@ func NewEmbeddingCache(client *redis.Client, ttl time.Duration) *EmbeddingCache 
 // BuildKey generates a cache key for an embedding
 // Format: cache:profile:emb:{agent_id}
 func (ec *EmbeddingCache) BuildKey(agentID int64) string {
-	return fmt.Sprintf("cache:profile:emb:%d", agentID)
+	return fmt.Sprintf(keys.Embedding, agentID)
 }
 
 // Get retrieves a cached embedding as raw bytes
 func (ec *EmbeddingCache) Get(ctx context.Context, agentID int64) ([]byte, error) {
-	val, err := ec.client.Get(ctx, ec.BuildKey(agentID)).Result()
+	val, err := Redis(ec.client).Read(ctx, ec.BuildKey(agentID)).Result()
 	if err != nil {
 		if err == redis.Nil {
 			return nil, ErrCacheMiss
@@ -43,7 +44,7 @@ func (ec *EmbeddingCache) Get(ctx context.Context, agentID int64) ([]byte, error
 
 // Set stores an embedding as raw bytes in cache
 func (ec *EmbeddingCache) Set(ctx context.Context, agentID int64, raw []byte) error {
-	if err := ec.client.Set(ctx, ec.BuildKey(agentID), raw, ec.ttl).Err(); err != nil {
+	if err := Redis(ec.client).Write(ctx, ec.BuildKey(agentID), raw, ec.ttl).Err(); err != nil {
 		return fmt.Errorf("redis set failed: %w", err)
 	}
 	return nil
@@ -51,7 +52,7 @@ func (ec *EmbeddingCache) Set(ctx context.Context, agentID int64, raw []byte) er
 
 // Delete removes an embedding from cache
 func (ec *EmbeddingCache) Delete(ctx context.Context, agentID int64) error {
-	if err := ec.client.Del(ctx, ec.BuildKey(agentID)).Err(); err != nil {
+	if err := Redis(ec.client).Remove(ctx, ec.BuildKey(agentID)).Err(); err != nil {
 		return fmt.Errorf("redis delete failed: %w", err)
 	}
 	return nil

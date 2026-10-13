@@ -1,0 +1,20 @@
+[Unit]
+Description=Install an evaluated discovery LR model from OSS
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ecs-user
+Group=ecs-user
+WorkingDirectory=/var/lib/eigenflux-discovery-lr-model
+StateDirectory=eigenflux-discovery-lr-model
+StateDirectoryMode=0750
+RuntimeDirectory=eigenflux-discovery-lr-model
+UMask=0027
+Environment=HOME=/etc/eigenflux-lr-model
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=MODEL_ROOT=/data/models/eigenflux/discovery-lr
+Environment=OSS_BUCKET=eigenflux-1862681177372549
+Environment=OSS_MODEL_PREFIX=rec/model/discovery_lr
+ExecStart=/usr/bin/flock -n /run/eigenflux-discovery-lr-model/pull.lock /var/lib/eigenflux-deployer/current/source/scripts/cloud/install_lr_model.sh --oss-latest

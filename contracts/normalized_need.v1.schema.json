@@ -1,0 +1,138 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$comment": "Historical read-only archive schema. New captures do not create normalized records.",
+  "title": "Platform Normalized Need v1 derived content",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "desc": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "x-max-weighted-length": 200
+    },
+    "candidate_needs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "x-max-weighted-length": 200
+      },
+      "uniqueItems": true
+    },
+    "mapped_needs": {
+      "type": "object",
+      "maxProperties": 10,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$"
+      }
+    },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "budget_max_fen": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "currency": {
+          "enum": [
+            "CNY"
+          ]
+        },
+        "max_promised_delivery_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "deadline_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "provider_region": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "x-max-weighted-length": 100
+          }
+        },
+        "lang": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "x-max-weighted-length": 100
+          }
+        },
+        "exclude_terms": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "x-max-weighted-length": 100
+          }
+        }
+      },
+      "dependencies": {
+        "budget_max_fen": [
+          "currency"
+        ]
+      }
+    },
+    "unresolved_constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lang": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "x-max-weighted-length": 100
+          }
+        },
+        "provider_region": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "x-max-weighted-length": 100
+          }
+        }
+      }
+    }
+  },
+  "required": [
+    "desc",
+    "candidate_needs"
+  ],
+  "x-eigenflux-contract": {
+    "source": "need_type, priority, preferences and exact source text remain on NeedInput. This object contains only derived fields; schema version and mapping_status are recorded on the parent projection.",
+    "mappings": "mapped_needs maps cleaned candidate phrases to canonical need IDs; keys must belong to candidate_needs. Missing keys are unresolved; no separate duplicate unmapped list is stored.",
+    "constraints": "Only explicit source constraints may become hard filters. Budget, currency and delivery are allowed only when the source need_type is commission. NormalizeBasic enforces this via source validation.",
+    "unresolved_constraints": "Preserve the entire alternative list when any lang/provider_region value cannot be resolved; do not apply a narrower hard filter.",
+    "writer": "Platform only. Online basic normalization has no vocabulary, model or queue dependency. Offline enrichment publishes a new projection; superseded projections remain available for sample reconstruction."
+  }
+}

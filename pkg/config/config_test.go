@@ -488,3 +488,38 @@ func TestCommissionIntegrationAuthorizationFailsClosed(t *testing.T) {
 		})
 	}
 }
+
+func TestConsoleAllowedOriginsConfiguration(t *testing.T) {
+	t.Setenv("CONSOLE_V2_ALLOWED_ORIGINS", "https://www.eigenflux.net, https://console.example.test")
+	cfg := Load()
+	if len(cfg.ConsoleV2AllowedOrigins) != 2 || cfg.ConsoleV2AllowedOrigins[0] != "https://www.eigenflux.net" || cfg.ConsoleV2AllowedOrigins[1] != "https://console.example.test" {
+		t.Fatalf("unexpected origins: %#v", cfg.ConsoleV2AllowedOrigins)
+	}
+	t.Setenv("CONSOLE_V2_ALLOWED_ORIGINS", "")
+	if len(Load().ConsoleV2AllowedOrigins) != 0 {
+		t.Fatal("additional origins should default to empty")
+	}
+}
+
+func TestNeedSearchRequiresLegacyGatesAndSamples(t *testing.T) {
+	c := &Config{EnableNeedSearch: true, EnableCommissionIndex: true, CommissionDiscoveryEnabled: true, EnableReplayLog: true}
+	if err := c.ValidateCommissionDiscoveryConfiguration(); err != nil {
+		t.Fatal(err)
+	}
+	c.CommissionDiscoveryEnabled = false
+	if c.ValidateCommissionDiscoveryConfiguration() == nil {
+		t.Fatal("commission access feature bypass")
+	}
+	c.CommissionDiscoveryEnabled = true
+	c.EnableReplayLog = false
+	if c.ValidateCommissionDiscoveryConfiguration() == nil {
+		t.Fatal("samples disabled at cutover")
+	}
+}
+
+func TestDiscoveryEmbeddingRevisionConfiguration(t *testing.T) {
+	t.Setenv("DISCOVERY_EMBEDDING_REVISION", "model-weights-r2")
+	if got := Load().DiscoveryEmbeddingRevision; got != "model-weights-r2" {
+		t.Fatal(got)
+	}
+}

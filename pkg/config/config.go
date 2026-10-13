@@ -40,6 +40,11 @@ func loadConsoleV2RegistrationLimits() RegLimit {
 }
 
 type Config struct {
+	EnableNeedSearch           bool
+	DiscoveryRulesPath         string
+	DiscoveryEmbeddingRevision string
+	AgentDiscoveryIndex        string
+
 	EtcdAddr                    string
 	PgDSN                       string
 	RedisAddr                   string
@@ -65,6 +70,7 @@ type Config struct {
 	AuthRPCPort                 int
 	PMRPCPort                   int
 	NotificationRPCPort         int
+	LLMSummaryFidelity          bool // opt-in relationship/attribution grounding for PGC extraction only
 	LLMApiKey                   string
 	LLMBaseURL                  string
 	LLMModel                    string
@@ -91,6 +97,7 @@ type Config struct {
 	ConsoleV2BootstrapSecret    string   // Shared secret used only by the controlled bootstrap broker
 	ConsoleV2OTPPepper          string   // Server-side HMAC pepper for Console V2 email challenges
 	ConsoleV2PublicURL          string   // Browser origin used when constructing one-time handoff URLs
+	ConsoleV2AllowedOrigins     []string // Additional same-origin browser entry points
 	ConsoleV2TrustedProxyCIDRs  []string // Proxies allowed to supply client IP forwarding headers for V2 OTP limits
 	ConsoleV2Registration       RegLimit // Public automatic registration rate limits
 	MockUniversalOTP            string   // fixed OTP for whitelist-matched requests
@@ -212,14 +219,21 @@ type Config struct {
 	BlockedAgentEmails    []string // agent emails denied at the API auth gate (spam/abuse); blocks every authenticated route including broadcast publish
 	RecallRedisNamespace  string   // Redis key namespace for recall indices (default: "rec")
 
+	// External feature view YAML, reloaded by each feature reader/writer process.
+	FeatureIndexConfigDir      string
+	FeatureIndexReloadInterval string
+
 	// LR ranker (sort). A daily-trained logistic-regression model replaces the
 	// formula rank when enabled and a valid bundle is loaded; otherwise sort
 	// falls back to the baseline formula ranker. The bundle is delivered to a
 	// local directory out-of-band (OSS sync + atomic `current` symlink); sort
 	// only hot-reloads the local file.
-	LRRankerEnabled        bool
-	LRRankerModelPath      string
-	LRRankerReloadInterval string
+	LRRankerEnabled           bool
+	LRRankerModelPath         string
+	LRRankerReloadInterval    string
+	DiscoveryLREnabled        bool
+	DiscoveryLRModelPath      string
+	DiscoveryLRReloadInterval string
 
 	// Per-type freshness decay
 	FreshnessAlertOffset  string
@@ -271,6 +285,7 @@ func Load() *Config {
 		PMRPCPort:                   getEnvInt("PM_RPC_PORT", 8885),
 		AuthRPCPort:                 getEnvInt("AUTH_RPC_PORT", 8886),
 		NotificationRPCPort:         getEnvInt("NOTIFICATION_RPC_PORT", 8887),
+		LLMSummaryFidelity:          getEnvBool("LLM_SUMMARY_FIDELITY", false),
 		LLMApiKey:                   getEnv("LLM_API_KEY", ""),
 		LLMBaseURL:                  getEnv("LLM_BASE_URL", "https://api.openai.com/v1"),
 		LLMModel:                    getEnv("LLM_MODEL", "gpt-4o-mini"),
@@ -289,6 +304,10 @@ func Load() *Config {
 		ResendFromEmail:             getEnv("RESEND_FROM_EMAIL", "noreply@example.com"),
 		EnableEmailVerification:     getEnvBool("ENABLE_EMAIL_VERIFICATION", false),
 		EnableConsoleV2:             getEnvBool("ENABLE_CONSOLE_V2", false),
+		EnableNeedSearch:            getEnvBool("ENABLE_NEED_SEARCH", false),
+		DiscoveryRulesPath:          getEnv("DISCOVERY_RULES_PATH", "configs/discovery/rules.json"),
+		DiscoveryEmbeddingRevision:  getEnv("DISCOVERY_EMBEDDING_REVISION", ""),
+		AgentDiscoveryIndex:         getEnv("AGENT_DISCOVERY_INDEX", "agent_discovery_v1"),
 		EnableFeedV2:                getEnvBool("ENABLE_FEED_V2", false),
 		EnableControlChannelV2:      getEnvBool("ENABLE_CONTROL_CHANNEL_V2", false),
 		EnableAgentAttentionV1:      getEnvBool("ENABLE_AGENT_ATTENTION_V1", false),
@@ -297,6 +316,7 @@ func Load() *Config {
 		ConsoleV2BootstrapSecret:    getEnv("CONSOLE_V2_BOOTSTRAP_SECRET", ""),
 		ConsoleV2OTPPepper:          getEnv("CONSOLE_V2_OTP_PEPPER", ""),
 		ConsoleV2PublicURL:          getEnv("CONSOLE_V2_PUBLIC_URL", "http://localhost:5173"),
+		ConsoleV2AllowedOrigins:     getEnvStringList("CONSOLE_V2_ALLOWED_ORIGINS", nil),
 		ConsoleV2TrustedProxyCIDRs:  getEnvStringList("CONSOLE_V2_TRUSTED_PROXY_CIDRS", nil),
 		ConsoleV2Registration:       loadConsoleV2RegistrationLimits(),
 		MockUniversalOTP:            getEnv("MOCK_UNIVERSAL_OTP", "123456"),
@@ -413,6 +433,11 @@ func Load() *Config {
 		LRRankerEnabled:              getEnvBool("LR_RANKER_ENABLED", false),
 		LRRankerModelPath:            getEnv("LR_RANKER_MODEL_PATH", "/data/models/eigenflux/lr-ranker/current/model.json"),
 		LRRankerReloadInterval:       getEnv("LR_RANKER_RELOAD_INTERVAL", "60s"),
+		DiscoveryLREnabled:           getEnvBool("DISCOVERY_LR_ENABLED", false),
+		DiscoveryLRModelPath:         getEnv("DISCOVERY_LR_MODEL_PATH", "/data/models/eigenflux/discovery-lr/current/model.json"),
+		DiscoveryLRReloadInterval:    getEnv("DISCOVERY_LR_RELOAD_INTERVAL", "60s"),
+		FeatureIndexConfigDir:        getEnv("FEATURE_INDEX_CONFIG_DIR", "configs/featureindex"),
+		FeatureIndexReloadInterval:   getEnv("FEATURE_INDEX_RELOAD_INTERVAL", "5s"),
 		RecallRedisNamespace:         getEnv("REC_REDIS_NAMESPACE", "rec"),
 		FreshnessAlertOffset:         getEnv("FRESHNESS_ALERT_OFFSET", "2h"),
 		FreshnessAlertScale:          getEnv("FRESHNESS_ALERT_SCALE", "12h"),
@@ -479,7 +504,7 @@ var (
 )
 
 func (c *Config) ValidateCommissionDiscoveryConfiguration() error {
-	if c == nil || c.CommissionDiscoveryEnabled && !c.EnableCommissionIndex {
+	if c == nil || (c.CommissionDiscoveryEnabled || c.EnableNeedSearch) && !c.EnableCommissionIndex || c.EnableNeedSearch && (!c.CommissionDiscoveryEnabled || !c.EnableReplayLog) {
 		return ErrInvalidCommissionDiscoveryConfiguration
 	}
 	return nil

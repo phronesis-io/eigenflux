@@ -8,7 +8,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/commission/commissionservice"
 	"eigenflux_server/kitex_gen/eigenflux/order"
 	"eigenflux_server/kitex_gen/eigenflux/order/orderservice"
-	"eigenflux_server/pkg/commissionindex"
+	"eigenflux_server/pkg/featureindex"
 	"fmt"
 	"strings"
 )
@@ -34,25 +34,25 @@ func (a Adapter) Ready(ctx context.Context) error {
 	return nil
 }
 
-func (a Adapter) GetIndexSnapshot(ctx context.Context, id int64) (commissionindex.CatalogueSnapshot, error) {
+func (a Adapter) GetIndexSnapshot(ctx context.Context, id int64) (featureindex.CommissionCatalogueSnapshot, error) {
 	if id <= 0 {
-		return commissionindex.CatalogueSnapshot{}, fmt.Errorf("invalid Commission ID")
+		return featureindex.CommissionCatalogueSnapshot{}, fmt.Errorf("invalid Commission ID")
 	}
 	resp, err := a.Commission.GetIndexSnapshot(ctx, &commission.GetIndexSnapshotReq{CommissionId: id})
 	if err != nil {
-		return commissionindex.CatalogueSnapshot{}, err
+		return featureindex.CommissionCatalogueSnapshot{}, err
 	}
 	if resp == nil || resp.BaseResp == nil || resp.BaseResp.Code != 0 || resp.Snapshot == nil {
-		return commissionindex.CatalogueSnapshot{}, fmt.Errorf("Commission snapshot failed")
+		return featureindex.CommissionCatalogueSnapshot{}, fmt.Errorf("Commission snapshot failed")
 	}
 	result, err := catalogue(resp.Snapshot)
 	if err != nil || result.CommissionID != id {
-		return commissionindex.CatalogueSnapshot{}, fmt.Errorf("Commission snapshot failed")
+		return featureindex.CommissionCatalogueSnapshot{}, fmt.Errorf("Commission snapshot failed")
 	}
 	return result, nil
 }
 
-func (a Adapter) ListActiveIndexSnapshots(ctx context.Context, cursor int64, limit int) ([]commissionindex.CatalogueSnapshot, int64, error) {
+func (a Adapter) ListActiveIndexSnapshots(ctx context.Context, cursor int64, limit int) ([]featureindex.CommissionCatalogueSnapshot, int64, error) {
 	resp, err := a.Commission.ListActiveIndexSnapshots(ctx, &commission.ListActiveIndexSnapshotsReq{Cursor: cursor, Limit: int32(limit)})
 	if err != nil {
 		return nil, 0, err
@@ -60,7 +60,7 @@ func (a Adapter) ListActiveIndexSnapshots(ctx context.Context, cursor int64, lim
 	if resp == nil || resp.BaseResp == nil || resp.BaseResp.Code != 0 {
 		return nil, 0, fmt.Errorf("list Commission snapshots failed")
 	}
-	out := make([]commissionindex.CatalogueSnapshot, 0, len(resp.Snapshots))
+	out := make([]featureindex.CommissionCatalogueSnapshot, 0, len(resp.Snapshots))
 	for _, snapshot := range resp.Snapshots {
 		value, err := catalogue(snapshot)
 		if err != nil {
@@ -74,21 +74,21 @@ func (a Adapter) ListActiveIndexSnapshots(ctx context.Context, cursor int64, lim
 	return out, resp.NextCursor, nil
 }
 
-func (a Adapter) GetStatistics(ctx context.Context, id int64) (commissionindex.StatisticsSnapshot, error) {
+func (a Adapter) GetStatistics(ctx context.Context, id int64) (featureindex.CommissionStatisticsSnapshot, error) {
 	if id <= 0 {
-		return commissionindex.StatisticsSnapshot{}, fmt.Errorf("invalid Commission ID")
+		return featureindex.CommissionStatisticsSnapshot{}, fmt.Errorf("invalid Commission ID")
 	}
 	resp, err := a.Order.GetCommissionStatistics(ctx, &order.GetCommissionStatisticsReq{CommissionId: id})
 	if err != nil {
-		return commissionindex.StatisticsSnapshot{}, err
+		return featureindex.CommissionStatisticsSnapshot{}, err
 	}
 	if resp == nil || resp.BaseResp == nil || resp.BaseResp.Code != 0 || resp.Statistics == nil || resp.Statistics.CommissionId != id {
-		return commissionindex.StatisticsSnapshot{}, fmt.Errorf("get Commission statistics failed")
+		return featureindex.CommissionStatisticsSnapshot{}, fmt.Errorf("get Commission statistics failed")
 	}
 	return statistics(resp.Statistics), nil
 }
 
-func (a Adapter) BatchGetStatistics(ctx context.Context, ids []int64) ([]commissionindex.StatisticsSnapshot, error) {
+func (a Adapter) BatchGetStatistics(ctx context.Context, ids []int64) ([]featureindex.CommissionStatisticsSnapshot, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -99,7 +99,7 @@ func (a Adapter) BatchGetStatistics(ctx context.Context, ids []int64) ([]commiss
 	if resp == nil || resp.BaseResp == nil || resp.BaseResp.Code != 0 {
 		return nil, fmt.Errorf("batch Commission statistics failed")
 	}
-	out := make([]commissionindex.StatisticsSnapshot, 0, len(resp.Statistics))
+	out := make([]featureindex.CommissionStatisticsSnapshot, 0, len(resp.Statistics))
 	for _, value := range resp.Statistics {
 		if value == nil {
 			continue
@@ -109,15 +109,15 @@ func (a Adapter) BatchGetStatistics(ctx context.Context, ids []int64) ([]commiss
 	return out, nil
 }
 
-func catalogue(value *commission.CommissionIndexSnapshot) (commissionindex.CatalogueSnapshot, error) {
+func catalogue(value *commission.CommissionIndexSnapshot) (featureindex.CommissionCatalogueSnapshot, error) {
 	if value == nil || value.Definition == nil {
-		return commissionindex.CatalogueSnapshot{}, fmt.Errorf("incomplete Commission snapshot")
+		return featureindex.CommissionCatalogueSnapshot{}, fmt.Errorf("incomplete Commission snapshot")
 	}
 	d := value.Definition
 	if d.CommissionId <= 0 || d.SellerAgentId <= 0 || d.Version <= 0 || d.Status == "" {
-		return commissionindex.CatalogueSnapshot{}, fmt.Errorf("invalid Commission snapshot")
+		return featureindex.CommissionCatalogueSnapshot{}, fmt.Errorf("invalid Commission snapshot")
 	}
-	base := commissionindex.CatalogueSnapshot{
+	base := featureindex.CommissionCatalogueSnapshot{
 		CommissionID: d.CommissionId, SellerAgentID: d.SellerAgentId, Status: d.Status,
 		CatalogueVersion: d.Version, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 	}
@@ -125,11 +125,11 @@ func catalogue(value *commission.CommissionIndexSnapshot) (commissionindex.Catal
 		return base, nil
 	}
 	if !strings.EqualFold(d.Status, "active") || d.PublicRevision <= 0 || value.Revision == nil || value.Revision.Content == nil {
-		return commissionindex.CatalogueSnapshot{}, fmt.Errorf("incomplete Commission snapshot")
+		return featureindex.CommissionCatalogueSnapshot{}, fmt.Errorf("incomplete Commission snapshot")
 	}
 	r, c := value.Revision, value.Revision.Content
 	if r.CommissionId != d.CommissionId || r.SellerAgentId != d.SellerAgentId || r.Revision != d.PublicRevision {
-		return commissionindex.CatalogueSnapshot{}, fmt.Errorf("invalid Commission snapshot")
+		return featureindex.CommissionCatalogueSnapshot{}, fmt.Errorf("invalid Commission snapshot")
 	}
 	base.Title = c.Title
 	base.CapabilityDescription = c.CapabilityDescription
@@ -141,6 +141,6 @@ func catalogue(value *commission.CommissionIndexSnapshot) (commissionindex.Catal
 	base.PromisedDeliveryMS = c.PromisedDeliveryMs
 	return base, nil
 }
-func statistics(value *order.CommissionStatistics) commissionindex.StatisticsSnapshot {
-	return commissionindex.StatisticsSnapshot{CommissionID: value.CommissionId, SellerAgentID: value.SellerAgentId, CompletedCount: value.CompletedCount, RefundedCount: value.RefundedCount, CompletionRateBPS: value.CompletionRateBps, AverageRatingMilli: value.AverageRatingMilli, HasRating: value.HasRating, AverageDeliveryMS: value.AverageDeliveryMs, StatisticsVersion: value.StatisticsVersion}
+func statistics(value *order.CommissionStatistics) featureindex.CommissionStatisticsSnapshot {
+	return featureindex.CommissionStatisticsSnapshot{CommissionID: value.CommissionId, SellerAgentID: value.SellerAgentId, CompletedCount: value.CompletedCount, RefundedCount: value.RefundedCount, CompletionRateBPS: value.CompletionRateBps, AverageRatingMilli: value.AverageRatingMilli, HasRating: value.HasRating, AverageDeliveryMS: value.AverageDeliveryMs, StatisticsVersion: value.StatisticsVersion}
 }

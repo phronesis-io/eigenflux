@@ -101,6 +101,7 @@ return {1, minute_count + 1, day_count + 1}
 func Register(h *server.Hertz) {
 	h.GET("/api/v1/agents/me/card", middleware.AuthMiddleware(), GetMyCard)
 	h.GET("/api/v1/agents/me/card/refresh-context", middleware.AuthMiddleware(), GetRefreshContext)
+	h.POST("/api/v1/agents/me/card/refresh-events", middleware.AuthMiddleware(), RecordRefreshEvent)
 	h.PUT("/api/v1/agents/me/profile/fields", middleware.AuthMiddleware(), PutProfileFields)
 	h.GET("/api/v1/agents/:agent_id/card", middleware.AuthMiddleware(), GetPublicCard)
 }
@@ -760,6 +761,9 @@ func GetRefreshContext(ctx context.Context, c *app.RequestContext) {
 		editable[spec.Name] = entry
 	}
 
+	if outcome, ok := refreshCompleteOutcome(string(c.GetHeader(ProfileRefreshCompleteHeader)), version); ok {
+		logProfileRefreshRun(ctx, c, agentID, outcome, string(c.GetHeader(ProfileRefreshTriggerHeader)))
+	}
 	respond(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"profile_version": version,
 		"editable_fields": editable,
@@ -1033,6 +1037,13 @@ func PutProfileFields(ctx context.Context, c *app.RequestContext) {
 	}
 	if !noChanges {
 		agentcard.PublishRebuild(ctx, agentID, "profile_fields_update")
+	}
+	if isProfileRefreshSource(req.Source) {
+		outcome := "changed"
+		if noChanges {
+			outcome = "unchanged"
+		}
+		logProfileRefreshRun(ctx, c, agentID, outcome, refreshTriggerFor(req.Source, string(c.GetHeader(ProfileRefreshTriggerHeader))))
 	}
 
 	respond(c, http.StatusOK, 0, "success", map[string]interface{}{

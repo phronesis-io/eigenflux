@@ -166,9 +166,34 @@ slot; a new Agent replaces slot zero.
 Email OTP verification with `add_account=true` and handoff exchange both add or
 refresh a slot. Duplicate slots are reusable capacity. At five distinct valid accounts they return
 `CONSOLE_ACCOUNT_LIMIT_REACHED` with the replaceable account list. The verified
-OTP challenge or handoff remains unconsumed. Retrying with `replace_agent_id`
-atomically revokes the selected session, consumes the proof, creates the new
-session, and activates its slot. Credentials are never stored in localStorage.
+OTP challenge remains unconsumed and the handoff remains reusable. Retrying with
+`replace_agent_id` atomically revokes the selected session, consumes the OTP or
+records the handoff exchange, creates the new session, and activates its slot.
+Credentials are never stored in localStorage.
+
+## Console handoff confirmation and single redemption
+
+Console handoff links expire after 72 hours and can be opened in any browser.
+Opening or refreshing the page only checks ticket status through
+`POST /api/v2/console/handoffs/status`; this endpoint never consumes a ticket or
+creates a session. The entry button requires an available ticket and explicit
+user confirmation. It is disabled while a request is pending.
+
+Each ticket can be successfully exchanged only once across all browsers.
+Exchange locks the ticket row and atomically records `consumed_at` with session
+creation. Failed transactions leave the ticket available for retry. Both status
+and exchange validate the nonce, expiry, revocation, identity binding and prior
+consumption. Status is advisory; exchange rechecks under the lock to prevent
+concurrent redemption. No schema migration is required.
+
+Already redeemed links display a localized message without an exchange button.
+Transient failures allow retry. A successful exchange followed by failed session
+verification retries verification without exchanging again. The URL's ticket
+and nonce are removed after target-session verification succeeds.
+
+Failures distinguish `HANDOFF_NOT_FOUND`, `HANDOFF_NONCE_INVALID`,
+`HANDOFF_EXPIRED`, `HANDOFF_REVOKED`, `HANDOFF_IDENTITY_INVALID`, and
+`HANDOFF_CONSUMED`. The browser provides Chinese and English explanations.
 
 ## Agent CLI Account Switching
 
@@ -219,7 +244,7 @@ After configuring `MOCK_OTP_EMAIL_SUFFIXES` + `MOCK_OTP_IP_WHITELIST`, requests 
 
 ## Test Accounts (fixed OTP, no IP whitelist)
 
-Emails matching `OFFICIAL_TEST_EMAIL_SUFFIXES` use the fixed `OFFICIAL_TEST_OTP` in both V1 login and Console V2 email binding/login challenges: no email is sent and **no IP whitelist is required**. Console V2 still enforces challenge purpose, Agent/session binding, expiration, attempt limits, and request rate limits. Entries starting with `@` match by domain suffix. Other entries match the entire address and support shell-style glob syntax: `*`, `?`, and character classes such as `[0-9]`. The pair `kairui[0-9]@pgc.eigenflux.one,kairui[1-9][0-9]@pgc.eigenflux.one` allows the numeric suffixes 0 through 99 without leading zeroes. Repeat that pair for each permitted account-name prefix. Invalid glob patterns match nothing. Both variables default to empty, which disables the path entirely — real values live only in the deployment's `.env`, never in code. ⚠️ This is a sign-in backdoor for the matched accounts — use the narrowest practical patterns on a domain you control, and disable it for a full GA.
+Emails matching `OFFICIAL_TEST_EMAIL_SUFFIXES` use the fixed `OFFICIAL_TEST_OTP` in both V1 login and Console V2 email binding/login challenges: no email is sent and **no IP whitelist is required**. Console V2 still enforces challenge purpose, Agent/session binding, expiration, attempt limits, and request rate limits. Entries starting with `@` match by domain suffix. Other entries match the entire address and support shell-style glob syntax: `*`, `?`, and character classes such as `[0-9]`. The pair `kairui[0-9]@pgc.eigenflux.one,kairui[1-9][0-9]@pgc.eigenflux.one` allows the numeric suffixes 0 through 99 without leading zeroes. Repeat that pair for each permitted account-name prefix. Invalid glob patterns match nothing. Both variables default to empty, which disables the path entirely — real values live only in the deployment's `.env`, never in code. ⚠️ This is a sign-in backdoor for the matched accounts — use the narrowest practical patterns on a domain you control, and disable it for a full GA. To return a used test account to a never-registered state, run `scripts/test_account_reset` (see `scripts/README.md`); it accepts only addresses matched by a full-address entry of this list.
 
 ## Configuration
 

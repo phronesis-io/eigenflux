@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"eigenflux_server/api/consolev2"
 	"errors"
 	"net"
 	"net/http"
@@ -145,19 +146,19 @@ func TestRegisterCommissionConsoleBFFRoutesUsesGateForEveryRoute(t *testing.T) {
 	registerCommissionConsoleBFFRoutes(read, write, access.ConsoleMiddleware(), tradebff.NewUnavailable("test"))
 
 	expected := []route{
-		{http.MethodGet, "trade/overview"},
-		{http.MethodGet, "trade/commissions"},
 		{http.MethodGet, "trade/commissions/:commission_id/reviews"},
-		{http.MethodGet, "trade/orders"},
-		{http.MethodGet, "trade/orders/:order_id"},
 		{http.MethodGet, "trade/orders/:order_id/snapshots/:snapshot_id/file"},
-		{http.MethodPost, "trade/orders/:order_id/payment"},
-		{http.MethodGet, "earnings/summary"},
-		{http.MethodGet, "earnings/records"},
-		{http.MethodGet, "payout-method"},
 		{http.MethodGet, "payout-method/kyc"},
 		{http.MethodPost, "payout-method/kyc"},
 		{http.MethodPost, "payout-method/kyc/authorization"},
+		{http.MethodPost, "trade/orders/:order_id/payment"},
+		{http.MethodGet, "trade/overview"},
+		{http.MethodGet, "trade/commissions"},
+		{http.MethodGet, "trade/orders"},
+		{http.MethodGet, "trade/orders/:order_id"},
+		{http.MethodGet, "earnings/summary"},
+		{http.MethodGet, "earnings/records"},
+		{http.MethodGet, "payout-method"},
 		{http.MethodPost, "payout-method/authorization"},
 		{http.MethodPost, "withdrawals"},
 		{http.MethodGet, "withdrawals/:withdrawal_id"},
@@ -180,6 +181,24 @@ func TestRegisterCommissionConsoleBFFRoutesUsesGateForEveryRoute(t *testing.T) {
 		recorder := ut.PerformRequest(h.Engine, http.MethodGet, "/test", nil)
 		if recorder.Result().StatusCode() != http.StatusForbidden {
 			t.Fatalf("route=%v gate status=%d body=%s", want, recorder.Result().StatusCode(), recorder.Result().Body())
+		}
+	}
+}
+
+func TestWalletKYCRoutesRequireConsoleAuthentication(t *testing.T) {
+	h := server.New()
+	registerConsoleV2BusinessBFF(h, &consolev2.Service{}, &config.Config{}, nil)
+	for _, tc := range []struct {
+		method, path string
+		status       int
+	}{
+		{http.MethodGet, "/api/v2/console/bff/payout-method/kyc", http.StatusUnauthorized},
+		{http.MethodPost, "/api/v2/console/bff/payout-method/kyc", http.StatusForbidden},
+		{http.MethodPost, "/api/v2/console/bff/payout-method/kyc/authorization", http.StatusForbidden},
+	} {
+		response := ut.PerformRequest(h.Engine, tc.method, tc.path, nil).Result()
+		if response.StatusCode() != tc.status {
+			t.Fatalf("%s %s: got %d want %d", tc.method, tc.path, response.StatusCode(), tc.status)
 		}
 	}
 }

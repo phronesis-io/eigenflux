@@ -8,24 +8,24 @@ import (
 	"testing"
 
 	"eigenflux_server/pipeline/llm"
+	"eigenflux_server/pkg/db"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
-func TestPersistProcessedItemMarksFailedAndAcksOnPersistError(t *testing.T) {
+func TestPersistProcessedItemMarksFailedAndRetainsDeliveryOnPersistError(t *testing.T) {
+	consumerPersistenceDB(t)
 	originalUpdateProcessedItem := updateProcessedItem
 	originalUpdateProcessedItemStatus := updateProcessedItemStatus
-	originalAckItemMessage := ackItemMessage
 	defer func() {
 		updateProcessedItem = originalUpdateProcessedItem
 		updateProcessedItemStatus = originalUpdateProcessedItemStatus
-		ackItemMessage = originalAckItemMessage
 	}()
 
 	var statusItemID int64
 	var statusValue int16
-	var acked bool
 
 	updateProcessedItem = func(_ *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness, suggestion string, homepageEligible, homepageRealWorldRelevant bool, homepageRejectionReason, homepageEvaluationVersion string, status int16) error {
 		assert.Equal(t, int64(123), itemID)
@@ -36,13 +36,6 @@ func TestPersistProcessedItemMarksFailedAndAcksOnPersistError(t *testing.T) {
 	updateProcessedItemStatus = func(_ *gorm.DB, itemID int64, status int16) error {
 		statusItemID = itemID
 		statusValue = status
-		return nil
-	}
-	ackItemMessage = func(_ context.Context, stream, group, msgID string) error {
-		assert.Equal(t, itemStream, stream)
-		assert.Equal(t, itemGroup, group)
-		assert.Equal(t, "1-0", msgID)
-		acked = true
 		return nil
 	}
 
@@ -79,34 +72,26 @@ func TestPersistProcessedItemMarksFailedAndAcksOnPersistError(t *testing.T) {
 	)
 
 	require.False(t, ok)
-	assert.True(t, acked)
 	assert.Equal(t, int64(123), statusItemID)
 	assert.Equal(t, int16(2), statusValue)
 	assert.Contains(t, logs.String(), "failed to persist processed item")
 	assert.Contains(t, logs.String(), "itemID=123")
 }
 
-func TestPersistProcessedItemStillAcksWhenMarkFailedAlsoFails(t *testing.T) {
+func TestPersistProcessedItemRetainsDeliveryWhenMarkFailedAlsoFails(t *testing.T) {
+	consumerPersistenceDB(t)
 	originalUpdateProcessedItem := updateProcessedItem
 	originalUpdateProcessedItemStatus := updateProcessedItemStatus
-	originalAckItemMessage := ackItemMessage
 	defer func() {
 		updateProcessedItem = originalUpdateProcessedItem
 		updateProcessedItemStatus = originalUpdateProcessedItemStatus
-		ackItemMessage = originalAckItemMessage
 	}()
-
-	var acked bool
 
 	updateProcessedItem = func(_ *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness, suggestion string, homepageEligible, homepageRealWorldRelevant bool, homepageRejectionReason, homepageEvaluationVersion string, status int16) error {
 		return errors.New("persist failed")
 	}
 	updateProcessedItemStatus = func(_ *gorm.DB, itemID int64, status int16) error {
 		return errors.New("status update failed")
-	}
-	ackItemMessage = func(_ context.Context, stream, group, msgID string) error {
-		acked = true
-		return nil
 	}
 
 	var logs bytes.Buffer
@@ -133,7 +118,6 @@ func TestPersistProcessedItemStillAcksWhenMarkFailedAlsoFails(t *testing.T) {
 	)
 
 	require.False(t, ok)
-	assert.True(t, acked)
 	assert.Contains(t, logs.String(), "failed to persist processed item")
 	assert.Contains(t, logs.String(), "failed to mark item as failed after persist error")
 }
@@ -162,4 +146,17 @@ func TestHomepageCountryFromPrivateCard(t *testing.T) {
 			assert.Equal(t, test.want, got)
 		})
 	}
+}
+
+func consumerPersistenceDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	gdb, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	pool, err := gdb.DB()
+	require.NoError(t, err)
+	pool.SetMaxOpenConns(1)
+	old := db.DB
+	db.DB = gdb
+	t.Cleanup(func() { db.DB = old; require.NoError(t, pool.Close()) })
+	return gdb
 }

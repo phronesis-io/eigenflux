@@ -18,13 +18,17 @@ import (
 // it (newest file wins).
 type Ledger struct {
 	entries map[string]Entry
+	exact   map[string]Entry
 }
 
 // cachedResponse is the shape SaveFeedResponse persists (the API `data` object).
 type cachedResponse struct {
 	ImpressionID string `json:"impression_id"`
 	Items        []struct {
-		ItemID  string `json:"item_id"`
+		ItemID    string `json:"item_id"`
+		SourceRef struct {
+			Type string `json:"type"`
+		} `json:"source_ref"`
 		Summary string `json:"summary"`
 		Preview struct {
 			Text string `json:"text"`
@@ -36,7 +40,7 @@ type cachedResponse struct {
 // directory yields an empty (all-missing) ledger — callers treat that as
 // "unknown item", never an error.
 func NewLedger(broadcastsDir, serverID string) *Ledger {
-	l := &Ledger{entries: map[string]Entry{}}
+	l := &Ledger{entries: map[string]Entry{}, exact: map[string]Entry{}}
 	dateDirs, err := os.ReadDir(broadcastsDir)
 	if err != nil {
 		return l
@@ -86,20 +90,24 @@ func (l *Ledger) absorb(path, serverID string) {
 		servedMs = info.ModTime().UnixMilli()
 	}
 	for _, it := range resp.Items {
-		if it.ItemID == "" {
+		if it.ItemID == "" || (it.SourceRef.Type != "" && it.SourceRef.Type != "broadcast") {
 			continue
 		}
-		if _, seen := l.entries[it.ItemID]; seen {
-			continue // newest response already recorded this item
-		}
+
 		if it.Summary == "" {
 			it.Summary = it.Preview.Text
 		}
-		l.entries[it.ItemID] = Entry{
+		entry := Entry{
 			ImpressionID: resp.ImpressionID,
 			ServerID:     serverID,
 			Title:        truncate(it.Summary, shortTitleMax),
 			ExpiresAt:    servedMs + ledgerTTLMs,
+		}
+		if _, seen := l.entries[it.ItemID]; !seen {
+			l.entries[it.ItemID] = entry
+		}
+		if _, seen := l.exact[it.ItemID+":"+resp.ImpressionID]; !seen {
+			l.exact[it.ItemID+":"+resp.ImpressionID] = entry
 		}
 	}
 }
@@ -122,4 +130,18 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max]
+}
+
+func (l *Ledger) LookupImpression(itemID, impression string, nowMs int64) (Entry, Status) {
+	if impression == "" {
+		return l.Lookup(itemID, nowMs)
+	}
+	e, ok := l.exact[itemID+":"+impression]
+	if !ok {
+		return Entry{}, StatusMissing
+	}
+	if e.ExpiresAt < nowMs {
+		return e, StatusExpired
+	}
+	return e, StatusHit
 }

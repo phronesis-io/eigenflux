@@ -262,7 +262,7 @@ go test -v ./tests/sort/
 ## References
 
 - **IDL**: `idl/sort.thrift`
-- **Handler**: `rpc/sort/handler.go`
+- **Handler**: `rpc/sort/legacy/pipeline.go`
 - **DAL**: `rpc/sort/dal/es.go`, `rpc/sort/dal/es_query.go`
 - **Cache**: `pkg/cache/search_cache.go`, `pkg/cache/profile_cache.go`
 - **Bloom Filter**: `pkg/bloomfilter/bloomfilter.go`

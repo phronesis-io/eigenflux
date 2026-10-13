@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	"eigenflux_server/pkg/agentidentity"
+	"eigenflux_server/pkg/cache"
 	"eigenflux_server/pkg/feedpoll"
 	"eigenflux_server/pkg/runtimeidentity"
 	itemdal "eigenflux_server/rpc/item/dal"
@@ -270,7 +271,11 @@ func rebuildAgentCard(ctx context.Context, gdb *gorm.DB, rdb *redis.Client, agen
 	if err != nil {
 		return err
 	}
-	return profiledal.UpsertAgentCardWithFence(gdb, agentID, string(pubJSON), string(privJSON), SchemaVersion, profileVersion, rebuildFence)
+	if err := profiledal.UpsertAgentCardWithFence(gdb, agentID, string(pubJSON), string(privJSON), SchemaVersion, profileVersion, rebuildFence); err != nil {
+		return err
+	}
+	cache.InvalidateDiscovery(ctx, rdb, agentID)
+	return nil
 }
 
 // cardRuntimeFields preserves the deprecated first return value for existing

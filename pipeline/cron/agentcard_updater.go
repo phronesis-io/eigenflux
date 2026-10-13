@@ -15,6 +15,8 @@ import (
 	profiledal "eigenflux_server/rpc/profile/dal"
 )
 
+var projectDiscoveryAgent func(context.Context, int64) error
+
 const (
 	lockKeyAgentCardUpdater        = "lock:cron:agentcard_updater"
 	agentCardUpdateInterval        = time.Hour
@@ -323,6 +325,9 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 		attempted++
 		rebuildCtx, cancelRebuild := context.WithTimeout(runCtx, attemptTimeout)
 		rebuildErr := agentcard.RebuildWithFence(rebuildCtx, db.DB.WithContext(rebuildCtx), rdb, row.AgentID, runFence)
+		if rebuildErr == nil && projectDiscoveryAgent != nil {
+			rebuildErr = projectDiscoveryAgent(rebuildCtx, row.AgentID)
+		}
 		cancelRebuild()
 		if rebuildErr != nil {
 			failed++

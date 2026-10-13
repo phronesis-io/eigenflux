@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"eigenflux_server/pipeline/embedding"
+	"eigenflux_server/pkg/featureindex"
+
+	"eigenflux_server/rpc/sort/discovery"
 	"log"
 	"os"
 	"os/signal"
@@ -42,6 +46,13 @@ func main() {
 	cfg := config.Load()
 	logFlush := logger.Init("pipeline-cron", cfg.EffectiveLokiURL(), cfg.LogLevel)
 	defer logFlush()
+	if cfg.EnableNeedSearch || cfg.EnableCommissionIndex {
+		stopFeatureConfig, err := featureindex.StartConfig(context.Background(), cfg.FeatureIndexConfigDir, cfg.FeatureIndexReloadInterval)
+		if err != nil {
+			log.Fatalf("feature configuration: %v", err)
+		}
+		defer stopFeatureConfig()
+	}
 
 	shutdown, err := telemetry.Init("pipeline-cron", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)
 	if err != nil {
@@ -88,6 +99,27 @@ func main() {
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	if cfg.EnableNeedSearch {
+		projector := featureindex.AgentProjector{Redis: mq.RDB, DB: db.DB, Index: cfg.AgentDiscoveryIndex, Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)}
+		projectDiscoveryAgent = projector.Project
+		go func() {
+			ticker := time.NewTicker(time.Hour)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					pruneCtx, pruneCancel := context.WithTimeout(ctx, 5*time.Minute)
+					err := (discovery.Store{DB: db.DB}).Prune(pruneCtx, time.Now().UnixMilli())
+					pruneCancel()
+					if err != nil {
+						logger.Default().Warn("discovery context retention failed", "err", err)
+					}
+				}
+			}
+		}()
+	}
 
 	// Start cron jobs
 	go StartAgentCountUpdater(ctx, cfg, mq.RDB)
@@ -100,6 +132,7 @@ func main() {
 	go StartConsoleV2Cleanup(ctx, mq.RDB)
 	go StartPGCFeedbackSnapshot(ctx, mq.RDB)
 	go StartPGCDemandSnapshot(ctx, mq.RDB)
+	go StartRecommendationEffect(ctx, mq.RDB)
 	profileCleanupDone := make(chan struct{})
 	go func() {
 		defer close(profileCleanupDone)

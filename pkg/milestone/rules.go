@@ -2,7 +2,7 @@ package milestone
 
 import (
 	"context"
-	"sync"
+	"eigenflux_server/pkg/cache"
 	"time"
 
 	milestonedal "eigenflux_server/pkg/milestone/dal"
@@ -11,19 +11,14 @@ import (
 )
 
 const DefaultRuleCacheTTL = 60 * time.Second
+const ruleCacheCapacity = 256
 
 type RuleCache struct {
 	db  *gorm.DB
 	ttl time.Duration
 	now func() time.Time
 
-	mu      sync.RWMutex
-	entries map[string]cachedRules
-}
-
-type cachedRules struct {
-	expiresAt time.Time
-	rules     []milestonedal.MilestoneRule
+	entries *cache.Local[string, []milestonedal.MilestoneRule]
 }
 
 func NewRuleCache(db *gorm.DB, ttl time.Duration) *RuleCache {
@@ -34,18 +29,15 @@ func NewRuleCache(db *gorm.DB, ttl time.Duration) *RuleCache {
 		db:      db,
 		ttl:     ttl,
 		now:     time.Now,
-		entries: make(map[string]cachedRules),
+		entries: cache.NewLocal[string, []milestonedal.MilestoneRule](ruleCacheCapacity),
 	}
 }
 
 func (c *RuleCache) GetEnabledRules(ctx context.Context, metricKey string) ([]milestonedal.MilestoneRule, error) {
 	now := c.now()
 
-	c.mu.RLock()
-	entry, ok := c.entries[metricKey]
-	c.mu.RUnlock()
-	if ok && now.Before(entry.expiresAt) {
-		return cloneRules(entry.rules), nil
+	if rules, ok := c.entries.GetAt(metricKey, now); ok {
+		return cloneRules(rules), nil
 	}
 
 	rules, err := milestonedal.ListEnabledRulesByMetric(ctx, c.db, metricKey)
@@ -53,12 +45,7 @@ func (c *RuleCache) GetEnabledRules(ctx context.Context, metricKey string) ([]mi
 		return nil, err
 	}
 
-	c.mu.Lock()
-	c.entries[metricKey] = cachedRules{
-		expiresAt: now.Add(c.ttl),
-		rules:     cloneRules(rules),
-	}
-	c.mu.Unlock()
+	c.entries.PutUntil(metricKey, cloneRules(rules), now.Add(c.ttl))
 
 	return cloneRules(rules), nil
 }
@@ -68,16 +55,10 @@ func (c *RuleCache) Invalidate(metricKey string) {
 		return
 	}
 
-	c.mu.Lock()
-	delete(c.entries, metricKey)
-	c.mu.Unlock()
+	c.entries.Delete(metricKey)
 }
 
-func (c *RuleCache) InvalidateAll() {
-	c.mu.Lock()
-	c.entries = make(map[string]cachedRules)
-	c.mu.Unlock()
-}
+func (c *RuleCache) InvalidateAll() { c.entries.Clear() }
 
 func cloneRules(rules []milestonedal.MilestoneRule) []milestonedal.MilestoneRule {
 	if len(rules) == 0 {

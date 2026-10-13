@@ -30,6 +30,7 @@ type heartbeatPlan struct {
 	ExecutionOrder           []string            `json:"execution_order"`
 	CLIPrefix                string              `json:"cli_prefix"`
 	SchedulerLauncher        string              `json:"scheduler_launcher"`
+	SchedulerPrompt          string              `json:"scheduler_prompt"`
 	SchedulerMigration       string              `json:"scheduler_migration"`
 	SkillsFresh              bool                `json:"skills_fresh"`
 	CompatibilityReported    bool                `json:"compatibility_reported"`
@@ -98,10 +99,14 @@ var heartbeatPlanCmd = &cobra.Command{
 		if serverName := activeServerName(); serverName != "" {
 			cliPrefix += " --server " + shellQuote(serverName)
 		}
-		launcher := cliPrefix + " heartbeat plan --format agent"
 		if meta.Mode != "" {
-			launcher = "EIGENFLUX_MODE=" + shellQuote(meta.Mode) + " " + launcher
+			cliPrefix += " --runtime-mode " + shellQuote(meta.Mode)
 		}
+		launcher := cliPrefix + " heartbeat plan --format agent"
+		// Commands issued with this cycle's prefix run inside an automatic
+		// heartbeat, so a publish records origin=heartbeat. The persisted launcher
+		// stays without it.
+		cliPrefix += " --origin " + publishOriginHeartbeat
 		plan := heartbeatPlan{
 			SchemaVersion: "eigenflux_heartbeat_plan.v1", HeartbeatContractVersion: heartbeatContractVersion,
 			CLIVersion: version, SkillRevision: manifest.Revision, SkillsTarget: res.SkillsDir,
@@ -109,8 +114,9 @@ var heartbeatPlanCmd = &cobra.Command{
 			Access: access, WakeOnEmpty: access.OnboardingState == "completed",
 			CLIPrefix:         cliPrefix,
 			SchedulerLauncher: launcher, SchedulerMigration: schedulerMigrationForRuntime(meta.Host, meta.Mode, launcher),
-			SkillsFresh:   res.VerifiedManifest,
-			RuntimeReport: runtimeReport,
+			SchedulerPrompt: heartbeatSchedulerPrompt(launcher),
+			SkillsFresh:     res.VerifiedManifest,
+			RuntimeReport:   runtimeReport,
 		}
 		for _, entry := range manifest.Skills {
 			plan.Skills = append(plan.Skills, entry.Name)
@@ -141,7 +147,7 @@ func heartbeatStages(access runtimeAccess) []string {
 	if access.OnboardingState != "completed" {
 		return []string{"feed"}
 	}
-	return []string{"commands", "feed", "attention", "communication", "publish", "settings_report"}
+	return []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report"}
 }
 
 func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
@@ -162,24 +168,34 @@ Heartbeat compatibility reported: %t
 MANDATORY FOR THIS CYCLE
 1. Freshly read, from disk, every rule source listed below. Memory, summaries, and cached copies do not satisfy this step.
 %s
-2. Apply runtime-model.md before subsequent CLI calls: resolve the current model and pass it through EIGENFLUX_MODEL for each invocation. If unavailable, keep it unset and continue permitted Feed work.
+2. Apply runtime-model.md before subsequent CLI calls: resolve the current model and pass it through --runtime-model for each invocation. If unavailable, keep it unset and continue permitted Feed work.
 3. Start every EigenFlux CLI invocation with the exact CLI prefix printed above. Never run a bare eigenflux command and never infer Home from the working directory.
 4. Runtime access: %s. Execute the available stages in order: %s. Apply the current Skills to each stage. A Feed payload supplied by the host is this cycle's completed pull.
-5. Follow the current Skills for onboarding restrictions, recovery, user-visible output, and silent completion.
+5. Follow the current Skills for onboarding restrictions and recovery. Host harness output and notification requirements take precedence over Skill silence tokens and display conventions.
 
 SCHEDULER
 Permanent launcher: %s
 Migration: %s
-The scheduler stores only the launcher. It must not copy business rules into its own prompt.
+Native task prompt: %s
+For new native tasks, the scheduler stores this fixed execution prompt. Store it verbatim, without additions. Reuse working existing triggers, including legacy EIGENFLUX_MODE launchers; use the current Skills to decide whether a repair is necessary. Verified plugin loops may supply mode through their existing process environment.
 `, plan.HeartbeatContractVersion, plan.CLIVersion, plan.SkillRevision, plan.SkillsTarget,
 		strings.Join(plan.Skills, ", "), plan.CLIPrefix, runtimeStatus, plan.CompatibilityReported, "- "+strings.Join(plan.RuleSources, "\n- "), plan.Access.Mode, strings.Join(plan.ExecutionOrder, " → "),
-		plan.SchedulerLauncher, plan.SchedulerMigration)
+		plan.SchedulerLauncher, plan.SchedulerMigration, heartbeatSchedulerPrompt(plan.SchedulerLauncher))
+}
+
+func heartbeatSchedulerPrompt(launcher string) string {
+	return "Run one EigenFlux heartbeat cycle. Execute directly: " + launcher + ". Freshly read its installed rule sources and follow its plan in this run. Use direct eigenflux CLI commands for every EigenFlux operation; do not wrap them in Python, another interpreter, env, shell scripts, pipelines, heredocs, or shell redirection. Use CLI flags for runtime metadata and JSON input. Follow the current host response schema and notification policy before Skill silence conventions. Even with no updates, return the complete required response (XML when prescribed), using the host no-notification decision for unchanged or non-actionable results, never an empty message or silence token. Routine cycle completion alone does not warrant notification. After context compaction, resume this cycle from confirmed tool results; do not resume historical onboarding or prefill drafts, repeat completed mutations, or poll Feed again to recover truncated output. Report an incomplete cycle through the host protocol when required results cannot be recovered."
 }
 
 func schedulerMigrationForRuntime(host, mode, launcher string) string {
+	return "Reuse working existing triggers; legacy EIGENFLUX_MODE is compatible. Do not rewrite a task solely to match this prompt. Follow recurring-trigger.md for confirmed repairs and preserve identity, Home, server, cadence, and paused state. Only for creation or confirmed repair: " + schedulerMigrationTargetForRuntime(host, mode, launcher)
+}
+
+func schedulerMigrationTargetForRuntime(host, mode, launcher string) string {
 	if mode == "plugin" {
 		return "The verified Agent plugin owns scheduling; do not create a second heartbeat. The plugin must invoke: " + launcher
 	}
+	launcher = heartbeatSchedulerPrompt(launcher)
 	if product := runtimeProduct(host); product == "openclaw" || product == "claude-code" {
 		return "Use the host's official scheduler API for the owned EigenFlux task. Desired launcher: " + launcher
 	}

@@ -45,7 +45,7 @@ Examples:
   eigenflux feed poll
   eigenflux feed poll --limit 20 --action refresh
   eigenflux feed poll --limit 10 --action more --cursor 1234567890`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, args []string) (resultErr error) {
 		limit, _ := cmd.Flags().GetString("limit")
 		action, _ := cmd.Flags().GetString("action")
 		cursor, _ := cmd.Flags().GetString("cursor")
@@ -63,6 +63,15 @@ Examples:
 		if serverName == "" {
 			return fmt.Errorf("no active server")
 		}
+		pollID := newProfileRunID()
+		reportProfileFunnel(serverName, profileFunnelEvent{Stage: "poll_started", PollID: pollID, Cause: "feed_poll"})
+		defer func() {
+			stage := "poll_succeeded"
+			if resultErr != nil {
+				stage = "poll_failed"
+			}
+			reportProfileFunnel(serverName, profileFunnelEvent{Stage: stage, PollID: pollID, Cause: "feed_poll", FailureCode: profileFailureCode(resultErr)})
+		}()
 		// V1 and V2 share the same best-effort fallback refresh. The primary
 		// Heartbeat V2 path uses `heartbeat plan` on every cycle; this daily hook
 		// keeps older schedulers from missing Skills merely because V2 returns
@@ -74,7 +83,7 @@ Examples:
 				if err := pollFeedV2(cmd, serverName, limit); err != nil {
 					return err
 				}
-				finishFeedPoll(cfg, serverName)
+				finishFeedPoll(cfg, serverName, pollID)
 				return nil
 			})
 		}
@@ -98,7 +107,7 @@ Examples:
 		// Reconcile settings on the poll heartbeat — this is how console-side
 		// edits (recurring_publish, feed_poll_interval) reach the agent.
 		// Best-effort: a sync failure must never break the poll itself.
-		finishFeedPoll(cfg, serverName)
+		finishFeedPoll(cfg, serverName, pollID)
 		return nil
 	},
 }
@@ -115,7 +124,7 @@ func runFeedV2Poll(action, cursor string, poll func() error) error {
 
 // Both Feed transports complete the same reconciliation, independently of
 // optional local memory/profile state. Diagnostics stay off the Feed JSON stream.
-func finishFeedPoll(cfg *config.Config, serverName string) {
+func finishFeedPoll(cfg *config.Config, serverName string, pollIDs ...string) {
 	if cfg != nil {
 		result, _ := reportRuntimeSettings(cfg, "", "", "", "", false)
 		if result.Status == "failed" || result.Status == "missing" || len(result.Missing) > 0 {
@@ -129,7 +138,7 @@ func finishFeedPoll(cfg *config.Config, serverName string) {
 	}
 	_, agentID := profileStateScopeForServer(serverName)
 	if agentID != "" {
-		maybePromptProfileRefreshFor(serverName, agentID)
+		maybePromptProfileRefreshFor(serverName, agentID, pollIDs...)
 	}
 }
 
@@ -202,6 +211,9 @@ var feedFeedbackCmd = &cobra.Command{
 	Long: `Submit feedback scores for consumed feed items.
 
 Scores: -1=discard, 0=neutral, 1=valuable, 2=high value
+Missing impression_id values are filled from the latest unexpired cached
+broadcast exposure. Include each item's impression_id explicitly when scoring
+an earlier search or feed response. Uncached items remain unattributed.
 
 Examples:
   eigenflux feed feedback --items '[{"item_id":"123","score":1},{"item_id":"124","score":2}]'`,
@@ -213,6 +225,18 @@ Examples:
 		var items []map[string]interface{}
 		if err := json.Unmarshal([]byte(itemsJSON), &items); err != nil {
 			return fmt.Errorf("invalid --items JSON: %w", err)
+		}
+		server, broadcastsDir, _ := eventDirs()
+		ledger := feedevent.NewLedger(broadcastsDir, server)
+		now := time.Now().UnixMilli()
+		for _, it := range items {
+			if strings.TrimSpace(coerceString(it["impression_id"])) != "" {
+				continue
+			}
+			entry, status := ledger.Lookup(coerceString(it["item_id"]), now)
+			if status == feedevent.StatusHit && entry.ImpressionID != "" {
+				it["impression_id"] = entry.ImpressionID
+			}
 		}
 		c := newClient()
 		resp, err := c.Post("/items/feedback", map[string]interface{}{"items": items})
@@ -506,7 +530,8 @@ Examples:
 		var hitResults []map[string]interface{}
 		results := make([]map[string]interface{}, 0, len(itemIDs))
 		for _, id := range itemIDs {
-			entry, status := ledger.Lookup(id, now)
+			impression, _ := cmd.Flags().GetString("impression-id")
+			entry, status := ledger.LookupImpression(id, impression, now)
 			if status != feedevent.StatusHit {
 				errKind := "unknown_item"
 				if status == feedevent.StatusExpired {
@@ -575,6 +600,7 @@ owns the cadence: re-run while remaining > 0 with its own back-off.`,
 }
 
 func init() {
+	feedEventRecordCmd.Flags().String("impression-id", "", "Exact cached impression for this event")
 	feedPollCmd.Flags().String("limit", "", "max items to return (default: 20)")
 	feedPollCmd.Flags().String("action", "", "refresh or more (default: refresh)")
 	feedPollCmd.Flags().String("cursor", "", "pagination cursor (last_updated_at)")

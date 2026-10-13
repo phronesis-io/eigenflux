@@ -7,11 +7,15 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
@@ -292,5 +296,139 @@ func TestValidateConsoleHandoffURLRequiresCompleteOneTimeLink(t *testing.T) {
 		if err := validateConsoleHandoffURL(rawURL); err == nil {
 			t.Errorf("expected incomplete handoff URL to fail: %q", rawURL)
 		}
+	}
+}
+
+func TestProvisionDraftInputSources(t *testing.T) {
+	payload := `{"identity_card":{"agent_name":"Atlas ' $HOME 中文","geo":"SG"},"field_provenance":{"identity_card.geo":"agent_user_context"}}`
+	path := filepath.Join(t.TempDir(), "draft.json")
+	if err := os.WriteFile(path, []byte(payload), 0600); err != nil {
+		t.Fatal(err)
+	}
+	want, provenance, err := readProvisionDraft(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newCommand := func() *cobra.Command {
+		cmd := &cobra.Command{}
+		cmd.Flags().String("draft-json", "", "")
+		cmd.Flags().String("draft-file", "", "")
+		cmd.Flags().String("agent-name", "", "")
+		return cmd
+	}
+	for _, source := range []string{"literal", "file", "stdin"} {
+		t.Run(source, func(t *testing.T) {
+			cmd := newCommand()
+			switch source {
+			case "literal":
+				_ = cmd.Flags().Set("draft-json", payload)
+			case "file":
+				_ = cmd.Flags().Set("draft-file", path)
+			case "stdin":
+				f, err := os.Open(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer f.Close()
+				old := os.Stdin
+				os.Stdin = f
+				defer func() { os.Stdin = old }()
+				_ = cmd.Flags().Set("draft-file", "-")
+			}
+			got, meta, err := provisionDraftInput(cmd)
+			if err != nil || string(got) != string(want) || !reflect.DeepEqual(meta, provenance) {
+				t.Fatalf("input %s changed draft or provenance: %s %#v %v", source, got, meta, err)
+			}
+		})
+	}
+	cmd := newCommand()
+	_ = cmd.Flags().Set("agent-name", "Custom Agent")
+	got, _, err := provisionDraftInput(cmd)
+	if err != nil || !strings.Contains(string(got), "Custom Agent") {
+		t.Fatalf("default draft: %s %v", got, err)
+	}
+	_ = cmd.Flags().Set("draft-json", payload)
+	_ = cmd.Flags().Set("draft-file", "")
+	if _, _, err := provisionDraftInput(cmd); err == nil {
+		t.Fatal("conflicting input flags accepted")
+	}
+}
+
+func TestProvisionLiteralDraftValidation(t *testing.T) {
+	for _, payload := range []string{"", "null", "[]", "{", `{ } { }`, strings.Repeat(" ", 64<<10) + "{}", `{"identity_card":{"geo":"SG"},"field_provenance":{"identity_card.geo":"human_input"}}`} {
+		cmd := &cobra.Command{}
+		cmd.Flags().String("draft-json", "", "")
+		cmd.Flags().String("draft-file", "", "")
+		_ = cmd.Flags().Set("draft-json", payload)
+		if _, _, err := provisionDraftInput(cmd); err == nil {
+			t.Fatalf("invalid literal accepted (length %d)", len(payload))
+		}
+	}
+}
+
+func TestProvisionLiteralDraftReachesSignedRequest(t *testing.T) {
+	const payload = `{"identity_card":{"agent_name":"Atlas ' $HOME 中文","geo":"SG"},"field_provenance":{"identity_card.geo":"agent_user_context"}}`
+	var received provisionV2Request
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v2/agent-identities/registration-challenges":
+			fmt.Fprint(w, `{"code":0,"data":{"bootstrap_grant":"test-grant","nonce":"test-nonce"}}`)
+		case "/api/v2/agent-identities/provision":
+			if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+				t.Error(err)
+			}
+			fmt.Fprint(w, `{"code":0,"data":{"agent_id":"agent-1","access_token":"test-new-token","refresh_token":"test-refresh","expires_at":4102444800000,"created":false}}`)
+		default:
+			t.Errorf("unexpected route %s", r.URL.Path)
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+	_, serverName := runtimeTestConfig(t, server.URL, true)
+	cmd := &cobra.Command{}
+	cmd.Flags().String("draft-json", "", "")
+	cmd.Flags().String("draft-file", "", "")
+	cmd.Flags().String("mode", "skill", "")
+	cmd.Flags().String("runtime-name", "codex", "")
+	cmd.Flags().Bool("no-handoff", true, "")
+	_ = cmd.Flags().Set("draft-json", payload)
+	if err := agentV2ProvisionCmd.RunE(cmd, nil); err != nil {
+		t.Fatal(err)
+	}
+	want, meta, err := parseProvisionDraft([]byte(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || string(received.Draft) != string(want) || !reflect.DeepEqual(received.FieldProvenance, meta) || received.ExpectedAgentID != "agent-1" {
+		t.Fatalf("literal input lost draft/provenance/identity: calls=%d request=%+v", calls, received)
+	}
+	pub, err := base64.RawURLEncoding.DecodeString(received.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := base64.RawURLEncoding.DecodeString(received.Signature)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transcript, err := provisionV2Transcript(received)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ed25519.Verify(pub, transcript, sig) {
+		t.Fatal("draft request signature invalid")
+	}
+	credentials, err := auth.LoadV2Credentials(serverName)
+	if err != nil || credentials.AgentID != "agent-1" || credentials.AccessToken != "test-new-token" {
+		t.Fatalf("credentials not retained: %v", err)
+	}
+	_ = cmd.Flags().Set("draft-json", "null")
+	if err := agentV2ProvisionCmd.RunE(cmd, nil); err == nil {
+		t.Fatal("invalid input accepted")
+	}
+	if calls != 2 {
+		t.Fatal("invalid input made an external request")
 	}
 }

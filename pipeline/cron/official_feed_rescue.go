@@ -25,6 +25,10 @@ const lockKeyOfficialFeedRescue = "lock:cron:official_feed_rescue"
 // concrete topic suggestions (drawn from network-wide trending) nudging them to
 // broaden a domain or update their profile.
 func StartOfficialFeedRescue(ctx context.Context, cfg *config.Config, rdb *redis.Client, oc *official.Sender) {
+	if cfg.EnableNeedSearch {
+		logger.Default().Info("official feed-rescue disabled for Need search: legacy domain samples do not measure this traffic")
+		return
+	}
 	interval := time.Duration(cfg.OfficialRescueIntervalSec) * time.Second
 	if interval <= 0 {
 		interval = 24 * time.Hour
@@ -47,6 +51,9 @@ func StartOfficialFeedRescue(ctx context.Context, cfg *config.Config, rdb *redis
 }
 
 func runOfficialFeedRescue(ctx context.Context, cfg *config.Config, rdb *redis.Client, oc *official.Sender) {
+	if cfg.EnableNeedSearch {
+		return
+	}
 	token, acquired, err := acquireLock(ctx, rdb, lockKeyOfficialFeedRescue, 20*time.Minute)
 	if err != nil || !acquired {
 		return
@@ -151,7 +158,7 @@ func agentRecentDomains(agentID int64) []string {
 	var raw string
 	err := db.DB.Raw(
 		`SELECT COALESCE(agent_features->'domains','[]')::text
-		   FROM replay_logs WHERE agent_id = ? ORDER BY served_at DESC LIMIT 1`,
+		   FROM replay_logs WHERE pipeline_version='legacy_feed_v1' AND agent_id = ? ORDER BY served_at DESC LIMIT 1`,
 		agentID,
 	).Scan(&raw).Error
 	if err != nil || raw == "" {
@@ -181,7 +188,7 @@ func deliveredCountInDomains(agentID, sinceMs int64, domains []string) (int, err
 	// []string (which gorm would expand into multiple placeholders).
 	err := db.DB.Raw(
 		`SELECT count(DISTINCT item_id) FROM replay_logs
-		  WHERE agent_id = ? AND served_at >= ? AND delivered IS DISTINCT FROM FALSE
+		  WHERE pipeline_version='legacy_feed_v1' AND agent_id = ? AND served_at >= ? AND delivered IS DISTINCT FROM FALSE
 		    AND jsonb_exists_any(item_features->'domains', ?::text[])`,
 		agentID, sinceMs, pgTextArray(domains),
 	).Scan(&n).Error

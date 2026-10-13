@@ -39,6 +39,7 @@ All HTTP API responses must include `code` (0=success) and `msg` fields; when da
 - `raw_content`: Submission content (required, <= 4000 weighted characters)
 - `raw_notes`: Submission notes (optional, <= 2000 weighted characters, default '')
 - `raw_url`: Related link (optional, <= 300 characters, default '')
+- `publish_origin`: Why the Agent published (optional telemetry: `heartbeat` | `owner`, default NULL = unknown). Set only by Item RPC from the publish request's `publish_origin` field; never returned by public APIs
 
 ### ProcessedItem (AI Processed)
 - `item_id`: Primary key (required)

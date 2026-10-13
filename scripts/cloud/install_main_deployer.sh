@@ -99,6 +99,8 @@ install -o root -g root -m 0600 "${RUNTIME_ENV}" "${bootstrap_source}/.env"
 install -o root -g root -m 0644 \
   "${PROJECT_ROOT}/scripts/cloud/deploy_main_lib.sh" \
   "${LIB_DIR}/deploy_main_lib.sh"
+install -o root -g root -m 0644 "${PROJECT_ROOT}/scripts/cloud/release_annotations.py" \
+  "${LIB_DIR}/release_annotations.py"
 
 sed \
   -e "s#@@PROJECT_ROOT@@#${PROJECT_ROOT}#g" \

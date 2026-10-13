@@ -63,6 +63,8 @@ func NewProfileConsumer(cfg *config.Config, prompts *llm.PromptRegistry) *Profil
 		Group:                   profileGroup,
 		ConsumerName:            profileConsumerName,
 		MetricsLabel:            profileMetricsLabel,
+		MaxRetries:              maxRetries,
+		DeadLetterStream:        profileStream + ":dlq",
 		Workers:                 10,
 		FatalOnGroupCreateError: true,
 		Handle:                  c.handle,
@@ -115,14 +117,17 @@ func (c *ProfileConsumer) handle(ctx context.Context, _ string, values map[strin
 
 	logger.Default().Info("ProfileConsumer processing agent", "agentID", agentID)
 
+	profileDB := db.DB.WithContext(ctx)
 	// Set status to processing (1)
-	dal.UpdateAgentProfileStatus(db.DB, agentID, 1)
+	if err := dal.UpdateAgentProfileStatus(profileDB, agentID, 1); err != nil {
+		return HandleRetry
+	}
 
 	// Get agent bio
-	agent, err := dal.GetAgentByID(db.DB, agentID)
+	agent, err := dal.GetAgentByID(profileDB, agentID)
 	if err != nil {
 		logger.Default().Warn("ProfileConsumer agent not found", "agentID", agentID, "err", err)
-		dal.UpdateAgentProfileStatus(db.DB, agentID, 2) // failed
+		dal.UpdateAgentProfileStatus(profileDB, agentID, 2) // failed
 		return HandleFailure
 	}
 
@@ -134,13 +139,15 @@ func (c *ProfileConsumer) handle(ctx context.Context, _ string, values map[strin
 				break
 			}
 			logger.Default().Warn("ProfileConsumer agent-name translation failed", "attempt", attempt, "maxRetries", maxRetries, "agentID", agentID, "err", err)
-			time.Sleep(time.Duration(attempt) * time.Second)
+			if !waitMessageRetry(ctx, time.Duration(attempt)*time.Second) {
+				return HandleRetry
+			}
 		}
 		if err != nil {
 			logger.Default().Error("ProfileConsumer agent-name translation exhausted retries", "agentID", agentID, "err", err)
 			return HandleRetry
 		}
-		if err := dal.UpdateAgentEnglishName(db.DB, agentID, agent.AgentName, englishName); err != nil {
+		if err := dal.UpdateAgentEnglishName(profileDB, agentID, agent.AgentName, englishName); err != nil {
 			logger.Default().Error("ProfileConsumer failed to persist English agent name", "agentID", agentID, "err", err)
 			return HandleRetry
 		}
@@ -149,7 +156,9 @@ func (c *ProfileConsumer) handle(ctx context.Context, _ string, values map[strin
 
 	if agent.Bio == "" {
 		logger.Default().Debug("ProfileConsumer agent has empty bio, skipping", "agentID", agentID)
-		dal.UpdateAgentProfileStatus(db.DB, agentID, 3) // done with no keywords
+		if err := dal.UpdateAgentProfileStatus(profileDB, agentID, 3); err != nil {
+			return HandleRetry
+		} // done with no keywords
 		return HandleSuccess
 	}
 
@@ -165,17 +174,21 @@ func (c *ProfileConsumer) handle(ctx context.Context, _ string, values map[strin
 				break
 			}
 			logger.Default().Warn("ProfileConsumer LLM attempt failed", "attempt", attempt, "maxRetries", maxRetries, "agentID", agentID, "err", err)
-			time.Sleep(time.Duration(attempt) * time.Second)
+			if !waitMessageRetry(ctx, time.Duration(attempt)*time.Second) {
+				return HandleRetry
+			}
 		}
 		if err != nil {
 			logger.Default().Error("ProfileConsumer all retries failed", "agentID", agentID, "err", err)
-			dal.UpdateAgentProfileStatus(db.DB, agentID, 2) // failed
+			dal.UpdateAgentProfileStatus(profileDB, agentID, 2) // failed
 			return HandleFailure
 		}
 	}
 
 	// Update keywords, country and status to done (3)
-	dal.UpdateAgentProfileKeywords(db.DB, agentID, keywords, country, 3)
+	if err := dal.UpdateAgentProfileKeywords(profileDB, agentID, keywords, country, 3); err != nil {
+		return HandleRetry
+	}
 	if c.profileCache != nil {
 		if err := c.profileCache.Set(ctx, buildCachedProfile(agentID, keywords, country)); err != nil {
 			logger.Default().Warn("ProfileConsumer failed to refresh profile cache", "agentID", agentID, "err", err)

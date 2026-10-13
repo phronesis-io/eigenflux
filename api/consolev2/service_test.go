@@ -32,14 +32,15 @@ func (g *fixedIDGenerator) NextID() (int64, error) {
 }
 
 func TestConsoleHandoffTTL(t *testing.T) {
-	if handoffTTL != 15*time.Minute {
-		t.Fatalf("handoffTTL = %s, want 15m", handoffTTL)
+	if handoffTTL != 72*time.Hour {
+		t.Fatalf("handoffTTL = %s, want 72h", handoffTTL)
 	}
 }
 
-func TestCLIAccountSwitchOutlivesHandoffWithoutCreatingLocalSlots(t *testing.T) {
-	if cliAccountSwitchTTL <= handoffTTL {
-		t.Fatalf("CLI account switch TTL %s must outlive handoff TTL %s", cliAccountSwitchTTL, handoffTTL)
+func TestCLIAccountSwitchHasIndependentWindowWithoutCreatingLocalSlots(t *testing.T) {
+	// The switch window starts when the handoff is exchanged.
+	if cliAccountSwitchTTL != 24*time.Hour {
+		t.Fatalf("CLI account switch TTL = %s, want 24h after exchange", cliAccountSwitchTTL)
 	}
 	if cliAccountSwitchCookieName == consoleCookieName || cliAccountSwitchCookieName == activeConsoleSlotCookieName {
 		t.Fatal("CLI account switch binding must be separate from Console account slots")

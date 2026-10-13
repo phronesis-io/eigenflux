@@ -43,3 +43,11 @@ Response format: {"keywords": ["keyword1", "keyword2", "keyword3"], "country": "
 
 -- INPUT
 Bio: {{ .Input.Bio }}
+{{ if .Input.RetryHint }}
+
+-- OUTPUT VALIDATION
+The previous response did not satisfy the keyword contract: {{ .Input.RetryHint }}.
+Return a corrected JSON object for the same original bio. Do not truncate away
+named entities or pad the result with guesses. Count the final array before
+returning it and exclude the generic content categories forbidden above.
+{{ end }}

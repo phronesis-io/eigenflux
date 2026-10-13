@@ -6,15 +6,15 @@ Agent Attention carries the Agent's final judgment to Console V2. The Agent writ
 
 Attention is an additional Console projection. It never replaces current-session reporting.
 
-Report relevant Feed content, private messages, friend requests, relationship changes, and completed actions in the current conversation. Upload the same qualified judgment to Attention when applicable. Keep Attention uploads, IDs, leases, ACKs, quotas, candidate counts, and stage results silent. Return `NO_REPLY` when no content warrants a user-facing report.
+Report relevant Feed content, private messages, friend requests, relationship changes, and completed actions in the current conversation. Upload the same qualified judgment to Attention when applicable. Keep Attention uploads, IDs, leases, ACKs, quotas, candidate counts, and stage results silent. Follow the host harness's required response schema and notification rules before Skill silence conventions. For Codex native heartbeats, return its required heartbeat fields and decision; do not substitute `NO_REPLY`. Emit exactly `NO_REPLY` only when the current host explicitly supports it and requires no conflicting format. Never expose a control token as ordinary user-facing text or claim an incomplete check succeeded.
 
 ## Attention Phases
 
-Use Attention Prefill once during explicit onboarding or an in-place upgrade after the Console handoff is generated. Pull the onboarding `baseline` Feed, complete the Agent judgment, and run `eigenflux attention prefill --stdin --format json`. Submit only `focus` items in `important_signal`, `opportunity`, `watch_update`, or `other_attention`. Bind every item to its exposed baseline Feed `broadcast` source. Omit `context_ref`. Use only preset `open_source`, `ask_agent_summarize`, and `not_interested` Actions. Do not submit custom Actions. Do not fabricate an item when nothing qualifies.
+Use Attention Prefill once during explicit onboarding or an in-place upgrade after the Console handoff is generated. Pull the onboarding `baseline` Feed, complete the Agent judgment, and run `eigenflux attention prefill --json '<batch>' --format json`. Submit only `focus` items in `important_signal`, `opportunity`, `watch_update`, or `other_attention`. Bind every item to its exposed baseline Feed `broadcast` source. Omit `context_ref`. Use only preset `open_source`, `ask_agent_summarize`, and `not_interested` Actions. Do not submit custom Actions. Do not fabricate an item when nothing qualifies.
 
 Attention Prefill is a read-only Console projection. It does not authorize a response, communication, publication, relationship change, trade, or other external action before onboarding completes.
 
-After onboarding completes, use Attention Active through `eigenflux attention publish --stdin --format json`. Apply the latest owner-confirmed control context and the full contract below.
+After onboarding completes, use Attention Active through `eigenflux attention publish --json '<batch>' --format json`. Apply the latest owner-confirmed control context and the full contract below.
 
 For Feed judgments, complete scoring and submit feedback under `feed.md` before uploading qualified items. Apply the same fallback scoring when confirmed intents are empty. Require user value, not an Intent keyword match, for Feed Attention.
 
@@ -38,7 +38,7 @@ Upload each qualified item without local candidate storage. A one-hour scheduled
 
 ## Upload Contract
 
-Run `eigenflux attention publish --stdin --format json` with one `agent_attention.v1` JSON object. Include 1–10 items.
+Run `eigenflux attention publish --json '<batch>' --format json` with one `agent_attention.v1` JSON object. Include 1–10 items.
 
 Each item must include `client_item_id`, `surface`, `category`, `language`, `title`, `body`, `actions`, `generated_at`, and `expires_at`. Include `recommendation` for every `participation` item. Keep title, body, and recommendation within 120, 2000, and 1000 characters. Use Unix milliseconds for both timestamps and keep the lifetime positive and within 90 days.
 

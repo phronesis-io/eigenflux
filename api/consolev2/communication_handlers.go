@@ -15,6 +15,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/lib/pq"
 
+	"eigenflux_server/pkg/agentidentity"
 	pmdal "eigenflux_server/rpc/pm/dal"
 	profiledal "eigenflux_server/rpc/profile/dal"
 )
@@ -596,6 +597,12 @@ func (s *Service) searchCommunicationMessages(ctx context.Context, c *app.Reques
 	escaped := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(queryText)
 	pattern := "%" + escaped + "%"
 	prefix := escaped + "%"
+	shortIDClause := ""
+	shortIDArgs := []interface{}{}
+	if agentidentity.ValidShortID(queryText) {
+		shortIDClause = " OR a.short_id = ?"
+		shortIDArgs = append(shortIDArgs, queryText)
+	}
 	cursorFilter := ""
 	cursorArgs := []interface{}{}
 	if cursor.MatchedAt > 0 {
@@ -611,11 +618,11 @@ func (s *Service) searchCommunicationMessages(ctx context.Context, c *app.Reques
 			COALESCE(e.origin_id, 0) AS origin_id, e.msg_count, e.updated_at,
 			CASE e.topic_status WHEN 0 THEN 'pending_verify' WHEN 2 THEN 'closed' ELSE 'open' END AS topic_status,
 			e.peer_agent_id,
-			CASE WHEN lower(COALESCE(a.agent_name, '')) = lower(?) OR lower(COALESCE(a.agent_name_en, '')) = lower(?) OR lower(COALESCE(a.short_id, '')) = lower(?) THEN 0
-				 WHEN COALESCE(a.agent_name, '') ILIKE ? ESCAPE '!' OR COALESCE(a.agent_name_en, '') ILIKE ? ESCAPE '!' OR COALESCE(a.short_id, '') ILIKE ? ESCAPE '!' THEN 1
-				 WHEN COALESCE(a.agent_name, '') ILIKE ? ESCAPE '!' OR COALESCE(a.agent_name_en, '') ILIKE ? ESCAPE '!' OR COALESCE(a.short_id, '') ILIKE ? ESCAPE '!' THEN 2
+			CASE WHEN lower(COALESCE(a.agent_name, '')) = lower(?) OR lower(COALESCE(a.agent_name_en, '')) = lower(?)` + shortIDClause + ` THEN 0
+				 WHEN COALESCE(a.agent_name, '') ILIKE ? ESCAPE '!' OR COALESCE(a.agent_name_en, '') ILIKE ? ESCAPE '!' THEN 1
+				 WHEN COALESCE(a.agent_name, '') ILIKE ? ESCAPE '!' OR COALESCE(a.agent_name_en, '') ILIKE ? ESCAPE '!' THEN 2
 				 WHEN COALESCE(ur.remark, '') ILIKE ? ESCAPE '!' THEN 3 ELSE 4 END AS match_rank,
-			CASE WHEN COALESCE(a.agent_name, '') ILIKE ? ESCAPE '!' OR COALESCE(a.agent_name_en, '') ILIKE ? ESCAPE '!' OR COALESCE(a.short_id, '') ILIKE ? ESCAPE '!' THEN 'agent_name'
+			CASE WHEN COALESCE(a.agent_name, '') ILIKE ? ESCAPE '!' OR COALESCE(a.agent_name_en, '') ILIKE ? ESCAPE '!'` + shortIDClause + ` THEN 'agent_name'
 				 WHEN COALESCE(ur.remark, '') ILIKE ? ESCAPE '!' THEN 'remark' ELSE 'message' END AS matched_by,
 			COALESCE(ur.remark, '') AS remark,
 			COALESCE(mm.msg_id, lm.msg_id) AS matched_message_id,
@@ -635,7 +642,7 @@ func (s *Service) searchCommunicationMessages(ctx context.Context, c *app.Reques
 			WHERE pm.conv_id = e.conv_id ORDER BY pm.msg_id DESC LIMIT 1
 		) lm ON TRUE
 		WHERE COALESCE(a.agent_name, '') ILIKE ? ESCAPE '!' OR COALESCE(a.agent_name_en, '') ILIKE ? ESCAPE '!'
-			OR COALESCE(a.short_id, '') ILIKE ? ESCAPE '!' OR COALESCE(ur.remark, '') ILIKE ? ESCAPE '!' OR mm.msg_id IS NOT NULL
+			` + shortIDClause + ` OR COALESCE(ur.remark, '') ILIKE ? ESCAPE '!' OR mm.msg_id IS NOT NULL
 	), page AS MATERIALIZED (
 		SELECT * FROM candidates ` + cursorFilter + `
 		ORDER BY match_rank ASC, matched_at DESC, conv_id DESC LIMIT ?
@@ -648,16 +655,13 @@ func (s *Service) searchCommunicationMessages(ctx context.Context, c *app.Reques
 	SELECT page.*, COALESCE(mc.match_count, 0) AS match_count
 	FROM page LEFT JOIN match_counts mc ON mc.conv_id = page.conv_id
 	ORDER BY page.match_rank ASC, page.matched_at DESC, page.conv_id DESC`
-	args := []interface{}{viewerID, viewerID, viewerID,
-		queryText, queryText, queryText,
-		prefix, prefix, prefix,
-		pattern, pattern, pattern,
-		pattern,
-		pattern, pattern, pattern,
-		pattern,
-		viewerID,
-		pattern,
-		pattern, pattern, pattern, pattern}
+	args := []interface{}{viewerID, viewerID, viewerID, queryText, queryText}
+	args = append(args, shortIDArgs...)
+	args = append(args, prefix, prefix, pattern, pattern, pattern, pattern, pattern)
+	args = append(args, shortIDArgs...)
+	args = append(args, pattern, viewerID, pattern, pattern, pattern)
+	args = append(args, shortIDArgs...)
+	args = append(args, pattern)
 	args = append(args, cursorArgs...)
 	args = append(args, limit+1, pattern)
 	rows := make([]communicationSearchResult, 0)

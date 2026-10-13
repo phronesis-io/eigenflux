@@ -2,8 +2,8 @@ package consumer
 
 import (
 	"context"
-	"eigenflux_server/pkg/commissionindex"
 	"eigenflux_server/pkg/config"
+	"eigenflux_server/pkg/featureindex"
 	"eigenflux_server/pkg/metrics"
 	"fmt"
 	"strconv"
@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	commissionPublishedTopic = commissionindex.PublishedTopic
-	commissionOfflineTopic   = commissionindex.OfflineTopic
-	commissionStatsTopic     = commissionindex.StatisticsTopic
+	commissionPublishedTopic = featureindex.CommissionPublishedTopic
+	commissionOfflineTopic   = featureindex.CommissionOfflineTopic
+	commissionStatsTopic     = featureindex.CommissionStatisticsTopic
 )
 
 type CommissionEmbedder interface {
@@ -21,13 +21,13 @@ type CommissionEmbedder interface {
 }
 
 type CommissionIndexConsumer struct {
-	source   commissionindex.Source
-	store    commissionindex.Store
+	source   featureindex.CommissionSource
+	store    featureindex.CommissionSearchStore
 	embedder CommissionEmbedder
 	runtime  StreamConsumer
 }
 
-func NewCommissionIndexConsumer(cfg *config.Config, source commissionindex.Source, store commissionindex.Store, embedder CommissionEmbedder) *CommissionIndexConsumer {
+func NewCommissionIndexConsumer(cfg *config.Config, source featureindex.CommissionSource, store featureindex.CommissionSearchStore, embedder CommissionEmbedder) *CommissionIndexConsumer {
 	c := &CommissionIndexConsumer{source: source, store: store, embedder: embedder}
 	c.runtime = StreamConsumer{Name: "CommissionIndexConsumer", Stream: cfg.CommissionStream, Group: cfg.CommissionConsumerGroup, ConsumerName: "commission-index", MetricsLabel: "commission:index", Workers: cfg.CommissionConsumerWorkers, MaxRetries: int64(cfg.CommissionConsumerRetries), DeadLetterStream: cfg.CommissionDeadLetterStream, UnbufferedDispatch: true, FatalOnGroupCreateError: false, Handle: c.Handle}
 	return c
@@ -39,6 +39,18 @@ func (c *CommissionIndexConsumer) Handle(ctx context.Context, _ string, values m
 	event, err := parseCommissionEvent(values)
 	if err != nil {
 		return HandleFailure
+	}
+	if event.Topic == commissionStatsTopic {
+		statistics, err := c.source.GetStatistics(ctx, event.CommissionID)
+		if err != nil || statistics.CommissionID != event.CommissionID || statistics.StatisticsVersion < event.AggregateVersion {
+			metrics.CommissionProjectionFailures.WithLabelValues("order_source").Inc()
+			return HandleRetry
+		}
+		if err := c.store.UpsertStatistics(ctx, statistics); err != nil {
+			metrics.CommissionProjectionFailures.WithLabelValues("forward_write").Inc()
+			return HandleRetry
+		}
+		return HandleSuccess
 	}
 	catalogue, err := c.source.GetIndexSnapshot(ctx, event.CommissionID)
 	if err != nil {
@@ -53,8 +65,8 @@ func (c *CommissionIndexConsumer) Handle(ctx context.Context, _ string, values m
 	if catalogue.CommissionID != event.CommissionID || catalogue.CatalogueVersion <= 0 || statistics.StatisticsVersion < 0 {
 		return HandleRetry
 	}
-	if !strings.EqualFold(catalogue.Status, "active") || ((event.Topic == commissionOfflineTopic || event.Topic == commissionindex.DeletedTopic) && catalogue.CatalogueVersion <= event.AggregateVersion) {
-		if err := c.store.Upsert(ctx, commissionindex.Tombstone(catalogue, statistics)); err != nil {
+	if !strings.EqualFold(catalogue.Status, "active") || ((event.Topic == commissionOfflineTopic || event.Topic == featureindex.CommissionDeletedTopic) && catalogue.CatalogueVersion <= event.AggregateVersion) {
+		if err := c.store.Upsert(ctx, featureindex.CommissionTombstone(catalogue, statistics)); err != nil {
 			metrics.CommissionProjectionFailures.WithLabelValues("index_write").Inc()
 			return HandleRetry
 		}
@@ -64,12 +76,12 @@ func (c *CommissionIndexConsumer) Handle(ctx context.Context, _ string, values m
 		metrics.CommissionProjectionFailures.WithLabelValues("embedding").Inc()
 		return HandleRetry
 	}
-	embedding, err := c.embedder.GetEmbedding(ctx, commissionindex.EmbeddingInput(catalogue))
+	embedding, err := c.embedder.GetEmbedding(ctx, featureindex.CommissionEmbeddingInput(catalogue))
 	if err != nil {
 		metrics.CommissionProjectionFailures.WithLabelValues("embedding").Inc()
 		return HandleRetry
 	}
-	if err := c.store.Upsert(ctx, commissionindex.BuildDocument(catalogue, statistics, embedding)); err != nil {
+	if err := c.store.Upsert(ctx, featureindex.BuildCommissionDocument(catalogue, statistics, embedding)); err != nil {
 		metrics.CommissionProjectionFailures.WithLabelValues("index_write").Inc()
 		return HandleRetry
 	}
@@ -107,7 +119,7 @@ func parseCommissionEvent(values map[string]any) (commissionEvent, error) {
 		return commissionEvent{}, fmt.Errorf("unsupported schema version %q", schema)
 	}
 	topic, _ := read("topic")
-	expectedAggregateType, supported := commissionindex.ExpectedAggregateType(topic)
+	expectedAggregateType, supported := featureindex.CommissionAggregateType(topic)
 	if !supported {
 		return commissionEvent{}, fmt.Errorf("unsupported topic %q", topic)
 	}

@@ -50,6 +50,9 @@ func TestPostgresCommunicationSearchLiteralsCountsAndDeadline(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if offset == 1 {
+			shortID = "AbCdE"
+		}
 		exec(`INSERT INTO agents (agent_id, short_id, email, agent_name, bio, created_at, updated_at)
 			VALUES (?, ?, ?, 'Search Peer', '', ?, ?)`, base+offset, shortID,
 			fmt.Sprintf("message-search-%d@example.test", base+offset), now, now)
@@ -83,8 +86,12 @@ func TestPostgresCommunicationSearchLiteralsCountsAndDeadline(t *testing.T) {
 
 	var readContexts []context.Context
 	var slowRead bool
+	var searchSQL string
 	if err := db.Callback().Row().Before("gorm:row").Register("test:search_context", func(query *gorm.DB) {
 		readContexts = append(readContexts, query.Statement.Context)
+		if strings.Contains(query.Statement.SQL.String(), "WITH eligible AS") {
+			searchSQL = query.Statement.SQL.String()
+		}
 		if slowRead {
 			_, err := query.Statement.ConnPool.ExecContext(query.Statement.Context, "SELECT pg_sleep(1)")
 			query.AddError(err)
@@ -123,6 +130,16 @@ func TestPostgresCommunicationSearchLiteralsCountsAndDeadline(t *testing.T) {
 		query, matchedBy string
 		offset, count    int64
 	}{
+		{"AbCdE", "agent_name", 1, 0},
+		{"  AbCdE  ", "agent_name", 1, 0},
+		{"abcde", "", 0, 0},
+		{"AbCd", "", 0, 0},
+		{"AbCdEF", "", 0, 0},
+		{"12345", "", 0, 0},
+		{"AbCd1", "", 0, 0},
+		{"AbC_E", "", 0, 0},
+		{"AbC E", "", 0, 0},
+		{"ÄbCdE", "", 0, 0},
 		{"name_%", "agent_name", 1, 0},
 		{"english!_", "agent_name", 2, 0},
 		{"remark%_", "remark", 3, 0},
@@ -132,6 +149,10 @@ func TestPostgresCommunicationSearchLiteralsCountsAndDeadline(t *testing.T) {
 	} {
 		t.Run(test.query, func(t *testing.T) {
 			rows := results(request(url.Values{"q": {test.query}}))
+			wantShortID := agentidentity.ValidShortID(strings.TrimSpace(test.query))
+			if strings.Contains(searchSQL, "a.short_id") != wantShortID {
+				t.Fatalf("short ID predicate must only run for five ASCII letters: query=%q SQL=%s", test.query, searchSQL)
+			}
 			if test.offset == 0 {
 				if len(rows) != 0 {
 					t.Fatalf("literal-only query matched unrelated messages: %#v", rows)

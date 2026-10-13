@@ -1,0 +1,70 @@
+name: Release Installer
+
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  check-installer:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      installer: ${{ steps.changed.outputs.installer }}
+    steps:
+      # Paginate instead of relying on the trigger's 300-file path-filter limit.
+      - name: Check whether the merged PR changed install.sh
+        id: changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh api --paginate "repos/$GH_REPO/pulls/$PR_NUMBER/files?per_page=100" \
+            --jq '.[].filename' > "$RUNNER_TEMP/installer-pr-files"
+          if grep -Fxq 'static/install.sh' "$RUNNER_TEMP/installer-pr-files"; then
+            echo 'installer=true' >> "$GITHUB_OUTPUT"
+          fi
+  release-installer:
+    needs: check-installer
+    if: needs.check-installer.outputs.installer == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Unrelated PRs never enter this queue or replace pending releases.
+    concurrency:
+      group: release-installer
+      cancel-in-progress: false
+    steps:
+      # Never execute the PR head in this privileged workflow. Read current main
+      # so retrying an old merge cannot roll the public installer backwards.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Test installer and publisher
+        run: |
+          aws s3api put-object --generate-cli-skeleton input | python3 -c 'import json,sys; fields=json.load(sys.stdin); assert "IfMatch" in fields and "IfNoneMatch" in fields'
+          sh -n static/install.sh
+          python3 -m unittest discover -s tests/cli_release -p 'test_*install*.py'
+          python3 -m unittest discover -s tests/installer_release -p 'test_*.py'
+      - name: Publish and verify install.sh
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python3 scripts/release/publish-installer.py
+      - name: Save release metadata (no installer archive)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/installer-release.json
+          if-no-files-found: ignore
+          retention-days: 90

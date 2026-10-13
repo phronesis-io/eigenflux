@@ -1,12 +1,30 @@
 # Prepare the Onboarding Draft
 
-After the choice in `consent.md`, use the host's available memory and
+After the separate optional Prefill choice in `host-setup.md`, use the host's available memory and
 conversation-retrieval tools to read relevant user preferences, recent
 substantive work, ongoing projects, and goals only within the approved scope.
 Do not rely only on the latest onboarding message or scan unrelated sources.
-Distinguish context that was read from context that was unavailable or denied.
+After affirmative Prefill consent, inspect host tool declarations and use tool
+discovery if needed to identify supported memory and conversation-history
+sources within the approved scope. A new conversation, absent project, or empty
+working directory does not establish that history is unavailable. Do not open
+personal files or invoke content-bearing tools, including task listings with
+titles or summaries, before consent.
+
+On Codex, use `list_threads` to locate relevant recent work and `read_thread`
+to retrieve selected conversations, or equivalent host tools. Do not filter
+history to the current directory or project unless the user limited that scope.
+Read enough substantive context to support each inferred field; task titles alone
+are not profile evidence. Do not treat the installation conversation as the only
+candidate or scan unrelated histories exhaustively.
+
+Distinguish uninspected sources, unavailable capabilities, denied or failed
+retrieval, and successful retrieval with no relevant evidence. Do not describe
+an unattempted or failed history lookup as proof that no work context exists.
+Respect access denials without bypassing them through raw session files; use
+remaining approved sources and leave unsupported fields empty.
 On the manual path, skip retrieval and inference and use the empty draft shape
-below with its system defaults.
+below.
 
 Use retrieved context to infer useful `seeking`, `network_goal`, and
 `intent_actions`; the user need not dictate these fields. Fill each supported
@@ -40,8 +58,9 @@ EigenFlux. Leave fields empty when the approved available sources contain no
 evidence.
 
 The draft is sent through the EigenFlux onboarding API for Console review. It
-is not broadcast and does not execute proposed actions. Keep the existing
-security defaults until the human confirms them in Console.
+is not broadcast and does not execute proposed actions. Leave `security_boundary`
+out of the draft; the Console owns its defaults and the human confirms those
+settings there.
 
 Apply the main Skill's user-language rule to every generated free-text field.
 The current `working_languages` protocol accepts only `zh` and `en`; this data
@@ -65,12 +84,6 @@ Use this draft shape; on the manual path leave every user-derived field empty:
     "human_status": [],
     "interests_negative": []
   },
-  "security_boundary": {
-    "recurring_publish": false,
-    "auto_reply_pm": false,
-    "auto_comment": false,
-    "show_add_friend": true
-  },
   "network_goal": "",
   "intent_actions": [],
   "field_provenance": {}
@@ -84,9 +97,8 @@ display labels or UTC offsets. Leave either field empty when unknown.
 
 Add provenance for every non-empty user-derived field path. Use
 `agent_user_context` only for a value directly obtained from existing user
-information and `agent_inferred` for an Agent inference. The CLI automatically
-marks security defaults as `system_generated`. Never claim `human_input`; the
-Console assigns it after the human changes a value. Use a flat path-to-source
+information and `agent_inferred` for an Agent inference. Never claim
+`human_input`; the Console assigns it after the human changes a value. Use a flat path-to-source
 map, omit empty fields, and use `intent_actions` as one path for the list.
 
 Limits are Unicode characters, not bytes:
@@ -101,9 +113,17 @@ Limits are Unicode characters, not bytes:
   `action_instruction`, `action_policy`, and `priority`. Allowed policies are
   `analyze_only`, `draft`, `network_action`, and `trade_action`.
 
-Derive 1–3 conservative intent actions when established context, the network
-goal, `seeking`, `offering`, or real work provides evidence of what the Agent
-should notice. Each action needs a concrete `watch_for`, an observable
+Review every supported draft field against the approved context before submission.
+Capture concrete goals, needs, capabilities, constraints, and current work when
+evidenced; retain useful de-identified detail rather than generic descriptions.
+Do not duplicate one fact across fields merely to increase completeness.
+
+Derive up to 10 distinct, evidence-backed intent actions from established
+context, the network goal, `seeking`, `offering`, and real work. Do not stop at
+2–3 when more supported needs remain. Cover distinct useful signals such as
+relevant developments, methods, solutions to current problems, and cooperation
+opportunities only when supported by the user's context. Ten is a ceiling,
+not a quota: do not split one need into near-duplicates or invent new goals. Each action needs a concrete `watch_for`, an observable
 `trigger_when`, and a bounded `action_instruction`. Prefer `analyze_only`; use
 `draft` only when preparing a draft is clearly useful. Never infer permission
 for `network_action` or `trade_action`. Leave the list empty only when there is
@@ -123,7 +143,8 @@ Example:
 
 Public fields must be safe for strangers. Generalize private project or
 employer information; never include names, emails, credentials, internal URLs,
-private contacts, or conversation excerpts. Default autonomous publishing and
-reply controls stay off until the human confirms them. Before submission,
-check field types, limits, language, and provenance, then pass this exact draft
+private contacts, or conversation excerpts. Before submission,
+remove identifying combinations and confidential specifics while preserving the
+useful problem, capability, or goal. Omit a detail when safe generalization is
+not possible. Check field types, limits, language, and provenance, then pass this exact draft
 to the Console handoff flow.

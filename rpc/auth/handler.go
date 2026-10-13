@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"eigenflux_server/pkg/cache"
+	"eigenflux_server/pkg/cache/keys"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -137,8 +139,8 @@ func generateOTP() (string, error) {
 // getCachedVerifyResult returns a previously cached VerifyLogin success
 // response, or nil if the cache is empty or corrupt.
 func getCachedVerifyResult(ctx context.Context, challengeID string) *auth.VerifyLoginResp {
-	cacheKey := "auth:verify:result:" + challengeID
-	cached, err := mq.RDB.Get(ctx, cacheKey).Result()
+	cacheKey := keys.AuthVerify + challengeID
+	cached, err := cache.Redis(mq.RDB).Read(ctx, cacheKey).Result()
 	if err != nil {
 		return nil
 	}
@@ -246,8 +248,8 @@ func (s *AuthServiceImpl) completeEmailLogin(ctx context.Context, normalizedEmai
 		}, nil
 	}
 
-	cacheKey := "auth:session:" + tokenHash
-	mq.RDB.Set(ctx, cacheKey, fmt.Sprintf("%d:%s", agent.AgentID, normalizedEmail), 10*time.Minute)
+	cacheKey := keys.AuthSession + tokenHash
+	cache.Redis(mq.RDB).Write(ctx, cacheKey, fmt.Sprintf("%d:%s", agent.AgentID, normalizedEmail), 10*time.Minute)
 
 	latestAgent, _ := dal.GetAgentByEmail(db.DB, agent.Email)
 	if latestAgent != nil {
@@ -598,8 +600,8 @@ func (s *AuthServiceImpl) VerifyLogin(ctx context.Context, req *auth.VerifyLogin
 		// Cache the successful response for idempotent replay (2-minute window
 		// is sufficient to cover client double-click scenarios).
 		if respJSON, jerr := json.Marshal(loginResp); jerr == nil {
-			cacheKey := "auth:verify:result:" + req.ChallengeId
-			mq.RDB.Set(ctx, cacheKey, string(respJSON), 2*time.Minute)
+			cacheKey := keys.AuthVerify + req.ChallengeId
+			cache.Redis(mq.RDB).Write(ctx, cacheKey, string(respJSON), 2*time.Minute)
 		}
 
 		// Clean up the StartLogin active-challenge key so the next StartLogin
@@ -647,8 +649,8 @@ func (s *AuthServiceImpl) ValidateSession(ctx context.Context, req *auth.Validat
 	}
 
 	// Check Redis cache
-	cacheKey := "auth:session:" + tokenHash
-	val, err := mq.RDB.Get(ctx, cacheKey).Result()
+	cacheKey := keys.AuthSession + tokenHash
+	val, err := cache.Redis(mq.RDB).Read(ctx, cacheKey).Result()
 	if err == nil && val != "" {
 		parts := strings.SplitN(val, ":", 2)
 		var agentID int64
@@ -682,7 +684,7 @@ func (s *AuthServiceImpl) ValidateSession(ctx context.Context, req *auth.Validat
 	}
 
 	// Cache result, update last_seen_at and extend expire_at (sliding expiration)
-	mq.RDB.Set(ctx, cacheKey, fmt.Sprintf("%d:%s", session.AgentID, agentEmail), 10*time.Minute)
+	cache.Redis(mq.RDB).Write(ctx, cacheKey, fmt.Sprintf("%d:%s", session.AgentID, agentEmail), 10*time.Minute)
 	now := time.Now().UnixMilli()
 	newExpireAt := now + sessionDurationMs
 	if err := dal.UpdateSessionActivity(db.DB, session.SessionID, now, newExpireAt); err != nil {
@@ -704,7 +706,7 @@ func (s *AuthServiceImpl) Logout(ctx context.Context, req *auth.LogoutReq) (*aut
 		logger.Ctx(ctx).Error("logout: db revoke failed", "err", err)
 	}
 
-	if err := mq.RDB.Del(ctx, "auth:session:"+tokenHash).Err(); err != nil {
+	if err := cache.Redis(mq.RDB).Remove(ctx, keys.AuthSession+tokenHash).Err(); err != nil {
 		logger.Ctx(ctx).Error("logout: redis del failed", "err", err)
 	}
 

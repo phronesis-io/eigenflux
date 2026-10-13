@@ -24,6 +24,10 @@ import (
 func profileTaskFixture(t *testing.T, baseline bool) (string, string) {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v2/agents/me/card/refresh-events" {
+			_, _ = w.Write([]byte(`{"code":0}`))
+			return
+		}
 		if r.Method != http.MethodGet || r.URL.Path != "/api/v2/agent-context" {
 			t.Errorf("unexpected task request: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)

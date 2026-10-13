@@ -13,6 +13,13 @@ import (
 var errInvalidMessageType = errors.New("invalid message type for service method handler")
 
 var serviceMethods = map[string]kitex.MethodInfo{
+	"Discovery": kitex.NewMethodInfo(
+		discoveryHandler,
+		newSortServiceDiscoveryArgs,
+		newSortServiceDiscoveryResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 	"SortItems": kitex.NewMethodInfo(
 		sortItemsHandler,
 		newSortServiceSortItemsArgs,
@@ -100,6 +107,24 @@ func newServiceInfo(hasStreaming bool, keepStreamingMethods bool, keepNonStreami
 	return svcInfo
 }
 
+func discoveryHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*sort.SortServiceDiscoveryArgs)
+	realResult := result.(*sort.SortServiceDiscoveryResult)
+	success, err := handler.(sort.SortService).Discovery(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newSortServiceDiscoveryArgs() interface{} {
+	return sort.NewSortServiceDiscoveryArgs()
+}
+
+func newSortServiceDiscoveryResult() interface{} {
+	return sort.NewSortServiceDiscoveryResult()
+}
+
 func sortItemsHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
 	realArg := arg.(*sort.SortServiceSortItemsArgs)
 	realResult := result.(*sort.SortServiceSortItemsResult)
@@ -162,6 +187,16 @@ func newServiceClient(c client.Client) *kClient {
 	return &kClient{
 		c: c,
 	}
+}
+
+func (p *kClient) Discovery(ctx context.Context, req *sort.DiscoveryReq) (r *sort.DiscoveryResp, err error) {
+	var _args sort.SortServiceDiscoveryArgs
+	_args.Req = req
+	var _result sort.SortServiceDiscoveryResult
+	if err = p.c.Call(ctx, "Discovery", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
 }
 
 func (p *kClient) SortItems(ctx context.Context, req *sort.SortItemsReq) (r *sort.SortItemsResp, err error) {

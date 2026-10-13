@@ -2,6 +2,7 @@ package consolev2
 
 import (
 	"context"
+	"eigenflux_server/pkg/cache"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -653,7 +654,7 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 			SELECT 1 FROM agent_cli_account_switches switches
 			WHERE switches.target_console_session_id = ?
 			  AND switches.target_agent_id = ?
-			  AND switches.status = 'pending_onboarding'
+			  AND switches.status IN ('pending_onboarding', 'completed')
 			  AND switches.ownership_verified_at IS NOT NULL
 			  AND switches.expires_at >= ?
 		)`, sessionID, id, sessionID, id, sessionID, id, now).Scan(&emailVerifiedForSession).Error; err != nil {
@@ -792,6 +793,7 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		fail(c, http.StatusInternalServerError, "CONFIRM_FAILED", "could not confirm onboarding step", nil)
 		return
 	}
+	cache.InvalidateDiscovery(ctx, s.redisClient, id)
 	if !replayed && req.Step == 2 {
 		agentcard.PublishRebuild(ctx, id, "console_v2_onboarding_identity")
 		activity.PublishAgentCardUpdate(ctx, id)
@@ -939,17 +941,8 @@ func compileAndActivateContext(tx *gorm.DB, agentID, now int64) (json.RawMessage
 		WHERE agent_id = ? AND status = 'active'`, agentID).Scan(&goal).Error; err != nil {
 		return nil, 0, err
 	}
-	var intents []struct {
-		IntentID          int64  `gorm:"column:intent_id" json:"intent_id,string"`
-		WatchFor          string `gorm:"column:watch_for" json:"watch_for"`
-		TriggerWhen       string `gorm:"column:trigger_when" json:"trigger_when"`
-		ActionInstruction string `gorm:"column:action_instruction" json:"then"`
-		ActionPolicy      string `gorm:"column:action_policy" json:"action_policy"`
-		Priority          int16  `gorm:"column:priority" json:"priority"`
-		Source            string `gorm:"column:source" json:"source"`
-		Status            string `gorm:"column:status" json:"status"`
-	}
-	if err := tx.Raw(`SELECT intent_id, watch_for, trigger_when, action_instruction,
+	var intents []intentContext
+	if err := tx.Raw(`SELECT intent_id, version, watch_for, trigger_when, action_instruction,
 			action_policy, priority, source, status FROM agent_intent_actions
 		WHERE agent_id = ? AND status = 'active' ORDER BY priority DESC, intent_id`, agentID).Scan(&intents).Error; err != nil {
 		return nil, 0, err

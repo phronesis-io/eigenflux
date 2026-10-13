@@ -1,6 +1,7 @@
 namespace go eigenflux.feed
 
 include "base.thrift"
+include "sort.thrift"
 
 struct FeedItem {
     1: required i64 item_id
@@ -31,6 +32,7 @@ struct FetchFeedReq {
 }
 
 struct FetchFeedResp {
+    4: optional string discovery_metadata
     1: required list<FeedItem> items
     2: required bool has_more
     3: required string impression_id
@@ -38,5 +40,6 @@ struct FetchFeedResp {
 }
 
 service FeedService {
+    sort.DiscoveryResp Discovery(1: sort.DiscoveryReq req)
     FetchFeedResp FetchFeed(1: FetchFeedReq req)
 }

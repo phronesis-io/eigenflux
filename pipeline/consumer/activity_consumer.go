@@ -244,11 +244,9 @@ func (c *ActivityConsumer) processMessage(ctx context.Context, msgID string, val
 	// delivered in this feed pull (carried in detail). Falls back to 1 if the
 	// count is missing or unparseable.
 	if eventType == "feed_pull" {
-		delta := int64(1)
-		if n := parseDetailInt(detail, "count"); n > 0 {
-			delta = n
+		if delta := feedPullImpressionDelta(detail); delta > 0 {
+			_ = dal.IncrImpressionCount(ctx, agentID, delta)
 		}
-		_ = dal.IncrImpressionCount(ctx, agentID, delta)
 	}
 
 	// Increment the all-time worth-reading counter by items kept (score>=1).
@@ -276,14 +274,33 @@ func isSupportedActivityType(value string) bool {
 // parseDetailInt extracts an integer field from a JSON detail string.
 // Returns 0 if detail is empty, malformed, or the field is absent.
 func parseDetailInt(detail, field string) int64 {
-	if detail == "" {
-		return 0
+	value, _ := detailInt(detail, field)
+	return value
+}
+
+// detailInt distinguishes an explicit zero from absent or invalid quantities,
+// and allows unrelated string metadata in the same JSON object.
+func detailInt(detail, field string) (int64, bool) {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal([]byte(detail), &fields) != nil {
+		return 0, false
 	}
-	var m map[string]int64
-	if err := json.Unmarshal([]byte(detail), &m); err != nil {
-		return 0
+	raw, exists := fields[field]
+	if !exists || string(raw) == "null" {
+		return 0, false
 	}
-	return m[field]
+	var value int64
+	if json.Unmarshal(raw, &value) != nil || value < 0 {
+		return 0, false
+	}
+	return value, true
+}
+
+func feedPullImpressionDelta(detail string) int64 {
+	if count, valid := detailInt(detail, "count"); valid {
+		return count
+	}
+	return 1 // Quantity-less legacy feed_pull events represent one impression.
 }
 
 func (c *ActivityConsumer) ackMessage(ctx context.Context, msgID string) {

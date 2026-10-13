@@ -56,7 +56,7 @@ func loadAttentionResponseReplay(tx *gorm.DB, agentID, attentionID, expectedRevi
 	result := tx.Raw(`SELECT actions_snapshot::text AS actions_snapshot,
 		source_ref::text AS source_ref, status, item_revision FROM agent_attention_items
 		WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'
-		  AND protocol_version = 'agent_attention.v1' AND attention_phase = 'active'`, agentID, attentionID).Scan(&row)
+		  AND protocol_version = 'agent_attention.v1' AND attention_phase IN ('active', 'prefill')`, agentID, attentionID).Scan(&row)
 	if result.Error != nil {
 		return 0, "", "", false, result.Error
 	}
@@ -119,6 +119,7 @@ func (s *Service) respondAttentionItem(_ context.Context, c *app.RequestContext)
 
 		var item struct {
 			Producer       string `gorm:"column:producer"`
+			Phase          string `gorm:"column:attention_phase"`
 			Status         string `gorm:"column:status"`
 			Surface        string `gorm:"column:surface"`
 			Category       string `gorm:"column:category"`
@@ -133,11 +134,11 @@ func (s *Service) respondAttentionItem(_ context.Context, c *app.RequestContext)
 			ExpiresAt      *int64 `gorm:"column:expires_at"`
 			SourceRef      string `gorm:"column:source_ref"`
 		}
-		if err := tx.Raw(`SELECT producer, status, surface, category, language, title, body, recommendation,
+		if err := tx.Raw(`SELECT producer, attention_phase, status, surface, category, language, title, body, recommendation,
 			actions_snapshot::text AS actions_snapshot, context_ref::text AS context_ref,
 			payload_hash, item_revision, expires_at, source_ref::text AS source_ref
 			FROM agent_attention_items WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'
-			  AND protocol_version = 'agent_attention.v1' AND attention_phase = 'active'
+			  AND protocol_version = 'agent_attention.v1' AND attention_phase IN ('active', 'prefill')
 			  AND expires_at > (extract(epoch FROM clock_timestamp())*1000)::bigint FOR UPDATE`,
 			agentIDValue, attentionID).Scan(&item).Error; err != nil {
 			return err
@@ -145,6 +146,11 @@ func (s *Service) respondAttentionItem(_ context.Context, c *app.RequestContext)
 		if item.Producer != "agent" || item.Revision == 0 || item.Revision != req.ExpectedItemRevision ||
 			item.Status != "open" || (item.ExpiresAt != nil && *item.ExpiresAt <= now) {
 			return errConflict
+		}
+		if item.Phase == attentionPhasePrefill {
+			if err := requirePrefillOnboarding(tx, agentIDValue); err != nil {
+				return err
+			}
 		}
 		var actions []attentionProtocolAction
 		if json.Unmarshal([]byte(item.Actions), &actions) != nil {
@@ -179,7 +185,10 @@ func (s *Service) respondAttentionItem(_ context.Context, c *app.RequestContext)
 			}
 		}
 		var contextRevision int64
-		if err := tx.Raw(`SELECT active_revision FROM agent_context_heads WHERE agent_id = ? FOR UPDATE`, agentIDValue).Scan(&contextRevision).Error; err != nil {
+		if err := tx.Raw(`SELECT head.active_revision FROM agent_context_heads head
+			JOIN agent_context_revisions revision ON revision.agent_id = head.agent_id
+			 AND revision.revision = head.active_revision
+			WHERE head.agent_id = ? FOR UPDATE OF head`, agentIDValue).Scan(&contextRevision).Error; err != nil {
 			return err
 		}
 		if contextRevision <= 0 {
@@ -242,7 +251,10 @@ func (s *Service) respondAttentionItem(_ context.Context, c *app.RequestContext)
 		if err := tx.Raw(`UPDATE agent_attention_items SET status = ?, selected_action_key = ?,
 			response_status = 'pending', responded_at = ?, updated_at = ?, item_revision = item_revision + 1
 			WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'
-			  AND protocol_version = 'agent_attention.v1' AND attention_phase = 'active'
+			  AND protocol_version = 'agent_attention.v1'
+			  AND (attention_phase = 'active' OR (attention_phase = 'prefill' AND EXISTS (
+				SELECT 1 FROM agent_onboarding_v2 onboarding
+				WHERE onboarding.agent_id = agent_attention_items.agent_id AND onboarding.state = 'completed')))
 			  AND status = 'open' AND item_revision = ?
 			  AND expires_at > (extract(epoch FROM clock_timestamp())*1000)::bigint
 			RETURNING item_revision`, itemStatus, selected.ActionKey, now, now, agentIDValue, attentionID,
@@ -257,6 +269,10 @@ func (s *Service) respondAttentionItem(_ context.Context, c *app.RequestContext)
 		sourceAvailable = json.Unmarshal([]byte(item.SourceRef), &source) == nil && len(source) > 0
 		return nil
 	})
+	if errors.Is(err, errAttentionOnboardingRequired) {
+		fail(c, http.StatusConflict, "ATTENTION_ONBOARDING_REQUIRED", "Complete onboarding before responding to Attention Prefill", nil)
+		return
+	}
 	if errors.Is(err, errIntentCapacity) {
 		fail(c, http.StatusConflict, "INTENT_CAPACITY_REACHED", "active intent limit has been reached", nil)
 		return
@@ -301,9 +317,10 @@ func (s *Service) respondAttentionItem(_ context.Context, c *app.RequestContext)
 }
 
 var (
-	errIntentCapacity        = errors.New("intent capacity reached")
-	errAttentionContextStale = errors.New("Attention context is stale")
-	errAttentionSourceDirect = errors.New("Attention source must be opened directly")
+	errAttentionOnboardingRequired = errors.New("Attention Prefill requires completed onboarding")
+	errIntentCapacity              = errors.New("intent capacity reached")
+	errAttentionContextStale       = errors.New("Attention context is stale")
+	errAttentionSourceDirect       = errors.New("Attention source must be opened directly")
 )
 
 func (s *Service) getAttentionSource(_ context.Context, c *app.RequestContext) {
@@ -668,4 +685,26 @@ func (s *Service) getAttentionSource(_ context.Context, c *app.RequestContext) {
 		}
 	}
 	reply(c, http.StatusOK, map[string]interface{}{"attention_id": fmt.Sprintf("%d", attentionID), "source_ref": source, "detail": detail})
+}
+
+// Prefill keeps its source phase after onboarding; only completed setup with an
+// active context permits owner actions. The command freezes that current context.
+func requirePrefillOnboarding(db *gorm.DB, agentID int64) error {
+	var state string
+	if err := db.Raw(`SELECT state FROM agent_onboarding_v2 WHERE agent_id = ?`, agentID).Scan(&state).Error; err != nil {
+		return err
+	}
+	if state != "completed" {
+		return errAttentionOnboardingRequired
+	}
+	var ready bool
+	if err := db.Raw(`SELECT EXISTS (SELECT 1 FROM agent_context_heads head
+		JOIN agent_context_revisions revision ON revision.agent_id = head.agent_id AND revision.revision = head.active_revision
+		WHERE head.agent_id = ? AND head.active_revision > 0)`, agentID).Scan(&ready).Error; err != nil {
+		return err
+	}
+	if !ready {
+		return errAttentionContextStale
+	}
+	return nil
 }

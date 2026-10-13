@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -203,10 +204,31 @@ func (s *Service) dismissAttentionItem(_ context.Context, c *app.RequestContext)
 		fail(c, http.StatusBadRequest, "ATTENTION_REVISION_REQUIRED", "expected_item_revision is required for Agent dismissal", nil)
 		return
 	}
+	var phase string
+	if err := s.db.Raw(`SELECT attention_phase FROM agent_attention_items WHERE agent_id = ? AND attention_id = ? AND producer = 'agent' AND protocol_version = 'agent_attention.v1'`, agentIDValue, attentionID).Scan(&phase).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "ATTENTION_UPDATE_FAILED", "could not read attention item", nil)
+		return
+	}
+	if phase == attentionPhasePrefill {
+		if err := requirePrefillOnboarding(s.db, agentIDValue); err != nil {
+			if errors.Is(err, errAttentionOnboardingRequired) {
+				fail(c, http.StatusConflict, "ATTENTION_ONBOARDING_REQUIRED", "Complete onboarding before dismissing Attention Prefill", nil)
+			} else if errors.Is(err, errAttentionContextStale) {
+				fail(c, http.StatusConflict, "ATTENTION_CONTEXT_STALE", "Attention context is unavailable; refresh before responding", nil)
+			} else {
+				fail(c, http.StatusInternalServerError, "ATTENTION_UPDATE_FAILED", "could not read onboarding state", nil)
+			}
+			return
+		}
+	}
 	now := time.Now().UnixMilli()
 	query := `UPDATE agent_attention_items SET status = 'dismissed', updated_at = ?, item_revision = item_revision + 1
 		WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'
-		  AND protocol_version = 'agent_attention.v1' AND attention_phase = 'active' AND status = 'open'
+		  AND protocol_version = 'agent_attention.v1' AND (attention_phase = 'active' OR (attention_phase = 'prefill' AND EXISTS (
+			SELECT 1 FROM agent_onboarding_v2 onboarding
+			JOIN agent_context_heads head ON head.agent_id = onboarding.agent_id
+			JOIN agent_context_revisions revision ON revision.agent_id = head.agent_id AND revision.revision = head.active_revision
+			WHERE onboarding.agent_id = agent_attention_items.agent_id AND onboarding.state = 'completed' AND head.active_revision > 0))) AND status = 'open'
 		  AND expires_at > (extract(epoch FROM clock_timestamp())*1000)::bigint`
 	args := []interface{}{now, agentIDValue, attentionID}
 	if req.ExpectedItemRevision > 0 {
@@ -227,7 +249,7 @@ func (s *Service) dismissAttentionItem(_ context.Context, c *app.RequestContext)
 			}
 			if err := s.db.Raw(`SELECT status, item_revision FROM agent_attention_items
 				WHERE agent_id = ? AND attention_id = ? AND producer = 'agent'
-				  AND protocol_version = 'agent_attention.v1' AND attention_phase = 'active'`,
+				  AND protocol_version = 'agent_attention.v1' AND attention_phase IN ('active', 'prefill')`,
 				agentIDValue, attentionID).Scan(&current).Error; err == nil && current.Status == "dismissed" && current.ItemRevision == req.ExpectedItemRevision+1 {
 				reply(c, http.StatusOK, map[string]interface{}{"attention_id": fmt.Sprintf("%d", attentionID), "item_revision": current.ItemRevision, "status": "dismissed", "idempotent_replay": true})
 				return

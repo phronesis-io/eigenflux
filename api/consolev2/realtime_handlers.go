@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -26,20 +25,11 @@ type communicationWakeEvent struct {
 	DisplayName string `json:"display_name,omitempty"`
 }
 
-func validConsoleWebSocketRequest(origin, host, protocol, queryToken, expectedURL string) bool {
+func validConsoleWebSocketRequest(origin, host, protocol, queryToken, expectedURL string, additionalOrigins ...string) bool {
 	if queryToken != "" || !strings.Contains(","+strings.ReplaceAll(protocol, " ", "")+",", ","+consoleV2WebSocketProtocol+",") {
 		return false
 	}
-	expected, err := url.Parse(expectedURL)
-	if err != nil || expected.Scheme == "" || expected.Host == "" || !strings.EqualFold(host, expected.Host) {
-		return false
-	}
-	provided, err := url.Parse(origin)
-	if err != nil || provided.User != nil || provided.RawQuery != "" || provided.Fragment != "" ||
-		provided.Path != "" || provided.Scheme == "" || provided.Host == "" {
-		return false
-	}
-	return strings.EqualFold(provided.Scheme, expected.Scheme) && strings.EqualFold(provided.Host, expected.Host)
+	return validConsoleSameOrigin(origin, host, expectedURL, additionalOrigins...)
 }
 
 func (s *Service) subscribeCommunicationWake(agentID int64) (<-chan communicationWakeEvent, func()) {
@@ -154,7 +144,7 @@ func (s *Service) streamCommunicationEvents(ctx context.Context, c *app.RequestC
 	origin := string(c.GetHeader("Origin"))
 	host := string(c.Host())
 	protocol := string(c.GetHeader("Sec-WebSocket-Protocol"))
-	if !sessionOK || sessionID == "" || !validConsoleWebSocketRequest(origin, host, protocol, c.Query("token"), s.publicURL) {
+	if !sessionOK || sessionID == "" || !validConsoleWebSocketRequest(origin, host, protocol, c.Query("token"), s.publicURL, s.allowedOrigins...) {
 		fail(c, http.StatusForbidden, "WEBSOCKET_ORIGIN_INVALID", "Console V2 WebSocket origin, host, or audience is invalid", nil)
 		return
 	}
@@ -181,7 +171,7 @@ func (s *Service) streamCommunicationEvents(ctx context.Context, c *app.RequestC
 		Subprotocols: []string{consoleV2WebSocketProtocol},
 		CheckOrigin: func(request *app.RequestContext) bool {
 			return validConsoleWebSocketRequest(string(request.GetHeader("Origin")), string(request.Host()),
-				string(request.GetHeader("Sec-WebSocket-Protocol")), request.Query("token"), s.publicURL)
+				string(request.GetHeader("Sec-WebSocket-Protocol")), request.Query("token"), s.publicURL, s.allowedOrigins...)
 		},
 	}
 	if err := upgrader.Upgrade(c, func(connection *websocket.Conn) {

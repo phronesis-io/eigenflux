@@ -20,7 +20,8 @@ var SafetyPrompt = NewPrompt[SafetyInput, SafetyResult]("safety")
 
 // ExtractKeywordsInput is the input for the extract_keywords prompt.
 type ExtractKeywordsInput struct {
-	Bio string
+	Bio       string
+	RetryHint string
 }
 
 // ExtractKeywordsResult holds the output of keyword extraction.

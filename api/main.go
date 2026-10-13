@@ -52,12 +52,12 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/profile/profileservice"
 	"eigenflux_server/kitex_gen/eigenflux/sort/sortservice"
 	"eigenflux_server/pipeline/embedding"
-	"eigenflux_server/pkg/commissionindex"
 	"eigenflux_server/pkg/commissionsource"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/embeddingmeta"
 	"eigenflux_server/pkg/es"
+	"eigenflux_server/pkg/featureindex"
 	"eigenflux_server/pkg/idgen"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/metrics"
@@ -206,10 +206,18 @@ func main() {
 		}
 		defer func() { _ = commissionDiscoveryIDGen.Close(context.Background()) }()
 		commissionDiscoveryService = commissiondiscovery.New(sortClient, commissionDiscoveryIDGen, mq.Publish, commissionAccess)
+		if cfg.EnableNeedSearch {
+			commissionDiscoveryService.SetDiscoveryClient(feedClient)
+		}
 	}
 
 	var integrationServer *server.Hertz
 	if integrationMode.Enabled {
+		stopFeatureConfig, err := featureindex.StartConfig(context.Background(), cfg.FeatureIndexConfigDir, cfg.FeatureIndexReloadInterval)
+		if err != nil {
+			log.Fatalf("feature configuration: %v", err)
+		}
+		defer stopFeatureConfig()
 		if err := es.InitClient(); err != nil {
 			log.Fatalf("initialize Elasticsearch for Commission diagnostics: %v", err)
 		}
@@ -226,7 +234,7 @@ func main() {
 			log.Fatal("initialize Commission projection diagnostics")
 		}
 		source := commissionsource.Adapter{Commission: commissionSourceClient, Order: orderSourceClient}
-		store := commissionindex.ESStore{Index: cfg.CommissionIndexName, Alias: cfg.CommissionIndexAlias, Dimensions: cfg.EmbeddingDimensions}
+		store := featureindex.CommissionESStore{Redis: mq.RDB, Index: cfg.CommissionIndexName, Alias: cfg.CommissionIndexAlias, Dimensions: cfg.EmbeddingDimensions}
 		embeddingClient := embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)
 		diagnostics, err := commissionintegration.NewService(projection, source, store, commissionintegration.NewEmbeddingProbe(embeddingmeta.NormalizeProvider(cfg.EmbeddingProvider), cfg.EmbeddingDimensions, embeddingClient))
 		if err != nil {
@@ -262,7 +270,7 @@ func main() {
 
 	// Public installation entry document and installer scripts.
 	h.StaticFile("/bootstrap.md", "static/BOOTSTRAP.md")
-	h.StaticFile("/install.sh", "static/install.sh")
+	install.RegisterShellInstaller(h)
 	h.StaticFile("/install.ps1", "static/install.ps1")
 
 	// Swagger UI
@@ -339,6 +347,9 @@ func main() {
 		h.POST("/api/v1/console/agent-upgrade-challenges", middleware.AuthMiddleware(), consoleV2Service.LegacyAgentUpgradeChallengeHandler())
 		consoleV2Service.Register(h)
 		consoleV2Service.RegisterCommissionDiscovery(h, commissionDiscoveryService)
+		if cfg.EnableNeedSearch {
+			consoleV2Service.RegisterDiscovery(h, commissionAccess)
+		}
 		registerConsoleV2BusinessBFF(h, consoleV2Service, cfg, commissionAccess)
 		log.Print("Console V2 routes registered")
 	}
@@ -370,6 +381,8 @@ func registerConsoleV2BusinessBFF(h *server.Hertz, service *consolev2.Service, c
 		log.Printf("Commission BFF disabled: %v", err)
 		trade = tradebff.NewUnavailable("")
 	}
+	service.SetDashboardSearchClients(clients.PMClient, clients.ItemClient, clients.ProfileClient)
+	service.RegisterDashboardSearch(h, trade)
 	read := func(path string, handlers ...app.HandlerFunc) {
 		h.GET("/api/v2/console/bff/"+path, service.ConsoleBFFHandlers(false, handlers...)...)
 	}
@@ -428,19 +441,19 @@ type consoleBFFReadRegistrar func(string, ...app.HandlerFunc)
 type consoleBFFWriteRegistrar func(string, string, ...app.HandlerFunc)
 
 func registerCommissionConsoleBFFRoutes(read consoleBFFReadRegistrar, write consoleBFFWriteRegistrar, access app.HandlerFunc, trade *tradebff.Service) {
+	read("trade/commissions/:commission_id/reviews", access, trade.TradeCommissionReviews)
+	read("trade/orders/:order_id/snapshots/:snapshot_id/file", access, trade.TradeOrderFile)
+	read("payout-method/kyc", access, trade.WalletKYC)
+	write(http.MethodPost, "payout-method/kyc", access, trade.StartWalletKYC)
+	write(http.MethodPost, "payout-method/kyc/authorization", access, trade.AuthorizeWalletKYC)
 	read("trade/overview", access, trade.TradeOverview)
 	read("trade/commissions", access, trade.TradeCommissions)
-	read("trade/commissions/:commission_id/reviews", access, trade.TradeCommissionReviews)
 	read("trade/orders", access, trade.TradeOrders)
 	read("trade/orders/:order_id", access, trade.TradeOrder)
-	read("trade/orders/:order_id/snapshots/:snapshot_id/file", access, trade.TradeOrderFile)
 	write(http.MethodPost, "trade/orders/:order_id/payment", access, trade.TradeOrderPayment)
 	read("earnings/summary", access, trade.EarningsSummary)
 	read("earnings/records", access, trade.EarningsRecords)
 	read("payout-method", access, trade.PayoutMethod)
-	read("payout-method/kyc", access, trade.WalletKYC)
-	write(http.MethodPost, "payout-method/kyc", access, trade.StartWalletKYC)
-	write(http.MethodPost, "payout-method/kyc/authorization", access, trade.AuthorizeWalletKYC)
 	write(http.MethodPost, "payout-method/authorization", access, trade.MutatePayoutMethod)
 	write(http.MethodPost, "withdrawals", access, trade.CreateWithdrawal)
 	read("withdrawals/:withdrawal_id", access, trade.Withdrawal)

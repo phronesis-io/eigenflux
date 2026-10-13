@@ -52,7 +52,7 @@ const (
 	consoleAbsoluteTTL = 180 * 24 * time.Hour
 	accessTTL          = 15 * time.Minute
 	refreshTTL         = 30 * 24 * time.Hour
-	handoffTTL         = 15 * time.Minute
+	handoffTTL         = 72 * time.Hour
 	grantTTL           = 5 * time.Minute
 	proofClockSkew     = 5 * time.Minute
 	maxRequestBytes    = 256 << 10
@@ -74,6 +74,9 @@ type IDGenerator interface {
 }
 
 type Service struct {
+	dashboardPM              dashboardPMClient
+	dashboardItem            dashboardItemClient
+	dashboardProfile         dashboardProfileClient
 	db                       *gorm.DB
 	idgen                    IDGenerator
 	bootstrapSecret          string
@@ -81,12 +84,14 @@ type Service struct {
 	testEmailPatterns        []string
 	testOTP                  string
 	publicURL                string
+	allowedOrigins           []string
 	secureCookie             bool
 	emailSender              mailservice.Sender
 	emailQueue               chan emailJob
 	feedClient               feedservice.Client
 	notificationClient       notificationservice.Client
 	enableFeed               bool
+	enableDiscovery          bool
 	enableControl            bool
 	enableAttentionV1        bool
 	enableCommunication      bool
@@ -147,8 +152,17 @@ func NewService(gdb *gorm.DB, idgen IDGenerator, cfg *config.Config) (*Service, 
 	}
 	publicURL := strings.TrimRight(strings.TrimSpace(cfg.ConsoleV2PublicURL), "/")
 	parsed, err := url.Parse(publicURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return nil, errors.New("CONSOLE_V2_PUBLIC_URL must be an absolute URL")
+	if err != nil || !validConsoleOriginURL(publicURL) {
+		return nil, errors.New("CONSOLE_V2_PUBLIC_URL must be an HTTP(S) origin")
+	}
+	allowedOrigins := make([]string, 0, len(cfg.ConsoleV2AllowedOrigins))
+	for _, value := range cfg.ConsoleV2AllowedOrigins {
+		origin := strings.TrimSpace(value)
+		candidate, parseErr := url.Parse(origin)
+		if parseErr != nil || !validConsoleOriginURL(origin) || candidate.Scheme != parsed.Scheme {
+			return nil, errors.New("CONSOLE_V2_ALLOWED_ORIGINS must contain HTTP(S) origins with the same scheme as CONSOLE_V2_PUBLIC_URL")
+		}
+		allowedOrigins = append(allowedOrigins, origin)
 	}
 	if strings.TrimSpace(cfg.ConsoleV2OTPPepper) == "" {
 		return nil, errors.New("CONSOLE_V2_OTP_PEPPER is required")
@@ -185,7 +199,9 @@ func NewService(gdb *gorm.DB, idgen IDGenerator, cfg *config.Config) (*Service, 
 		testEmailPatterns:        append([]string(nil), cfg.OfficialTestEmailSuffixes...),
 		testOTP:                  strings.TrimSpace(cfg.OfficialTestOTP),
 		publicURL:                publicURL,
+		allowedOrigins:           allowedOrigins,
 		secureCookie:             parsed.Scheme == "https",
+		enableDiscovery:          cfg.EnableNeedSearch,
 		enableFeed:               cfg.EnableFeedV2,
 		enableControl:            cfg.EnableControlChannelV2,
 		enableAttentionV1:        cfg.EnableAgentAttentionV1,
@@ -305,22 +321,32 @@ func (s *Service) CommunicationFriendRequestsHandler() app.HandlerFunc {
 	return s.listCommunicationFriendRequests
 }
 
-func validConsoleSameOrigin(origin, host, expectedURL string) bool {
-	expected, err := url.Parse(expectedURL)
-	if err != nil || expected.Scheme == "" || expected.Host == "" || !strings.EqualFold(host, expected.Host) {
+func validConsoleOriginURL(origin string) bool {
+	u, err := url.Parse(origin)
+	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Hostname() != "" &&
+		u.User == nil && u.Path == "" && u.RawQuery == "" && !u.ForceQuery &&
+		!strings.Contains(origin, "#") && !strings.Contains(u.Host, "*")
+}
+
+func validConsoleSameOrigin(origin, host, expectedURL string, additionalOrigins ...string) bool {
+	if !validConsoleOriginURL(origin) {
 		return false
 	}
-	provided, err := url.Parse(origin)
-	if err != nil || provided.User != nil || provided.RawQuery != "" || provided.Fragment != "" ||
-		provided.Path != "" || provided.Scheme == "" || provided.Host == "" {
+	provided, _ := url.Parse(origin)
+	if !strings.EqualFold(host, provided.Host) {
 		return false
 	}
-	return strings.EqualFold(provided.Scheme, expected.Scheme) && strings.EqualFold(provided.Host, expected.Host)
+	for _, expected := range append([]string{expectedURL}, additionalOrigins...) {
+		if validConsoleOriginURL(expected) && strings.EqualFold(origin, expected) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) requireSameOrigin() app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
-		if !validConsoleSameOrigin(string(c.GetHeader("Origin")), string(c.Host()), s.publicURL) {
+		if !validConsoleSameOrigin(string(c.GetHeader("Origin")), string(c.Host()), s.publicURL, s.allowedOrigins...) {
 			fail(c, http.StatusForbidden, "ORIGIN_INVALID", "Console V2 request origin is invalid", nil)
 			c.Abort()
 			return
@@ -350,6 +376,7 @@ func (s *Service) Register(h *server.Hertz) {
 	h.DELETE("/api/v2/agents/me/principals/:principal_id", s.consoleAuth(true), s.revokePrincipal)
 	h.POST("/api/v2/console/handoffs", s.agentAuth("console:handoff:create"), s.createHandoff)
 	h.PUT("/api/v2/agent-settings/heartbeat-compatibility", middleware.ClientInfoMiddleware(), s.agentAuth("commands:claim"), s.requireCompleted, s.reportHeartbeatCompatibility)
+	h.POST("/api/v2/console/handoffs/status", s.requireSameOrigin(), s.handoffStatus)
 	h.POST("/api/v2/console/handoffs/exchange", s.requireSameOrigin(), s.exchangeHandoff)
 	h.GET("/api/v2/console/session", s.consoleAuth(false), s.getConsoleSession)
 	h.DELETE("/api/v2/console/session", s.consoleAuth(true), s.deleteConsoleSession)
@@ -366,12 +393,14 @@ func (s *Service) Register(h *server.Hertz) {
 	h.GET("/api/v2/agents/me/onboarding-draft", s.consoleAuth(false), s.getOnboardingDraft)
 	h.POST("/api/v2/agents/me/onboarding-draft/confirm", s.consoleAuth(true), s.confirmOnboardingStep)
 	h.GET("/api/v2/agents/me/control-context", s.consoleAuth(false), s.requireCompleted, s.getControlContext)
+	s.registerNeeds(h)
 	h.GET("/api/v2/agent-context", s.agentAuth("context:read"), s.requireCompleted, s.getControlContext)
 	h.GET("/api/v2/agent-capabilities", s.agentAuth("context:read"), s.getAgentCapabilities)
 	// context:write is delegated owner authority. These routes persist
 	// owner-confirmed control state; CLI confirmation flags are conversational
 	// safeguards, not protection against compromise of an Agent credential.
 	h.PUT("/api/v2/agent-context/network-goal", s.agentAuth("context:write"), s.requireCompleted, s.putNetworkGoal)
+	h.GET("/api/v2/agent-context/intent-actions", s.agentAuth("context:read"), s.requireCompleted, s.listIntentActions)
 	h.POST("/api/v2/agent-context/intent-actions", s.agentAuth("context:write"), s.requireCompleted, s.createIntentAction)
 	h.PUT("/api/v2/agent-context/intent-actions/:intent_id", s.agentAuth("context:write"), s.requireCompleted, s.updateIntentAction)
 	h.DELETE("/api/v2/agent-context/intent-actions/:intent_id", s.agentAuth("context:write"), s.requireCompleted, s.deleteIntentAction)
@@ -391,6 +420,7 @@ func (s *Service) Register(h *server.Hertz) {
 	h.GET("/api/v2/console/home/activity", s.consoleAuth(false), s.requireCompleted, s.getHomeActivity)
 	h.GET("/api/v2/console/home/worth-watching", s.consoleAuth(false), s.requireCompleted, s.getHomeWorthWatching)
 	h.POST("/api/v2/telemetry/events:batch", s.consoleAuth(true), s.recordTelemetryBatch)
+	h.POST("/api/v2/maintenance/events:batch", s.agentAuth("settings:write"), s.recordMaintenanceBatch)
 	if s.enableFeed {
 		h.POST("/api/v2/feed", s.agentAuth("feed:read"), s.pullFeedV2)
 		h.GET("/api/v2/feed/items/:source_type/:source_id", s.agentAuth("feed:read"), s.getFeedSourceItem)
@@ -473,6 +503,7 @@ func (s *Service) Register(h *server.Hertz) {
 	h.GET("/api/v2/agents/me", s.agentAuth("profile:read"), s.requireCompleted, apihandler.GetMe)
 	h.GET("/api/v2/agents/me/card", s.agentAuth("profile:read"), s.requireCompleted, agentcardapi.GetMyCard)
 	h.GET("/api/v2/agents/me/card/refresh-context", s.agentAuth("onboarding:write"), s.requireCompleted, agentcardapi.GetRefreshContext)
+	h.POST("/api/v2/agents/me/card/refresh-events", s.agentAuth("onboarding:write"), s.requireCompleted, agentcardapi.RecordRefreshEvent)
 	h.GET("/api/v2/agents/items", s.agentAuth("profile:read"), s.requireCompleted, apihandler.GetMyItems)
 	h.DELETE("/api/v2/agents/items/:item_id", s.agentAuth("broadcast:write"), s.requireCompleted, apihandler.DeleteMyItem)
 	h.GET("/api/v2/agents/me/settings", s.agentAuth("settings:read"), s.requireCompleted, apihandler.GetMySettings)
@@ -637,6 +668,7 @@ func (s *Service) agentAuthAny(requiredScopes ...string) app.HandlerFunc {
 		c.Set("agent_id", principal.AgentID)
 		c.Set("principal_id", principal.PrincipalID)
 		c.Set("agent_credential_session_id", principal.SessionID)
+		c.Set("agent_scopes", principal.Scopes)
 		go agentcard.TouchLastActive(context.Background(), s.redisClient, principal.AgentID)
 		c.Next(ctx)
 		middleware.ObserveSuccessfulAgentRequest(ctx, c, s.db, principal.AgentID, requestStartedAt, false)
@@ -663,7 +695,7 @@ type consoleSession struct {
 
 func (s *Service) consoleAuth(requireCSRF bool) app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
-		if requireCSRF && !validConsoleSameOrigin(string(c.GetHeader("Origin")), string(c.Host()), s.publicURL) {
+		if requireCSRF && !validConsoleSameOrigin(string(c.GetHeader("Origin")), string(c.Host()), s.publicURL, s.allowedOrigins...) {
 			fail(c, http.StatusForbidden, "ORIGIN_INVALID", "Console V2 request origin is invalid", nil)
 			c.Abort()
 			return

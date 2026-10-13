@@ -1,6 +1,83 @@
 # Pipeline & Async Processing
 
+The optional three-kind, rule-only search/recommendation cutover is documented in [Search and Recommendation MVP](discovery.md). It is disabled by default; the legacy behavior below applies when `ENABLE_NEED_SEARCH=false`.
+
 ## Async Messaging
+
+`ItemService.PublishItem` commits the raw submission, pending processed row and
+initial item-statistics row in one PostgreSQL transaction under the request
+context. A failure in any insert or commit returns a business error and leaves
+no partially accepted item. Success returns the ID only after all three rows
+are durable, so the own-items listing can include a pending submission.
+
+The upgraded gateway requests `item-publish-dispatch=outbox-v1` through Kitex
+persistent metadata. The RPC transaction also inserts `item_publish_outbox`;
+the gateway performs no direct stream write. Pipeline dispatches at most 100
+records per one-second pass, with a five-second pass deadline and a two-second
+per-record deadline. PostgreSQL row locks with `SKIP LOCKED` serialize replicas.
+A Redis Lua marker deduplicates uncertain XADD replies and SQL acknowledgements;
+markers have no expiry until the SQL acknowledgement is durable. Cleanup deletes
+only acknowledged markers and rows. The ingestion stream remains untrimmed by
+the producer. Database acceptance and completed distribution remain distinct.
+
+Apply migration `000111`, then deploy Item RPC before the gateway, followed by
+Pipeline (the full managed deploy order). Older gateways omit the metadata and
+retain their direct stream ownership, preventing dual dispatch during rollout.
+For rollback, restore the old gateway before the old Item RPC; retain the
+migration and new Pipeline until the outbox drains. Unmarked direct RPC callers
+still own their dispatch. Recovery never infers work from historical pending
+processed rows or replays historical PGC broadcasts.
+
+Retry-aware stream workers heartbeat both running and locally queued deliveries,
+without incrementing the delivery count. Each process lifetime has a unique
+consumer name. Lua owner checks fence heartbeat, ACK and DLQ writes; losing the
+owner cancels the handler context, including synchronous Item/Profile database
+operations and model retry backoff. A stopped worker leaves its work pending for
+the next instance. Item and Profile poison/exhausted messages have bounded DLQs.
+
+An Item persistence failure stays pending. A committed completed row is the
+enrichment checkpoint: failed search indexing or retrieval-slot writes retry
+from stored fields and rebuild the raw-content embedding, without repeating
+LLM evaluation, duplicate detection, or best-effort homepage counter updates.
+Discarded/deleted checkpoints only retry removal of stale search drafts.
+Homepage counters and latest-item snapshots remain best-effort and are repaired
+by their existing calibration/backfill jobs; this is not exactly-once delivery
+of every asynchronous side effect.
+
+Item extraction treats the input as complete literal data, including template
+markers. It classifies placeholder-only boilerplate without asking for missing
+input; substantive technical discussion quoting placeholders stays admissible.
+
+`LLM_SUMMARY_FIDELITY=true` adds a separate factual-entailment audit after
+normal extraction **only for PGC publishers**. The consumer resolves the author's
+email from the database and uses the existing `PGC_EMAIL_SUFFIXES` classification;
+raw content/notes cannot opt into it. UGC uses the unchanged extraction path.
+An identity lookup failure retries instead of publishing an unaudited PGC summary.
+A faithful summary is retained verbatim. A correction must pass
+a second audit before it replaces the summary; other extraction metadata is kept.
+The auditor preserves source attribution, negation, uncertainty, leadership and
+reporting relationships, without treating a forwarding account as the speaker.
+
+The audit is bounded to two calls and 90 seconds total. Malformed, contradictory
+or still-unsupported results return an error through the existing bounded item
+retry path; rejected summaries are not silently published. The switch defaults to
+false and can disable the additional audit without a code rollback. It affects
+future processing, not stored summaries or translations. This model-based check
+reduces demonstrated hallucinations but does not prove universal entailment.
+Changing indexed summaries can change lexical recall, so release evidence includes
+full-candidate replay and per-Agent delivery/positive-event estimates.
+
+Model JSON extraction respects strings and escapes, ignores balanced non-JSON
+prose fragments (including unreplaced template markers), and requires a single
+complete JSON container. Truncated or ambiguous multiple outputs remain errors
+for the existing consumer retry; nested fragments are not salvaged as results.
+
+Legacy profile keyword extraction validates the prompt's ten-keyword ceiling
+and its explicitly forbidden generic content categories. An invalid result gets
+one correction request using the original bio and a validation hint. A second
+invalid result returns an error to the existing bounded Profile consumer retry;
+transport errors do not trigger this semantic correction. Valid sparse results
+are not padded, and named entities are not silently truncated.
 
 When `ENABLE_COMMISSION_ORDER_NOTIFICATIONS=true`, `CommissionOrderNotificationConsumer` reads `COMMISSION_NOTIFICATION_STREAM` with its dedicated retry-aware consumer group and DLQ. Durable inbox insertion precedes the online wake-up; duplicate stream delivery does not create or signal a second logical notification. Invalid facts are dead-lettered, while database failures remain retryable.
 
@@ -24,14 +101,20 @@ When `ENABLE_COMMISSION_INDEX=true`, `CommissionIndexConsumer` reads
 as notifications and pulls authoritative catalogue snapshots from
 `CommissionService` plus statistics from `OrderService`; it never reads the
 Commission database. Invalid version-1 envelopes are copied to
-`stream:commission:index:dlq`. Source RPC, embedding, and Elasticsearch errors
-remain pending for retry. Documents retain independent catalogue and statistics
-versions, and offline entries are retained as `active=false` tombstones so a
+`stream:commission:index:dlq`. Source RPC, embedding, Elasticsearch, and Redis
+errors remain pending for retry. Catalogue events write a versioned
+Redis forward projection and an ES search-only document. Statistics events read
+only OrderService and update only their independently versioned Redis component,
+without embedding or ES writes. See [forward index contracts](discovery.md#search-index-and-forward-index).
+The projections retain independent catalogue and statistics versions, and
+offline entries are retained as `active=false` tombstones so a
 delayed older event cannot reactivate them.
 
 With `ENABLE_COMMISSION_INDEX=true`, run
 `go run ./scripts/commission_backfill` to page active source snapshots and
-idempotently populate the same index while the consumer remains online. The
+idempotently populate both Redis forward components and ES while the consumer
+remains online. Concrete ES generations scope the forward keys; the alias is
+promoted only after the staged backfill succeeds. The
 command fails before connecting to infrastructure when the switch is disabled.
 
 For staged rollout, enable `ENABLE_COMMISSION_INDEX` on Sort and Pipeline first,
@@ -109,11 +192,11 @@ Captures ranking context at feed serve time for offline training. Records what w
 - **Toggle**: `ENABLE_REPLAY_LOG` env var (default `true`). When `false`, FeedService skips publishing
 - **Data captured per served item**: agent features (keywords, domains, geo), item features (domains, keywords, broadcast_type, quality_score, etc.), ES `_score`, position in feed
 - **Delivered flag**: `delivered` BOOLEAN column marks items actually returned to the agent (`TRUE`, both fresh-sort and cache-hit paths). The feed only publishes delivered items — below-threshold/filtered items are no longer logged. Historical `FALSE` rows and NULL rows (predating the column or from pre-upgrade feed binaries) may still exist and are excluded from the beat-coverage "pushed" counter
-- **Table**: `replay_logs` — denormalized, one row per (feed request, served item) pair. `request_id` groups items from the same feed request
+- **Table**: `replay_logs` — denormalized, one row per (feed request, served item) pair. `impression_id` groups items from the same delivery, including its frozen pages
 - **SortService extension**: `SortItemsResp.sorted_items` carries per-item `SortedItem{item_id, score, agent_features, item_features}` from SortService to FeedService
 - **Consumer**: `pipeline/consumer/replay_consumer.go` — 5 workers, snowflake ID generation via etcd-managed generator (`replay-log-id` service name), batch INSERT to PG
 - **Time-range index**: `idx_replay_logs_served_at` supports cross-agent daily training exports and the retention cleanup scan; per-agent windows continue to use `idx_replay_logs_agent_served`
-- **Feedback joining**: Feedback is NOT in this table. Join `replay_logs` with `stream:item:stats` feedback events at export/training time by `(agent_id, item_id, timestamp proximity)`
+- **Feedback joining**: Feedback is NOT in this table. Join persisted `feedback_logs` or `followup_labels` by `(impression_id, agent_id, item_id)`. Missing impression IDs remain unattributed; do not infer them from timestamp proximity. Discovery LR uses follow-up labels on delivered `need_search_v1` broadcast recommendation rows only
 - **Retention**: `pipeline/cron/replay_cleanup.go` purges rows older than `REPLAY_LOG_RETENTION_DAYS` (default 0 = disabled, keep all rows) on a `REPLAY_LOG_CLEANUP_INTERVAL_SEC` cycle (default 86400 = daily). A non-positive retention skips the cron entirely. When enabled, deletes run in 5000-row batches (bounded by `ctid`) under the `lock:cron:replay_cleanup` Redis lock so only one instance purges at a time
 
 ## Official Account Welcome (pipeline/consumer/official_welcome_consumer.go)
@@ -156,7 +239,9 @@ the task prompt; an empty preference keeps the guess-from-content fallback.
   `RESCUE_WINDOW_DAYS` (3) from `replay_logs` (`jsonb_exists_any` overlap); if
   below `RESCUE_THRESHOLD` (30), DMs a personalized topic suggestion drawn from
   network trending, gated by a `RESCUE_COOLDOWN_DAYS` (3) cooldown and
-  `OFFICIAL_LLM_MAX_PER_RUN`.
+  `OFFICIAL_LLM_MAX_PER_RUN`. The task does not start when
+  `ENABLE_NEED_SEARCH=true`, because legacy domain samples cannot measure
+  deliveries from the new pipeline.
 
 ## Official Account Reactive Replies (pipeline/consumer/official_*.go)
 
@@ -182,6 +267,10 @@ per-user-per-day (`OFFICIAL_CHAT_DAILY_PER_USER`), and a global per-minute cap
   since the user initiated). `ENABLE_OFFICIAL_CHAT`.
 
 ## Feedback Log
+
+The independent [recommendation effect observations](recommendation_effect.md)
+use exact per-item attribution and bounded anonymous daily and hourly snapshots. They are
+observation-only and do not change recommendation weights or ingestion.
 
 Captures append-only feedback events for offline analysis and replay-log joins. Records every feedback submission that reaches the `item_stats` pipeline, without replacing the aggregate counters in `item_stats`.
 
@@ -270,3 +359,33 @@ System supports two embedding providers:
 ## LLM
 
 LLM calls use OpenAI official Go SDK (`github.com/openai/openai-go/v3`) via the Responses API (`client.Responses.New`). Max output tokens is configurable via `LLM_MAX_TOKENS` (default: 4096). Default reasoning effort is configurable via `LLM_REASONING_EFFORT` (default: `low`; supported values: `none`, `minimal`, `low`, `medium`, `high`). Individual prompts can override reasoning effort via `WithReasoning()` — e.g. `extract_keywords` uses `none` since it only needs simple structured extraction.
+
+### Need embedding precomputation
+
+With `ENABLE_NEED_SEARCH=true`, Pipeline starts two database-backed
+`NeedEmbeddingWorker` loops in addition to stream consumers. Current eligible
+NeedInputs are the durable source of work, so capture requires no external queue
+write and historical inputs are covered automatically. Migration 000110 stores
+per-input/per-generation leases, retry times and readiness. The worker normalizes
+`target.goal + target.context` through the shared query processor, generates or
+reuses a versioned Redis vector, and retries failures with bounded backoff.
+
+Sort reads these vectors without waiting for a model on stored-Need cache misses.
+The Pipeline and Sort embedding settings, including `DISCOVERY_EMBEDDING_REVISION`,
+must match. See [cache keys, failure behavior and deployment](discovery.md#asynchronous-need-embeddings).
+
+## Discovery feature materialization
+
+Pipeline runs the registered commission source loader whenever
+`ENABLE_COMMISSION_INDEX=true`, including legacy routing and rollback.
+`ENABLE_NEED_SEARCH=true` additionally enables broadcast and Agent loaders. These loaders
+refresh Redis from DB/source RPCs without embedding or ES access. Completed
+broadcast processing attempts an incremental refresh; Agent and commission
+retain their existing event writers. See [Online feature index](feature_index.md)
+for field registration, fencing, checkpoints and repair cadence.
+
+Feature materializers use YAML-paced, version-protected batch writes over active
+source pages, with a shared checkpoint and cycle pause. A separate bounded audit
+adopts physical retention on legacy keys and counts physical keys by type.
+Completed census snapshots, source scan progress and failure counters are exported
+through Pipeline metrics; see [feature monitoring](feature_index.md#monitoring).

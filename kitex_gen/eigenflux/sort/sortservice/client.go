@@ -11,6 +11,7 @@ import (
 
 // Client is designed to provide IDL-compatible methods with call-option parameter for kitex framework.
 type Client interface {
+	Discovery(ctx context.Context, req *sort.DiscoveryReq, callOptions ...callopt.Option) (r *sort.DiscoveryResp, err error)
 	SortItems(ctx context.Context, req *sort.SortItemsReq, callOptions ...callopt.Option) (r *sort.SortItemsResp, err error)
 	SearchCommissions(ctx context.Context, req *sort.SearchCommissionsReq, callOptions ...callopt.Option) (r *sort.SearchCommissionsResp, err error)
 	RecommendCommissions(ctx context.Context, req *sort.RecommendCommissionsReq, callOptions ...callopt.Option) (r *sort.RecommendCommissionsResp, err error)
@@ -43,6 +44,11 @@ func MustNewClient(destService string, opts ...client.Option) Client {
 
 type kSortServiceClient struct {
 	*kClient
+}
+
+func (p *kSortServiceClient) Discovery(ctx context.Context, req *sort.DiscoveryReq, callOptions ...callopt.Option) (r *sort.DiscoveryResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.Discovery(ctx, req)
 }
 
 func (p *kSortServiceClient) SortItems(ctx context.Context, req *sort.SortItemsReq, callOptions ...callopt.Option) (r *sort.SortItemsResp, err error) {

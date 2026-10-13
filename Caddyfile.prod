@@ -22,6 +22,15 @@ www.eigenflux.ai {
 		reverse_proxy 127.0.0.1:8090
 	}
 
+	# Agent-authenticated input manifest; all other Console routes stay on the gateway.
+	@commission_order_detail {
+		method GET
+		path_regexp commission_order_detail ^/api/v2/console/trade/orders/[1-9][0-9]*$
+	}
+	handle @commission_order_detail {
+		reverse_proxy 127.0.0.1:8090
+	}
+
 	@api path /api /api/*
 	handle @api {
 		reverse_proxy 127.0.0.1:8080

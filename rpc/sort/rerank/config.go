@@ -33,6 +33,9 @@ type SourceLimitConfig struct {
 	denominator int
 }
 
+// Ratio exposes the validated fraction for frozen delivery policy snapshots.
+func (r SourceLimitConfig) Ratio() (int, int) { return r.numerator, r.denominator }
+
 func (r SourceLimitConfig) MaxCount(limit int) int {
 	if limit <= 0 {
 		return 0

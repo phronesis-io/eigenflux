@@ -1,0 +1,18 @@
+# Fields emitted by the commission.statistics source adapter. Embeddings are prohibited.
+name: commission.statistics
+entity: commission
+component: statistics
+id_field: CommissionID
+version_field: StatisticsVersion
+ttl: 0s
+retention_ttl: 168h
+fields:
+  - CommissionID
+  - SellerAgentID
+  - CompletedCount
+  - RefundedCount
+  - CompletionRateBPS
+  - AverageRatingMilli
+  - HasRating
+  - AverageDeliveryMS
+  - StatisticsVersion

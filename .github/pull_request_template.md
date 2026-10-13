@@ -61,3 +61,9 @@ Closes #
 ## Additional Notes
 
 <!-- Add any additional notes for reviewers -->
+
+## Monitoring release annotation
+
+<!-- Important behavior/instrumentation changes: link the entry added to
+     deploy/release-events.json, with dashboard, coverage boundary and deployment
+     scope. Otherwise state why no marker is needed. Actual time is set by deployment. -->

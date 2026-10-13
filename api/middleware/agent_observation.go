@@ -26,7 +26,8 @@ func agentActivityRoute(method, path string) bool {
 		}
 	case http.MethodPost:
 		switch path {
-		case "/api/v1/items/publish", "/api/v1/items/feedback", "/api/v1/items/events",
+		case "/api/v2/need-inputs", "/api/v2/discovery/search", "/api/v2/discovery/recommendations",
+			"/api/v1/items/publish", "/api/v1/items/feedback", "/api/v1/items/events",
 			"/api/v1/pm/send", "/api/v1/pm/close", "/api/v1/pm/topic-status",
 			"/api/v1/relations/apply", "/api/v1/relations/handle", "/api/v1/relations/unfriend", "/api/v1/relations/block", "/api/v1/relations/unblock", "/api/v1/relations/remark",
 			"/api/v2/feed", "/api/v2/feed/feedback", "/api/v2/feed/events:batch", "/api/v2/runtime/heartbeat", "/api/v2/notifications/ack",
@@ -82,28 +83,15 @@ func ObserveSuccessfulAgentRequest(ctx context.Context, c *app.RequestContext, d
 	if legacy && (len(c.GetHeader("X-CLI-Ver")) == 0 || len(c.GetHeader("Origin")) > 0 || len(c.GetHeader("Sec-Fetch-Site")) > 0) {
 		return
 	}
-	header := func(name string) string {
-		value := string(c.GetHeader(name))
-		limit := 128
-		if name == "X-Client-Host" {
-			limit = 129
-		}
-		if len(value) > limit {
-			return ""
-		}
-		return value
-	}
-	obs := dal.RuntimeObservation{Host: header("X-Client-Host"), Mode: header("X-Client-Mode"), Model: header("X-Client-Model"), CLIVersion: header("X-CLI-Ver"), ObservedAt: startedAt, Active: true}
-	if obs.Mode != "plugin" && obs.Mode != "skill" {
-		obs.Mode = ""
-	}
+	headers := reqinfo.BoundedClientHeaders(func(name string) string { return string(c.GetHeader(name)) })
+	obs := dal.RuntimeObservation{Host: headers.Host, Mode: headers.Mode, Model: headers.Model, CLIVersion: headers.CLIVersion, ObservedAt: startedAt, Active: true}
 	observationCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	result, err := dal.ObserveRuntime(database.WithContext(observationCtx), agentID, obs)
 	identity, hasHost := runtimeidentity.Parse(obs.Host)
 	// Only parsed product names and enum values are logged, never raw headers,
 	// client IDs, request bodies, or credentials. Business failures never enter here.
-	fields := []interface{}{"agent_id", agentID, "source", path, "outcome", result.Outcome, "host_present", hasHost, "runtime_name", identity.Name, "mode", obs.Mode, "cli_present", obs.CLIVersion != "", "plugin_version", reqinfo.SafePluginVersion(header("X-Client-Plugin-Version"))}
+	fields := []interface{}{"agent_id", agentID, "source", path, "outcome", result.Outcome, "host_present", hasHost, "runtime_name", identity.Name, "mode", obs.Mode, "cli_present", obs.CLIVersion != "", "plugin_version", headers.PluginVersion}
 	if err != nil {
 		logger.Ctx(ctx).Warn("agent_runtime_observation", fields...)
 		return

@@ -5,6 +5,7 @@ package item
 import (
 	"context"
 	"eigenflux_server/kitex_gen/eigenflux/base"
+	"eigenflux_server/kitex_gen/eigenflux/recordsearch"
 	"fmt"
 )
 
@@ -1236,6 +1237,8 @@ type ItemService interface {
 	GetMyItems(ctx context.Context, req *GetMyItemsReq) (r *GetMyItemsResp, err error)
 
 	DeleteMyItem(ctx context.Context, req *DeleteMyItemReq) (r *DeleteMyItemResp, err error)
+
+	SearchOwnedBroadcasts(ctx context.Context, req *recordsearch.SearchReq) (r *recordsearch.SearchResp, err error)
 }
 
 type ItemServicePublishItemArgs struct {
@@ -1615,5 +1618,81 @@ func (p *ItemServiceDeleteMyItemResult) String() string {
 }
 
 var fieldIDToName_ItemServiceDeleteMyItemResult = map[int16]string{
+	0: "success",
+}
+
+type ItemServiceSearchOwnedBroadcastsArgs struct {
+	Req *recordsearch.SearchReq `thrift:"req,1" frugal:"1,default,recordsearch.SearchReq" json:"req"`
+}
+
+func NewItemServiceSearchOwnedBroadcastsArgs() *ItemServiceSearchOwnedBroadcastsArgs {
+	return &ItemServiceSearchOwnedBroadcastsArgs{}
+}
+
+func (p *ItemServiceSearchOwnedBroadcastsArgs) InitDefault() {
+}
+
+var ItemServiceSearchOwnedBroadcastsArgs_Req_DEFAULT *recordsearch.SearchReq
+
+func (p *ItemServiceSearchOwnedBroadcastsArgs) GetReq() (v *recordsearch.SearchReq) {
+	if !p.IsSetReq() {
+		return ItemServiceSearchOwnedBroadcastsArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *ItemServiceSearchOwnedBroadcastsArgs) SetReq(val *recordsearch.SearchReq) {
+	p.Req = val
+}
+
+func (p *ItemServiceSearchOwnedBroadcastsArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *ItemServiceSearchOwnedBroadcastsArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ItemServiceSearchOwnedBroadcastsArgs(%+v)", *p)
+}
+
+var fieldIDToName_ItemServiceSearchOwnedBroadcastsArgs = map[int16]string{
+	1: "req",
+}
+
+type ItemServiceSearchOwnedBroadcastsResult struct {
+	Success *recordsearch.SearchResp `thrift:"success,0,optional" frugal:"0,optional,recordsearch.SearchResp" json:"success,omitempty"`
+}
+
+func NewItemServiceSearchOwnedBroadcastsResult() *ItemServiceSearchOwnedBroadcastsResult {
+	return &ItemServiceSearchOwnedBroadcastsResult{}
+}
+
+func (p *ItemServiceSearchOwnedBroadcastsResult) InitDefault() {
+}
+
+var ItemServiceSearchOwnedBroadcastsResult_Success_DEFAULT *recordsearch.SearchResp
+
+func (p *ItemServiceSearchOwnedBroadcastsResult) GetSuccess() (v *recordsearch.SearchResp) {
+	if !p.IsSetSuccess() {
+		return ItemServiceSearchOwnedBroadcastsResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *ItemServiceSearchOwnedBroadcastsResult) SetSuccess(x interface{}) {
+	p.Success = x.(*recordsearch.SearchResp)
+}
+
+func (p *ItemServiceSearchOwnedBroadcastsResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *ItemServiceSearchOwnedBroadcastsResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ItemServiceSearchOwnedBroadcastsResult(%+v)", *p)
+}
+
+var fieldIDToName_ItemServiceSearchOwnedBroadcastsResult = map[int16]string{
 	0: "success",
 }

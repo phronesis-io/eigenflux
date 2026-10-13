@@ -1,0 +1,405 @@
+package featureindex
+
+import (
+	"bytes"
+	"context"
+	"eigenflux_server/pkg/es"
+	"eigenflux_server/pkg/json"
+	searchindex "eigenflux_server/rpc/sort/discovery/index"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+
+	"github.com/redis/go-redis/v9"
+)
+
+type CommissionESStore struct {
+	Redis      *redis.Client
+	Index      string
+	Alias      string
+	Dimensions int
+}
+
+func (s CommissionESStore) readIndex() string {
+	if s.Alias != "" {
+		return s.Alias
+	}
+	return s.Index
+}
+
+var errCommissionIndexRead = errors.New("commission index read failed")
+
+const maxCommissionGetResponseBytes = 64 << 10
+const maxCommissionSearchResponseBytes = 2 << 20
+
+func (s CommissionESStore) Get(ctx context.Context, commissionID int64) (CommissionDocument, bool, error) {
+	if commissionID <= 0 || es.Client == nil || s.readIndex() == "" {
+		return CommissionDocument{}, false, errCommissionIndexRead
+	}
+	path := "/" + url.PathEscape(s.readIndex()) + "/_doc/" + strconv.FormatInt(commissionID, 10)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return CommissionDocument{}, false, errCommissionIndexRead
+	}
+	query := req.URL.Query()
+	query.Set("_source_includes", "commission_id,active,catalogue_version")
+	req.URL.RawQuery = query.Encode()
+	res, err := es.Client.Perform(req)
+	if err != nil {
+		if res != nil && res.Body != nil {
+			_ = res.Body.Close()
+		}
+		return CommissionDocument{}, false, errCommissionIndexRead
+	}
+	if res == nil || res.Body == nil {
+		return CommissionDocument{}, false, errCommissionIndexRead
+	}
+	defer res.Body.Close()
+	if res.StatusCode == http.StatusNotFound {
+		return decodeDocumentMiss(res.Body, commissionID)
+	}
+	if res.StatusCode != http.StatusOK {
+		return CommissionDocument{}, false, errCommissionIndexRead
+	}
+
+	limited := &io.LimitedReader{R: res.Body, N: maxCommissionGetResponseBytes + 1}
+	decoder := json.NewDecoder(limited)
+	var envelope struct {
+		Index  string `json:"_index"`
+		ID     string `json:"_id"`
+		Found  *bool  `json:"found"`
+		Source struct {
+			CommissionID     int64 `json:"commission_id"`
+			Active           bool  `json:"active"`
+			CatalogueVersion int64 `json:"catalogue_version"`
+		} `json:"_source"`
+	}
+	if err := decoder.Decode(&envelope); err != nil || limited.N == 0 || envelope.Index == "" ||
+		envelope.ID != strconv.FormatInt(commissionID, 10) || envelope.Found == nil || !*envelope.Found ||
+		envelope.Source.CommissionID != commissionID {
+		return CommissionDocument{}, false, errCommissionIndexRead
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return CommissionDocument{}, false, errCommissionIndexRead
+	}
+	rows, err := (CommissionIndex{Redis: s.Redis, IndexName: envelope.Index}).Read(ctx, []int64{commissionID})
+	if err != nil {
+		return CommissionDocument{}, false, errCommissionIndexRead
+	}
+	forward, ok := rows[commissionID]
+	if !ok || forward.CatalogueVersion != envelope.Source.CatalogueVersion {
+		return CommissionDocument{}, false, errCommissionIndexRead
+	}
+	return CommissionDocument{CommissionID: commissionID, Active: envelope.Source.Active, CatalogueVersion: envelope.Source.CatalogueVersion, StatisticsVersion: forward.StatisticsVersion}, true, nil
+}
+
+func decodeDocumentMiss(body io.Reader, commissionID int64) (CommissionDocument, bool, error) {
+	limited := &io.LimitedReader{R: body, N: maxCommissionGetResponseBytes + 1}
+	decoder := json.NewDecoder(limited)
+	decoder.DisallowUnknownFields()
+	var envelope struct {
+		Index  string          `json:"_index"`
+		ID     string          `json:"_id"`
+		Found  *bool           `json:"found"`
+		Error  json.RawMessage `json:"error,omitempty"`
+		Status int             `json:"status,omitempty"`
+	}
+	if err := decoder.Decode(&envelope); err != nil || limited.N == 0 || envelope.Index == "" ||
+		envelope.ID != strconv.FormatInt(commissionID, 10) || envelope.Found == nil || *envelope.Found ||
+		len(envelope.Error) != 0 || envelope.Status != 0 {
+		return CommissionDocument{}, false, errCommissionIndexRead
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return CommissionDocument{}, false, errCommissionIndexRead
+	}
+	return CommissionDocument{}, false, nil
+}
+
+var errCommissionIndexMapping = errors.New("commission index mapping unavailable")
+
+func (s CommissionESStore) Ready(ctx context.Context) (int, error) {
+	if es.Client == nil || s.readIndex() == "" {
+		return 0, errCommissionIndexMapping
+	}
+	path := "/" + url.PathEscape(s.readIndex()) + "/_mapping"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return 0, errCommissionIndexMapping
+	}
+	res, err := es.Client.Perform(req)
+	if err != nil {
+		if res != nil && res.Body != nil {
+			_ = res.Body.Close()
+		}
+		return 0, errCommissionIndexMapping
+	}
+	if res == nil || res.Body == nil {
+		return 0, errCommissionIndexMapping
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return 0, errCommissionIndexMapping
+	}
+	limited := &io.LimitedReader{R: res.Body, N: maxCommissionGetResponseBytes + 1}
+	decoder := json.NewDecoder(limited)
+	var mappings map[string]struct {
+		Mappings struct {
+			Properties map[string]struct {
+				Type string `json:"type"`
+				Dims int    `json:"dims"`
+			} `json:"properties"`
+		} `json:"mappings"`
+	}
+	if err := decoder.Decode(&mappings); err != nil || limited.N == 0 || len(mappings) == 0 {
+		return 0, errCommissionIndexMapping
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return 0, errCommissionIndexMapping
+	}
+	dimensions := 0
+	for _, mapping := range mappings {
+		embedding, ok := mapping.Mappings.Properties["embedding"]
+		if !ok || embedding.Type != "dense_vector" || embedding.Dims <= 0 || dimensions != 0 && dimensions != embedding.Dims {
+			return 0, errCommissionIndexMapping
+		}
+		dimensions = embedding.Dims
+	}
+	if dimensions == 0 {
+		return 0, errCommissionIndexMapping
+	}
+	return dimensions, nil
+}
+
+func (s CommissionESStore) Ensure(ctx context.Context) error {
+	if es.Client == nil {
+		return fmt.Errorf("Elasticsearch client is not initialized")
+	}
+	body, err := json.Marshal(map[string]any{"settings": map[string]any{"number_of_shards": 1, "number_of_replicas": 0}, "mappings": CommissionMapping(s.Dimensions)})
+	if err != nil {
+		return err
+	}
+	res, err := es.Client.Indices.Create(s.Index, es.Client.Indices.Create.WithContext(ctx), es.Client.Indices.Create.WithBody(bytes.NewReader(body)))
+	if err != nil {
+		return fmt.Errorf("create Commission index: %w", err)
+	}
+	status := res.StatusCode
+	_ = res.Body.Close()
+	if status != http.StatusBadRequest && status >= http.StatusMultipleChoices {
+		return fmt.Errorf("create Commission index: HTTP %d", status)
+	}
+	if strings.TrimSpace(s.Alias) == "" {
+		return nil
+	}
+	aliasResponse, err := es.Client.Indices.GetAlias(
+		es.Client.Indices.GetAlias.WithContext(ctx),
+		es.Client.Indices.GetAlias.WithName(s.Alias),
+	)
+	if err != nil {
+		return fmt.Errorf("check Commission index alias: %w", err)
+	}
+	status = aliasResponse.StatusCode
+	_ = aliasResponse.Body.Close()
+	if status == http.StatusOK {
+		return nil
+	}
+	if status != http.StatusNotFound {
+		return fmt.Errorf("check Commission index alias: HTTP %d", status)
+	}
+	return s.PromoteAlias(ctx)
+}
+
+// PromoteAlias atomically makes the populated concrete index the sole alias target.
+func (s CommissionESStore) PromoteAlias(ctx context.Context) error {
+	if es.Client == nil || strings.TrimSpace(s.Index) == "" || strings.TrimSpace(s.Alias) == "" {
+		return fmt.Errorf("Commission index alias configuration is invalid")
+	}
+	aliasBody, err := json.Marshal(map[string]any{"actions": []any{
+		map[string]any{"remove": map[string]any{"index": "*", "alias": s.Alias, "must_exist": false}},
+		map[string]any{"add": map[string]any{"index": s.Index, "alias": s.Alias, "is_write_index": true}},
+	}})
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "/_aliases", bytes.NewReader(aliasBody))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
+	aliasResponse, err := es.Client.Perform(request)
+	if err != nil {
+		return fmt.Errorf("switch Commission index alias: %w", err)
+	}
+	defer aliasResponse.Body.Close()
+	if aliasResponse.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("switch Commission index alias: HTTP %d", aliasResponse.StatusCode)
+	}
+	return nil
+}
+
+func CommissionMapping(dims int) map[string]any {
+	return map[string]any{"dynamic": "strict", "properties": map[string]any{
+		"retrieval_slots": searchindex.SlotsMapping(),
+		"commission_id":   map[string]any{"type": "long"}, "seller_agent_id": map[string]any{"type": "long"}, "active": map[string]any{"type": "boolean"},
+		"catalogue_version": map[string]any{"type": "long"}, "title": map[string]any{"type": "text"},
+		"capability_description": map[string]any{"type": "text"}, "request_spec_text": map[string]any{"type": "text"}, "delivery_spec_text": map[string]any{"type": "text"},
+		"search_text": map[string]any{"type": "text"}, "price_fen": map[string]any{"type": "long"},
+		"currency": map[string]any{"type": "keyword"}, "promised_delivery_ms": map[string]any{"type": "long"},
+		"embedding": map[string]any{"type": "dense_vector", "dims": dims, "index": true, "similarity": "cosine"},
+	}}
+}
+
+func (s CommissionESStore) Upsert(ctx context.Context, doc CommissionDocument) error {
+	target := s.Index
+	if strings.TrimSpace(target) == "" {
+		return fmt.Errorf("concrete Commission index required for projection writes")
+	}
+	if err := (CommissionIndex{Redis: s.Redis, IndexName: target}).Write(ctx, doc); err != nil {
+		return err
+	}
+	fields := doc.SearchFields()
+	body, err := json.Marshal(map[string]any{"scripted_upsert": true, "script": map[string]any{"lang": "painless", "source": "if (ctx.op == 'create' || params.doc.catalogue_version >= ctx._source.catalogue_version) { ctx._source = params.doc; } else { ctx.op = 'noop'; }", "params": map[string]any{"doc": fields}}, "upsert": fields})
+	if err != nil {
+		return fmt.Errorf("marshal Commission update: %w", err)
+	}
+	path := "/" + target + "/_update/" + strconv.FormatInt(doc.CommissionID, 10)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, path, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	res, err := es.Client.Perform(req)
+	if err != nil {
+		return fmt.Errorf("update Commission index: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("update Commission index: HTTP %d", res.StatusCode)
+	}
+	return nil
+}
+
+func (s CommissionESStore) Search(ctx context.Context, req CommissionSearchRequest) ([]CommissionHit, error) {
+	queryText := strings.TrimSpace(req.Query)
+	if req.CommissionID < 0 || (queryText == "" && req.CommissionID == 0) || (queryText != "" && req.CommissionID != 0) {
+		return nil, fmt.Errorf("invalid Commission search mode")
+	}
+	if req.Limit <= 0 {
+		req.Limit = 20
+	}
+	if req.CommissionID > 0 {
+		req.Limit = 1
+	}
+	filters := []any{map[string]any{"term": map[string]any{"active": true}}}
+	for field, r := range map[string][2]int64{"price_fen": {req.MinPriceFen, req.MaxPriceFen}, "promised_delivery_ms": {req.MinDurationMS, req.MaxDurationMS}} {
+		if r[0] > 0 || r[1] > 0 {
+			bounds := map[string]any{}
+			if r[0] > 0 {
+				bounds["gte"] = r[0]
+			}
+			if r[1] > 0 {
+				bounds["lte"] = r[1]
+			}
+			filters = append(filters, map[string]any{"range": map[string]any{field: bounds}})
+		}
+	}
+	boolQuery := map[string]any{"filter": filters}
+	if req.CommissionID > 0 {
+		filters = append(filters, map[string]any{"term": map[string]any{"commission_id": req.CommissionID}})
+		boolQuery["filter"] = filters
+	} else {
+		boolQuery["must"] = []any{map[string]any{"multi_match": map[string]any{"query": queryText, "fields": []string{"title^3", "capability_description^2", "request_spec_text", "delivery_spec_text", "search_text"}}}}
+	}
+	query := map[string]any{
+		"size":    req.Limit,
+		"_source": []string{"commission_id", "catalogue_version"},
+		"query":   map[string]any{"bool": boolQuery},
+	}
+	if req.CommissionID == 0 && len(req.Embedding) > 0 {
+		query["knn"] = map[string]any{"field": "embedding", "query_vector": req.Embedding, "k": req.Limit, "num_candidates": req.Limit * 4, "filter": map[string]any{"bool": map[string]any{"filter": filters}}}
+	}
+	body, err := json.Marshal(query)
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "/"+s.readIndex()+"/_search", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
+	response, err := es.Client.Perform(request)
+	if err != nil {
+		return nil, fmt.Errorf("search Commission index: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("search Commission index: HTTP %d", response.StatusCode)
+	}
+	var decoded struct {
+		Hits struct {
+			Hits []struct {
+				Index  string             `json:"_index"`
+				Score  float64            `json:"_score"`
+				Source CommissionDocument `json:"_source"`
+			} `json:"hits"`
+		} `json:"hits"`
+	}
+	limited := &io.LimitedReader{R: response.Body, N: maxCommissionSearchResponseBytes + 1}
+	decoder := json.NewDecoder(limited)
+	if err := decoder.Decode(&decoded); err != nil || limited.N == 0 {
+		return nil, fmt.Errorf("decode Commission search response")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("decode Commission search response")
+	}
+	groups := map[string][]int64{}
+	for _, hit := range decoded.Hits.Hits {
+		if hit.Index == "" {
+			return nil, fmt.Errorf("missing Commission index generation")
+		}
+		groups[hit.Index] = append(groups[hit.Index], hit.Source.CommissionID)
+	}
+	hydrated := map[string]map[int64]CommissionDocument{}
+	for index, ids := range groups {
+		rows, err := (CommissionIndex{Redis: s.Redis, IndexName: index}).Read(ctx, ids)
+		if err != nil {
+			return nil, err
+		}
+		hydrated[index] = rows
+	}
+	hits := make([]CommissionHit, 0, len(decoded.Hits.Hits))
+	for _, hit := range decoded.Hits.Hits {
+		d, ok := hydrated[hit.Index][hit.Source.CommissionID]
+		if !ok || !d.Active || d.CatalogueVersion != hit.Source.CatalogueVersion {
+			continue
+		}
+		hits = append(hits, CommissionHit{Document: d, KeywordScore: hit.Score, SemanticScore: hit.Score})
+	}
+	return hits, nil
+}
+
+func (s CommissionESStore) UpsertStatistics(ctx context.Context, statistics CommissionStatisticsSnapshot) error {
+	target := s.Index
+	if strings.TrimSpace(target) == "" {
+		return fmt.Errorf("concrete Commission index required for projection writes")
+	}
+	return (CommissionIndex{Redis: s.Redis, IndexName: target}).WriteStatistics(ctx, statistics)
+}
+
+func (d CommissionDocument) SearchFields() map[string]any {
+	return map[string]any{"commission_id": d.CommissionID, "seller_agent_id": d.SellerAgentID,
+		"active": d.Active, "catalogue_version": d.CatalogueVersion, "title": d.Title,
+		"capability_description": d.CapabilityDescription, "request_spec_text": d.RequestSpecText, "delivery_spec_text": d.DeliverySpecText,
+		"search_text": d.SearchText, "price_fen": d.PriceFen, "currency": d.Currency,
+		"promised_delivery_ms": d.PromisedDeliveryMS, "retrieval_slots": d.RetrievalSlots, "embedding": d.Embedding}
+}

@@ -1,5 +1,14 @@
 # Feed Flow & Cache Architecture
 
+The optional three-kind, rule-only search/recommendation cutover is documented in [Search and Recommendation MVP](discovery.md). It is disabled by default; the legacy behavior below applies when `ENABLE_NEED_SEARCH=false`.
+
+The discovery cutover also caches immutable retrieval conditions and automatic
+input selection in Redis, with post-commit generation invalidation and bounded
+TTLs. It does not insert a DB execution row per request; existing asynchronous
+replay samples preserve the actual execution snapshot. See the
+[Context value cache](discovery.md#context-value-cache) contract. Legacy cache
+levels below are separate from this cache and Feed's frozen page/response caches.
+
 ## Feed Flow
 
 API Gateway -> FeedService -> SortService (calculates match scores, bloom filter deduplication) + ItemService (gets candidate content) -> Returns sorted personalized feed.
@@ -36,6 +45,12 @@ the scan to the requested time window without indexing other follow-up kinds.
 - FeedService calls `impr.RecordImpressions` in fire-and-forget goroutine after feed delivery
 - Console reads impression records via `impr.GetSeenItems`
 - Primary delivery deduplication is done by the bloom filter. The item impression set remains the feedback-validation and console-query source of truth; optional Swing I2I uses confirmed `surface` follow-up labels as seeds and uses impressions only to exclude already delivered neighbors.
+
+## Shared cache implementation
+
+All process and Redis cache adapters are maintained in `pkg/cache`. See the
+[shared cache contract](cache.md) for Jetcache configuration, key ownership,
+connection lifecycle, migration coverage and local staleness bounds.
 
 ## Multi-Level Cache Architecture
 
@@ -126,3 +141,26 @@ Feed V2 broadcasts expose the same decimal string in `item_id` and `source_ref.i
 After onboarding, the Agent scores each eligible Feed item, submits feedback, then recommends valuable items (feedback score 1 or 2) and uploads qualified Attention. Confirmed `intent_actions` are the primary scoring basis. With null, missing, or empty intents, the Agent uses `network_goal`, user profile, current interests, and conversation context. Delivery preferences continue to constrain presentation and explicit content restrictions.
 
 The backend `intent_match` is an advisory keyword match, not a feedback score or a delivery gate. Its status and numeric score remain wire-compatible; the reason distinguishes absent intents from an evaluated non-match. Empty intents never authorize inferred intent actions. Recoverable feedback failures do not discard qualified judgments or block later safe stages. Baseline onboarding remains read-only.
+
+## Candidate forward features
+
+Discovery candidates use the shared [online feature module](feature_index.md).
+Features use event/periodic refresh with bounded DB repair for missing broadcasts.
+Physical retention is 48 hours for broadcast and 7 days for Agent/commission.
+A bounded request cache shares payloads across Need contexts; all types are
+prefetched in one Redis pipeline. This cache is separate
+from owner/Need compilation caches, query vectors and frozen delivery pages.
+
+## Feed activity counts
+
+Each successful V1/V2 Feed produces one `feed_pull` activity with the final
+response item count. Empty pulls count as requests but add zero to the all-time
+impression counter. Quantity-less legacy activities retain the one-impression
+fallback. Counters accumulated before this correction can include duplicate V2
+pulls and empty-pull inflation; compare post-deployment windows separately.
+Historical counter rewrites require a separately reviewed reconciliation.
+
+Concurrent Feed pulls share an Agent-scoped delivery lock. The V2 gateway
+returns `409 FEED_REQUEST_IN_PROGRESS` with `Retry-After: 1` for the Feed RPC's
+`409 request_in_progress`; transport/source failures still return 503. Legacy V1
+retains its HTTP-200 business-code envelope.

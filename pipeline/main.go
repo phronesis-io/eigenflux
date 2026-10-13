@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"eigenflux_server/pkg/featureindex"
+
 	"log"
 	"os"
 	"os/signal"
@@ -16,12 +18,14 @@ import (
 	"eigenflux_server/pipeline/embedding"
 	"eigenflux_server/pipeline/llm"
 	"eigenflux_server/pipeline/official"
-	"eigenflux_server/pkg/commissionindex"
+
 	"eigenflux_server/pkg/commissionsource"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/es"
+
 	"eigenflux_server/pkg/idgen"
+	"eigenflux_server/pkg/itemdispatch"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/milestone"
@@ -29,14 +33,27 @@ import (
 	"eigenflux_server/pkg/recall"
 	"eigenflux_server/pkg/rpcx"
 	"eigenflux_server/pkg/telemetry"
+	"eigenflux_server/rpc/sort/discovery/needembedding"
 
 	etcd "github.com/kitex-contrib/registry-etcd"
 )
 
 func main() {
 	cfg := config.Load()
+	if cfg.EnableNeedSearch {
+		if err := cfg.ValidateCommissionDiscoveryConfiguration(); err != nil {
+			log.Fatalf("discovery configuration: %v", err)
+		}
+	}
 	logFlush := logger.Init("pipeline", cfg.EffectiveLokiURL(), cfg.LogLevel)
 	defer logFlush()
+	if cfg.EnableNeedSearch || cfg.EnableCommissionIndex {
+		stopFeatureConfig, err := featureindex.StartConfig(context.Background(), cfg.FeatureIndexConfigDir, cfg.FeatureIndexReloadInterval)
+		if err != nil {
+			log.Fatalf("feature configuration: %v", err)
+		}
+		defer stopFeatureConfig()
+	}
 
 	shutdown, err := telemetry.Init("pipeline", cfg.OtelExporterEndpoint, cfg.MonitorEnabled)
 	if err != nil {
@@ -72,6 +89,7 @@ func main() {
 	log.Println("PM RPC client initialized")
 
 	var commissionIndexConsumer *consumer.CommissionIndexConsumer
+	var featureCommissionSource featureindex.CommissionSource
 	if cfg.EnableCommissionIndex {
 		commissionClient, err := commissionservice.NewClient(cfg.CommissionSourceService, rpcx.ClientOptions(resolver)...)
 		if err != nil {
@@ -81,12 +99,13 @@ func main() {
 		if err != nil {
 			log.Fatalf("failed to create Commission order source client: %v", err)
 		}
-		store := commissionindex.ESStore{Index: cfg.CommissionIndexName, Alias: cfg.CommissionIndexAlias, Dimensions: cfg.EmbeddingDimensions}
+		store := featureindex.CommissionESStore{Redis: mq.RDB, Index: cfg.CommissionIndexName, Alias: cfg.CommissionIndexAlias, Dimensions: cfg.EmbeddingDimensions}
 		if err := store.Ensure(context.Background()); err != nil {
 			log.Fatalf("failed to bootstrap Commission index: %v", err)
 		}
 		embedder := embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)
-		commissionIndexConsumer = consumer.NewCommissionIndexConsumer(cfg, commissionsource.Adapter{Commission: commissionClient, Order: orderClient}, store, embedder)
+		featureCommissionSource = commissionsource.Adapter{Commission: commissionClient, Order: orderClient}
+		commissionIndexConsumer = consumer.NewCommissionIndexConsumer(cfg, featureCommissionSource, store, embedder)
 		log.Println("Commission index consumer initialized")
 	}
 	var commissionNotificationConsumer *consumer.CommissionOrderNotificationConsumer
@@ -138,6 +157,19 @@ func main() {
 
 	profileConsumer := consumer.NewProfileConsumer(cfg, prompts)
 	agentCardConsumer := consumer.NewAgentCardConsumer()
+	if cfg.EnableNeedSearch {
+		if err := es.EnsureBroadcastRetrievalFields(context.Background(), es.ReadIndexPattern); err != nil {
+			log.Fatalf("broadcast retrieval mappings: %v", err)
+		}
+		if err := es.EnsureRetrievalSlots(context.Background(), cfg.CommissionIndexName, cfg.CommissionIndexAlias); err != nil {
+			log.Fatalf("discovery slot mappings: %v", err)
+		}
+		if err := featureindex.EnsureAgentSearchIndex(context.Background(), cfg.AgentDiscoveryIndex, cfg.EmbeddingDimensions); err != nil {
+			log.Fatalf("Agent index: %v", err)
+		}
+		projector := featureindex.AgentProjector{Redis: mq.RDB, DB: db.DB, Index: cfg.AgentDiscoveryIndex, Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)}
+		agentCardConsumer.Project = projector.Project
+	}
 	itemConsumer := consumer.NewItemConsumer(cfg, prompts)
 	itemStatsConsumer := consumer.NewItemStatsConsumer(cfg, milestoneSvc)
 
@@ -208,7 +240,20 @@ func main() {
 
 	go profileConsumer.Start(ctx)
 	go agentCardConsumer.Start(ctx)
+	if cfg.EnableNeedSearch {
+		needWorker := &consumer.NeedEmbeddingWorker{Cache: needembedding.New(cfg, db.DB, mq.RDB), Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)}
+		go needWorker.Start(ctx)
+	}
+	loaders, err := featureLoaders(cfg, db.DB, mq.RDB, featureCommissionSource)
+	if err != nil {
+		log.Fatalf("feature loader registration: %v", err)
+	}
+	if loaders != nil {
+		go loaders.Run(ctx)
+	}
+
 	go itemConsumer.Start(ctx)
+	go itemdispatch.Run(ctx, db.DB, mq.RDB)
 	go itemStatsConsumer.Start(ctx)
 	go runMilestoneRecovery(ctx, milestoneSvc)
 	go runMilestoneRuleInvalidationSubscriber(ctx, milestoneSvc)

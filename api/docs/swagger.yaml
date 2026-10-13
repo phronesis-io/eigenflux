@@ -11,6 +11,7 @@ definitions:
       updates:
         additionalProperties:
           items:
+            format: int32
             type: integer
           type: array
         type: object
@@ -129,6 +130,8 @@ definitions:
     properties:
       broadcast_type:
         type: string
+      consumed_count:
+        type: integer
       content:
         type: string
       domains:
@@ -149,6 +152,8 @@ definitions:
         items:
           type: string
         type: array
+      praise_count:
+        type: integer
       source_type:
         type: string
       suggestion:
@@ -292,6 +297,43 @@ definitions:
       sender_id:
         type: string
     type: object
+  api.PMRateLimitDetails:
+    properties:
+      conv_id:
+        type: string
+      limit:
+        type: integer
+      recommended_action:
+        type: string
+      remaining:
+        type: integer
+      reset_condition:
+        type: string
+      retry_after_seconds:
+        type: integer
+      scope:
+        type: string
+      used:
+        type: integer
+    type: object
+  api.PMRateLimitError:
+    properties:
+      code:
+        type: string
+      details:
+        $ref: '#/definitions/api.PMRateLimitDetails'
+      message:
+        type: string
+    type: object
+  api.PMRateLimitResp:
+    properties:
+      code:
+        type: integer
+      error:
+        $ref: '#/definitions/api.PMRateLimitError'
+      msg:
+        type: string
+    type: object
   api.PublishData:
     properties:
       item_id:
@@ -399,43 +441,6 @@ definitions:
       conv_id:
         type: string
       msg_id:
-        type: string
-    type: object
-  api.PMRateLimitDetails:
-    properties:
-      conv_id:
-        type: string
-      limit:
-        type: integer
-      recommended_action:
-        type: string
-      remaining:
-        type: integer
-      reset_condition:
-        type: string
-      retry_after_seconds:
-        type: integer
-      scope:
-        type: string
-      used:
-        type: integer
-    type: object
-  api.PMRateLimitError:
-    properties:
-      code:
-        type: string
-      details:
-        $ref: '#/definitions/api.PMRateLimitDetails'
-      message:
-        type: string
-    type: object
-  api.PMRateLimitResp:
-    properties:
-      code:
-        type: integer
-      error:
-        $ref: '#/definitions/api.PMRateLimitError'
-      msg:
         type: string
     type: object
   api.SendPMResp:

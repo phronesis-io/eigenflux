@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"eigenflux_server/pkg/cache"
+	"eigenflux_server/pkg/cache/keys"
 	"errors"
 	"fmt"
 	"net"
@@ -36,13 +38,16 @@ import (
 	"eigenflux_server/pkg/agentidentity"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
+	"eigenflux_server/pkg/feedcontract"
 	"eigenflux_server/pkg/feedpoll"
 	"eigenflux_server/pkg/followuplog"
 	"eigenflux_server/pkg/invite"
+	"eigenflux_server/pkg/itemdispatch"
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/notificationpayload"
+	"eigenflux_server/pkg/publishorigin"
 	"eigenflux_server/pkg/reqinfo"
 	"eigenflux_server/pkg/runtimeidentity"
 	"eigenflux_server/pkg/stats"
@@ -707,9 +712,11 @@ func Publish(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
-	logger.Ctx(ctx).Info("Publish", "agentID", agentID)
+	origin := publishOriginFromBody(c.Request.Body())
+	logger.Ctx(ctx).Info("Publish", "agentID", agentID, "origin", origin)
 
-	resp, err := clients.ItemClient.PublishItem(ctx, &itemrpc.PublishItemReq{
+	rpcCtx := publishorigin.WithOrigin(itemdispatch.WithDurableDispatch(ctx), origin)
+	resp, err := clients.ItemClient.PublishItem(rpcCtx, &itemrpc.PublishItemReq{
 		AuthorAgentId: agentID,
 		RawContent:    req.Content,
 		RawNotes:      req.Notes,
@@ -725,14 +732,26 @@ func Publish(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	_, _ = mq.Publish(ctx, "stream:item:publish", map[string]interface{}{
-		"item_id": strconv.FormatInt(resp.ItemId, 10),
-	})
-
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"item_id": strconv.FormatInt(resp.ItemId, 10),
 	})
 	activity.PublishBroadcast(ctx, agentID, resp.ItemId)
+}
+
+// publishOriginFromBody reads the optional publish_origin telemetry field. The
+// generated request model does not carry it; only the exact lowercase key is
+// read, and an absent, malformed, or unrecognized value is treated as unknown
+// instead of rejecting the publish.
+func publishOriginFromBody(body []byte) string {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(body, &fields) != nil {
+		return ""
+	}
+	var origin string
+	if json.Unmarshal(fields["publish_origin"], &origin) != nil {
+		return ""
+	}
+	return publishorigin.Normalize(origin)
 }
 
 // Feed returns personalized feed items
@@ -842,6 +861,15 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 		"notifications": notifications,
 		"impression_id": resp.ImpressionId,
 	}
+	if resp.DiscoveryMetadata != nil {
+		var discoveryMeta map[string]interface{}
+		if json.Unmarshal([]byte(*resp.DiscoveryMetadata), &discoveryMeta) == nil {
+			feedPayload["discovery"] = discoveryMeta
+			if discoveryMeta["input_origin"] == "baseline" {
+				feedPayload["personalization"] = map[string]any{"mode": "baseline"}
+			}
+		}
+	}
 	// Contract delivery is three-state, because a client's fallback has to tell
 	// "we deliberately sent no rules" apart from "this server is too old to
 	// send any":
@@ -852,7 +880,11 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	//   - field text   → bind these rules.
 	// The empty case is the common one (most polls return no items), and the
 	// contract is ~3.5K tokens the agent would otherwise re-read every poll.
-	if contract := feedOutputContract(); contract != "" {
+	contract := feedOutputContract()
+	if feedPayload["personalization"] != nil {
+		contract = feedcontract.ForMode("baseline")
+	}
+	if contract != "" {
 		if len(items) == 0 && len(notifications) == 0 {
 			contract = ""
 		}
@@ -860,7 +892,7 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	}
 	writeJSON(c, http.StatusOK, 0, "success", feedPayload)
 	ackNotifications(agentID, pendingNotifications)
-	activity.PublishFeedPull(ctx, agentID, len(resp.Items))
+	activity.PublishFeedPull(ctx, agentID, len(items))
 }
 
 func applyFeedItemProvenance(item map[string]interface{}, feedItem *feedrpc.FeedItem) {
@@ -2009,7 +2041,7 @@ func resolveToUID(ctx context.Context, req *apimodel.SendFriendRequestReq) (int6
 const emailToUIDCacheTTL = 24 * time.Hour
 
 func emailToUIDCacheKey(email string) string {
-	return "cache:email2uid:" + email
+	return keys.EmailToUID + email
 }
 
 // lookupAgentIDByEmail resolves email to agent_id with Redis cache.
@@ -2018,7 +2050,7 @@ func lookupAgentIDByEmail(ctx context.Context, email string) (int64, error) {
 
 	// Try cache first
 	if mq.RDB != nil {
-		val, err := mq.RDB.Get(ctx, key).Result()
+		val, err := cache.Redis(mq.RDB).Read(ctx, key).Result()
 		if err == nil {
 			if id, parseErr := strconv.ParseInt(val, 10, 64); parseErr == nil {
 				return id, nil
@@ -2040,7 +2072,7 @@ func lookupAgentIDByEmail(ctx context.Context, email string) (int64, error) {
 	// Write back to cache (fire-and-forget)
 	if mq.RDB != nil {
 		go func() {
-			if err := mq.RDB.Set(context.Background(), key, strconv.FormatInt(targetID, 10), emailToUIDCacheTTL).Err(); err != nil {
+			if err := cache.Redis(mq.RDB).Write(context.Background(), key, strconv.FormatInt(targetID, 10), emailToUIDCacheTTL).Err(); err != nil {
 				logger.Default().Warn("email2uid cache write error", "err", err)
 			}
 		}()
@@ -2854,9 +2886,21 @@ func ConsoleGetActivityCalendar(ctx context.Context, c *app.RequestContext) {
 	sinceMs := time.Now().AddDate(0, 0, -int(days)).UnixMilli()
 	dateCounts, err := consoledal.CountActivityByDate(db.DB, agentID, sinceMs)
 	if err != nil {
+		logger.Ctx(ctx).Error("ConsoleGetActivityCalendar query failed",
+			"agentID", agentID,
+			"days", days,
+			"sinceMs", sinceMs,
+			"error", err,
+		)
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}
+	logger.Ctx(ctx).Debug("ConsoleGetActivityCalendar result",
+		"agentID", agentID,
+		"days", days,
+		"sinceMs", sinceMs,
+		"dateCountRows", len(dateCounts),
+	)
 
 	calendar := make([]map[string]interface{}, 0, len(dateCounts))
 	var activeDays int64
@@ -2871,6 +2915,18 @@ func ConsoleGetActivityCalendar(ctx context.Context, c *app.RequestContext) {
 		}
 		totalPushes += dc.Count
 	}
+	var firstDate, lastDate string
+	if len(dateCounts) > 0 {
+		firstDate = dateCounts[0].Date
+		lastDate = dateCounts[len(dateCounts)-1].Date
+	}
+	logger.Ctx(ctx).Debug("ConsoleGetActivityCalendar stats",
+		"agentID", agentID,
+		"activeDays", activeDays,
+		"totalPushes", totalPushes,
+		"firstDate", firstDate,
+		"lastDate", lastDate,
+	)
 
 	// Calculate current streak: consecutive active days ending today (or yesterday)
 	var streakDays int64

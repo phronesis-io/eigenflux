@@ -7,6 +7,12 @@ Automatic pushes and manual dispatches share the `release-skills` concurrency gr
 The legacy `EIGENFLUX_PUBLISH_SKILLS_WITH_CLI=true` switch dispatches the same
 workflow, while CLI binary publication remains independent.
 
+The macOS/Linux installer's GitHub bootstrap checks the downloaded source's
+`SKILLS_MIN_CLI_VERSION` against the actual selected CLI before copying Skills.
+Incompatible or unknown versions stop installation without replacing existing
+Skills. Publishing a higher minimum does not publish its required CLI binary;
+complete Release CLI before directing new users to that Skills release.
+
 ## Installation entry
 
 `skills/install.md` is the sole source for the `/install` landing page's Agent
@@ -91,6 +97,14 @@ existing ignored-file rules. They inspect necessary directory and recovery
 metadata without recursively scanning unrelated Skills. Missing paths are valid
 for first installation. File completeness and provisional status are separate:
 an intact provisional bundle remains usable offline and is refreshed online.
+
+Before content replacement, the client also reads existing official directories
+identified by the remote manifest when local metadata is missing or corrupt, and
+third-party directories that must be preserved. Unchanged checks and metadata-only
+refreshes do not scan third-party content. Before recovery or replacement cleans
+the staging directory, its directory traversal is checked without reading the
+contents of files being deleted. These checks report permission failures before
+creating the update lock; filesystem operations still recheck access under lock.
 
 Permission failures return nonzero even with `--quiet`. The existing command
 error output includes `SKILLS_PERMISSION_REQUIRED`, the operation and original

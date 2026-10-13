@@ -68,6 +68,11 @@ func Sync(opts SyncOptions) (result *SyncResult, err error) {
 	if result, err := syncDecision(opts, real, local, remote); result != nil || err != nil {
 		return result, err
 	}
+	if !local.intact || local.stale || local.manifest.Revision != remote.Revision {
+		if err := checkReplacementReadAccess(real, local.manifest, remote); err != nil {
+			return nil, err
+		}
+	}
 
 	lock, err := beginSyncWrite(real, parent)
 	if err != nil {

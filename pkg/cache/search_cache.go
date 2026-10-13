@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"crypto/md5"
+	"eigenflux_server/pkg/cache/keys"
 	"encoding/hex"
 	"fmt"
 	"sort"
@@ -86,7 +87,7 @@ func (sc *SearchCache) BuildCacheKey(domains, keywords []string, geo string, exc
 	now := time.Now()
 	bucket := now.Unix() / int64(sc.bucketSize.Seconds())
 
-	return fmt.Sprintf("cache:search:%s:%d:%d", hashStr, excludeAuthorAgentID, bucket)
+	return fmt.Sprintf(keys.Search, hashStr, excludeAuthorAgentID, bucket)
 }
 
 // Get retrieves cached search results

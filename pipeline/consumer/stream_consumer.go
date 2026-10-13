@@ -12,6 +12,7 @@ import (
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/mq"
+	"github.com/google/uuid"
 )
 
 // HandleResult tells the runner how to label the metric and whether to ACK the
@@ -94,6 +95,7 @@ type StreamConsumer struct {
 	// their handler starts. Use it when RetryMinIdle is the crash detector.
 	UnbufferedDispatch bool
 	preferFresh        bool
+	deliveries         *streamDeliveries
 
 	// FatalOnGroupCreateError: when true (the default for item/profile/item-stats
 	// consumers), a failure to create the consumer
@@ -107,6 +109,11 @@ type StreamConsumer struct {
 
 // Run starts the consumer and blocks until ctx is cancelled.
 func (c *StreamConsumer) Run(ctx context.Context) {
+	// Distinct process lifetimes must never share a PEL ownership fence.
+	runner := *c
+	c = &runner
+	c.ConsumerName += ":" + uuid.NewString()
+	c.deliveries = &streamDeliveries{active: make(map[string]bool)}
 	workers := c.Workers
 	if workers <= 0 {
 		workers = 2
@@ -142,6 +149,7 @@ func (c *StreamConsumer) Run(ctx context.Context) {
 	type msgTask struct {
 		id     string
 		values map[string]any
+		lease  *streamLease
 	}
 	queueSize := workers * 2
 	if c.UnbufferedDispatch {
@@ -156,36 +164,57 @@ func (c *StreamConsumer) Run(ctx context.Context) {
 			defer wg.Done()
 			logger.Default().Info(c.Name+" worker started", "workerID", workerID)
 			for task := range msgChan {
-				start := time.Now()
-				result := c.Handle(ctx, task.id, task.values)
-				metrics.ConsumerMessageDuration.WithLabelValues(c.MetricsLabel).Observe(time.Since(start).Seconds())
-
-				status := "success"
-				if result != HandleSuccess {
-					status = "failure"
-				}
-				metrics.ConsumerMessagesTotal.WithLabelValues(c.MetricsLabel, status).Inc()
-
-				if result == HandleFailure && c.DeadLetterStream != "" {
-					if err := c.deadLetterAndAck(ctx, task.id, task.values, 0); err != nil {
-						logger.Default().Error(c.Name+" poison-message DLQ failed", "msgID", task.id, "err", err)
+				func() {
+					if task.lease != nil {
+						defer task.lease.close()
 					}
-				} else if result != HandleRetry {
-					if err := mq.Ack(ctx, c.Stream, c.Group, task.id); err != nil {
-						logger.Default().Error(c.Name+" ACK failed", "msgID", task.id, "err", err)
+					handleCtx := ctx
+					if task.lease != nil {
+						handleCtx = task.lease.ctx
 					}
-				}
+					if handleCtx.Err() != nil {
+						return
+					}
+					start := time.Now()
+					result := c.Handle(handleCtx, task.id, task.values)
+					metrics.ConsumerMessageDuration.WithLabelValues(c.MetricsLabel).Observe(time.Since(start).Seconds())
+
+					status := "success"
+					if result != HandleSuccess {
+						status = "failure"
+					}
+					metrics.ConsumerMessagesTotal.WithLabelValues(c.MetricsLabel, status).Inc()
+
+					if handleCtx.Err() != nil {
+						return
+					}
+					if result == HandleFailure && c.DeadLetterStream != "" {
+						if err := c.deadLetterAndAck(ctx, task.id, task.values, 0); err != nil {
+							logger.Default().Error(c.Name+" poison-message DLQ failed", "msgID", task.id, "err", err)
+						}
+					} else if result != HandleRetry {
+						var err error
+						if task.lease != nil {
+							_, err = mq.AckOwned(ctx, c.Stream, c.Group, c.ConsumerName, task.id)
+						} else {
+							err = mq.Ack(ctx, c.Stream, c.Group, task.id)
+						}
+						if err != nil {
+							logger.Default().Error(c.Name+" ACK failed", "msgID", task.id, "err", err)
+						}
+					}
+				}()
 			}
 			logger.Default().Info(c.Name+" worker stopped", "workerID", workerID)
 		}(i)
 	}
 
 	go func() {
+		defer close(msgChan)
 		for {
 			select {
 			case <-ctx.Done():
 				logger.Default().Info(c.Name + " context cancelled, closing message channel")
-				close(msgChan)
 				return
 			default:
 			}
@@ -198,17 +227,43 @@ func (c *StreamConsumer) Run(ctx context.Context) {
 				msgs, err = c.nextBatchSimple(ctx, batch)
 			}
 			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
 				logger.Default().Error(c.Name+" consume error", "err", err)
-				time.Sleep(time.Second)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Second):
+				}
 				continue
 			}
 
+			tasks := make([]msgTask, 0, len(msgs))
 			for _, msg := range msgs {
+				task := msgTask{id: msg.Message.ID, values: msg.Message.Values}
+				if c.MaxRetries > 0 {
+					lease, err := c.startLease(ctx, task.id, retryMinIdle)
+					if err != nil {
+						logger.Default().Warn(c.Name+" pending lease failed", "msgID", task.id, "err", err)
+					}
+					if lease == nil {
+						continue
+					}
+					task.lease = lease
+				}
+				tasks = append(tasks, task)
+			}
+			for index, task := range tasks {
 				select {
-				case msgChan <- msgTask{id: msg.Message.ID, values: msg.Message.Values}:
+				case msgChan <- task:
 				case <-ctx.Done():
+					for _, pending := range tasks[index:] {
+						if pending.lease != nil {
+							pending.lease.close()
+						}
+					}
 					logger.Default().Info(c.Name + " context cancelled while sending message")
-					close(msgChan)
 					return
 				}
 			}
@@ -237,7 +292,7 @@ func (c *StreamConsumer) nextBatchWithRetry(ctx context.Context, batch int64, mi
 	var reclaimed []mq.PendingMessage
 	var err error
 	if !c.preferFresh {
-		reclaimed, err = mq.ConsumePending(ctx, c.Stream, c.Group, c.ConsumerName, batch, minIdle)
+		reclaimed, err = mq.ConsumePendingExcept(ctx, c.Stream, c.Group, c.ConsumerName, batch, minIdle, c.deliveries.snapshot())
 	}
 	if err != nil {
 		return nil, err
@@ -252,7 +307,7 @@ func (c *StreamConsumer) nextBatchWithRetry(ctx context.Context, batch int64, mi
 					if dlqErr := c.deadLetterAndAck(ctx, pending.Message.ID, pending.Message.Values, pending.RetryCount); dlqErr != nil {
 						return nil, dlqErr
 					}
-				} else if ackErr := mq.Ack(ctx, c.Stream, c.Group, pending.Message.ID); ackErr != nil {
+				} else if _, ackErr := mq.AckOwned(ctx, c.Stream, c.Group, c.ConsumerName, pending.Message.ID); ackErr != nil {
 					return nil, fmt.Errorf("ACK exhausted message %s: %w", pending.Message.ID, ackErr)
 				}
 				metrics.ConsumerRetryTotal.WithLabelValues(c.MetricsLabel).Inc()
@@ -320,10 +375,11 @@ func (c *StreamConsumer) deadLetterAndAck(ctx context.Context, id string, values
 		payload = []byte(fmt.Sprintf(`{"sha256":"%x","note":"payload exceeded limit"}`, sum))
 		truncated = true
 	}
-	return mq.DeadLetterAndAck(ctx, c.Stream, c.Group, id, c.DeadLetterStream, map[string]interface{}{
+	_, err = mq.DeadLetterAndAckOwned(ctx, c.Stream, c.Group, c.ConsumerName, id, c.DeadLetterStream, map[string]interface{}{
 		"retry_count":       retryCount,
 		"payload":           string(payload),
 		"payload_truncated": truncated,
 		"failed_at":         time.Now().UnixMilli(),
 	})
+	return err
 }

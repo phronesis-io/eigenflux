@@ -1,0 +1,29 @@
+# Fields emitted by the broadcast.item source adapter. Embeddings are prohibited.
+name: broadcast.item
+entity: broadcast
+component: item
+id_field: item_id
+version_field: version
+ttl: 0s
+retention_ttl: 48h
+load:
+  interval: 1s
+  timeout: 20s
+  batch_size: 100
+  cycle_pause: 5m
+fields:
+  - item_id
+  - version
+  - author_id
+  - active
+  - content_hash
+  - url
+  - created_at
+  - updated_at
+  - group_id
+  - broadcast_type
+  - source_type
+  - lang
+  - expire_time
+  - quality_score
+  - retrieval_slots

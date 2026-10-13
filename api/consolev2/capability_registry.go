@@ -103,6 +103,13 @@ var fundingDisclosures = map[string][2]string{
 
 func capabilitySeeds() []capabilitySeed {
 	seeds := []capabilitySeed{
+		capability("need.input.create", "eigenflux need input create", "need", "write", "保存已确认意图的结构化输入", "Save structured input for a confirmed intent"),
+		capability("need.input.get", "eigenflux need input get", "need", "read", "读取需求输入", "Read an owned NeedInput"),
+		capability("need.capture.pending", "eigenflux need capture pending", "need", "read", "读取待整理意图", "Read pending Intent capture work"),
+		capability("need.capture.complete", "eigenflux need capture complete", "need", "write", "完成意图需求整理", "Complete a confirmed Intent capture review"),
+		capability("need.input.list", "eigenflux need input list", "need", "read", "列出需求输入", "List owned NeedInputs"),
+		capability("discovery.search", "eigenflux search", "discovery", "read", "Search all source kinds", "Search all source kinds"),
+		capability("discovery.recommend", "eigenflux recommend", "discovery", "read", "Find an automatic discovery result", "Find an automatic discovery result"),
 		capability("capabilities.read", "eigenflux capabilities", "discovery", "read", "读取 Agent 能力注册表", "Read the Agent capability registry"),
 		capability("identity.initialize", "eigenflux agent init", "identity", "write", "初始化本地 Agent 身份", "Initialize local Agent identity"),
 		capability("identity.provision", "eigenflux agent provision", "identity", "write", "创建或认领 Agent", "Provision or claim an Agent"),
@@ -207,12 +214,16 @@ func capabilitySeeds() []capabilitySeed {
 		capability("relation.block", "eigenflux relation block", "relation", "write", "拉黑 Agent", "Block an Agent"),
 		capability("relation.unblock", "eigenflux relation unblock", "relation", "write", "解除拉黑", "Unblock an Agent"),
 		capability("relation.remark", "eigenflux relation remark", "relation", "write", "修改好友备注", "Update a friend remark"),
+		capability("dashboard.search", "eigenflux dashboard search", "console", "read", "搜索我的控制台", "Search my Dashboard records"),
 		capability("dashboard.open", "eigenflux dashboard", "console", "read", "打开控制台", "Open the Console"),
 		capability("server.list", "eigenflux server list", "local", "read", "查看服务器", "List servers"),
 		capability("server.add", "eigenflux server add", "local", "write", "添加服务器", "Add a server"),
 		capability("server.update", "eigenflux server update", "local", "write", "修改服务器", "Update a server"),
 		capability("server.use", "eigenflux server use", "local", "write", "切换默认服务器", "Select the default server"),
 		capability("server.remove", "eigenflux server remove", "local", "write", "删除服务器", "Remove a server"),
+		capability("installation.record", "eigenflux installation record", "local", "write", "记录安装归属", "Record installation ownership"),
+		capability("installation.uninstall", "eigenflux uninstall", "local", "write", "卸载 EigenFlux", "Uninstall EigenFlux"),
+		capability("skills.uninstall", "eigenflux skills uninstall", "local", "write", "卸载托管 Skills", "Uninstall managed Skills"),
 		capability("skills.sync", "eigenflux skills sync", "local", "write", "同步 Skills", "Synchronize Skills"),
 		capability("skills.list", "eigenflux skills list", "local", "read", "查看已安装 Skills", "List installed Skills"),
 		capability("skills.path", "eigenflux skills path", "local", "read", "查看 Skills 路径", "View the Skills path"),
@@ -231,6 +242,19 @@ func capabilitySeeds() []capabilitySeed {
 	}
 	for index := range seeds {
 		seed := &seeds[index]
+		if seed.category == "need" {
+			seed.minCLI = "0.0.54"
+			seed.identityRoute = "current_identity"
+			if seed.access == "write" {
+				seed.confirmation = "linked_confirmed_intent"
+			}
+		}
+		if strings.HasPrefix(seed.id, "need.capture.") {
+			seed.minCLI = "0.0.56"
+		}
+		if strings.HasPrefix(seed.id, "discovery.") {
+			seed.minCLI = "0.0.55"
+		}
 		if seed.id == "capabilities.read" || (strings.HasPrefix(seed.id, "context.") && seed.id != "context.read") ||
 			(strings.HasPrefix(seed.id, "attention.") && seed.id != "attention.publish" && seed.id != "attention.prefill") {
 			seed.minCLI = "0.0.38"
@@ -412,6 +436,16 @@ func buildAgentCapabilityRegistry(language string, controlEnabled, attentionEnab
 
 func (s *Service) getAgentCapabilities(_ context.Context, c *app.RequestContext) {
 	registry := buildAgentCapabilityRegistry(string(c.Query("lang")), s.enableControl, s.enableAttentionV1)
+	if !s.enableDiscovery {
+		ops := registry["operations"].([]capabilityOperation)
+		filtered := ops[:0]
+		for _, op := range ops {
+			if !strings.HasPrefix(op.OperationID, "discovery.") {
+				filtered = append(filtered, op)
+			}
+		}
+		registry["operations"] = filtered
+	}
 	payload, err := json.Marshal(map[string]interface{}{"data": registry})
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "CAPABILITY_REGISTRY_FAILED", "could not build capability registry", nil)

@@ -22,6 +22,7 @@ require (
 	github.com/kitex-contrib/registry-etcd v0.2.1
 	github.com/lib/pq v1.12.3
 	github.com/mattn/go-sqlite3 v1.14.22
+	github.com/mgtv-tech/jetcache-go v1.2.6
 	github.com/openai/openai-go/v3 v3.15.0
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/stretchr/testify v1.11.1
@@ -40,8 +41,16 @@ require (
 )
 
 require (
+	github.com/coocood/freecache v1.2.4 // indirect
+	github.com/dgraph-io/ristretto/v2 v2.1.0 // indirect
+	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/klauspost/compress v1.18.0 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
+	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
+	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
+	golang.org/x/exp v0.0.0-20240904232852-e7e105dedf7e // indirect
 )
 
 require (

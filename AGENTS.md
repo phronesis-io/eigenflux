@@ -50,6 +50,7 @@ Read the relevant module doc before modifying that area:
 | `pm.md` | PM service methods, conversation types, friend/block relations, WebSocket push |
 | `infra.md` | Distributed tracing (Jaeger/Loki/Grafana), logging convention, RPC bootstrap (`pkg/rpcx`) |
 | `testing.md` | Test directories, run commands, manual email integration |
+| `discovery.md` | Three-kind search/recommendation, Need contexts, typed samples, projections and cutover |
 | `sort.md` | Sort service responsibilities, item recall, ranking, reranking, and feed ordering |
 | `commission.md` | Commission ownership boundary, the Alipay-only funding channel, and where every surface discloses it |
 | `rerank.md` | Item candidate contract and active freshness, boost, injection, and source-limit policies |
@@ -104,15 +105,15 @@ Before modifying any file under `skills/`, read and follow [skills/AGENTS.md](sk
 
 ### Issue tracker
 
-Issues tracked in GitHub Issues (`phronesis-io/eigenflux`) via the `gh` CLI; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+Issues tracked in GitHub Issues (`phronesis-io/eigenflux`) via the `gh` CLI; external PRs are not a triage surface. Follow [Issue Reporting](CONTRIBUTING.md#issue-reporting) for report contents and security reporting.
 
 ### Triage labels
 
-Default label vocabulary: needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix. See `docs/agents/triage-labels.md`.
+Default label vocabulary: needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix.
 
 ### Domain docs
 
-Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Use [Architecture Overview](docs/architecture_overview.md) for system context and the relevant `docs/dev/` entry in Module Documentation above for area-specific contracts and workflows.
 
 ## Host adapter boundary
 
@@ -121,3 +122,12 @@ maintenance state in the CLI. Keep Agent behavior in dynamically synchronized
 Skills. Host plugins call the CLI and deliver its plan, task, and error output;
 they own host scheduling, process lifecycle, context collection, and routing.
 Preserve existing consumers when changing command output contracts.
+
+## Important monitoring releases
+
+For important server behavior or instrumentation changes affecting a Grafana
+chart, include a declaration in `deploy/release-events.json` in the same PR.
+Read [release annotations](docs/dev/release-annotations.md): use the affected
+chart, explain the data coverage boundary, and distinguish API-only from full
+rollouts. The deployer supplies the actual healthy deployment time; never fill
+it with a merge time. Routine changes need no marker.

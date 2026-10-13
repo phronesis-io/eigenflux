@@ -91,9 +91,28 @@ func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 	feedResp, rpcErr := s.feedClient.FetchFeed(ctx, &feedrpc.FetchFeedReq{
 		AgentId: agentIDValue, Action: &action, Limit: &req.Limit,
 	})
-	if rpcErr != nil || feedResp == nil || feedResp.BaseResp == nil || feedResp.BaseResp.Code != 0 {
+	if rpcErr != nil || feedResp == nil || feedResp.BaseResp == nil {
 		fail(c, http.StatusServiceUnavailable, "FEED_SOURCE_UNAVAILABLE", "could not fetch Feed source data", nil)
 		return
+	}
+	if feedResp.BaseResp.Code != 0 {
+		if feedResp.BaseResp.Code == http.StatusConflict && feedResp.BaseResp.Msg == "request_in_progress" {
+			c.Header("Retry-After", "1")
+			fail(c, http.StatusConflict, "FEED_REQUEST_IN_PROGRESS", "another Feed request is in progress; retry later", nil)
+		} else {
+			fail(c, http.StatusServiceUnavailable, "FEED_SOURCE_UNAVAILABLE", "could not fetch Feed source data", nil)
+		}
+		return
+	}
+	var discoveryMeta map[string]any
+	if feedResp.DiscoveryMetadata != nil {
+		if err := json.Unmarshal([]byte(*feedResp.DiscoveryMetadata), &discoveryMeta); err != nil {
+			fail(c, http.StatusServiceUnavailable, "FEED_SOURCE_UNAVAILABLE", "invalid discovery metadata", nil)
+			return
+		}
+		if discoveryMeta["input_origin"] == "baseline" {
+			mode = "baseline"
+		}
 	}
 	payloads, cardUpdates, encodeErr := s.buildFeedPayloads(agentIDValue, mode,
 		onboarding.ContextRevision, feedResp.Items, req.KnownCardVersions)
@@ -166,6 +185,9 @@ func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 		"next_cursor": nil, "has_more": feedResp.HasMore,
 		"capabilities_applied": []string{"feed=v2", "delivery=latest", "personalization=" + mode},
 	}
+	if discoveryMeta != nil {
+		response["discovery"] = discoveryMeta
+	}
 	if contract := feedcontract.ForMode(mode); contract != "" {
 		response["output_contract"] = contract
 	}
@@ -178,7 +200,6 @@ func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 		fail(c, http.StatusServiceUnavailable, "FEED_PAYLOAD_TOO_LARGE", "Feed response exceeds the V2 response budget", nil)
 		return
 	}
-	activity.PublishFeedPull(ctx, agentIDValue, len(feedResp.Items))
 	reply(c, http.StatusOK, response)
 	activity.PublishFeedPull(ctx, agentIDValue, len(items))
 }

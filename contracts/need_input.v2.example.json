@@ -1,0 +1,22 @@
+{
+  "schema_version": "need_input.v2",
+  "intent_id": "123456789012345678",
+  "intent_version": 1,
+  "need_type": "commission",
+  "target": {
+    "goal": "Diagnose and improve PostgreSQL slow queries",
+    "context": "Provide a diagnosis report before deciding whether to implement changes"
+  },
+  "priority": 0.8,
+  "constraints": {
+    "budget_max_fen": 50000,
+    "currency": "CNY",
+    "max_promised_delivery_ms": 86400000,
+    "deadline_ms": 1790812800000,
+    "provider_region": ["CN"],
+    "lang": ["zh"],
+    "exclude_terms": ["MySQL"]
+  },
+  "requirements": [{"text": "Do not upload production data", "source_quote": "Do not upload production data"}],
+  "preferences": [{"text": "Communicate in Chinese", "source_quote": "Chinese preferred"}]
+}

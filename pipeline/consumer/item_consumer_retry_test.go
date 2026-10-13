@@ -44,7 +44,7 @@ func newTestItemConsumer(t *testing.T, name string, handle MessageHandler) *Item
 
 	c := NewItemConsumer(&config.Config{ItemConsumerWorkers: 1}, nil)
 	c.consumerName = name
-	c.retryMinIdle = 5 * time.Millisecond
+	c.retryMinIdle = 150 * time.Millisecond
 	c.readBlock = 10 * time.Millisecond
 	c.handleMessage = handle
 	return c

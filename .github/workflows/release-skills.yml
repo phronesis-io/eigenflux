@@ -71,7 +71,7 @@ jobs:
         run: |
           python3 -m unittest discover -s tests/cli_release -p 'test_*.py'
           cd cli
-          go test ./internal/skills ./cmd/manifestcheck ./cmd/releaseverify ./tests
+          go test ./internal/skills ./cmd ./cmd/manifestcheck ./cmd/releaseverify ./tests
 
       - name: Test installation entry routing
         run: go test ./api/install -run 'TestJoinDocument|TestServeRef' -count=1
