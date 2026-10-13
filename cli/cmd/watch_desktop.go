@@ -49,10 +49,8 @@ type desktopOrderFact struct {
 	Type    string         `json:"type"`
 	Source  string         `json:"source_type"`
 	Payload struct {
-		OrderID notificationID `json:"order_id"`
+		orderNotificationPayload
 		AgentID notificationID `json:"recipient_agent_id"`
-		Role    string         `json:"recipient_role"`
-		State   string         `json:"to_state"`
 	} `json:"payload"`
 }
 
@@ -63,14 +61,11 @@ func commissionDesktopMessage(raw json.RawMessage, endpoint, agentID string) (de
 	}
 	p := fact.Payload
 	orderID := strconv.FormatInt(int64(p.OrderID), 10)
-	target, err := orderDesktopURL(endpoint, agentID, orderID, p.Role)
+	target, err := orderDesktopURL(endpoint, agentID, orderID, p.RecipientRole)
 	if err != nil {
 		return desktopnotify.Message{}, err
 	}
-	role, summary := localizedOrderNotification("zh", p.Role, p.State)
-	if fact.Type == "order.reminder.buyer_confirmation_24h.v1" {
-		summary = "请及时确认交付结果"
-	}
+	role, summary := localizedOrderNotificationText("zh", fact.Type, p.orderNotificationPayload)
 	return desktopnotify.Message{ID: "commission:" + strconv.FormatInt(int64(fact.ID), 10), Title: "任务委托 · " + summary, Body: fmt.Sprintf("%s · 订单 %s · 账号 %s", role, orderID, agentID), URL: target}, nil
 }
 func (w *accountWatch) enableDesktop() error {

@@ -234,7 +234,7 @@ func renderOrderNotification(writer io.Writer, format, language string, notifica
 			"type": "commission_order_notification", "notification": notification,
 		})
 	}
-	role, summary := localizedOrderNotification(language, notification.Payload.RecipientRole, notification.Payload.ToState)
+	role, summary := localizedOrderNotificationText(language, notification.Type, notification.Payload)
 	timestamp := time.UnixMilli(notification.Payload.OccurredAt).Format("2006-01-02 15:04:05")
 	_, err := fmt.Fprintf(writer, "[%s] %s #%d v%d · %s · %s\n", timestamp,
 		localizedOrderLabel(language), int64(notification.Payload.OrderID), notification.Payload.OrderVersion, role, summary)
@@ -246,6 +246,52 @@ func localizedOrderLabel(language string) string {
 		return "订单"
 	}
 	return "Order"
+}
+
+// Result notices can keep the same order state and version. Resolve their fixed
+// event text before falling back to the ordinary state-change description.
+func localizedOrderNotificationText(language, notificationType string, payload orderNotificationPayload) (string, string) {
+	role, fallback := localizedOrderNotification(language, payload.RecipientRole, payload.ToState)
+	for _, kind := range []string{payload.EventKind, notificationType} {
+		if summary := commissionResultNotificationText(language, kind); summary != "" {
+			return role, summary
+		}
+		if kind == "order.reminder.buyer_confirmation_24h.v1" {
+			if language == "zh" {
+				return role, "请及时确认交付结果"
+			}
+			return role, "Please confirm the delivery before the deadline"
+		}
+	}
+	if payload.CommandKind == "reject_order" && payload.ToState == "cancelled" {
+		if language == "zh" {
+			return role, "商家已拒单"
+		}
+		return role, "Seller declined the order"
+	}
+	return role, fallback
+}
+
+// A nonempty result also marks these events as informational: they never start
+// Agent inspection or funds operations, regardless of the reported order state.
+func commissionResultNotificationText(language, kind string) string {
+	var zh, en string
+	switch kind {
+	case "order.refund.processing_error.v1":
+		zh, en = "退款处理异常，系统正在重试", "Refund processing issue; automatic retry in progress"
+	case "order.refund.completed.v1":
+		zh, en = "订单已取消，款项已退回", "Order cancelled; payment refunded"
+	case "order.settlement.processing_error.v1":
+		zh, en = "收益入账异常，系统正在重试", "Earnings credit issue; automatic retry in progress"
+	case "order.settlement.completed.v1":
+		zh, en = "订单收益已入账", "Order earnings credited to your platform wallet"
+	case "order.validation.processing_error.v1":
+		zh, en = "交付检查暂时异常，系统正在重试", "Delivery check temporarily unavailable; automatic retry in progress"
+	}
+	if language == "zh" {
+		return zh
+	}
+	return en
 }
 
 func localizedOrderNotification(language, role, state string) (string, string) {

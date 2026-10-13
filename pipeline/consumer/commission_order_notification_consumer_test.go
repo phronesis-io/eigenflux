@@ -2,9 +2,59 @@ package consumer
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"testing"
 )
+
+func TestParseCommissionWorkflowResultsPreservesIndependentSameVersionFacts(t *testing.T) {
+	const orderID int64 = 9007199254740995
+	const recipientID int64 = 9007199254740997
+	cases := []struct {
+		kind, state, role string
+	}{
+		{"order.refund.processing_error.v1", "refund_pending", "buyer"},
+		{"order.refund.completed.v1", "cancelled", "buyer"},
+		{"order.settlement.processing_error.v1", "completed", "seller"},
+		{"order.settlement.completed.v1", "completed", "seller"},
+		{"order.validation.processing_error.v1", "validating", "seller"},
+	}
+	seen := make(map[string]bool)
+	for index, tc := range cases {
+		t.Run(tc.kind, func(t *testing.T) {
+			values := validCommissionNotificationValues(t)
+			id := orderID + 10 + int64(index)
+			payload := commissionOrderNotificationPayload{
+				EventID: id, EventKind: tc.kind, OrderID: orderID, OrderVersion: 8,
+				RecipientAgentID: recipientID, RecipientRole: tc.role,
+				State: tc.state, FromState: tc.state, ToState: tc.state,
+				ActorKind: "system", SnapshotID: orderID + 2, OccurredAt: 1700000000000,
+			}
+			encoded, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			values["event_id"], values["outbox_id"] = strconv.FormatInt(id, 10), strconv.FormatInt(id, 10)
+			values["order_id"], values["recipient_agent_id"] = strconv.FormatInt(orderID, 10), strconv.FormatInt(recipientID, 10)
+			values["order_version"], values["occurred_at"] = "8", "1700000000000"
+			values["event_kind"], values["payload_json"] = tc.kind, string(encoded)
+			values["dedupe_key"] = fmt.Sprintf("order:%d:intent:71:event:%s:recipient:%d", orderID, tc.kind, recipientID)
+			event, parsed, err := parseCommissionOrderNotification(values)
+			if err != nil {
+				t.Fatalf("workflow result rejected by existing schema: %v", err)
+			}
+			if event.OrderID != orderID || event.RecipientAgentID != recipientID || event.OutboxID != id ||
+				event.OrderVersion != 8 || parsed != payload || seen[event.DedupeKey] {
+				t.Fatalf("workflow result lost its identity: event=%#v payload=%#v", event, parsed)
+			}
+			seen[event.DedupeKey] = true
+			values["recipient_agent_id"] = strconv.FormatInt(recipientID+1, 10)
+			if _, _, err := parseCommissionOrderNotification(values); err == nil {
+				t.Fatal("workflow result accepted another recipient")
+			}
+		})
+	}
+}
 
 func validCommissionNotificationValues(t *testing.T) map[string]any {
 	t.Helper()

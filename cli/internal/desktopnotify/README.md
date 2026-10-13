@@ -12,6 +12,14 @@ HTTP is allowed for local development. Reject credential-bearing URLs, command
 protocols, control characters, and oversized fields. Never include credentials
 or order input text. Account checking belongs to the destination Console page.
 
+Commission text is resolved in `cmd/order_notifications.go` for both terminal
+and desktop output. Result event types override the unchanged order state:
+refund errors, cancelled-order refunds, wallet credit success/errors, and
+validation processing errors. Text is fixed; provider errors are never displayed.
+Wallet credit means platform balance, not withdrawal. These notices do not call
+Agents or initiate money operations. Keep account/notification-ID queue dedup
+and persistence before ACK separate from order-execution dedup.
+
 ## macOS 11+
 
 `macos/` is a Swift AppKit application using `UNUserNotificationCenter`. It

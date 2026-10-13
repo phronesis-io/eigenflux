@@ -135,14 +135,19 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 		return err
 	}
 	var notification struct {
+		Type    string `json:"type"`
 		Payload struct {
-			OrderID notificationID `json:"order_id"`
-			Version int64          `json:"order_version"`
-			Role    string         `json:"recipient_role"`
+			OrderID   notificationID `json:"order_id"`
+			Version   int64          `json:"order_version"`
+			Role      string         `json:"recipient_role"`
+			EventKind string         `json:"event_kind"`
 		} `json:"payload"`
 	}
 	if json.Unmarshal(job.Data, &notification) != nil || notification.Payload.OrderID <= 0 || notification.Payload.Version <= 0 {
 		return w.finishDispatch(job, "failed", "invalid_commission_notification", "", "")
+	}
+	if commissionResultNotificationText("en", notification.Payload.EventKind) != "" || commissionResultNotificationText("en", notification.Type) != "" {
+		return w.finishDispatch(job, "completed", "commission_result_notification_recorded", "", "")
 	}
 	if notification.Payload.Role != "seller" {
 		return w.finishDispatch(job, "completed", "commission_buyer_notification_recorded", "", "")

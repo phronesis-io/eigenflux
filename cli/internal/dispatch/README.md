@@ -47,6 +47,15 @@ notify without extra Agent calls. `CommissionBlockers` exposes only validated
 job/order/role/status/code for unresolved local work; retain `Snapshot` payload
 redaction. Desktop delivery and OS retries never change business execution state.
 
+Refund processing errors, cancelled-order late-payment refunds, wallet credit
+success/errors, and validation processing errors are informational. The intake
+worker completes these result notices before reading the order or calling an
+Agent, even if their payload reports an actionable state. Keep the existing
+order/version/role execution key; desktop delivery independently preserves each
+notification ID. Terminal and desktop use the same fixed text resolver:
+recognized `payload.event_kind`, then envelope `type`, then order state. Seller
+rejection uses `command_kind=reject_order`. Wallet credit does not mean withdrawal.
+
 `Next` excludes both Commission kinds; `NextKind` serializes their separate workers. Buyer notifications are recorded without invoking a seller Agent. The worker re-reads seller identity, order state, frozen contract and fulfillment Skill. Only `awaiting_seller`, `pending_payment` and `in_progress` allow inspection. Read-only preparation and execution share a local 180-second ceiling, excluding queue time; the host's shorter timeout still applies.
 
 Official dispatch rules must be signed manifest members, read through `skills.ReadSignedFile`; third-party fulfillment Skills remain explicitly bound local content. Fetch the authenticated V2 order-detail input manifest, then each immutable snapshot/path grant using pinned credentials. Check manifest role/version/buyer, SHA-256 and byte count before passing local files to the Agent. Inputs use their own snapshot IDs, not the current order snapshot. Bound downloads to 128 files / 64 MiB total; keep URLs and credentials out of prompts. The public endpoint requires the exact GET detail Caddy route.
@@ -96,7 +105,7 @@ Limits: journal 16 MiB, 256 unresolved jobs, latest 1024 completed jobs (includi
 | Binding / decisions / journal | `binding_test.go`, `types_test.go`, `journal_test.go`, `../../cmd/watch_binding_test.go` |
 | Host / ACP / cancellation | `runner_test.go`, `acp_test.go`, `process_windows_test.go` |
 | Intake → Agent → reply / identity / permission | `../../cmd/watch_dispatch_test.go`, `../../cmd/watch_test.go` |
-| Commission intake / inspection / materials / ownership | `journal_commission_test.go`, `commission_intake_test.go`, `commission_fulfillment_test.go`, `../../cmd/watch_commission*_test.go`, `../../cmd/order_notifications_test.go`, `../skills/read_signed_test.go` |
+| Commission intake / inspection / materials / ownership | `journal_commission_test.go`, `commission_intake_test.go`, `commission_fulfillment_test.go`, `../../cmd/watch_commission*_test.go`, `../../cmd/order_notifications_test.go`, `../../cmd/order_result_notifications_test.go`, `../skills/read_signed_test.go` |
 | Heartbeat ownership / discovery | `../../cmd/heartbeat_modes_test.go`, `../../cmd/heartbeat_migration_test.go`, `../../cmd/capability_registry_contract_test.go` |
 
 Run relevant tests from `cli/`; use race checks for concurrency changes and Mac/Windows builds for process/filesystem changes. Update affected Skills and capability contracts with behavior changes.
