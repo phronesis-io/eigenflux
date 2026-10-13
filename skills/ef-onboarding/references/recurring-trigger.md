@@ -80,6 +80,8 @@ Home, and server. Compare the full stored prompt against the canonical prompt.
 For native Codex PM dispatch setup, apply
 `ef-communication/references/main-session.md` before starting watch. Keep its
 main session aligned with the verified setup conversation and heartbeat target.
+Require its preflight before stopping watch. Submit fresh host scheduler readback
+when committing; restore the previously running entry on an unchanged-route failure.
 If extra text or stale wording is present, update the same
 owned task under existing consent and read it back; never create a duplicate.
 Do not claim exact persistence if the host rewrites the prompt and it cannot be

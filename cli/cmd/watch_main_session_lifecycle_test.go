@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"github.com/spf13/cobra"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,17 @@ import (
 )
 
 const lifecycleThread = "01a0d200-9d41-7cd2-9214-3f04761910c4"
+
+func addLifecycleSchedulerFlags(cmd *cobra.Command) {
+	cmd.Flags().String("scheduler-json", "", "")
+	cmd.Flags().String("scheduler-file", "", "")
+	cmd.Flags().Bool("scheduler-stdin", false, "")
+	cmd.Flags().Bool("preflight", false, "")
+	cmd.Flags().String("expected-id", "", "")
+	cmd.Flags().String("expected-revision", "", "")
+	cmd.Flags().String("expected-task-id", "", "")
+	cmd.Flags().String("expected-thread-id", "", "")
+}
 
 func lifecycleCodexBinding(t *testing.T, b dispatch.Binding) dispatch.Binding {
 	t.Helper()
@@ -57,7 +69,8 @@ func TestMainSessionSchedulerBootstrapUsesAccountOwnership(t *testing.T) {
 			in := lifecycleInventory(b)
 			tc.edit(&in)
 			raw, _ := json.Marshal(in)
-			id, err := mainSessionFromScheduler(b, string(raw))
+			task, err := mainSessionTask(b, string(raw))
+			id := task.ThreadID
 			if (err == nil) != tc.ok || (tc.ok && id != lifecycleThread) {
 				t.Fatalf("id=%q err=%v", id, err)
 			}
@@ -65,42 +78,145 @@ func TestMainSessionSchedulerBootstrapUsesAccountOwnership(t *testing.T) {
 	}
 	b.MainSessionID = "existing-target"
 	raw, _ := json.Marshal(lifecycleInventory(b))
-	if _, err := mainSessionFromScheduler(b, string(raw)); err == nil {
+	if _, err := mainSessionTask(b, string(raw)); err == nil {
 		t.Fatal("scheduler silently replaced an established target")
 	}
 }
 
-func TestMainSessionNewCodexBindingCapturesOnlySetupThread(t *testing.T) {
+func TestMainSessionLargeInventoryPreflightAndFreshReadback(t *testing.T) {
+	for _, inputKind := range []string{"stdin", "file"} {
+		t.Run(inputKind, func(t *testing.T) {
+			f := newDispatchWatchFixture(t, "")
+			b := lifecycleCodexBinding(t, *f.watch.binding)
+			if err := dispatch.WriteJSON(dispatch.BindingPath(b.Home, b.Server), b); err != nil {
+				t.Fatal(err)
+			}
+			in := lifecycleInventory(b)
+			in.Tasks = append(in.Tasks, heartbeatmigration.Task{ID: "unrelated", Prompt: strings.Repeat("large task content ", 5000)})
+			raw, _ := json.Marshal(in)
+			cmd, out := bindingTestCommand()
+			addLifecycleSchedulerFlags(cmd)
+			feed := func(data []byte) {
+				if inputKind == "stdin" {
+					cmd.Flags().Set("scheduler-stdin", "true")
+					cmd.SetIn(strings.NewReader(string(data)))
+				} else {
+					path := filepath.Join(t.TempDir(), "inventory with spaces.json")
+					if err := os.WriteFile(path, data, 0600); err != nil {
+						t.Fatal(err)
+					}
+					cmd.Flags().Set("scheduler-file", path)
+				}
+			}
+			feed(raw)
+			cmd.Flags().Set("expected-id", "")
+			cmd.Flags().Set("expected-revision", b.Revision)
+			cmd.Flags().Set("preflight", "true")
+			release, err := watchstate.Acquire(b.Home, b.Server)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = watchBindCmd.RunE(cmd, nil)
+			release()
+			if err != nil || !strings.Contains(out.String(), "main_session_preflight") {
+				t.Fatalf("active preflight: %s %v", out.String(), err)
+			}
+			cmd.Flags().Set("preflight", "false")
+			feed(raw)
+			if err := watchBindCmd.RunE(cmd, nil); err == nil {
+				t.Fatal("snapshot committed without preflight guards")
+			}
+			cmd.Flags().Set("expected-task-id", "host-owned-task")
+			cmd.Flags().Set("expected-thread-id", lifecycleThread)
+			for _, change := range []string{"task", "thread", "paused", "missing"} {
+				changed := lifecycleInventory(b)
+				switch change {
+				case "task":
+					changed.Tasks[0].ID = "replacement-task"
+				case "thread":
+					changed.Tasks[0].ThreadID = "01a0d200-9d41-7cd2-9214-3f04761910c5"
+				case "paused":
+					changed.Tasks[0].Status = "PAUSED"
+				case "missing":
+					changed.Tasks = nil
+				}
+				readback, _ := json.Marshal(changed)
+				feed(readback)
+				if err := watchBindCmd.RunE(cmd, nil); err == nil {
+					t.Fatal("changed scheduler accepted: " + change)
+				}
+				got, err := dispatch.ReadBinding(b.Home, b.Server)
+				if err != nil || got.MainSessionID != "" || got.Revision != b.Revision {
+					t.Fatal("failed apply changed original route")
+				}
+			}
+			feed(raw)
+			if err := watchBindCmd.RunE(cmd, nil); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestMainSessionSchedulerInputRejectsAmbiguityAndOversize(t *testing.T) {
+	cmd, _ := bindingTestCommand()
+	addLifecycleSchedulerFlags(cmd)
+	cmd.Flags().Set("scheduler-stdin", "true")
+	cmd.Flags().Set("scheduler-json", `{}`)
+	if _, err := readSchedulerInput(cmd); err == nil {
+		t.Fatal("multiple inputs accepted")
+	}
+	cmd2, _ := bindingTestCommand()
+	addLifecycleSchedulerFlags(cmd2)
+	cmd2.Flags().Set("scheduler-stdin", "true")
+	cmd2.SetIn(strings.NewReader(strings.Repeat(" ", (2<<20)+1)))
+	if _, err := readSchedulerInput(cmd2); err == nil {
+		t.Fatal("oversize stdin accepted")
+	}
+}
+
+func TestMainSessionNewWatchUsesRegisteredHeartbeatInsteadOfCaller(t *testing.T) {
 	f := newDispatchWatchFixture(t, "")
 	b := lifecycleCodexBinding(t, *f.watch.binding)
 	if err := os.Remove(dispatch.BindingPath(b.Home, b.Server)); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CODEX_THREAD_ID", lifecycleThread)
-	t.Setenv("CODEX_HOME", t.TempDir())
+	t.Setenv("CODEX_THREAD_ID", "another-valid-foreground-conversation")
 	file := filepath.Join(t.TempDir(), "binding.json")
 	if err := dispatch.WriteJSON(file, b); err != nil {
 		t.Fatal(err)
 	}
-	cmd, _ := bindingTestCommand()
+	cmd, out := bindingTestCommand()
 	cmd.Flags().String("config", file, "")
+	addLifecycleSchedulerFlags(cmd)
+	if err := watchBindCmd.RunE(cmd, nil); err == nil {
+		t.Fatal("first watch silently used the upgrade conversation")
+	}
+	raw, _ := json.Marshal(lifecycleInventory(b))
+	cmd.SetIn(strings.NewReader(string(raw)))
+	cmd.Flags().Set("scheduler-stdin", "true")
+	cmd.Flags().Set("preflight", "true")
+	if err := watchBindCmd.RunE(cmd, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "main_session_preflight") {
+		t.Fatal(out.String())
+	}
+	if _, err := os.Stat(dispatch.BindingPath(b.Home, b.Server)); !os.IsNotExist(err) {
+		t.Fatal("preflight created binding")
+	}
+	cmd.SetIn(strings.NewReader(string(raw)))
+	cmd.Flags().Set("preflight", "false")
+	cmd.Flags().Set("expected-id", "")
+	cmd.Flags().Set("expected-revision", "")
+	cmd.Flags().Set("expected-task-id", "host-owned-task")
+	cmd.Flags().Set("expected-thread-id", lifecycleThread)
 	if err := watchBindCmd.RunE(cmd, nil); err != nil {
 		t.Fatal(err)
 	}
 	got, err := dispatch.ReadBinding(b.Home, b.Server)
 	if err != nil || got.MainSessionID != lifecycleThread || got.Env["CODEX_HOME"] != b.Env["CODEX_HOME"] {
-		t.Fatalf("setup capture: %+v %v", got, err)
-	}
-	t.Setenv("CODEX_THREAD_ID", "different-heartbeat-thread")
-	if err := watchBindCmd.RunE(cmd, nil); err == nil {
-		t.Fatal("existing config captured a different caller")
-	}
-	if err := os.Remove(dispatch.BindingPath(b.Home, b.Server)); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("CODEX_THREAD_ID", "")
-	if err := watchBindCmd.RunE(cmd, nil); err == nil {
-		t.Fatal("missing setup thread accepted")
+		t.Fatalf("wrong target: %+v %v", got, err)
 	}
 }
 
@@ -112,11 +228,9 @@ func TestMainSessionSchedulerCommandPreservesJournalAndRejectsReplacement(t *tes
 	}
 	job := dispatchTestNext(t, f.watch)
 	cmd, _ := bindingTestCommand()
-	cmd.Flags().String("scheduler-json", "", "")
-	cmd.Flags().String("expected-id", "", "")
-	cmd.Flags().String("expected-revision", "", "")
+	addLifecycleSchedulerFlags(cmd)
 	raw, _ := json.Marshal(lifecycleInventory(b))
-	for name, value := range map[string]string{"scheduler-json": string(raw), "expected-id": "", "expected-revision": b.Revision} {
+	for name, value := range map[string]string{"scheduler-json": string(raw), "expected-id": "", "expected-revision": b.Revision, "expected-task-id": "host-owned-task", "expected-thread-id": lifecycleThread} {
 		if err := cmd.Flags().Set(name, value); err != nil {
 			t.Fatal(err)
 		}

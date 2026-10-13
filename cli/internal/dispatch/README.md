@@ -118,7 +118,7 @@ Native/command reuse the existing Runner. ACP Agents need their own usable files
 
 Only `unknown/failed/needs_user` allow verified reconciliation; active and completed jobs do not. Unverified optional-event results remain `needs_user`. Reconciliation to `failed` requires confirmation that work did not complete; it never queues a retry.
 
-`OpenJournal` recovers state; `ReadJournalStatus` is read-only. Persist before changing memory; roll back failed saves. Rebinding rejects unresolved jobs. Stop watch before binding/retry/reconcile; they share its lock. `watch retry --order-id ORDER_ID` recovers one missed seller intake from authoritative order detail only in `awaiting_seller` or `in_progress`. It requires the `commission_order` subscription, preserves the ordinary order/version/role dedup key, records `operator_retry`, and never synthesizes or acknowledges a notification. Existing fulfillment records and uncertain intake executions require recovery by job ID. Status and doctor expose `commission_subscription`; a PM-only binding reports `disabled_orders_not_consumed`.
+`OpenJournal` recovers state; `ReadJournalStatus` is read-only. Persist before changing memory; roll back failed saves. Rebinding rejects unresolved jobs. Stop watch before mutating binding/retry/reconcile; they share its lock. Read-only binding preflight runs while watch remains active. `watch retry --order-id ORDER_ID` recovers one missed seller intake from authoritative order detail only in `awaiting_seller` or `in_progress`. It requires the `commission_order` subscription, preserves the ordinary order/version/role dedup key, records `operator_retry`, and never synthesizes or acknowledges a notification. Existing fulfillment records and uncertain intake executions require recovery by job ID. Status and doctor expose `commission_subscription`; a PM-only binding reports `disabled_orders_not_consumed`.
 
 Limits: journal 16 MiB, 256 unresolved jobs, latest 1024 completed jobs (including `accepted`); binding 64 KiB; prompt/output 1 MiB; rule/history each 64 KiB; timeout 600s by default, configurable 1–3600s. Completed jobs drop message content/event data on save, including legacy records; deduplication keys and receipts remain. Status omits payloads.
 
@@ -135,26 +135,38 @@ The runner resumes that UUID and requires the native result to return the same
 thread ID before accepting its decision. Other events keep their current routing.
 Other hosts do not yet support this field.
 
-CLI 1.0.4 captures `CODEX_THREAD_ID` only when creating a new native Codex PM
-binding through the explicit `watch bind --config` setup operation. It resolves
-the Codex store from binding environment, host environment, then the user's
-standard `.codex` directory and persists the absolute path. Missing setup-thread
-evidence blocks creation. Existing configurations cannot silently capture the
-calling heartbeat or a different foreground thread.
+CLI 1.0.5 never infers the setup thread from the absence of a watch binding.
+A new native Codex PM binding requires the host's verified heartbeat target
+or an explicit `main_session_id` in its configuration. This preserves the main
+conversation of existing users enabling watch for the first time. The Codex store
+resolves from explicit selection, binding environment, host environment, then
+the user's standard `.codex` directory; its absolute path is persisted.
 
 For existing installations, heartbeat plans report `main_session_binding`
 (`bootstrap_required`, `ready`, `unavailable`) and include the signed
 `ef-communication/references/main-session.md` when repair is needed. The host
 reads its complete native scheduler inventory and submits it through
-`watch bind --scheduler-json` with the existing revision and empty expected ID.
+`watch bind --scheduler-stdin` or `--scheduler-file` with the existing revision
+and empty expected ID. A new watch binding accepts the same input with `--config`.
+`--scheduler-json` remains available for small input; stdin/file avoid OS argv
+limits while retaining the 2 MiB inventory bound.
 CLI reuses scheduler inventory validation: one active owned EigenFlux heartbeat
 for the exact Home/server, with a validated existing `thread_id`. Titles and
 private scheduler files do not establish ownership. Scheduler bootstrap is
 initial-only; it cannot replace an established main session. Host lifecycle owns
-stopping/restarting watch. Neither heartbeat planning nor PM handling writes
+stopping/restarting watch. `--preflight` validates without acquiring the live
+watch lock or changing binding/jobs, so invalid routing leaves the consumer
+running. Apply a fresh native scheduler readback after stopping watch and pass
+the preflight's `--expected-task-id` and `--expected-thread-id`; changed task,
+target, active state, ownership or identity fails before the write. New creation
+also carries empty expected session/revision and refuses a newly present binding.
+The host owns freshness of the supplied inventory; CLI cannot query its native
+scheduler. Restore the same previously running entry on failed writes with
+unchanged identity/routing. Preserve inactive/disabled entries and report unsafe
+or failed cleanup explicitly. Neither heartbeat planning nor PM handling writes
 the binding. Unavailable established sessions require explicit owner switching.
 
-Stop watch before `watch bind --main-session-id UUID --expected-id OLD_ID
+Preflight while watch is active, then stop it before `watch bind --main-session-id UUID --expected-id OLD_ID
 --expected-revision REVISION --codex-home ABSOLUTE_PATH`. For initial binding,
 pass an empty expected ID. `--current-session` explicitly reads the calling
 `CODEX_THREAD_ID` instead of `--main-session-id`; ordinary heartbeat or message

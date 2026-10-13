@@ -88,25 +88,22 @@ func applyDispatchOwnership(plan *heartbeatPlan) error {
 var watchBindCmd = &cobra.Command{
 	Use: "bind", Short: "Bind this account to an explicitly configured local Agent", Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		if cmd.Flags().Changed("main-session-id") || cmd.Flags().Changed("current-session") || cmd.Flags().Changed("expected-id") || cmd.Flags().Changed("expected-revision") || cmd.Flags().Changed("codex-home") || cmd.Flags().Changed("scheduler-json") {
-			if cmd.Flags().Changed("config") {
-				return errors.New("session update and --config are mutually exclusive")
-			}
+		file, _ := cmd.Flags().GetString("config")
+		if file == "" {
 			return updateWatchMainSession(cmd)
+		}
+		if cmd.Flags().Changed("main-session-id") || cmd.Flags().Changed("current-session") {
+			return errors.New("explicit session update and --config are mutually exclusive; put the explicit ID in the configuration")
 		}
 		expected, err := watchBindingIdentity()
 		if err != nil {
 			return err
 		}
-		release, err := watchstate.Acquire(expected.Home, expected.Server)
+		release, err := lockMainSessionWrite(cmd, expected)
 		if err != nil {
 			return err
 		}
 		defer release()
-		file, _ := cmd.Flags().GetString("config")
-		if file == "" {
-			return errors.New("--config is required")
-		}
 		f, err := os.Open(file)
 		if err != nil {
 			return err
@@ -121,7 +118,8 @@ var watchBindCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if err = prepareInitialMainSession(&b); err != nil {
+		target, err := prepareInitialMainSession(cmd, &b)
+		if err != nil {
 			return err
 		}
 		if err = b.Validate(); err != nil {
@@ -149,6 +147,17 @@ var watchBindCmd = &cobra.Command{
 			}
 		} else if !os.IsNotExist(readErr) {
 			return readErr
+		}
+		preflight, _ := cmd.Flags().GetBool("preflight")
+		if preflight {
+			return mainSessionPreflight(cmd, target, "", "")
+		}
+		if target.TaskID != "" {
+			previous, _ := cmd.Flags().GetString("expected-id")
+			revision, _ := cmd.Flags().GetString("expected-revision")
+			if !cmd.Flags().Changed("expected-id") || !cmd.Flags().Changed("expected-revision") || previous != "" || revision != "" {
+				return errors.New("new scheduler binding requires empty --expected-id and --expected-revision from preflight")
+			}
 		}
 		// Serialize ownership handoff with legacy notification render/ACK and
 		// account switching; no old consumer may ACK after this binding wins.
@@ -299,7 +308,12 @@ func init() {
 	watchBindCmd.Flags().String("codex-home", "", "absolute Codex state directory; pins the host store without copying context")
 	watchBindCmd.Flags().String("expected-id", "", "previous main session ID; pass an empty value for initial binding")
 	watchBindCmd.Flags().String("expected-revision", "", "binding revision from watch status")
-	watchBindCmd.Flags().String("scheduler-json", "", "complete host-native scheduler inventory for initial main session bootstrap")
+	watchBindCmd.Flags().String("scheduler-json", "", "small scheduler inventory JSON; prefer --scheduler-stdin or --scheduler-file")
+	watchBindCmd.Flags().Bool("scheduler-stdin", false, "read complete scheduler inventory from stdin")
+	watchBindCmd.Flags().String("scheduler-file", "", "read complete scheduler inventory from a JSON file")
+	watchBindCmd.Flags().Bool("preflight", false, "validate routing without stopping watch or changing the binding")
+	watchBindCmd.Flags().String("expected-task-id", "", "scheduler task ID from preflight; compare with fresh host readback")
+	watchBindCmd.Flags().String("expected-thread-id", "", "scheduler target thread from preflight; compare with fresh host readback")
 	watchCmd.AddCommand(watchBindCmd, watchStatusCmd, watchDoctorCmd, watchRetryCmd, watchReconcileCmd)
 }
 
@@ -313,7 +327,7 @@ func updateWatchMainSession(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	release, err := watchstate.Acquire(expected.Home, expected.Server)
+	release, err := lockMainSessionWrite(cmd, expected)
 	if err != nil {
 		return err
 	}
@@ -325,18 +339,22 @@ func updateWatchMainSession(cmd *cobra.Command) error {
 	if !sameBindingIdentity(b, expected) {
 		return errWatchIdentity
 	}
-	id, err := selectMainSession(cmd, &b)
+	target, err := selectMainSession(cmd, &b)
 	if err != nil {
 		return err
 	}
 	previous, _ := cmd.Flags().GetString("expected-id")
 	revision, _ := cmd.Flags().GetString("expected-revision")
-	b, err = dispatch.SetMainSession(b, revision, previous, id)
+	b, err = dispatch.SetMainSession(b, revision, previous, target.SessionID)
 	if err != nil {
 		return err
 	}
 	if err = b.Validate(); err != nil {
 		return err
+	}
+	preflight, _ := cmd.Flags().GetBool("preflight")
+	if preflight {
+		return mainSessionPreflight(cmd, target, previous, revision)
 	}
 	err = auth.WithV2CredentialsLockContext(cmd.Context(), b.Server, 35*time.Second, func() error {
 		current, err := watchBindingIdentity()
@@ -351,5 +369,5 @@ func updateWatchMainSession(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"status": "main_session_bound", "previous_session_id": previous, "main_session_id": id, "binding_revision": b.Revision})
+	return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"status": "main_session_bound", "previous_session_id": previous, "main_session_id": target.SessionID, "binding_revision": b.Revision})
 }

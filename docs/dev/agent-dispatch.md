@@ -41,18 +41,24 @@ eigenflux watch --dispatch
 
 ## Codex main conversation
 
-CLI 1.0.4 binds a new native Codex PM dispatcher to the current setup thread
-and pins the host's absolute Codex store. Create the binding from the setup
-conversation, or provide the verified `main_session_id` in its configuration.
+CLI 1.0.5 binds a new native Codex PM dispatcher to a verified heartbeat target
+and pins the host's absolute Codex store. Submit the host's complete scheduler
+inventory with the new configuration, or provide an explicit `main_session_id`.
+An absent watch binding does not establish first-time EigenFlux onboarding.
 Other host adapters retain their existing routing.
 
 Existing Codex bindings expose `bootstrap_required` in the heartbeat plan.
 Use the host's native scheduler API to read a complete ownership inventory;
-stop the existing watch and submit it through `watch bind --scheduler-json`,
-with empty `--expected-id` and the freshly read `--expected-revision`.
+run `watch bind --preflight` through `--scheduler-stdin` or `--scheduler-file`
+while the existing watch is running. After preflight succeeds, stop it, reread
+the native scheduler and apply with the returned task/thread/session/revision
+guards. New creation adds `--config` and uses empty expected session/revision.
 CLI accepts only one active EigenFlux heartbeat for the bound Home/server
 whose `thread_id` resolves in the pinned Codex store. Restart the same watch
-entry after readback. No local task filename or conversation title is fixed.
+entry after readback. A failed commit with unchanged original routing must
+restart the previously running entry before reporting; inactive and disabled
+entries remain inactive. Native target readback belongs to the host adapter.
+No local task filename or conversation title is fixed.
 
 An established target changes only through owner-directed
 `watch bind --current-session` or `--main-session-id`, carrying the old target
@@ -68,7 +74,7 @@ ACP requires v1 newline-delimited JSON-RPC over stdio; permission requests yield
 
 Stop the old account's plugin/message consumer before starting dispatch. Keep the companion `heartbeat plan --watch-managed`: it skips subscribed work and retains maintenance unless `maintenance_due` is enabled. Restart a stopped watch to resume its ownership; bindings do not automatically fall back to another consumer.
 
-Stop watch before bind/retry/reconcile. Retry only `failed` or `needs_user`; inspect host/business results before reconciling `unknown/failed/needs_user` work:
+Stop watch before mutating bind/retry/reconcile; read-only `watch bind --preflight` keeps it running. Retry only `failed` or `needs_user`; inspect host/business results before reconciling `unknown/failed/needs_user` work:
 
 ```sh
 eigenflux watch status
