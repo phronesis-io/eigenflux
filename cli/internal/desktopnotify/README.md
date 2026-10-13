@@ -113,6 +113,15 @@ Reject serialized Toast XML above the Windows 5 KB limit.
 PowerShell/notification restrictions from organizational policy produce an
 error; the CLI does not bypass them. Run under an interactive desktop login.
 
+Load `ToastNotifier` and `NotificationSetting` explicitly and read `Setting`
+through the WinRT type's reflected getter, avoiding PowerShell's nullable dynamic
+property projection. Only known disabled values mean permission denial. A null
+or unknown value reports `setting_unavailable`; it never means enabled or denied.
+Helper failures expose only a fixed stage and numeric HRESULT, never raw stderr
+or exception messages. Stages distinguish registration, WinRT loading, notifier
+creation, setting reads, XML construction and OS submission. Windows-only tests
+exercise the real getter/status gate with fake objects without touching OS state.
+
 ## Verification and references
 
 Run `go test ./internal/desktopnotify` from `cli/`; cross-compile Windows tests
