@@ -57,6 +57,8 @@ func homepageCountryFromPrivateCard(raw string) (string, error) {
 // handleMessage) are kept on the consumer struct so miniredis-based tests can
 // override them between NewItemConsumer and Start, mirroring ItemStatsConsumer.
 type ItemConsumer struct {
+	summaryFidelity    bool
+	pgcEmailSuffixes   []string
 	enableFeatureIndex bool
 	llmClient          *llm.Client
 	safetyClient       *llm.Client
@@ -72,6 +74,8 @@ type ItemConsumer struct {
 
 func NewItemConsumer(cfg *config.Config, prompts *llm.PromptRegistry) *ItemConsumer {
 	c := &ItemConsumer{
+		summaryFidelity:    cfg.LLMSummaryFidelity,
+		pgcEmailSuffixes:   append([]string(nil), cfg.PGCEmailSuffixes...),
 		enableFeatureIndex: cfg.EnableNeedSearch,
 		llmClient:          llm.NewClient(cfg, prompts),
 		safetyClient:       llm.NewSafetyClient(cfg, prompts),
@@ -278,10 +282,24 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 		logger.Default().Info("ItemConsumer draft item indexed to ES", "itemID", itemID)
 	}
 
+	// Select the PGC-only path from authoritative publisher identity, never
+	// raw notes or source text. Lookup errors retry rather than bypassing auditing.
+	processItem := c.llmClient.ProcessItem
+	if c.summaryFidelity {
+		pgc, lookupErr := pgcSummaryPublisher(itemDB, raw.AuthorAgentID, c.pgcEmailSuffixes)
+		if lookupErr != nil {
+			logger.Default().Warn("PGC summary publisher lookup failed", "itemID", itemID, "err", lookupErr)
+			return HandleRetry
+		}
+		if pgc {
+			processItem = c.llmClient.ProcessPGCItem
+		}
+	}
+
 	// LLM processing with retries
 	var result *llm.ExtractResult
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		result, err = c.llmClient.ProcessItem(ctx, raw.RawContent, raw.RawNotes)
+		result, err = processItem(ctx, raw.RawContent, raw.RawNotes)
 		if err == nil {
 			break
 		}

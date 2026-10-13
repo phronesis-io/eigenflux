@@ -1,6 +1,10 @@
 package tests
 
 import (
+	"crypto/sha256"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,9 +40,10 @@ func TestCLIPublisherDoesNotAdvancePointerAfterFailedUpload(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	preparePublisherChecksums(t, root)
 	log := filepath.Join(root, "uploads.log")
 	c := exec.Command("bash", filepath.Join(root, "cli/scripts/publish.sh"))
-	c.Env = append(os.Environ(), "PATH="+filepath.Join(root, "bin")+":"+os.Getenv("PATH"), "TEST_UPLOAD_LOG="+log, "R2_ACCESS_KEY_ID=test", "R2_SECRET_ACCESS_KEY=test", "R2_ENDPOINT=https://invalid.test", "R2_BUCKET=test", "EIGENFLUX_PUBLISH_SKILLS_WITH_CLI=false")
+	c.Env = append(os.Environ(), "PATH="+filepath.Join(root, "bin")+":"+os.Getenv("PATH"), "TEST_UPLOAD_LOG="+log, "R2_ACCESS_KEY_ID=test", "R2_SECRET_ACCESS_KEY=test", "R2_ENDPOINT=https://invalid.test", "R2_BUCKET=test", "R2_PUBLIC_URL=http://127.0.0.1:1", "EIGENFLUX_PUBLISH_SKILLS_WITH_CLI=false")
 	if out, err := c.CombinedOutput(); err == nil {
 		t.Fatalf("failed upload reported success: %s", out)
 	}
@@ -117,9 +122,15 @@ exit 0
 					t.Fatal(err)
 				}
 			}
+			preparePublisherChecksums(t, root)
+			cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				r.URL.Path = "/" + filepath.Base(r.URL.Path)
+				http.FileServer(http.Dir(filepath.Join(root, "build/cli"))).ServeHTTP(w, r)
+			}))
+			defer cdn.Close()
 			log := filepath.Join(root, "uploads.log")
 			c := exec.Command("bash", filepath.Join(root, "cli/scripts/publish.sh"))
-			c.Env = append(os.Environ(), "PATH="+filepath.Join(root, "bin")+":"+os.Getenv("PATH"), "TEST_MODE="+mode, "TEST_BUILD="+filepath.Join(root, "build/cli"), "TEST_UPLOAD_LOG="+log, "R2_ACCESS_KEY_ID=test", "R2_SECRET_ACCESS_KEY=test", "R2_ENDPOINT=https://invalid.test", "R2_BUCKET=test", "R2_PUBLIC_URL=https://invalid.test", "EIGENFLUX_PUBLISH_SKILLS_WITH_CLI=false")
+			c.Env = append(os.Environ(), "PATH="+filepath.Join(root, "bin")+":"+os.Getenv("PATH"), "TEST_MODE="+mode, "TEST_BUILD="+filepath.Join(root, "build/cli"), "TEST_UPLOAD_LOG="+log, "R2_ACCESS_KEY_ID=test", "R2_SECRET_ACCESS_KEY=test", "R2_ENDPOINT=https://invalid.test", "R2_BUCKET=test", "R2_PUBLIC_URL="+cdn.URL, "EIGENFLUX_PUBLISH_SKILLS_WITH_CLI=false")
 			out, err := c.CombinedOutput()
 			wantOK := mode == "new" || mode == "same" || mode == "race-same"
 			if (err == nil) != wantOK {
@@ -177,5 +188,27 @@ func TestSkillsPublicationRequiresAvailableCLI(t *testing.T) {
 	publish := read("../scripts/publish.sh")
 	if strings.Index(publish, `bash "$SCRIPT_DIR/release-skills.sh"`) < strings.Index(publish, `"s3://$R2_BUCKET/cli/latest/release.json"`) {
 		t.Fatal("Skills dispatched before CLI pointer publication")
+	}
+}
+
+func preparePublisherChecksums(t *testing.T, root string) {
+	t.Helper()
+	script, err := os.ReadFile("../scripts/cli-artifacts.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "cli/scripts/cli-artifacts.py"), script, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, platform := range []string{"linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64.exe", "windows-arm64.exe"} {
+		name := filepath.Join(root, "build/cli/eigenflux-"+platform)
+		content := []byte("fixture")
+		if err := os.WriteFile(name, content, 0600); err != nil {
+			t.Fatal(err)
+		}
+		checksum := fmt.Sprintf("%x\n", sha256.Sum256(content))
+		if err := os.WriteFile(name+".sha256", []byte(checksum), 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

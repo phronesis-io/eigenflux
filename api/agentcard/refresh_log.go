@@ -96,6 +96,7 @@ func logProfileRefreshRun(ctx context.Context, c *app.RequestContext, agentID in
 	logger.Ctx(ctx).Info(profileRefreshRunLogMsg,
 		"agent_id", agentID,
 		"outcome", outcome,
+		"run_id", safeRefreshRunID(string(c.GetHeader(ProfileRefreshRunHeader))),
 		"trigger", normalizeRefreshTrigger(trigger),
 		"mode", headers.Mode,
 		"runtime_name", identity.Name,

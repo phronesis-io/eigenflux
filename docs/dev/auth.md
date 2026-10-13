@@ -166,9 +166,34 @@ slot; a new Agent replaces slot zero.
 Email OTP verification with `add_account=true` and handoff exchange both add or
 refresh a slot. Duplicate slots are reusable capacity. At five distinct valid accounts they return
 `CONSOLE_ACCOUNT_LIMIT_REACHED` with the replaceable account list. The verified
-OTP challenge or handoff remains unconsumed. Retrying with `replace_agent_id`
-atomically revokes the selected session, consumes the proof, creates the new
-session, and activates its slot. Credentials are never stored in localStorage.
+OTP challenge remains unconsumed and the handoff remains reusable. Retrying with
+`replace_agent_id` atomically revokes the selected session, consumes the OTP or
+records the handoff exchange, creates the new session, and activates its slot.
+Credentials are never stored in localStorage.
+
+## Console handoff confirmation and single redemption
+
+Console handoff links expire after 72 hours and can be opened in any browser.
+Opening or refreshing the page only checks ticket status through
+`POST /api/v2/console/handoffs/status`; this endpoint never consumes a ticket or
+creates a session. The entry button requires an available ticket and explicit
+user confirmation. It is disabled while a request is pending.
+
+Each ticket can be successfully exchanged only once across all browsers.
+Exchange locks the ticket row and atomically records `consumed_at` with session
+creation. Failed transactions leave the ticket available for retry. Both status
+and exchange validate the nonce, expiry, revocation, identity binding and prior
+consumption. Status is advisory; exchange rechecks under the lock to prevent
+concurrent redemption. No schema migration is required.
+
+Already redeemed links display a localized message without an exchange button.
+Transient failures allow retry. A successful exchange followed by failed session
+verification retries verification without exchanging again. The URL's ticket
+and nonce are removed after target-session verification succeeds.
+
+Failures distinguish `HANDOFF_NOT_FOUND`, `HANDOFF_NONCE_INVALID`,
+`HANDOFF_EXPIRED`, `HANDOFF_REVOKED`, `HANDOFF_IDENTITY_INVALID`, and
+`HANDOFF_CONSUMED`. The browser provides Chinese and English explanations.
 
 ## Agent CLI Account Switching
 

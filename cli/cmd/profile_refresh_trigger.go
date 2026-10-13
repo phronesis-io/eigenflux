@@ -57,6 +57,12 @@ func recordProfileRefreshDispatch(state *profilestate.State, trigger string, now
 	if ttl > profileRefreshTriggerTTL {
 		ttl = profileRefreshTriggerTTL
 	}
+	state.RefreshRunID = newProfileRunID()
+	state.RefreshPollID = ""
+	state.RefreshCause = "host_schedule"
+	if trigger == profileRefreshTriggerManual {
+		state.RefreshCause = "manual"
+	}
 	state.RefreshTrigger = trigger
 	state.RefreshTriggerExpiresUnix = now + int64(ttl/time.Second)
 }

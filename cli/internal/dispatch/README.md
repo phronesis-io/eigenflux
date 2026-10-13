@@ -126,6 +126,10 @@ Limits: journal 16 MiB, 256 unresolved jobs, latest 1024 completed jobs (includi
 
 ### Opt-in Codex PM main session
 
+The canonical onboarding scheduler entry is now `skills/ef-onboarding/references/host-setup.md`;
+its Codex PM setup retains the main-session preflight, scheduler readback and
+unchanged-route recovery contract. `recurring-trigger.md` is a compatibility entry.
+
 `main_session_id` selects an existing Codex thread for PMs only. Native Codex
 bindings must pin an absolute `env.CODEX_HOME`. Validation checks the exact UUID
 against the host-owned `sessions` rollout metadata, excluding archived sessions;

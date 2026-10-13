@@ -83,6 +83,10 @@ var fundingDisclosures = map[string][2]string{
 		"创建任务委托草稿；收款目前仅支持支付宝（人民币）",
 		"Create a Commission draft; earnings are paid to a bound Alipay account in CNY only",
 	},
+	"commission.publish": {
+		"发布任务委托；买家目前仅能通过支付宝（人民币）付款，卖家收款也仅支持支付宝",
+		"Publish a Commission; buyers pay through Alipay in CNY only and sellers are paid to a bound Alipay account",
+	},
 	"order.create": {
 		"创建订单；订单目前仅支持支付宝（人民币）付款",
 		"Create an Order; Orders are payable through Alipay in CNY only",
@@ -217,6 +221,9 @@ func capabilitySeeds() []capabilitySeed {
 		capability("server.update", "eigenflux server update", "local", "write", "修改服务器", "Update a server"),
 		capability("server.use", "eigenflux server use", "local", "write", "切换默认服务器", "Select the default server"),
 		capability("server.remove", "eigenflux server remove", "local", "write", "删除服务器", "Remove a server"),
+		capability("installation.record", "eigenflux installation record", "local", "write", "记录安装归属", "Record installation ownership"),
+		capability("installation.uninstall", "eigenflux uninstall", "local", "write", "卸载 EigenFlux", "Uninstall EigenFlux"),
+		capability("skills.uninstall", "eigenflux skills uninstall", "local", "write", "卸载托管 Skills", "Uninstall managed Skills"),
 		capability("skills.sync", "eigenflux skills sync", "local", "write", "同步 Skills", "Synchronize Skills"),
 		capability("skills.list", "eigenflux skills list", "local", "read", "查看已安装 Skills", "List installed Skills"),
 		capability("skills.path", "eigenflux skills path", "local", "read", "查看 Skills 路径", "View the Skills path"),
@@ -233,9 +240,6 @@ func capabilitySeeds() []capabilitySeed {
 		capability("notification.setup", "eigenflux notify setup", "local", "write", "启用系统通知", "Enable desktop notifications"),
 		capability("notification.status", "eigenflux notify status", "local", "read", "检查系统通知", "Check desktop notifications"),
 		capability("notification.test", "eigenflux notify test", "local", "write", "测试通知跳转", "Test a clickable desktop notification"),
-		capability("installation.record", "eigenflux installation record", "local", "write", "记录安装范围", "Record an installation"),
-		capability("installation.uninstall", "eigenflux uninstall", "local", "write", "卸载登记的安装", "Remove a registered installation"),
-		capability("skills.uninstall", "eigenflux skills uninstall", "local", "write", "卸载未修改的托管Skills", "Remove unchanged managed Skills"),
 		capability("heartbeat.maintenance_report", "eigenflux heartbeat maintenance-report", "local", "write", "记录维护阶段", "Record a maintenance phase"),
 		capability("heartbeat.maintenance_status", "eigenflux heartbeat maintenance-status", "local", "read", "查看维护状态", "Inspect maintenance status"),
 		capability("heartbeat.plan", "eigenflux heartbeat plan", "runtime", "write", "生成 Heartbeat 执行计划", "Generate a Heartbeat execution plan"),
@@ -343,8 +347,8 @@ func capabilitySeeds() []capabilitySeed {
 			}
 		case "order.payment":
 			seed.minCLI = "0.0.103"
-			seed.zh.Description = "获取待付款订单的支付宝链接，由买方打开并确认支付；此命令不会自动扣款"
-			seed.en.Description = "Get an Alipay link for a pending-payment Order; the buyer opens it and confirms payment. This command does not charge automatically"
+			seed.zh.Description = "获取待付款订单的支付宝链接，由买方打开并确认支付；支付宝是目前唯一支持的付款渠道，此命令不会自动扣款"
+			seed.en.Description = "Get an Alipay link for a pending-payment Order; the buyer opens it and confirms payment. Alipay is currently the only supported payment channel, and this command does not charge automatically"
 		case "identity.provision":
 			seed.identityRoute, seed.requiresConsoleHandoff = "provision", true
 			seed.zh.Description = "仅用于创建或明确认领 Agent，不用于修改 Agent Card 或切换账号"

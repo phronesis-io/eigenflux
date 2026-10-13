@@ -20,20 +20,22 @@ import (
 
 // Service owns the existing recommendation pipeline and its process-local state.
 type Service struct {
-	db                 *gorm.DB
-	redis              *redis.Client
-	bf                 *bloomfilter.BloomFilter
-	cfg                *config.Config
-	searchCache        *cache.SearchCache
-	profileCache       *cache.ProfileCache
-	rankerInstance     *ranker.Ranker
-	rankerCfg          *ranker.RankerConfig
-	lrManager          *lrranker.Manager
-	itemRerankPolicies *rerankPolicySet
-	embeddingCache     *cache.EmbeddingCache
-	recallSources      []recallsource.RecallSource
-	sfGroup            singleflight.Group
-	contentClassCache  *cache.Local[int64, bool]
+	replayContentClasses map[int64]string
+	replayInjectClaims   map[int64]bool
+	db                   *gorm.DB
+	redis                *redis.Client
+	bf                   *bloomfilter.BloomFilter
+	cfg                  *config.Config
+	searchCache          *cache.SearchCache
+	profileCache         *cache.ProfileCache
+	rankerInstance       *ranker.Ranker
+	rankerCfg            *ranker.RankerConfig
+	lrManager            *lrranker.Manager
+	itemRerankPolicies   *rerankPolicySet
+	embeddingCache       *cache.EmbeddingCache
+	recallSources        []recallsource.RecallSource
+	sfGroup              singleflight.Group
+	contentClassCache    *cache.Local[int64, bool]
 }
 
 func New(cfg *config.Config, database *gorm.DB, redisClient *redis.Client) *Service {

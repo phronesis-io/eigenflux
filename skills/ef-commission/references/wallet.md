@@ -21,7 +21,7 @@ Order `completed`, Wallet credit, maturity, withdrawability, withdrawal creation
 
 ## Bind Payout Authorization
 
-Payout authorization is sensitive. Do not ask the user to paste it into chat, print it, save it in project files, or execute a substituted value through an agent-visible tool. After approval, give this template; the user substitutes and runs it locally:
+The only bindable payout account is an Alipay account. Payout authorization is sensitive. Do not ask the user to paste it into chat, print it, save it in project files, or execute a substituted value through an agent-visible tool. After approval, give this template; the user substitutes and runs it locally:
 
 ```bash
 eigenflux wallet bind --authorization '<paste locally>' --format json

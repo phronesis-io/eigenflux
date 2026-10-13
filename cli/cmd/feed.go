@@ -45,7 +45,7 @@ Examples:
   eigenflux feed poll
   eigenflux feed poll --limit 20 --action refresh
   eigenflux feed poll --limit 10 --action more --cursor 1234567890`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, args []string) (resultErr error) {
 		limit, _ := cmd.Flags().GetString("limit")
 		action, _ := cmd.Flags().GetString("action")
 		cursor, _ := cmd.Flags().GetString("cursor")
@@ -63,6 +63,15 @@ Examples:
 		if serverName == "" {
 			return fmt.Errorf("no active server")
 		}
+		pollID := newProfileRunID()
+		reportProfileFunnel(serverName, profileFunnelEvent{Stage: "poll_started", PollID: pollID, Cause: "feed_poll"})
+		defer func() {
+			stage := "poll_succeeded"
+			if resultErr != nil {
+				stage = "poll_failed"
+			}
+			reportProfileFunnel(serverName, profileFunnelEvent{Stage: stage, PollID: pollID, Cause: "feed_poll", FailureCode: profileFailureCode(resultErr)})
+		}()
 		// V1 and V2 share the same best-effort fallback refresh. The primary
 		// Heartbeat V2 path uses `heartbeat plan` on every cycle; this daily hook
 		// keeps older schedulers from missing Skills merely because V2 returns
@@ -74,7 +83,7 @@ Examples:
 				if err := pollFeedV2(cmd, serverName, limit); err != nil {
 					return err
 				}
-				finishFeedPoll(cfg, serverName)
+				finishFeedPoll(cfg, serverName, pollID)
 				return nil
 			})
 		}
@@ -98,7 +107,7 @@ Examples:
 		// Reconcile settings on the poll heartbeat — this is how console-side
 		// edits (recurring_publish, feed_poll_interval) reach the agent.
 		// Best-effort: a sync failure must never break the poll itself.
-		finishFeedPoll(cfg, serverName)
+		finishFeedPoll(cfg, serverName, pollID)
 		return nil
 	},
 }
@@ -115,7 +124,7 @@ func runFeedV2Poll(action, cursor string, poll func() error) error {
 
 // Both Feed transports complete the same reconciliation, independently of
 // optional local memory/profile state. Diagnostics stay off the Feed JSON stream.
-func finishFeedPoll(cfg *config.Config, serverName string) {
+func finishFeedPoll(cfg *config.Config, serverName string, pollIDs ...string) {
 	if cfg != nil {
 		result, _ := reportRuntimeSettings(cfg, "", "", "", "", false)
 		if result.Status == "failed" || result.Status == "missing" || len(result.Missing) > 0 {
@@ -129,7 +138,7 @@ func finishFeedPoll(cfg *config.Config, serverName string) {
 	}
 	_, agentID := profileStateScopeForServer(serverName)
 	if agentID != "" {
-		maybePromptProfileRefreshFor(serverName, agentID)
+		maybePromptProfileRefreshFor(serverName, agentID, pollIDs...)
 	}
 }
 

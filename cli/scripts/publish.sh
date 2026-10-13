@@ -27,6 +27,17 @@ if [[ -z "$R2_ACCESS_KEY_ID" || -z "$R2_SECRET_ACCESS_KEY" ]]; then
   exit 1
 fi
 
+# Reject incomplete or changed artifacts before any remote writes.
+python3 "$SCRIPT_DIR/cli-artifacts.py" verify "$BUILD_DIR"
+if [[ "$(cat "$BUILD_DIR/version.txt")" != "$CLI_VERSION" ]]; then
+  echo "build/cli/version.txt does not match CLI_VERSION; rebuild before publishing" >&2
+  exit 1
+fi
+if [[ -z "$R2_PUBLIC_URL" ]]; then
+  echo "R2_PUBLIC_URL is required to verify published artifacts" >&2
+  exit 1
+fi
+
 # Defer the optional Skills workflow dispatch until CLI publication succeeds.
 PUBLISH_SKILLS_AFTER_CLI="${EIGENFLUX_PUBLISH_SKILLS_WITH_CLI:-false}"
 EIGENFLUX_PUBLISH_SKILLS_WITH_CLI=false
@@ -89,6 +100,11 @@ for file in "$BUILD_DIR"/eigenflux-*; do
   aws s3 cp "$file" "s3://$R2_BUCKET/cli/latest/$name" $S3_ARGS --quiet
   echo -e "${GREEN}latest${NC}"
 done
+
+python3 "$SCRIPT_DIR/cli-artifacts.py" verify-public "$BUILD_DIR" \
+  --base-url "$R2_PUBLIC_URL/cli/$CLI_VERSION"
+python3 "$SCRIPT_DIR/cli-artifacts.py" verify-public "$BUILD_DIR" \
+  --base-url "$R2_PUBLIC_URL/cli/latest"
 
 # Upload version.txt
 aws s3 cp "$BUILD_DIR/version.txt" "s3://$R2_BUCKET/cli/latest/version.txt" $S3_ARGS --quiet

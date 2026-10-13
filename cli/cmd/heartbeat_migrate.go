@@ -74,32 +74,6 @@ func migrationReceiptPath(host string) string {
 	return maintenancePath("scheduler-" + hex.EncodeToString(scope[:8]))
 }
 
-func saveMaintenance(path string, v interface{}) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
-	}
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(filepath.Dir(path), ".maintenance-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	if _, err = f.Write(b); err == nil {
-		err = f.Sync()
-	}
-	ce := f.Close()
-	if err == nil {
-		err = ce
-	}
-	if err != nil {
-		return err
-	}
-	return os.Rename(f.Name(), path)
-}
-
 func init() {
 	migrate := &cobra.Command{Use: "migrate", Short: "Plan and verify an in-place host scheduler migration"}
 	plan := &cobra.Command{Use: "plan", Args: cobra.NoArgs, Short: "Read native scheduler inventory on stdin and propose prompt-only changes", RunE: func(cmd *cobra.Command, _ []string) error {

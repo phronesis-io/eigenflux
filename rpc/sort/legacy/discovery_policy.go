@@ -2,6 +2,7 @@ package legacy
 
 import (
 	"context"
+	"eigenflux_server/pkg/config"
 	sortdal "eigenflux_server/rpc/sort/dal"
 	"eigenflux_server/rpc/sort/discovery"
 	"eigenflux_server/rpc/sort/rank"
@@ -62,7 +63,10 @@ func (s *Service) DiscoveryPolicies(ctx context.Context, in []discovery.Candidat
 		}
 		ttl := time.Duration(0)
 		if mode == discovery.Recommendation {
-			claimed := fetchInjectClaims(ctx, s.redis, ids)
+			claimed := s.replayInjectClaims
+			if claimed == nil {
+				claimed = fetchInjectClaims(ctx, s.redis, ids)
+			}
 			for _, rule := range s.itemRerankPolicies.InjectRules() {
 				rule := rule
 				t, err := rule.ParsedClaimTTL()
@@ -105,4 +109,14 @@ func (s *Service) DiscoverySourceLimits() []discovery.SourceLimit {
 		out = append(out, discovery.SourceLimit{Source: rule.Source, Numerator: numerator, Denominator: denominator})
 	}
 	return out
+}
+
+// NewDiscoveryReplayPolicies pins time, classification and injection claims from
+// an offline snapshot. It does not initialize network clients or reload models.
+func NewDiscoveryReplayPolicies(cfg *config.Config, path string, now time.Time, classes map[int64]string, claims map[int64]bool) *Service {
+	if classes == nil || claims == nil {
+		panic("replay policy facts must be explicit")
+	}
+	return &Service{cfg: cfg, replayContentClasses: classes, replayInjectClaims: claims,
+		itemRerankPolicies: loadRerankPolicySet(context.Background(), path, func() time.Time { return now })}
 }

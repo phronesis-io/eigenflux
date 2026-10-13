@@ -1,0 +1,19 @@
+name: Release annotations
+on:
+  pull_request:
+    paths:
+      - 'deploy/release-events.json'
+      - 'scripts/cloud/*annotations*'
+      - 'scripts/cloud/deploy_main*'
+      - 'scripts/cloud/test_deploy_main.sh'
+      - 'scripts/cloud/test_release_api_hook.sh'
+      - '.github/workflows/release-annotations.yml'
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/cloud/release_annotations.py --state-dir /tmp/release-validation validate --manifest deploy/release-events.json
+      - run: python3 scripts/cloud/test_release_annotations.py
+      - run: bash scripts/cloud/test_deploy_main.sh
+      - run: bash scripts/cloud/test_release_api_hook.sh

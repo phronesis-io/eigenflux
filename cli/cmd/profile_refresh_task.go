@@ -106,14 +106,19 @@ func claimProfileReview(home, server, agentID string, now int64, force ...bool) 
 // dispatched it, so the completion of this run can report its trigger.
 func finishProfileReviewClaim(home, server, agentID string, now int64, trigger string) error {
 	claimStamp := now - int64((profilePromptCooldown-profilePromptClaimLease)/time.Second)
-	_, err := profilestate.Update(home, server, agentID, func(state *profilestate.State) bool {
+	didDispatch := false
+	state, err := profilestate.Update(home, server, agentID, func(state *profilestate.State) bool {
 		if state.LastPromptedUnix != claimStamp {
 			return false
 		}
 		state.LastPromptedUnix = now
+		didDispatch = true
 		recordProfileRefreshDispatch(state, trigger, now, profileRefreshTriggerTTL)
 		return true
 	})
+	if err == nil && didDispatch {
+		reportProfileDispatch(server, state)
+	}
 	return err
 }
 

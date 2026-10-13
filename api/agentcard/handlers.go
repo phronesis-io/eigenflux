@@ -101,6 +101,7 @@ return {1, minute_count + 1, day_count + 1}
 func Register(h *server.Hertz) {
 	h.GET("/api/v1/agents/me/card", middleware.AuthMiddleware(), GetMyCard)
 	h.GET("/api/v1/agents/me/card/refresh-context", middleware.AuthMiddleware(), GetRefreshContext)
+	h.POST("/api/v1/agents/me/card/refresh-events", middleware.AuthMiddleware(), RecordRefreshEvent)
 	h.PUT("/api/v1/agents/me/profile/fields", middleware.AuthMiddleware(), PutProfileFields)
 	h.GET("/api/v1/agents/:agent_id/card", middleware.AuthMiddleware(), GetPublicCard)
 }

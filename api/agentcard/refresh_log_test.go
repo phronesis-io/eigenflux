@@ -40,6 +40,7 @@ func TestLogProfileRefreshRunWritesBoundedFields(t *testing.T) {
 	c := app.NewContext(0)
 	c.Request.Header.Set("X-Client-Mode", "plugin")
 	c.Request.Header.Set("X-CLI-Ver", "0.0.60")
+	c.Request.Header.Set(ProfileRefreshRunHeader, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	c.Request.Header.Set("X-Client-Plugin-Version", "bad version; drop")
 	logProfileRefreshRun(context.Background(), c, 42, "unchanged", "scheduled")
 
@@ -49,7 +50,7 @@ func TestLogProfileRefreshRunWritesBoundedFields(t *testing.T) {
 	}
 	want := map[string]interface{}{
 		"msg": profileRefreshRunLogMsg, "agent_id": float64(42), "outcome": "unchanged", "trigger": "scheduled",
-		"mode": "plugin", "cli_version": "0.0.60", "plugin_version": "",
+		"mode": "plugin", "cli_version": "0.0.60", "plugin_version": "", "run_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 	}
 	for key, value := range want {
 		if line[key] != value {

@@ -136,6 +136,7 @@ build_skills_bundle
 
 echo ""
 if [[ $failed -eq 0 ]]; then
+  python3 "$SCRIPT_DIR/cli-artifacts.py" generate "$BUILD_DIR"
   "${GO_CMD[@]}" run ./cmd/clirelease --dir "$BUILD_DIR" --version "$CLI_VERSION" \
     --signing-key-file "$EIGENFLUX_SKILLS_SIGNING_KEY_FILE"
   echo -e "${GREEN}All platforms compiled → build/cli/${NC}"

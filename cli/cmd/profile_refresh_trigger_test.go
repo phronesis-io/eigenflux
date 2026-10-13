@@ -102,9 +102,11 @@ func TestLostClaimDoesNotOverwriteNewerDispatch(t *testing.T) {
 // refreshRunServer serves the requests one refresh run makes and records the
 // trigger header and source each one carried.
 type refreshRunServer struct {
-	mu       sync.Mutex
-	triggers []string
-	sources  []string
+	mu         sync.Mutex
+	triggers   []string
+	sources    []string
+	runIDs     []string
+	dispatches []profileFunnelEvent
 }
 
 func (s *refreshRunServer) handler(t *testing.T) http.HandlerFunc {
@@ -112,10 +114,18 @@ func (s *refreshRunServer) handler(t *testing.T) http.HandlerFunc {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v2/agents/me/card/refresh-events":
+			var event profileFunnelEvent
+			if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+				t.Error(err)
+			}
+			s.dispatches = append(s.dispatches, event)
+			_, _ = w.Write([]byte(`{"code":0}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/agent-context":
 			_, _ = w.Write([]byte(`{"code":0,"data":{"context_revision":1}}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/agents/me/card/refresh-context":
 			s.triggers = append(s.triggers, r.Header.Get(profileRefreshTriggerHeader))
+			s.runIDs = append(s.runIDs, r.Header.Get(profileRefreshRunHeader))
 			_, _ = w.Write([]byte(`{"code":0,"data":{"profile_version":7}}`))
 		case r.Method == http.MethodPut && r.URL.Path == "/api/v2/agent-profile/fields":
 			var body struct {
@@ -125,6 +135,7 @@ func (s *refreshRunServer) handler(t *testing.T) http.HandlerFunc {
 				t.Errorf("decode patch body: %v", err)
 			}
 			s.triggers = append(s.triggers, r.Header.Get(profileRefreshTriggerHeader))
+			s.runIDs = append(s.runIDs, r.Header.Get(profileRefreshRunHeader))
 			s.sources = append(s.sources, body.Source)
 			_, _ = w.Write([]byte(`{"code":0,"data":{"profile_version":8,"changed_paths":["seeking"]}}`))
 		default:
@@ -197,6 +208,9 @@ func TestRefreshTaskDispatchReportsTriggerOnCompletion(t *testing.T) {
 			if err := runRefreshComplete(t); err != nil {
 				t.Fatal(err)
 			}
+			if len(run.dispatches) != 1 || len(run.runIDs) != 1 || run.dispatches[0].RunID == "" || run.runIDs[0] != run.dispatches[0].RunID {
+				t.Fatalf("lost run correlation: %+v %v", run.dispatches, run.runIDs)
+			}
 			if len(run.triggers) != 1 || run.triggers[0] != tc.trigger {
 				t.Fatalf("refresh-complete trigger = %q, want %q", run.triggers, tc.trigger)
 			}
@@ -216,8 +230,11 @@ func TestRefreshTaskDispatchReportsTriggerOnCompletion(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			if len(run.dispatches) != 1 {
+				t.Fatalf("dispatches: %+v", run.dispatches)
+			}
 			for i := range run.sources {
-				if run.sources[i] != tc.source || run.triggers[i] != tc.trigger {
+				if run.sources[i] != tc.source || run.triggers[i] != tc.trigger || run.runIDs[i] != run.dispatches[0].RunID {
 					t.Fatalf("patch %d sent source=%q trigger=%q, want %q/%q", i, run.sources[i], run.triggers[i], tc.source, tc.trigger)
 				}
 			}
@@ -291,11 +308,15 @@ func TestPendingLineRecordsScheduledDispatch(t *testing.T) {
 	profilePromptWriter = &stderr
 	t.Cleanup(func() { profilePromptWriter = oldWriter })
 
-	maybePromptProfileRefreshFor(srv, agentID)
+	pollID := newProfileRunID()
+	maybePromptProfileRefreshFor(srv, agentID, pollID)
 	if !strings.Contains(stderr.String(), "[PENDING TASK]") {
 		t.Fatalf("pending line was not emitted: %q", stderr.String())
 	}
 	state := profilestate.Load(config.HomeDir(), srv, agentID)
+	if state.RefreshRunID == "" || state.RefreshPollID != pollID || state.RefreshCause != "feed_poll" {
+		t.Fatalf("lost poll/run correlation: %+v", state)
+	}
 	if got := activeProfileRefreshTrigger(state, time.Now().Unix()); got != "scheduled" {
 		t.Fatalf("pending line trigger = %q (%+v), want scheduled", got, state)
 	}

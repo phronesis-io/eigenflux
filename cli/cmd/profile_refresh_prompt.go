@@ -120,7 +120,7 @@ func maybePromptProfileRefresh() {
 	maybePromptProfileRefreshFor(srv, agentID)
 }
 
-func maybePromptProfileRefreshFor(srv, agentID string) {
+func maybePromptProfileRefreshFor(srv, agentID string, pollIDs ...string) {
 	// Plugin hosts own their refresh loop and discard CLI stderr. Keep this
 	// gate in the scoped implementation so feed poll cannot bypass it.
 	meta := clientMetaForServerName(srv)
@@ -166,15 +166,24 @@ func maybePromptProfileRefreshFor(srv, agentID string) {
 	if err := output.PrintMessageTo(profilePromptWriter, "\n%s", output.ProfileRefreshPromptLine); err != nil {
 		return
 	}
-	_, _ = profilestate.Update(config.HomeDir(), srv, agentID, func(state *profilestate.State) bool {
+	didDispatch := false
+	dispatched, dispatchErr := profilestate.Update(config.HomeDir(), srv, agentID, func(state *profilestate.State) bool {
 		if state.LastPromptedUnix != claimStamp {
 			return false
 		}
 		state.LastPromptedUnix = now
+		didDispatch = true
 		// The reminder was delivered: the run it starts is a scheduled one.
 		recordProfileRefreshDispatch(state, profileRefreshTriggerScheduled, now, profilePendingLineTriggerTTL)
+		if len(pollIDs) > 0 && pollIDs[0] != "" {
+			state.RefreshCause = "feed_poll"
+			state.RefreshPollID = pollIDs[0]
+		}
 		return true
 	})
+	if dispatchErr == nil && didDispatch {
+		reportProfileDispatch(srv, dispatched)
+	}
 }
 
 func pluginOwnsProfileRefresh(_ string, mode string) bool {

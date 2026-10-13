@@ -194,3 +194,8 @@ not suppress an explicit maintenance-only or control-only plan. Before watch
 activation and with older CLIs, the existing full plan remains unchanged.
 Ordinary full plans do not reset the independent maintenance due clock; a Feed
 failure therefore cannot indefinitely suppress watch-triggered maintenance.
+
+CLI builds generate checksums for all six platform binaries alongside the signed
+release manifest. Publication validates local checksums, preserves conditional
+immutable version writes, and verifies both public paths before advancing latest
+version and signed release pointers. Skills dispatch follows successful CLI publication.

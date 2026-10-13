@@ -70,6 +70,7 @@ type Config struct {
 	AuthRPCPort                 int
 	PMRPCPort                   int
 	NotificationRPCPort         int
+	LLMSummaryFidelity          bool // opt-in relationship/attribution grounding for PGC extraction only
 	LLMApiKey                   string
 	LLMBaseURL                  string
 	LLMModel                    string
@@ -284,6 +285,7 @@ func Load() *Config {
 		PMRPCPort:                   getEnvInt("PM_RPC_PORT", 8885),
 		AuthRPCPort:                 getEnvInt("AUTH_RPC_PORT", 8886),
 		NotificationRPCPort:         getEnvInt("NOTIFICATION_RPC_PORT", 8887),
+		LLMSummaryFidelity:          getEnvBool("LLM_SUMMARY_FIDELITY", false),
 		LLMApiKey:                   getEnv("LLM_API_KEY", ""),
 		LLMBaseURL:                  getEnv("LLM_BASE_URL", "https://api.openai.com/v1"),
 		LLMModel:                    getEnv("LLM_MODEL", "gpt-4o-mini"),

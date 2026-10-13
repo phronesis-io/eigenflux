@@ -27,6 +27,8 @@ jobs:
           aws s3api put-object --generate-cli-skeleton input | python3 -c 'import json,sys; assert "IfNoneMatch" in json.load(sys.stdin)'
           cd cli
           go test ./cmd/clirelease ./tests
+      - name: Test CLI artifact publication
+        run: python3 -m unittest discover -s tests/cli_release -p 'test_cli_artifacts.py'
       - name: Build signed release artifacts
         env:
           EIGENFLUX_SKILLS_SIGNING_KEY: ${{ secrets.EIGENFLUX_SKILLS_SIGNING_KEY }}

@@ -116,3 +116,8 @@ Pipeline publishes completed background census snapshots; Sort reports lookup
 outcomes. No intermediate FeatureIndex timing histograms are emitted. Labels
 contain registered type/view and fixed outcomes only. Metric
 semantics and PromQL examples are in [Online feature index](feature_index.md#monitoring).
+
+## Production release markers
+
+Important changes use [release declarations](release-annotations.md) so Grafana
+records the successful deployment time and the measurement coverage boundary.

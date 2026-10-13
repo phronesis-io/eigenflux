@@ -141,8 +141,9 @@ func (s *Service) recordMaintenanceBatch(_ context.Context, c *app.RequestContex
 		delete(properties, "event_at")
 		// Namespace the global table key by authenticated Agent. One Agent cannot
 		// pre-empt another's idempotency key, even when both share an installation.
+		// The colon also excludes these internal keys from browser telemetry IDs.
 		key := sha256.Sum256([]byte(strconv.FormatInt(id, 10) + "\x00" + event.EventID))
-		rows = append(rows, telemetryEventRequest{EventID: "maintenance-" + hex.EncodeToString(key[:]), EventType: "maintenance_attempt", EventAt: event.EventAt, Properties: properties})
+		rows = append(rows, telemetryEventRequest{EventID: "maintenance:" + hex.EncodeToString(key[:]), EventType: "maintenance_attempt", EventAt: event.EventAt, Properties: properties})
 	}
 	encoded, _ := json.Marshal(rows)
 	result := s.db.Exec(`INSERT INTO telemetry_events_v2

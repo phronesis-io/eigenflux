@@ -3,7 +3,7 @@ name: ef-uninstall
 description: Remove an EigenFlux CLI installation, its owned native triggers, host plugin, and unchanged managed Skills when the owner requests uninstallation. Preserve Agent identity and data.
 metadata:
   author: "Phronesis AI"
-  version: "1.0.1"
+  version: "1.0.3"
   requires:
     bins: ["eigenflux"]
 ---

@@ -1,21 +1,17 @@
-# Maintenance event ingestion
+# Agent maintenance observations
 
-Update this document when `maintenance_handlers.go` changes.
+Read before changing `maintenance_handlers.go`; update this file with the implementation.
 
-`POST /api/v2/maintenance/events:batch` requires Agent `settings:write` authority.
-Identity comes from authentication, never from request fields. Existing bounded
-validation, rate limiting, account-namespaced event IDs and `telemetry_events_v2`
-storage also apply to uninstall events; no schema migration is needed.
+`POST /api/v2/maintenance/events:batch` uses Agent V2 `settings:write` authentication. Actor identity always comes from the authenticated session. Browser telemetry remains a separate endpoint.
 
-Uninstall observations use `event_type=maintenance_attempt`, `phase=uninstall`,
-`trigger=manual`; results are `started`, `removed`, `partial`, `failed`, `blocked`.
-Allowed sources: `agent`, `manual`; platforms: `darwin`, `windows`, `linux`.
-Optional-reason classification uses `not_provided`, `other`, `usability`, `cost`,
-`performance`, `privacy`, `no_longer_needed`. Required uninstall metadata is
-rejected outside this phase. Free-text reasons, paths and client-supplied account
-identity are rejected. Retention is thirty days. Count distinct uninstall
-attempt IDs across shared-account observations; started-only is unknown.
+Accept 1–50 validated events, at most 128 KiB, from seven days ago through five minutes in the future. Reject unknown fields and invalid categories, version claims or durations. Reuse the existing per-Agent telemetry rate limiter.
 
-This contract persists observations only; it configures no Grafana dashboards,
-alerts or external reporting pipeline. Backend deployment is required before
-the new event categories can be accepted in production.
+Persist a batch atomically in `telemetry_events_v2` as `maintenance_attempt`, with 30-day retention. Prefix the hash of the authenticated Agent ID and client event ID with `maintenance:` before applying the existing unique key. Browser telemetry rejects the colon, so its caller-selected IDs cannot reserve maintenance keys. Retries deduplicate within one Agent; another Agent cannot reserve that key. Return 202 with the number of newly inserted rows; database failure returns 500.
+
+These are client-reported maintenance observations, not proof of order fulfillment or delivery. The local watch keeps business execution independent of ordinary maintenance-upload failures.
+
+No schema migration is required. Validate the HTTP contract and run `TestMaintenancePostgresAgentAuthIdentityAndIdempotency` against an isolated loopback PostgreSQL database; it rolls back temporary test tables. Production verification must not create test telemetry or orders.
+
+## Uninstall observations
+
+Accept phase=uninstall with trigger=manual and results started, removed, partial, failed or blocked. Sources are agent/manual; platforms darwin/windows/linux. Require reason_category: not_provided, other, usability, cost, performance, privacy or no_longer_needed. Reject this metadata outside uninstall; reject free-text reasons, paths and client-selected account identity. Count distinct attempt_id across accounts; only removed counts toward the reason pie chart. No CLI, Skill or other business behavior changes are included in this backend contract.

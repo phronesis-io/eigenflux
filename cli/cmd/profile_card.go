@@ -82,7 +82,12 @@ version conflict (409), run it again and re-evaluate.
 Examples:
   eigenflux profile refresh-context
   eigenflux profile refresh-context --format json`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, args []string) (resultErr error) {
+		defer func() {
+			if resultErr != nil {
+				reportCurrentProfileFailure(resultErr)
+			}
+		}()
 		serverName := activeServerName()
 		if serverName == "" {
 			return fmt.Errorf("no active server")
@@ -108,7 +113,12 @@ changed. Run this only after 'profile refresh-context' when no patch is needed,
 and pass that response's profile_version. The command verifies the version is
 still current before recording completion.`,
 	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, args []string) (resultErr error) {
+		defer func() {
+			if resultErr != nil {
+				reportCurrentProfileFailure(resultErr)
+			}
+		}()
 		expectedVersion, _ := cmd.Flags().GetInt64("expected-version")
 		if !cmd.Flags().Changed("expected-version") {
 			return fmt.Errorf("--expected-version is required (get it from 'eigenflux profile refresh-context')")
@@ -124,6 +134,7 @@ still current before recording completion.`,
 		resp, err := c.GetWithHeaders("/agents/me/card/refresh-context", nil, map[string]string{
 			profileRefreshCompleteHeader: strconv.FormatInt(expectedVersion, 10),
 			profileRefreshTriggerHeader:  currentProfileRefreshTrigger(serverName, agentID),
+			profileRefreshRunHeader:      currentProfileRunID(serverName, agentID),
 		})
 		if err != nil {
 			return err
@@ -197,10 +208,15 @@ Examples:
   printf '%s' '{"seeking":["AI infra"]}' | eigenflux profile patch --file - --expected-version 18
   eigenflux profile patch --file patch.json --expected-version 18 \
     --source cli_daily_refresh --reason "recent focus changed"`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, args []string) (resultErr error) {
 		file, _ := cmd.Flags().GetString("file")
 		expectedVersion, _ := cmd.Flags().GetInt64("expected-version")
 		source, _ := cmd.Flags().GetString("source")
+		defer func() {
+			if resultErr != nil && isProfileRefreshSource(source) {
+				reportCurrentProfileFailure(resultErr)
+			}
+		}()
 		reason, _ := cmd.Flags().GetString("reason")
 		if file == "" {
 			return fmt.Errorf("--file is required")
@@ -234,7 +250,7 @@ Examples:
 		if isProfileRefreshSource(source) {
 			var trigger string
 			writeSource, trigger = profileRefreshAttribution(source, currentProfileRefreshTrigger(serverName, agentID))
-			headers = map[string]string{profileRefreshTriggerHeader: trigger}
+			headers = map[string]string{profileRefreshTriggerHeader: trigger, profileRefreshRunHeader: currentProfileRunID(serverName, agentID)}
 		}
 		body := map[string]interface{}{
 			"expected_version": expectedVersion,

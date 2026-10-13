@@ -16,7 +16,7 @@ func TestCommissionSkillContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(skillBody), `version: "999.0.10-dev.20261012"`) {
+	if !strings.Contains(string(skillBody), `version: "999.0.11-dev.20261012"`) {
 		t.Error("ef-commission version is stale")
 	}
 	skill := string(skillBody)
@@ -27,6 +27,7 @@ func TestCommissionSkillContract(t *testing.T) {
 		"read `eigenflux wallet get --format json` before the interview",
 		"Do not repeat it for later Orders, or for a buyer who has already paid one",
 		"Never offer another payment or payout channel, promise future support, or state a timeline",
+		"Establish it from Wallet state or an already-paid Order rather than repeating it every time",
 	} {
 		if !strings.Contains(skill, required) {
 			t.Errorf("funding channel disclosure is missing %q", required)
@@ -56,6 +57,7 @@ func TestCommissionSkillContract(t *testing.T) {
 		"## Confirm Payout Eligibility First",
 		"A bound Alipay account already settles this; continue without raising it",
 		"rather than starting preparatory work that could not be paid out",
+		"Skip it for a buyer who has already paid an Order",
 	} {
 		if !strings.Contains(commission, required) {
 			t.Errorf("Commission listing workflow is missing %q", required)
@@ -79,6 +81,7 @@ func TestCommissionSkillContract(t *testing.T) {
 		"eigenflux stream --once",
 		"availability fact",
 		"Orders are payable through Alipay in CNY only",
+		"Do not restate the limit for later Orders or for a buyer who has already paid one",
 		"unless this conversation already established it",
 	} {
 		if !strings.Contains(order, required) {
@@ -96,6 +99,7 @@ func TestCommissionSkillContract(t *testing.T) {
 		"withdrawal requires that account to pass the identity comparison below",
 		"State this once when the seller first reaches earnings, binding, or withdrawal",
 		"never offer or promise another payout channel",
+		"The only bindable payout account is an Alipay account",
 	} {
 		if !strings.Contains(wallet, required) {
 			t.Errorf("Wallet payout disclosure is missing %q", required)

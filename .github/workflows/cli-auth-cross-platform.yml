@@ -17,6 +17,9 @@ on:
       - 'static/install.sh'
       - 'static/uninstall.sh'
       - 'static/uninstall.ps1'
+      - 'static/install.ps1'
+      - 'cli/scripts/**'
+      - '.github/workflows/release-cli.yml'
       - 'tests/cli_release/**'
       - 'tests/installer_release/**'
       - 'scripts/release/publish-installer.py'
@@ -45,6 +48,9 @@ on:
       - 'static/install.sh'
       - 'static/uninstall.sh'
       - 'static/uninstall.ps1'
+      - 'static/install.ps1'
+      - 'cli/scripts/**'
+      - '.github/workflows/release-cli.yml'
       - 'tests/cli_release/**'
       - 'tests/installer_release/**'
       - 'scripts/release/publish-installer.py'
@@ -66,7 +72,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -80,7 +86,14 @@ jobs:
       - name: Test identity and credential storage
         run: go test ./internal/auth -count=1
       - name: Test runtime identity persistence and automatic reporting
-        run: go test -count=1 ./internal/profilestate ./internal/client ./internal/config ./internal/maintenance ./internal/uninstallscript ./internal/desktopnotify ./cmd
+        run: go test -count=1 ./internal/profilestate ./internal/client ./internal/config ./cmd
+      - name: Test uninstall telemetry and owned installation cleanup
+        run: |
+          go test -count=1 ./internal/maintenance ./internal/watch ./internal/desktopnotify ./internal/uninstallscript
+          go test -count=1 -run TestUninstall ./internal/skills
+      - name: Test full Skills suite on POSIX
+        if: runner.os != 'Windows'
+        run: go test -count=1 ./internal/skills
       - name: Test signed Skills installation and upgrade compatibility
         if: runner.os == 'Linux'
         run: go test ./tests
@@ -108,3 +121,19 @@ jobs:
         with:
           name: eigenflux-windows-signed-test
           path: build/windows-test.zip
+
+  windows-download-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+      - name: Build Windows CLI for download integration tests
+        working-directory: cli
+        run: |
+          New-Item -ItemType Directory -Force ../build | Out-Null
+          go build -o ../build/eigenflux.exe .
+      - name: Test Windows installer downloads and existing installation registration
+        run: python -m unittest discover -s tests/cli_release -p 'test_windows_*.py'

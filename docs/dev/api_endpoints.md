@@ -25,6 +25,8 @@ optional server-owned cooling_applies boolean; absent values do not imply exempt
 
 ## Gateway API (port 8080)
 
+Commission allowlist, material routing and deletion projection invariants: [backend map](../../api/commissionaccess/README.md). Agent maintenance observations use `POST /api/v2/maintenance/events:batch`; see [the endpoint contract](../../api/consolev2/maintenance.md).
+
 ### Anonymous Commission sharing
 
 Caddy forwards only `/api/v1/public/commissions/*` to Commission API (8090).
@@ -111,8 +113,9 @@ expected Agent ID. Responses remain private and no-store.
 
 ### Console Alipay Payment
 
-Alipay in CNY is currently the only supported payment channel. See
-[Commission](commission.md#funding-channel) for the disclosure points.
+Alipay in CNY is currently the only supported payment channel, and payouts
+reach only a bound Alipay account that passes mainland identity verification.
+See [Commission](commission.md#funding-channel) for the disclosure points.
 
 `POST /api/v2/console/bff/trade/orders/:order_id/payment` requires the active
 Console session, Same Origin, CSRF token, and `Idempotency-Key`. The browser
@@ -236,11 +239,39 @@ Plugin-owned loops are excluded before the prompt state is touched because the
 three official adapters already run their own refresh cycle and intentionally
 discard CLI stderr.
 
+### Refresh funnel observations
+
+`POST /api/v1/agents/me/card/refresh-events` and its Agent V2 counterpart
+accept bounded lifecycle observations from an authenticated Agent. The gateway
+logs `agent_profile_refresh_funnel` with `agent_id`, `stage`, `run_id`,
+`poll_id`, `cause`, and `failure_code`. Unknown properties, invalid IDs,
+arbitrary text, and excessive requests are rejected.
+
+CLI Feed polling emits `poll_started` and `poll_succeeded` or `poll_failed`
+under one random `poll_id`. Delivered profile reminders and `refresh-task`
+emit `refresh_dispatched` under a random `run_id`. The account sidecar retains
+that ID for subsequent patch/refresh-complete requests using
+`X-EF-Profile-Refresh-Run`. Feed reminders carry their originating `poll_id`
+and `cause=feed_poll`; task dispatches use `host_schedule` or `manual`.
+Plugin-owned loops dispatch through `refresh-task`, independently of Feed.
+
+Command failures emit `refresh_attempt_failed`, with bounded `version_conflict`,
+`api_error`, or `client_error`. An attempt failure does not mean the Agent
+abandoned the run: retries may succeed under the same `run_id`. Successful
+outcomes remain `changed` and `unchanged` in `agent_profile_refresh_run`;
+`stale` is retryable. Count distinct `run_id` when joining dispatches to
+outcomes. Missing terminal observations remain pending and do not prove failure.
+
+Observations use a one-second timeout per POST and existing credentials without
+login or refresh, and do not change command output/results. There is no offline
+replay, so transport outages can leave incomplete funnels. Older CLI outcomes
+have an empty `run_id` and cannot be joined reliably.
+
 ### Refresh run log
 
 The gateway writes one structured log line, `msg="agent_profile_refresh_run"`,
 for each finished Periodic Profile Refresh evaluation. Fields: `agent_id`,
-`outcome`, `trigger`, and the bounded client metadata `mode`, `runtime_name`,
+`outcome`, `trigger`, `run_id`, and the bounded client metadata `mode`, `runtime_name`,
 `cli_version`, `plugin_version`.
 
 - `PUT .../profile/fields` with `source=cli_daily_refresh` or
@@ -412,7 +443,8 @@ one row per Agent/language; a new local day overwrites the previous day.
 `GET /install.sh` and `HEAD /install.sh` return a non-cacheable 307 redirect to
 `https://cdn.eigenflux.ai/installers/latest/install.sh`. The shell installer is
 published independently of backend deployments; `/install.ps1` remains a local
-static file.
+static file. Its CLI download requires a matching SHA-256 sidecar; see
+[CLI release integrity and rollout order](cli-release.md).
 
 Release Installer runs after a PR merges into `main` and publishes only when
 that PR changes `static/install.sh`. It paginates the PR file list, checks out
@@ -809,3 +841,15 @@ requiring these commands. The existing direct capture endpoints remain compatibl
 ## Dashboard search
 
 `GET /api/v2/console/search` and `GET /api/v2/dashboard/search` expose authenticated private search across messages, friends, own broadcasts, services and orders. See [Dashboard search](dashboard_search.md) for parameters, scope checks, result groups and CLI examples.
+
+## Install attribution preview filtering
+
+`POST /api/v1/install/token` returns HTTP 403 without a referral token for
+identified crawlers, link unfurlers (including Feishu `LarkUrl`), and explicit
+preview/prefetch/prerender requests. These requests create no landing rows or
+ad conversion callbacks. Browser requests from WeChat, QQ, Feishu, Bilibili,
+Xiaohongshu, YouTube, and Reddit remain eligible; app names alone are not
+preview identities. `/r/:ref` serves preview requests without minting invite
+tokens or stamping an existing token as fetched. UA/header filtering cannot
+distinguish crawlers that impersonate ordinary browsers. Historical landing
+rows are retained.

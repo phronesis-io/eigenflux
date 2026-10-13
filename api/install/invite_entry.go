@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -43,21 +42,6 @@ func allowInviteLookup(ctx context.Context, rdb *redis.Client, ip string) (bool,
 // one-shot install-token funnel: an invite entry mints a token carrying
 // invite_code, and a later install report that carries the agent identity
 // writes the registration attribution (agents.invited_by_code) first-wins.
-
-// botUARe matches link-preview unfurlers and crawlers. Invite links are shared
-// raw in public posts, and every /r/<invite> fetch mints a funnel row — bots
-// must not inflate the landing metrics the KOL leaderboard is built on. (The
-// server-minted EF- path has no such exposure: its /r/ fetch only stamps an
-// existing row.)
-var botUARe = regexp.MustCompile(`(?i)bot|crawl|spider|preview|slurp|headless|facebookexternalhit|whatsapp|telegram|slack|discord|skype|micromessenger|embedly|pinterest|vkshare`)
-
-// isPreviewBot reports whether a /r/<invite> fetch looks like a link unfurler
-// rather than an agent following the join instructions. Biased toward minting
-// (only clearly bot-identified UAs are excluded) so no real agent entry is
-// ever dropped.
-func isPreviewBot(userAgent string) bool {
-	return botUARe.MatchString(userAgent)
-}
 
 // lookupInviteCode resolves a user-supplied invite code to its row, returning
 // nil for anything malformed or unknown (the caller degrades to unattributed).

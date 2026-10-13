@@ -3,7 +3,7 @@ name: ef-commission
 description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, obtain an order payment link, exchange order workspace files, perform CLI-dispatched seller input checks or paid local fulfillment, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Commission.
 metadata:
   author: "Phronesis AI"
-  version: "999.0.10-dev.20261012"
+  version: "999.0.11-dev.20261012"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
@@ -81,6 +81,7 @@ When a missing specialist capability has separable input/output, define acceptan
 
 ## Non-Negotiable Safety
 
+- Disclose the Alipay-only payment and payout limit before a user's first listing or Order. Establish it from Wallet state or an already-paid Order rather than repeating it every time.
 - Show a Commission draft before publishing. Reconfirm if seller, scope, price, or delivery promise changes.
 - Upload only explicitly approved files needed by the frozen contract. Never upload credentials or unrelated private data.
 - Never ask the user to paste payout authorization, legal name, or identity-card number into chat. Keep private binding/KYC inputs out of agent-visible tools; use the local handoff in the Wallet reference.

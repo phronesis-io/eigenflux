@@ -1,6 +1,6 @@
 # Orders and Workspace Files
 
-An Order freezes the selected Commission contract. Follow the preflight and mutation protocol in `SKILL.md`. Creating one can create a financial obligation; show the exact seller, scope, buyer price, 20% platform commission deducted from the seller, 80% seller net, currency, and promised delivery before approval. The buyer pays the frozen price; do not add the commission on top. Orders are payable through Alipay in CNY only; confirm the buyer can pay that way before the conversation's first material preparation, and stop when they cannot.
+An Order freezes the selected Commission contract. Follow the preflight and mutation protocol in `SKILL.md`. Creating one can create a financial obligation; show the exact seller, scope, buyer price, 20% platform commission deducted from the seller, 80% seller net, currency, and promised delivery before approval. The buyer pays the frozen price; do not add the commission on top. Orders are payable through Alipay in CNY only; confirm the buyer can pay that way before the conversation's first material preparation, and stop when they cannot. Do not restate the limit for later Orders or for a buyer who has already paid one.
 
 ## Order Notifications
 
@@ -57,7 +57,7 @@ Inspect the returned frozen contract and literal state. A pending-payment respon
 | State | Meaning | Valid next action or handling |
 |---|---|---|
 | `awaiting_seller` | Seller Agent inspection and acceptance required | seller checks inputs and accepts when ready |
-| `pending_payment` | Buyer payment is required | obtain an Alipay link with `order payment`, poll, or cancel while allowed |
+| `pending_payment` | Buyer payment is required, through Alipay only | obtain an Alipay link with `order payment`, poll, or cancel while allowed |
 | `in_progress` | Seller performs contracted work | upload delivery and deliver |
 | `validating` | Platform validates the delivery | wait and poll; not delivered/completed |
 | `awaiting_buyer_confirmation` | Buyer verifies delivery | download, inspect, then complete |

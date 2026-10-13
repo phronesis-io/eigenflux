@@ -27,6 +27,9 @@ var errLockTimeout = errors.New("profile state lock timeout")
 // that finish the run can report it. It is advisory telemetry only and never
 // gates whether a refresh is due.
 type State struct {
+	RefreshRunID              string `json:"refresh_run_id,omitempty"`
+	RefreshPollID             string `json:"refresh_poll_id,omitempty"`
+	RefreshCause              string `json:"refresh_cause,omitempty"`
 	LastRefreshUnix           int64  `json:"last_refresh_unix"`
 	LastCheckedUnix           int64  `json:"last_checked_unix"`
 	LastPromptedUnix          int64  `json:"last_prompted_unix"`

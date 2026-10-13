@@ -26,6 +26,12 @@ grep -Fq 'elif [[ -f "${LEGACY_FRIEND_REQUEST_LIMITS_CONFIG}" ]]' \
 }
 echo "PASS: installer preserves a stable friend-request limit config"
 
+# Run the real durable receipt helper against temporary state; never systemd.
+deploy_main_annotation_tool() {
+  python3 "${SOURCE_ROOT}/scripts/cloud/release_annotations.py" "$@"
+}
+systemctl() { return 0; }
+
 declare -f deploy_main_prepare_source | \
   grep -Fq 'deploy_main_git_as_user "${deploy_user}" "${deploy_home}"' || {
     echo "FAIL: source export bypasses the unprivileged deployment user" >&2
@@ -99,6 +105,7 @@ EOF
 SOURCE_ROOT="\$(cd "\$(dirname "\$0")/../.."; pwd)"
 source "\${SOURCE_ROOT}/.env"
 echo health >> "${TRACE}"
+[[ ! -f "${TEST_ROOT}/fail-health" ]]
 EOF
 }
 
@@ -212,3 +219,15 @@ fi
 [[ "$(cat "${TRACE}")" == "build" ]]
 [[ "$(find "${STATE_DIR}/work" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')" -eq "${work_count_before}" ]]
 echo "PASS: build failure stops before migration and restart"
+
+rm "${TEST_ROOT}/fail-build"
+# A health failure must not record a successful release.
+old_receipt=$(cat "${STATE_DIR}/annotations/state.json")
+touch "${TEST_ROOT}/fail-health"
+if deploy_main_run "${REPO}" "${LOCK}" "" "" "${REMOTE}" "${STATE_DIR}" "${RUNTIME_ENV}"; then
+  echo 'FAIL: health failure reported success' >&2
+  exit 1
+fi
+[[ "$(cat "${STATE_DIR}/annotations/state.json")" == "${old_receipt}" ]]
+[[ "$(tail -1 "${TRACE}")" == health ]]
+echo 'PASS: failed deployment does not advance annotation receipt'

@@ -6,6 +6,7 @@ Update this file whenever the uninstall contract changes.
   unchanged Skills/scripts, optional shared notification removal, binary removal.
 - `uninstall_events.go`: account-pinned observations, receipts, local audit,
   bounded upload, Windows original-file verification and finalization.
+- `uninstall_state.go`: atomic local JSON persistence shared with heartbeat maintenance.
 - `internal/uninstallscript`: embedded wrappers; keep byte-identical to `static/`.
 - `internal/desktopnotify/uninstall_*`: owned per-user notification cleanup.
 

@@ -100,6 +100,11 @@ func normalizeLang(s string) string {
 // server-side backstop against write amplification.
 // @router /api/v1/install/token [POST]
 func mintRef(_ context.Context, c *app.RequestContext) {
+	c.Header("Cache-Control", "no-store")
+	if isPreviewRequest(c) {
+		reply(c, http.StatusForbidden, 403, "link preview is not an install visit", nil)
+		return
+	}
 	ip := clientIP(c)
 	if !limiter.Allow(ip) {
 		reply(c, http.StatusTooManyRequests, 429, "rate limited, try again later", nil)
@@ -308,7 +313,7 @@ func serveRef(_ context.Context, c *app.RequestContext) {
 		}
 		// Link unfurlers fetching a publicly posted invite URL get the doc but
 		// mint nothing — bots must not count as landings in the KOL funnel.
-		if isPreviewBot(string(c.GetHeader("User-Agent"))) {
+		if isPreviewRequest(c) {
 			event("install_invite_bot", ic.Code)
 			c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(renderJoinDoc(ic.Code, requestBaseURL)))
 			return
@@ -330,6 +335,10 @@ func serveRef(_ context.Context, c *app.RequestContext) {
 	if !ValidTokenFormat(ref) {
 		c.Data(http.StatusBadRequest, "text/markdown; charset=utf-8",
 			[]byte("# Invalid referral code\n\nExpected the form EF-xxxxxxxx.\n"))
+		return
+	}
+	if isPreviewRequest(c) {
+		c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(renderJoinDoc(ref, requestBaseURL)))
 		return
 	}
 	t, err := MarkFetched(db.DB, ref)

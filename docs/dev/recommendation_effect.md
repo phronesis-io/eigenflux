@@ -149,3 +149,72 @@ consumer exclusion, hour boundaries, current/future hours, daily/hourly
 reconciliation, Shanghai midnight, strict maturity, repeats, stale writers,
 interrupted transactions and a competing connection's advisory lock. Ordinary
 Go tests without the explicit database setting skip the PostgreSQL cases.
+
+## Long-term feedback history and volume diagnosis
+
+Migration `000116` adds `feedback_history_daily` and the aggregate-only
+`grafana_feedback_history_daily` view. Apply it before pipeline-cron. This
+separate series includes **all** valid score events, including internal Agents,
+legacy and unattributed feedback; it does not claim recommendation attribution
+or causality. Score events use Shanghai event dates and scores -1, 0, 1, 2.
+No private identifiers are granted to Grafana. Existing strict four-way
+classification, filtering and source facts are unchanged.
+
+Daily distinct scoring Agents, the top three Agents' score-event contribution,
+PGC/UGC score counts, delivered broadcast positions and recipient counts help
+separate changes in volume, participation and composition. Delivery excludes
+explicit search; it includes legacy Feed. The union of recipients and scorers
+is labelled participation, **not full-site DAU**. Feedback and deliveries are
+bucketed by their own event time; their ratio is not exposure-cohort coverage.
+Delivery-dependent counts are NULL before the first complete available replay
+day. A failed or absent summary is not zero. Daily distinct counts cannot be
+summed to estimate distinct Agents across dates. Author classification reflects
+currently available identity records; unrecognized authors remain in totals.
+
+The existing cron serially refreshes today and the previous two days, plus two
+missing or unfinished older dates per batch, back to the earliest retained
+feedback. A day finalizes after day+3. Each date has a 20-second deadline,
+15-second statement timeout and a separate advisory transaction lock (116).
+Stale cutoffs cannot overwrite newer snapshots, and failure preserves the last
+committed row. Aggregates are retained indefinitely, independently of the
+30-day strict-attribution catch-up window. Source deletion or late repair after
+finalization requires a deliberate backfill; missing replay history cannot be
+reconstructed. Backfill explicit dates serially without increasing timeouts:
+
+```bash
+go build -o build/recommendation_effect_backfill ./scripts/recommendation_effect_backfill/
+./build/recommendation_effect_backfill --history --days=2026-04-13,2026-04-14
+```
+
+The dashboard shows complete daily actual rates beside seven-day ratios of
+summed numerators/denominators. A missing day breaks the rolling window. Today
+is explicitly excluded from the long-term complete-day panels. Current-day
+activity remains available in the separate strict hourly diagnostic section.
+Historical finalized snapshots do not trigger the live freshness threshold.
+Rollback can leave the additive history table/view in place; remove dashboard
+consumers and stop the new writer before applying Down, which deletes only the
+derived history, never the original feedback or replay data.
+
+## Stable-Agent daily positives
+
+Migration `000117` adds `stable_agent_daily` and the aggregate-only
+`grafana_stable_agent_daily` view. Apply it before pipeline-cron. For each
+Shanghai day D, the stable cohort is the external consumers (same exclusion as
+above: `is_official`, PGC and bot email domains) with at least one valid score
+(`-1,0,1,2`) on at least five distinct Shanghai days in `[D-7, D-1]`. The row
+stores the cohort size, how many of them scored on D, their valid score events
+on D, and positive events (`1,2`) split by content author: PGC author domain,
+other non-official authors (UGC), and the rest (official, bot, unknown authors)
+included only in the totals. Dividing positive events by `stable_agents` gives
+positives per stable Agent per day; cohort members silent on D count as zero.
+Because the cohort is re-derived per day from the preceding week, Agents
+joining or leaving the site do not shift the per-Agent value until they have a
+week of steady scoring. Agent identifiers are never stored.
+
+The existing cron refreshes today and the two previous days, plus up to eight
+older missing or unfinished days per batch, starting seven days after the
+earliest retained feedback. A day finalizes after day+3. Each date runs in its
+own transaction with a 15-second statement timeout and advisory lock (117);
+stale cutoffs cannot overwrite newer snapshots. The query reads feedback
+through per-Agent `(agent_id, feedback_at)` index ranges; a production day
+takes under one second.
