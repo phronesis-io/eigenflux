@@ -74,33 +74,9 @@ func main() {
 	defer cancel()
 	changed := false
 	check(db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var r itemdal.RawItem
-		var s itemdal.ProcessedItem
-		read := tx
-		if *apply {
-			read = tx.Clauses(clause.Locking{Strength: "UPDATE"})
-		}
-		if err := read.First(&r, "item_id = ?", p.ID).Error; err != nil {
-			return err
-		}
-		if err := read.First(&s, "item_id = ?", p.ID).Error; err != nil {
-			return err
-		}
-		need, e := validate(p, r, s, time.Now())
-		if e != nil {
-			return e
-		}
-		if !*apply || !need {
-			return nil
-		}
-		if e = tx.Model(&r).Update("raw_content", p.After.Content).Error; e != nil {
-			return e
-		}
-		if e = tx.Model(&s).Updates(map[string]any{"summary": p.After.Summary, "summary_zh": p.After.SummaryZh, "updated_at": time.Now().UnixMilli()}).Error; e != nil {
-			return e
-		}
-		changed = true
-		return nil
+		var err error
+		changed, err = repairText(tx, p, *apply)
+		return err
 	}))
 	if *apply {
 		rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr, Password: cfg.RedisPassword})
@@ -112,6 +88,40 @@ func main() {
 	}
 	fmt.Printf("item %d: plan validated; applied=%t changed=%t projection_repair_queued=%t\n", p.ID, *apply, changed, *apply)
 }
+
+// Each table read starts from the transaction so model/table state cannot leak.
+func repairText(tx *gorm.DB, p plan, apply bool) (bool, error) {
+	var r itemdal.RawItem
+	var s itemdal.ProcessedItem
+	readRecord := func(record any) error {
+		query := tx
+		if apply {
+			query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+		}
+		return query.First(record, "item_id = ?", p.ID).Error
+	}
+	if err := readRecord(&r); err != nil {
+		return false, err
+	}
+	if err := readRecord(&s); err != nil {
+		return false, err
+	}
+	need, e := validate(p, r, s, time.Now())
+	if e != nil {
+		return false, e
+	}
+	if !apply || !need {
+		return false, nil
+	}
+	if e = tx.Model(&r).Update("raw_content", p.After.Content).Error; e != nil {
+		return false, e
+	}
+	if e = tx.Model(&s).Updates(map[string]any{"summary": p.After.Summary, "summary_zh": p.After.SummaryZh, "updated_at": time.Now().UnixMilli()}).Error; e != nil {
+		return false, e
+	}
+	return true, nil
+}
+
 func check(e error) {
 	if e != nil {
 		fmt.Fprintln(os.Stderr, "repair failed:", e)

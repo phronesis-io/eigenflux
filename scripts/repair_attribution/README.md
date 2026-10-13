@@ -17,3 +17,8 @@ between SQL and queueing, rerun the same plan: already-corrected text is accepte
 and projection repair is safe to repeat. Verify SQL, source-storage text and the
 public detail response after the queue is consumed. Run only the reviewed,
 main-merged tool with the intended environment; local tests use isolated services.
+
+The apply path is covered against real PostgreSQL, including separate locked
+reads of both tables and idempotent repetition. Run it with
+`FIDELITY_REPAIR_TEST_DSN=<isolated-test-dsn> go test -race ./scripts/repair_attribution`.
+It uses transaction-local temporary tables and rolls the fixture back.
