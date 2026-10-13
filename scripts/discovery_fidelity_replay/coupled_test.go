@@ -32,7 +32,7 @@ func TestDenseRetainsUnchangedVectorWhenOnlySummaryChanged(t *testing.T) {
 	fresh := old
 	fresh.Version = "new"
 	fresh.Preview = "grounded summary"
-	p := poolSource{docs: map[int64]discovery.Document{3: fresh}, dropped: map[int64]bool{}}
+	p := poolSource{changed: map[int64]bool{3: true}, docs: map[int64]discovery.Document{3: fresh}, dropped: map[int64]bool{}}
 	got, e := p.dense(c, []discovery.Document{old}, 20)
 	require.NoError(t, e)
 	require.Equal(t, "new", got[0].Version)

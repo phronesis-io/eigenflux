@@ -5,9 +5,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -72,6 +74,7 @@ func main() {
 					mu.Lock()
 					if e != nil {
 						row["error"] = "audit failed"
+						row["error_code"] = auditErrorCode(e)
 						failed = true
 					}
 					if err := enc.Encode(row); err != nil {
@@ -113,4 +116,20 @@ func main() {
 		fmt.Fprintln(os.Stderr, "one or more extraction calls failed")
 		os.Exit(1)
 	}
+}
+
+// Keep operational failure classes without serializing provider payloads.
+func auditErrorCode(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "deadline"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "cancelled"
+	}
+	for _, label := range []string{"unsupported claims remain", "missing verdict", "contradictory verdict", "empty summary"} {
+		if strings.Contains(err.Error(), "summary grounding: "+label) {
+			return strings.ReplaceAll(label, " ", "_")
+		}
+	}
+	return "provider_or_parse"
 }

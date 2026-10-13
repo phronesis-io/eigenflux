@@ -130,7 +130,7 @@ func cosineScore(a, b []float32) (float64, error) {
 func (p *poolSource) dense(c discovery.Context, docs []discovery.Document, limit int) ([]discovery.Document, error) {
 	byID := map[int64]discovery.Document{}
 	for _, d := range docs {
-		if fresh, ok := p.docs[d.Ref.ID]; ok && d.Version != "" {
+		if fresh, ok := p.docs[d.Ref.ID]; ok && d.Version != "" && !p.stale[d.Ref.ID] && p.changed[d.Ref.ID] {
 			d.Version = fresh.Version
 			d.Text = fresh.Text
 			d.Preview = fresh.Preview
@@ -141,7 +141,7 @@ func (p *poolSource) dense(c discovery.Context, docs []discovery.Document, limit
 	}
 	for id, v := range p.vectors {
 		d, ok := p.docs[id]
-		if !ok || p.dropped[id] {
+		if !ok || p.dropped[id] || p.stale[id] {
 			continue
 		}
 		if !matchesRecallFilters(c, d) {

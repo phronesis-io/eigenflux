@@ -36,8 +36,8 @@ def main():
     for c in observed_data["cells"]:
         observed[c["agent_id"], c["lane"]] += c["positive_events"]
     priors = {
-        lane: sum(v for (_, l), v in observed.items() if l == lane)
-        / max(1, sum(v for (_, l), v in history.items() if l == lane))
+        lane: sum(v for (_, source_lane), v in observed.items() if source_lane == lane)
+        / max(1, sum(v for (_, source_lane), v in history.items() if source_lane == lane))
         for lane in ("pgc", "ugc")
     }
     rows, totals = [], {arm: collections.Counter() for arm in ("before", "after")}

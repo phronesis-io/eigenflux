@@ -15,6 +15,9 @@ Modes: `capture`, `evidence`, `history`, `observed`, `replay`, `compare`.
 Supply `-dir` with private frozen `rules.json`, `rerank.yaml`, `model.json`, and
 `index-template.json`. Capture requires a read-only PostgreSQL DSN, local scratch
 `REDIS_ADDR`, `FROZEN_REMOTE_REDIS_ADDR` and a read-only production ES connection.
+First build the reference index with `FIDELITY_BASELINE_ONLY=true`; the reference
+manifest is retained for subsequent summary/combined runs. Set
+`FIDELITY_PGC_COUPLED=true` for the combined sensitivity.
 `compare` only permits `FIDELITY_LOCAL_ES_URL=http://127.0.0.1:56921` for writes.
 
 Summary audits bind the source content, notes and prior summary by SHA-256 and
@@ -23,6 +26,12 @@ have an audit; seen or immutable-hard-filter failures remain in the pool but nee
 no model call. Full-pool source export reuses only fingerprint-matching records.
 
 The counterfactual reindexes the full captured union with production analyzers.
+Production lexical scores remain the anchor. For changed text, local before/after
+score ratios estimate the delta; a median production/local calibration estimates
+new lexical matches already present elsewhere in the full pool. Unchanged scores
+and unrelated stale-version rejections are preserved. This avoids treating the
+small index's different IDF statistics as a release benefit. The unchanged-content
+A/A run must reproduce all captured ordered results exactly.
 Changed PGC body arms include fresh extraction and embedding calls; unchanged
 embeddings and other recall channels retain their captured evidence. Changed
 vectors can enter dense top-k from elsewhere in the full captured pool. Item IDs,
@@ -31,7 +40,8 @@ production items using the same cosine thresholds and type rules. Failed model a
 not counted as unchanged successes. PGC primary-model replay is a sensitivity
 comparison; it does not model every production salvage/fallback branch.
 
-Limits: finite-corpus BM25 statistics differ from production, and items outside
+Limits: lexical deltas remain estimates because finite-corpus BM25 term weights
+differ from production; unchanged off-channel lexical refill is conservative. Items outside
 all original recall channels cannot enter this pool. The grouping sensitivity query covers the current retained production corpus;
 previously deleted documents and original pre-publication cache state cannot be recovered. These limits must accompany results;
 exact baseline reproduction does not make the counterfactual globally exact.
@@ -42,3 +52,9 @@ events. The latter uses the fixed cohort's real feedback rate by Agent/source,
 with a 20-delivery source prior. It assumes no factuality uplift and is not the LR
 follow-up score. Feedback lag, missing impression linkage and sparse histories
 limit the estimate; compare next-day observed daily positives after deployment.
+
+`neighbors.py --dir <private-dir>` reads preceding retained production items for
+both PGC embedding arms. It uses the production float32 0.80 cosine cutoff and
+type-specific grouping rules, with no writes to ES. Source credentials come from
+explicit environment variables. A historical item cannot match itself or an item
+published later. These queries cannot recover already deleted historical items.

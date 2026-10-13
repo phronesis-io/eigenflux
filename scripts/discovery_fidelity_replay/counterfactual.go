@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -31,11 +32,14 @@ type auditOutput struct {
 	PromptHash string `json:"prompt_hash"`
 }
 type poolSource struct {
-	snap    *snapshot
-	docs    map[int64]discovery.Document
-	lexical *discovery.Source
-	dropped map[int64]bool
-	vectors map[int64][]float32
+	snap      *snapshot
+	docs      map[int64]discovery.Document
+	lexical   *discovery.Source
+	dropped   map[int64]bool
+	vectors   map[int64][]float32
+	stale     map[int64]bool
+	changed   map[int64]bool
+	reference string
 }
 
 func (p *poolSource) Owner(context.Context, int64) (discovery.OwnerContext, error) {
@@ -43,7 +47,7 @@ func (p *poolSource) Owner(context.Context, int64) (discovery.OwnerContext, erro
 }
 func (p *poolSource) Recall(ctx context.Context, c discovery.Context, k discovery.Kind, ch string, limit int) ([]discovery.Document, error) {
 	if ch == "lexical" {
-		return p.lexical.Recall(ctx, c, k, ch, limit)
+		return p.calibratedLexical(ctx, c, k, limit)
 	}
 	docs, err := newFrozenSource(p.snap).Recall(ctx, c, k, ch, limit)
 	if err != nil {
@@ -57,7 +61,7 @@ func (p *poolSource) Recall(ctx context.Context, c discovery.Context, k discover
 		if p.dropped[d.Ref.ID] {
 			continue
 		}
-		if current, ok := p.docs[d.Ref.ID]; ok && d.Version != "" {
+		if current, ok := p.docs[d.Ref.ID]; ok && d.Version != "" && !p.stale[d.Ref.ID] && p.changed[d.Ref.ID] {
 			d.Version = current.Version
 			d.Text = current.Text
 			d.Preview = current.Preview
@@ -126,12 +130,29 @@ func (e localES) bulk(index string, docs []map[string]any) {
 		req.Header.Set("Content-Type", "application/x-ndjson")
 		r, err := e.client.Do(req)
 		must(err)
-		var result struct{ Errors bool }
+		var result struct {
+			Errors bool
+			Items  []map[string]struct {
+				ID     string `json:"_id"`
+				Status int
+				Error  struct {
+					Type   string
+					Reason string
+				}
+			}
+		}
 		err = json.NewDecoder(r.Body).Decode(&result)
 		r.Body.Close()
 		must(err)
 		if r.StatusCode >= 300 || result.Errors {
-			panic("local bulk indexing failed")
+			for _, item := range result.Items {
+				for _, v := range item {
+					if v.Status >= 300 {
+						panic(fmt.Sprintf("local bulk item %s: %s %.300s", v.ID, v.Error.Type, v.Error.Reason))
+					}
+				}
+			}
+			panic(fmt.Sprintf("local bulk indexing HTTP %d", r.StatusCode))
 		}
 	}
 	e.request("POST", "/"+index+"/_refresh", nil)
@@ -213,12 +234,31 @@ func counterfactual(cfg *config.Config, dir string) {
 	}
 	snapshots := loadSnapshots(dir)
 	bodyArms := [2]map[int64]bodyArm{{}, {}}
+	baselineOnly := os.Getenv("FIDELITY_BASELINE_ONLY") == "true"
 	variant := "summary"
+	if baselineOnly {
+		variant = "baseline"
+	}
 	if os.Getenv("FIDELITY_PGC_COUPLED") == "true" {
+		if baselineOnly {
+			panic("baseline and coupled modes are mutually exclusive")
+		}
 		bodyArms = loadBodyArms(dir)
 		variant = "combined"
 	}
 	armDocs := [2]map[int64]discovery.Document{{}, {}}
+	armChanged := [2]map[int64]bool{{}, {}}
+	var referenceManifest struct{ Indices []string }
+	refBytes, refErr := os.ReadFile(filepath.Join(dir, "counterfactual-baseline-manifest.json"))
+	if baselineOnly && os.IsNotExist(refErr) {
+		referenceManifest.Indices = []string{"", ""}
+	} else {
+		must(refErr)
+		must(json.Unmarshal(refBytes, &referenceManifest))
+	}
+	if len(referenceManifest.Indices) != 2 {
+		panic("missing baseline index reference")
+	}
 	armDrops := [2]map[int64]bool{{}, {}}
 	armVectors := [2]map[int64][]float32{{}, {}}
 	inventory := map[int64]discovery.Document{}
@@ -259,16 +299,27 @@ func counterfactual(cfg *config.Config, dir string) {
 	for i, index := range names {
 		local.request("PUT", "/"+index, map[string]any{"settings": settings, "mappings": tmpl.Mappings})
 		docs := []map[string]any{}
-		for id, d := range inventory {
+		orderedIDs := make([]int64, 0, len(inventory))
+		for id := range inventory {
+			orderedIDs = append(orderedIDs, id)
+		}
+		sort.Slice(orderedIDs, func(i, j int) bool { return orderedIDs[i] < orderedIDs[j] })
+		for _, id := range orderedIDs {
+			d := inventory[id]
 			item, ok := byID[id]
 			if !ok {
 				panic(fmt.Sprintf("missing source evidence %d", id))
 			}
 			if d.Version != featureindex.BroadcastContentHash(id, d.AuthorID, item.Content+"\n"+item.Summary, d.Slots) {
-				panic(fmt.Sprintf("source evidence version drift %d", id))
+				if item.PotentiallyEligible {
+					panic(fmt.Sprintf("eligible source evidence version drift %d", id))
+				}
+				if i == 0 {
+					fmt.Printf("inactive/seen/hard-filtered source %d has a stale authority fingerprint; retained in both pools\n", id)
+				}
 			}
 			summary := item.Summary
-			if i == 1 {
+			if i == 1 && !baselineOnly {
 				a, ok := audits[id]
 				if !ok && item.PotentiallyEligible {
 					panic(fmt.Sprintf("missing candidate audit %d", id))
@@ -307,11 +358,15 @@ func counterfactual(cfg *config.Config, dir string) {
 					must(e)
 					item.Keywords = string(words)
 					armVectors[i][id] = arm.Vector
+					armChanged[i][id] = true
 					if arm.Output.Quality < cfg.QualityThreshold {
 						armDrops[i][id] = true
 						continue
 					}
 				}
+			}
+			if content != item.Content || summary != item.Summary {
+				armChanged[i][id] = true
 			}
 			keywords := []string{}
 			if err := json.Unmarshal([]byte(item.Keywords), &keywords); err != nil {
@@ -322,8 +377,8 @@ func counterfactual(cfg *config.Config, dir string) {
 				}
 			}
 			doc := map[string]any{"id": id, "author_agent_id": d.AuthorID, "content": content, "summary": summary, "keywords": keywords, "lang": item.Lang, "retrieval_slots": d.Slots}
-			if item.ExpireTime != "" {
-				doc["expire_time"] = item.ExpireTime
+			if expiry := indexExpiry(item.ExpireTime); expiry != "" {
+				doc["expire_time"] = expiry
 			}
 			docs = append(docs, doc)
 			{
@@ -343,29 +398,45 @@ func counterfactual(cfg *config.Config, dir string) {
 		for _, d := range restoreDocs(s.Inventory) {
 			ids = append(ids, d.Ref.ID)
 		}
+		stale := map[int64]bool{}
+		original := map[int64]string{}
+		for _, d := range s.Inventory {
+			original[d.Ref.ID] = d.Version
+		}
+		for _, ch := range s.Channels {
+			for _, d := range ch.Documents {
+				if d.Version != "" && d.Version != original[d.Ref.ID] {
+					stale[d.Ref.ID] = true
+				}
+			}
+		}
 		runs := []discovery.Execution{}
 		for i, index := range names {
 			alias := index + "-agent-" + strconv.FormatInt(s.Owner, 10)
 			local.request("POST", "/_aliases", map[string]any{"actions": []any{map[string]any{"add": map[string]any{"index": index, "alias": alias, "filter": map[string]any{"terms": map[string]any{"id": ids}}}}}})
 			docs := map[int64]discovery.Document{}
 			vectors := map[int64][]float32{}
+			changed := map[int64]bool{}
 			for _, d := range restoreDocs(s.Inventory) {
 				if next, ok := armDocs[i][d.Ref.ID]; ok {
-					d.Preview = next.Preview
-					d.Text = next.Text
-					d.Version = next.Version
-					d.GroupID = next.GroupID
-					d.Quality = next.Quality
-					d.ContentType = next.ContentType
-					d.SourceType = next.SourceType
-					d.Slots = next.Slots
+					if armChanged[i][d.Ref.ID] {
+						changed[d.Ref.ID] = true
+						d.Preview = next.Preview
+						d.Text = next.Text
+						d.Version = next.Version
+						d.GroupID = next.GroupID
+						d.Quality = next.Quality
+						d.ContentType = next.ContentType
+						d.SourceType = next.SourceType
+						d.Slots = next.Slots
+					}
 					docs[d.Ref.ID] = d
 					if v, ok := armVectors[i][d.Ref.ID]; ok {
 						vectors[d.Ref.ID] = v
 					}
 				}
 			}
-			source := &poolSource{snap: s, docs: docs, dropped: armDrops[i], vectors: vectors, lexical: &discovery.Source{BroadcastIndex: alias}}
+			source := &poolSource{snap: s, docs: docs, dropped: armDrops[i], vectors: vectors, stale: stale, changed: changed, reference: referenceManifest.Indices[0] + "-agent-" + strconv.FormatInt(s.Owner, 10), lexical: &discovery.Source{BroadcastIndex: alias}}
 
 			engine, close := engine(cfg, dir, s, source)
 			run, err := engine.ReplayContexts(context.Background(), s.Owner, s.Contexts, []discovery.Kind{discovery.Broadcast}, 20, s.At)
@@ -384,7 +455,7 @@ func counterfactual(cfg *config.Config, dir string) {
 		reports = append(reports, map[string]any{"agent_id": strconv.FormatInt(s.Owner, 10), "pool": len(ids), "captured_delivered": len(s.Before.Candidates), "before_delivered": len(runs[0].Candidates), "after_delivered": len(runs[1].Candidates)})
 		fmt.Printf("Agent %d: full pool %d; captured %d; finite-corpus before/after %d/%d\n", s.Owner, len(ids), len(s.Before.Candidates), len(runs[0].Candidates), len(runs[1].Candidates))
 	}
-	save(filepath.Join(dir, "counterfactual-"+variant+"-manifest.json"), map[string]any{"variant": variant, "indices": names, "agents": reports, "method": "full captured candidate-union counterfactual; changed PGC extraction and embeddings rerun, other dense scores frozen; production rules/model/policies; finite-corpus BM25 statistics; lifecycle fixed; changed PGC groups rerun against preceding production items"})
+	save(filepath.Join(dir, "counterfactual-"+variant+"-manifest.json"), map[string]any{"variant": variant, "indices": names, "agents": reports, "method": "full captured candidate-union counterfactual; changed PGC extraction and embeddings rerun, other dense scores frozen; production rules/model/policies; production-score-anchored lexical deltas from finite-corpus ratios; lifecycle fixed; changed PGC groups rerun against preceding production items"})
 }
 
 func auditInputHash(item itemEvidence) string {
@@ -419,4 +490,15 @@ func auditInputHash(item itemEvidence) string {
 		parts = append(parts, encoded)
 	}
 	return fmt.Sprintf("%x", sha256.Sum256([]byte("["+strings.Join(parts, ", ")+"]")))
+}
+
+// Match the existing indexing formats, while authority keeps its own stricter
+// invalid-expiry rejection. Raw SQL date strings are not ES date encodings.
+func indexExpiry(raw string) string {
+	for _, layout := range []string{time.RFC3339, "2006-01-02 15:04:05", "2006-01-02"} {
+		if t, e := time.Parse(layout, raw); e == nil {
+			return t.Format(time.RFC3339)
+		}
+	}
+	return ""
 }

@@ -15,7 +15,7 @@ func TestCounterfactualUpdatesPresentationWithoutChangingRankingMetadata(t *test
 	corrected.Preview = "trial"
 	corrected.Text = "source\ntrial"
 	s := &snapshot{Channels: map[string]channel{channelKey(discovery.Context{ID: 1}, discovery.Broadcast, "dense"): {ContextID: 1, Kind: discovery.Broadcast, Name: "dense", Limit: 80, Documents: storeDocs([]discovery.Document{original})}}, Seen: map[string]bool{original.Ref.Key(): false}}
-	p := &poolSource{snap: s, docs: map[int64]discovery.Document{7: corrected}, dropped: map[int64]bool{}}
+	p := &poolSource{changed: map[int64]bool{7: true}, snap: s, docs: map[int64]discovery.Document{7: corrected}, dropped: map[int64]bool{}}
 	got, err := p.Recall(context.Background(), discovery.Context{ID: 1}, discovery.Broadcast, "dense", 80)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
@@ -39,4 +39,20 @@ func TestAuditInputHashMatchesPythonJSONAndBindsAllInputs(t *testing.T) {
 
 func TestAuditHashPreservesLiteralEscapesAndUnicodeSeparators(t *testing.T) {
 	require.Equal(t, "fe808e2701662605dee3bf1917ebf6baebd9f9f0ded605f6f7250245634805e6", auditInputHash(itemEvidence{Content: "中文<>&\\u2028\u2028\u2029"}))
+}
+
+func TestIndexExpiryNormalizesStoredSQLDates(t *testing.T) {
+	require.Equal(t, "2026-10-12T23:00:00Z", indexExpiry("2026-10-12 23:00:00"))
+	require.Equal(t, "", indexExpiry("invalid"))
+	require.Equal(t, "2026-10-12T00:00:00Z", indexExpiry("2026-10-12"))
+}
+func TestCounterfactualDoesNotHealUnrelatedStaleRecallEvidence(t *testing.T) {
+	d := discovery.Document{Ref: discovery.SourceRef{Type: discovery.Broadcast, ID: 7}, Version: "stale"}
+	fresh := d
+	fresh.Version = "authority"
+	s := &snapshot{Channels: map[string]channel{channelKey(discovery.Context{ID: 1}, discovery.Broadcast, "dense"): {ContextID: 1, Kind: discovery.Broadcast, Name: "dense", Limit: 80, Documents: storeDocs([]discovery.Document{d})}}}
+	p := poolSource{snap: s, docs: map[int64]discovery.Document{7: fresh}, stale: map[int64]bool{7: true}}
+	got, e := p.Recall(context.Background(), discovery.Context{ID: 1}, discovery.Broadcast, "dense", 80)
+	require.NoError(t, e)
+	require.Equal(t, "stale", got[0].Version)
 }
