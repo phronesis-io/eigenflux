@@ -89,15 +89,17 @@ def validate_catalog(state, events):
 
 
 def make_payload(e, event_id, action, commit, moment):
-    title = ('上线：' if action == 'activate' else '停止生效：') + e['title']
-    note = '' if action == 'activate' else '本次成功部署的版本不再包含此声明；此前上线记录仍保留。'
+    kind = '埋点' if e['kind'] == 'instrumentation' else '功能'
+    title = kind + '｜' + ('' if action == 'activate' else '停止生效：') + e['title']
+    note = e['description'] if action == 'activate' else '当前部署已移除此项声明。'
     stamp = int(moment.timestamp() * 1000)
-    display_time = moment.astimezone(ZoneInfo('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
+    display_time = moment.astimezone(ZoneInfo('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M')
     return {'time': stamp, 'timeEnd': stamp,
-            'text': f"<b>{display_time}（北京） · {html.escape(title)}</b><br>{html.escape(note + e['description'])}<br>"
-                    f'<a href="{e["pr"]}">PR #{e["pr"].rsplit("/", 1)[1]}</a> · 部署版本 {commit[:12]}',
+            'text': f'{html.escape(title)}<br><small style="font-weight:400">{display_time}（UTC+8） · '
+                    f'<a href="{e["pr"]}">PR #{e["pr"].rsplit("/", 1)[1]}</a><br>{html.escape(note)}</small>',
             'tags': [TAG, PREFIX + event_id, 'kind:' + e['kind'], 'source:production-deployer',
-                     'transition:' + action, *['dashboard:' + d for d in e['dashboards']]]}
+                     'transition:' + action, 'deployed-commit:' + commit,
+                     *['dashboard:' + d for d in e['dashboards']]]}
 
 
 def record(directory, events, scope, commit, moment=None):

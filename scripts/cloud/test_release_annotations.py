@@ -66,6 +66,19 @@ class ReleaseTests(unittest.TestCase):
         f.write_text(json.dumps([event(), event()]))
         with self.assertRaises(ValueError): r.load_manifest(f)
 
+    def test_compact_payload_preserves_provenance_and_escapes_copy(self):
+        moment = datetime(2026, 10, 13, 6, 1, 23, tzinfo=timezone.utc)
+        for kind, label in [('instrumentation', '埋点'), ('behavior', '功能')]:
+            e = dict(event(), kind=kind, title='<title>', description='A & B')
+            payload = r.make_payload(e, 'test-id', 'activate', 'a'*40, moment)
+            self.assertIn(label + '｜&lt;title&gt;', payload['text'])
+            self.assertIn('A &amp; B', payload['text'])
+            self.assertIn('2026-10-13 14:01（UTC+8）', payload['text'])
+            self.assertIn(e['pr'], payload['text'])
+            self.assertIn('deployed-commit:' + 'a'*40, payload['tags'])
+            self.assertEqual(payload['time'], int(moment.timestamp()*1000))
+            self.assertEqual(payload['timeEnd'], payload['time'])
+
     def test_api_only_never_marks_full_rollout_and_retries_do_not_duplicate(self):
         events = [event(), event('sort-change', 'full')]
         self.assertEqual(r.record(self.path, events, 'api', 'a'*40), 1)

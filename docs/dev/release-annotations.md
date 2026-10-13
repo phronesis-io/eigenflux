@@ -17,7 +17,12 @@ need no entry. PR merge time is never an activation time.
 }
 ```
 
-Use `behavior` (orange) or `instrumentation` (blue). `api` is allowed only when
+Use `behavior` (displayed as `功能`) or `instrumentation` (displayed as `埋点`).
+Colors are secondary. Write a short action title and one brief measurement or
+client-coverage caveat in `description`; keep field names and implementation
+details in the PR. The displayed date/PR uses smaller text. Exact timestamps
+remain in the event and the full deployed commit is stored in a tag.
+`api` is allowed only when
 restarting API alone is sufficient; use `full` for RPC, worker, migration, or
 multi-service changes. A full deployment activates both scopes; API-only changes
 only the API scope. Declare the measurement boundary and client adoption caveats
