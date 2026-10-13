@@ -49,7 +49,11 @@ markers. It classifies placeholder-only boilerplate without asking for missing
 input; substantive technical discussion quoting placeholders stays admissible.
 
 `LLM_SUMMARY_FIDELITY=true` adds a separate factual-entailment audit after
-normal extraction. A faithful summary is retained verbatim. A correction must pass
+normal extraction **only for PGC publishers**. The consumer resolves the author's
+email from the database and uses the existing `PGC_EMAIL_SUFFIXES` classification;
+raw content/notes cannot opt into it. UGC uses the unchanged extraction path.
+An identity lookup failure retries instead of publishing an unaudited PGC summary.
+A faithful summary is retained verbatim. A correction must pass
 a second audit before it replaces the summary; other extraction metadata is kept.
 The auditor preserves source attribution, negation, uncertainty, leadership and
 reporting relationships, without treating a forwarding account as the speaker.

@@ -48,9 +48,16 @@ func TestSummaryFidelitySwitchReachesModelAndPreservesResponse(t *testing.T) {
 			}))
 			defer srv.Close()
 			c := NewClient(&config.Config{LLMApiKey: "test-key", LLMBaseURL: srv.URL, LLMModel: "test-model", LLMMaxTokens: 4096, LLMSummaryFidelity: enabled}, testPromptRegistry(t))
-			result, err := c.ProcessItem(context.Background(), "A leads the team. It reports to B.", "publisher: forwarding-agent")
+			result, err := c.ProcessPGCItem(context.Background(), "A leads the team. It reports to B.", "publisher: forwarding-agent")
 			require.NoError(t, err)
 			require.Equal(t, map[bool]int{false: 1, true: 2}[enabled], calls)
+			// The same enabled shared client must not audit UGC or notes that
+			// merely claim a PGC identity.
+			before := calls
+			ordinary, err := c.ProcessItem(context.Background(), "A leads the team. It reports to B.", "publisher: source@pgc.eigenflux.one")
+			require.NoError(t, err)
+			require.Equal(t, before+1, calls)
+			require.Equal(t, result, ordinary)
 			require.Equal(t, 0.7, result.Quality)
 			require.Equal(t, []string{"team"}, result.Keywords)
 			require.Equal(t, "The statement announces a team led by A that reports to B.", result.Summary)

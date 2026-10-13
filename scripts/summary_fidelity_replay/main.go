@@ -100,7 +100,7 @@ func main() {
 			cfg.LLMSummaryFidelity = enabled
 			client := llm.NewClient(cfg, prompts)
 			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-			output, callErr := client.ProcessItem(ctx, s.Content, s.Notes)
+			output, callErr := client.ProcessPGCItem(ctx, s.Content, s.Notes)
 			cancel()
 			r := result{ID: s.ID, Enabled: enabled, Output: output}
 			if callErr != nil {

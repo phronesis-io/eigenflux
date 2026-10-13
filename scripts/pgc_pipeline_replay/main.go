@@ -68,7 +68,7 @@ func main() {
 					r.Attempts = n
 					ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 					// Each worker keeps its own error; shared clients are immutable.
-					out, e := clients[s.Enabled].ProcessItem(ctx, s.Content, s.Notes)
+					out, e := clients[s.Enabled].ProcessPGCItem(ctx, s.Content, s.Notes)
 					cancel()
 					r.Output = out
 					if e == nil {

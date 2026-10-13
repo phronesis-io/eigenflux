@@ -21,6 +21,10 @@ statistics. Set
 `FIDELITY_PGC_COUPLED=true` for the combined sensitivity.
 `compare` only permits `FIDELITY_LOCAL_ES_URL=http://127.0.0.1:56921` for writes.
 
+The final counterfactual applies summary corrections only to the frozen PGC
+class. UGC keeps its original content and summary, even if a diagnostic audit
+exists. Coupled source arms must belong to PGC.
+
 Summary audits bind the source content, notes and prior summary by SHA-256 and
 also bind the current audit prompt. Every potentially eligible candidate must
 have an audit; seen or immutable-hard-filter failures remain in the pool but need

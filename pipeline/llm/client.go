@@ -149,6 +149,16 @@ func validateProfileKeywords(keywords []string) error {
 
 // ProcessItem generates structured information for a content item
 func (c *Client) ProcessItem(ctx context.Context, rawContent, rawNotes string) (*ExtractResult, error) {
+	return c.processItem(ctx, rawContent, rawNotes, false)
+}
+
+// ProcessPGCItem is for a publisher classified as PGC from authoritative account
+// data. Ordinary ProcessItem calls never enable the PGC summary audit.
+func (c *Client) ProcessPGCItem(ctx context.Context, rawContent, rawNotes string) (*ExtractResult, error) {
+	return c.processItem(ctx, rawContent, rawNotes, c.summaryFidelity)
+}
+
+func (c *Client) processItem(ctx context.Context, rawContent, rawNotes string, audit bool) (*ExtractResult, error) {
 	result, err := ProcessItemPrompt.Execute(ctx, c, ProcessItemInput{Content: rawContent, Notes: rawNotes})
 	if err != nil {
 		return nil, err
@@ -171,7 +181,7 @@ func (c *Client) ProcessItem(ctx context.Context, rawContent, rawNotes string) (
 	if !*result.HomepageEligible && strings.TrimSpace(result.HomepageRejectionReason) == "" {
 		return nil, fmt.Errorf("process_item response missing homepage_rejection_reason for ineligible content")
 	}
-	if c.summaryFidelity {
+	if audit {
 		summary, err := c.GroundSummary(ctx, rawContent, rawNotes, result.Summary)
 		if err != nil {
 			return nil, err

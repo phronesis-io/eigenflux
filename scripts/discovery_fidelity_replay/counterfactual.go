@@ -251,7 +251,14 @@ func counterfactual(cfg *config.Config, dir string) {
 	armDrops := [2]map[int64]bool{{}, {}}
 	armVectors := [2]map[int64][]float32{{}, {}}
 	inventory := map[int64]discovery.Document{}
+	classes := map[int64]string{}
 	for _, s := range snapshots {
+		for id, lane := range s.Classes {
+			if old, ok := classes[id]; ok && old != lane {
+				panic("source class changed during capture")
+			}
+			classes[id] = lane
+		}
 		for _, d := range restoreDocs(s.Inventory) {
 			if old, ok := inventory[d.Ref.ID]; ok && old.Version != d.Version {
 				panic("candidate changed during capture; recapture cohort")
@@ -320,7 +327,7 @@ func counterfactual(cfg *config.Config, dir string) {
 				originalPayloads = append(originalPayloads, doc)
 			}
 			summary := item.Summary
-			if i == 1 && !baselineOnly {
+			if i == 1 && !baselineOnly && classes[id] == "pgc" {
 				a, ok := audits[id]
 				if !ok && item.PotentiallyEligible {
 					panic(fmt.Sprintf("missing candidate audit %d", id))
@@ -336,6 +343,9 @@ func counterfactual(cfg *config.Config, dir string) {
 			}
 			content := item.Content
 			if arm, ok := bodyArms[i][id]; ok {
+				if classes[id] != "pgc" {
+					panic("coupled source is not PGC")
+				}
 				if arm.Drop {
 					armDrops[i][id] = true
 					continue

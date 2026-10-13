@@ -70,7 +70,7 @@ type Config struct {
 	AuthRPCPort                 int
 	PMRPCPort                   int
 	NotificationRPCPort         int
-	LLMSummaryFidelity          bool // opt-in relationship/attribution grounding for extraction
+	LLMSummaryFidelity          bool // opt-in relationship/attribution grounding for PGC extraction only
 	LLMApiKey                   string
 	LLMBaseURL                  string
 	LLMModel                    string
