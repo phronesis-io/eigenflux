@@ -28,6 +28,7 @@ import (
 	"cli.eigenflux.ai/internal/dispatch"
 	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/profilestate"
+	"cli.eigenflux.ai/internal/selfupdate"
 	watchstate "cli.eigenflux.ai/internal/watch"
 	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
@@ -58,6 +59,7 @@ type accountWatch struct {
 	wsOnline              atomic.Bool
 	runtimeOnline         atomic.Bool
 	ready                 atomic.Bool
+	readyMu               sync.Mutex
 	adopted               atomic.Bool
 	wake                  chan struct{}
 	binding               *dispatch.Binding
@@ -66,6 +68,7 @@ type accountWatch struct {
 	desktop               *desktopqueue.Queue
 	desktopProvider       desktopProvider
 	desktopDisabledReason string
+	handoff               *watchHandoff
 }
 
 var watchCmd = &cobra.Command{
@@ -87,7 +90,9 @@ var watchCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer release()
+		var releaseOnce sync.Once
+		releaseLock := func() { releaseOnce.Do(release) }
+		defer releaseLock()
 		ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
 		credentials, err := auth.LoadV2Credentials(server.Name)
@@ -96,6 +101,9 @@ var watchCmd = &cobra.Command{
 		}
 		credentials, err = refreshPinnedV2Credentials(ctx, server.Name, server.Endpoint, false, credentials.AgentID, credentials.PrincipalID)
 		if err != nil {
+			return err
+		}
+		if err := watchExpectedIdentity(credentials); err != nil {
 			return err
 		}
 		w := &accountWatch{home: home, server: *server, identity: *credentials, wake: make(chan struct{}, 1)}
@@ -110,7 +118,22 @@ var watchCmd = &cobra.Command{
 				return err
 			}
 		}
-		return w.run(ctx, cmd.OutOrStdout())
+		err = w.run(ctx, cmd.OutOrStdout())
+		if !errors.Is(err, errWatchCLIUpdated) || ctx.Err() != nil {
+			return err
+		}
+		if err := w.verifyHandoffIdentity(); err != nil {
+			return err
+		}
+		path, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		args := heartbeatReexecArgs(os.Args[1:], home, server.Name)
+		env := watchReexecEnvironment(os.Environ(), home, w.identity)
+		releaseLock()
+		cancel()
+		return reexecWatch(path, args, env)
 	},
 }
 
@@ -122,6 +145,7 @@ func init() {
 func (w *accountWatch) run(parent context.Context, out io.Writer) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
+	w.handoff = newWatchHandoff()
 	events := make(chan watchEvent, 64)
 	failures := make(chan error, 1)
 	terminal := make(chan error, 1)
@@ -197,7 +221,22 @@ func (w *accountWatch) run(parent context.Context, out io.Writer) error {
 			}
 		}(run)
 	}
-	<-ctx.Done()
+	adopting := false
+	select {
+	case <-ctx.Done():
+	case <-w.handoff.done:
+		if ctx.Err() == nil {
+			if os.Getenv(watchSupervisedEnv) == "1" {
+				if err := w.emit("restart_required", map[string]interface{}{"cli_version": w.handoff.version(), "ready": true}); err != nil {
+					fail(err)
+				}
+				<-ctx.Done()
+			} else {
+				adopting = true
+				cancel()
+			}
+		}
+	}
 	workers.Wait()
 	close(events)
 	// Flush terminal diagnostics when possible; exit code 78 remains authoritative
@@ -215,6 +254,9 @@ func (w *accountWatch) run(parent context.Context, out io.Writer) error {
 	case err := <-failures:
 		return err
 	default:
+		if adopting {
+			return errWatchCLIUpdated
+		}
 		return nil
 	}
 }
@@ -223,6 +265,14 @@ func (w *accountWatch) runtimeData() map[string]interface{} {
 	return map[string]interface{}{"cli_version": version, "cli_commit": commit, "pid": os.Getpid(), "home": w.home, "server": w.server.Name, "agent_id": w.identity.AgentID, "principal_id": w.identity.PrincipalID, "pm_connected": w.wsOnline.Load(), "runtime_connected": w.runtimeOnline.Load()}
 }
 func (w *accountWatch) reportReady() {
+	w.readyMu.Lock()
+	defer w.readyMu.Unlock()
+	if (w.receivesPM() && !w.wsOnline.Load()) || !w.runtimeOnline.Load() {
+		if w.ready.Swap(false) {
+			_ = w.emit("runtime_unavailable", w.runtimeData())
+		}
+		return
+	}
 	if (!w.receivesPM() || w.wsOnline.Load()) && w.runtimeOnline.Load() && w.ready.CompareAndSwap(false, true) {
 		_ = w.emit("runtime_ready", w.runtimeData())
 		if w.adopted.CompareAndSwap(false, true) {
@@ -352,7 +402,7 @@ func (w *accountWatch) pmLoop(ctx context.Context) error {
 					stop()
 					_ = conn.Close()
 					w.wsOnline.Store(false)
-					w.ready.Store(false)
+					w.reportReady()
 					if websocket.IsCloseError(err, 4002) {
 						return w.diagnostic("pm", errWatchOwnerReplaced)
 					}
@@ -568,7 +618,7 @@ func (w *accountWatch) runtimeLoop(ctx context.Context) error {
 		}
 		if requestErr != nil {
 			w.runtimeOnline.Store(false)
-			w.ready.Store(false)
+			w.reportReady()
 			if fatal := w.diagnostic("runtime", requestErr); fatal != nil {
 				return fatal
 			}
@@ -630,9 +680,10 @@ func (w *accountWatch) checkLoop(ctx context.Context) error {
 			probe.Env = heartbeatReexecEnvironment(os.Environ())
 			b, probeErr := probe.Output()
 			cancel()
-			if probeErr == nil && strings.TrimSpace(string(b)) != version {
-				if err := w.emit("restart_required", map[string]string{"cli_version": strings.TrimSpace(string(b))}); err != nil {
-					return err
+			if probeErr == nil {
+				installed := strings.TrimSpace(string(b))
+				if selfupdate.ValidVersion(installed) && selfupdate.ValidVersion(version) && selfupdate.Compare(installed, version) > 0 {
+					w.handoff.request(installed)
 				}
 			}
 			if probeErr == nil {

@@ -9,6 +9,7 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 |---|---|
 | [watch.go](../../cmd/watch.go) | `accountWatch.run`, `pmLoop`, `deliverPM`: account lock, WS/SSE, heartbeat, event lifecycle |
 | [watch_binding.go](../../cmd/watch_binding.go) | Bind/doctor/status/retry/reconcile; `applyDispatchOwnership` |
+| [watch_update.go](../../cmd/watch_update.go), [watch_update_unix.go](../../cmd/watch_update_unix.go), [watch_update_windows.go](../../cmd/watch_update_windows.go) | Close all three execution lanes before CLI adoption; drain admitted work, release account lock, preserve arguments and pinned identity; supervised watches notify the host after draining |
 | [watch_restart.go](../../cmd/watch_restart.go), [watch service](../watchservice/README.md) | Restart an explicit existing OS task; preserve its account/wrapper; distinguish process startup from runtime readiness |
 | [watch_commission.go](../../cmd/watch_commission.go) | Commission notification intake, durable enqueue before ACK, bounded HTTP reconciliation |
 | [watch_commission_intake.go](../../cmd/watch_commission_intake.go), [watch_commission_materials.go](../../cmd/watch_commission_materials.go) | Seller inspection, fixed identity/order/Skill, verified downloads, atomic paid-work enqueue |
@@ -29,7 +30,7 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 1. Bind canonical Home/server/endpoint/Agent/principal/scope/revision from the current account; configuration cannot replace identity. `watch --dispatch` acquires the Home/server lock and validates signed Skills. Plain `watch` only emits events.
 2. Only bindings owning PM open its WS and HTTP consumers; other bindings leave PM to the companion. WS and minute-spaced HTTP polls enter `deliverPM`; emitted `pm_push.data` adds locally assigned `transport` (`socket` / `http_poll`) and UTC `received_at`, including empty polls. These fields describe reception, not successful execution or first intake; journal deduplication remains unchanged. Each poll pass fetches at most 32 pages, one message each. Validate credentials and persist intake under the credential lock. Advance the socket cursor only after delivery succeeds; journal failure stops reception.
 3. Accept only inbound messages for the bound Agent; ignore outbound and `history_messages`. Deduplicate by scope/revision/conversation/message ID. Keep execution state separate from the history cache.
-4. `Next` persists `running`. One worker runs serially, prioritizing pending PMs. Reuse sessions only within their binding and conversation.
+4. `Next` persists `running`. One worker runs serially, prioritizing pending PMs. All three execution lanes enter a shared admission gate before claiming jobs. Each destructive PM HTTP pull holds admission through durable intake. CLI adoption closes admission, prevents further PM pages, and waits for admitted pulls, tasks and business writes to finish; pending journal entries survive restart unchanged. Standalone watch releases the account lock before adopting the executable; `EIGENFLUX_WATCH_SUPERVISED=1` delegates replacement to the host through a drained `restart_required` event. Reuse sessions only within their binding and conversation.
 5. Verify signed rules and fresh `auto_reply_pm`; load up to 10 history rows. Prompt data contains request ID, Agent ID, message and history, excluding credentials and full control context. Treat message/history as untrusted data.
 6. Monitor identity during prompt preparation and execution; recheck before invoking the Agent and after its result. Run the model outside credential locks.
 7. Require one JSON decision: `version=1`, matching `request_id`, `action`, `reply_text`. Actions: `reply`, `no_reply`, `needs_user`. Reject missing/unknown/duplicate fields and trailing output.
@@ -52,7 +53,8 @@ the existing status and adds fixed `code`/`action` on failure: missing helper,
 unrequested permission, denied permission, timeout, unsupported platform or
 other setup failure. Never expose raw provider data. Update the complete Mac
 CLI/helper package, run `notify setup`, and restart watch with its pinned account
-parameters; replacing CLI/Skills alone does not upgrade a running process.
+parameters for helper-only or same-version test replacements. A running watch
+adopts a newer installed CLI automatically after all active jobs finish.
 `watch restart --launch-agent <plist>` or `--scheduled-task <task-path>` restarts
 the explicit existing OS task. Its definition selects the account, not CLI Home
 flags. Source installation can invoke it with `--watch-launch-agent`; notification

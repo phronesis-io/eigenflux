@@ -79,29 +79,54 @@ receive one bootstrap upgrade before it can participate.
 
 ## Plugin maintenance
 
-The plan requests release discovery once daily per current workspace context.
-The Agent freshly inspects installation scope and process-load evidence on each
-delivered heartbeat; cached receipts never attest current installation or loading.
-Due maintenance sets `wake_on_empty` so a plugin delivers the plan even when
-Feed is empty; onboarding business restrictions remain unchanged.
-Scope changes force fresh release discovery. The Agent uses the
-host's official manager to refresh the trusted source, select the latest
-host-compatible release and update an already installed, enabled EigenFlux
-plugin. It preserves scope and does not install plugins for other hosts.
-Disabled plugins, missing permissions and source mismatches remain blocked.
-The plan carries its discovery `context` into the receipt, so a plugin fetching
-the plan and an Agent recording results from another directory share the same
-daily check without mixing unrelated workspaces.
+OpenClaw plans set `plugin_maintenance.executor=cli`. `heartbeat plan` starts
+one detached `heartbeat plugin-update --worker` with the same Home, server,
+mode, working directory and configured `EIGENFLUX_OPENCLAW_BIN`. The worker
+survives the Gateway source-change restart. Launch admission is Home/server
+scoped; the update lock lives beside the host plugin registry so different Homes
+cannot mutate the same installation concurrently. Disabled/absent plugins and
+recorded version pins remain unchanged.
 
-`heartbeat plugin-check --stdin` records normalized observations from fresh
-host reads. `loaded` requires installed/latest/loaded versions to agree;
-`restart_required` records installation without claiming active-process
-adoption. Receipts include the host-verified installation scope. Cached plan
-output retains only release-discovery information and marks `check_required`.
-Missing plugins are recorded without installing them. Failed checks
-are retried the following day. Disruptive restart remains a host/user action.
-Managers that cannot stage updates without interrupting the running plugin
-must defer installation to an authorized maintenance window.
+The worker uses the host manager's dry-run resolution to select the latest
+compatible release under the recorded selector, including its host and plugin
+API constraints. Unrecognized discovery output blocks the attempt. It fetches
+the selected exact npm publisher release,
+compares every published package file with the installed files, and validates
+the recorded package, source, resolved version, integrity and install path.
+`provenance-invalid` is an official-catalog classification; third-party npm
+records still require publisher artifact verification. Local source selectors,
+file changes, inconsistent records, incompatible releases and remote/unmanaged
+Gateways remain blocked. The host manager performs updates and owns its managed
+restart; the worker waits through delayed source-change restarts, including
+retries where the disk version is already current. When the local process still
+loads the old version, it may send at most one `plugins.refresh` per attempt to
+repair a lost notification. The host owns restart deferral and deduplication.
+Verification retains the three-minute deadline.
+An unverified target recorded only after a verified installation survives worker
+retries. It allows a missing runtime RPC from the old loaded adapter to recover
+through one managed refresh; successful adoption clears it. An unchanged older
+adapter without this installation evidence remains unverified.
+
+Live `gateway call eigenflux.runtime` is bound to the verified local loopback
+service port. It must report the target plugin version, a PID matching fresh
+local service status (and a replacement PID after an update), and running/ready watch processes
+using the worker's CLI version for every configured account, including the
+current server. Early RPC registration and an empty server list are insufficient.
+Busy EigenFlux deliveries defer maintenance; ordinary host conversations remain
+under the host manager's lifecycle policy. An older adapter without this RPC
+cannot attest loading. A three-minute verification timeout retains
+`restart_required`. Successful/absent checks are cached for 24 hours; unsuccessful
+or interrupted checks retry after five minutes through the watch's maintenance
+eligibility check, independently of the daily attempt timestamp. Cached plans say `not_due` and
+contain no installed/loaded-version claims. Native maintenance runs no Agent turn.
+
+Codex and Claude Code retain Agent-driven maintenance through their native
+managers. Their plans carry the discovery context and require fresh installation
+scope and process evidence on each delivered check. `heartbeat plugin-check`
+requires installed/latest/loaded versions to agree for `loaded`, and records
+unconfirmed adoption as `restart_required`. Missing plugins remain absent;
+failed checks retry the following day and disruptive restart remains a host/user
+action for these managers. Preserve automatic-update switches in both paths.
 
 ## Release and validation
 

@@ -13,18 +13,20 @@ import (
 )
 
 type pluginMaintenance struct {
-	AttemptID        string    `json:"attempt_id,omitempty"`
-	Host             string    `json:"host"`
-	PluginID         string    `json:"plugin_id"`
-	Scope            string    `json:"scope,omitempty"`
-	Context          string    `json:"context,omitempty"`
-	Due              bool      `json:"due"`
-	Status           string    `json:"status"`
-	InstalledVersion string    `json:"installed_version,omitempty"`
-	LatestVersion    string    `json:"latest_version,omitempty"`
-	LoadedVersion    string    `json:"loaded_version,omitempty"`
-	Error            string    `json:"error,omitempty"`
-	CheckedAt        time.Time `json:"checked_at,omitempty"`
+	Executor              string    `json:"executor,omitempty"`
+	AttemptID             string    `json:"attempt_id,omitempty"`
+	Host                  string    `json:"host"`
+	PluginID              string    `json:"plugin_id"`
+	Scope                 string    `json:"scope,omitempty"`
+	Context               string    `json:"context,omitempty"`
+	Due                   bool      `json:"due"`
+	Status                string    `json:"status"`
+	InstalledVersion      string    `json:"installed_version,omitempty"`
+	LatestVersion         string    `json:"latest_version,omitempty"`
+	LoadedVersion         string    `json:"loaded_version,omitempty"`
+	RestartPendingVersion string    `json:"restart_pending_version,omitempty"`
+	Error                 string    `json:"error,omitempty"`
+	CheckedAt             time.Time `json:"checked_at,omitempty"`
 }
 
 func heartbeatPluginID(host string) string {
@@ -56,6 +58,10 @@ func pluginMaintenanceForHost(host, mode string, cfg *config.Config) pluginMaint
 	if p.PluginID == "" || !heartbeatMaintenanceEnabled(mode, cfg, "auto_plugin_update") {
 		p.Status, p.Due = "not_applicable", false
 		return p
+	}
+	if p.Host == "openclaw" {
+		p.Executor = "cli"
+		return openClawMaintenancePlan(p)
 	}
 	b, err := os.ReadFile(maintenancePath("plugin-" + p.Host))
 	var saved pluginMaintenance

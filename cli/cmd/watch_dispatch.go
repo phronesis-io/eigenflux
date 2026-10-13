@@ -77,42 +77,54 @@ func (w *accountWatch) pollPM(ctx context.Context) error {
 	}
 	cursor := ""
 	for page := 0; page < 32; page++ {
-		if w.journal != nil && !w.journal.HasCapacity() {
-			return errors.New("dispatch_queue_full")
-		}
-		c, err := w.api(ctx)
+		next, more, err := w.pollPMPage(ctx, cursor)
 		if err != nil {
 			return err
 		}
-		// Fetch marks rows read on the server. Keep each pull bounded and persist it
-		// before fetching the next page. The existing API has no delivery ACK.
-		params := map[string]string{"limit": "1"}
-		if cursor != "" {
-			params["cursor"] = cursor
-		}
-		resp, err := c.Get("/pm/fetch", params)
-		if err != nil {
-			return err
-		}
-		if resp.Code != 0 {
-			return errors.New("pm_poll_failed")
-		}
-		var batch struct {
-			Messages   []json.RawMessage `json:"messages"`
-			NextCursor string            `json:"next_cursor"`
-		}
-		if json.Unmarshal(resp.Data, &batch) != nil {
-			return errors.New("invalid_pm_response")
-		}
-		if err = w.deliverPM(ctx, "pm_push", resp.Data, "http_poll"); err != nil {
-			return err
-		}
-		if len(batch.Messages) == 0 || batch.NextCursor == "" || batch.NextCursor == cursor {
+		if !more {
 			return nil
 		}
-		cursor = batch.NextCursor
+		cursor = next
 	}
 	return nil
+}
+
+func (w *accountWatch) pollPMPage(ctx context.Context, cursor string) (string, bool, error) {
+	if !w.handoff.begin() {
+		return "", false, nil
+	}
+	defer w.handoff.end()
+	if w.journal != nil && !w.journal.HasCapacity() {
+		return "", false, errors.New("dispatch_queue_full")
+	}
+	c, err := w.api(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	// Fetch marks rows read before returning. Hold admission through durable
+	// intake so CLI adoption cannot cancel an already destructive pull.
+	params := map[string]string{"limit": "1"}
+	if cursor != "" {
+		params["cursor"] = cursor
+	}
+	resp, err := c.Get("/pm/fetch", params)
+	if err != nil {
+		return "", false, err
+	}
+	if resp.Code != 0 {
+		return "", false, errors.New("pm_poll_failed")
+	}
+	var batch struct {
+		Messages   []json.RawMessage `json:"messages"`
+		NextCursor string            `json:"next_cursor"`
+	}
+	if json.Unmarshal(resp.Data, &batch) != nil {
+		return "", false, errors.New("invalid_pm_response")
+	}
+	if err = w.deliverPM(ctx, "pm_push", resp.Data, "http_poll"); err != nil {
+		return "", false, err
+	}
+	return batch.NextCursor, len(batch.Messages) > 0 && batch.NextCursor != "" && batch.NextCursor != cursor, nil
 }
 
 func (w *accountWatch) dispatchIdentityOK() error {
@@ -143,11 +155,16 @@ func (w *accountWatch) dispatchIdentityOK() error {
 
 func (w *accountWatch) dispatchLoop(ctx context.Context) error {
 	for ctx.Err() == nil {
+		if !w.handoff.begin() {
+			return nil
+		}
 		job, ok, err := w.journal.Next()
 		if err != nil {
+			w.handoff.end()
 			return err
 		}
 		if !ok {
+			w.handoff.end()
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -155,7 +172,9 @@ func (w *accountWatch) dispatchLoop(ctx context.Context) error {
 			}
 			continue
 		}
-		if err = w.dispatchJob(ctx, job); err != nil {
+		err = w.dispatchJob(ctx, job)
+		w.handoff.end()
+		if err != nil {
 			return err
 		}
 	}

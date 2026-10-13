@@ -15,6 +15,8 @@ stream format. The legacy `stream` command remains available.
 
 `started` identifies the pinned process but is not a readiness assertion.
 `runtime_ready` requires a successful Runtime lease and connected PM socket.
+Losing either condition emits `runtime_unavailable`; recovery emits a fresh
+`runtime_ready`. Host runtime evidence follows these transitions.
 The control SSE is a wake hint; Runtime heartbeat reconciles pending command IDs
 and renews at the server's requested cadence (30 seconds currently). Repeated
 pending sets trigger at most once per minute; a changed set wakes immediately.
@@ -30,10 +32,24 @@ receipts. The host reuses profile context/refresh-task adapters and the bounded
 `heartbeat plan --maintenance-only` pipeline. These calls cannot block socket
 keepalive. Feed polling and feedback flushing keep their existing cadence.
 
-`restart_required` asks the existing plugin supervisor to stop its old watch,
-confirm exit, and start the same arguments using a clean environment. The
-supervisor preserves active Agent turns, checks the pinned account, and waits
-for a new `runtime_ready`. Binary replacement or `version --short` alone does not
+When the installed executable reports a newer valid version, watch closes job
+admission before claiming further journal entries. Existing PM replies, seller
+inspection and paid fulfillment finish normally, including their business writes;
+pending entries remain durable. After every active lane finishes, standalone
+watch also waits for admitted destructive PM pulls to finish local intake.
+New PM pulls and subsequent pages stop when admission closes. Standalone
+watch releases its account lock and adopts the installed executable with the
+same arguments, canonical Home, server and inherited environment. POSIX replaces
+the process in place; Windows retains a signal-forwarding parent until its
+replacement exits. Identity is pinned across adoption; account or endpoint
+changes stop the handoff rather than switching accounts.
+
+Plugins set `EIGENFLUX_WATCH_SUPERVISED=1`. After draining, their watch emits
+`restart_required` with `ready: true` and keeps socket reception/leases active while
+awaiting the host. It cannot claim more jobs. The existing plugin supervisor
+waits for this drained event, stops the old watch, confirms exit, and starts the same arguments using a clean
+environment. The supervisor preserves active Agent turns, checks the pinned
+account, and waits for a new `runtime_ready`. Binary replacement or `version --short` alone does not
 prove runtime adoption. Sharing a binary shares installed versions; per-Home
 auto-update switches control initiation, not independent version pinning.
 
@@ -113,8 +129,10 @@ real executable and run `./eigenflux notify setup`, then `./eigenflux notify sta
 from that directory. `cli/scripts/install-local.sh` performs helper installation
 and setup automatically. macOS prompts only on the first request; a previous
 denial requires System Settings > Notifications > EigenFlux. After updating,
-restart the existing watch using the same Home/server and dispatch arguments.
-Updating CLI/Skills alone does not restart watch or enable an order subscription.
+a running watch adopts a newer installed CLI after active jobs finish. Same-version
+test replacements, helper-only changes and new subscriptions require an explicit
+restart using the same Home/server and dispatch arguments. Updating CLI/Skills
+does not enable an order subscription.
 
 Setup failures emit `desktop_notification_status` with fixed `code` and `action`:
 `helper_missing` / `install_complete_bundle`, `permission_required` /

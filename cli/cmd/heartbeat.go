@@ -197,6 +197,7 @@ var heartbeatPlanCmd = &cobra.Command{
 		pluginMaintenance := pluginMaintenance{Status: "not_applicable"}
 		if !controlOnly && !watchManaged {
 			pluginMaintenance = pluginMaintenanceForHost(meta.Host, meta.Mode, cfg)
+			pluginMaintenance = scheduleOpenClawUpdate(pluginMaintenance)
 		}
 		// Mark commands from this cycle, but not the persisted launcher.
 		cliPrefix += " --origin " + publishOriginHeartbeat
@@ -300,8 +301,11 @@ func heartbeatStages(access runtimeAccess) []string {
 
 func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 	receiptText := ""
+	if plan.PluginMaintenance.Executor == "cli" {
+		receiptText = "\nOpenClaw plugin maintenance is executed by the independent CLI worker. Do not run plugin discovery, installation, restart, or plugin-check from this Agent turn. Cached maintenance results are historical observations.\n"
+	}
 	if plan.WatchManaged {
-		receiptText = "\nHost plugin and scheduler maintenance is owned exclusively by the watch maintenance-only handler. This full plan executes only its listed business stages and Skills read receipt; exclude host maintenance even when referenced by a general Skill.\n"
+		receiptText += "\nHost plugin and scheduler maintenance is owned exclusively by the watch maintenance-only handler. This full plan executes only its listed business stages and Skills read receipt; exclude host maintenance even when referenced by a general Skill.\n"
 	}
 	if len(plan.DispatchOwned) > 0 {
 		receiptText += "\nThe bound watch dispatcher exclusively owns these events: " + strings.Join(plan.DispatchOwned, ", ") + ". Skip only the procedures for those listed events in this heartbeat, including indirect Skill references. Preserve the watch binding and its dedicated foreground process.\n"

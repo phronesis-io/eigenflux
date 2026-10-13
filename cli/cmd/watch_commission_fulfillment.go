@@ -19,17 +19,24 @@ func (w *accountWatch) commissionFulfillmentLoop(ctx context.Context) error {
 		return nil
 	}
 	for ctx.Err() == nil {
+		if !w.handoff.begin() {
+			return nil
+		}
 		job, ok, err := w.journal.NextKind("commission_fulfillment")
 		if err != nil {
+			w.handoff.end()
 			return err
 		}
 		if !ok {
+			w.handoff.end()
 			if !watchPause(ctx, time.Second) {
 				break
 			}
 			continue
 		}
-		if err := w.dispatchCommissionFulfillment(ctx, job); err != nil {
+		err = w.dispatchCommissionFulfillment(ctx, job)
+		w.handoff.end()
+		if err != nil {
 			return err
 		}
 	}

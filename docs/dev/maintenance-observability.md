@@ -50,8 +50,8 @@ The server accepts the same seven-day event window and five-minute clock skew.
 CLI update details are persisted before re-execution; a non-secret attempt ID
 is passed to the replacement process. The process may confirm execution only
 when its actual version and the account's stored installation attempt agree.
-The `EIGENFLUX_UPDATE_REEXEC` marker applies only to that short command. A watch
-must be started by the supervisor with a clean environment.
+The `EIGENFLUX_UPDATE_REEXEC` marker applies only to that short command. A supervised watch starts with a clean environment; standalone watch adoption
+clears re-execution markers and pins the account identity before replacement.
 
 `heartbeat plan` emits `skills_read_receipt` only for compatible, signed,
 unchanged local rules. After reading every selected source, the host submits
@@ -62,7 +62,10 @@ heartbeat does not invalidate an Agent that is still reading. It timestamps the 
 read confirmation when received. Disk installation alone
 does not produce `rules_read`. `heartbeat plugin-check --stdin` records fresh
 plugin observations and retains the attempt across `restart_required` and
-`loaded`. A cached receipt is never current process-load evidence.
+`loaded`. A cached receipt is never current process-load evidence. OpenClaw native workers
+record `loaded` only after live Gateway and watch readiness verification; their
+`not_due` plan fields are cached discovery timing, not fresh process evidence.
+Native maintenance does not emit `rules_read` on behalf of an absent Agent turn.
 
 `heartbeat maintenance-status` reports the current account's queue, dropped
 count, retry time and latest component observations. A queue or telemetry

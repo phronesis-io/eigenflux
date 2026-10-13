@@ -43,17 +43,24 @@ func (w *accountWatch) commissionDispatchLoop(ctx context.Context) error {
 		return nil
 	}
 	for ctx.Err() == nil {
+		if !w.handoff.begin() {
+			return nil
+		}
 		job, ok, err := w.journal.NextKind("commission_order")
 		if err != nil {
+			w.handoff.end()
 			return err
 		}
 		if !ok {
+			w.handoff.end()
 			if !watchPause(ctx, time.Second) {
 				break
 			}
 			continue
 		}
-		if err := w.dispatchCommissionIntake(ctx, job); err != nil {
+		err = w.dispatchCommissionIntake(ctx, job)
+		w.handoff.end()
+		if err != nil {
 			return err
 		}
 	}

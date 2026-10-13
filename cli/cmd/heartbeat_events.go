@@ -56,6 +56,12 @@ func maintenanceDue(server string, now time.Time) bool {
 	if err != nil {
 		return false
 	}
+	if runtimeProduct(meta.Host) == "openclaw" && serverMaintenanceEnabled(cfg, server, "auto_plugin_update") {
+		p := pluginMaintenance{Context: pluginContext(), Status: "due", Due: true}
+		if openClawMaintenancePlanAt(p, server, now).Due {
+			return true
+		}
+	}
 	due, err := maintenance.Due(scope, now, 24*time.Hour)
 	return err == nil && due
 }

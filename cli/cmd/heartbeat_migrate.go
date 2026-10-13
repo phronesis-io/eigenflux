@@ -56,7 +56,11 @@ func readMaintenanceInput(cmd *cobra.Command, target interface{}) error {
 }
 
 func maintenancePath(name string) string {
-	server := sha256.Sum256([]byte(activeServerName()))
+	return maintenancePathForServer(name, activeServerName())
+}
+
+func maintenancePathForServer(name, serverName string) string {
+	server := sha256.Sum256([]byte(serverName))
 	return filepath.Join(config.HomeDir(), "maintenance", hex.EncodeToString(server[:8])+"-"+name+".json")
 }
 

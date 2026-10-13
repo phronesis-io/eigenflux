@@ -89,6 +89,12 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 			}))
 			defer srv.Close()
 			cfg, server := runtimeTestConfig(t, srv.URL, true)
+			// Native OpenClaw maintenance has its own fake-manager integration tests.
+			if tc.host == "openclaw" {
+				if err := cfg.SetKV("auto_plugin_update", "false"); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if err := cfg.SetKV(autoSkillSyncKey, "true"); err != nil {
 				t.Fatal(err)
 			}
@@ -142,7 +148,10 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 			if !strings.Contains(plan.SchedulerLauncher, shellQuote("--runtime-mode")+" "+shellQuote(tc.mode)) {
 				t.Fatal("integration mode changed after upgrade")
 			}
-			if plan.PluginMaintenance.Host != tc.host || !plan.PluginMaintenance.Due || !strings.Contains(plan.AgentPrompt, `"plugin_id":"`+heartbeatPluginID(tc.host)+`"`) {
+			if tc.host == "openclaw" && plan.PluginMaintenance.Status != "not_applicable" {
+				t.Fatal("binary fixture started real host plugin maintenance")
+			}
+			if tc.host != "openclaw" && (plan.PluginMaintenance.Host != tc.host || !plan.PluginMaintenance.Due || !strings.Contains(plan.AgentPrompt, `"plugin_id":"`+heartbeatPluginID(tc.host)+`"`)) {
 				t.Fatalf("shared plan omitted host plugin maintenance: %+v", plan.PluginMaintenance)
 			}
 			if tc.mode == "plugin" && !strings.Contains(plan.SchedulerMigration, "do not create a second heartbeat") {

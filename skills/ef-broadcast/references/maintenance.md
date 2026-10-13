@@ -48,6 +48,11 @@ During automatic heartbeats, skip this section when the plan's
 `plugin_maintenance.status` is `not_applicable`. Apply explicit upgrades only
 within the user's current authorization.
 
+When `plugin_maintenance.executor` is `cli`, leave plugin discovery, installation,
+restart, and receipts to the independent CLI worker. Use its result for status
+reporting. Treat `not_due` as cached discovery timing. Report a concrete failure
+once and let the worker retry. Preserve all automatic-update switches.
+
 During explicit upgrades and both `skill` and `plugin` heartbeats, read the host's
 installed-plugin list, exact EigenFlux plugin ID, source, scope, enabled state,
 and installed version. Preserve disabled plugins and report `blocked`. Record
@@ -68,6 +73,12 @@ For Claude Code, refresh the configured EigenFlux marketplace and update
 `eigenflux@eigenflux-marketplace`. For OpenClaw, update `openclaw-eigenflux`
 within its supported host-version compatibility range. Stop on a source
 mismatch, unsupported update command, or permission failure.
+
+For OpenClaw plans without a CLI executor, distinguish the host's official
+catalog trust classification from npm package integrity. Verify the EigenFlux
+package identity, install path, recorded source, and publisher artifact before
+treating `provenance-invalid` as a source mismatch. Confirm loaded versions
+through live Gateway evidence.
 
 Read the compatible latest version from the refreshed official source. Update
 only when it differs from the installed version. Re-read the installed version

@@ -84,8 +84,10 @@ Use `darwin/amd64` on Intel. Start the package's `test-source -serve` against it
 
 Keep `EigenFlux Notifications.app` beside the Mac CLI. In the package directory,
 run `./eigenflux notify setup` and `./eigenflux notify status` before testing order
-notifications. Packaging and Skills sync do not request permission. After an
-update, restart watch with the same Home/server and dispatch arguments. If
+notifications. Packaging and Skills sync do not request permission. A running
+watch adopts a newer installed CLI after all active jobs finish.
+Same-version test replacements and helper-only updates require an explicit
+restart with the same Home/server and dispatch arguments. If
 previously denied, enable EigenFlux in System Settings > Notifications.
 When replacing a package used by a background watch, update that task's wrapper
 path and finish with `watch restart --launch-agent <plist>` on macOS or
