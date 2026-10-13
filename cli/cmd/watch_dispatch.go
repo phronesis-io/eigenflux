@@ -120,7 +120,7 @@ func (w *accountWatch) dispatchIdentityOK() error {
 	if err != nil {
 		return errWatchConfiguration
 	}
-	if b.Revision != w.binding.Revision || !sameBindingIdentity(b, *w.binding) {
+	if b.Revision != w.binding.Revision || b.MainSessionID != w.binding.MainSessionID || b.Env["CODEX_HOME"] != w.binding.Env["CODEX_HOME"] || !sameBindingIdentity(b, *w.binding) {
 		return errWatchConfiguration
 	}
 	cred, err := auth.LoadV2Credentials(w.server.Name)
@@ -166,7 +166,7 @@ func (w *accountWatch) finishDispatch(job dispatch.Job, status, code, session, r
 	if err := w.journal.Update(job.ID, status, code, session, reply); err != nil {
 		return err
 	}
-	return w.emit("dispatch_status", map[string]string{"job_id": job.ID, "kind": job.Kind, "status": status, "code": code, "reply_id": reply})
+	return w.emit("dispatch_status", map[string]string{"job_id": job.ID, "kind": job.Kind, "status": status, "code": code, "reply_id": reply, "session_id": session})
 }
 
 func (w *accountWatch) dispatchJob(parent context.Context, job dispatch.Job) error {
@@ -218,6 +218,12 @@ func (w *accountWatch) dispatchJob(parent context.Context, job dispatch.Job) err
 	session := ""
 	if job.Message != nil {
 		session = w.journal.Session(job.Message.Conversation)
+		if w.binding.MainSessionID != "" {
+			session = w.binding.MainSessionID
+		}
+	}
+	if err = w.emit("dispatch_started", map[string]string{"job_id": job.ID, "kind": job.Kind, "session_id": session, "main_session_id": w.binding.MainSessionID, "binding_revision": w.binding.Revision}); err != nil {
+		return err
 	}
 	started := time.Now().Unix()
 	result, runErr := w.runAgent(ctx, dispatch.Request{ID: job.ID, Kind: job.Kind, Prompt: prompt, SessionID: session})
@@ -225,6 +231,12 @@ func (w *accountWatch) dispatchJob(parent context.Context, job dispatch.Job) err
 	<-guardDone
 	if runErr != nil {
 		status, code := "unknown", "agent_execution_unconfirmed"
+		if errors.Is(runErr, dispatch.ErrMainSessionUnavailable) {
+			status, code = "needs_user", "main_session_unavailable"
+		}
+		if errors.Is(runErr, dispatch.ErrMainSessionMismatch) {
+			status, code = "unknown", "main_session_mismatch"
+		}
 		if errors.Is(runErr, dispatch.ErrNeedsUser) {
 			status, code = "needs_user", "agent_permission_required"
 		}
@@ -232,6 +244,9 @@ func (w *accountWatch) dispatchJob(parent context.Context, job dispatch.Job) err
 			status, code = "needs_user", "windows_command_line_too_long"
 		}
 		return w.finishDispatch(job, status, code, result.SessionID, "")
+	}
+	if job.Kind == "pm_push" && w.binding.MainSessionID != "" && result.SessionID != session {
+		return w.finishDispatch(job, "unknown", "main_session_mismatch", result.SessionID, "")
 	}
 	if err = w.dispatchIdentityOK(); err != nil {
 		if saveErr := w.finishDispatch(job, "unknown", "identity_changed", result.SessionID, ""); saveErr != nil {

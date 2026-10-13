@@ -88,6 +88,12 @@ func applyDispatchOwnership(plan *heartbeatPlan) error {
 var watchBindCmd = &cobra.Command{
 	Use: "bind", Short: "Bind this account to an explicitly configured local Agent", Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
+		if cmd.Flags().Changed("main-session-id") || cmd.Flags().Changed("current-session") || cmd.Flags().Changed("expected-id") || cmd.Flags().Changed("expected-revision") || cmd.Flags().Changed("codex-home") {
+			if cmd.Flags().Changed("config") {
+				return errors.New("session update and --config are mutually exclusive")
+			}
+			return updateWatchMainSession(cmd)
+		}
 		expected, err := watchBindingIdentity()
 		if err != nil {
 			return err
@@ -181,7 +187,7 @@ var watchStatusCmd = &cobra.Command{
 		if !sameBindingIdentity(expected, b) {
 			state = "identity_changed"
 		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"status": state, "agent_id": b.AgentID, "host": b.Host, "mode": b.Mode, "events": b.Events, "binding_revision": b.Revision, "workdir": b.WorkDir, "jobs": jobs, "business_verified": false, "commission_subscription": commissionSubscription(b)})
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"status": state, "agent_id": b.AgentID, "host": b.Host, "mode": b.Mode, "events": b.Events, "binding_revision": b.Revision, "main_session_id": b.MainSessionID, "workdir": b.WorkDir, "jobs": jobs, "business_verified": false, "commission_subscription": commissionSubscription(b)})
 	},
 }
 
@@ -285,5 +291,74 @@ func init() {
 	watchReconcileCmd.Flags().Bool("verified", false, "confirm you inspected Agent execution and the business outcome")
 	watchReconcileCmd.Flags().String("outcome", "", "verified outcome: PM replied/no_reply; optional event completed/failed (confirmed incomplete, explicit retry allowed)")
 	watchReconcileCmd.Flags().String("reply-id", "", "confirmed server message ID; required for replied")
+	watchBindCmd.Flags().String("main-session-id", "", "exact existing Codex thread UUID")
+	watchBindCmd.Flags().Bool("current-session", false, "explicitly bind the calling Codex thread from CODEX_THREAD_ID")
+	watchBindCmd.Flags().String("codex-home", "", "absolute Codex state directory; pins the host store without copying context")
+	watchBindCmd.Flags().String("expected-id", "", "previous main session ID; pass an empty value for initial binding")
+	watchBindCmd.Flags().String("expected-revision", "", "binding revision from watch status")
 	watchCmd.AddCommand(watchBindCmd, watchStatusCmd, watchDoctorCmd, watchRetryCmd, watchReconcileCmd)
+}
+
+func updateWatchMainSession(cmd *cobra.Command) error {
+	for _, flag := range []string{"expected-id", "expected-revision"} {
+		if !cmd.Flags().Changed(flag) {
+			return fmt.Errorf("--%s is required", flag)
+		}
+	}
+	expected, err := watchBindingIdentity()
+	if err != nil {
+		return err
+	}
+	release, err := watchstate.Acquire(expected.Home, expected.Server)
+	if err != nil {
+		return err
+	}
+	defer release()
+	b, err := dispatch.ReadBinding(expected.Home, expected.Server)
+	if err != nil {
+		return err
+	}
+	if !sameBindingIdentity(b, expected) {
+		return errWatchIdentity
+	}
+	id, _ := cmd.Flags().GetString("main-session-id")
+	currentThread, _ := cmd.Flags().GetBool("current-session")
+	if currentThread == cmd.Flags().Changed("main-session-id") {
+		return errors.New("specify exactly one of --main-session-id or --current-session")
+	}
+	if currentThread {
+		id = os.Getenv("CODEX_THREAD_ID")
+		if id == "" {
+			return errors.New("calling Codex thread ID unavailable; specify --main-session-id")
+		}
+	}
+	if hostHome, _ := cmd.Flags().GetString("codex-home"); cmd.Flags().Changed("codex-home") {
+		if b.Env == nil {
+			b.Env = map[string]string{}
+		}
+		b.Env["CODEX_HOME"] = hostHome
+	}
+	previous, _ := cmd.Flags().GetString("expected-id")
+	revision, _ := cmd.Flags().GetString("expected-revision")
+	b, err = dispatch.SetMainSession(b, revision, previous, id)
+	if err != nil {
+		return err
+	}
+	if err = b.Validate(); err != nil {
+		return err
+	}
+	err = auth.WithV2CredentialsLockContext(cmd.Context(), b.Server, 35*time.Second, func() error {
+		current, err := watchBindingIdentity()
+		if err != nil {
+			return err
+		}
+		if !sameBindingIdentity(expected, current) {
+			return errWatchIdentity
+		}
+		return dispatch.WriteJSON(dispatch.BindingPath(b.Home, b.Server), b)
+	})
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"status": "main_session_bound", "previous_session_id": previous, "main_session_id": id, "binding_revision": b.Revision})
 }

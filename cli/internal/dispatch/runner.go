@@ -31,6 +31,15 @@ type Runner struct {
 }
 
 func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
+	boundMain := req.Kind == "pm_push" && r.Binding.MainSessionID != ""
+	if boundMain {
+		if req.SessionID != r.Binding.MainSessionID {
+			return Result{}, ErrMainSessionMismatch
+		}
+		if err := r.Binding.ValidateMainSession(); err != nil {
+			return Result{}, ErrMainSessionUnavailable
+		}
+	}
 	if len(req.Prompt) > maxRunnerOutput || !utf8.ValidString(req.Prompt) {
 		return Result{}, errors.New("invalid_prompt")
 	}
@@ -90,6 +99,9 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 		return Result{Text: string(out.data)}, nil
 	}
 	result, err := parseNative(r.Binding.Host, out.data, stderr.data)
+	if err == nil && boundMain && result.SessionID != req.SessionID {
+		return result, ErrMainSessionMismatch
+	}
 	if err == nil && strings.TrimSpace(result.Text) == "" {
 		err = errors.New("empty_agent_result")
 	}

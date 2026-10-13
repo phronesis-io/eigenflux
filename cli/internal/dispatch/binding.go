@@ -172,7 +172,7 @@ func (b *Binding) Validate() error {
 		}
 		seen[kind] = true
 	}
-	return nil
+	return b.ValidateMainSession()
 }
 
 func (b Binding) Handles(kind string) bool {
