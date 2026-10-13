@@ -35,6 +35,9 @@ const (
 // (s.contentClassCache), so a hot feed only queries the agents table for authors
 // not seen within the TTL window. The result is keyed by item ID.
 func (s *Service) resolveContentClasses(ctx context.Context, items []sortDal.Item) map[int64]string {
+	if s.replayContentClasses != nil {
+		return s.replayContentClasses
+	}
 	classes := make(map[int64]string, len(items))
 	if len(items) == 0 {
 		return classes

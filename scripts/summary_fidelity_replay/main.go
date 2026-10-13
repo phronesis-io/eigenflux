@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"eigenflux_server/pipeline/llm"
@@ -18,6 +19,7 @@ type sample struct {
 	ID      string `json:"id"`
 	Content string `json:"content"`
 	Notes   string `json:"notes"`
+	Summary string `json:"summary,omitempty"`
 }
 type result struct {
 	ID      string             `json:"id"`
@@ -28,6 +30,8 @@ type result struct {
 
 func main() {
 	path := flag.String("cases", "", "JSON array of source samples (maximum 50)")
+	audit := flag.Bool("audit-existing", false, "audit supplied summaries without regenerating ranking metadata")
+	workers := flag.Int("workers", 1, "audit-only concurrency (1-32)")
 	flag.Parse()
 	data, err := os.ReadFile(*path)
 	if err != nil {
@@ -37,7 +41,7 @@ func main() {
 	if err = json.Unmarshal(data, &cases); err != nil {
 		panic(err)
 	}
-	if len(cases) == 0 || len(cases) > 50 {
+	if len(cases) == 0 || (!*audit && len(cases) > 50) || len(cases) > 10000 || *workers < 1 || *workers > 32 {
 		panic("provide 1-50 cases")
 	}
 	cfg := config.Load()
@@ -49,6 +53,44 @@ func main() {
 		panic(err)
 	}
 	enc := json.NewEncoder(os.Stdout)
+	if *audit {
+		client := llm.NewClient(cfg, prompts)
+		failed := false
+		var mu sync.Mutex
+		work := make(chan sample)
+		var wg sync.WaitGroup
+		for i := 0; i < *workers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for s := range work {
+					start := time.Now()
+					ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+					corrected, e := client.GroundSummary(ctx, s.Content, s.Notes, s.Summary)
+					cancel()
+					row := map[string]any{"id": s.ID, "summary": corrected, "elapsed_ms": time.Since(start).Milliseconds()}
+					mu.Lock()
+					if e != nil {
+						row["error"] = "audit failed"
+						failed = true
+					}
+					if err := enc.Encode(row); err != nil {
+						panic(err)
+					}
+					mu.Unlock()
+				}
+			}()
+		}
+		for _, s := range cases {
+			work <- s
+		}
+		close(work)
+		wg.Wait()
+		if failed {
+			os.Exit(1)
+		}
+		return
+	}
 	failed := false
 	for _, s := range cases {
 		for _, enabled := range []bool{false, true} {

@@ -219,22 +219,3 @@ surrounding text expresses an identifiable subject, event, or intent.
 INPUT:
 Content: {{ .Input.Content }}
 Notes: {{ .Input.Notes }}
-{{ if .Input.SummaryFidelity }}
-SUMMARY FIDELITY:
-Summarize only claims supported by the submitted Content. Notes may identify a
-source but are not independent corroboration and cannot override Content.
-Preserve who did what to whom, who leads whom, and who reports to whom. A list of
-people leading a group is not a board, a reporting line, an approval, or a new
-organization. Do not invent any such relationship to make a summary more fluent.
-Keep uncertainty, negation, and attribution: a speaker's announcement or claim is
-not independent verification. Use an explicitly identified source speaker; never
-substitute the forwarding/publishing Agent for that speaker. If the speaker is
-unknown, use neutral attribution ("The submitted statement says ...").
-Omit unsupported detail rather than filling gaps with outside knowledge or Notes.
-A single faithful sentence is allowed when 2-4 sentences would require invention.
-Preserve the source's level of specificity. Do not add statistical significance,
-causality, a clinical setting, participant identities, or certainty unless stated.
-For example, "the trial did not show a benefit" does not say whether a statistical
-test was performed or whether the trial was clinical. Keep that ambiguity.
-Before returning, check each summary claim and relationship against Content.
-{{ end }}

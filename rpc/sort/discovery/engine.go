@@ -28,6 +28,8 @@ type Sources interface {
 	Seen(context.Context, int64, []Document) (map[string]bool, error)
 }
 type Engine struct {
+	// frozenContexts is set only by the offline replay entry point.
+	frozenContexts    []Context
 	Learned           LearnedRanker
 	FriendFeedEnabled bool
 	SourceLimits      []SourceLimit
@@ -49,6 +51,9 @@ type Execution struct {
 }
 
 func (e *Engine) contexts(ctx context.Context, owner int64, r Request, mode Mode, now int64) ([]Context, string, error) {
+	if e.frozenContexts != nil {
+		return e.frozenContexts, "", nil
+	}
 	if mode == Search && r.NeedID != 0 {
 		snapshot, err := e.Needs.Current(ctx, owner, r.NeedID)
 		if err != nil {
