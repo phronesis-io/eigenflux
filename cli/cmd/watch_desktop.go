@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/url"
 	"path/filepath"
 	"runtime"
@@ -65,11 +64,7 @@ func commissionDesktopMessage(raw json.RawMessage, endpoint, agentID, language s
 	if err != nil {
 		return desktopnotify.Message{}, err
 	}
-	role, summary := localizedOrderNotificationText(language, fact.Type, p.orderNotificationPayload)
-	title, body := "Commission · "+summary, fmt.Sprintf("%s · Order %s · Account %s", role, orderID, agentID)
-	if language == "zh" {
-		title, body = "任务委托 · "+summary, fmt.Sprintf("%s · 订单 %s · 账号 %s", role, orderID, agentID)
-	}
+	title, body := commissionDesktopCopy(language, fact.Type, p.orderNotificationPayload)
 	return desktopnotify.Message{ID: "commission:" + strconv.FormatInt(int64(fact.ID), 10), Title: title, Body: body, URL: target}, nil
 }
 func (w *accountWatch) enableDesktop() error {
@@ -116,7 +111,7 @@ func (w *accountWatch) enqueueDesktopBlockers() error {
 			return err
 		}
 		sum := sha256.Sum256([]byte(w.scope + ":" + job.ID + ":" + job.Status + ":" + job.Code))
-		title, body := desktopBlockerText(desktopnotify.SystemLanguage(), job.Status, orderID)
+		title, body := desktopBlockerText(desktopnotify.SystemLanguage(), job.Status)
 		m := desktopnotify.Message{ID: "local:" + hex.EncodeToString(sum[:]), Title: title, Body: body, URL: target}
 		if err := w.desktop.Enqueue(m); err != nil {
 			return err
@@ -125,13 +120,8 @@ func (w *accountWatch) enqueueDesktopBlockers() error {
 	return nil
 }
 
-func desktopBlockerText(language, status, orderID string) (string, string) {
-	if language == "zh" {
-		summary := map[string]string{"needs_user": "需要你处理", "failed": "自动处理失败", "unknown": "处理结果需要核对"}[status]
-		return "任务委托 · " + summary, "订单 " + orderID + " · 请打开控制台核对，或查看外循环处理记录。"
-	}
-	summary := map[string]string{"needs_user": "Your action is required", "failed": "Automatic processing failed", "unknown": "Processing result needs review"}[status]
-	return "Commission · " + summary, "Order " + orderID + " · Open the Console to review, or check the background activity log."
+func desktopBlockerText(language, status string) (string, string) {
+	return desktopCopyText(language, "seller", "local."+status)
 }
 
 func (w *accountWatch) desktopLoop(ctx context.Context) error {
@@ -167,7 +157,14 @@ func (w *accountWatch) desktopLoop(ctx context.Context) error {
 					return err
 				}
 				call, cancel := context.WithTimeout(ctx, 10*time.Second)
-				err := w.desktopProvider.Show(call, entry.Message)
+				message, err := w.resolveDesktopServiceName(call, entry.Message)
+				if identityErr := w.dispatchIdentityOK(); identityErr != nil {
+					cancel()
+					return identityErr
+				}
+				if err == nil {
+					err = w.desktopProvider.Show(call, message)
+				}
 				cancel()
 				if err := w.dispatchIdentityOK(); err != nil {
 					return err
@@ -179,7 +176,11 @@ func (w *accountWatch) desktopLoop(ctx context.Context) error {
 				if err != nil {
 					status = "retry_pending"
 				}
-				if err := w.emit("desktop_notification_status", map[string]string{"notification_id": entry.Message.ID, "status": status}); err != nil {
+				data := map[string]string{"notification_id": entry.Message.ID, "status": status}
+				if errors.Is(err, errDesktopServiceName) {
+					data["code"] = "service_name_unavailable"
+				}
+				if err := w.emit("desktop_notification_status", data); err != nil {
 					return err
 				}
 			}

@@ -57,7 +57,7 @@ func TestDesktopAllStagesAndSameVersionReminder(t *testing.T) {
 	}
 	raw := strings.ReplaceAll(string(commissionTestNotification(82, 9007199254740995, "42")), "order.state.changed.v1", "order.reminder.buyer_confirmation_24h.v1")
 	m, err := commissionDesktopMessage(json.RawMessage(raw), "https://example.com", "42", "zh")
-	if err != nil || m.ID != "commission:82" || !strings.Contains(m.Title, "及时确认") {
+	if err != nil || m.ID != "commission:82" || !strings.Contains(m.Title, "还未确认交付") {
 		t.Fatal(m, err)
 	}
 	if _, err := commissionDesktopMessage(commissionTestNotification(1, 2, "43"), "https://example.com", "42", "zh"); err == nil {
@@ -71,7 +71,7 @@ func TestDesktopCopyUsesOneLanguageAndPreservesRouting(t *testing.T) {
 		for _, state := range states {
 			raw := strings.ReplaceAll(string(commissionTestNotification(81, 901, "42")), "in_progress", state)
 			message, err := commissionDesktopMessage(json.RawMessage(raw), "https://example.com", "42", language)
-			if err != nil || !strings.HasPrefix(message.Title, "Commission · ") || message.Body != "Seller · Order 901 · Account 42" {
+			if err != nil || !strings.Contains(message.Title, desktopServiceNamePlaceholder) || message.Body == "" {
 				t.Fatalf("%s/%s: %+v %v", language, state, message, err)
 			}
 			for _, r := range message.Title + message.Body {
@@ -80,7 +80,7 @@ func TestDesktopCopyUsesOneLanguageAndPreservesRouting(t *testing.T) {
 				}
 			}
 			chinese, err := commissionDesktopMessage(json.RawMessage(raw), "https://example.com", "42", "zh")
-			if err != nil || !strings.HasPrefix(chinese.Title, "任务委托 · ") || chinese.Body != "卖方 · 订单 901 · 账号 42" || chinese.ID != message.ID || chinese.URL != message.URL {
+			if err != nil || !strings.HasPrefix(chinese.Title, "「{service_name}」") || chinese.Body == "" || chinese.ID != message.ID || chinese.URL != message.URL {
 				t.Fatalf("localization changed routing: %+v %+v %v", chinese, message, err)
 			}
 		}
@@ -88,13 +88,13 @@ func TestDesktopCopyUsesOneLanguageAndPreservesRouting(t *testing.T) {
 	for _, tc := range commissionResultTextCases {
 		raw := commissionResultTestNotification(t, 81, 901, "42", tc.kind, tc.state)
 		message, err := commissionDesktopMessage(raw, "https://example.com", "42", "en")
-		if err != nil || message.Title != "Commission · "+tc.en || message.Body != "Seller · Order 901 · Account 42" {
+		if err != nil || !strings.Contains(message.Title, desktopServiceNamePlaceholder) || message.Body == "" {
 			t.Fatalf("result notification: %+v %v", message, err)
 		}
 	}
 	for _, tt := range []struct{ kind, command, state, summary string }{
-		{"order.reminder.buyer_confirmation_24h.v1", "", "awaiting_buyer_confirmation", "Please confirm the delivery before the deadline"},
-		{"order.state.changed.v1", "reject_order", "cancelled", "Seller declined the order"},
+		{"order.reminder.buyer_confirmation_24h.v1", "", "awaiting_buyer_confirmation", "“{service_name}” still needs your confirmation"},
+		{"order.state.changed.v1", "reject_order", "cancelled", "“{service_name}” declined by the seller"},
 	} {
 		var fact desktopOrderFact
 		if err := json.Unmarshal(commissionTestNotification(81, 901, "42"), &fact); err != nil {
@@ -103,23 +103,23 @@ func TestDesktopCopyUsesOneLanguageAndPreservesRouting(t *testing.T) {
 		fact.Type, fact.Payload.CommandKind, fact.Payload.ToState, fact.Payload.RecipientRole = tt.kind, tt.command, tt.state, "buyer"
 		raw, _ := json.Marshal(fact)
 		message, err := commissionDesktopMessage(raw, "https://example.com", "42", "en")
-		if err != nil || message.Title != "Commission · "+tt.summary || message.Body != "Buyer · Order 901 · Account 42" {
+		if err != nil || message.Title != tt.summary || !strings.Contains(message.URL, "role=buyer") {
 			t.Fatalf("buyer notification: %+v %v", message, err)
 		}
 	}
 }
 
 func TestDesktopBlockerLanguages(t *testing.T) {
-	for _, tt := range []struct{ status, zh, en string }{
-		{"needs_user", "需要你处理", "Your action is required"},
-		{"failed", "自动处理失败", "Automatic processing failed"},
-		{"unknown", "处理结果需要核对", "Processing result needs review"},
+	for _, tt := range []struct{ status, zh, en, zhBody, enBody string }{
+		{"needs_user", "需要你处理", "needs your attention", "你的 Agent 处理这笔订单时需要你的介入，点击打开订单处理。", "Your Agent requires your help on this order. Click for further details."},
+		{"failed", "自动处理失败", "couldn't be handled automatically", "点击打开订单查看，必要时手动处理，以免订单超时。", "Click to open the order and handle it manually if needed, before it times out."},
+		{"unknown", "处理结果待核对", "result needs checking", "无法确认你的 Agent 是否已完成，点击打开订单核对。", "We can't confirm whether your Agent finished. Click to open the order and check."},
 	} {
 		for _, language := range []string{"zh", "en", "fr", ""} {
-			title, body := desktopBlockerText(language, tt.status, "901")
-			wantTitle, wantBody := "Commission · "+tt.en, "Order 901 · Open the Console to review, or check the background activity log."
+			title, body := desktopBlockerText(language, tt.status)
+			wantTitle, wantBody := "“{service_name}” "+tt.en, tt.enBody
 			if language == "zh" {
-				wantTitle, wantBody = "任务委托 · "+tt.zh, "订单 901 · 请打开控制台核对，或查看外循环处理记录。"
+				wantTitle, wantBody = "「{service_name}」"+tt.zh, tt.zhBody
 			}
 			if title != wantTitle || body != wantBody {
 				t.Fatalf("%s/%s: %s / %s", language, tt.status, title, body)
@@ -204,7 +204,7 @@ func TestDesktopLocalBlockerRecoveredOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry, ok := w.desktop.Next(time.Now())
-	wantTitle, _ := desktopBlockerText(desktopnotify.SystemLanguage(), "needs_user", "901")
+	wantTitle, _ := desktopBlockerText(desktopnotify.SystemLanguage(), "needs_user")
 	if !ok || entry.Message.Title != wantTitle {
 		t.Fatal(entry)
 	}

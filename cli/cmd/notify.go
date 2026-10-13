@@ -45,9 +45,9 @@ func newNotifyCommand() *cobra.Command {
 }
 
 func notificationTestMessage(language, id, target string) desktopnotify.Message {
-	title, body := "EigenFlux notification test", "Click this notification to check that your browser opens the specified page."
+	title, body := "EigenFlux notification test", "Click this notification to check that the page opens."
 	if language == "zh" {
-		title, body = "EigenFlux 通知测试", "点击这条通知，验证浏览器能否打开指定页面。"
+		title, body = "EigenFlux 通知测试", "点击这条通知，看看能否正常打开页面。"
 	}
 	return desktopnotify.Message{ID: id, Title: title, Body: body, URL: target}
 }

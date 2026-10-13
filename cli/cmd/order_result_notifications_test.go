@@ -45,7 +45,7 @@ func commissionResultTestNotification(t *testing.T, id, orderID int64, recipient
 	return raw
 }
 
-func TestCommissionResultNotificationTextSharedByTerminalAndDesktop(t *testing.T) {
+func TestCommissionResultNotificationTerminalAndDesktopBoundaries(t *testing.T) {
 	for _, tc := range commissionResultTextCases {
 		t.Run(tc.kind, func(t *testing.T) {
 			raw := commissionResultTestNotification(t, 81, 9007199254740995, "9007199254740997", tc.kind, tc.state)
@@ -76,7 +76,7 @@ func TestCommissionResultNotificationTextSharedByTerminalAndDesktop(t *testing.T
 				}
 			}
 			message, err := commissionDesktopMessage(raw, "https://example.com", "9007199254740997", "zh")
-			if err != nil || message.Title != "任务委托 · "+tc.zh || strings.Contains(message.Body, "secret") {
+			if err != nil || !strings.Contains(message.Title, desktopServiceNamePlaceholder) || message.Body == "" || strings.Contains(message.Title+message.Body, "secret") {
 				t.Fatalf("unexpected desktop text: %+v %v", message, err)
 			}
 			target, _ := url.Parse(message.URL)

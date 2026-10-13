@@ -7,15 +7,25 @@ accepted the notification, not that the user saw or clicked it. Focus modes and
 disabled banners remain controlled by the OS. Callers own account isolation,
 deduplication, bounded retries, and non-blocking event delivery.
 
-`Message` carries an opaque ID, fixed title/body, and an HTTPS URL. Only loopback
+`Message` carries an opaque ID, rendered title/body, and an HTTPS URL. Only loopback
 HTTP is allowed for local development. Reject credential-bearing URLs, command
 protocols, control characters, and oversized fields. Never include credentials
 or order input text. Account checking belongs to the destination Console page.
 
-Commission text is resolved in `cmd/order_notifications.go` for both terminal
-and desktop output. Result event types override the unchanged order state:
-refund errors, cancelled-order refunds, wallet credit success/errors, and
-validation processing errors. Text is fixed; provider errors are never displayed.
+Desktop copy lives in `cmd/watch_desktop_copy.go`; terminal summaries remain in
+`cmd/order_notifications.go`. Both prioritize recognized payload event kind,
+then envelope type, then order state. Desktop templates distinguish buyer/seller
+and follow the revised columns of the [copy document](https://pcnlty6lw65j.feishu.cn/wiki/Mw3bwlX2siZlXjkgxx3cF21Pnyc).
+Event deadlines use local time with a UTC offset; missing deadlines refer to the
+order page. `cmd/watch_desktop_service.go` replaces `{service_name}` only in the
+separate desktop lane using the existing order detail API's frozen contract title.
+Validate the pinned Console URL, order ID and recipient role/account before use;
+remove title controls, collapse whitespace, cap at 80 runes, and validate again.
+Never fetch under intake's credential lock. Lookup failure retains the queue
+entry for retry with `service_name_unavailable`; never show unresolved copy.
+Lookup and OS submission share the desktop worker's ten-second timeout.
+Old queued text without the placeholder needs no lookup. Provider errors, input
+materials and credentials are never displayed.
 Wallet credit means platform balance, not withdrawal. These notices do not call
 Agents or initiate money operations. Keep account/notification-ID queue dedup
 and persistence before ACK separate from order-execution dedup.

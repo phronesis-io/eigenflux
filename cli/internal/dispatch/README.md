@@ -66,7 +66,7 @@ success/errors, and validation processing errors are informational. The intake
 worker completes these result notices before reading the order or calling an
 Agent, even if their payload reports an actionable state. Keep the existing
 order/version/role execution key; desktop delivery independently preserves each
-notification ID. Terminal and desktop use the same fixed text resolver:
+notification ID. Terminal and desktop use the same event priority:
 recognized `payload.event_kind`, then envelope `type`, then order state. Seller
 rejection uses `command_kind=reject_order`. Wallet credit does not mean withdrawal.
 
@@ -74,6 +74,16 @@ Desktop copy follows the current user's first OS UI language: Chinese variants
 use Simplified Chinese; other languages or detection failures use English.
 Restart watch after changing OS language; already queued messages keep their
 text. Detection and native boundaries live in `desktopnotify/README.md`.
+
+`watch_desktop_copy.go` owns buyer/seller title/body templates from the approved
+copy document; terminal summaries stay unchanged. Render event deadlines at
+intake in local time with the UTC offset, referring to the order page if absent.
+`watch_desktop_service.go` resolves the frozen contract title through the existing
+order detail API in the desktop worker, never under the intake credential lock.
+Validate the target URL, order and recipient account, sanitize/limit the title,
+and recheck identity before OS submission. Lookup failures retain the notification
+for existing queue retries with `service_name_unavailable`; older queued copy
+without the service placeholder remains unchanged. This adds no Agent calls.
 
 `Next` excludes both Commission kinds; `NextKind` serializes their separate workers. Buyer notifications are recorded without invoking a seller Agent. The worker re-reads seller identity, order state, frozen contract and fulfillment Skill. Only `awaiting_seller`, `pending_payment` and `in_progress` allow inspection. Read-only preparation and execution share a local 180-second ceiling, excluding queue time; the host's shorter timeout still applies.
 
