@@ -70,3 +70,14 @@ sudo install -o root -g root -m 0644 \
   /etc/eigenflux/DEPLOYMENT_POLICY.md
 diff /var/lib/eigenflux-deployer/current/source/scripts/cloud/DEPLOYMENT_POLICY.md /etc/eigenflux/DEPLOYMENT_POLICY.md && echo "policy in sync"
 ```
+
+## Release annotation hook updates
+
+A root operator may use the eigen-devops release-annotation installer to install
+main-merged `deploy_main_lib.sh`, `release_annotations.py`, this policy, and the
+retry service/timer under the deployment lock. This narrow installation must
+require a clean deployment checkout and does not build or restart application
+services. Do not run the full bootstrap installer for this update. The dedicated
+Grafana writer credential is root-only and separate from the application runtime
+environment. Only successful application health checks create deployment events;
+Grafana failures retain their durable outbox for retry.

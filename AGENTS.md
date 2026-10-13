@@ -121,3 +121,12 @@ maintenance state in the CLI. Keep Agent behavior in dynamically synchronized
 Skills. Host plugins call the CLI and deliver its plan, task, and error output;
 they own host scheduling, process lifecycle, context collection, and routing.
 Preserve existing consumers when changing command output contracts.
+
+## Important monitoring releases
+
+For important server behavior or instrumentation changes affecting a Grafana
+chart, include a declaration in `deploy/release-events.json` in the same PR.
+Read [release annotations](docs/dev/release-annotations.md): use the affected
+chart, explain the data coverage boundary, and distinguish API-only from full
+rollouts. The deployer supplies the actual healthy deployment time; never fill
+it with a merge time. Routine changes need no marker.
