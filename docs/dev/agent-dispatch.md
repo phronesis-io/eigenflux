@@ -82,6 +82,12 @@ go run ./cmd/devbuild -test-bundle -target darwin/arm64 -out build/dispatch-mac
 
 Use `darwin/amd64` on Intel. Start the package's `test-source -serve` against its `cdn` directory. Set package-local `EIGENFLUX_HOME`, `EIGENFLUX_SKILLS_DIR`, and the printed `EIGENFLUX_CDN_URL` for CLI calls. `Run-Test.ps1` is Windows-only.
 
+Keep `EigenFlux Notifications.app` beside the Mac CLI. In the package directory,
+run `./eigenflux notify setup` and `./eigenflux notify status` before testing order
+notifications. Packaging and Skills sync do not request permission. After an
+update, restart watch with the same Home/server and dispatch arguments. If
+previously denied, enable EigenFlux in System Settings > Notifications.
+
 ## Acceptance and limits
 
 For each OS/host, record version, account, workspace, message/session IDs and reply receipt. Use consenting test identities to verify:

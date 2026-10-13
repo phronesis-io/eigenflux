@@ -46,6 +46,12 @@ so same-version reminders still appear. Both subscribed buyer and seller events
 notify without extra Agent calls. `CommissionBlockers` exposes only validated
 job/order/role/status/code for unresolved local work; retain `Snapshot` payload
 redaction. Desktop delivery and OS retries never change business execution state.
+Setup runs before any order arrives. Its `desktop_notification_status` keeps
+the existing status and adds fixed `code`/`action` on failure: missing helper,
+unrequested permission, denied permission, timeout, unsupported platform or
+other setup failure. Never expose raw provider data. Update the complete Mac
+CLI/helper package, run `notify setup`, and restart watch with its pinned account
+parameters; replacing CLI/Skills alone does not upgrade a running process.
 
 Refund processing errors, cancelled-order late-payment refunds, wallet credit
 success/errors, and validation processing errors are informational. The intake

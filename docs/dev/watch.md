@@ -68,6 +68,19 @@ to disable this sink without changing order processing.
 `notify setup` installs the per-user integration and requests OS permission;
 `notify status` checks it, and `notify test --url <https-url>` checks submission
 and click-through. macOS requires the helper app included in the CLI bundle.
+For a self-built Mac test package, keep `EigenFlux Notifications.app` beside the
+real executable and run `./eigenflux notify setup`, then `./eigenflux notify status`
+from that directory. `cli/scripts/install-local.sh` performs helper installation
+and setup automatically. macOS prompts only on the first request; a previous
+denial requires System Settings > Notifications > EigenFlux. After updating,
+restart the existing watch using the same Home/server and dispatch arguments.
+Updating CLI/Skills alone does not restart watch or enable an order subscription.
+
+Setup failures emit `desktop_notification_status` with fixed `code` and `action`:
+`helper_missing` / `install_complete_bundle`, `permission_required` /
+`run_notify_setup`, `permission_denied` / `open_system_notification_settings`,
+`setup_timeout` / `check_system_permission_dialog`, `unsupported_platform` /
+`use_macos_or_windows`, or `setup_failed` / `run_notify_setup` for direct diagnosis.
 Watch retries failed setup and OS submission separately from Agent execution.
 Permission denial does not stop order processing; pending notifications remain
 on disk. Corrupt/full queues or failed durable writes stop watch instead of

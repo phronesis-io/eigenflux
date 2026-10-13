@@ -45,6 +45,15 @@ the real CLI executable. Test ZIP bundles preserve POSIX modes so the CLI and
 helper remain executable after extraction. `Setup` verifies its code signature and copies it to
 `~/Library/Application Support/EigenFlux/Notifications/`. The OS can request
 notification permission once; denial must be changed in System Settings.
+`cli/scripts/install-local.sh` builds and installs the matching helper before
+running `notify setup`; setup failure is reported as an incomplete install.
+`devbuild` only packages files: run `./eigenflux notify setup` from the complete
+package directory, then `./eigenflux notify status`. CLI/Skills updates alone
+do not request permission or restart an existing watch. Bare-binary CDN updates
+do not distribute the helper; use the complete macOS package for helper updates.
+Keep `permission_required` distinct from `permission_denied`: the former needs
+setup, the latter needs System Settings. Receipt timeouts wrap
+`context.DeadlineExceeded` for callers to report a separate setup timeout.
 The helper only needs notification permission, not Accessibility, Apple Events,
 Full Disk Access, or administrator access. CLI and helper run as the signed-in
 desktop user, not a system daemon. A user-scoped OS lock serializes installation

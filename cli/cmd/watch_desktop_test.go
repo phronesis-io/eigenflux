@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -193,5 +194,71 @@ func TestDesktopUnsupportedOriginDoesNotBreakWatch(t *testing.T) {
 	}
 	if err := w.enqueueDesktopCommission(commissionTestNotification(81, 901, "42")); err != nil {
 		t.Fatal("notification-only failure rejects order intake", err)
+	}
+}
+
+func TestDesktopSetupReportsRecoveryAndPreservesPendingNotifications(t *testing.T) {
+	for _, tt := range []struct {
+		name         string
+		err          error
+		code, action string
+	}{
+		{"ready_without_orders", nil, "", ""},
+		{"missing_helper", fmt.Errorf("wrapped: %w", desktopnotify.ErrHelperMissing), "helper_missing", "install_complete_bundle"},
+		{"unrequested", desktopnotify.ErrPermissionRequired, "permission_required", "run_notify_setup"},
+		{"denied", desktopnotify.ErrPermission, "permission_denied", "open_system_notification_settings"},
+		{"timeout", fmt.Errorf("wrapped: %w", context.DeadlineExceeded), "setup_timeout", "check_system_permission_dialog"},
+		{"unsupported", desktopnotify.ErrUnsupported, "unsupported_platform", "use_macos_or_windows"},
+		{"other", errors.New("private-provider-details"), "setup_failed", "run_notify_setup"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newCommissionWatch(t, "http://127.0.0.1:8090", "commission_order")
+			var err error
+			w.desktop, err = desktopqueue.Open(filepath.Join(t.TempDir(), "desktop.json"), w.scope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.err != nil {
+				if err := w.enqueueDesktopCommission(commissionTestNotification(81, 901, "42")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			setupCalls := 0
+			provider := &fakeDesktopProvider{setup: func() error { setupCalls++; return tt.err }}
+			w.desktopProvider = provider
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var got map[string]string
+			w.emit = func(kind string, value interface{}) error {
+				if kind != "desktop_notification_status" {
+					t.Fatalf("unexpected event: %s", kind)
+				}
+				got = value.(map[string]string)
+				cancel()
+				return nil
+			}
+			if err := w.desktopLoop(ctx); !errors.Is(err, context.Canceled) {
+				t.Fatal(err)
+			}
+			wantStatus := "permission_or_setup_required"
+			if tt.err == nil {
+				wantStatus = "ready"
+			}
+			if got["status"] != wantStatus || got["code"] != tt.code || got["action"] != tt.action {
+				t.Fatalf("diagnostic: %#v", got)
+			}
+			data, _ := json.Marshal(got)
+			if strings.Contains(string(data), "private-provider-details") {
+				t.Fatal("provider data leaked")
+			}
+			if setupCalls != 1 || provider.calls != 0 {
+				t.Fatalf("setup=%d, show=%d", setupCalls, provider.calls)
+			}
+			if tt.err != nil {
+				if pending, _ := w.desktop.Counts(); pending != 1 {
+					t.Fatal("setup failure lost notification")
+				}
+			}
+		})
 	}
 }

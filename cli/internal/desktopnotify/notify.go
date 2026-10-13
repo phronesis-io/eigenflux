@@ -12,9 +12,10 @@ import (
 )
 
 var (
-	ErrUnsupported   = errors.New("desktop notifications require macOS or Windows")
-	ErrPermission    = errors.New("enable notifications for EigenFlux in system notification settings")
-	ErrHelperMissing = errors.New("macOS notification helper missing; install the complete CLI bundle")
+	ErrUnsupported        = errors.New("desktop notifications require macOS or Windows")
+	ErrPermission         = errors.New("enable notifications for EigenFlux in system notification settings")
+	ErrPermissionRequired = errors.New("notification permission has not been requested; run eigenflux notify setup")
+	ErrHelperMissing      = errors.New("macOS notification helper missing; install the complete CLI bundle")
 )
 
 type Message struct {

@@ -141,6 +141,19 @@ func TestBuiltCLIUsesEmbeddedVerifier(t *testing.T) {
 	if b, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, b)
 	}
+	if runtime.GOOS == "darwin" {
+		instructions, err := os.ReadFile(filepath.Join(out, "TEST-ONLY.txt"))
+		if err != nil || !strings.Contains(string(instructions), "./eigenflux notify setup") || !strings.Contains(string(instructions), "EigenFlux Notifications.app") {
+			t.Fatalf("missing macOS setup instructions: %v\n%s", err, instructions)
+		}
+		helper, err := os.Stat(filepath.Join(out, "EigenFlux Notifications.app", "Contents", "MacOS", "EigenFluxNotifications"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if helper.Mode().Perm()&0111 == 0 {
+			t.Fatal("notification helper is not executable")
+		}
+	}
 	ext := ""
 	if runtime.GOOS == "windows" {
 		ext = ".exe"

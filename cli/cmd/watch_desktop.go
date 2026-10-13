@@ -142,11 +142,7 @@ func (w *accountWatch) desktopLoop(ctx context.Context) error {
 			cancel()
 			ready = err == nil
 			retrySetup = time.Now().Add(5 * time.Minute)
-			status := "ready"
-			if err != nil {
-				status = "permission_or_setup_required"
-			}
-			if err := w.emit("desktop_notification_status", map[string]string{"status": status}); err != nil {
+			if err := w.emit("desktop_notification_status", desktopSetupStatus(err)); err != nil {
 				return err
 			}
 		}
@@ -180,5 +176,26 @@ func (w *accountWatch) desktopLoop(ctx context.Context) error {
 		}
 	}
 	return ctx.Err()
+}
+
+// Fixed diagnostics keep setup failures actionable without exposing provider data.
+func desktopSetupStatus(err error) map[string]string {
+	if err == nil {
+		return map[string]string{"status": "ready"}
+	}
+	code, action := "setup_failed", "run_notify_setup"
+	switch {
+	case errors.Is(err, desktopnotify.ErrHelperMissing):
+		code, action = "helper_missing", "install_complete_bundle"
+	case errors.Is(err, desktopnotify.ErrPermissionRequired):
+		code = "permission_required"
+	case errors.Is(err, desktopnotify.ErrPermission):
+		code, action = "permission_denied", "open_system_notification_settings"
+	case errors.Is(err, context.DeadlineExceeded):
+		code, action = "setup_timeout", "check_system_permission_dialog"
+	case errors.Is(err, desktopnotify.ErrUnsupported):
+		code, action = "unsupported_platform", "use_macos_or_windows"
+	}
+	return map[string]string{"status": "permission_or_setup_required", "code": code, "action": action}
 }
 func nativeDesktopSupported() bool { return runtime.GOOS == "darwin" || runtime.GOOS == "windows" }

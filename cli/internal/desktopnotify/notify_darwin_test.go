@@ -8,6 +8,27 @@ import (
 	"time"
 )
 
+func TestHelperReceiptDistinguishesUnrequestedAndDeniedPermission(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		receipt helperReceipt
+		want    error
+	}{
+		{"ready", helperReceipt{OK: true}, nil},
+		{"first_use", helperReceipt{Code: "permission_required"}, ErrPermissionRequired},
+		{"denied", helperReceipt{Code: "permission_denied"}, ErrPermission},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.receipt.err(); !errors.Is(err, tt.want) {
+				t.Fatalf("receipt error: %v, want %v", err, tt.want)
+			}
+		})
+	}
+	if err := (helperReceipt{Code: "authorization_failed"}).err(); err == nil || errors.Is(err, ErrPermission) {
+		t.Fatalf("authorization failure misreported as user denial: %v", err)
+	}
+}
+
 func TestHelperInstallLockExcludesOtherAccountsAndReads(t *testing.T) {
 	directory := t.TempDir()
 	release, err := lockHelper(context.Background(), directory, true)

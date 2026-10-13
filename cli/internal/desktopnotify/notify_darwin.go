@@ -47,6 +47,20 @@ type helperReceipt struct {
 	PID  int    `json:"pid"`
 }
 
+func (r helperReceipt) err() error {
+	if r.OK {
+		return nil
+	}
+	switch r.Code {
+	case "permission_required":
+		return ErrPermissionRequired
+	case "permission_denied":
+		return ErrPermission
+	default:
+		return fmt.Errorf("notification helper: %s", r.Code)
+	}
+}
+
 func requestHelper(ctx context.Context, app, action string, message Message) (helperReceipt, error) {
 	dir, err := os.MkdirTemp("", "eigenflux-notification-")
 	if err != nil {
@@ -77,7 +91,7 @@ func requestHelper(ctx context.Context, app, action string, message Message) (he
 		case <-ctx.Done():
 			return helperReceipt{}, ctx.Err()
 		case <-deadline.C:
-			return helperReceipt{}, errors.New("notification helper timed out; check the system permission dialog")
+			return helperReceipt{}, fmt.Errorf("notification helper timed out; check the system permission dialog: %w", context.DeadlineExceeded)
 		case <-ticker.C:
 			result, err := os.ReadFile(path + ".result")
 			if os.IsNotExist(err) {
@@ -90,13 +104,7 @@ func requestHelper(ctx context.Context, app, action string, message Message) (he
 			if err := json.Unmarshal(result, &receipt); err != nil {
 				return helperReceipt{}, errors.New("invalid notification helper response")
 			}
-			if receipt.OK {
-				return receipt, nil
-			}
-			if receipt.Code == "permission_denied" || receipt.Code == "permission_required" {
-				return helperReceipt{}, ErrPermission
-			}
-			return helperReceipt{}, fmt.Errorf("notification helper: %s", receipt.Code)
+			return receipt, receipt.err()
 		}
 	}
 }
