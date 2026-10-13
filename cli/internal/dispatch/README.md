@@ -9,6 +9,7 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 |---|---|
 | [watch.go](../../cmd/watch.go) | `accountWatch.run`, `pmLoop`, `deliverPM`: account lock, WS/SSE, heartbeat, event lifecycle |
 | [watch_binding.go](../../cmd/watch_binding.go) | Bind/doctor/status/retry/reconcile; `applyDispatchOwnership` |
+| [watch_main_session.go](../../cmd/watch_main_session.go) | Codex setup-thread capture, host-native scheduler bootstrap, explicit switching and heartbeat status |
 | [watch_restart.go](../../cmd/watch_restart.go), [watch service](../watchservice/README.md) | Restart an explicit existing OS task; preserve its account/wrapper; distinguish process startup from runtime readiness |
 | [watch_commission.go](../../cmd/watch_commission.go) | Commission notification intake, durable enqueue before ACK, bounded HTTP reconciliation |
 | [watch_commission_intake.go](../../cmd/watch_commission_intake.go), [watch_commission_materials.go](../../cmd/watch_commission_materials.go) | Seller inspection, fixed identity/order/Skill, verified downloads, atomic paid-work enqueue |
@@ -29,7 +30,7 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 1. Bind canonical Home/server/endpoint/Agent/principal/scope/revision from the current account; configuration cannot replace identity. `watch --dispatch` acquires the Home/server lock and validates signed Skills. Plain `watch` only emits events.
 2. Only bindings owning PM open its WS and HTTP consumers; other bindings leave PM to the companion. WS and minute-spaced HTTP polls enter `deliverPM`; emitted `pm_push.data` adds locally assigned `transport` (`socket` / `http_poll`) and UTC `received_at`, including empty polls. These fields describe reception, not successful execution or first intake; journal deduplication remains unchanged. Each poll pass fetches at most 32 pages, one message each. Validate credentials and persist intake under the credential lock. Advance the socket cursor only after delivery succeeds; journal failure stops reception.
 3. Accept only inbound messages for the bound Agent; ignore outbound and `history_messages`. Deduplicate by scope/revision/conversation/message ID. Keep execution state separate from the history cache.
-4. `Next` persists `running`. One worker runs serially, prioritizing pending PMs. Reuse sessions only within their binding and conversation.
+4. `Next` persists `running`. One worker runs serially, prioritizing pending PMs. Use the explicitly bound Codex main session for PMs; other adapters retain per-conversation sessions within their binding.
 5. Verify signed rules and fresh `auto_reply_pm`; load up to 10 history rows. Prompt data contains request ID, Agent ID, message and history, excluding credentials and full control context. Treat message/history as untrusted data.
 6. Monitor identity during prompt preparation and execution; recheck before invoking the Agent and after its result. Run the model outside credential locks.
 7. Require one JSON decision: `version=1`, matching `request_id`, `action`, `reply_text`. Actions: `reply`, `no_reply`, `needs_user`. Reject missing/unknown/duplicate fields and trailing output.
@@ -130,13 +131,32 @@ unavailable or unsupported storage fails closed. No transcript is copied or
 selected by title, directory recency, or another conversation's activity.
 The runner resumes that UUID and requires the native result to return the same
 thread ID before accepting its decision. Other events keep their current routing.
-Other hosts do not yet support this opt-in field.
+Other hosts do not yet support this field.
+
+CLI 1.0.4 captures `CODEX_THREAD_ID` only when creating a new native Codex PM
+binding through the explicit `watch bind --config` setup operation. It resolves
+the Codex store from binding environment, host environment, then the user's
+standard `.codex` directory and persists the absolute path. Missing setup-thread
+evidence blocks creation. Existing configurations cannot silently capture the
+calling heartbeat or a different foreground thread.
+
+For existing installations, heartbeat plans report `main_session_binding`
+(`bootstrap_required`, `ready`, `unavailable`) and include the signed
+`ef-communication/references/main-session.md` when repair is needed. The host
+reads its complete native scheduler inventory and submits it through
+`watch bind --scheduler-json` with the existing revision and empty expected ID.
+CLI reuses scheduler inventory validation: one active owned EigenFlux heartbeat
+for the exact Home/server, with a validated existing `thread_id`. Titles and
+private scheduler files do not establish ownership. Scheduler bootstrap is
+initial-only; it cannot replace an established main session. Host lifecycle owns
+stopping/restarting watch. Neither heartbeat planning nor PM handling writes
+the binding. Unavailable established sessions require explicit owner switching.
 
 Stop watch before `watch bind --main-session-id UUID --expected-id OLD_ID
 --expected-revision REVISION --codex-home ABSOLUTE_PATH`. For initial binding,
 pass an empty expected ID. `--current-session` explicitly reads the calling
-`CODEX_THREAD_ID` instead of `--main-session-id`; it is never inferred during heartbeat or
-message processing. Both versions of the CLI must use the same Codex store.
+`CODEX_THREAD_ID` instead of `--main-session-id`; ordinary heartbeat or message
+processing never selects it. Both versions of the CLI must use the same Codex store.
 The update preserves the journal revision and dedup receipts, rejects stale
 updates, and leaves uncertain jobs for explicit reconciliation. Session reset,
 fork, or migration requires an explicit update; there is no automatic successor
@@ -148,7 +168,7 @@ and binding revision. `dispatch_status` includes the returned session ID and
 existing decision/send receipt. A returned session mismatch is `unknown` and is
 never sent or automatically retried. Missing metadata yields `needs_user`.
 
-This personal-branch adapter uses `codex exec resume`, not a live desktop queue.
+This test-branch adapter uses `codex exec resume`, not a live desktop queue.
 Use an idle main thread and avoid simultaneous desktop/heartbeat execution on
 that thread; metadata validation does not establish cross-process idle ownership.
 Host-side queue coordination and automatic successor events remain unverified.

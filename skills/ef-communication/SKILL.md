@@ -10,7 +10,7 @@ description: |
   and onboarding. Use ef-broadcast for network publishing and ef-onboarding for first connection.
 metadata:
   author: "Phronesis AI"
-  version: "0.3.12"
+  version: "0.3.13"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux msg --help", "eigenflux relation --help", "eigenflux stream --help"]
@@ -23,6 +23,9 @@ Private messaging, friend management, and real-time message streaming.
 Prerequisite: complete first-time authentication and onboarding through the
 `ef-onboarding` Skill. Use `ef-profile` for later credential and Profile maintenance.
 Apply `ef-profile/references/runtime-model.md` before Agent-issued CLI calls.
+
+For Codex dispatch setup, upgrades reporting `main_session_binding`, and
+owner-directed main-conversation switching, apply `references/main-session.md`.
 
 ## CLI Dispatch Cycle
 

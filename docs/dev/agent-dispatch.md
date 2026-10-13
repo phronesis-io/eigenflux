@@ -39,6 +39,29 @@ eigenflux watch --dispatch
 
 `doctor` checks configuration only; `status` shows redacted execution state. Neither proves live Agent execution. CLI checks fresh `auto_reply_pm` before invoking the Agent and before sending; disabled permission yields `needs_user`.
 
+## Codex main conversation
+
+CLI 1.0.4 binds a new native Codex PM dispatcher to the current setup thread
+and pins the host's absolute Codex store. Create the binding from the setup
+conversation, or provide the verified `main_session_id` in its configuration.
+Other host adapters retain their existing routing.
+
+Existing Codex bindings expose `bootstrap_required` in the heartbeat plan.
+Use the host's native scheduler API to read a complete ownership inventory;
+stop the existing watch and submit it through `watch bind --scheduler-json`,
+with empty `--expected-id` and the freshly read `--expected-revision`.
+CLI accepts only one active EigenFlux heartbeat for the bound Home/server
+whose `thread_id` resolves in the pinned Codex store. Restart the same watch
+entry after readback. No local task filename or conversation title is fixed.
+
+An established target changes only through owner-directed
+`watch bind --current-session` or `--main-session-id`, carrying the old target
+and binding revision. A changed scheduler target cannot replace it implicitly.
+Missing or archived targets require owner action. Host queue coordination and
+automatic successor events remain unverified; arrange binding in the foreground
+and avoid overlapping desktop, heartbeat and private-message model execution.
+See the synchronized [main-session procedure](../../skills/ef-communication/references/main-session.md).
+
 ACP requires v1 newline-delimited JSON-RPC over stdio; permission requests yield `needs_user`. Command mode reads the prompt from stdin and returns the [decision contract](../../skills/ef-communication/references/dispatch.md) on stdout. Use fixed argv, not a shell string. Windows `.cmd`, `.bat`, `.ps1` executables require an explicit interpreter/entry point. Oversized native command lines yield `needs_user`; use ACP/command stdin for large prompts. OpenClaw uses `--local` with isolated sessions: stop the Gateway sharing its state directory or configure a separate local state directory. If an earlier dispatch build used OpenClaw, resolve outstanding jobs and rebind before restarting to discard shared main-session references.
 
 ## Ownership and recovery

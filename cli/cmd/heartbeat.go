@@ -21,31 +21,32 @@ import (
 const heartbeatContractVersion = "eigenflux_heartbeat.v1"
 
 type heartbeatPlan struct {
-	WatchManaged             bool                `json:"watch_managed,omitempty"`
-	DispatchOwned            []string            `json:"dispatch_owned,omitempty"`
-	SkillsReadReceipt        *maintenance.Event  `json:"skills_read_receipt,omitempty"`
-	PlanMode                 string              `json:"plan_mode,omitempty"`
-	PluginMaintenance        pluginMaintenance   `json:"plugin_maintenance"`
-	CLIUpdate                selfupdate.Result   `json:"cli_update"`
-	AgentPrompt              string              `json:"agent_prompt"`
-	WakeOnEmpty              bool                `json:"wake_on_empty"`
-	Access                   runtimeAccess       `json:"access"`
-	SchemaVersion            string              `json:"schema_version"`
-	HeartbeatContractVersion string              `json:"heartbeat_contract_version"`
-	CLIVersion               string              `json:"cli_version"`
-	SkillRevision            string              `json:"skill_revision"`
-	SkillsTarget             string              `json:"skills_target"`
-	Skills                   []string            `json:"skills"`
-	RuleSources              []string            `json:"rule_sources"`
-	ExecutionOrder           []string            `json:"execution_order"`
-	CLIPrefix                string              `json:"cli_prefix"`
-	SchedulerLauncher        string              `json:"scheduler_launcher"`
-	SchedulerPrompt          string              `json:"scheduler_prompt"`
-	SchedulerMigration       string              `json:"scheduler_migration"`
-	SkillsFresh              bool                `json:"skills_fresh"`
-	CompatibilityReported    bool                `json:"compatibility_reported"`
-	CompatibilityError       string              `json:"compatibility_error,omitempty"`
-	RuntimeReport            runtimeReportResult `json:"runtime_report"`
+	MainSessionBinding       *mainSessionBindingPlan `json:"main_session_binding,omitempty"`
+	WatchManaged             bool                    `json:"watch_managed,omitempty"`
+	DispatchOwned            []string                `json:"dispatch_owned,omitempty"`
+	SkillsReadReceipt        *maintenance.Event      `json:"skills_read_receipt,omitempty"`
+	PlanMode                 string                  `json:"plan_mode,omitempty"`
+	PluginMaintenance        pluginMaintenance       `json:"plugin_maintenance"`
+	CLIUpdate                selfupdate.Result       `json:"cli_update"`
+	AgentPrompt              string                  `json:"agent_prompt"`
+	WakeOnEmpty              bool                    `json:"wake_on_empty"`
+	Access                   runtimeAccess           `json:"access"`
+	SchemaVersion            string                  `json:"schema_version"`
+	HeartbeatContractVersion string                  `json:"heartbeat_contract_version"`
+	CLIVersion               string                  `json:"cli_version"`
+	SkillRevision            string                  `json:"skill_revision"`
+	SkillsTarget             string                  `json:"skills_target"`
+	Skills                   []string                `json:"skills"`
+	RuleSources              []string                `json:"rule_sources"`
+	ExecutionOrder           []string                `json:"execution_order"`
+	CLIPrefix                string                  `json:"cli_prefix"`
+	SchedulerLauncher        string                  `json:"scheduler_launcher"`
+	SchedulerPrompt          string                  `json:"scheduler_prompt"`
+	SchedulerMigration       string                  `json:"scheduler_migration"`
+	SkillsFresh              bool                    `json:"skills_fresh"`
+	CompatibilityReported    bool                    `json:"compatibility_reported"`
+	CompatibilityError       string                  `json:"compatibility_error,omitempty"`
+	RuntimeReport            runtimeReportResult     `json:"runtime_report"`
 }
 
 func fileExistsCLI(path string) bool {
@@ -239,6 +240,22 @@ var heartbeatPlanCmd = &cobra.Command{
 			}
 		}
 		if !controlOnly {
+			plan.MainSessionBinding, err = inspectMainSessionBinding()
+			if err != nil {
+				return err
+			}
+			if plan.MainSessionBinding != nil && plan.MainSessionBinding.Status != "ready" {
+				source := filepath.Join(res.SkillsDir, "ef-communication", "references", "main-session.md")
+				if fileExistsCLI(source) {
+					plan.RuleSources = append(plan.RuleSources, source)
+				} else {
+					plan.MainSessionBinding.Error = "main session rules missing; sync compatible signed Skills before binding"
+				}
+				plan.WakeOnEmpty = true
+			}
+		}
+
+		if !controlOnly {
 			e := maintenance.NewEvent(skillsAttempt, "skills", "auto", "install", "installed")
 			e.ToVersion = manifest.Revision
 			if res.Source == "local" {
@@ -300,8 +317,15 @@ func heartbeatStages(access runtimeAccess) []string {
 
 func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 	receiptText := ""
+	if plan.MainSessionBinding != nil {
+		b, _ := json.Marshal(plan.MainSessionBinding)
+		receiptText += "\nCodex main session binding: " + string(b) + ". Ordinary heartbeat and PM execution cannot select a replacement thread.\n"
+		if plan.MainSessionBinding.Status != "ready" && plan.MainSessionBinding.Error == "" {
+			receiptText += "Follow the listed ef-communication/references/main-session.md for bootstrap or owner-directed switching.\n"
+		}
+	}
 	if plan.WatchManaged {
-		receiptText = "\nHost plugin and scheduler maintenance is owned exclusively by the watch maintenance-only handler. This full plan executes only its listed business stages and Skills read receipt; exclude host maintenance even when referenced by a general Skill.\n"
+		receiptText += "\nHost plugin and scheduler maintenance is owned exclusively by the watch maintenance-only handler. This full plan executes only its listed business stages and Skills read receipt; exclude host maintenance even when referenced by a general Skill.\n"
 	}
 	if len(plan.DispatchOwned) > 0 {
 		receiptText += "\nThe bound watch dispatcher exclusively owns these events: " + strings.Join(plan.DispatchOwned, ", ") + ". Skip only the procedures for those listed events in this heartbeat, including indirect Skill references. Preserve the watch binding and its dedicated foreground process.\n"

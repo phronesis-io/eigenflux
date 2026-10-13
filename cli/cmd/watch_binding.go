@@ -88,7 +88,7 @@ func applyDispatchOwnership(plan *heartbeatPlan) error {
 var watchBindCmd = &cobra.Command{
 	Use: "bind", Short: "Bind this account to an explicitly configured local Agent", Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		if cmd.Flags().Changed("main-session-id") || cmd.Flags().Changed("current-session") || cmd.Flags().Changed("expected-id") || cmd.Flags().Changed("expected-revision") || cmd.Flags().Changed("codex-home") {
+		if cmd.Flags().Changed("main-session-id") || cmd.Flags().Changed("current-session") || cmd.Flags().Changed("expected-id") || cmd.Flags().Changed("expected-revision") || cmd.Flags().Changed("codex-home") || cmd.Flags().Changed("scheduler-json") {
 			if cmd.Flags().Changed("config") {
 				return errors.New("session update and --config are mutually exclusive")
 			}
@@ -119,6 +119,9 @@ var watchBindCmd = &cobra.Command{
 		b.Version, b.Home, b.Server, b.Endpoint, b.AgentID, b.PrincipalID, b.Scope = 1, expected.Home, expected.Server, expected.Endpoint, expected.AgentID, expected.PrincipalID, expected.Scope
 		b.Revision, err = dispatch.NewRevision()
 		if err != nil {
+			return err
+		}
+		if err = prepareInitialMainSession(&b); err != nil {
 			return err
 		}
 		if err = b.Validate(); err != nil {
@@ -296,6 +299,7 @@ func init() {
 	watchBindCmd.Flags().String("codex-home", "", "absolute Codex state directory; pins the host store without copying context")
 	watchBindCmd.Flags().String("expected-id", "", "previous main session ID; pass an empty value for initial binding")
 	watchBindCmd.Flags().String("expected-revision", "", "binding revision from watch status")
+	watchBindCmd.Flags().String("scheduler-json", "", "complete host-native scheduler inventory for initial main session bootstrap")
 	watchCmd.AddCommand(watchBindCmd, watchStatusCmd, watchDoctorCmd, watchRetryCmd, watchReconcileCmd)
 }
 
@@ -321,22 +325,9 @@ func updateWatchMainSession(cmd *cobra.Command) error {
 	if !sameBindingIdentity(b, expected) {
 		return errWatchIdentity
 	}
-	id, _ := cmd.Flags().GetString("main-session-id")
-	currentThread, _ := cmd.Flags().GetBool("current-session")
-	if currentThread == cmd.Flags().Changed("main-session-id") {
-		return errors.New("specify exactly one of --main-session-id or --current-session")
-	}
-	if currentThread {
-		id = os.Getenv("CODEX_THREAD_ID")
-		if id == "" {
-			return errors.New("calling Codex thread ID unavailable; specify --main-session-id")
-		}
-	}
-	if hostHome, _ := cmd.Flags().GetString("codex-home"); cmd.Flags().Changed("codex-home") {
-		if b.Env == nil {
-			b.Env = map[string]string{}
-		}
-		b.Env["CODEX_HOME"] = hostHome
+	id, err := selectMainSession(cmd, &b)
+	if err != nil {
+		return err
 	}
 	previous, _ := cmd.Flags().GetString("expected-id")
 	revision, _ := cmd.Flags().GetString("expected-revision")
