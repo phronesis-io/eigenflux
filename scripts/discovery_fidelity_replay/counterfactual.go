@@ -234,17 +234,9 @@ func counterfactual(cfg *config.Config, dir string) {
 	}
 	snapshots := loadSnapshots(dir)
 	bodyArms := [2]map[int64]bodyArm{{}, {}}
-	baselineOnly := os.Getenv("FIDELITY_BASELINE_ONLY") == "true"
-	variant := "summary"
-	if baselineOnly {
-		variant = "baseline"
-	}
+	baselineOnly, sourceContextOnly, variant := replayVariant()
 	if os.Getenv("FIDELITY_PGC_COUPLED") == "true" {
-		if baselineOnly {
-			panic("baseline and coupled modes are mutually exclusive")
-		}
 		bodyArms = loadBodyArms(dir)
-		variant = "combined"
 	}
 	armDocs := [2]map[int64]discovery.Document{{}, {}}
 	armChanged := [2]map[int64]bool{{}, {}}
@@ -327,7 +319,7 @@ func counterfactual(cfg *config.Config, dir string) {
 				originalPayloads = append(originalPayloads, doc)
 			}
 			summary := item.Summary
-			if i == 1 && !baselineOnly && classes[id] == "pgc" {
+			if i == 1 && !baselineOnly && !sourceContextOnly && classes[id] == "pgc" {
 				a, ok := audits[id]
 				if !ok && item.PotentiallyEligible {
 					panic(fmt.Sprintf("missing candidate audit %d", id))
@@ -365,6 +357,9 @@ func counterfactual(cfg *config.Config, dir string) {
 					d.SourceType = arm.Output.SourceType
 					d.Slots.Lang = []string{arm.Output.Lang}
 					item.Lang = arm.Output.Lang
+					if sourceContextOnly {
+						applyReextractedExpiry(&d, &item, arm.Output.ExpireTime)
+					}
 					words, e := json.Marshal(arm.Output.Keywords)
 					must(e)
 					item.Keywords = string(words)
@@ -442,6 +437,7 @@ func counterfactual(cfg *config.Config, dir string) {
 						d.ContentType = next.ContentType
 						d.SourceType = next.SourceType
 						d.Slots = next.Slots
+						d.ExpiresAt = next.ExpiresAt
 					}
 					docs[d.Ref.ID] = d
 					if v, ok := armVectors[i][d.Ref.ID]; ok {
@@ -468,7 +464,11 @@ func counterfactual(cfg *config.Config, dir string) {
 		reports = append(reports, map[string]any{"agent_id": strconv.FormatInt(s.Owner, 10), "pool": len(ids), "captured_delivered": len(s.Before.Candidates), "before_delivered": len(runs[0].Candidates), "after_delivered": len(runs[1].Candidates)})
 		fmt.Printf("Agent %d: full pool %d; captured %d; finite-corpus before/after %d/%d\n", s.Owner, len(ids), len(s.Before.Candidates), len(runs[0].Candidates), len(runs[1].Candidates))
 	}
-	save(filepath.Join(dir, "counterfactual-"+variant+"-manifest.json"), map[string]any{"variant": variant, "indices": names, "agents": reports, "method": "full captured candidate-union counterfactual; changed PGC extraction and embeddings rerun, other dense scores frozen; production rules/model/policies; production-score-anchored lexical deltas from finite-corpus ratios; lifecycle fixed; changed PGC groups rerun against preceding production items"})
+	lifecycle := "lifecycle fixed"
+	if sourceContextOnly {
+		lifecycle = "item IDs/creation times fixed; changed PGC expiry re-extracted in both arms"
+	}
+	save(filepath.Join(dir, "counterfactual-"+variant+"-manifest.json"), map[string]any{"variant": variant, "indices": names, "agents": reports, "method": "full captured candidate-union counterfactual; changed PGC extraction and embeddings rerun, other dense scores frozen; production rules/model/policies; production-score-anchored lexical deltas from finite-corpus ratios; " + lifecycle + "; changed PGC groups rerun against preceding production items"})
 }
 
 func auditInputHash(item itemEvidence) string {
@@ -516,6 +516,18 @@ func indexExpiry(raw string) string {
 	return ""
 }
 
+// Source dates can change the extractor's expiry decision. Keep lexical recall
+// and authoritative hydration aligned rather than freezing away that effect.
+func applyReextractedExpiry(d *discovery.Document, item *itemEvidence, raw string) {
+	item.ExpireTime = raw
+	d.ExpiresAt = 0
+	if normalized := indexExpiry(raw); normalized != "" {
+		t, err := time.Parse(time.RFC3339, normalized)
+		must(err)
+		d.ExpiresAt = t.UnixMilli()
+	}
+}
+
 func replayIndexDocument(id int64, d discovery.Document, item itemEvidence, content, summary string) map[string]any {
 	keywords := []string{}
 	if err := json.Unmarshal([]byte(item.Keywords), &keywords); err != nil {
@@ -530,4 +542,29 @@ func replayIndexDocument(id int64, d discovery.Document, item itemEvidence, cont
 		doc["expire_time"] = expiry
 	}
 	return doc
+}
+
+// Source metadata sensitivity starts from the already deployed auditor. It must
+// not also apply the separate summary-fidelity rollout to unchanged documents.
+func replayVariant() (baselineOnly, sourceContextOnly bool, variant string) {
+	baselineOnly = os.Getenv("FIDELITY_BASELINE_ONLY") == "true"
+	sourceContextOnly = os.Getenv("FIDELITY_SOURCE_CONTEXT_ONLY") == "true"
+	coupled := os.Getenv("FIDELITY_PGC_COUPLED") == "true"
+	if sourceContextOnly && !coupled {
+		panic("source context replay requires coupled body arms")
+	}
+	if baselineOnly && coupled {
+		panic("baseline and coupled modes are mutually exclusive")
+	}
+	variant = "summary"
+	if baselineOnly {
+		variant = "baseline"
+	}
+	if coupled {
+		variant = "combined"
+	}
+	if sourceContextOnly {
+		variant = "source-context"
+	}
+	return
 }

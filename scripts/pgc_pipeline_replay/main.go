@@ -29,7 +29,12 @@ type result struct {
 
 func main() {
 	path := flag.String("cases", "", "paired source bodies")
+	auditBoth := flag.Bool("audit-both", false, "keep the deployed PGC fidelity auditor enabled in both body arms")
+	workers := flag.Int("workers", 8, "bounded extraction workers (1-32)")
 	flag.Parse()
+	if *workers < 1 || *workers > 32 {
+		panic("workers must be 1-32")
+	}
 	b, err := os.ReadFile(*path)
 	if err != nil {
 		panic(err)
@@ -49,7 +54,7 @@ func main() {
 	clients := map[bool]*llm.Client{}
 	for _, on := range []bool{false, true} {
 		copy := *cfg
-		copy.LLMSummaryFidelity = on
+		copy.LLMSummaryFidelity = on || *auditBoth
 		clients[on] = llm.NewClient(&copy, prompts)
 	}
 	emb := embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)
@@ -58,7 +63,7 @@ func main() {
 	var mu sync.Mutex
 	failed := false
 	enc := json.NewEncoder(os.Stdout)
-	for i := 0; i < 8; i++ {
+	for i := 0; i < *workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

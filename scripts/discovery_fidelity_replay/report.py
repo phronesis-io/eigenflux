@@ -21,7 +21,7 @@ def estimate_counts(mix, agent, history, observed, priors, strength=20):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dir", type=Path, required=True)
-    parser.add_argument("--variant", choices=["summary", "combined"], default="summary")
+    parser.add_argument("--variant", choices=["summary", "combined", "source-context"], default="summary")
     args = parser.parse_args()
     root = args.dir
     variant = args.variant

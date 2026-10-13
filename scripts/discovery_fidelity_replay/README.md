@@ -65,3 +65,14 @@ both PGC embedding arms. It uses the production float32 0.80 cosine cutoff and
 type-specific grouping rules, with no writes to ES. Source credentials come from
 explicit environment variables. A historical item cannot match itself or an item
 published later. These queries cannot recover already deleted historical items.
+
+For source-title/publication metadata changes after the summary auditor is already
+live, use `FIDELITY_SOURCE_CONTEXT_ONLY=true FIDELITY_PGC_COUPLED=true` and run
+`pgc_pipeline_replay -audit-both` for both bodies. This keeps the deployed PGC
+summary audit enabled in both extraction arms and leaves every unchanged captured
+summary alone. Reports use the `source-context` variant, keeping the prior auditor
+rollout out of this change's estimated effect. Source-context mode also applies the re-extracted PGC expiry to both lexical
+recall and authoritative hydration while preserving creation times and IDs.
+Model re-extraction variability
+remains part of the sensitivity; these estimates do not establish causal uplift.
+`pgc_pipeline_replay -workers N` defaults to 8 and accepts 1–32 bounded workers.

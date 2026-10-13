@@ -56,3 +56,41 @@ func TestCounterfactualDoesNotHealUnrelatedStaleRecallEvidence(t *testing.T) {
 	require.NoError(t, e)
 	require.Equal(t, "stale", got[0].Version)
 }
+
+func TestSourceContextReplaySeparatesPriorSummaryRollout(t *testing.T) {
+	t.Setenv("FIDELITY_SOURCE_CONTEXT_ONLY", "true")
+	t.Setenv("FIDELITY_PGC_COUPLED", "true")
+	t.Setenv("FIDELITY_BASELINE_ONLY", "false")
+	baseline, source, variant := replayVariant()
+	if baseline || !source || variant != "source-context" {
+		t.Fatal("source-context arms must have their own report namespace")
+	}
+	for _, env := range []string{"FIDELITY_PGC_COUPLED", "FIDELITY_BASELINE_ONLY"} {
+		t.Run(env, func(t *testing.T) {
+			if env == "FIDELITY_PGC_COUPLED" {
+				t.Setenv(env, "false")
+			} else {
+				t.Setenv(env, "true")
+			}
+			defer func() {
+				if recover() == nil {
+					t.Fatal("invalid replay mode must fail before indexing")
+				}
+			}()
+			replayVariant()
+		})
+	}
+}
+
+func TestSourceContextExpiryMatchesLexicalAndHydrationViews(t *testing.T) {
+	d := discovery.Document{ExpiresAt: 123}
+	item := itemEvidence{ExpireTime: "old"}
+	applyReextractedExpiry(&d, &item, "2026-10-02")
+	require.Equal(t, int64(1790899200000), d.ExpiresAt)
+	require.Equal(t, "2026-10-02T00:00:00Z", replayIndexDocument(1, d, item, "body", "summary")["expire_time"])
+	for _, expiry := range []string{"", "invalid"} {
+		applyReextractedExpiry(&d, &item, expiry)
+		require.Zero(t, d.ExpiresAt)
+		require.NotContains(t, replayIndexDocument(1, d, item, "body", "summary"), "expire_time")
+	}
+}
