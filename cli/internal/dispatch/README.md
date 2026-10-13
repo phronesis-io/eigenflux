@@ -98,6 +98,39 @@ Limits: journal 16 MiB, 256 unresolved jobs, latest 1024 completed jobs (includi
 
 ## Runners and ownership
 
+### Opt-in Codex PM main session
+
+`main_session_id` selects an existing Codex thread for PMs only. Native Codex
+bindings must pin an absolute `env.CODEX_HOME`. Validation checks the exact UUID
+against the host-owned `sessions` rollout metadata, excluding archived sessions;
+unavailable or unsupported storage fails closed. No transcript is copied or
+selected by title, directory recency, or another conversation's activity.
+The runner resumes that UUID and requires the native result to return the same
+thread ID before accepting its decision. Other events keep their current routing.
+Other hosts do not yet support this opt-in field.
+
+Stop watch before `watch bind --main-session-id UUID --expected-id OLD_ID
+--expected-revision REVISION --codex-home ABSOLUTE_PATH`. For initial binding,
+pass an empty expected ID. `--current-session` explicitly reads the calling
+`CODEX_THREAD_ID` instead of `--main-session-id`; it is never inferred during heartbeat or
+message processing. Both versions of the CLI must use the same Codex store.
+The update preserves the journal revision and dedup receipts, rejects stale
+updates, and leaves uncertain jobs for explicit reconciliation. Session reset,
+fork, or migration requires an explicit update; there is no automatic successor
+discovery. Rebinding the full configuration remains subject to its unresolved-job
+guard.
+
+`dispatch_started` records job ID, requested session, configured main session,
+and binding revision. `dispatch_status` includes the returned session ID and
+existing decision/send receipt. A returned session mismatch is `unknown` and is
+never sent or automatically retried. Missing metadata yields `needs_user`.
+
+This personal-branch adapter uses `codex exec resume`, not a live desktop queue.
+Use an idle main thread and avoid simultaneous desktop/heartbeat execution on
+that thread; metadata validation does not establish cross-process idle ownership.
+Host-side queue coordination and automatic successor events remain unverified.
+Local test coverage does not constitute a real PM or desktop-concurrency receipt.
+
 - Native: Codex exec, Claude Code print, OpenClaw `--local` with fixed `host_agent` and a fresh UUID session for first use, Hermes quiet chat. OpenClaw local JSON is parsed directly; aborted/yielded/error results fail. An active Gateway sharing its state directory must be stopped or isolated. ACP/command require fixed local argv; never derive commands from PMs. Command mode uses stdin prompt/stdout decision. Windows shims require an explicit executable/interpreter; oversized command lines yield `needs_user` before launch (use ACP/command stdin).
 - ACP v1 stdio: initialize → load supported session or create → prompt. Ignore load replay; collect current-session `agent_message_chunk`, require `end_turn`. Advertise no filesystem/terminal RPC. Cancel permission requests as `ErrNeedsUser`; reject unknown RPCs.
 - Strip inherited `EIGENFLUX_*`; rebuild bound Home/server/host/Skills. Only `RunCommand` targeting the verified current CLI may retain the CDN URL. Never copy ambient EigenFlux tokens/model/mode. Windows merges environment keys case-insensitively, rejects duplicate configured keys, and gives configuration precedence; Unix preserves case. Host authentication remains host-owned.

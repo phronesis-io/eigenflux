@@ -29,6 +29,7 @@ type Binding struct {
 	SkillsDir      string            `json:"skills_dir,omitempty"`
 	Env            map[string]string `json:"env,omitempty"`
 	HostAgent      string            `json:"host_agent,omitempty"`
+	MainSessionID  string            `json:"main_session_id,omitempty"`
 	TimeoutSeconds int               `json:"timeout_seconds"`
 	// PM replies are always sent by the CLI in this runner. Existing plugin mode is separate.
 	Events []string `json:"events"`
