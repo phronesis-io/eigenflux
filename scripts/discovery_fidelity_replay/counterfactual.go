@@ -122,7 +122,7 @@ func (e localES) bulk(index string, docs []map[string]any) {
 		var b bytes.Buffer
 		enc := json.NewEncoder(&b)
 		for _, d := range docs[i:end] {
-			must(enc.Encode(map[string]any{"index": map[string]any{"_index": index, "_id": fmt.Sprint(d["id"])}}))
+			must(enc.Encode(map[string]any{"index": map[string]any{"_index": index, "_id": fmt.Sprint(d["replay_arm"]) + ":" + fmt.Sprint(d["id"])}}))
 			must(enc.Encode(d))
 		}
 		req, err := http.NewRequest("POST", e.base+"/_bulk", &b)
@@ -248,17 +248,6 @@ func counterfactual(cfg *config.Config, dir string) {
 	}
 	armDocs := [2]map[int64]discovery.Document{{}, {}}
 	armChanged := [2]map[int64]bool{{}, {}}
-	var referenceManifest struct{ Indices []string }
-	refBytes, refErr := os.ReadFile(filepath.Join(dir, "counterfactual-baseline-manifest.json"))
-	if baselineOnly && os.IsNotExist(refErr) {
-		referenceManifest.Indices = []string{"", ""}
-	} else {
-		must(refErr)
-		must(json.Unmarshal(refBytes, &referenceManifest))
-	}
-	if len(referenceManifest.Indices) != 2 {
-		panic("missing baseline index reference")
-	}
 	armDrops := [2]map[int64]bool{{}, {}}
 	armVectors := [2]map[int64][]float32{{}, {}}
 	inventory := map[int64]discovery.Document{}
@@ -289,6 +278,11 @@ func counterfactual(cfg *config.Config, dir string) {
 		panic("missing frozen index template")
 	}
 	tmpl := template.IndexTemplates[0].IndexTemplate.Template
+	props, ok := tmpl.Mappings["properties"].(map[string]any)
+	if !ok {
+		panic("missing index properties")
+	}
+	props["replay_arm"] = map[string]any{"type": "keyword"}
 	analysis := tmpl.Settings["analysis"]
 	if index, ok := tmpl.Settings["index"].(map[string]any); ok {
 		analysis = index["analysis"]
@@ -296,6 +290,8 @@ func counterfactual(cfg *config.Config, dir string) {
 	settings := map[string]any{"number_of_shards": 1, "number_of_replicas": 0, "analysis": analysis}
 	suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
 	names := []string{"fidelity-before-" + suffix, "fidelity-after-" + suffix}
+	armPayloads := [2][]map[string]any{}
+	originalPayloads := []map[string]any{}
 	for i, index := range names {
 		local.request("PUT", "/"+index, map[string]any{"settings": settings, "mappings": tmpl.Mappings})
 		docs := []map[string]any{}
@@ -317,6 +313,11 @@ func counterfactual(cfg *config.Config, dir string) {
 				if i == 0 {
 					fmt.Printf("inactive/seen/hard-filtered source %d has a stale authority fingerprint; retained in both pools\n", id)
 				}
+			}
+			if i == 0 {
+				doc := replayIndexDocument(id, d, item, item.Content, item.Summary)
+				doc["replay_arm"] = "reference"
+				originalPayloads = append(originalPayloads, doc)
 			}
 			summary := item.Summary
 			if i == 1 && !baselineOnly {
@@ -368,18 +369,8 @@ func counterfactual(cfg *config.Config, dir string) {
 			if content != item.Content || summary != item.Summary {
 				armChanged[i][id] = true
 			}
-			keywords := []string{}
-			if err := json.Unmarshal([]byte(item.Keywords), &keywords); err != nil {
-				for _, word := range strings.Split(item.Keywords, ",") {
-					if word = strings.TrimSpace(word); word != "" {
-						keywords = append(keywords, word)
-					}
-				}
-			}
-			doc := map[string]any{"id": id, "author_agent_id": d.AuthorID, "content": content, "summary": summary, "keywords": keywords, "lang": item.Lang, "retrieval_slots": d.Slots}
-			if expiry := indexExpiry(item.ExpireTime); expiry != "" {
-				doc["expire_time"] = expiry
-			}
+			doc := replayIndexDocument(id, d, item, content, summary)
+			doc["replay_arm"] = strconv.Itoa(i)
 			docs = append(docs, doc)
 			{
 				d.Preview = summary
@@ -389,7 +380,13 @@ func counterfactual(cfg *config.Config, dir string) {
 			}
 		}
 		local.bulk(index, docs)
+		armPayloads[i] = docs
 	}
+	for i, index := range names {
+		local.bulk(index, armPayloads[1-i])
+		local.bulk(index, originalPayloads)
+	}
+	local.request("POST", "/"+strings.Join(names, ",")+"/_flush", nil)
 	es.Client, err = elasticsearch.NewClient(elasticsearch.Config{Addresses: []string{base}})
 	must(err)
 	reports := []map[string]any{}
@@ -413,7 +410,13 @@ func counterfactual(cfg *config.Config, dir string) {
 		runs := []discovery.Execution{}
 		for i, index := range names {
 			alias := index + "-agent-" + strconv.FormatInt(s.Owner, 10)
-			local.request("POST", "/_aliases", map[string]any{"actions": []any{map[string]any{"add": map[string]any{"index": index, "alias": alias, "filter": map[string]any{"terms": map[string]any{"id": ids}}}}}})
+			referenceAlias := index + "-reference-agent-" + strconv.FormatInt(s.Owner, 10)
+			actions := []any{}
+			for _, pair := range [][2]string{{alias, strconv.Itoa(i)}, {referenceAlias, "reference"}} {
+				filters := []any{map[string]any{"terms": map[string]any{"id": ids}}, map[string]any{"term": map[string]any{"replay_arm": pair[1]}}}
+				actions = append(actions, map[string]any{"add": map[string]any{"index": index, "alias": pair[0], "filter": map[string]any{"bool": map[string]any{"filter": filters}}}})
+			}
+			local.request("POST", "/_aliases", map[string]any{"actions": actions})
 			docs := map[int64]discovery.Document{}
 			vectors := map[int64][]float32{}
 			changed := map[int64]bool{}
@@ -436,7 +439,7 @@ func counterfactual(cfg *config.Config, dir string) {
 					}
 				}
 			}
-			source := &poolSource{snap: s, docs: docs, dropped: armDrops[i], vectors: vectors, stale: stale, changed: changed, reference: referenceManifest.Indices[0] + "-agent-" + strconv.FormatInt(s.Owner, 10), lexical: &discovery.Source{BroadcastIndex: alias}}
+			source := &poolSource{snap: s, docs: docs, dropped: armDrops[i], vectors: vectors, stale: stale, changed: changed, reference: referenceAlias, lexical: &discovery.Source{BroadcastIndex: alias}}
 
 			engine, close := engine(cfg, dir, s, source)
 			run, err := engine.ReplayContexts(context.Background(), s.Owner, s.Contexts, []discovery.Kind{discovery.Broadcast}, 20, s.At)
@@ -501,4 +504,20 @@ func indexExpiry(raw string) string {
 		}
 	}
 	return ""
+}
+
+func replayIndexDocument(id int64, d discovery.Document, item itemEvidence, content, summary string) map[string]any {
+	keywords := []string{}
+	if err := json.Unmarshal([]byte(item.Keywords), &keywords); err != nil {
+		for _, word := range strings.Split(item.Keywords, ",") {
+			if word = strings.TrimSpace(word); word != "" {
+				keywords = append(keywords, word)
+			}
+		}
+	}
+	doc := map[string]any{"id": id, "author_agent_id": d.AuthorID, "content": content, "summary": summary, "keywords": keywords, "lang": item.Lang, "retrieval_slots": d.Slots}
+	if expiry := indexExpiry(item.ExpireTime); expiry != "" {
+		doc["expire_time"] = expiry
+	}
+	return doc
 }

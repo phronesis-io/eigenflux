@@ -28,6 +28,12 @@ func (p *poolSource) calibratedLexical(ctx context.Context, c discovery.Context,
 	if err != nil {
 		return nil, err
 	}
+	cutoff := 0.0
+	for _, d := range original {
+		if cutoff == 0 || d.Lexical < cutoff {
+			cutoff = d.Lexical
+		}
+	}
 	ratios := []float64{}
 	prior := map[int64]discovery.Document{}
 	for _, d := range original {
@@ -72,11 +78,27 @@ func (p *poolSource) calibratedLexical(ctx context.Context, c discovery.Context,
 		if after[id] <= 0 {
 			continue
 		}
+		// If it matched locally before but did not fill the production channel,
+		// do not assume the missing index/visibility evidence was repaired.
+		// With a full channel, a promotion must cross its observed cutoff.
+		if before[id] > 0 && (len(original) < limit || after[id] <= before[id]) {
+			continue
+		}
 		if scale == 0 {
 			return nil, fmt.Errorf("new lexical match has no production score calibration")
 		}
 		d := p.docs[id]
 		d.Lexical = after[id] * scale
+		if before[id] > 0 && cutoff > 0 {
+			base := before[id] * scale
+			if base > cutoff {
+				base = cutoff
+			}
+			d.Lexical = base * after[id] / before[id]
+			if d.Lexical <= cutoff {
+				continue
+			}
+		}
 		d.DenseScore = nil
 		out = append(out, d)
 	}

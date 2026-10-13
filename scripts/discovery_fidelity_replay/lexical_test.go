@@ -46,6 +46,20 @@ func TestLexicalDeltaAnchorsProductionScoresAndCanAdmitFullPoolCandidate(t *test
 	require.Equal(t, float64(40), got[0].Lexical)
 	require.Equal(t, int64(1), got[1].Ref.ID)
 	require.Equal(t, float64(10), got[1].Lexical)
+	// A local match absent from an unfilled production channel is not evidence
+	// that the release repairs its index visibility.
+	key := channelKey(c, discovery.Broadcast, "lexical")
+	unfilled := s.Channels[key]
+	unfilled.Limit = 3
+	s.Channels[key] = unfilled
+	got, err = p.calibratedLexical(context.Background(), c, discovery.Broadcast, 3)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	for _, d := range got {
+		require.NotEqual(t, int64(3), d.Ref.ID)
+	}
+	unfilled.Limit = 2
+	s.Channels[key] = unfilled
 	p.changed = nil
 	got, err = p.calibratedLexical(context.Background(), c, discovery.Broadcast, 2)
 	require.NoError(t, err)

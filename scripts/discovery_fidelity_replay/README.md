@@ -15,8 +15,9 @@ Modes: `capture`, `evidence`, `history`, `observed`, `replay`, `compare`.
 Supply `-dir` with private frozen `rules.json`, `rerank.yaml`, `model.json`, and
 `index-template.json`. Capture requires a read-only PostgreSQL DSN, local scratch
 `REDIS_ADDR`, `FROZEN_REMOTE_REDIS_ADDR` and a read-only production ES connection.
-First build the reference index with `FIDELITY_BASELINE_ONLY=true`; the reference
-manifest is retained for subsequent summary/combined runs. Set
+Run `FIDELITY_BASELINE_ONLY=true` for the unchanged-content A/A gate. Each run
+indexes original/off/on variants under filtered aliases sharing the same corpus
+statistics. Set
 `FIDELITY_PGC_COUPLED=true` for the combined sensitivity.
 `compare` only permits `FIDELITY_LOCAL_ES_URL=http://127.0.0.1:56921` for writes.
 
@@ -27,8 +28,10 @@ no model call. Full-pool source export reuses only fingerprint-matching records.
 
 The counterfactual reindexes the full captured union with production analyzers.
 Production lexical scores remain the anchor. For changed text, local before/after
-score ratios estimate the delta; a median production/local calibration estimates
-new lexical matches already present elsewhere in the full pool. Unchanged scores
+score ratios estimate the delta under identical field statistics. A median
+production/local calibration estimates new lexical matches already present
+elsewhere in the full pool. Off-channel candidates must cross the original
+production cutoff; their estimated baseline is capped by that cutoff. Unchanged scores
 and unrelated stale-version rejections are preserved. This avoids treating the
 small index's different IDF statistics as a release benefit. The unchanged-content
 A/A run must reproduce all captured ordered results exactly.
