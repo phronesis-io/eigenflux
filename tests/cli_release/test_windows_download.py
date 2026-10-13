@@ -68,12 +68,18 @@ $tokens = $null
 $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($env:INSTALLER_SOURCE, [ref]$tokens, [ref]$errors)
 if ($errors.Count -ne 0) { throw ($errors | Out-String) }
-foreach ($name in @('Info', 'Ok', 'Download-WithRetry')) {
+foreach ($name in @('Info', 'Ok', 'Get-InvokingHost', 'Resolve-EigenfluxHome', 'Download-WithRetry')) {
     $function = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
     if (-not $function) { throw "Missing installer function: $name" }
     Invoke-Expression $function.Extent.Text
 }
-Download-WithRetry -Url "$env:TEST_URL/eigenflux.exe" -Destination $env:TEST_DESTINATION -Sha256Url $env:TEST_CHECKSUM -MaxRetries 2
+if ($env:TEST_CLI_INSTALLATION -eq '1') {
+    $ExplicitEigenfluxHome = Join-Path $env:TEMP '.eigenflux'
+    Download-WithRetry -Url "$env:TEST_URL/eigenflux.exe" -Destination $env:TEST_DESTINATION -Sha256Url $env:TEST_CHECKSUM -MaxRetries 2 -CliInstallation
+    if (-not (Test-Path "$env:TEST_DESTINATION.install.json")) { throw 'Installation ownership was not recorded' }
+} else {
+    Download-WithRetry -Url "$env:TEST_URL/eigenflux.exe" -Destination $env:TEST_DESTINATION -Sha256Url $env:TEST_CHECKSUM -MaxRetries 2
+}
 & $env:TEST_DESTINATION version --short
 if ($LASTEXITCODE -ne 0) { throw 'Downloaded CLI did not execute successfully' }
 ''', encoding='utf-8-sig')
@@ -81,6 +87,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Downloaded CLI did not execute successfully' }
                 env = dict(os.environ, TEMP=temp, TMP=temp,
                            INSTALLER_SOURCE=str(ROOT / 'static/install.ps1'),
                            TEST_URL=url, TEST_DESTINATION=str(destination),
+                           TEST_CLI_INSTALLATION='1' if case in ('valid', 'fresh') else '0',
                            TEST_CHECKSUM='' if case == 'without_checksum' else url + '/eigenflux.exe.sha256')
                 # pwsh -> Python -> powershell otherwise inherits PS7 modules,
                 # which can shadow the incompatible PS5.1 system modules.

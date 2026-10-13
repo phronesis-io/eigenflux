@@ -1,79 +1,26 @@
 # CLI installation removal
 
-`eigenflux uninstall` previews the installation registered beside the running
-executable. Preview performs no network requests and does not write files,
-including when Skills inspection is requested. Apply and explicit `--begin`
-record account-scoped uninstall observations. See the maintained implementation
-map in `cli/cmd/UNINSTALL.md`.
+`eigenflux uninstall` previews the registered installation without writing files or contacting the network. `--begin` records an attempt before native cleanup; resume it through `--attempt`. Before cleanup, the uninstall Skill asks whether other Agents still need EigenFlux. Explicit owner scope is reused. `--scope current` removes only the invoking registered Home, while `--scope all` removes the full installation. Begin/apply require an explicit scope; `--all-homes` remains an alias for complete removal. Apply requires `--host-cleanup-confirmed`.
 
-The installers register the actual executable selected or installed, the
-normalized Agent Home, and the invoking host. The POSIX installer also records
-the successfully synchronized managed Skills target. The Windows direct-copy
-installer preserves its unregistered Skills directory. The POSIX GitHub fallback and Windows direct-copy
-installer leave the registered Skills target empty and report the preserved
-provisional directory, even if a manifest from an earlier sync remains there.
-After a successful `skills sync`, explicitly register its actual target to
-include it in installation-wide removal.
-`installation record --host HOST --skills-target PATH` also supports explicit
-registration. An explicitly empty `--skills-target=` records no Skills target.
-Registrations are deduplicated by Home and host; registrations from other Homes
-remain in the shared executable's installation record.
+Current-Agent removal keeps the shared executable, wrappers, notification integration, remaining Homes and shared Skills. It removes the current Home registrations atomically under the installation lock. Only current Home watchers must stop. Remaining Homes and their Skills paths are protected even when nested within the removed Home; current removal also retains an executable located inside that Home. Windows current-Agent removal completes directly without original-file finalization. Native cleanup removes only the current Home's triggers and plugin bindings; shared plugin packages remain.
 
-Before applying removal, stop and remove the owning host's native scheduled
-triggers and plugin consumers. The CLI does not manipulate scheduler databases
-or uninstall host plugins. Apply requires `--host-cleanup-confirmed`; an
-installation with multiple registrations additionally requires `--all-homes`.
-These flags confirm the reviewed scope; they do not discover unregistered hosts.
+Current removal preserves Skills targets outside the current Home, including those used by older Agents without installation registrations. Only private targets inside the current Home are removed automatically.
 
-Apply holds the installation, update, and registered Home watch locks. Retained
-watch locks are checked even when their server is no longer in configuration.
-An active watcher, registration, or CLI update blocks removal. Agent Homes,
-credentials, account configuration, local maintenance history, and shared PATH
-entries remain intact. `--reason` saves the reason locally in each registered
-Home's `uninstall.json`; its text is never uploaded. Optional fixed reason
-categories may be included in uninstall telemetry.
+Use host-native tools to stop and remove EigenFlux triggers, plugins, and their configuration. Retain unrelated host settings and third-party content. The CLI checks installation, update, and watch locks before removal. It rejects linked or non-canonical Agent Home roots before deleting data.
 
-On Unix, apply removes the running executable and its exact `.previous`,
-`.update.json`, and `.install.json` sidecars. Sidecars must be regular files;
-symlinked or directory-shaped sidecars block removal. Installation/update/watch
-lock files are retained deliberately: unlinking a shared lock path allows
-another process to recreate it while an existing owner still holds its inode.
-No glob-based cleanup or recursive Agent Home deletion is performed.
+Successful removal deletes the registered CLI, its owned sidecars and wrappers, registered EigenFlux-managed Skills including edited content, and each registered Home's local configuration, credentials, identity keys, caches, history, maintenance state, and uninstall audits. Skills targets require a valid EigenFlux ownership manifest; only registered entries are removed. Leaf symlinks are unlinked without removing their targets. Local data cleanup does not delete a cloud account.
 
-On Windows, the CLI reports `executable_removal_pending` and an explicit
-`cleanup_files` list. `static/uninstall.ps1` waits for the CLI to exit and copies
-it to a temporary reporter. Finalization reacquires installation/watch locks,
-checks file hashes against the receipt, removes unchanged originals and records
-the result. The wrapper then removes the temporary copy. Direct CLI invocation
-leaves removal pending. Native Windows acceptance remains required.
+Missing registered Skills directories are already removed. Existing targets with missing or invalid manifests fail ownership validation. For complete Windows removal, the uninstall Skill also verifies and clears EigenFlux-owned legacy entries under `%USERPROFILE%\.agents\skills` using host-native tools; unrelated entries remain.
 
-Registration distributes the embedded official wrapper beside the binary and
-records its digest. Edited wrappers are preserved. `--begin` records intent
-before native host cleanup; continue through `--attempt`. Native cleanup failure
-can be recorded with `--record-result blocked` or `failed`. Telemetry uses the
-existing Agent maintenance endpoint and event table, with `phase=uninstall` and
-results `started`, `removed`, `partial`, `failed`, `blocked`. Upload failure does
-not block removal; there is no guaranteed background delivery after uninstall.
+Terminal upload clients capture existing credentials in memory before cleanup.
+Successful cleanup deletes local files before uploading the actual terminal outcome; it does not recreate credentials or queues. Free-text reasons remain local during an attempt and are deleted after successful cleanup. Upload has one five-second budget across accounts and does not block removal. Offline uninstall has no retained delivery queue after successful data cleanup.
 
-Notification cleanup is opt-in with `--notifications` and requires
-`--notification-cleanup-confirmed` for all shared users. Unknown or edited assets
-are preserved. OS notification permission records are not modified.
+Installation/update/watch lock files remain to prevent replacement of live lock inodes. Successful removal retains no business data or credentials in those files. An abnormal wrapper does not skip Home cleanup; partial removal reports retained paths and exits unsuccessfully. Cleanup failures keep failure/audit state; successful Home cleanup does not recreate that state.
 
-Skills removal is opt-in with `--skills`. The independent
-`skills uninstall --into PATH` command also previews by default and requires
-`--apply` to remove files. A target can be shared by several hosts or accounts;
-review those owners before requesting removal. Only directories named in an
-EigenFlux-managed manifest with an unchanged synchronization hash are removed.
-Edited directories, unrelated files, and symlinked skill roots are retained.
-A symlinked target or manifest is rejected. Provisional installations without a
-managed manifest are not treated as managed content. The manifest remains when
-edited content is preserved. Installation-wide removal also retains it as
-ownership evidence, allowing retries after a later target or executable fails
-without accepting arbitrary unmanaged directories.
+Official installers run the downloaded CLI's internal `installation replace` command. Binary replacement and ownership registration hold the same installation/update locks used by uninstall. Windows uses managed Skills sync and records its actual target. Publish CLI 0.6.4 before releasing the updated shell installer; the installer release workflow rejects earlier published versions.
 
-Verification uses a separately compiled CLI copied into isolated temporary
-fixtures. Tests never invoke uninstall against the developer's installed CLI
-or the Go test executable. Coverage includes preview immutability, shared Home
-confirmation, active and removed-server watch locks, update contention, local
-reason persistence, executable/sidecar removal, managed Skills integrity, and
-the POSIX installer's already-current executable path.
+Windows reports pending removal until the original process exits. The official wrapper copies a trusted reporter to a temporary directory. Finalization reacquires locks, verifies receipt file hashes, removes original files, captures terminal upload credentials, clears local data, and reports the actual outcome. An intervening update or reinstallation blocks deletion. The temporary reporter is then removed. Direct CLI invocation leaves removal pending.
+
+Notification cleanup remains explicit with `--notifications --notification-cleanup-confirmed` because the integration may be shared. Native tools remove EigenFlux-owned modified notification assets when appropriate. Shared PATH entries and OS permission records are not removed.
+
+Verification compiles and runs isolated CLI copies. Tests cover immutable preview, multi-Home scope, active locks, edited managed content removal, foreign content retention, symlink boundaries, local data cleanup, and official wrapper execution. Keep embedded wrappers byte-identical to `static/`.

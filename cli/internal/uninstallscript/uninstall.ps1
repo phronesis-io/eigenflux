@@ -26,7 +26,7 @@ function Invoke-EigenFluxJson([string]$binary, [string[]]$cliArgs) {
 }
 $resolved = (Resolve-Path -LiteralPath $CliPath).Path
 $call = Invoke-EigenFluxJson $resolved (@('uninstall') + @($UninstallArgs) + @('--script-protocol=1', '--format', 'json'))
-if ($call.ExitCode -ne 0) { exit $call.ExitCode }
+if ($call.ExitCode -ne 0) { $call.Output; exit $call.ExitCode }
 $result = $call.Output | ConvertFrom-Json
 if (-not ($result.apply -and $result.executable_removal_pending)) {
   $result | ConvertTo-Json -Depth 10
@@ -55,20 +55,23 @@ try {
   Copy-Item -LiteralPath $resolved -Destination $reporter -ErrorAction Stop
   # The trusted copy reacquires installation/watch locks and checks file hashes.
   $call = Invoke-EigenFluxJson $reporter @('--homedir', $result.receipt_home, 'uninstall-finalize', '--attempt', $result.attempt_id, '--remove-original', '--format', 'json')
-  if ($call.ExitCode -ne 0) { throw 'Final uninstall observation failed; inspect the retained receipt.' }
+  if ($call.ExitCode -ne 0 -and -not $call.Output.Trim()) { throw 'Final uninstall observation failed; inspect remaining installation files.' }
   $final = $call.Output | ConvertFrom-Json
   $finalized = $true
   $result.executable_removal_pending = Test-Path -LiteralPath $resolved
+  $result.data_preserved = -not ($final.local_data_removed -eq $true)
+  $result | Add-Member -NotePropertyName data_cleanup_pending -NotePropertyValue $false -Force
+  if ($final.local_data_removed -eq $true) { $result.reason_saved = $false }
   $result | Add-Member -NotePropertyName result -NotePropertyValue $final.result -Force
   $result | ConvertTo-Json -Depth 10
-  if ($final.result -ne 'removed') { exit 1 }
+  if ($final.result -ne 'removed' -or $call.ExitCode -ne 0) { exit 1 }
 } catch {
   # Observe retained original files as partial, never as a successful removal.
   if ($reporter -and (Test-Path -LiteralPath $reporter) -and -not $finalized) {
     $call = Invoke-EigenFluxJson $reporter @('--homedir', $result.receipt_home, 'uninstall-finalize', '--attempt', $result.attempt_id, '--format', 'json')
     if ($call.ExitCode -eq 0) { $call.Output }
   }
-  Write-Error 'Uninstall incomplete. Inspect the retained audit and remaining installation files.'
+  Write-Error 'Uninstall incomplete. Inspect remaining installation files.'
   exit 1
 } finally {
   if ($reporter -and (Test-Path -LiteralPath $reporter)) { Remove-Item -LiteralPath $reporter -ErrorAction SilentlyContinue }

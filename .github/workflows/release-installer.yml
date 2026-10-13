@@ -53,6 +53,15 @@ jobs:
           sh -n static/install.sh
           python3 -m unittest discover -s tests/cli_release -p 'test_*install*.py'
           python3 -m unittest discover -s tests/installer_release -p 'test_*.py'
+      - name: Require a CLI with locked installation replacement
+        run: |
+          published=$(curl --fail --silent --show-error https://cdn.eigenflux.ai/cli/latest/version.txt)
+          python3 - "$published" <<'PY'
+          import re, sys
+          version = sys.argv[1].strip()
+          if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version) or tuple(map(int, version.split('.'))) < (0, 6, 4):
+              sys.exit('Publish CLI >= 0.6.4 first, then rerun Release Installer. The public installer has not been replaced.')
+          PY
       - name: Publish and verify install.sh
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}

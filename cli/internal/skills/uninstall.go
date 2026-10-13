@@ -13,8 +13,8 @@ type UninstallResult struct {
 	Apply     bool     `json:"apply"`
 }
 
-// Uninstall uses the same directory lock and content hashes as synchronization.
-// An edited, foreign, or symlinked root is retained even during explicit removal.
+// Uninstall removes owned Skills, including edits, under the synchronization lock.
+// Only manifest entries are removed; symbolic links are unlinked, never followed.
 // keepManifest retains ownership evidence for a multi-target installation retry.
 func Uninstall(target string, apply bool, keepManifest ...bool) (*UninstallResult, error) {
 	abs, err := filepath.Abs(target)
@@ -22,6 +22,9 @@ func Uninstall(target string, apply bool, keepManifest ...bool) (*UninstallResul
 		return nil, err
 	}
 	info, err := os.Lstat(abs)
+	if os.IsNotExist(err) {
+		return &UninstallResult{Target: abs, Apply: apply, Removed: []string{}, Preserved: []string{}}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -61,22 +64,13 @@ func Uninstall(target string, apply bool, keepManifest ...bool) (*UninstallResul
 	}
 	r := &UninstallResult{Target: abs, Apply: apply, Removed: []string{}, Preserved: []string{}}
 	for _, entry := range m.Skills {
-		if !productionSkillName.MatchString(entry.Name) {
-			return nil, fmt.Errorf("invalid managed skill name")
-		}
 		path := filepath.Join(abs, entry.Name)
-		info, err := os.Lstat(path)
+		_, err := os.Lstat(path)
 		if os.IsNotExist(err) {
 			continue
 		}
-		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-			r.Preserved = append(r.Preserved, entry.Name)
-			continue
-		}
-		digest, err := dirSHA256(path)
-		if err != nil || digest != entry.SHA256 {
-			r.Preserved = append(r.Preserved, entry.Name)
-			continue
+		if err != nil {
+			return r, err
 		}
 		if apply {
 			if err := os.RemoveAll(path); err != nil {

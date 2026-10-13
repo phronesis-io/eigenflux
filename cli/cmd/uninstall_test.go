@@ -114,9 +114,56 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		if out, err := invoke("installation", "record", "--host", "codex", "--skills-target", ""); err != nil {
 			t.Fatalf("record: %v %s", err, out)
 		}
+		home, _ = filepath.EvalSymlinks(home)
 		return bin, home, invoke
 	}
-	t.Run("preview_and_apply_preserve_home", func(t *testing.T) {
+	t.Run("abnormal_wrapper_reports_partial_and_clears_home", func(t *testing.T) {
+		bin, home, invoke := fixture(t)
+		wrapper := bin + ".uninstall.sh"
+		reporterWrapper := ""
+		if runtime.GOOS == "windows" {
+			wrapper = bin + ".uninstall.ps1"
+			data, err := os.ReadFile(wrapper)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reporterWrapper = filepath.Join(t.TempDir(), "uninstall.ps1")
+			if err := os.WriteFile(reporterWrapper, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.Remove(wrapper); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(wrapper, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, "credentials.json"), []byte("secret"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		var out []byte
+		var err error
+		if runtime.GOOS == "windows" {
+			command := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-File", reporterWrapper, bin, "--homedir", home, "--scope", "all", "--apply", "--host-cleanup-confirmed")
+			command.Env = append(os.Environ(), "HOME="+filepath.Dir(bin), "USERPROFILE="+filepath.Dir(bin), "EIGENFLUX_HOME="+home)
+			out, err = command.CombinedOutput()
+		} else {
+			out, err = invoke("uninstall", "--scope", "all", "--apply", "--host-cleanup-confirmed")
+		}
+		if err == nil || !strings.Contains(string(out), "partial") || !strings.Contains(string(out), filepath.Base(wrapper)) {
+			t.Fatalf("partial result: %v %s", err, out)
+		}
+		if _, err := os.Stat(filepath.Join(home, "credentials.json")); !os.IsNotExist(err) {
+			t.Fatalf("credentials retained: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(home, "uninstall.json")); !os.IsNotExist(err) {
+			t.Fatalf("Home audit recreated: %v", err)
+		}
+		if !strings.Contains(strings.Join(strings.Fields(string(out)), " "), `"data_preserved": false`) {
+			t.Fatalf("inaccurate cleanup state: %s", out)
+		}
+	})
+	t.Run("preview_preserves_apply_clears_home", func(t *testing.T) {
 		bin, home, invoke := fixture(t)
 		credential := filepath.Join(home, "credentials.keep")
 		_ = os.WriteFile(credential, []byte("fixture-only"), 0600)
@@ -132,10 +179,10 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		if !bytes.Equal(before, after) {
 			t.Fatal("preview mutated fixture files")
 		}
-		if out, err = invoke("uninstall", "--apply"); err == nil || !strings.Contains(string(out), "native tools") {
+		if out, err = invoke("uninstall", "--scope", "all", "--apply"); err == nil || !strings.Contains(string(out), "native tools") {
 			t.Fatalf("missing host cleanup accepted: %v %s", err, out)
 		}
-		if out, err = invoke("uninstall", "--apply", "--host-cleanup-confirmed", "--reason", "fixture retirement"); err != nil {
+		if out, err = invoke("uninstall", "--scope", "all", "--apply", "--host-cleanup-confirmed", "--reason", "fixture retirement"); err != nil {
 			t.Fatalf("apply: %v %s", err, out)
 		}
 		var result struct {
@@ -153,13 +200,16 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 				}
 			}
 		}
-		if data, _ := os.ReadFile(credential); string(data) != "fixture-only" {
-			t.Fatal("Agent data removed")
+		if runtime.GOOS != "windows" {
+			for _, path := range []string{credential, filepath.Join(home, "config.json"), filepath.Join(home, "uninstall.json")} {
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Fatalf("local data retained: %s %v", path, err)
+				}
+			}
+		} else if _, err := os.Stat(credential); err != nil {
+			t.Fatal("pending Windows uninstall cleared credentials before final telemetry")
 		}
-		reason, _ := os.ReadFile(filepath.Join(home, "uninstall.json"))
-		if !strings.Contains(string(reason), "fixture retirement") {
-			t.Fatal("reason not preserved locally")
-		}
+
 	})
 	t.Run("official_wrapper_and_native_cleanup_attempt", func(t *testing.T) {
 		bin, home, invoke := fixture(t)
@@ -170,7 +220,7 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		if !bytes.Equal(before, snapshotUninstallTree(t, filepath.Dir(bin))) {
 			t.Fatal("wrapper registration broke preview immutability")
 		}
-		out, err := invoke("uninstall", "--begin", "--source", "agent", "--reason", "中文原因：暂时不用")
+		out, err := invoke("uninstall", "--scope", "all", "--begin", "--source", "agent", "--reason", "中文原因：暂时不用")
 		if err != nil {
 			t.Fatalf("begin: %v %s", err, out)
 		}
@@ -190,7 +240,7 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		if !strings.Contains(string(data), "host_cleanup_failed") || !strings.Contains(string(data), "中文原因") {
 			t.Fatalf("wrong local audit: %s", data)
 		}
-		out, err = invoke("uninstall", "--begin", "--source", "agent")
+		out, err = invoke("uninstall", "--scope", "all", "--begin", "--source", "agent")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -198,9 +248,9 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		var command *exec.Cmd
 		if runtime.GOOS == "windows" {
 			root := os.Getenv("SystemRoot")
-			command = exec.Command(filepath.Join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-File", bin+".uninstall.ps1", bin, "--homedir", home, "--attempt", start.Attempt, "--apply", "--host-cleanup-confirmed", "--source", "agent")
+			command = exec.Command(filepath.Join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-File", bin+".uninstall.ps1", bin, "--homedir", home, "--attempt", start.Attempt, "--scope", "all", "--apply", "--host-cleanup-confirmed", "--source", "agent")
 		} else {
-			command = exec.Command("sh", bin+".uninstall.sh", bin, "--homedir", home, "--attempt", start.Attempt, "--apply", "--host-cleanup-confirmed", "--source", "agent")
+			command = exec.Command("sh", bin+".uninstall.sh", bin, "--homedir", home, "--attempt", start.Attempt, "--scope", "all", "--apply", "--host-cleanup-confirmed", "--source", "agent")
 		}
 		if out, err = command.CombinedOutput(); err != nil {
 			t.Fatalf("official wrapper: %v %s", err, out)
@@ -209,13 +259,13 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 			t.Fatal("wrapper left original executable")
 		}
 		data, _ = os.ReadFile(filepath.Join(home, "uninstall.json"))
-		if strings.Contains(string(data), "中文原因") || !strings.Contains(string(data), "removed") {
-			t.Fatalf("previous attempt reason carried over: %s", data)
+		if len(data) != 0 {
+			t.Fatalf("successful uninstall left audit data: %s", data)
 		}
 	})
 	t.Run("changed_registration_blocks_resumed_attempt", func(t *testing.T) {
 		bin, _, invoke := fixture(t)
-		out, err := invoke("uninstall", "--begin")
+		out, err := invoke("uninstall", "--scope", "all", "--begin")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -227,7 +277,7 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		if err := os.WriteFile(bin+".install.json", append(data, '\n'), 0600); err != nil {
 			t.Fatal(err)
 		}
-		if out, err = invoke("uninstall", "--attempt", start.Attempt, "--apply", "--host-cleanup-confirmed"); err == nil || !strings.Contains(string(out), "changed since") {
+		if out, err = invoke("uninstall", "--scope", "all", "--attempt", start.Attempt, "--apply", "--host-cleanup-confirmed"); err == nil || !strings.Contains(string(out), "changed since") {
 			t.Fatalf("changed registration accepted: %v %s", err, out)
 		}
 		if _, err := os.Stat(bin); err != nil {
@@ -240,18 +290,112 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		if err := os.MkdirAll(other, 0700); err != nil {
 			t.Fatal(err)
 		}
+		other, _ = filepath.EvalSymlinks(other)
 		if err := registerInstallation(bin, installationHome{Home: other, Host: "claude-code"}); err != nil {
 			t.Fatal(err)
 		}
-		if out, err := invoke("uninstall", "--apply", "--host-cleanup-confirmed"); err == nil || !strings.Contains(string(out), "shared installation") {
+		if out, err := invoke("uninstall", "--apply", "--host-cleanup-confirmed"); err == nil || !strings.Contains(string(out), "choose uninstall scope") {
 			t.Fatalf("shared guard: %v %s", err, out)
 		}
-		if out, err := invoke("uninstall", "--apply", "--all-homes", "--host-cleanup-confirmed"); err != nil {
+		if out, err := invoke("uninstall", "--scope", "all", "--apply", "--all-homes", "--host-cleanup-confirmed"); err != nil {
 			t.Fatalf("shared apply: %v %s", err, out)
 		}
 		for _, path := range []string{home, other} {
+			if _, err := os.Stat(filepath.Join(path, "config.json")); !os.IsNotExist(err) {
+				t.Fatal("shared Home config retained", err)
+			}
+		}
+	})
+	t.Run("current_scope_preserves_other_home_and_shared_skills", func(t *testing.T) {
+		bin, home, invoke := fixture(t)
+		other := filepath.Join(filepath.Dir(bin), "second", ".eigenflux")
+		if err := os.MkdirAll(other, 0700); err != nil {
+			t.Fatal(err)
+		}
+		other, _ = filepath.EvalSymlinks(other)
+		bundle := filepath.Join(t.TempDir(), "bundle")
+		if err := os.MkdirAll(filepath.Join(bundle, "ef-broadcast"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(bundle, "ef-broadcast", "SKILL.md"), []byte("fixture"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(filepath.Dir(bin), "shared-skills")
+		if _, err := skills.InstallFromBundle(skills.SyncOptions{Into: target, BundleDir: bundle, CLIVersion: "1.0.0"}); err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range []string{home, other} {
+			if err := registerInstallation(bin, installationHome{Home: path, Host: "codex", SkillsTarget: target}); err != nil {
+				t.Fatal(err)
+			}
+			for file, data := range map[string]string{"config.json": "{}", "credentials.fixture": "fixture-only", "feed-cache.fixture": "cached"} {
+				if err := os.WriteFile(filepath.Join(path, file), []byte(data), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		// Another Agent's active watch must not block uninstalling this Agent.
+		release, err := watchstate.Acquire(other, "other-server")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer release()
+		out, err := invoke("uninstall", "--scope", "current", "--begin")
+		if err != nil {
+			t.Fatalf("current begin: %v %s", err, out)
+		}
+		var start struct {
+			Attempt string `json:"attempt_id"`
+		}
+		if err := json.Unmarshal(out, &start); err != nil || start.Attempt == "" {
+			t.Fatalf("missing current attempt: %s", out)
+		}
+		if out, err := invoke("uninstall", "--scope", "all", "--attempt", start.Attempt, "--apply", "--host-cleanup-confirmed"); err == nil || !strings.Contains(string(out), "scope changed") {
+			t.Fatalf("changed scope accepted: %v %s", err, out)
+		}
+		for _, path := range []string{home, other} {
+			for _, file := range []string{"config.json", "credentials.fixture", "feed-cache.fixture"} {
+				if _, err := os.Stat(filepath.Join(path, file)); err != nil {
+					t.Fatalf("changed scope removed Agent data: %s %s %v", path, file, err)
+				}
+			}
+		}
+		out, err = invoke("uninstall", "--scope", "current", "--attempt", start.Attempt, "--apply", "--host-cleanup-confirmed")
+		release()
+		if err != nil {
+			t.Fatalf("current apply: %v %s", err, out)
+		}
+		for _, file := range []string{"config.json", "credentials.fixture", "feed-cache.fixture", "uninstall.json"} {
+			if _, err := os.Stat(filepath.Join(home, file)); !os.IsNotExist(err) {
+				t.Fatalf("current Home data retained: %s %v", file, err)
+			}
+		}
+		for _, path := range []string{bin, filepath.Join(other, "config.json"), filepath.Join(other, "credentials.fixture"), filepath.Join(other, "feed-cache.fixture"), filepath.Join(target, "ef-broadcast", "SKILL.md")} {
 			if _, err := os.Stat(path); err != nil {
-				t.Fatal("shared Home removed", err)
+				t.Fatalf("other Agent dependency removed: %s %v", path, err)
+			}
+		}
+		var record installationRecord
+		data, err := os.ReadFile(bin + ".install.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(data, &record); err != nil {
+			t.Fatal(err)
+		}
+		if len(record.Homes) != 1 || record.Homes[0].Home != other {
+			t.Fatalf("current Home still registered or other Home missing: %+v", record)
+		}
+		command := exec.Command(bin, "--homedir", other, "--format", "json", "uninstall", "--scope", "all", "--apply", "--host-cleanup-confirmed")
+		command.Env = append(os.Environ(), "HOME="+filepath.Dir(bin), "USERPROFILE="+filepath.Dir(bin), "EIGENFLUX_HOME="+other)
+		if out, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("remaining Agent all apply: %v %s", err, out)
+		}
+		if runtime.GOOS != "windows" {
+			for _, path := range []string{bin, filepath.Join(other, "config.json"), filepath.Join(target, "ef-broadcast")} {
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Fatalf("all scope left installation data: %s %v", path, err)
+				}
 			}
 		}
 	})
@@ -261,7 +405,7 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out, err := invoke("uninstall", "--apply", "--host-cleanup-confirmed")
+		out, err := invoke("uninstall", "--scope", "all", "--apply", "--host-cleanup-confirmed")
 		release()
 		if err == nil || !strings.Contains(string(out), "active watch") {
 			t.Fatalf("watch guard: %v %s", err, out)
@@ -270,7 +414,7 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out, err = invoke("uninstall", "--apply", "--host-cleanup-confirmed")
+		out, err = invoke("uninstall", "--scope", "all", "--apply", "--host-cleanup-confirmed")
 		release()
 		if err == nil || !strings.Contains(string(out), "update is active") {
 			t.Fatalf("update guard: %v %s", err, out)
@@ -295,7 +439,8 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 			}
 			registeredHome := home
 			if i > 0 {
-				registeredHome = filepath.Join(t.TempDir(), ".eigenflux")
+				parent, _ := filepath.EvalSymlinks(t.TempDir())
+				registeredHome = filepath.Join(parent, ".eigenflux")
 			}
 			if err := registerInstallation(bin, installationHome{Home: registeredHome, Host: "codex", SkillsTarget: target}); err != nil {
 				t.Fatal(err)
@@ -305,7 +450,7 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		if err := os.WriteFile(lock, []byte(fmt.Sprintf("%d %d\n", os.Getpid(), time.Now().Unix())), 0600); err != nil {
 			t.Fatal(err)
 		}
-		args := []string{"uninstall", "--apply", "--all-homes", "--skills", "--host-cleanup-confirmed"}
+		args := []string{"uninstall", "--scope", "all", "--apply", "--all-homes", "--skills", "--host-cleanup-confirmed"}
 		out, err := invoke(args...)
 		if err == nil || !strings.Contains(string(out), "synchronization is active") {
 			t.Fatalf("expected partial failure: %v %s", err, out)
@@ -338,7 +483,7 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		if err := os.Symlink(outside, bin+".previous"); err != nil {
 			t.Skip(err)
 		}
-		if out, err := invoke("uninstall", "--apply", "--host-cleanup-confirmed"); err == nil || !strings.Contains(string(out), "regular file") {
+		if out, err := invoke("uninstall", "--scope", "all", "--apply", "--host-cleanup-confirmed"); err == nil || !strings.Contains(string(out), "regular file") {
 			t.Fatalf("foreign sidecar: %v %s", err, out)
 		}
 		if data, _ := os.ReadFile(outside); string(data) != "keep" {

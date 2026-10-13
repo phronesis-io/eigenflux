@@ -56,3 +56,13 @@ class WorkflowGateTest(unittest.TestCase):
         self.assertIn("    needs: check-installer\n", release)
         self.assertIn("    if: needs.check-installer.outputs.installer == 'true'\n", release)
         self.assertIn("    concurrency:\n      group: release-installer\n      cancel-in-progress: false", release)
+
+    def test_locked_replacement_requires_published_cli(self):
+        workflow = (ROOT / ".github/workflows/release-installer.yml").read_text()
+        gate = workflow.split("      - name: Require a CLI with locked installation replacement\n", 1)[1].split("      - name:", 1)[0]
+        code = textwrap.dedent(gate.split("<<'PY'\n", 1)[1].split("          PY", 1)[0])
+        for version, accepted in (("0.6.3", False), ("0.6.4", True), ("0.6.5", True), ("invalid", False)):
+            with self.subTest(version=version):
+                result = subprocess.run(["python3", "-", version], input=code, text=True, capture_output=True)
+                self.assertEqual(result.returncode == 0, accepted)
+        self.assertLess(workflow.index("Require a CLI with locked installation replacement"), workflow.index("Publish and verify install.sh"))

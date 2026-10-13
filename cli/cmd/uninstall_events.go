@@ -25,21 +25,24 @@ var regexpUninstallAttempt = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
 // No credentials or free-text reasons are carried in a finalization receipt.
 type uninstallObservation struct {
-	AttemptID      string              `json:"attempt_id"`
-	Executable     string              `json:"executable"`
-	CleanupFiles   []string            `json:"cleanup_files,omitempty"`
-	FileDigests    map[string]string   `json:"file_digests,omitempty"`
-	Homes          []installationHome  `json:"homes"`
-	Scopes         []maintenance.Scope `json:"scopes,omitempty"`
-	Started        time.Time           `json:"started"`
-	Source         string              `json:"source"`
-	ReasonCategory string              `json:"reason_category"`
-	Version        string              `json:"version"`
-	Pending        bool                `json:"pending"`
-	Partial        bool                `json:"partial"`
-	Mutated        bool                `json:"mutated"`
-	Result         string              `json:"result,omitempty"`
-	LocalReason    string              `json:"-"`
+	RemovalScope          string              `json:"removal_scope,omitempty"`
+	RetainedPaths         []string            `json:"retained_paths,omitempty"`
+	RemainingRegistration *installationRecord `json:"remaining_registration,omitempty"`
+	AttemptID             string              `json:"attempt_id"`
+	Executable            string              `json:"executable"`
+	CleanupFiles          []string            `json:"cleanup_files,omitempty"`
+	FileDigests           map[string]string   `json:"file_digests,omitempty"`
+	Homes                 []installationHome  `json:"homes"`
+	Scopes                []maintenance.Scope `json:"scopes,omitempty"`
+	Started               time.Time           `json:"started"`
+	Source                string              `json:"source"`
+	ReasonCategory        string              `json:"reason_category"`
+	Version               string              `json:"version"`
+	Pending               bool                `json:"pending"`
+	Partial               bool                `json:"partial"`
+	Mutated               bool                `json:"mutated"`
+	Result                string              `json:"result,omitempty"`
+	LocalReason           string              `json:"-"`
 }
 
 func newUninstallObservation(bin, source, category, reason string) *uninstallObservation {
@@ -167,7 +170,7 @@ func (o *uninstallObservation) finish(result, code string) {
 func (o *uninstallObservation) audit(result, code string) {
 	seen := map[string]bool{}
 	for _, entry := range o.Homes {
-		if !filepath.IsAbs(entry.Home) || filepath.Base(entry.Home) != ".eigenflux" || seen[entry.Home] {
+		if validateUninstallHome(entry.Home) != nil || seen[entry.Home] {
 			continue
 		}
 		seen[entry.Home] = true
@@ -212,10 +215,13 @@ func uninstallReceiptPath(attempt string) (string, error) {
 	if !regexpUninstallAttempt.MatchString(attempt) {
 		return "", errors.New("invalid uninstall attempt")
 	}
+	if err := validateUninstallHome(config.HomeDir()); err != nil {
+		return "", err
+	}
 	return filepath.Join(config.HomeDir(), "uninstall-"+attempt+".json"), nil
 }
 
-func (o *uninstallObservation) removeOriginal() error {
+func (o *uninstallObservation) removeOriginal(afterRemoval ...func() error) error {
 	// Run from the temporary trusted CLI, after the original process has exited.
 	self, err := installedExecutable()
 	if err != nil {
@@ -243,6 +249,11 @@ func (o *uninstallObservation) removeOriginal() error {
 			return err
 		}
 		releases = append(releases, release)
+	}
+	for _, entry := range o.Homes {
+		if err := validateUninstallHome(entry.Home); err != nil {
+			return err
+		}
 	}
 	seen := map[string]bool{}
 	for _, entry := range o.Homes {
@@ -298,6 +309,9 @@ func (o *uninstallObservation) removeOriginal() error {
 		}
 		o.Mutated = true
 	}
+	if len(afterRemoval) > 0 {
+		return afterRemoval[0]()
+	}
 	return nil
 }
 
@@ -322,14 +336,29 @@ func init() {
 		}
 		if !o.Pending {
 			if o.Result == "removed" || o.Result == "partial" || o.Result == "blocked" || o.Result == "failed" {
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"attempt_id": attempt, "result": o.Result})
+				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"attempt_id": attempt, "result": o.Result}); err != nil {
+					return err
+				}
+				if o.Result != "removed" {
+					return errors.New("uninstall incomplete: " + o.Result)
+				}
+				return nil
 			}
 			return errors.New("uninstall receipt is already finalized")
 		}
 		result, code := "removed", ""
 		remove, _ := cmd.Flags().GetBool("remove-original")
+		localDataRemoved := false
 		if remove {
-			if err := o.removeOriginal(); err != nil {
+			if err := o.removeOriginal(func() error {
+				result, code := "removed", ""
+				if o.Partial {
+					result, code = "partial", "managed_content_preserved"
+				}
+				err := o.finishAndPurge(result, code)
+				localDataRemoved = err == nil
+				return err
+			}); err != nil {
 				result, code = "partial", uninstallErrorCode(err)
 			}
 		}
@@ -344,11 +373,26 @@ func init() {
 			code = "managed_content_preserved"
 		}
 		o.Pending = false
+		if remove && o.Result != "" {
+			if err := json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]interface{}{"attempt_id": attempt, "result": result, "local_data_removed": localDataRemoved}); err != nil {
+				return err
+			}
+			if result != "removed" {
+				return errors.New("uninstall incomplete: " + code)
+			}
+			return nil
+		}
 		o.finish(result, code)
 		if err := saveMaintenance(path, &o); err != nil {
 			return err
 		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"attempt_id": attempt, "result": result})
+		if err := json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"attempt_id": attempt, "result": result}); err != nil {
+			return err
+		}
+		if result != "removed" {
+			return errors.New("uninstall incomplete: " + code)
+		}
+		return nil
 	}}
 	finalize.Flags().String("attempt", "", "pending uninstall attempt")
 	finalize.Flags().Bool("remove-original", false, "remove unchanged receipt-owned original installation")
