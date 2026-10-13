@@ -454,6 +454,10 @@ unrelated PRs cannot replace a pending installer release. Retrying an older
 run publishes current main, not an older installer. Direct pushes, unmerged PRs,
 and changes to other files do not publish the installer. Tests run before R2
 credentials are supplied to the publisher. Existing R2 secrets are reused.
+The locked replacement installer requires published CLI >= 0.6.4. Publish the
+CLI before rerunning Release Installer or deploying the updated `/install.ps1`.
+The workflow leaves the current public shell installer unchanged until this
+minimum version is available from the CDN.
 
 The publisher writes only `installers/latest/install.sh`, with
 `Cache-Control: no-store`. There are no public version or hash directories.

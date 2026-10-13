@@ -265,7 +265,9 @@ install_cli() {
   # Honor EIGENFLUX_INSTALL_DIR override; default to ~/.local/bin.
   INSTALL_DIR="${EIGENFLUX_INSTALL_DIR:-$HOME/.local/bin}"
   mkdir -p "$INSTALL_DIR"
-  mv "$TMP_FILE" "$INSTALL_DIR/eigenflux"
+  INSTALL_HOME=$(resolve_eigenflux_home "$HOMEDIR_FLAG" "$EXPLICIT_EIGENFLUX_HOME" "$INVOKING_HOST")
+  "$TMP_FILE" --homedir "$INSTALL_HOME" installation replace --destination "$INSTALL_DIR/eigenflux" --host "$INVOKING_HOST" --skills-target ""
+  rm -f "$TMP_FILE"
   INSTALLED_CLI_PATH="$INSTALL_DIR/eigenflux"
 
   ok "eigenflux ${LATEST_VERSION} installed successfully"

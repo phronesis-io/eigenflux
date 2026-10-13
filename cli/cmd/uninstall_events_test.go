@@ -50,6 +50,7 @@ func TestUninstallTelemetryAccountIsolationPrivacyAndReplay(t *testing.T) {
 		if err := auth.SaveV2Credentials("test", &auth.V2Credentials{AgentID: id, AccessToken: "fixture-" + id, RefreshToken: "fixture-refresh", ExpiresAt: time.Now().Add(time.Hour).UnixMilli()}); err != nil {
 			t.Fatal(err)
 		}
+		home, _ = filepath.EvalSymlinks(home)
 		o.Homes = append(o.Homes, installationHome{Home: home, Host: "codex"})
 	}
 	o.discoverScopes()
@@ -100,6 +101,7 @@ func TestUninstallOriginalRevalidationAndLocks(t *testing.T) {
 		if err := os.MkdirAll(home, 0700); err != nil {
 			t.Fatal(err)
 		}
+		home, _ = filepath.EvalSymlinks(home)
 		o := newUninstallObservation(bin, "manual", "not_provided", "")
 		o.Homes = []installationHome{{Home: home}}
 		o.FileDigests = map[string]string{bin: uninstallscript.Digest([]byte("fixture binary"))}

@@ -40,10 +40,11 @@ function Download-WithRetry {
         [string]$Url,
         [string]$Destination,
         [ValidateRange(1, 10)][int]$MaxRetries = 3,
-        [string]$Sha256Url = ""
+        [string]$Sha256Url = "",
+        [switch]$CliInstallation
     )
 
-    $tmpFile = Join-Path $env:TEMP ("eigenflux-dl-" + [System.IO.Path]::GetRandomFileName())
+    $tmpFile = Join-Path $env:TEMP ("eigenflux-dl-" + [System.IO.Path]::GetRandomFileName() + ".exe")
     $attempt = 0
     $downloaded = $false
 
@@ -88,7 +89,14 @@ function Download-WithRetry {
         if (-not (Test-Path $destDir)) {
             New-Item -ItemType Directory -Path $destDir -Force | Out-Null
         }
-        Move-Item -Path $tmpFile -Destination $Destination -Force
+        if ($CliInstallation) {
+            $hostName = Get-InvokingHost
+            $homeDir = Resolve-EigenfluxHome -ExplicitHome $ExplicitEigenfluxHome -InvokingHost $hostName
+            & $tmpFile --homedir $homeDir installation replace "--destination=$Destination" "--host=$hostName" "--skills-target="
+            if ($LASTEXITCODE -ne 0) { throw "CLI installation failed; another installation or uninstall may be active." }
+        } else {
+            Move-Item -Path $tmpFile -Destination $Destination -Force
+        }
     } finally {
         Remove-Item -Force $tmpFile -ErrorAction SilentlyContinue
     }
@@ -149,7 +157,7 @@ function Install-Cli {
     $script:installedCliPath = $installPath
 
     Info "Downloading ${downloadUrl}..."
-    Download-WithRetry -Url $downloadUrl -Destination $installPath -Sha256Url $sha256Url
+    Download-WithRetry -Url $downloadUrl -Destination $installPath -Sha256Url $sha256Url -CliInstallation
 
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
     if ($userPath -notlike "*$($script:installDir)*") {
@@ -166,47 +174,16 @@ function Install-Cli {
 # ── Step 2: Install skills ────────────────────────────────────
 
 function Install-Skills {
+    $hostName = Get-InvokingHost
+    $homeDir = Resolve-EigenfluxHome -ExplicitHome $ExplicitEigenfluxHome -InvokingHost $hostName
+    $cli = $script:installedCliPath
     $script:installedSkillsTarget = ""
-    $skillsDir = Join-Path $env:USERPROFILE ".agents\skills"
-    $zipUrl = "https://github.com/${GithubRepo}/archive/refs/heads/${Branch}.zip"
-    $tmpZip = Join-Path $env:TEMP "eigenflux-skills.zip"
-    $tmpExtract = Join-Path $env:TEMP "eigenflux-skills-extract"
-
-    Info ""
     Info "Installing EigenFlux skills..."
-
-    try {
-        if (Test-Path $tmpExtract) { Remove-Item -Recurse -Force $tmpExtract }
-        Download-WithRetry -Url $zipUrl -Destination $tmpZip
-        Expand-Archive -Path $tmpZip -DestinationPath $tmpExtract -Force
-
-        $extracted = Get-ChildItem $tmpExtract | Select-Object -First 1
-        $srcSkills = Join-Path $extracted.FullName "skills"
-
-        if (Test-Path $srcSkills) {
-            if (-not (Test-Path $skillsDir)) {
-                New-Item -ItemType Directory -Path $skillsDir -Force | Out-Null
-            }
-            Get-ChildItem $srcSkills -Directory | ForEach-Object {
-                $skillMd = Join-Path $_.FullName "SKILL.md"
-                if (Test-Path $skillMd) {
-                    $dest = Join-Path $skillsDir $_.Name
-                    if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
-                    Copy-Item -Recurse -Path $_.FullName -Destination $dest
-                }
-            }
-            $script:installedSkillsTarget = ""
-            Ok "EigenFlux skills installed to ${skillsDir}"
-            Info "Uninstall will preserve provisional Skills at ${skillsDir}; no verified managed target was registered."
-        } else {
-            Info "Skills installation skipped (no skills found)"
-        }
-    } catch {
-        Info "Skills installation skipped (non-fatal)"
-    } finally {
-        Remove-Item -Force $tmpZip -ErrorAction SilentlyContinue
-        Remove-Item -Recurse -Force $tmpExtract -ErrorAction SilentlyContinue
-    }
+    & $cli --homedir $homeDir skills sync "--host=$hostName"
+    if ($LASTEXITCODE -ne 0) { throw "Skills sync failed; retry installation before onboarding." }
+    $script:installedSkillsTarget = (& $cli --homedir $homeDir skills path "--host=$hostName" | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $script:installedSkillsTarget) { throw "Could not resolve the managed Skills directory." }
+    Ok "EigenFlux skills synced to $($script:installedSkillsTarget)"
 }
 
 # ── Step 3: Migrate legacy config ─────────────────────────────
@@ -353,7 +330,7 @@ Migrate-Config
 Setup-Agents
 $recordBin = $script:installedCliPath
 $recordHost = Get-InvokingHost
-& $recordBin --homedir $env:EIGENFLUX_HOME installation record "--host=$recordHost" "--skills-target=$script:installedSkillsTarget" | Out-Null
+& $recordBin --homedir $env:EIGENFLUX_HOME installation record "--host=$recordHost" "--skills-target=$($script:installedSkillsTarget)" | Out-Null
 if ($LASTEXITCODE -ne 0) { Info "Installation registration unavailable; record it with the new CLI before uninstalling." }
 Info "Updated plugin files may require a host restart after current work finishes."
 

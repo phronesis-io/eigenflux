@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestUninstallPreservesEditedAndUnmanaged(t *testing.T) {
+func TestUninstallRemovesEditedSkillsAndPreservesUnmanaged(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "skills")
 	_ = os.MkdirAll(dir, 0700)
 	for _, name := range []string{"ef-one", "ef-two", "unrelated"} {
@@ -21,20 +21,23 @@ func TestUninstallPreservesEditedAndUnmanaged(t *testing.T) {
 	}
 	_ = os.WriteFile(filepath.Join(dir, "ef-two", "SKILL.md"), []byte("user edit"), 0600)
 	preview, err := Uninstall(dir, false)
-	if err != nil || len(preview.Removed) != 1 || len(preview.Preserved) != 1 {
+	if err != nil || len(preview.Removed) != 2 || len(preview.Preserved) != 0 {
 		t.Fatalf("%+v %v", preview, err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "ef-one")); err != nil {
 		t.Fatal("preview removed files")
 	}
 	result, err := Uninstall(dir, true)
-	if err != nil || len(result.Removed) != 1 {
+	if err != nil || len(result.Removed) != 2 || len(result.Preserved) != 0 {
 		t.Fatalf("%+v %v", result, err)
 	}
-	for _, name := range []string{"ef-two", "unrelated"} {
-		if _, err := os.Stat(filepath.Join(dir, name, "SKILL.md")); err != nil {
-			t.Fatal(err)
+	for _, name := range []string{"ef-one", "ef-two"} {
+		if _, err := os.Lstat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Fatalf("owned skill remains: %s: %v", name, err)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "unrelated", "SKILL.md")); err != nil {
+		t.Fatal("unmanaged skill removed", err)
 	}
 }
 
@@ -106,7 +109,7 @@ func TestUninstallValidatesWholeManifestBeforeRemoval(t *testing.T) {
 	}
 }
 
-func TestUninstallRetainsLinkedSkillAndRejectsLinkedManifest(t *testing.T) {
+func TestUninstallUnlinksSkillWithoutFollowingAndRejectsLinkedManifest(t *testing.T) {
 	parent := t.TempDir()
 	target := filepath.Join(parent, "skills")
 	outside := filepath.Join(parent, "outside")
@@ -120,9 +123,12 @@ func TestUninstallRetainsLinkedSkillAndRejectsLinkedManifest(t *testing.T) {
 	if err := WriteManifestAtomic(target, &Manifest{ManagedBy: ManagedByValue, Skills: []SkillEntry{{Name: "ef-one", SHA256: digest}}}); err != nil {
 		t.Fatal(err)
 	}
-	r, err := Uninstall(target, true)
-	if err != nil || len(r.Preserved) != 1 {
+	r, err := Uninstall(target, true, true)
+	if err != nil || len(r.Preserved) != 0 || len(r.Removed) != 1 {
 		t.Fatalf("%+v %v", r, err)
+	}
+	if _, err := os.Lstat(filepath.Join(target, "ef-one")); !os.IsNotExist(err) {
+		t.Fatalf("managed symlink remains: %v", err)
 	}
 	if data, err := os.ReadFile(filepath.Join(outside, "SKILL.md")); err != nil || string(data) != "keep" {
 		t.Fatal("linked content changed")
@@ -133,5 +139,21 @@ func TestUninstallRetainsLinkedSkillAndRejectsLinkedManifest(t *testing.T) {
 	_ = os.Symlink(moved, manifest)
 	if _, err := Uninstall(target, true); err == nil {
 		t.Fatal("linked manifest accepted")
+	}
+}
+
+func TestUninstallMissingTargetIsAlreadyCleaned(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "missing")
+	for _, apply := range []bool{false, true} {
+		result, err := Uninstall(target, apply)
+		if err != nil || result == nil || len(result.Removed) != 0 {
+			t.Fatalf("missing target: %+v %v", result, err)
+		}
+	}
+	if err := os.MkdirAll(target, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Uninstall(target, true); err == nil {
+		t.Fatal("existing unowned directory accepted")
 	}
 }

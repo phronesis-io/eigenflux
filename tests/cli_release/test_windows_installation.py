@@ -26,6 +26,7 @@ func main() {
         fmt.Println("99.0.0")
         return
     }
+    if strings.Contains(strings.Join(os.Args[1:], "|"), "skills|path") { fmt.Println(os.Getenv("TEST_SKILLS")); return }
     f, err := os.OpenFile(os.Getenv("TEST_CALLS"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
     if err != nil { panic(err) }
     defer f.Close()
@@ -42,11 +43,12 @@ function Get-InvokingHost { 'codex' }
 Install-Cli
 if ($script:installedCliPath -ne $env:TEST_BINARY) { throw 'Wrong existing CLI path' }
 Migrate-Config
-& $script:installedCliPath --homedir $env:EIGENFLUX_HOME installation record --host codex --skills-target ''
+Install-Skills
+& $script:installedCliPath --homedir $env:EIGENFLUX_HOME installation record --host codex "--skills-target=$($script:installedSkillsTarget)"
 if ($LASTEXITCODE -ne 0) { throw 'Registration failed' }
 """, encoding='utf-8-sig')
             env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
-                       TEST_CALLS=str(log), TEST_BINARY=str(binary),
+                       TEST_CALLS=str(log), TEST_BINARY=str(binary), TEST_SKILLS=str(root / ".agents" / "skills"),
                        EIGENFLUX_HOME=str(root / 'agent home'), USERPROFILE=str(root))
             result = subprocess.run([shell, '-NoProfile', '-ExecutionPolicy', 'Bypass',
                                      '-File', str(fixture)], env=env, capture_output=True,
@@ -54,4 +56,5 @@ if ($LASTEXITCODE -ne 0) { throw 'Registration failed' }
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             calls = log.read_text()
             self.assertIn('|migrate', calls)
-            self.assertIn('|installation|record|--host|codex', calls)
+            self.assertIn('|skills|sync|--host=codex', calls)
+            self.assertIn('|installation|record|--host|codex|--skills-target=' + str(root / '.agents' / 'skills'), calls)
