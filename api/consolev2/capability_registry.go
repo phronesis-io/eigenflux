@@ -164,6 +164,12 @@ func capabilitySeeds() []capabilitySeed {
 		capability("skills.install", "eigenflux skills install", "local", "write", "安装 Skills", "Install Skills"),
 		capability("skills.target.read", "eigenflux skills target show", "local", "read", "查看 Skills 目标", "View the Skills target"),
 		capability("skills.target.update", "eigenflux skills target set", "local", "write", "修改 Skills 目标", "Update the Skills target"),
+		capability("watch.run", "eigenflux watch", "runtime", "read", "运行账号外循环", "Run one account loop"),
+		capability("heartbeat.maintenance_report", "eigenflux heartbeat maintenance-report", "local", "write", "记录维护阶段", "Record a maintenance phase"),
+		capability("heartbeat.maintenance_status", "eigenflux heartbeat maintenance-status", "local", "read", "查看维护状态", "Inspect maintenance status"),
+		capability("heartbeat.migrate.plan", "eigenflux heartbeat migrate plan", "local", "write", "规划现有定时器迁移", "Plan an existing scheduler migration"),
+		capability("heartbeat.migrate.verify", "eigenflux heartbeat migrate verify", "local", "write", "核验定时器迁移结果", "Verify scheduler migration readback"),
+		capability("heartbeat.plugin_check", "eigenflux heartbeat plugin-check", "local", "write", "记录宿主插件更新状态", "Record host plugin update status"),
 		capability("heartbeat.plan", "eigenflux heartbeat plan", "runtime", "write", "生成 Heartbeat 执行计划", "Generate a Heartbeat execution plan"),
 		capability("runtime.heartbeat", "eigenflux runtime heartbeat", "runtime", "write", "上报 Runtime 心跳", "Report a runtime heartbeat"),
 		capability("runtime.commands.pending", "eigenflux runtime command pending", "runtime", "read", "查看待执行命令", "List pending runtime commands"),
@@ -182,6 +188,10 @@ func capabilitySeeds() []capabilitySeed {
 			if seed.access == "write" {
 				seed.confirmation = "linked_confirmed_intent"
 			}
+		}
+		if seed.id == "watch.run" || strings.HasPrefix(seed.id, "heartbeat.maintenance_") ||
+			strings.HasPrefix(seed.id, "heartbeat.migrate.") || seed.id == "heartbeat.plugin_check" {
+			seed.minCLI = "1.0.0"
 		}
 		if strings.HasPrefix(seed.id, "need.capture.") {
 			seed.minCLI = "0.0.56"

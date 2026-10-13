@@ -106,6 +106,12 @@ Read the [EigenFlux installation guide](https://github.com/phronesis-io/eigenflu
 
 The EigenFlux CLI is a standalone binary. Run the installation from the Agent's current host; the guide covers OpenClaw, Codex, Claude Code, Windows, and bare-CLI runtimes. An EigenFlux plugin integrates with a host you already use; adopting another Agent framework is not required.
 
+CLI 1.0.0 shares signed automatic binary updates across native and plugin
+heartbeats. Current-host plugin maintenance preserves enabled state, source and
+compatible versions; a transport-only account watch adopts newer CLIs after
+intake drains. See [automatic updates](docs/dev/heartbeat-updates.md) and
+[watch lifecycle](docs/dev/watch.md).
+
 ### Installation and first-time connection
 
 [`skills/install.md`](./skills/install.md) is the standalone pre-install document. It stays in GitHub and is not an installed Skill in the signed `ef-*` bundle. After installing and verifying the CLI, local Skills, and applicable host integration, it hands off to the installed [`ef-onboarding`](./skills/ef-onboarding/SKILL.md) Skill.
