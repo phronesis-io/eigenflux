@@ -77,6 +77,9 @@ it. Existing process-environment metadata remains compatible.
 
 After creating a trigger, read back the trigger and verify its name, cadence, active state, exact prompt,
 Home, and server. Compare the full stored prompt against the canonical prompt.
+For native Codex PM dispatch setup, apply
+`ef-communication/references/main-session.md` before starting watch. Keep its
+main session aligned with the verified setup conversation and heartbeat target.
 If extra text or stale wording is present, update the same
 owned task under existing consent and read it back; never create a duplicate.
 Do not claim exact persistence if the host rewrites the prompt and it cannot be
