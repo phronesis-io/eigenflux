@@ -7,6 +7,71 @@ import (
 	"testing"
 )
 
+// Render the actual production fragments across both profile and browser paths.
+// Native tool selection and visible opening still require a desktop walkthrough.
+func TestOnboardingBrowserHandoffRendering(t *testing.T) {
+	b, err := os.ReadFile("../../skills/ef-onboarding/references/messages.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, newline := range []string{"\n", "\r\n"} {
+		messages := strings.ReplaceAll(string(b), "\n", newline)
+		fragment := func(id, locale string) string {
+			t.Helper()
+			normalized := strings.ReplaceAll(messages, "\r\n", "\n")
+			section := regexp.MustCompile(`(?s)\n## ` + regexp.QuoteMeta(id) + `\n(.*?)(?:\n## |$)`).FindStringSubmatch(normalized)
+			if section == nil {
+				t.Fatalf("missing fragment %s", id)
+			}
+			parts := strings.SplitN(section[1], "### "+locale+"\n", 2)
+			if len(parts) != 2 {
+				t.Fatalf("missing locale %s/%s", id, locale)
+			}
+			body := strings.SplitN(parts[1], "\n### ", 2)[0]
+			var lines []string
+			for _, line := range strings.Split(body, "\n") {
+				if strings.HasPrefix(line, ">") {
+					lines = append(lines, strings.TrimPrefix(strings.TrimPrefix(line, ">"), " "))
+				}
+			}
+			return strings.Join(lines, "\n")
+		}
+		for _, locale := range []string{"zh", "en"} {
+			for _, profile := range []string{"profile_ready", "profile_manual"} {
+				for _, browser := range []string{"browser_opened", "browser_manual"} {
+					t.Run(locale+"/"+profile+"/"+browser+"/"+map[string]string{"\n": "LF", "\r\n": "CRLF"}[newline], func(t *testing.T) {
+						// Non-default origin/port and encoded ticket/nonce catch lossy URL rendering.
+						url := "https://console.example.test:8443/dashboard/handoff?ticket=efht_A%2BB&source=test#nonce=N%2Fz%3D"
+						if err := validateConsoleHandoffURL(url); err != nil {
+							t.Fatal(err)
+						}
+						body := strings.NewReplacer(
+							"<profile-result>", fragment(profile, locale),
+							"<browser-instruction>", fragment(browser, locale),
+							"<return-instruction>", strings.ReplaceAll(fragment("return_host", locale), "<first-check-request>", fragment("first_check_request", locale)),
+							"<progress>", "stage-4-pending",
+							"<console-url>", url,
+						).Replace(fragment("handoff", locale))
+						links := regexp.MustCompile(`\]\(([^\n]+)\)`).FindAllStringSubmatch(body, -1)
+						if len(links) != 1 || links[0][1] != url {
+							t.Fatalf("handoff must preserve exactly one complete link: %q", body)
+						}
+						if regexp.MustCompile(`<[-a-z]+>`).MatchString(body) {
+							t.Fatalf("unresolved handoff slot: %q", body)
+						}
+						if !strings.Contains(body, fragment("first_check_request", locale)) {
+							t.Fatal("browser opening must retain the explicit first-check request")
+						}
+						if browser == "browser_manual" && (strings.Contains(body, "I've opened") || strings.Contains(body, "已在内置浏览器")) {
+							t.Fatal("manual fallback must not claim an opened browser")
+						}
+					})
+				}
+			}
+		}
+	}
+}
+
 func TestOnboardingResultAndHostRouting(t *testing.T) {
 	for _, newline := range []string{"\n", "\r\n"} {
 		t.Run(map[string]string{"\n": "LF", "\r\n": "CRLF"}[newline], func(t *testing.T) {
