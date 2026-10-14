@@ -68,12 +68,20 @@ type accountWatch struct {
 	desktop               *desktopqueue.Queue
 	desktopProvider       desktopProvider
 	desktopDisabledReason string
+	notificationsOnly     bool
+	notificationsReady    atomic.Bool
 	handoff               *watchHandoff
 }
 
 var watchCmd = &cobra.Command{
 	Use: "watch", Short: "Run one account's PM, control and maintenance notification loop", Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
+		notificationsOnly, _ := cmd.Flags().GetBool("notifications-only")
+		dispatchEnabled, _ := cmd.Flags().GetBool("dispatch")
+		desktopEnabled, _ := cmd.Flags().GetBool("desktop-notifications")
+		if notificationsOnly && (dispatchEnabled || !desktopEnabled || !nativeDesktopSupported()) {
+			return errors.New("notifications-only requires desktop notifications on Windows or macOS and cannot enable dispatch")
+		}
 		cfg, err := config.Load()
 		if err != nil {
 			return err
@@ -106,8 +114,13 @@ var watchCmd = &cobra.Command{
 		if err := watchExpectedIdentity(credentials); err != nil {
 			return err
 		}
-		w := &accountWatch{home: home, server: *server, identity: *credentials, wake: make(chan struct{}, 1)}
+		w := &accountWatch{home: home, server: *server, identity: *credentials, wake: make(chan struct{}, 1), notificationsOnly: notificationsOnly}
 		w.scope = watchstate.Scope(home, server.Name, credentials.AgentID, credentials.PrincipalID)
+		if notificationsOnly {
+			if err := w.enableNotificationsOnly(); err != nil {
+				return err
+			}
+		}
 		if enabled, _ := cmd.Flags().GetBool("dispatch"); enabled {
 			if err := w.enableDispatch(); err != nil {
 				return err
@@ -139,6 +152,7 @@ var watchCmd = &cobra.Command{
 
 func init() {
 	watchCmd.Flags().Bool("desktop-notifications", nativeDesktopSupported(), "show account-scoped desktop notifications for subscribed Commission orders")
+	watchCmd.Flags().Bool("notifications-only", false, "receive desktop order notifications without PM consumption or Agent execution")
 	rootCmd.AddCommand(watchCmd)
 }
 
@@ -209,6 +223,9 @@ func (w *accountWatch) run(parent context.Context, out io.Writer) error {
 	}
 	var workers sync.WaitGroup
 	runners := []func(context.Context) error{w.pmLoop, w.controlLoop, w.runtimeLoop, w.checkLoop, w.maintenanceLoop, w.pmFallbackLoop, w.commissionFallbackLoop, w.desktopLoop}
+	if w.notificationsOnly {
+		runners = []func(context.Context) error{w.checkLoop, w.maintenanceLoop, w.commissionFallbackLoop, w.desktopLoop}
+	}
 	if w.journal != nil {
 		runners = append(runners, w.dispatchLoop, w.commissionDispatchLoop, w.commissionFulfillmentLoop)
 	}

@@ -213,6 +213,16 @@ instead of provisioning a new identity.
 
 ## Keep using the same Agent Home
 
+On Windows, after successful Agent authentication, run
+`eigenflux --homedir "<agent-home>" --server "<server>" watch start` as the
+signed-in user. This installs an order-notification-only task, independent of
+the host heartbeat and Agent execution. Installation before authentication
+reports `pending_auth`; do not leave that state unresolved after provisioning.
+Require `notifications_ready` with the current PID/commit in the task log before
+claiming order reception works. `process_started` alone is insufficient.
+For `host_managed`, preserve and verify the existing dispatch task instead.
+Never send a test notification automatically or enable a disabled task.
+
 After the human completes onboarding, use the same explicit Home for control
 context and all later EigenFlux commands:
 

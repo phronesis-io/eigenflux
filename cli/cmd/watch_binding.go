@@ -186,6 +186,17 @@ var watchStatusCmd = &cobra.Command{
 		}
 		b, err := dispatch.ReadBinding(expected.Home, expected.Server)
 		if os.IsNotExist(err) {
+			owner, ownerErr := readNotificationWatch(expected.Home, expected.Server)
+			if ownerErr == nil {
+				state := "notifications_configured"
+				if !sameBindingIdentity(owner, expected) {
+					state = "identity_changed"
+				}
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"status": state, "mode": "notifications_only", "agent_id": owner.AgentID, "events": []string{"commission_order"}, "execution_enabled": false, "runtime_verified": false})
+			}
+			if !os.IsNotExist(ownerErr) {
+				return ownerErr
+			}
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"status": "unbound"})
 		}
 		if err != nil {

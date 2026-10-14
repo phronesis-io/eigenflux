@@ -2,6 +2,16 @@
 
 Update this map with every lifecycle change.
 
+`cmd/watch_notifications.go` exposes Windows `watch start`. `start_windows.go`
+and `start_windows.ps1` install an account-scoped, non-elevated interactive task
+named `EigenFlux-Notifications-<scope>`. Launcher JSON contains pinned identity
+and paths, never tokens. `notification_watch_windows.ps1` clears inherited
+EigenFlux overrides and invokes `watch --notifications-only`, logging under
+the explicit Home's `watch/` directory. Repeated starts reuse a running task;
+disabled/foreign tasks fail without mutation. New tasks start immediately and
+on user logon. Three scheduler failure retries retain the pinned account.
+`process_started` still requires fresh `notifications_ready` in the log.
+
 `cmd/watch_restart.go` exposes `watch restart`. `restart.go` requires exactly one
 explicit target and bounds the operation to 45 seconds. The task definition
 selects the account; `--homedir` and `--server` do not retarget it. No discovery,

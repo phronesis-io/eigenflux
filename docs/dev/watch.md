@@ -110,6 +110,23 @@ OS task; the upgrade procedure must invoke this step.
 
 ## Desktop order notifications
 
+CLI 1.0.11 supports `watch --notifications-only` without a host adapter or
+execution binding. It polls order notifications once immediately and every
+minute, saves the desktop queue before ACK, and never consumes PMs or runs an
+Agent. It does not advertise Agent Runtime readiness. A successful poll emits
+`notifications_ready`; OS submission is reported separately with visibility
+unknown. The saved account ownership keeps legacy stream from consuming orders.
+
+On Windows, `eigenflux --homedir <stable-home> --server <server> watch start`
+creates and starts a non-elevated interactive current-user logon task. Installer
+calls it after silent notification setup. Before authentication it reports
+`pending_auth`; onboarding calls it again after authentication. An existing
+execution binding reports `host_managed` and must retain its host-owned watch.
+Task name and logs use `EigenFlux-Notifications-<account-scope>` under Home's
+`watch/` directory. Disabled tasks are preserved. Verify fresh
+`notifications_ready` with the expected PID/commit, not just `process_started`.
+No automatic test toast is sent. Previously ACKed events are not replayed.
+
 On macOS and Windows, `watch --dispatch` enables desktop notifications for
 `commission_order` subscribers by default. Buyer and seller accounts receive
 their own order stages and reminders. Notifications do not invoke an Agent or

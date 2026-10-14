@@ -191,7 +191,24 @@ func orderNotificationsOwnedByWatch(api *client.Client) (bool, error) {
 		return false, err
 	}
 	if _, err := os.Stat(dispatch.BindingPath(home, srv.Name)); os.IsNotExist(err) {
-		return false, nil
+		owner, err := readNotificationWatch(home, srv.Name)
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		expected, err := watchBindingIdentity()
+		if err != nil {
+			return false, err
+		}
+		if !sameBindingIdentity(owner, expected) {
+			return false, errWatchIdentity
+		}
+		if strings.TrimRight(api.BaseURL, "/") != strings.TrimRight(owner.Endpoint, "/")+"/api/v2" {
+			return false, errWatchConfiguration
+		}
+		return true, nil
 	} else if err != nil {
 		return false, err
 	}

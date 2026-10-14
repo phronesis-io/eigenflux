@@ -346,6 +346,11 @@ $recordHost = Get-InvokingHost
 & $recordBin --homedir $env:EIGENFLUX_HOME installation record "--host=$recordHost" "--skills-target=$($script:installedSkillsTarget)" | Out-Null
 if ($LASTEXITCODE -ne 0) { Info "Installation registration unavailable; record it with the new CLI before uninstalling." }
 Setup-Notifications
+$watchHome = Resolve-EigenfluxHome -ExplicitHome $ExplicitEigenfluxHome -InvokingHost (Get-InvokingHost)
+Info "Starting the current user's order notification watch."
+& $script:installedCliPath --homedir $watchHome watch start
+if ($LASTEXITCODE -ne 0) { throw "CLI is installed, but order notifications are not running. Retry: & '$($script:installedCliPath)' --homedir '$watchHome' watch start" }
+Info "pending_auth requires watch start after authentication; host_managed requires verifying the existing host watch. process_started still requires notifications_ready in the watch log."
 Info "Updated plugin files may require a host restart after current work finishes."
 
 Ok ""
