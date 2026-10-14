@@ -75,6 +75,9 @@ func flushMaintenanceEvents(server string) error {
 	if err != nil {
 		return err
 	}
+	if err := importNotificationObservations(scope); err != nil {
+		return err
+	}
 	return maintenance.Flush(scope, time.Now(), func(events []maintenance.Event) error {
 		c, _, err := newV2ClientForServer(server, true)
 		if err != nil {

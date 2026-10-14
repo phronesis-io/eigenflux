@@ -55,6 +55,11 @@ sender exists but its OS setting is not known yet; allow the first real queued
 message to establish it. This is neither a denial nor a `ready` permission claim.
 CLI and watch also save bounded Home/server-local observations, readable through
 `notify log`. Submission and retries do not claim banner visibility or attention.
+Notification observations bind to the account at creation and enter the existing
+maintenance upload lane. Import pending local events before each flush; never
+reassign another account's records. Only setup captured before authentication
+may bind to the first account. Installer/manual/test/watch sources remain
+distinct; remote upload failure never changes notification delivery state.
 Setup's `desktop_notification_status` keeps
 the existing status and adds fixed `code`/`action` on failure: missing helper,
 unrequested permission, denied permission, timeout, unsupported platform or

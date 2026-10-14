@@ -109,7 +109,14 @@ in this state. Known disabled settings remain failures. Only explicit
 notification ID, and fixed failure codes/stages/HRESULTs. It never records text,
 URLs, credentials, or a claim that the user saw a banner. CLI commands and watch
 persist at most 256 local observations for seven days per Home/server under
-`notifications/`; `notify log` reads them. There is no remote upload. Recording
+`notifications/`; `notify log` reads them. From CLI 1.0.10, observations enter the
+authenticated maintenance queue and upload with bounded retries. Installer,
+watch, manual, and explicit test sources remain distinct. Only pre-authentication
+setup may bind to the first authenticated account; recorded account-bound
+observations never move to another account. `queued` is a local enqueue receipt,
+not proof of server acknowledgement. `notify flush` reports upload state.
+The backend contract and statistics queries are in `docs/dev/maintenance-observability.md`.
+Recording
 failure is reported separately and cannot retry an already submitted message.
 
 Setup displays `EigenFlux`, writes the embedded brand PNG into

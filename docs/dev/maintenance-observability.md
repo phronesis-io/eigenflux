@@ -71,6 +71,45 @@ Native maintenance does not emit `rules_read` on behalf of an absent Agent turn.
 count, retry time and latest component observations. A queue or telemetry
 failure does not trigger an installation retry or business replay.
 
+## Notification setup and submission
+
+CLI 1.0.10 adds `component=notifier`, `phase=notification` to the same authenticated
+transport and event table. `source` is `installer`, `watch`, `manual`, or `test`;
+`platform` is Windows or macOS. The nested `notification` object contains the
+action (`setup`, `status`, `send`), `visibility=unknown`, optional hashed message
+ID, compiled commit, fixed helper stage, and numeric HRESULT. No notification
+text, URL, raw message ID, local path, or provider exception is uploaded.
+
+Setup/status results are `ready`, `registered`, `disabled`, or `failed`; send
+results are `submitted`, `disabled`, or `failed`. `registered` carries
+`pending_first_notification`; it does not claim permission or visibility.
+`submitted` confirms only the OS API accepted the message. The server rejects
+`shown`, `seen`, unknown fields, and incompatible action/result pairs.
+
+The Windows installer calls silent `notify setup --source installer`. Setup,
+status, and explicit test commands attempt one bounded upload; `notify flush`
+can retry manually. Watch uploads in its existing minute maintenance lane, and
+heartbeats import pending local observations before their normal flush. Sources
+remain distinct so explicit tests and ordinary watch startup are not counted as
+installations or business messages. Telemetry failure cannot retry a submitted
+message or turn successful installation into failure.
+
+Each local observation has a stable event ID and an account binding captured at
+creation. Only pre-authentication setup may bind to the first authenticated
+account in the same Home/server. An unbound send is never reassigned; events
+already bound to another account remain isolated. `queued` in `notify log`
+means copied into the maintenance queue, not acknowledged by the server.
+`notify flush` reports `pending_auth`, `queued`, or `reported`. Retention,
+dropped events, backoff, authenticated-account guards, and server deduplication
+remain those of the maintenance channel. Installation statistics are therefore
+observed authenticated samples, not all anonymous downloads.
+
+Deploy the API contract before using CLI 1.0.10 for collection. An older API
+rejects the notification category; observations remain queued for retry. There
+is no database migration. Read-only setup/message/error statistics are in
+`scripts/reporting/notification_statistics.sql`. PostgreSQL acceptance verifies
+all three results, account identity, duplicate suppression and queryability.
+
 ## Queries
 
 These queries are read-only against the existing event table. Filter to a

@@ -40,6 +40,10 @@ building or syncing Skills alone does not initialize notifications.
 `notify test` remains opt-in. `notify log` reads at most 256 local observations
 per Home/server, retained for seven days. These record system submission and
 fixed failures, never notification contents or whether the user saw a banner.
+CLI 1.0.10 uploads these through the authenticated maintenance channel; use
+`notify flush` to inspect upload status. Pre-authentication setup remains queued
+until the first account is available. The API notification contract must be
+deployed before collection; see `maintenance-observability.md`.
 
 `Run-Test.ps1` invokes the exact bundled EXE, serves its matching signed Skills
 on a temporary loopback port, and stops that server after the command. It uses

@@ -80,7 +80,7 @@ func (w *accountWatch) enableDesktop() error {
 		return err
 	}
 	w.desktop = q
-	w.desktopProvider = observedDesktopNotifier(w.home, w.server.Name)
+	w.desktopProvider = observedDesktopNotifierAt(w.home, w.server.Name, w.identity.AgentID, "watch")
 	return nil
 }
 func (w *accountWatch) enqueueDesktopCommission(raw json.RawMessage) error {

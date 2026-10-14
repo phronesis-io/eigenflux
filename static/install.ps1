@@ -326,7 +326,7 @@ function Setup-Notifications {
     $cli = $script:installedCliPath
     $homeDir = Resolve-EigenfluxHome -ExplicitHome $ExplicitEigenfluxHome -InvokingHost (Get-InvokingHost)
     Info "Registering Windows notifications without sending a test. Windows does not display an Allow permission dialog."
-    & $cli --homedir $homeDir notify setup
+    & $cli --homedir $homeDir notify setup --source installer
     if ($LASTEXITCODE -ne 0) {
         throw "CLI is installed, but notification setup failed. Retry: & '$cli' --homedir '$homeDir' notify setup. If disabled, check Settings > System > Notifications."
     }

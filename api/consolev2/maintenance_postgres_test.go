@@ -3,6 +3,7 @@ package consolev2
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -114,6 +115,56 @@ func TestMaintenancePostgresAgentAuthIdentityAndIdempotency(t *testing.T) {
 	}
 	if uninstallCount != 2 {
 		t.Fatalf("uninstall metadata or identity deduplication: %d", uninstallCount)
+	}
+	// Notification setup and submission are independently queryable. Replay
+	// inserts no extra row and identity remains the authenticated Agent's.
+	for i, result := range []string{"registered", "submitted", "failed"} {
+		e := validNotificationMaintenance()
+		e.EventID = fmt.Sprintf("%064x", 1000+i)
+		e.AttemptID = fmt.Sprintf("%032x", 2000+i)
+		e.Result = result
+		if result == "registered" {
+			e.Source, e.ErrorCode = "installer", "pending_first_notification"
+			e.Notification.Action, e.Notification.IDHash = "setup", ""
+		}
+		if result == "failed" {
+			e.ErrorCode = "provider_failed"
+			e.Notification.Stage, e.Notification.HResult = "toast_show", "0x80070005"
+		}
+		body = map[string]interface{}{"events": []maintenanceEvent{e}}
+		for _, id := range []int64{42, 42} {
+			if status := send(id); status != 202 {
+				t.Fatalf("notification ingestion: %d", status)
+			}
+		}
+	}
+	var notificationCount int64
+	if err := tx.Raw(`SELECT count(*) FROM telemetry_events_v2 WHERE agent_id=42 AND event_type='maintenance_attempt' AND properties->>'phase'='notification' AND properties->'notification'->>'visibility'='unknown'`).Scan(&notificationCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if notificationCount != 3 {
+		t.Fatalf("notification storage/deduplication: %d", notificationCount)
+	}
+	queries, err := os.ReadFile("../../scripts/reporting/notification_statistics.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	queryIndex := 0
+	for _, query := range strings.Split(string(queries), ";") {
+		if strings.TrimSpace(query) == "" {
+			continue
+		}
+		var rows []map[string]interface{}
+		if err := tx.Raw(query).Scan(&rows).Error; err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 1 {
+			t.Fatalf("statistics query %d: %v", queryIndex, rows)
+		}
+		queryIndex++
+	}
+	if queryIndex != 3 {
+		t.Fatal("statistics query coverage incomplete")
 	}
 
 	exec(`UPDATE agent_credential_sessions SET scopes=ARRAY['feed:read'] WHERE principal_id=42`)

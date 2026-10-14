@@ -706,6 +706,11 @@ func (w *accountWatch) maintenanceScope() maintenance.Scope {
 
 func (w *accountWatch) maintenanceLoop(ctx context.Context) error {
 	for ctx.Err() == nil {
+		if err := importNotificationObservations(w.maintenanceScope()); err != nil {
+			if err := w.emit("notification_telemetry_status", map[string]string{"status": "queued", "code": "local_queue_unavailable"}); err != nil {
+				return err
+			}
+		}
 		err := maintenance.Flush(w.maintenanceScope(), time.Now(), func(events []maintenance.Event) error {
 			c, err := w.api(ctx)
 			if err != nil {
