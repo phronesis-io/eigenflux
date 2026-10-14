@@ -20,26 +20,31 @@ func (b Binding) ValidateMainSession() error {
 	if b.MainSessionID == "" {
 		return nil
 	}
+	_, err := b.mainSessionPath()
+	return err
+}
+
+func (b Binding) mainSessionPath() (string, error) {
 	if b.Mode != "native" || b.Host != "codex" {
-		return errors.New("main_session_id currently requires the native Codex adapter")
+		return "", errors.New("main_session_id currently requires the native Codex adapter")
 	}
 	for _, arg := range b.Args {
 		if arg == "--last" || arg == "--ephemeral" || arg == "--worktree" {
-			return errors.New("main session does not allow last, ephemeral, or worktree overrides")
+			return "", errors.New("main session does not allow last, ephemeral, or worktree overrides")
 		}
 	}
 	id := b.MainSessionID
 	if len(id) != 36 || id[8] != '-' || id[13] != '-' || id[18] != '-' || id[23] != '-' {
-		return errors.New("main_session_id must be an exact Codex UUID")
+		return "", errors.New("main_session_id must be an exact Codex UUID")
 	}
 	if raw, err := hex.DecodeString(strings.ReplaceAll(id, "-", "")); err != nil || len(raw) != 16 || id != strings.ToLower(id) {
-		return errors.New("main_session_id must be an exact lowercase Codex UUID")
+		return "", errors.New("main_session_id must be an exact lowercase Codex UUID")
 	}
 	home := b.Env["CODEX_HOME"]
 	if !filepath.IsAbs(home) {
-		return errors.New("main session requires an explicit absolute env.CODEX_HOME")
+		return "", errors.New("main session requires an explicit absolute env.CODEX_HOME")
 	}
-	found := false
+	found := ""
 	err := filepath.WalkDir(filepath.Join(home, "sessions"), func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -63,13 +68,13 @@ func (b Binding) ValidateMainSession() error {
 		if !scan.Scan() || json.Unmarshal(scan.Bytes(), &meta) != nil || meta.Type != "session_meta" || meta.Payload.ID != id {
 			return ErrMainSessionUnavailable
 		}
-		found = true
+		found = path
 		return fs.SkipAll
 	})
-	if err != nil || !found {
-		return ErrMainSessionUnavailable
+	if err != nil || found == "" {
+		return "", ErrMainSessionUnavailable
 	}
-	return nil
+	return found, nil
 }
 
 // SetMainSession requires a stopped watcher/account lock and an explicit old

@@ -5,7 +5,7 @@ Read and update the [implementation map](../../cli/internal/dispatch/README.md) 
 
 ## Configure and run
 
-Authenticate/onboard the intended EigenFlux account and log in to the host first. Bind from that account's Home/server. The CLI pins identity; resolve outstanding jobs before rebinding. Host sessions are separate from existing desktop conversations.
+Authenticate/onboard the intended EigenFlux account and log in to the host first. Bind from that account's Home/server. The CLI pins identity; resolve outstanding jobs before rebinding. An explicit native Codex main session reuses its desktop conversation; other native entries retain their host-specific sessions.
 
 Write a binding JSON file using these fields:
 
@@ -69,9 +69,17 @@ task filename or conversation title is fixed.
 An established target changes only through owner-directed
 `watch bind --current-session` or `--main-session-id`, carrying the old target
 and binding revision. A changed scheduler target cannot replace it implicitly.
-Missing or archived targets require owner action. Host queue coordination and
-automatic successor events remain unverified; arrange binding in the foreground
-and avoid overlapping desktop, heartbeat and private-message model execution.
+Missing or archived targets require owner action. CLI 1.0.12 queues PM work into
+the existing Codex host with `codex queue --thread`, preserving the desktop
+writer. It reads new host rollout receipts and requires the exact submitted
+input, matching thread/turn, final answer and turn completion before sending.
+Queue admission alone never proves execution or delivery. The host must expose
+the supported append-only rollout format; unsupported formats fail closed.
+Timeout or cancellation leaves an uncertain job for explicit reconciliation;
+it does not cancel a turn already queued in the host. Never automatically replay
+these jobs. `dispatch_decision` records job ID, session, host turn and action;
+`dispatch_status` records the send receipt. Automatic successor migration and
+Windows desktop lifecycle remain unverified.
 See the synchronized [main-session procedure](../../skills/ef-communication/references/main-session.md).
 
 ACP requires v1 newline-delimited JSON-RPC over stdio; permission requests yield `needs_user`. Command mode reads the prompt from stdin and returns the [decision contract](../../skills/ef-communication/references/dispatch.md) on stdout. Use fixed argv, not a shell string. Windows `.cmd`, `.bat`, `.ps1` executables require an explicit interpreter/entry point. Oversized native command lines yield `needs_user`; use ACP/command stdin for large prompts. OpenClaw uses `--local` with isolated sessions: stop the Gateway sharing its state directory or configure a separate local state directory. If an earlier dispatch build used OpenClaw, resolve outstanding jobs and rebind before restarting to discard shared main-session references.

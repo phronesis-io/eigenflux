@@ -31,13 +31,10 @@ func TestRunnerFixture(t *testing.T) {
 	}
 	switch scenario {
 	case "codex-main", "codex-wrong-main":
-		id := mainTestID
-		if scenario == "codex-wrong-main" {
-			id = "01a0d200-9d41-7cd2-9214-3f04761910c5"
-		}
-		fmt.Printf("{\"type\":\"thread.started\",\"thread_id\":%q}\n", id)
-		fmt.Println(`{"type":"item.completed","item":{"type":"agent_message","text":"decision"}}`)
-		fmt.Println(`{"type":"turn.completed"}`)
+		codexQueueFixture(scenario)
+		os.Exit(0)
+	case "codex-queue-only", "codex-queue-partial", "codex-queue-wrong-turn", "codex-queue-replaced":
+		codexQueueFixture(scenario)
 		os.Exit(0)
 	case "echo":
 		b, _ := io.ReadAll(os.Stdin)

@@ -283,6 +283,9 @@ func (w *accountWatch) dispatchJob(parent context.Context, job dispatch.Job) err
 	if err != nil {
 		return w.finishDispatch(job, "failed", "invalid_agent_decision", result.SessionID, "")
 	}
+	if err = w.emit("dispatch_decision", map[string]string{"job_id": job.ID, "session_id": result.SessionID, "run_id": result.RunID, "decision": decision.Action}); err != nil {
+		return err
+	}
 	if decision.Action != "reply" {
 		return w.finishDispatch(job, decision.Action, "agent_decision", result.SessionID, "")
 	}

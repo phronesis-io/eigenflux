@@ -214,11 +214,20 @@ and binding revision. `dispatch_status` includes the returned session ID and
 existing decision/send receipt. A returned session mismatch is `unknown` and is
 never sent or automatically retried. Missing metadata yields `needs_user`.
 
-This test-branch adapter uses `codex exec resume`, not a live desktop queue.
-Use an idle main thread and avoid simultaneous desktop/heartbeat execution on
-that thread; metadata validation does not establish cross-process idle ownership.
-Host-side queue coordination and automatic successor events remain unverified.
-Local test coverage does not constitute a real PM or desktop-concurrency receipt.
+Native Codex PM jobs with an explicit main session use `codex queue --thread`
+against the pinned Codex store. The host serializes the queued turn with desktop
+and heartbeat work; the CLI never acquires another writer through exec/resume.
+Queue admission is not a decision receipt. Observe only newly appended host
+rollout records and require the exact submitted input, matching thread/turn,
+final Agent message and matching `task_complete` before validating the decision.
+`dispatch_decision` joins job ID, session, host turn (`run_id`) and action to the
+existing send receipt. No second conversation store or callback endpoint exists.
+Timeout, cancellation, changed stores and missing completion remain unconfirmed;
+never resubmit them automatically. Cancellation stops observation, not an already
+queued host turn. The CLI rechecks identity and reply permission before sending.
+The host must support `codex queue` and the verified append-only rollout receipt
+format. Unsupported formats fail closed. Automatic successor events and Windows
+desktop lifecycle remain unverified. Fixtures do not prove a live PM receipt.
 
 - Native: Codex exec, Claude Code print, OpenClaw `--local` with fixed `host_agent` and a fresh UUID session for first use, Hermes quiet chat. OpenClaw local JSON is parsed directly; aborted/yielded/error results fail. An active Gateway sharing its state directory must be stopped or isolated. ACP/command require fixed local argv; never derive commands from PMs. Command mode uses stdin prompt/stdout decision. Windows shims require an explicit executable/interpreter; oversized command lines yield `needs_user` before launch (use ACP/command stdin).
 - ACP v1 stdio: initialize → load supported session or create → prompt. Ignore load replay; collect current-session `agent_message_chunk`, require `end_turn`. Advertise no filesystem/terminal RPC. Cancel permission requests as `ErrNeedsUser`; reject unknown RPCs.

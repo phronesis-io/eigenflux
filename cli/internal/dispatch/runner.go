@@ -31,6 +31,9 @@ type Runner struct {
 }
 
 func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
 	boundMain := req.Kind == "pm_push" && r.Binding.MainSessionID != ""
 	if boundMain {
 		if req.SessionID != r.Binding.MainSessionID {
@@ -52,6 +55,9 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
+	if boundMain {
+		return r.runCodexQueue(ctx, req)
+	}
 	if r.Binding.Mode == "acp" {
 		return r.runACP(ctx, req)
 	}
@@ -59,9 +65,27 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	cmd, err := r.command(args)
+	out, stderr, err := r.runProcess(ctx, args, stdin)
 	if err != nil {
 		return Result{}, err
+	}
+	if r.Binding.Mode == "command" {
+		if !utf8.Valid(out) {
+			return Result{}, errors.New("invalid_result_encoding")
+		}
+		return Result{Text: string(out)}, nil
+	}
+	result, err := parseNative(r.Binding.Host, out, stderr)
+	if err == nil && strings.TrimSpace(result.Text) == "" {
+		err = errors.New("empty_agent_result")
+	}
+	return result, err
+}
+
+func (r Runner) runProcess(ctx context.Context, args []string, stdin string) ([]byte, []byte, error) {
+	cmd, err := r.command(args)
+	if err != nil {
+		return nil, nil, err
 	}
 	cmd.Stdin = strings.NewReader(stdin)
 	out := &boundedOutput{limit: make(chan struct{}, 1)}
@@ -70,7 +94,7 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	cmd.Stderr = stderr
 	guard, err := startManaged(cmd)
 	if err != nil {
-		return Result{}, errors.New("runner_start_failed")
+		return nil, nil, errors.New("runner_start_failed")
 	}
 	defer guard.close()
 	done := make(chan error, 1)
@@ -80,32 +104,19 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	case <-out.limit:
 		guard.kill()
 		<-done
-		return Result{}, errOutputLimit
+		return nil, nil, errOutputLimit
 	case <-ctx.Done():
 		guard.kill()
 		<-done
-		return Result{}, ctx.Err()
+		return nil, nil, ctx.Err()
 	}
 	if out.exceeded {
-		return Result{}, errOutputLimit
+		return nil, nil, errOutputLimit
 	}
 	if err != nil {
-		return Result{}, errors.New("runner_exit_failed")
+		return nil, nil, errors.New("runner_exit_failed")
 	}
-	if r.Binding.Mode == "command" {
-		if !utf8.Valid(out.data) {
-			return Result{}, errors.New("invalid_result_encoding")
-		}
-		return Result{Text: string(out.data)}, nil
-	}
-	result, err := parseNative(r.Binding.Host, out.data, stderr.data)
-	if err == nil && boundMain && result.SessionID != req.SessionID {
-		return result, ErrMainSessionMismatch
-	}
-	if err == nil && strings.TrimSpace(result.Text) == "" {
-		err = errors.New("empty_agent_result")
-	}
-	return result, err
+	return out.data, stderr.data, nil
 }
 
 func (r Runner) arguments(req Request) ([]string, string, error) {
