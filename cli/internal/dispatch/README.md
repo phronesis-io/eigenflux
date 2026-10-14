@@ -49,7 +49,13 @@ so same-version reminders still appear. Both subscribed buyer and seller events
 notify without extra Agent calls. `CommissionBlockers` exposes only validated
 job/order/role/status/code for unresolved local work; retain `Snapshot` payload
 redaction. Desktop delivery and OS retries never change business execution state.
-Setup runs before any order arrives. Its `desktop_notification_status` keeps
+Setup runs before any order arrives.
+Windows setup is silent. `registered` / `pending_first_notification` means the
+sender exists but its OS setting is not known yet; allow the first real queued
+message to establish it. This is neither a denial nor a `ready` permission claim.
+CLI and watch also save bounded Home/server-local observations, readable through
+`notify log`. Submission and retries do not claim banner visibility or attention.
+Setup's `desktop_notification_status` keeps
 the existing status and adds fixed `code`/`action` on failure: missing helper,
 unrequested permission, denied permission, timeout, unsupported platform or
 other setup failure. Never expose raw provider data. Update the complete Mac

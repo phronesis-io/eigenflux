@@ -13,6 +13,7 @@ func TestWindowsHelperResultSeparatesStatusAndFailure(t *testing.T) {
 		want   string
 	}{
 		{"accepted\r\n", nil, ""},
+		{"registered", nil, ErrPendingFirstNotification.Error()},
 		{"permission_denied", errors.New("exit status 1"), ErrPermission.Error()},
 		{"setup_required", errors.New("exit status 1"), "desktop notifications need initial setup"},
 		{"setting_unavailable", errors.New("exit status 1"), errWindowsSettingUnavailable.Error()},

@@ -185,15 +185,10 @@ namespace EigenFluxNotifications {
     $stage = 'setting_read'
     $setting = Get-NotificationSetting $notifier $notifierType
     if ($setting -eq 'Uninitialized') {
-        if ($request.action -eq 'check') {
-            [Console]::Out.WriteLine('setup_required'); exit 1
-        }
-        if ($request.action -eq 'enable') {
-            # Explicit setup primes the OS with one visible setup notification.
-            # Read back the real setting; registration alone never proves ready.
-            Send-Notification $notifier $request
-            $stage = 'setting_read'
-            $setting = Get-NotificationSetting $notifier $notifierType
+        if ($request.action -eq 'check' -or $request.action -eq 'enable') {
+            # Registration is complete, but permission state is not established
+            # until the first real notification. Setup and checks stay silent.
+            [Console]::Out.WriteLine('registered'); exit 0
         }
     }
     if ($null -eq $setting -or $setting -eq '') {

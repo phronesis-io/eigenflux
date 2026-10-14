@@ -80,7 +80,7 @@ func (w *accountWatch) enableDesktop() error {
 		return err
 	}
 	w.desktop = q
-	w.desktopProvider = desktopnotify.New()
+	w.desktopProvider = observedDesktopNotifier(w.home, w.server.Name)
 	return nil
 }
 func (w *accountWatch) enqueueDesktopCommission(raw json.RawMessage) error {
@@ -144,7 +144,7 @@ func (w *accountWatch) desktopLoop(ctx context.Context) error {
 			call, cancel := context.WithTimeout(ctx, 20*time.Second)
 			err := w.desktopProvider.Setup(call)
 			cancel()
-			ready = err == nil
+			ready = err == nil || errors.Is(err, desktopnotify.ErrPendingFirstNotification)
 			retrySetup = time.Now().Add(5 * time.Minute)
 			if err := w.emit("desktop_notification_status", desktopSetupStatus(err)); err != nil {
 				return err
@@ -197,6 +197,9 @@ func (w *accountWatch) desktopLoop(ctx context.Context) error {
 func desktopSetupStatus(err error) map[string]string {
 	if err == nil {
 		return map[string]string{"status": "ready"}
+	}
+	if errors.Is(err, desktopnotify.ErrPendingFirstNotification) {
+		return map[string]string{"status": "registered", "code": "pending_first_notification", "visibility": "unknown"}
 	}
 	code, action := "setup_failed", "run_notify_setup"
 	switch {

@@ -328,3 +328,30 @@ func TestDesktopSetupReportsRecoveryAndPreservesPendingNotifications(t *testing.
 		})
 	}
 }
+
+func TestDesktopFirstUseRegistrationAllowsRealMessage(t *testing.T) {
+	w := newCommissionWatch(t, "http://127.0.0.1:8090", "commission_order")
+	w.desktop, _ = desktopqueue.Open(filepath.Join(t.TempDir(), "desktop.json"), w.scope)
+	if err := w.desktop.Enqueue(desktopnotify.Message{ID: "first-message", Title: "Order update", Body: "A real order needs attention", URL: "https://www.eigenflux.ai/dashboard"}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	provider := &fakeDesktopProvider{setup: func() error { return desktopnotify.ErrPendingFirstNotification }}
+	w.desktopProvider = provider
+	w.emit = func(kind string, value interface{}) error {
+		if data, ok := value.(map[string]string); ok && data["status"] == "submitted" {
+			cancel()
+		}
+		return nil
+	}
+	if err := w.desktopLoop(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("first real notification blocked: %d", provider.calls)
+	}
+	if got := desktopSetupStatus(desktopnotify.ErrPendingFirstNotification); got["status"] != "registered" {
+		t.Fatal(got)
+	}
+}

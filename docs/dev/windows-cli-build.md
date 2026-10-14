@@ -29,14 +29,17 @@ Inside the printed output directory, run:
 ```
 
 Windows notification setup registers the current user's sender, icon and Start
-menu shortcut; it does not show a macOS-style Allow permission dialog. On first
-use, setup sends one visible setup notification to create the sender's Windows
-notification state, then reads back the actual OS setting. A missing first-use
-state (`0x80070490`) is distinct from a disabled notification setting. Explicit
+menu shortcut; it does not show a macOS-style Allow permission dialog or send a
+test notification. Missing first-use state (`0x80070490`) returns `registered`
+with `pending_first_notification`, not `ready` or permission denied. The first
+real business notification can establish OS state. Explicit
 disabled settings still fail setup. Check Settings > System > Notifications if
 disabled. `notify status` is read-only; `submitted` confirms OS submission, not
 banner visibility. The Windows installer runs setup and status at completion;
 building or syncing Skills alone does not initialize notifications.
+`notify test` remains opt-in. `notify log` reads at most 256 local observations
+per Home/server, retained for seven days. These record system submission and
+fixed failures, never notification contents or whether the user saw a banner.
 
 `Run-Test.ps1` invokes the exact bundled EXE, serves its matching signed Skills
 on a temporary loopback port, and stops that server after the command. It uses

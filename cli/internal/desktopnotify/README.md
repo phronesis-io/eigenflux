@@ -1,6 +1,7 @@
 # Desktop notification boundary
 
-`Notifier.Setup` installs the per-user integration and requests OS permission.
+`Notifier.Setup` installs the per-user integration. macOS requests OS permission;
+Windows registers silently and never sends a setup/test notification.
 Call it during explicit setup or startup of a subscribed desktop watch. `Check` checks permission without prompting;
 `Show` submits one message and never requests permission. Success means the OS
 accepted the notification, not that the user saw or clicked it. Focus modes and
@@ -96,6 +97,20 @@ administrator access is required. Setup creates only the current user's
 `EigenFlux Notifications.lnk` Start-menu shortcut and
 `HKCU\Software\Classes\AppUserModelId\ai.eigenflux.notifications` registration.
 The shortcut contains EigenFlux's own AUMID and stub activator CLSID.
+
+`0x80070490` while reading the registered sender's setting means first-use
+state is absent. Setup and Check return `ErrPendingFirstNotification`; the CLI
+reports `registered`, `pending_first_notification`, and unknown visibility,
+without claiming permission is enabled. Watch may submit the first real message
+in this state. Known disabled settings remain failures. Only explicit
+`notify test` sends a test. The Windows installer runs silent setup and status.
+
+`Observation` records setup/status/send outcomes, duration, platform, a hashed
+notification ID, and fixed failure codes/stages/HRESULTs. It never records text,
+URLs, credentials, or a claim that the user saw a banner. CLI commands and watch
+persist at most 256 local observations for seven days per Home/server under
+`notifications/`; `notify log` reads them. There is no remote upload. Recording
+failure is reported separately and cannot retry an already submitted message.
 
 Setup displays `EigenFlux`, writes the embedded brand PNG into
 `%LOCALAPPDATA%\EigenFlux\Notifications`, sets the notification registration's

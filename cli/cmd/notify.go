@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
+	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/desktopnotify"
 	"github.com/spf13/cobra"
 )
@@ -12,16 +14,10 @@ import (
 func newNotifyCommand() *cobra.Command {
 	root := &cobra.Command{Use: "notify", Short: "Manage local clickable desktop notifications"}
 	setup := &cobra.Command{Use: "setup", Short: "Set up local notifications (macOS permission prompt; Windows sender registration)", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		if err := desktopnotify.New().Setup(cmd.Context()); err != nil {
-			return err
-		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"status": "ready"})
+		return writeNotificationStatus(cmd, observedNotificationCLI().Setup(cmd.Context()))
 	}}
 	status := &cobra.Command{Use: "status", Short: "Check local OS notification integration and permission", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		if err := desktopnotify.New().Check(cmd.Context()); err != nil {
-			return err
-		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"status": "ready", "delivery": "OS submission does not confirm banner visibility"})
+		return writeNotificationStatus(cmd, observedNotificationCLI().Check(cmd.Context()))
 	}}
 	test := &cobra.Command{Use: "test", Short: "Send a test notification that opens a specified safe URL", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		target, _ := cmd.Flags().GetString("url")
@@ -29,8 +25,8 @@ func newNotifyCommand() *cobra.Command {
 		if err := desktopnotify.Validate(message); err != nil {
 			return err
 		}
-		notifier := desktopnotify.New()
-		if err := notifier.Setup(cmd.Context()); err != nil {
+		notifier := observedNotificationCLI()
+		if err := notifier.Setup(cmd.Context()); err != nil && !errors.Is(err, desktopnotify.ErrPendingFirstNotification) {
 			return err
 		}
 		if err := notifier.Show(cmd.Context(), message); err != nil {
@@ -40,8 +36,30 @@ func newNotifyCommand() *cobra.Command {
 	}}
 	test.Flags().String("url", "", "HTTPS target; loopback HTTP is allowed for local testing")
 	_ = test.MarkFlagRequired("url")
-	root.AddCommand(setup, status, test)
+	log := &cobra.Command{Use: "log", Short: "Read local notification observations (submission does not prove visibility)", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		events, err := readNotificationObservations(config.HomeDir(), notificationServer())
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(events)
+	}}
+	root.AddCommand(setup, status, test, log)
 	return root
+}
+
+func writeNotificationStatus(cmd *cobra.Command, err error) error {
+	status := "ready"
+	code := ""
+	if errors.Is(err, desktopnotify.ErrPendingFirstNotification) {
+		status, code = "registered", "pending_first_notification"
+	} else if err != nil {
+		return err
+	}
+	data := map[string]string{"status": status, "visibility": "unknown", "delivery": "OS submission does not confirm banner visibility"}
+	if code != "" {
+		data["code"] = code
+	}
+	return json.NewEncoder(cmd.OutOrStdout()).Encode(data)
 }
 
 func notificationTestMessage(language, id, target string) desktopnotify.Message {

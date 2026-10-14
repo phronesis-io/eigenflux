@@ -12,10 +12,11 @@ import (
 )
 
 var (
-	ErrUnsupported        = errors.New("desktop notifications require macOS or Windows")
-	ErrPermission         = errors.New("enable notifications for EigenFlux in system notification settings")
-	ErrPermissionRequired = errors.New("notification permission has not been requested; run eigenflux notify setup")
-	ErrHelperMissing      = errors.New("macOS notification helper missing; install the complete CLI bundle")
+	ErrUnsupported              = errors.New("desktop notifications require macOS or Windows")
+	ErrPermission               = errors.New("enable notifications for EigenFlux in system notification settings")
+	ErrPermissionRequired       = errors.New("notification permission has not been requested; run eigenflux notify setup")
+	ErrHelperMissing            = errors.New("macOS notification helper missing; install the complete CLI bundle")
+	ErrPendingFirstNotification = errors.New("Windows sender registered; OS notification setting is unknown until the first notification")
 )
 
 type Message struct {
@@ -25,26 +26,28 @@ type Message struct {
 	URL   string `json:"url"`
 }
 
-type Notifier struct{}
+type Notifier struct{ observe func(Observation) }
 
 func New() *Notifier { return &Notifier{} }
 
+func NewWithObserver(observer func(Observation)) *Notifier { return &Notifier{observe: observer} }
+
 // Setup installs the per-user integration. macOS requests permission; Windows
-// submits a setup toast only when the sender has no notification state yet.
+// stays silent and reports an unknown setting before the first real notification.
 // It should run once during explicit notification setup, never for each event.
-func (*Notifier) Setup(ctx context.Context) error    { return platformRequest(ctx, "enable", Message{}) }
+func (n *Notifier) Setup(ctx context.Context) error  { return n.request(ctx, "enable", Message{}) }
 func (n *Notifier) Enable(ctx context.Context) error { return n.Setup(ctx) }
 
 // Check does not display a notification or request permission.
-func (*Notifier) Check(ctx context.Context) error { return platformRequest(ctx, "check", Message{}) }
+func (n *Notifier) Check(ctx context.Context) error { return n.request(ctx, "check", Message{}) }
 
 // Show confirms OS submission, not that a banner was seen or clicked. Focus and
 // notification settings remain under the user's control.
-func (*Notifier) Show(ctx context.Context, message Message) error {
+func (n *Notifier) Show(ctx context.Context, message Message) error {
 	if err := Validate(message); err != nil {
 		return err
 	}
-	return platformRequest(ctx, "show", message)
+	return n.request(ctx, "show", message)
 }
 
 func Validate(message Message) error {

@@ -19,6 +19,18 @@ func TestWindowsFreshSenderIntegration(t *testing.T) {
 	if os.Getenv("EIGENFLUX_TEST_NATIVE_NOTIFICATIONS") != "1" {
 		t.Skip("set EIGENFLUX_TEST_NATIVE_NOTIFICATIONS=1 for visible native acceptance")
 	}
+	runWindowsFreshSender(t, true)
+}
+
+func TestWindowsSilentFreshSenderRegistration(t *testing.T) {
+	if os.Getenv("EIGENFLUX_TEST_NATIVE_REGISTRATION") != "1" {
+		t.Skip("set EIGENFLUX_TEST_NATIVE_REGISTRATION=1 for silent native registration")
+	}
+	runWindowsFreshSender(t, false)
+}
+
+func runWindowsFreshSender(t *testing.T, send bool) {
+	t.Helper()
 	suffix := fmt.Sprintf("%x", time.Now().UnixNano())
 	script := strings.ReplaceAll(windowsScript, "ai.eigenflux.notifications", "ai.eigenflux.notificationtest."+suffix)
 	script = strings.ReplaceAll(script, "EigenFlux Notifications.lnk", "EigenFlux Notification Test "+suffix+".lnk")
@@ -28,7 +40,7 @@ func TestWindowsFreshSenderIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	invoke := func(action string) (string, error) {
-		message := windowsSetupMessage(SystemLanguage())
+		message := Message{ID: "native-test:" + suffix, Title: "EigenFlux notification test", Body: "Explicit native acceptance test", URL: "https://www.eigenflux.ai"}
 		if action == "show" {
 			message.ID = "native-test:" + suffix
 		}
@@ -56,10 +68,18 @@ func TestWindowsFreshSenderIntegration(t *testing.T) {
 	if output, err := invoke("check"); err == nil || output != "setup_required" {
 		t.Fatalf("fresh check: %q %v", output, err)
 	}
-	for _, action := range []string{"enable", "check", "enable", "show", "check"} {
+	for _, action := range []string{"enable", "check", "enable"} {
 		output, err := invoke(action)
-		if err != nil || output != "accepted" {
+		if err != nil || output != "registered" {
 			t.Fatalf("native %s: %q %v", action, output, err)
+		}
+	}
+	if send {
+		for _, action := range []string{"show", "check"} {
+			output, err := invoke(action)
+			if err != nil || output != "accepted" {
+				t.Fatalf("native %s: %q %v", action, output, err)
+			}
 		}
 	}
 }
@@ -107,11 +127,9 @@ func TestWindowsFirstNotificationState(t *testing.T) {
 		t.Fatal("helper getter/gate missing")
 	}
 	for _, tc := range []struct{ name, action, final, hresult, want string }{
-		{"setup-first-use", "enable", "Enabled", "80070490", "accepted:1"},
-		{"check-does-not-send", "check", "Enabled", "80070490", "setup_required"},
+		{"setup-first-use-is-silent", "enable", "Enabled", "80070490", "registered"},
+		{"check-does-not-send", "check", "Enabled", "80070490", "registered"},
 		{"show-can-prime", "show", "Enabled", "80070490", "accepted:0"},
-		{"setup-denied-after-prime", "enable", "DisabledForUser", "80070490", "permission_denied"},
-		{"setup-still-missing", "enable", "missing", "80070490", "setting_unavailable"},
 		{"unrelated-error", "enable", "Enabled", "80004005", "failure:80004005"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -142,7 +160,7 @@ try {
 			defer cancel()
 			command := exec.CommandContext(ctx, filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script)
 			output, err := command.CombinedOutput()
-			if strings.TrimSpace(string(output)) != tc.want || (err == nil) != strings.HasPrefix(tc.want, "accepted:") {
+			if strings.TrimSpace(string(output)) != tc.want || (err == nil) != (strings.HasPrefix(tc.want, "accepted:") || tc.want == "registered") {
 				t.Fatalf("output=%q error=%v; want %s", output, err, tc.want)
 			}
 		})

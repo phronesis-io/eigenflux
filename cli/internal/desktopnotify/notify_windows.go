@@ -26,9 +26,6 @@ func platformRequest(ctx context.Context, action string, message Message) error 
 	if err != nil {
 		return err
 	}
-	if action == "enable" {
-		message = windowsSetupMessage(SystemLanguage())
-	}
 	xml, tag, err := windowsToast(message)
 	if err != nil {
 		return err

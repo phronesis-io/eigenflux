@@ -21,6 +21,10 @@ func windowsHelperResult(output []byte, runErr error) error {
 		return errors.New("desktop notifications need initial setup")
 	case "setting_unavailable":
 		return errWindowsSettingUnavailable
+	case "registered":
+		if runErr == nil {
+			return ErrPendingFirstNotification
+		}
 	case "accepted":
 		if runErr == nil {
 			return nil
@@ -30,11 +34,17 @@ func windowsHelperResult(output []byte, runErr error) error {
 	if len(parts) == 3 && parts[0] == "notification_failed" && windowsHResult.MatchString(parts[2]) {
 		switch parts[1] {
 		case "request", "remove", "registration", "winrt_load", "notifier_create", "setting_read", "toast_xml", "toast_create", "toast_show":
-			return fmt.Errorf("Windows notification helper failed (stage=%s, HRESULT=%s)", parts[1], parts[2])
+			return &WindowsHelperError{Stage: parts[1], HResult: parts[2]}
 		}
 	}
 	if runErr != nil {
 		return fmt.Errorf("Windows notification helper failed (check PowerShell availability and policy): %w", runErr)
 	}
 	return errors.New("invalid Windows notification helper response")
+}
+
+type WindowsHelperError struct{ Stage, HResult string }
+
+func (e *WindowsHelperError) Error() string {
+	return fmt.Sprintf("Windows notification helper failed (stage=%s, HRESULT=%s)", e.Stage, e.HResult)
 }
