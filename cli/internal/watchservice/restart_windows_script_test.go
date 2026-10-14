@@ -69,6 +69,7 @@ func TestWindowsRestartScript(t *testing.T) {
 		{"no_demand_start", `\EigenFlux\watch`, "no_demand_start", "demand_start_disabled", ""},
 		{"stop_failure", `\EigenFlux\watch`, "stop_failure", "stop_failed", "stop"},
 		{"start_failure", `\EigenFlux\watch`, "start_failure", "start_failed", "stop\nrun"},
+		{"no_instance", `\EigenFlux\watch`, "no_instance", "start_failed", "stop\nrun"},
 		{"exits_during_start", `\EigenFlux\watch`, "exited", "process_exited", "stop\nrun"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -153,6 +154,7 @@ $script:task | Add-Member ScriptMethod Run {
     if ($script:instances -ne 0) { throw 'old instance not stopped' }
     if ($null -ne $parameters -or $this.Definition.Actions -ne 'original executable, arguments and working directory') { throw 'changed action' }
     if ($script:scenario -eq 'start_failure') { throw 'start failed' }
+    if ($script:scenario -eq 'no_instance') { return $null }
     $instance = [pscustomobject]@{ State = 4; RefreshCount = 0 }
     $instance | Add-Member ScriptMethod Refresh {
         $this.RefreshCount++

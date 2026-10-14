@@ -59,10 +59,13 @@ try {
     $failureCode = 'start_failed'
     # Preserve the registered action, arguments, environment and working directory.
     $instance = $task.Run($null)
-    if ($null -eq $instance) { throw 'no running instance' }
+    # PowerShell equality can query a COM default property before the async
+    # instance exists, raising SCHED_E_TASK_NOT_RUNNING on a valid Run request.
+    if ([object]::ReferenceEquals($null, $instance)) { throw 'no running instance' }
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
     $stableSince = $null
     while ([DateTime]::UtcNow -lt $deadline) {
+        Start-Sleep -Milliseconds 250
         $instance.Refresh()
         $state = [int]$instance.State
         if ($state -eq 4) {
