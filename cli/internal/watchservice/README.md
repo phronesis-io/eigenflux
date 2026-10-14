@@ -6,7 +6,9 @@ Update this map with every lifecycle change.
 and `start_windows.ps1` install an account-scoped, non-elevated interactive task
 named `EigenFlux-Notifications-<scope>`. Launcher JSON contains pinned identity
 and paths, never tokens. `notification_watch_windows.ps1` clears inherited
-EigenFlux overrides and invokes `watch --notifications-only`, logging under
+EigenFlux overrides and invokes `watch --notifications-only` inside an owned
+kill-on-close Windows Job Object. Stopping the wrapper stops its native child
+and releases the account lock. Logs remain under
 the explicit Home's `watch/` directory. Repeated starts reuse a running task;
 disabled/foreign tasks fail without mutation. New tasks start immediately and
 on user logon. Three scheduler failure retries retain the pinned account.
