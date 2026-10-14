@@ -296,7 +296,7 @@ func TestOnboardingFixedTemplateCoverage(t *testing.T) {
 	}
 	messages := readRepoFile(t, root, "skills/ef-onboarding/references/messages.md")
 	allowed := map[string]bool{"<current-permission>": true, "<host>": true, "<cadence>": true, "<permission-scope>": true,
-		"<progress>": true, "<profile-result>": true, "<return-instruction>": true, "<console-url>": true,
+		"<progress>": true, "<profile-result>": true, "<return-instruction>": true, "<console-url>": true, "<browser-instruction>": true,
 		"<followup>": true, "<results>": true, "<failure>": true, "<next-action>": true,
 		"<first-check-request>": true, "<action-options>": true, "<direction>": true,
 		"<item-title>": true, "<topic>": true, "<need-goal>": true,
@@ -329,7 +329,7 @@ func TestOnboardingFixedTemplateCoverage(t *testing.T) {
 		}
 	}
 	for _, id := range []string{"welcome", "schedule", "execution", "scope_codex", "execution_existing", "paused", "restart",
-		"prefill_choice", "profile_ready", "profile_manual", "handoff", "return_host", "return_website",
+		"prefill_choice", "profile_ready", "profile_manual", "handoff", "browser_opened", "browser_manual", "return_host", "return_website",
 		"first_check_request", "website_popup", "website_copied", "action_peers", "action_detail", "action_broadcast", "action_need",
 		"website_incomplete", "check_start", "check_done", "check_empty", "followup_active", "followup_paused", "followup_unknown", "action_menu", "check_unavailable", "check_failed", "setup_failed", "preparing_draft", "preparing_manual", "preparing_network", "link_refreshed", "clarify_permission"} {
 		if !seen[id] {
