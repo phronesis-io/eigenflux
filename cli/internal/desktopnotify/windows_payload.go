@@ -7,6 +7,14 @@ import (
 	"errors"
 )
 
+func windowsSetupMessage(language string) Message {
+	title, body := "EigenFlux notifications", "This is a setup notification. Click to open EigenFlux."
+	if language == "zh" {
+		title, body = "EigenFlux 通知", "这是一条设置测试通知。点击打开 EigenFlux。"
+	}
+	return Message{ID: "notification-setup", Title: title, Body: body, URL: "https://www.eigenflux.ai/dashboard"}
+}
+
 func windowsToast(message Message) (string, string, error) {
 	content := struct {
 		XMLName    xml.Name `xml:"toast"`

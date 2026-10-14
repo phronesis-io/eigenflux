@@ -168,6 +168,7 @@ func run() error {
 			instructions += "macOS: keep EigenFlux Notifications.app beside the real eigenflux executable. From this directory, run ./eigenflux notify setup, then ./eigenflux notify status. Building or syncing Skills alone does not request permission. macOS prompts only on first request; if denied, enable EigenFlux in System Settings > Notifications. After updating the existing wrapper to this complete package, run ./eigenflux watch restart --launch-agent <absolute-plist-path-in-your-Library/LaunchAgents>. Run from a separate foreground session; preserve the original account parameters.\n"
 		}
 		if parts[0] == "windows" {
+			instructions += "Windows: run .\\Run-Test.ps1 notify setup, .\\Run-Test.ps1 notify status, and .\\Run-Test.ps1 notify test --url https://www.eigenflux.ai. Setup registers the sender and sends a setup notification on first use; Windows has no Allow permission dialog. If disabled, check Settings > System > Notifications. OS submission does not prove banner visibility.\n"
 			instructions += "After updating the existing watch task/wrapper to this complete package, run .\\Run-Test.ps1 watch restart --scheduled-task <exact-existing-task-path> from a separate foreground session. The task must run as the current interactive user without elevation.\n"
 		}
 		instructions += "Restart reports process_started with runtime_verified:false. Confirm a fresh runtime_ready in watch logs, notification status, and an actual message separately. Building or syncing Skills alone never restarts a background task.\n"

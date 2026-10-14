@@ -30,6 +30,24 @@ func TestValidateURL(t *testing.T) {
 	}
 }
 
+func TestWindowsSetupNotification(t *testing.T) {
+	for _, language := range []string{"zh", "en", ""} {
+		message := windowsSetupMessage(language)
+		if err := Validate(message); err != nil {
+			t.Fatal(err)
+		}
+		if message.ID != "notification-setup" || message.URL != "https://www.eigenflux.ai/dashboard" {
+			t.Fatalf("unexpected setup target: %+v", message)
+		}
+		if language == "zh" && message.Title != "EigenFlux 通知" {
+			t.Fatal("missing localized setup notification")
+		}
+		if _, _, err := windowsToast(message); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestWindowsInputDoesNotRequireAConsoleCodePage(t *testing.T) {
 	source, err := os.ReadFile("windows.ps1")
 	if err != nil {

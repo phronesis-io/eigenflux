@@ -6,9 +6,28 @@ function Get-NotificationSetting([object]$notifier, [type]$notifierType) {
     if ($null -eq $notifier) { throw 'notifier unavailable' }
     $property = $notifierType.GetProperty('Setting')
     if ($null -eq $property) { throw 'setting getter unavailable' }
-    $value = $property.GetValue($notifier, $null)
+    try { $value = $property.GetValue($notifier, $null) }
+    catch {
+        $exception = $_.Exception
+        while ($null -ne $exception.InnerException) { $exception = $exception.InnerException }
+        # Windows creates the sender's notification settings on its first toast.
+        # A registered sender can therefore have no Setting yet, without denial.
+        if ($exception.HResult.ToString('X8') -eq '80070490') { return 'Uninitialized' }
+        throw
+    }
     if ($null -eq $value) { return $null }
     return $value.ToString()
+}
+function Send-Notification([object]$notifier, [object]$request) {
+    $script:stage = 'toast_xml'
+    $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+    $xml.LoadXml($request.xml)
+    $script:stage = 'toast_create'
+    $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+    $toast.Tag = $request.tag
+    $toast.Group = 'EigenFlux'
+    $script:stage = 'toast_show'
+    $notifier.Show($toast)
 }
 try {
     # CREATE_NO_WINDOW has no console code page. Decode the redirected pipe
@@ -40,7 +59,11 @@ try {
             if (Test-Path -LiteralPath $icon) {
                 $item = Get-Item -LiteralPath $icon -Force
                 if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'preserve linked icon' }
-                if ((Get-FileHash -LiteralPath $icon -Algorithm SHA256).Hash.ToLowerInvariant() -ne [IO.Path]::GetFileNameWithoutExtension($icon)) { throw 'preserve changed icon' }
+                $hash = [Security.Cryptography.SHA256]::Create()
+                $stream = [IO.File]::OpenRead($icon)
+                try { $digest = [BitConverter]::ToString($hash.ComputeHash($stream)).Replace('-', '').ToLowerInvariant() }
+                finally { $stream.Dispose(); $hash.Dispose() }
+                if ($digest -ne [IO.Path]::GetFileNameWithoutExtension($icon)) { throw 'preserve changed icon' }
             }
         }
         if (Test-Path -LiteralPath $shortcut) { Remove-Item -LiteralPath $shortcut -ErrorAction Stop }
@@ -161,25 +184,29 @@ namespace EigenFluxNotifications {
     $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId)
     $stage = 'setting_read'
     $setting = Get-NotificationSetting $notifier $notifierType
+    if ($setting -eq 'Uninitialized') {
+        if ($request.action -eq 'check') {
+            [Console]::Out.WriteLine('setup_required'); exit 1
+        }
+        if ($request.action -eq 'enable') {
+            # Explicit setup primes the OS with one visible setup notification.
+            # Read back the real setting; registration alone never proves ready.
+            Send-Notification $notifier $request
+            $stage = 'setting_read'
+            $setting = Get-NotificationSetting $notifier $notifierType
+        }
+    }
     if ($null -eq $setting -or $setting -eq '') {
         [Console]::Out.WriteLine('setting_unavailable'); exit 1
     }
     if ($setting -in @('DisabledForApplication', 'DisabledForUser', 'DisabledByGroupPolicy', 'DisabledByManifest')) {
         [Console]::Out.WriteLine('permission_denied'); exit 1
     }
-    if ($setting -ne 'Enabled') {
+    if ($setting -ne 'Enabled' -and -not ($setting -eq 'Uninitialized' -and $request.action -eq 'show')) {
         [Console]::Out.WriteLine('setting_unavailable'); exit 1
     }
     if ($request.action -eq 'show') {
-        $stage = 'toast_xml'
-        $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
-        $xml.LoadXml($request.xml)
-        $stage = 'toast_create'
-        $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
-        $toast.Tag = $request.tag
-        $toast.Group = 'EigenFlux'
-        $stage = 'toast_show'
-        $notifier.Show($toast)
+        Send-Notification $notifier $request
     } elseif ($request.action -ne 'check' -and $request.action -ne 'enable') {
         throw 'invalid action'
     }

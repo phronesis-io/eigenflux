@@ -11,7 +11,7 @@ import (
 
 func newNotifyCommand() *cobra.Command {
 	root := &cobra.Command{Use: "notify", Short: "Manage local clickable desktop notifications"}
-	setup := &cobra.Command{Use: "setup", Short: "Install the local notification integration and request OS permission", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	setup := &cobra.Command{Use: "setup", Short: "Set up local notifications (macOS permission prompt; Windows sender registration)", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		if err := desktopnotify.New().Setup(cmd.Context()); err != nil {
 			return err
 		}

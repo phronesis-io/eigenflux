@@ -22,8 +22,21 @@ Inside the printed output directory, run:
 ```powershell
 .\Run-Test.ps1 version
 .\Run-Test.ps1 skills sync
+.\Run-Test.ps1 notify setup
+.\Run-Test.ps1 notify status
+.\Run-Test.ps1 notify test --url "https://www.eigenflux.ai"
 .\Run-Test.ps1 heartbeat plan
 ```
+
+Windows notification setup registers the current user's sender, icon and Start
+menu shortcut; it does not show a macOS-style Allow permission dialog. On first
+use, setup sends one visible setup notification to create the sender's Windows
+notification state, then reads back the actual OS setting. A missing first-use
+state (`0x80070490`) is distinct from a disabled notification setting. Explicit
+disabled settings still fail setup. Check Settings > System > Notifications if
+disabled. `notify status` is read-only; `submitted` confirms OS submission, not
+banner visibility. The Windows installer runs setup and status at completion;
+building or syncing Skills alone does not initialize notifications.
 
 `Run-Test.ps1` invokes the exact bundled EXE, serves its matching signed Skills
 on a temporary loopback port, and stops that server after the command. It uses

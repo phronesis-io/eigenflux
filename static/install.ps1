@@ -322,6 +322,19 @@ function Setup-Agents {
     }
 }
 
+function Setup-Notifications {
+    $cli = $script:installedCliPath
+    $homeDir = Resolve-EigenfluxHome -ExplicitHome $ExplicitEigenfluxHome -InvokingHost (Get-InvokingHost)
+    Info "Setting up Windows notifications. Windows does not display an Allow permission dialog; first setup sends a test notification."
+    & $cli --homedir $homeDir notify setup
+    if ($LASTEXITCODE -ne 0) {
+        throw "CLI is installed, but notification setup failed. Retry: & '$cli' --homedir '$homeDir' notify setup. If disabled, check Settings > System > Notifications."
+    }
+    & $cli --homedir $homeDir notify status
+    if ($LASTEXITCODE -ne 0) { throw "CLI is installed, but notification status is not ready. Run notify status to inspect the error." }
+    Ok "Windows notification integration is ready. Banner visibility depends on your notification and Do not disturb settings."
+}
+
 # ── Main ──────────────────────────────────────────────────────
 
 Install-Cli
@@ -332,6 +345,7 @@ $recordBin = $script:installedCliPath
 $recordHost = Get-InvokingHost
 & $recordBin --homedir $env:EIGENFLUX_HOME installation record "--host=$recordHost" "--skills-target=$($script:installedSkillsTarget)" | Out-Null
 if ($LASTEXITCODE -ne 0) { Info "Installation registration unavailable; record it with the new CLI before uninstalling." }
+Setup-Notifications
 Info "Updated plugin files may require a host restart after current work finishes."
 
 Ok ""

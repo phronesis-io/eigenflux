@@ -29,7 +29,8 @@ type Notifier struct{}
 
 func New() *Notifier { return &Notifier{} }
 
-// Setup installs the per-user integration and requests notification permission.
+// Setup installs the per-user integration. macOS requests permission; Windows
+// submits a setup toast only when the sender has no notification state yet.
 // It should run once during explicit notification setup, never for each event.
 func (*Notifier) Setup(ctx context.Context) error    { return platformRequest(ctx, "enable", Message{}) }
 func (n *Notifier) Enable(ctx context.Context) error { return n.Setup(ctx) }
