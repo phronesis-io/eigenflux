@@ -35,6 +35,8 @@ an explicit user instruction.
   Compare the returned COM instance by reference, then allow asynchronous
   startup before refreshing it; PowerShell value equality can query a not-yet
   available COM default property and falsely report `start_failed`.
+  Allow scheduler stop completion to settle before Run, and tolerate transient
+  `SCHED_E_TASK_NOT_RUNNING` only before the new instance first becomes running.
 
 Success is `process_started`, with `runtime_verified:false`; a wrapper PID or
 scheduler instance does not prove watch connectivity or Agent execution. Check

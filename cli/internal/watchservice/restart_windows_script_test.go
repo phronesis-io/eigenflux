@@ -58,6 +58,7 @@ func TestWindowsRestartScript(t *testing.T) {
 		{"restart", `\EigenFlux\watch`, "running", "", "stop\nrun"},
 		{"unicode", `\EigenFlux\外循环`, "running", "", "stop\nrun"},
 		{"already_stopped", `\EigenFlux\watch`, "stopped", "", "run"},
+		{"pending_instance", `\EigenFlux\watch`, "pending_instance", "", "stop\nrun"},
 		{"literal_name", `\EigenFlux $(throw 'injected')`, "running", "", "stop\nrun"},
 		{"wildcard", `\EigenFlux*`, "running", "invalid_task_name", ""},
 		{"relative_path", `\EigenFlux\..\other`, "running", "invalid_task_name", ""},
@@ -158,6 +159,7 @@ $script:task | Add-Member ScriptMethod Run {
     $instance = [pscustomobject]@{ State = 4; RefreshCount = 0 }
     $instance | Add-Member ScriptMethod Refresh {
         $this.RefreshCount++
+        if ($script:scenario -eq 'pending_instance' -and $this.RefreshCount -eq 1) { throw [Runtime.InteropServices.COMException]::new('not started yet', -2147216629) }
         if ($script:scenario -eq 'exited' -and $this.RefreshCount -gt 1) { $this.State = 3 }
     }
     return $instance
