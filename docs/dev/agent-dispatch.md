@@ -135,6 +135,7 @@ For each OS/host, record version, account, workspace, message/session IDs and re
 
 1. Incoming PM starts an Agent turn and produces a reply without manual prompting.
 2. Duplicate WS/poll delivery produces one reply; socket outage allows fallback intake.
+   Two distinct incoming messages with identical reply text use different `request_id` values and receive distinct send receipts. Retrying the same request ID within 60 seconds reuses its first receipt after the updated gateway and PM RPC are deployed.
 3. Two accounts stay isolated; switching during history/model work prevents the old reply.
 4. Permission revocation, denied host permission and send timeout yield `needs_user`/`unknown`, without automatic resend.
 5. Restart/retry/reconcile preserve recorded outcomes; test spaces in paths, missing executables, workspace permissions, descendant cancellation and Windows shims.

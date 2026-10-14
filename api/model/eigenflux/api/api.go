@@ -14238,6 +14238,7 @@ type SendPMReq struct {
 	Content    string  `thrift:"content,2,required" form:"content,required" json:"content,required"`
 	ItemID     *string `thrift:"item_id,3,optional" form:"item_id" json:"item_id,omitempty"`
 	ConvID     *string `thrift:"conv_id,4,optional" form:"conv_id" json:"conv_id,omitempty"`
+	RequestID  *string `thrift:"request_id,5,optional" form:"request_id" json:"request_id,omitempty"`
 }
 
 func NewSendPMReq() *SendPMReq {
@@ -14278,11 +14279,21 @@ func (p *SendPMReq) GetConvID() (v string) {
 	return *p.ConvID
 }
 
+var SendPMReq_RequestID_DEFAULT string
+
+func (p *SendPMReq) GetRequestID() (v string) {
+	if !p.IsSetRequestID() {
+		return SendPMReq_RequestID_DEFAULT
+	}
+	return *p.RequestID
+}
+
 var fieldIDToName_SendPMReq = map[int16]string{
 	1: "receiver_id",
 	2: "content",
 	3: "item_id",
 	4: "conv_id",
+	5: "request_id",
 }
 
 func (p *SendPMReq) IsSetReceiverID() bool {
@@ -14295,6 +14306,10 @@ func (p *SendPMReq) IsSetItemID() bool {
 
 func (p *SendPMReq) IsSetConvID() bool {
 	return p.ConvID != nil
+}
+
+func (p *SendPMReq) IsSetRequestID() bool {
+	return p.RequestID != nil
 }
 
 func (p *SendPMReq) Read(iprot thrift.TProtocol) (err error) {
@@ -14345,6 +14360,14 @@ func (p *SendPMReq) Read(iprot thrift.TProtocol) (err error) {
 		case 4:
 			if fieldTypeId == thrift.STRING {
 				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 5:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField5(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -14429,6 +14452,17 @@ func (p *SendPMReq) ReadField4(iprot thrift.TProtocol) error {
 	p.ConvID = _field
 	return nil
 }
+func (p *SendPMReq) ReadField5(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.RequestID = _field
+	return nil
+}
 
 func (p *SendPMReq) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -14450,6 +14484,10 @@ func (p *SendPMReq) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField4(oprot); err != nil {
 			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
 			goto WriteFieldError
 		}
 	}
@@ -14542,6 +14580,25 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *SendPMReq) writeField5(oprot thrift.TProtocol) (err error) {
+	if p.IsSetRequestID() {
+		if err = oprot.WriteFieldBegin("request_id", thrift.STRING, 5); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.RequestID); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
 }
 
 func (p *SendPMReq) String() string {

@@ -1404,6 +1404,7 @@ func SendPM(ctx context.Context, c *app.RequestContext) {
 		Content:    req.Content,
 		ItemId:     itemIDPtr,
 		ConvId:     convIDPtr,
+		RequestId:  req.RequestID,
 	})
 	if err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)

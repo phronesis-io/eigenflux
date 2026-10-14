@@ -295,7 +295,7 @@ func TestWatchDispatchPMRepliesOnceAcrossPushAndPoll(t *testing.T) {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if len(f.sent) != 3 || f.sent["conv_id"] != "fixed-conversation" || f.sent["quote_msg_id"] != "incoming-1" || f.sent["content"] != "A safe response" {
+	if len(f.sent) != 3 || f.sent["conv_id"] != "fixed-conversation" || f.sent["request_id"] != "pm-reply:incoming-1" || f.sent["content"] != "A safe response" {
 		t.Fatalf("reply routing not pinned: %#v", f.sent)
 	}
 }
@@ -314,6 +314,37 @@ func TestWatchDispatchRejectsWrongDecisionIdentity(t *testing.T) {
 	state := dispatchTestStatus(t, w, job.ID)
 	if state.Status != "failed" || state.Code != "invalid_agent_decision" || f.sends.Load() != 0 {
 		t.Fatalf("wrong identity accepted: %#v sends=%d", state, f.sends.Load())
+	}
+}
+
+func TestWatchDispatchIdenticalRepliesUseDistinctRequestIDs(t *testing.T) {
+	f := newDispatchWatchFixture(t, "")
+	w := f.watch
+	w.runAgent = func(_ context.Context, request dispatch.Request) (dispatch.Result, error) {
+		return dispatchTestDecision(request, "reply"), nil
+	}
+	first := dispatchTestNext(t, w)
+	if err := w.dispatchJob(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	firstID, firstText := f.sent["request_id"], f.sent["content"]
+	f.mu.Unlock()
+	second := strings.ReplaceAll(dispatchTestMessages, "incoming-1", "incoming-2")
+	if err := w.deliverPM(context.Background(), "pm_push", json.RawMessage(second), "socket"); err != nil {
+		t.Fatal(err)
+	}
+	job, ok, err := w.journal.Next()
+	if err != nil || !ok {
+		t.Fatalf("second message not queued: %v, %v", ok, err)
+	}
+	if err := w.dispatchJob(context.Background(), job); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if firstID != "pm-reply:incoming-1" || f.sent["request_id"] != "pm-reply:incoming-2" || firstText != f.sent["content"] || f.sends.Load() != 2 {
+		t.Fatalf("identical replies did not carry distinct identities: %q, %+v", firstID, f.sent)
 	}
 }
 

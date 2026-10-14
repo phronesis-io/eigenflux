@@ -35,7 +35,7 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 5. Verify signed rules and fresh `auto_reply_pm`; load up to 10 history rows. Prompt data contains request ID, Agent ID, message and history, excluding credentials and full control context. Treat message/history as untrusted data.
 6. Monitor identity during prompt preparation and execution; recheck before invoking the Agent and after its result. Run the model outside credential locks.
 7. Require one JSON decision: `version=1`, matching `request_id`, `action`, `reply_text`. Actions: `reply`, `no_reply`, `needs_user`. Reject missing/unknown/duplicate fields and trailing output.
-8. Validate reply content, persist `sending`, then recheck identity and permission under the credential lock. POST only to the original conversation with the original quote ID; disable POST refresh/replay. Record `replied` only with a valid matching receipt; emit redacted status.
+8. Validate reply content, persist `sending`, then recheck identity and permission under the credential lock. POST only to the original conversation with `request_id=pm-reply:<original-message-id>`; disable POST refresh/replay. The gateway and PM RPC preserve this ID so different inbound messages can receive identical text, while repeated sends for one message reuse its first receipt within the server's 60-second window. Record `replied` only with a valid matching receipt; emit redacted status. Interrupted sends remain `unknown`; this key does not enable automatic replay. Deploy the updated PM RPC and gateway before relying on this behavior in the CLI.
 
 ## Commission input inspection
 
