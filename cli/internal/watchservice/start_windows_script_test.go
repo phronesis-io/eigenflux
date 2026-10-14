@@ -21,7 +21,7 @@ func TestWindowsNotificationTaskLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, scenario := range []string{"new", "running", "disabled", "other_user", "exited"} {
+	for _, scenario := range []string{"new", "running", "named_user", "disabled", "other_user", "exited"} {
 		t.Run(scenario, func(t *testing.T) {
 			dir := t.TempDir()
 			request := map[string]string{"task_name": "EigenFlux-Notifications-" + strings.Repeat("a", 32), "scope": strings.Repeat("a", 32),
@@ -45,7 +45,7 @@ func TestWindowsNotificationTaskLifecycle(t *testing.T) {
 				t.Fatalf("result=%+v err=%v", result, runErr)
 			}
 			_, fileErr := os.Stat(request["wrapper"])
-			if scenario == "running" || scenario == "disabled" || scenario == "other_user" {
+			if scenario == "running" || scenario == "named_user" || scenario == "disabled" || scenario == "other_user" {
 				if !os.IsNotExist(fileErr) {
 					t.Fatal("mutated running/disabled/foreign task launcher")
 				}
@@ -59,8 +59,9 @@ func TestWindowsNotificationTaskLifecycle(t *testing.T) {
 const notificationSchedulerMock = `
 $script:principal = [pscustomobject]@{UserId=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;LogonType=3;RunLevel=0}
 if ($script:scenario -eq 'other_user') { $script:principal.UserId = 'S-1-5-18' }
+if ($script:scenario -eq 'named_user') { $script:principal.UserId = [Security.Principal.WindowsIdentity]::GetCurrent().Name }
 $script:task = [pscustomobject]@{Enabled=($script:scenario -ne 'disabled');State=3;Definition=[pscustomobject]@{Principal=$script:principal;RegistrationInfo=[pscustomobject]@{Description=('EigenFlux notification watch '+('a'*32))}}}
-if ($script:scenario -eq 'running') { $script:task.State=4 }
+if ($script:scenario -in @('running','named_user')) { $script:task.State=4 }
 $script:instance = [pscustomobject]@{State=4}
 $script:refreshCount=0
 $script:instance | Add-Member ScriptMethod Refresh { $script:refreshCount++;if ($script:scenario -eq 'exited' -and $script:refreshCount -gt 1) { $this.State=3 } }
@@ -69,7 +70,7 @@ $script:folder = [pscustomobject]@{}
 $script:folder | Add-Member ScriptMethod GetTask { param($name);if ($script:scenario -eq 'new') { throw [IO.FileNotFoundException]::new() };return $script:task }
 $script:folder | Add-Member ScriptMethod RegisterTaskDefinition {
     param($name,$definition,$flags,$user,$password,$logon,$sddl)
-    if ($definition.Principal.UserId -ne $script:principal.UserId -or $definition.Principal.LogonType -ne 3 -or $definition.Principal.RunLevel -ne 0 -or $definition.Settings.ExecutionTimeLimit -ne 'PT0S' -or $definition.Settings.MultipleInstances -ne 2) { throw 'invalid task settings' }
+    if ($definition.Principal.UserId -ne $script:principal.UserId -or $definition.Principal.LogonType -ne 3 -or $definition.Principal.RunLevel -ne 0 -or $definition.Settings.Hidden -or $definition.Settings.ExecutionTimeLimit -ne 'PT0S' -or $definition.Settings.MultipleInstances -ne 2) { throw 'invalid task settings' }
     return $script:task
 }
 $script:service = [pscustomobject]@{}

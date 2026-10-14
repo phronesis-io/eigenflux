@@ -23,7 +23,9 @@ try {
     if ($null -ne $existing) {
         $failureCode = 'task_ownership'
         $principal = $existing.Definition.Principal
-        if ($existing.Definition.RegistrationInfo.Description -ne $description -or $principal.UserId -ne $sid -or $principal.LogonType -ne 3 -or $principal.RunLevel -ne 0) { throw 'different task owner' }
+        $taskSID = [string]$principal.UserId
+        if ($taskSID -notmatch '^S-1-') { $taskSID = ([Security.Principal.NTAccount]::new($taskSID)).Translate([Security.Principal.SecurityIdentifier]).Value }
+        if ($existing.Definition.RegistrationInfo.Description -ne $description -or $taskSID -ne $sid -or $principal.LogonType -ne 3 -or $principal.RunLevel -ne 0) { throw 'different task owner' }
         $failureCode = 'task_disabled'
         if (-not $existing.Enabled) { throw 'preserve disabled task' }
         # Repeated installation must not kill an active consumer or duplicate it.
@@ -42,7 +44,7 @@ try {
     $definition.Principal.LogonType = 3
     $definition.Principal.RunLevel = 0
     $definition.Settings.Enabled = $true
-    $definition.Settings.Hidden = $true
+    $definition.Settings.Hidden = $false
     $definition.Settings.AllowDemandStart = $true
     $definition.Settings.DisallowStartIfOnBatteries = $false
     $definition.Settings.StopIfGoingOnBatteries = $false
