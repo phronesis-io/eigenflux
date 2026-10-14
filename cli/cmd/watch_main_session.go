@@ -29,6 +29,22 @@ func mainSessionTask(b dispatch.Binding, raw string) (heartbeatmigration.Task, e
 	if err := json.Unmarshal([]byte(raw), &in); err != nil {
 		return empty, err
 	}
+	seen := map[string]bool{}
+	tasks := make([]heartbeatmigration.Task, 0, len(in.Tasks))
+	for _, task := range in.Tasks {
+		if task.ID == "" || seen[task.ID] {
+			return empty, errors.New("missing or duplicate scheduler task ID")
+		}
+		seen[task.ID] = true
+		if task.Owner == "eigenflux" && task.Purpose == "heartbeat" && (task.Status == "PAUSED" || task.Status == "paused") {
+			if !filepath.IsAbs(task.Home) || task.Server == "" {
+				return empty, errors.New("paused heartbeat has ambiguous Home or server")
+			}
+			continue
+		}
+		tasks = append(tasks, task)
+	}
+	in.Tasks = tasks
 	plan, err := heartbeatmigration.Build(in, b.Home, b.Server, "main-session-readback")
 	if err != nil {
 		return empty, err

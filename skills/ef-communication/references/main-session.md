@@ -1,9 +1,13 @@
 # Codex Main Session Binding
 
-Require CLI 1.0.5. Keep account identity, Agent Home, server and host-owned
-conversation storage fixed. Apply this procedure in the owner’s setup,
-upgrade or explicit switching conversation. During private-message dispatch,
-return `needs_user` for binding work and leave lifecycle operations to the host.
+Require CLI 1.0.10. Keep account identity, Agent Home, server and host-owned
+conversation storage fixed. Complete initial binding automatically during
+setup, an owner-requested upgrade, or a full native Codex heartbeat listing
+`main_session_bootstrap`. Reuse the existing scheduler maintenance inventory
+procedure. Treat initial binding as part of the existing upgrade authorization;
+complete it before reporting the upgrade finished. Keep valid bindings unchanged.
+During watch-owned private-message, maintenance or control execution, leave
+binding pending for the independent host cycle; preserve the owning watch.
 
 ## Select and preflight
 
@@ -13,6 +17,8 @@ Home, server and `thread_id` using
 Require one active owned EigenFlux heartbeat for this account. For first-time
 setup, persist and verify that heartbeat in the setup conversation before
 binding. For existing installations, retain its registered target conversation.
+Use the established task target even when the upgrade runs in another conversation.
+Ask the owner only when verified target evidence is missing, paused or ambiguous.
 
 Read the current binding and verified watch lifecycle entry. Record whether
 watch is running and retain its account, command and original routing fields.
@@ -48,6 +54,7 @@ binding: treat the exact intended route as committed, the unchanged original
 route as failed, and any other route or identity as requiring owner action.
 Preserve pending jobs and send receipts. Report cleanup failure separately;
 keep stopped, disabled or identity-changed entries from automatic activation.
+Leave an unsuccessful initial binding retryable in the next full native heartbeat.
 
 On a confirmed commit, restart the same previously running entry and require
 fresh runtime readiness. Keep an initially inactive entry inactive until the
@@ -63,7 +70,8 @@ with its host-verified exact ID. Supply the old ID and revision through
 readback and failure-cleanup procedure. Keep the established binding until
 switching succeeds. Treat `unavailable` as requiring owner action.
 
-Automatic successor discovery remains unsupported. Perform binding work in
-the foreground and serialize execution with the desktop and heartbeat.
+Automatic successor discovery remains unsupported. Execute initial binding in
+the independent host upgrade or heartbeat cycle; serialize explicit switching
+with the desktop and heartbeat.
 Claim PM acceptance only after matching requested/returned session IDs,
 decision and send receipt in logs.

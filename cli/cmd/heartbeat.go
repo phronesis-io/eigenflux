@@ -7,6 +7,7 @@ import (
 
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"cli.eigenflux.ai/internal/config"
@@ -247,10 +248,14 @@ var heartbeatPlanCmd = &cobra.Command{
 			}
 			if plan.MainSessionBinding != nil && plan.MainSessionBinding.Status != "ready" {
 				source := filepath.Join(res.SkillsDir, "ef-communication", "references", "main-session.md")
-				if fileExistsCLI(source) {
+				if _, ruleErr := skills.ReadSignedFile(res.SkillsDir, "ef-communication", "references/main-session.md", 64<<10); ruleErr == nil {
 					plan.RuleSources = append(plan.RuleSources, source)
+					if plan.MainSessionBinding.Status == "bootstrap_required" && planMode == "full" &&
+						access.OnboardingState == "completed" && meta.Host == "codex" && meta.Mode == "skill" {
+						plan.ExecutionOrder = append([]string{"main_session_bootstrap"}, plan.ExecutionOrder...)
+					}
 				} else {
-					plan.MainSessionBinding.Error = "main session rules missing; sync compatible signed Skills before binding"
+					plan.MainSessionBinding.Error = "main session rules missing or unsigned; sync compatible signed Skills before binding"
 				}
 				plan.WakeOnEmpty = true
 			}
@@ -324,15 +329,19 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 	if plan.MainSessionBinding != nil {
 		b, _ := json.Marshal(plan.MainSessionBinding)
 		receiptText += "\nCodex main session binding: " + string(b) + ". Ordinary heartbeat and PM execution cannot select a replacement thread.\n"
-		if plan.MainSessionBinding.Status != "ready" && plan.MainSessionBinding.Error == "" {
-			receiptText += "Follow the listed ef-communication/references/main-session.md for bootstrap or owner-directed switching.\n"
+		if slices.Contains(plan.ExecutionOrder, "main_session_bootstrap") {
+			receiptText += "Execute main_session_bootstrap automatically before business stages using the listed ef-communication/references/main-session.md. Complete the existing preflight, guarded binding update and watch recovery without asking the owner to enable binding. Preserve existing targets; ask only when the verified heartbeat target is missing or ambiguous.\n"
+		} else if plan.MainSessionBinding.Status == "unavailable" {
+			receiptText += "The established main session is unavailable. Preserve its binding and request an owner-directed switch.\n"
+		} else if plan.MainSessionBinding.Status == "bootstrap_required" {
+			receiptText += "Bootstrap remains pending for the next full native Codex heartbeat or owner-requested upgrade. Watch-owned narrow handlers must not stop their own watch.\n"
 		}
 	}
 	if plan.WatchManaged {
-		receiptText += "\nHost plugin and scheduler maintenance is owned exclusively by the watch maintenance-only handler. This full plan executes only its listed business stages and Skills read receipt; exclude host maintenance even when referenced by a general Skill.\n"
+		receiptText += "\nHost plugin and scheduler maintenance is owned exclusively by the watch maintenance-only handler. Execute only the listed stages and Skills read receipt. A listed main_session_bootstrap is an independent host upgrade step; other host maintenance stays with the watch.\n"
 	}
 	if len(plan.DispatchOwned) > 0 {
-		receiptText += "\nThe bound watch dispatcher exclusively owns these events: " + strings.Join(plan.DispatchOwned, ", ") + ". Skip only the procedures for those listed events in this heartbeat, including indirect Skill references. Preserve the watch binding and its dedicated foreground process.\n"
+		receiptText += "\nThe bound watch dispatcher exclusively owns these events: " + strings.Join(plan.DispatchOwned, ", ") + ". Skip only the procedures for those listed events in this heartbeat, including indirect Skill references. Preserve the watch binding and its dedicated foreground process except during the listed guarded main_session_bootstrap procedure.\n"
 	}
 	if plan.SkillsReadReceipt != nil {
 		b, _ := json.Marshal(plan.SkillsReadReceipt)

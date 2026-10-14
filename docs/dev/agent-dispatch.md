@@ -48,6 +48,11 @@ An absent watch binding does not establish first-time EigenFlux onboarding.
 Other host adapters retain their existing routing.
 
 Existing Codex bindings expose `bootstrap_required` in the heartbeat plan.
+CLI 1.0.10 prepends `main_session_bootstrap` to full native Codex Skill cycles
+after onboarding, including the plan run at upgrade completion. The host
+automatically completes the signed initial-binding procedure before business
+stages; existing valid targets are left unchanged. Narrow watch-owned maintenance
+and control handlers never execute this stage or stop their own parent.
 Use the host's native scheduler API to read a complete ownership inventory;
 run `watch bind --preflight` through `--scheduler-stdin` or `--scheduler-file`
 while the existing watch is running. After preflight succeeds, stop it, reread
@@ -58,7 +63,8 @@ whose `thread_id` resolves in the pinned Codex store. Restart the same watch
 entry after readback. A failed commit with unchanged original routing must
 restart the previously running entry before reporting; inactive and disabled
 entries remain inactive. Native target readback belongs to the host adapter.
-No local task filename or conversation title is fixed.
+Paused historical tasks do not compete with the unique active target. No local
+task filename or conversation title is fixed.
 
 An established target changes only through owner-directed
 `watch bind --current-session` or `--main-session-id`, carrying the old target

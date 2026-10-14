@@ -154,14 +154,21 @@ the user's standard `.codex` directory; its absolute path is persisted.
 
 For existing installations, heartbeat plans report `main_session_binding`
 (`bootstrap_required`, `ready`, `unavailable`) and include the signed
-`ef-communication/references/main-session.md` when repair is needed. The host
+`ef-communication/references/main-session.md` when repair is needed. CLI 1.0.10
+prepends `main_session_bootstrap` before business work in full native Codex Skill
+plans after onboarding; the upgrade completion plan uses the same entry. The
+host completes initial binding automatically, without another enable request.
+Narrow watch-owned handlers defer bootstrap to the independent host cycle.
+Missing or unsigned rules cannot schedule the automatic stage. The host
 reads its complete native scheduler inventory and submits it through
 `watch bind --scheduler-stdin` or `--scheduler-file` with the existing revision
 and empty expected ID. A new watch binding accepts the same input with `--config`.
 `--scheduler-json` remains available for small input; stdin/file avoid OS argv
 limits while retaining the 2 MiB inventory bound.
 CLI reuses scheduler inventory validation: one active owned EigenFlux heartbeat
-for the exact Home/server, with a validated existing `thread_id`. Titles and
+for the exact Home/server, with a validated existing `thread_id`. Paused historical
+tasks never select the target. Duplicate task IDs still fail across the complete
+inventory. Titles and
 private scheduler files do not establish ownership. Scheduler bootstrap is
 initial-only; it cannot replace an established main session. Host lifecycle owns
 stopping/restarting watch. `--preflight` validates without acquiring the live

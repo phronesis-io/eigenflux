@@ -59,6 +59,16 @@ func TestMainSessionSchedulerBootstrapUsesAccountOwnership(t *testing.T) {
 			other.ID = "second"
 			i.Tasks = append(i.Tasks, other)
 		}, false},
+		{"active-and-paused", func(i *heartbeatmigration.Inventory) {
+			other := i.Tasks[0]
+			other.ID, other.Status = "old-paused-task", "PAUSED"
+			i.Tasks = append(i.Tasks, other)
+		}, true},
+		{"duplicate-id-on-paused", func(i *heartbeatmigration.Inventory) {
+			other := i.Tasks[0]
+			other.Status = "PAUSED"
+			i.Tasks = append(i.Tasks, other)
+		}, false},
 		{"wrong-home", func(i *heartbeatmigration.Inventory) { i.Tasks[0].Home = t.TempDir() }, false},
 		{"wrong-server", func(i *heartbeatmigration.Inventory) { i.Tasks[0].Server = "other" }, false},
 		{"spoofed-title", func(i *heartbeatmigration.Inventory) { i.Tasks[0].Name = "EigenFlux"; i.Tasks[0].Owner = "other" }, false},
