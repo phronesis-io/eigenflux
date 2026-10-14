@@ -14,10 +14,17 @@ import (
 func newNotifyCommand() *cobra.Command {
 	root := &cobra.Command{Use: "notify", Short: "Manage local clickable desktop notifications"}
 	setup := &cobra.Command{Use: "setup", Short: "Set up local notifications (macOS permission prompt; Windows sender registration)", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		return writeNotificationStatus(cmd, observedNotificationCLI().Setup(cmd.Context()))
+		source, _ := cmd.Flags().GetString("source")
+		if source != "manual" && source != "installer" {
+			return fmt.Errorf("notification setup source must be manual or installer")
+		}
+		err := observedNotificationCLIFrom(source).Setup(cmd.Context())
+		return writeNotificationStatus(cmd, err, flushNotificationTelemetry(notificationServer()))
 	}}
+	setup.Flags().String("source", "manual", "Setup observation source: manual or installer")
 	status := &cobra.Command{Use: "status", Short: "Check local OS notification integration and permission", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		return writeNotificationStatus(cmd, observedNotificationCLI().Check(cmd.Context()))
+		err := observedNotificationCLI().Check(cmd.Context())
+		return writeNotificationStatus(cmd, err, flushNotificationTelemetry(notificationServer()))
 	}}
 	test := &cobra.Command{Use: "test", Short: "Send a test notification that opens a specified safe URL", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		target, _ := cmd.Flags().GetString("url")
@@ -25,7 +32,8 @@ func newNotifyCommand() *cobra.Command {
 		if err := desktopnotify.Validate(message); err != nil {
 			return err
 		}
-		notifier := observedNotificationCLI()
+		notifier := observedNotificationCLIFrom("test")
+		defer flushNotificationTelemetry(notificationServer())
 		if err := notifier.Setup(cmd.Context()); err != nil && !errors.Is(err, desktopnotify.ErrPendingFirstNotification) {
 			return err
 		}
@@ -43,11 +51,14 @@ func newNotifyCommand() *cobra.Command {
 		}
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(events)
 	}}
-	root.AddCommand(setup, status, test, log)
+	flush := &cobra.Command{Use: "flush", Short: "Upload queued notification observations using the current Agent account", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"telemetry": flushNotificationTelemetry(notificationServer())})
+	}}
+	root.AddCommand(setup, status, test, log, flush)
 	return root
 }
 
-func writeNotificationStatus(cmd *cobra.Command, err error) error {
+func writeNotificationStatus(cmd *cobra.Command, err error, telemetry ...string) error {
 	status := "ready"
 	code := ""
 	if errors.Is(err, desktopnotify.ErrPendingFirstNotification) {
@@ -56,6 +67,9 @@ func writeNotificationStatus(cmd *cobra.Command, err error) error {
 		return err
 	}
 	data := map[string]string{"status": status, "visibility": "unknown", "delivery": "OS submission does not confirm banner visibility"}
+	if len(telemetry) > 0 {
+		data["telemetry"] = telemetry[0]
+	}
 	if code != "" {
 		data["code"] = code
 	}

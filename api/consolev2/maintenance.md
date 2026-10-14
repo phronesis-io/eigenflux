@@ -12,6 +12,22 @@ These are client-reported maintenance observations, not proof of order fulfillme
 
 No schema migration is required. Validate the HTTP contract and run `TestMaintenancePostgresAgentAuthIdentityAndIdempotency` against an isolated loopback PostgreSQL database; it rolls back temporary test tables. Production verification must not create test telemetry or orders.
 
+## Notification observations
+
+Accept `component=notifier`, `phase=notification`, trigger `manual`/`auto`, source
+`installer`/`watch`/`manual`/`test`, and platform `windows`/`darwin`. The nested
+notification object requires action `setup`/`status`/`send` and visibility
+`unknown`. Setup/status accept ready, registered, disabled or failed; sends
+accept submitted, disabled or failed and require a 64-character SHA-256 ID hash.
+Validate matching fixed error codes, helper stage/HRESULT pairs, compiled commit,
+and a duration no greater than 60 seconds. Reject raw content, URLs, client
+identity, unknown nested fields, and claims of banner visibility or human views.
+
+Reuse the existing authenticated identity-derived event keys and table; no
+migration or new anonymous endpoint. Collection must deploy this API contract
+before the new CLI. Queries distinguish installer setup from watch/test/manual
+activity. PostgreSQL tests verify notification persistence and idempotency.
+
 ## Uninstall observations
 
 Accept phase=uninstall with trigger=manual and results started, removed, partial, failed or blocked. Sources are agent/manual; platforms darwin/windows/linux. Require reason_category: not_provided, other, usability, cost, performance, privacy or no_longer_needed. Reject this metadata outside uninstall; reject free-text reasons, paths and client-selected account identity. Count distinct attempt_id across accounts; only removed counts toward the reason pie chart. No CLI, Skill or other business behavior changes are included in this backend contract.

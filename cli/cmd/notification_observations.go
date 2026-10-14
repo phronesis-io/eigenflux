@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"time"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/desktopnotify"
 	"cli.eigenflux.ai/internal/dispatch"
+	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/watch"
 )
 
@@ -33,17 +35,105 @@ func notificationServer() string {
 }
 
 func observedNotificationCLI() *desktopnotify.Notifier {
-	return observedDesktopNotifier(config.HomeDir(), notificationServer())
+	return observedNotificationCLIFrom("manual")
 }
 
-func observedDesktopNotifier(home, server string) *desktopnotify.Notifier {
+func observedNotificationCLIFrom(source string) *desktopnotify.Notifier {
+	server := notificationServer()
+	agent := ""
+	if credentials, err := auth.LoadV2Credentials(server); err == nil {
+		agent = credentials.AgentID
+	}
+	return observedDesktopNotifierAt(config.HomeDir(), server, agent, source)
+}
+
+func observedDesktopNotifierAt(home, server, agent, source string) *desktopnotify.Notifier {
 	return desktopnotify.NewWithObserver(func(e desktopnotify.Observation) {
+		e.EventID, e.AgentID, e.Source = maintenance.NewID(), agent, source
 		e.CLIVersion, e.CLICommit = version, commit
 		if err := appendNotificationObservation(home, server, e); err != nil {
 			// Telemetry failure must not turn a submitted notification into a retry.
 			fmt.Fprintln(os.Stderr, "Local notification observation could not be saved.")
 		}
 	})
+}
+
+// Import only records pinned to this account. The sole unbound handoff is setup
+// recorded before authentication; an unbound send is never reassigned.
+func importNotificationObservations(scope maintenance.Scope) error {
+	path := notificationLogPath(scope.Home, scope.Server)
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	release, err := watch.AcquirePath(path + ".lock")
+	if err != nil {
+		return err
+	}
+	defer release()
+	state, err := readNotificationObservations(scope.Home, scope.Server)
+	if err != nil {
+		return err
+	}
+	changed := false
+	for i := range state.Events {
+		e := &state.Events[i]
+		if e.Platform != "windows" && e.Platform != "darwin" {
+			continue
+		}
+		if e.Queued || e.EventID == "" || e.At.Before(time.Now().Add(-maintenance.Retention)) {
+			continue
+		}
+		if e.AgentID != "" && e.AgentID != scope.AgentID {
+			continue
+		}
+		if e.AgentID == "" && e.Action != "setup" {
+			continue
+		}
+		event := notificationMaintenanceEvent(*e)
+		if err := maintenance.Record(scope, event); err != nil {
+			return err
+		}
+		e.AgentID, e.Queued = scope.AgentID, true
+		changed = true
+	}
+	if changed {
+		return dispatch.WriteJSON(path, state)
+	}
+	return nil
+}
+
+func notificationMaintenanceEvent(e desktopnotify.Observation) maintenance.Event {
+	trigger := "manual"
+	if e.Source == "watch" {
+		trigger = "auto"
+	}
+	event := maintenance.NewEvent(e.EventID, "notifier", trigger, "notification", e.Result)
+	event.EventAt = e.At.UnixMilli()
+	event.Source, event.Platform, event.ErrorCode, event.FromVersion, event.DurationMS = e.Source, e.Platform, e.Code, e.CLIVersion, e.DurationMS
+	event.Notification = &maintenance.Notification{Action: e.Action, Visibility: e.Visibility, IDHash: e.NotificationIDHash, Stage: e.Stage, HResult: e.HResult, CLICommit: e.CLICommit}
+	return event
+}
+
+func flushNotificationTelemetry(server string) string {
+	scope, err := maintenanceScope(server)
+	if err != nil || scope.AgentID == "" {
+		return "pending_auth"
+	}
+	if err := flushMaintenanceEvents(server); err != nil {
+		return "queued"
+	}
+	state, err := maintenance.Snapshot(scope)
+	if err != nil {
+		return "queued"
+	}
+	for _, e := range state.Events {
+		if e.Phase == "notification" {
+			return "queued"
+		}
+	}
+	return "reported"
 }
 
 func notificationLogPath(home, server string) string {

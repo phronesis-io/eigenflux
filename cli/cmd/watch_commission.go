@@ -31,7 +31,7 @@ func decodeCommissionNotificationPage(data json.RawMessage) (commissionNotificat
 }
 
 func (w *accountWatch) receivesCommission() bool {
-	return w.binding != nil && w.journal != nil && w.binding.Handles("commission_order")
+	return w.notificationsOnly || (w.binding != nil && w.journal != nil && w.binding.Handles("commission_order"))
 }
 
 func (w *accountWatch) deliverSocketEvent(ctx context.Context, kind string, data json.RawMessage) error {
@@ -49,8 +49,15 @@ func (w *accountWatch) commissionFallbackLoop(ctx context.Context) error {
 	}
 	for ctx.Err() == nil {
 		if err := w.pollCommissionNotifications(ctx); err != nil {
+			if w.notificationsOnly && w.notificationsReady.Swap(false) {
+				_ = w.emit("notifications_unavailable", w.runtimeData())
+			}
 			if fatal := w.diagnostic("commission_poll", err); fatal != nil {
 				return fatal
+			}
+		} else if w.notificationsOnly && w.notificationsReady.CompareAndSwap(false, true) {
+			if err := w.emit("notifications_ready", w.runtimeData()); err != nil {
+				return err
 			}
 		}
 		if !watchPause(ctx, time.Minute) {
@@ -132,8 +139,13 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 			if notification.Source != "commission_order" {
 				continue
 			}
-			if err := w.journal.AddCommissionNotification(raw); err != nil {
-				return errors.Join(errWatchDispatchJournal, err)
+			if w.journal != nil {
+				if err := w.journal.AddCommissionNotification(raw); err != nil {
+					return errors.Join(errWatchDispatchJournal, err)
+				}
+			}
+			if w.notificationsOnly && w.desktop == nil {
+				return errors.New("notification_desktop_queue_unavailable")
 			}
 			if err := w.enqueueDesktopCommission(raw); err != nil {
 				return errors.Join(errWatchDispatchJournal, err)
@@ -164,6 +176,9 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 			if response.Code != 0 {
 				return errors.New("commission_notification_ack_failed")
 			}
+		}
+		if w.notificationsOnly {
+			return w.emit("notification_push", map[string]interface{}{"count": len(ack), "transport": transport})
 		}
 		return w.emit("notification_push", map[string]interface{}{
 			"notifications": page.Notifications,

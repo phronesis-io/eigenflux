@@ -12,6 +12,10 @@ import (
 // Observation records submission, never banner visibility or human attention.
 // It excludes notification text, URLs, credentials and raw provider errors.
 type Observation struct {
+	EventID            string    `json:"event_id,omitempty"`
+	AgentID            string    `json:"agent_id,omitempty"`
+	Source             string    `json:"source,omitempty"`
+	Queued             bool      `json:"queued,omitempty"`
 	CLIVersion         string    `json:"cli_version,omitempty"`
 	CLICommit          string    `json:"cli_commit,omitempty"`
 	At                 time.Time `json:"at"`

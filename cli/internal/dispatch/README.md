@@ -39,6 +39,16 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 
 ## Commission input inspection
 
+CLI 1.0.11 adds `watch --notifications-only` for hosts without an execution
+adapter. It excludes PM, control, Runtime leases and all Agent workers; HTTP
+order intake persists only the existing desktop queue before ACK. The pinned
+Home/server/account owner lives in `<home>/watch/<home-server-scope>.notifications.json`.
+Legacy stream respects this ownership while the task is stopped. An existing
+execution binding is never replaced by notification setup. `watch start` installs
+an interactive current-user Windows logon task, or reports `pending_auth` /
+`host_managed`. `notifications_ready` means a successful order poll, separately
+from OS submission and Agent `runtime_ready`. Disabled tasks remain disabled.
+
 `commission_order` explicitly enables durable intake and a separate seller inspection worker. It also queues paid local fulfillment after a ready check. After actual Agent readiness it accepts awaiting-seller orders; after paid fulfillment it uploads verified contractual artifacts and submits delivery. Subscription alone does not prove host execution readiness or establish a buyer SLA.
 
 With PM subscribed, notifications reuse its socket; Commission-only uses an initial HTTP pull and 60-second reconciliation because the server socket fetches PM on connect. Preserve before ACK, at most 50 IDs per ACK, and deduplicate order/version/role within the pinned binding. Notification cursors never replace PM cursors. Legacy stream respects persisted ownership; binding changes and legacy read/ACK share the credential lock.
@@ -55,6 +65,11 @@ sender exists but its OS setting is not known yet; allow the first real queued
 message to establish it. This is neither a denial nor a `ready` permission claim.
 CLI and watch also save bounded Home/server-local observations, readable through
 `notify log`. Submission and retries do not claim banner visibility or attention.
+Notification observations bind to the account at creation and enter the existing
+maintenance upload lane. Import pending local events before each flush; never
+reassign another account's records. Only setup captured before authentication
+may bind to the first account. Installer/manual/test/watch sources remain
+distinct; remote upload failure never changes notification delivery state.
 Setup's `desktop_notification_status` keeps
 the existing status and adds fixed `code`/`action` on failure: missing helper,
 unrequested permission, denied permission, timeout, unsupported platform or

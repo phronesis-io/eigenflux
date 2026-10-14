@@ -232,6 +232,9 @@ func capabilitySeeds() []capabilitySeed {
 		capability("skills.target.update", "eigenflux skills target set", "local", "write", "修改 Skills 目标", "Update the Skills target"),
 		capability("watch.run", "eigenflux watch", "runtime", "read", "运行账号外循环", "Run one account loop"),
 		capability("watch.restart", "eigenflux watch restart", "local", "write", "重启指定的已有外循环后台任务", "Restart an explicitly selected existing background watch task"),
+		capability("watch.start", "eigenflux watch start", "local", "write", "启动 Windows 订单通知监听", "Start the Windows order notification watch"),
+		capability("notify.log", "eigenflux notify log", "local", "read", "查看通知发送记录", "Read notification observations"),
+		capability("notify.flush", "eigenflux notify flush", "local", "write", "上报通知统计", "Upload notification observations"),
 		capability("watch.bind", "eigenflux watch bind", "runtime", "write", "绑定本地智能体", "Bind a local Agent"),
 		capability("watch.status", "eigenflux watch status", "runtime", "read", "查看执行状态", "Read dispatch status"),
 		capability("watch.doctor", "eigenflux watch doctor", "runtime", "read", "检查本地绑定", "Check local binding"),
@@ -278,6 +281,15 @@ func capabilitySeeds() []capabilitySeed {
 		}
 		if seed.id == "watch.restart" {
 			seed.minCLI = "1.0.3"
+		}
+		if seed.id == "watch.start" {
+			seed.minCLI = "1.0.11"
+		}
+		if seed.id == "notify.log" {
+			seed.minCLI = "1.0.9"
+		}
+		if seed.id == "notify.flush" {
+			seed.minCLI = "1.0.10"
 		}
 		if seed.id == "capabilities.read" || (strings.HasPrefix(seed.id, "context.") && seed.id != "context.read") ||
 			(strings.HasPrefix(seed.id, "attention.") && seed.id != "attention.publish" && seed.id != "attention.prefill") {

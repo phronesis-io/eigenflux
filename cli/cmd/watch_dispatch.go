@@ -52,7 +52,7 @@ func (w *accountWatch) enableDispatch() error {
 }
 
 func (w *accountWatch) receivesPM() bool {
-	return w.binding == nil || w.binding.Handles("pm_push")
+	return !w.notificationsOnly && (w.binding == nil || w.binding.Handles("pm_push"))
 }
 
 // The one-minute poll complements the socket, including when a proxy silently
@@ -128,6 +128,9 @@ func (w *accountWatch) pollPMPage(ctx context.Context, cursor string) (string, b
 }
 
 func (w *accountWatch) dispatchIdentityOK() error {
+	if w.notificationsOnly {
+		return w.notificationIdentityOK()
+	}
 	b, err := dispatch.ReadBinding(w.home, w.server.Name)
 	if err != nil {
 		return errWatchConfiguration

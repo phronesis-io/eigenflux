@@ -2,6 +2,18 @@
 
 Update this map with every lifecycle change.
 
+`cmd/watch_notifications.go` exposes Windows `watch start`. `start_windows.go`
+and `start_windows.ps1` install an account-scoped, non-elevated interactive task
+named `EigenFlux-Notifications-<scope>`. Launcher JSON contains pinned identity
+and paths, never tokens. `notification_watch_windows.ps1` clears inherited
+EigenFlux overrides and invokes `watch --notifications-only` inside an owned
+kill-on-close Windows Job Object. Stopping the wrapper stops its native child
+and releases the account lock. Logs remain under
+the explicit Home's `watch/` directory. Repeated starts reuse a running task;
+disabled/foreign tasks fail without mutation. New tasks start immediately and
+on user logon. Three scheduler failure retries retain the pinned account.
+`process_started` still requires fresh `notifications_ready` in the log.
+
 `cmd/watch_restart.go` exposes `watch restart`. `restart.go` requires exactly one
 explicit target and bounds the operation to 45 seconds. The task definition
 selects the account; `--homedir` and `--server` do not retarget it. No discovery,
@@ -20,6 +32,11 @@ an explicit user instruction.
   Stop existing instances, run the original definition, and require the new
   instance to remain running for three seconds. JSON stdin carries the path to
   the embedded script; never interpolate it into PowerShell source.
+  Compare the returned COM instance by reference, then allow asynchronous
+  startup before refreshing it; PowerShell value equality can query a not-yet
+  available COM default property and falsely report `start_failed`.
+  Allow scheduler stop completion to settle before Run, and tolerate transient
+  `SCHED_E_TASK_NOT_RUNNING` only before the new instance first becomes running.
 
 Success is `process_started`, with `runtime_verified:false`; a wrapper PID or
 scheduler instance does not prove watch connectivity or Agent execution. Check

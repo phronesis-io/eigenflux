@@ -5,6 +5,11 @@ the same change. The CLI owns durable delivery; OS adapters only submit messages
 
 ## Flow
 
+`watch --notifications-only` reuses this queue without an execution journal or
+Agent worker. Each order notification must be validated and durably enqueued
+before ACK; an unavailable/full queue prevents ACK. Account ownership checks
+and retry/submission semantics remain the same.
+
 1. `watch --dispatch` enables desktop notifications by default on macOS/Windows
    for a binding subscribed to `commission_order`. Both buyer and seller events
    become notifications; displaying one never invokes an Agent.

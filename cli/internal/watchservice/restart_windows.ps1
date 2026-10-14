@@ -55,15 +55,24 @@ try {
         if ([DateTime]::UtcNow -ge $deadline) { throw 'stop timeout' }
         Start-Sleep -Milliseconds 200
     }
+    # Scheduler stop/start completion is asynchronous even after enumeration
+    # becomes empty. Let the stopped instance leave the scheduler first.
+    Start-Sleep -Seconds 1
 
     $failureCode = 'start_failed'
     # Preserve the registered action, arguments, environment and working directory.
     $instance = $task.Run($null)
-    if ($null -eq $instance) { throw 'no running instance' }
+    # PowerShell equality can query a COM default property before the async
+    # instance exists, raising SCHED_E_TASK_NOT_RUNNING on a valid Run request.
+    if ([object]::ReferenceEquals($null, $instance)) { throw 'no running instance' }
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
     $stableSince = $null
     while ([DateTime]::UtcNow -lt $deadline) {
-        $instance.Refresh()
+        Start-Sleep -Milliseconds 250
+        try { $instance.Refresh() } catch {
+            if ($null -eq $stableSince -and $_.Exception.GetBaseException().HResult -eq -2147216629) { continue }
+            throw
+        }
         $state = [int]$instance.State
         if ($state -eq 4) {
             if ($null -eq $stableSince) { $stableSince = [DateTime]::UtcNow }
