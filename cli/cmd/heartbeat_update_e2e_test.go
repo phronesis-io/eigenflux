@@ -51,6 +51,68 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 	if err := selfupdate.Sign(&release, key); err != nil {
 		t.Fatal(err)
 	}
+	t.Run("manual update without Agent login", func(t *testing.T) {
+		var requests atomic.Int32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requests.Add(1)
+			switch r.URL.Path {
+			case "/cli/latest/release.json":
+				_ = json.NewEncoder(w).Encode(release)
+			case "/cli/0.0.48/" + name:
+				_, _ = w.Write(newBytes)
+			default:
+				t.Errorf("manual update contacted an unrelated endpoint: %s", r.URL.Path)
+				http.NotFound(w, r)
+			}
+		}))
+		defer server.Close()
+		home := filepath.Join(t.TempDir(), ".eigenflux")
+		if err := os.MkdirAll(home, 0700); err != nil {
+			t.Fatal(err)
+		}
+		configBytes := []byte(`{"kv":{"auto_cli_update":"false","auto_skill_sync":"false","auto_plugin_update":"false"}}`)
+		if err := os.WriteFile(filepath.Join(home, "config.json"), configBytes, 0600); err != nil {
+			t.Fatal(err)
+		}
+		bin := filepath.Join(t.TempDir(), "eigenflux")
+		if err := os.WriteFile(bin, oldBytes, 0755); err != nil {
+			t.Fatal(err)
+		}
+		saved, _ := json.Marshal(map[string]interface{}{"attempt": time.Now(), "highest": "0.0.47"})
+		if err := os.WriteFile(bin+".update.json", saved, 0600); err != nil {
+			t.Fatal(err)
+		}
+		for index, status := range []string{"restarted", "current"} {
+			command := exec.Command(bin, "--homedir", home, "update", "--format", "json")
+			command.Env = append(os.Environ(), "EIGENFLUX_UPDATE_REEXEC=0", "EIGENFLUX_CDN_URL="+server.URL)
+			out, err := command.CombinedOutput()
+			if err != nil {
+				t.Fatalf("manual update failed: %s %v", out, err)
+			}
+			var report cliUpdateOutput
+			if err := json.Unmarshal(out, &report); err != nil {
+				t.Fatalf("invalid manual update result: %s %v", out, err)
+			}
+			if report.CLIVersion != "0.0.48" || report.CLIUpdate.Status != status || report.Home != home || report.PID <= 0 {
+				t.Fatalf("missing running-process evidence: %+v", report)
+			}
+			if index == 0 && report.PID == command.ProcessState.Pid() {
+				t.Fatal("old CLI claimed to be the replacement process")
+			}
+		}
+		if requests.Load() != 3 {
+			t.Fatalf("expected one install and one immediate current check, got %d requests", requests.Load())
+		}
+		installed, _ := os.ReadFile(bin)
+		previous, _ := os.ReadFile(bin + ".previous")
+		if !bytes.Equal(installed, newBytes) || !bytes.Equal(previous, oldBytes) {
+			t.Fatal("manual update failed to retain old and adopt new bytes")
+		}
+		currentConfig, err := os.ReadFile(filepath.Join(home, "config.json"))
+		if err != nil || !bytes.Equal(currentConfig, configBytes) {
+			t.Fatal("manual update changed automatic-update settings")
+		}
+	})
 	for _, tc := range []struct {
 		mode, host string
 		forced     bool

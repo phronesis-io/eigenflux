@@ -1,6 +1,6 @@
 # Automatic updates
 
-CLI 1.0.0 adds signed binary updates, current-host plugin maintenance and a
+CLI 0.6.6 adds signed binary updates, current-host plugin maintenance and a
 transport-only account watch. Existing commands, installation verification,
 uninstall behavior and host business delivery remain on the main baseline.
 
@@ -24,6 +24,13 @@ Home, explicit server and runtime metadata. Child errors and termination exit
 codes propagate without repeating business work. Native tasks remain finite
 heartbeat calls; hosted and standalone watch processes adopt the new CLI through
 the lifecycle described in [watch.md](watch.md).
+
+Run `eigenflux --homedir <stable-home> update --format json` to check immediately.
+This explicit owner command bypasses the daily throttle, keeps the binary lock,
+signature, checksum, anti-rollback and probe checks, then executes the new binary
+to report its own `cli_version` and PID. It needs no Agent login, does not sync
+Skills or update host plugins, and leaves automatic-update settings unchanged.
+A failed or blocked request returns a nonzero exit status.
 
 A bootstrap install is required for older CLIs to obtain this updater.
 Unconfigured development binaries do not update. Installation permissions and

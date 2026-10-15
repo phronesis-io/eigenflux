@@ -19,6 +19,8 @@ import (
 )
 
 type Options struct {
+	// CheckNow bypasses only the daily throttle for an explicit owner request.
+	CheckNow bool
 	// OnAttempt runs after the shared lock and throttle admit a real release check.
 	OnAttempt                         func()
 	Home                              string
@@ -91,7 +93,7 @@ func Check(ctx context.Context, o Options) (result Result) {
 	if b, e := os.ReadFile(path + ".update.json"); e == nil {
 		_ = json.Unmarshal(b, &s)
 	}
-	if o.Now.Before(s.Attempt.Add(24*time.Hour)) && !o.Now.Before(s.Attempt) && (o.Minimum == "" || o.Minimum == s.Minimum) {
+	if !o.CheckNow && o.Now.Before(s.Attempt.Add(24*time.Hour)) && !o.Now.Before(s.Attempt) && (o.Minimum == "" || o.Minimum == s.Minimum) {
 		result.Status, result.Error = "deferred", s.Error
 		return
 	}

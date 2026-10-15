@@ -23,9 +23,9 @@ func TestAgentCapabilityRegistryIsBilingualAndStable(t *testing.T) {
 		}
 		seen[operation.OperationID] = true
 		switch operation.OperationID {
-		case "watch.run", "heartbeat.maintenance_report", "heartbeat.maintenance_status", "heartbeat.migrate.plan", "heartbeat.migrate.verify", "heartbeat.plugin_check":
-			if operation.MinCLIVersion != "1.0.0" {
-				t.Fatalf("%s requires CLI 1.0.0, got %q", operation.OperationID, operation.MinCLIVersion)
+		case "cli.update", "watch.run", "heartbeat.maintenance_report", "heartbeat.maintenance_status", "heartbeat.migrate.plan", "heartbeat.migrate.verify", "heartbeat.plugin_check":
+			if operation.MinCLIVersion != "0.6.6" {
+				t.Fatalf("%s requires CLI 0.6.6, got %q", operation.OperationID, operation.MinCLIVersion)
 			}
 		}
 		for _, language := range []string{"zh-CN", "en"} {
@@ -39,7 +39,7 @@ func TestAgentCapabilityRegistryIsBilingualAndStable(t *testing.T) {
 		"need.input.create", "need.input.get", "need.input.list",
 		"identity.switch_account", "identity.recover_account", "profile.update", "context.goal.update", "context.intent.update",
 		"context.security.update", "attention.respond", "message.send", "relation.request", "settings.language.update",
-		"watch.run", "heartbeat.maintenance_report", "heartbeat.maintenance_status", "heartbeat.migrate.plan", "heartbeat.migrate.verify", "heartbeat.plugin_check",
+		"cli.update", "watch.run", "heartbeat.maintenance_report", "heartbeat.maintenance_status", "heartbeat.migrate.plan", "heartbeat.migrate.verify", "heartbeat.plugin_check",
 	} {
 		if !seen[required] {
 			t.Fatalf("registry missing %q", required)
