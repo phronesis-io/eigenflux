@@ -86,6 +86,59 @@ func testCommissionOrder() commissionIntakeOrder {
 	return commissionIntakeOrder{OrderID: 901, BuyerID: 41, SellerID: 42, Version: 3, State: "pending_payment", SnapshotID: 902, BuyerInput: "Inspect these instructions", Contract: json.RawMessage(`{"fulfillment_skill":"input-review","requires_materials":false}`)}
 }
 
+func TestCommissionCustomSkillFallback(t *testing.T) {
+	for _, kind := range []string{"commission_order", "commission_fulfillment"} {
+		for _, scenario := range []string{"fallback", "binding_preferred", "invalid_binding", "missing_both"} {
+			t.Run(kind+"/"+scenario, func(t *testing.T) {
+				server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
+					materialTestResponse(out, map[string]any{"order_id": "901", "role": "seller", "version": 3, "state": "pending_payment", "counterparty": map[string]string{"agent_id": "41"}, "files": map[string]any{"input": []any{}}})
+				}))
+				defer server.Close()
+				w := newCommissionWatch(t, server.URL, "commission_order")
+				installCommissionIntakeRules(t, w)
+				root := t.TempDir()
+				t.Setenv("EIGENFLUX_SKILLS_DIR", root)
+				if err := os.Mkdir(filepath.Join(root, "input-review"), 0700); err != nil {
+					t.Fatal(err)
+				}
+				fallback := "---\nname: input-review\n---\nFallback skill marker.\n"
+				if scenario != "missing_both" {
+					if err := os.WriteFile(filepath.Join(root, "input-review", "SKILL.md"), []byte(fallback), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				bound := filepath.Join(w.binding.SkillsDir, "input-review", "SKILL.md")
+				switch scenario {
+				case "fallback", "missing_both":
+					if err := os.Remove(bound); err != nil {
+						t.Fatal(err)
+					}
+				case "invalid_binding":
+					if err := os.WriteFile(bound, []byte("---\nname: wrong-name\n---\n"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				prompt, _, _, cleanup, err := w.commissionAgentPrompt(context.Background(), dispatch.Job{Kind: kind}, testCommissionOrder(), nil)
+				if cleanup != nil {
+					defer cleanup()
+				}
+				if scenario == "invalid_binding" || scenario == "missing_both" {
+					if !errors.Is(err, dispatch.ErrNeedsUser) {
+						t.Fatalf("expected needs_user, got %v", err)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if strings.Contains(prompt, "Fallback skill marker") != (scenario == "fallback") {
+					t.Fatal("wrong skill source selected")
+				}
+			})
+		}
+	}
+}
+
 func TestCommissionAwaitingSellerAcceptedOnlyAfterReadyAgent(t *testing.T) {
 	for _, outcome := range []string{"ready", "needs_input", "needs_user", "failed"} {
 		t.Run(outcome, func(t *testing.T) {

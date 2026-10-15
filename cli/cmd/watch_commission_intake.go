@@ -345,6 +345,14 @@ func (w *accountWatch) commissionAgentPrompt(ctx context.Context, job dispatch.J
 	}
 	skillPath := filepath.Join(rules.SkillsDir, contract.Skill, "SKILL.md")
 	skill, err := readIntakeFile(skillPath)
+	if errors.Is(err, os.ErrNotExist) {
+		root, resolveErr := skills.ResolveSkillsDir("", w.binding.Host)
+		if resolveErr != nil {
+			return "", false, nil, nil, dispatch.ErrNeedsUser
+		}
+		skillPath = filepath.Join(root, contract.Skill, "SKILL.md")
+		skill, err = readIntakeFile(skillPath)
+	}
 	if err != nil || !intakeSkillNameMatches(skill, contract.Skill) {
 		return "", false, nil, nil, dispatch.ErrNeedsUser
 	}
