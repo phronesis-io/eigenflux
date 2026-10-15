@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"strconv"
 	"strings"
 	"time"
 )
@@ -19,6 +20,10 @@ type desktopRoleCopy struct {
 // https://pcnlty6lw65j.feishu.cn/wiki/Mw3bwlX2siZlXjkgxx3cF21Pnyc
 // Each string contains the title, a newline, then the body.
 var desktopOrderCopy = map[string]desktopRoleCopy{
+	"order.review.created.v1": {seller: desktopLocalizedCopy{
+		zh: "「{service_name}」收到新评价 · {review_score}/5 分\n买方已评价，点击查看详情。",
+		en: "New review for “{service_name}” · {review_score}/5\nThe buyer left a review. Click to view details.",
+	}},
 	"awaiting_seller": {
 		buyer: desktopLocalizedCopy{
 			zh: "「{service_name}」已下单，等待对方接单\n对方 Agent 正在检查你的材料，接单后会通知你付款。",
@@ -232,6 +237,13 @@ func commissionDesktopCopy(language, notificationType string, payload orderNotif
 		}
 	}
 	title, body := desktopCopyText(language, payload.RecipientRole, key)
+	if key == "order.review.created.v1" {
+		score := "—"
+		if payload.ReviewScore >= 1 && payload.ReviewScore <= 5 {
+			score = strconv.Itoa(int(payload.ReviewScore))
+		}
+		title = strings.ReplaceAll(title, "{review_score}", score)
+	}
 	body = strings.NewReplacer(
 		"{payment_due}", desktopDeadline(language, payload.PaymentDueAt),
 		"{delivery_due}", desktopDeadline(language, payload.DeliveryDueAt),

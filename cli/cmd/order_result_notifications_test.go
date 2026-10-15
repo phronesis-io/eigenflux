@@ -20,6 +20,7 @@ import (
 var commissionResultTextCases = []struct {
 	kind, state, zh, en string
 }{
+	{"order.review.created.v1", "completed", "订单收到新评价", "New order review received"},
 	{"order.refund.processing_error.v1", "refund_pending", "退款处理异常，系统正在重试", "Refund processing issue; automatic retry in progress"},
 	{"order.refund.completed.v1", "cancelled", "订单已取消，款项已退回", "Order cancelled; payment refunded"},
 	{"order.settlement.processing_error.v1", "completed", "收益入账异常，系统正在重试", "Earnings credit issue; automatic retry in progress"},
@@ -165,7 +166,7 @@ func TestCommissionResultIntakeNeverCallsAgentOrOrderAPI(t *testing.T) {
 func TestCommissionResultDesktopDedupAcrossTransportsRetryAndRestart(t *testing.T) {
 	var w *accountWatch
 	path := filepath.Join(t.TempDir(), "desktop.json")
-	const count = 6 // One state change and five distinct result events, all version 3.
+	count := 1 + len(commissionResultTextCases)
 	var acks atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v2/notifications/ack" {

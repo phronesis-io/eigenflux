@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -165,5 +166,26 @@ func TestParseCommissionOrderNotificationRejectsInconsistentStateAndActor(t *tes
 	values["payload_json"] = string(encoded)
 	if _, _, err := parseCommissionOrderNotification(values); err == nil {
 		t.Fatal("system actor with an Agent ID was accepted")
+	}
+}
+
+func TestReviewNotificationPreservesScoreAndExactReviewID(t *testing.T) {
+	values := validCommissionNotificationValues(t)
+	var p commissionOrderNotificationPayload
+	if err := json.Unmarshal([]byte(values["payload_json"].(string)), &p); err != nil {
+		t.Fatal(err)
+	}
+	oldKind := p.EventKind
+	raw := values["payload_json"].(string)
+	raw = strings.ReplaceAll(raw, oldKind, "order.review.created.v1")
+	raw = raw[:len(raw)-1] + `,"review_id":9007199254740997,"review_score":4}`
+	values["event_kind"] = "order.review.created.v1"
+	values["payload_json"] = raw
+	event, _, err := parseCommissionOrderNotification(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(event.PayloadJSON, `"review_id":9007199254740997`) || !strings.Contains(event.PayloadJSON, `"review_score":4`) {
+		t.Fatal(event.PayloadJSON)
 	}
 }

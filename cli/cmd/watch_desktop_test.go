@@ -355,3 +355,31 @@ func TestDesktopFirstUseRegistrationAllowsRealMessage(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestReviewNoticeIncludesScoreAndUsesEnglishFallback(t *testing.T) {
+	raw := commissionResultTestNotification(t, 81, 901, "42", "order.review.created.v1", "completed")
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(fields["payload"], &payload); err != nil {
+		t.Fatal(err)
+	}
+	payload["review_score"] = json.RawMessage(`4`)
+	payload["review_id"] = json.RawMessage(`"9007199254740997"`)
+	fields["payload"], _ = json.Marshal(payload)
+	raw, _ = json.Marshal(fields)
+	for _, lang := range []string{"zh", "en", "fr", ""} {
+		message, err := commissionDesktopMessage(raw, "https://example.com", "42", lang)
+		if err != nil || !strings.Contains(message.Title, "4/5") {
+			t.Fatal(message, err)
+		}
+		if lang == "zh" && !strings.Contains(message.Title, "收到新评价") {
+			t.Fatal(message)
+		}
+		if lang != "zh" && !strings.Contains(message.Title, "New review") {
+			t.Fatal(message)
+		}
+	}
+}
