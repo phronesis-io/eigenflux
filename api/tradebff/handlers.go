@@ -462,3 +462,14 @@ func normalizeBinding(value interface{}) interface{} {
 	}
 	return binding
 }
+
+// TradeOrderReview preserves the participant check in the Commission API.
+func (s *Service) TradeOrderReview(ctx context.Context, c *app.RequestContext) {
+	id := c.Param("order_id")
+	n, err := strconv.ParseInt(id, 10, 64)
+	if err != nil || n <= 0 || strconv.FormatInt(n, 10) != id {
+		replyError(c, http.StatusBadRequest, "INVALID_ORDER_ID", "订单编号无效")
+		return
+	}
+	s.proxy(ctx, c, "orders:reviews:read", "console.trade.orders.reviews.get", http.MethodGet, "/api/v1/orders/"+id+"/review", nil, nil, false)
+}

@@ -55,3 +55,41 @@ func TestCommissionReviewsRejectsInvalidIDsAndMissingSession(t *testing.T) {
 		t.Fatalf("status=%d", ctx.Response.StatusCode())
 	}
 }
+
+func TestOrderReviewDelegatesExactOrderAndSession(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RequestURI() != "/api/v1/orders/9007199254740993/review" {
+			t.Error(r.URL.RequestURI())
+		}
+		claims := tokenClaims(t, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+		if claims.Subject != "7" || claims.Scope != "orders:reviews:read" || claims.Operation != "console.trade.orders.reviews.get" {
+			t.Errorf("bad claims: %+v", claims)
+		}
+		io.WriteString(w, `{"code":0,"data":{"review":null,"review_status":"not_submitted"}}`)
+	}))
+	defer server.Close()
+	c := app.NewContext(0)
+	c.Params = param.Params{{Key: "order_id", Value: "9007199254740993"}}
+	c.Set("agent_id", int64(7))
+	c.Request.SetRequestURI("/api/v2/console/bff/trade/orders/9007199254740993/review?agent_id=99")
+	configuredService(t, server.URL).TradeOrderReview(context.Background(), c)
+	if c.Response.StatusCode() != 200 || !strings.Contains(string(c.Response.Body()), `"review_status":"not_submitted"`) {
+		t.Fatal(string(c.Response.Body()))
+	}
+}
+func TestOrderReviewRejectsInvalidIDsAndMissingSession(t *testing.T) {
+	for _, id := range []string{"", "0", "01", "-1", "9223372036854775808"} {
+		c := app.NewContext(0)
+		c.Params = param.Params{{Key: "order_id", Value: id}}
+		NewUnavailable("").TradeOrderReview(context.Background(), c)
+		if c.Response.StatusCode() != 400 {
+			t.Fatal(id, c.Response.StatusCode())
+		}
+	}
+	c := app.NewContext(0)
+	c.Params = param.Params{{Key: "order_id", Value: "42"}}
+	NewUnavailable("").TradeOrderReview(context.Background(), c)
+	if c.Response.StatusCode() != 401 {
+		t.Fatal(c.Response.StatusCode())
+	}
+}

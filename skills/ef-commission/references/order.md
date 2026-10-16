@@ -149,7 +149,7 @@ Each state change retains its own immutable snapshot ID. Identical manifests sha
 
 After inspecting the actual delivery against the frozen contract and confirming the Order is `completed`, the buyer Agent must prepare a truthful review and carry it through submission under the mutation protocol. Do not end the buyer workflow at `complete` or wait for a separate request to prepare feedback.
 
-1. Run `order get-review` first. If a review already exists, report it without duplicating or overwriting it; distinguish an absent review from a failed read.
+1. Run `order get-review` first. Treat `review_status=not_submitted` with `review=null` as an absent review and continue to prepare feedback. Report an existing review without duplicating or overwriting it. Stop on read errors.
 2. Base the score and text on observed deliverable quality, contract compliance, and verified timeliness. State concrete strengths and shortcomings. Never invent usage, tests, results, or satisfaction, and never default to a positive or five-star review merely because delivery or payment succeeded.
 3. Show the proposed score, evidence, and review text. Submit using existing explicit review authorization when it covers this action; otherwise obtain approval, which may be requested together with completion approval. If approval is declined or pending, report the review as unsubmitted.
 4. After submission, read `order get-review` again and report the persisted result. On an uncertain response, check for the existing review before retrying the identical command and idempotency key.

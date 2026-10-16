@@ -32,6 +32,8 @@ type orderNotification struct {
 }
 
 type orderNotificationPayload struct {
+	ReviewID         notificationID `json:"review_id"`
+	ReviewScore      int32          `json:"review_score"`
 	OrderID          notificationID `json:"order_id"`
 	OrderVersion     int64          `json:"order_version"`
 	RecipientRole    string         `json:"recipient_role"`
@@ -294,6 +296,8 @@ func localizedOrderNotificationText(language, notificationType string, payload o
 func commissionResultNotificationText(language, kind string) string {
 	var zh, en string
 	switch kind {
+	case "order.review.created.v1":
+		zh, en = "订单收到新评价", "New order review received"
 	case "order.refund.processing_error.v1":
 		zh, en = "退款处理异常，系统正在重试", "Refund processing issue; automatic retry in progress"
 	case "order.refund.completed.v1":

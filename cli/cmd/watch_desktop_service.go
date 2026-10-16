@@ -1,24 +1,29 @@
 package cmd
 
 import (
+	"cli.eigenflux.ai/internal/client"
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"cli.eigenflux.ai/internal/desktopnotify"
 )
 
+const desktopBuyerNamePlaceholder = "{buyer_name}"
+
 var errDesktopServiceName = errors.New("service_name_unavailable")
 
 // Resolve only in the desktop delivery lane, outside intake and remote ACK.
 // The frozen order title is display data; it never selects an Agent or operation.
 func (w *accountWatch) resolveDesktopServiceName(ctx context.Context, message desktopnotify.Message) (desktopnotify.Message, error) {
-	if !strings.Contains(message.Title, desktopServiceNamePlaceholder) && !strings.Contains(message.Body, desktopServiceNamePlaceholder) {
+	if !strings.Contains(message.Title, desktopServiceNamePlaceholder) && !strings.Contains(message.Body, desktopServiceNamePlaceholder) && !strings.Contains(message.Title, desktopBuyerNamePlaceholder) {
 		return message, nil
 	}
 	if desktopnotify.Validate(message) != nil {
@@ -65,9 +70,58 @@ func (w *accountWatch) resolveDesktopServiceName(ctx context.Context, message de
 	if name == "" {
 		return message, errDesktopServiceName
 	}
-	// ReplaceAll does not recursively expand placeholder-like text in the title.
-	message.Title = strings.ReplaceAll(message.Title, desktopServiceNamePlaceholder, name)
-	message.Body = strings.ReplaceAll(message.Body, desktopServiceNamePlaceholder, name)
+	buyerName := ""
+	if role == "seller" {
+		if strings.HasPrefix(message.Title, "「") {
+			message.Title = "买家「" + desktopBuyerNamePlaceholder + "」 · " + message.Title
+		} else {
+			message.Title = "Buyer “" + desktopBuyerNamePlaceholder + "” · " + message.Title
+		}
+	}
+	if strings.Contains(message.Title, desktopBuyerNamePlaceholder) {
+		if role != "seller" {
+			return message, errDesktopServiceName
+		}
+		buyerID := strconv.FormatInt(int64(data.Order.BuyerID), 10)
+		buyerName = "Agent " + buyerID
+		// Public identity data is optional; a failed lookup must not suppress an order notice.
+		public := client.New(strings.TrimRight(w.server.Endpoint, "/")+"/api/v2", "", version, client.Meta{})
+		public.HTTPClient = &http.Client{Timeout: 3 * time.Second, Transport: watchTransport{ctx}}
+		if result, lookupErr := public.Get("/public/agents/by-id/"+buyerID+"/card", nil); lookupErr == nil && result.Code == 0 && len(result.Data) <= 256<<10 {
+			var profile struct {
+				Card struct {
+					Name          string `json:"agent_name"`
+					DisplayName   string `json:"display_name"`
+					NameEN        string `json:"agent_name_en"`
+					DisplayNameEN string `json:"display_name_en"`
+				} `json:"card"`
+				Identity struct {
+					DisplayName   string `json:"display_name"`
+					DisplayNameEN string `json:"display_name_en"`
+				} `json:"public_identity"`
+			}
+			if json.Unmarshal(result.Data, &profile) == nil {
+				candidates := []string{profile.Identity.DisplayName, profile.Card.DisplayName, profile.Card.Name}
+				if strings.HasPrefix(message.Title, "Buyer “") {
+					candidates = append([]string{profile.Identity.DisplayNameEN, profile.Card.DisplayNameEN, profile.Card.NameEN}, candidates...)
+				}
+				for _, candidate := range candidates {
+					if cleaned := desktopServiceName(candidate); cleaned != "" {
+						runes := []rune(cleaned)
+						if len(runes) > 40 {
+							cleaned = string(runes[:39]) + "…"
+						}
+						buyerName = cleaned
+						break
+					}
+				}
+			}
+		}
+	}
+	// A single replacer never expands placeholder-like text within display names.
+	replace := strings.NewReplacer(desktopServiceNamePlaceholder, name, desktopBuyerNamePlaceholder, buyerName)
+	message.Title = replace.Replace(message.Title)
+	message.Body = replace.Replace(message.Body)
 	if desktopnotify.Validate(message) != nil {
 		return message, errDesktopServiceName
 	}
