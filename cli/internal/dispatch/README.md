@@ -36,6 +36,12 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 6. Monitor identity during prompt preparation and execution; recheck before invoking the Agent and after its result. Run the model outside credential locks.
 7. Require one JSON decision: `version=1`, matching `request_id`, `action`, `reply_text`. Actions: `reply`, `no_reply`, `needs_user`. Reject missing/unknown/duplicate fields and trailing output.
 8. Validate reply content, persist `sending`, then recheck identity and permission under the credential lock. POST only to the original conversation with `request_id=pm-reply:<original-message-id>`; disable POST refresh/replay. The gateway and PM RPC preserve this ID so different inbound messages can receive identical text, while repeated sends for one message reuse its first receipt within the server's 60-second window. Record `replied` only with a valid matching receipt; emit redacted status. Interrupted sends remain `unknown`; this key does not enable automatic replay. Deploy the updated PM RPC and gateway before relying on this behavior in the CLI.
+9. With desktop delivery enabled, persisted PM `needs_user` decisions enter the
+   existing durable notification lane. `PrivateMessageBlockers` returns no body;
+   notifications use generic copy and the pinned server's Messages page. Stable
+   local IDs deduplicate repeated scans and restart recovery. A revision request
+   received as a PM follows this same path; it creates no order lifecycle event
+   or authority to modify a delivery.
 
 ## Commission input inspection
 

@@ -11,8 +11,9 @@ before ACK; an unavailable/full queue prevents ACK. Account ownership checks
 and retry/submission semantics remain the same.
 
 1. `watch --dispatch` enables desktop notifications by default on macOS/Windows
-   for a binding subscribed to `commission_order`. Both buyer and seller events
-   become notifications; displaying one never invokes an Agent.
+   for a binding subscribed to `commission_order` or `pm_push`. Both buyer and
+   seller order events notify. Private messages notify only after a persisted
+   `needs_user` decision; displaying a notification never invokes an Agent.
 2. `deliverCommissionNotifications` validates and saves the execution job, then
    saves its desktop message, then ACKs the remote notification. Either save
    failing prevents ACK. Socket and HTTP use this same path.
@@ -21,6 +22,13 @@ and retry/submission semantics remain the same.
 4. `Journal.CommissionBlockers` supplies validated routing metadata for local
    `needs_user`, `failed`, and `unknown` work. Recover these notifications after
    crashes without exposing task bodies or changing execution state.
+5. `Journal.PrivateMessageBlockers` exposes only job IDs and fixed codes for
+   unresolved `needs_user` PMs, including revision requests received as messages.
+   Recover them after crashes into generic notifications linking to the configured
+   server's `/dashboard/messages`. The recipient selects the receiving account
+   in Console. No message text, peer URL, order ID inferred from text, or claimed
+   revision authority becomes notification copy or routing. Reply and order
+   execution stay unchanged.
 
 ## Persistence and retry
 
