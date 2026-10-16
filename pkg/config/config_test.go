@@ -534,3 +534,14 @@ func TestConsumedRefillDefaultsOffAndLoadsBucket(t *testing.T) {
 		t.Fatal("refill bucket not loaded")
 	}
 }
+
+func TestProfileSemanticDefaultsOffAndLoadsBucket(t *testing.T) {
+	t.Setenv("DISCOVERY_PROFILE_SEMANTIC_BPS", "")
+	if Load().DiscoveryProfileSemanticBPS != 0 {
+		t.Fatal("profile semantic must default off")
+	}
+	t.Setenv("DISCOVERY_PROFILE_SEMANTIC_BPS", "5000")
+	if Load().DiscoveryProfileSemanticBPS != 5000 {
+		t.Fatal("profile semantic bucket not loaded")
+	}
+}
