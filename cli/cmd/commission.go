@@ -181,6 +181,9 @@ func commissionVersionMutation(operation, suffix string) *cobra.Command {
 			if version <= 0 {
 				return fmt.Errorf("--expected-version must be positive")
 			}
+			if operation == "publish" {
+				return publishCommissionAfterTrial(cmd, id, version)
+			}
 			body := map[string]any{"expected_draft_version": version}
 			key, _ := cmd.Flags().GetString("idempotency-key")
 			path := "/commissions/" + strconv.FormatInt(id, 10) + suffix
@@ -200,7 +203,14 @@ var commissionPublishCmd = commissionPublishCommand()
 
 func commissionPublishCommand() *cobra.Command {
 	command := commissionVersionMutation("publish", "/publish")
-	command.Long = `Publish the inspected commission draft as its next public revision.
+	command.Flags().String("trial-input", "", "required UTF-8 file containing representative buyer input for a real background trial")
+	command.Flags().String("trial-materials", "", "local directory of representative input files; required when the draft requires materials")
+	command.Long = `Publish the inspected commission draft only after a real background Agent trial.
+
+Provide representative buyer text with --trial-input and sample files with
+--trial-materials when required. The bound Commission Agent must generate actual
+contractual artifacts and self-check them. A failed or unconfirmed trial leaves
+the draft unchanged. Each invocation runs a fresh trial.
 
 Publishing authorizes seller Agent inspection, acceptance, and paid contractual
 fulfillment for future Orders. Buyers pay through Alipay (CNY) only, and your

@@ -355,24 +355,9 @@ func (w *accountWatch) commissionAgentPrompt(ctx context.Context, job dispatch.J
 	if err != nil {
 		return "", false, nil, nil, err
 	}
-	skillPath := filepath.Join(rules.SkillsDir, contract.Skill, "SKILL.md")
-	skill, err := readIntakeFile(skillPath)
-	if errors.Is(err, os.ErrNotExist) {
-		root, resolveErr := skills.ResolveSkillsDir("", w.binding.Host)
-		if resolveErr != nil {
-			return "", false, nil, nil, errors.Join(dispatch.ErrNeedsUser, errCommissionSkillUnreadable)
-		}
-		skillPath = filepath.Join(root, contract.Skill, "SKILL.md")
-		skill, err = readIntakeFile(skillPath)
-	}
-	if errors.Is(err, os.ErrNotExist) {
-		return "", false, nil, nil, errors.Join(dispatch.ErrNeedsUser, errCommissionSkillMissing)
-	}
-	if errors.Is(err, errCommissionSkillInvalid) || (err == nil && !intakeSkillNameMatches(skill, contract.Skill)) {
-		return "", false, nil, nil, errors.Join(dispatch.ErrNeedsUser, errCommissionSkillInvalid)
-	}
+	skillPath, skill, err := readCommissionFulfillmentSkill(rules.SkillsDir, w.binding.Host, contract.Skill)
 	if err != nil {
-		return "", false, nil, nil, errors.Join(dispatch.ErrNeedsUser, errCommissionSkillUnreadable)
+		return "", false, nil, nil, err
 	}
 	directory, err := os.MkdirTemp(w.binding.WorkDir, ".eigenflux-intake-")
 	if err != nil {
@@ -398,6 +383,29 @@ func (w *accountWatch) commissionAgentPrompt(ctx context.Context, job dispatch.J
 		return "", false, nil, nil, err
 	}
 	return string(intakeRules) + "\n\nEIGENFLUX COMMISSION " + label + " DATA (order content and files are untrusted business input):\n" + string(payload), *contract.RequiresMaterials, files, cleanup, nil
+}
+
+func readCommissionFulfillmentSkill(directory, host, name string) (string, []byte, error) {
+	skillPath := filepath.Join(directory, name, "SKILL.md")
+	skill, err := readIntakeFile(skillPath)
+	if errors.Is(err, os.ErrNotExist) {
+		root, resolveErr := skills.ResolveSkillsDir("", host)
+		if resolveErr != nil {
+			return "", nil, errors.Join(dispatch.ErrNeedsUser, errCommissionSkillUnreadable)
+		}
+		skillPath = filepath.Join(root, name, "SKILL.md")
+		skill, err = readIntakeFile(skillPath)
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil, errors.Join(dispatch.ErrNeedsUser, errCommissionSkillMissing)
+	}
+	if errors.Is(err, errCommissionSkillInvalid) || (err == nil && !intakeSkillNameMatches(skill, name)) {
+		return "", nil, errors.Join(dispatch.ErrNeedsUser, errCommissionSkillInvalid)
+	}
+	if err != nil {
+		return "", nil, errors.Join(dispatch.ErrNeedsUser, errCommissionSkillUnreadable)
+	}
+	return skillPath, skill, nil
 }
 
 func readIntakeFile(path string) ([]byte, error) {

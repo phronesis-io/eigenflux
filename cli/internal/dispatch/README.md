@@ -7,6 +7,7 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 
 | File | Entry points / responsibility |
 |---|---|
+| [commission_trial.go](../../cmd/commission_trial.go), [trial decision](commission_trial.go) | Mandatory publish trial using the bound runner, fresh draft, signed trial rules and verified local artifacts |
 | [watch.go](../../cmd/watch.go) | `accountWatch.run`, `pmLoop`, `deliverPM`: account lock, WS/SSE, heartbeat, event lifecycle |
 | [watch_binding.go](../../cmd/watch_binding.go) | Bind/doctor/status/retry/reconcile; `applyDispatchOwnership` |
 | [watch_update.go](../../cmd/watch_update.go), [watch_update_unix.go](../../cmd/watch_update_unix.go), [watch_update_windows.go](../../cmd/watch_update_windows.go) | Close all three execution lanes before CLI adoption; drain admitted work, release account lock, preserve arguments and pinned identity; supervised watches notify the host after draining |
@@ -311,3 +312,25 @@ desktop lifecycle remain unverified. Fixtures do not prove a live PM receipt.
 Run relevant tests from `cli/`; use race checks for concurrency changes and Mac/Windows builds for process/filesystem changes. Update affected Skills and capability contracts with behavior changes.
 
 Setup, recovery commands, delivery limitations and unverified hosts: [operator guide](../../../docs/dev/agent-dispatch.md). Repository checks: [testing.md](../../../docs/dev/testing.md). Buyer-facing receipts remain separate; A2A is excluded.
+
+## Listing publish trial
+
+`commission publish` requires `--trial-input` (a nonempty UTF-8 buyer-input file)
+and `--trial-materials` (a local input directory) when the draft requires files.
+Each invocation reads the owned expected draft, verifies the Commission execution
+binding and signed `publish-trial.md`, and runs a fresh `commission_publish_trial`
+request using the fulfillment runner's binding, workdir, permissions and timeout.
+It uses an isolated session and never creates an Order or uploads artifacts.
+Skill resolution is shared with paid fulfillment, including host-directory fallback.
+
+Sample files are bounded, verified copies; symlinks are rejected. The runner must
+produce contractual files and concrete self-check evidence. The CLI validates
+strict result identity and output containment, actual regular files, sizes and
+digests. Draft, identity, binding and Skill changes prevent publishing. Preserve
+trial files and local evidence under `.eigenflux-publish-trial-*`; report the path
+on stderr. Every publish repeats the trial. An unconfirmed run requires inspection
+before retry; no automatic trial replay or reusable readiness flag exists.
+
+This is a CLI gate. Direct Commission API publishing remains independently
+available; server-enforced attestation is outside this change. A successful sample
+proves only that invocation, not every future input or external capability.

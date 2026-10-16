@@ -67,3 +67,14 @@ These disclose the same limit but are not changed from this repository:
 - The product website and its Console trade, earnings and payout pages. The
   Console V2 trade BFF currently returns no payment-method field; the website
   states the limit itself.
+
+## CLI publish gate
+
+The test CLI requires a real background listing trial on every `commission publish`.
+Supply representative buyer text with `--trial-input` and local sample files with
+`--trial-materials` when materials are required. Bind the account's execution Agent
+to `commission_order` first. The signed trial Skill executes local generation and
+checks acceptance; the CLI verifies actual artifacts before posting the expected
+draft version. Failures leave the draft unchanged. Trial outputs and evidence are
+retained locally, and no real Order, payment, upload or delivery occurs. See
+`cli/internal/dispatch/README.md` for implementation and enforcement boundaries.

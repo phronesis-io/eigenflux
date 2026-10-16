@@ -179,3 +179,11 @@ PM + Commission subscriptions share the Socket. A Commission-only subscription u
 ### Missed seller order recovery
 
 Stop watch and run `watch retry --order-id ORDER_ID` with the bound Home and server to persist one seller intake when notifications were missed or previously read. The authoritative order must belong to the current seller and be awaiting seller acceptance or in progress. The binding must subscribe to `commission_order`; status and doctor expose its subscription independently of PM readiness. Start `watch --dispatch` afterward to execute the queued intake. Existing fulfillment records and uncertain intake jobs require the existing job-ID retry/reconcile workflow. This command neither creates notification records nor acknowledges the inbox.
+
+## Test listing publish verification
+
+Use the same Commission execution binding for listing trials and paid fulfillment.
+`commission publish` requires `--trial-input` and, for file-based services,
+`--trial-materials`. It runs the bound background Agent and checks real outputs;
+fix reported blockers before retrying. Inspect retained trial files after a timeout
+or unconfirmed result. Passing a sample does not replace per-order input checks.

@@ -3,7 +3,7 @@ name: ef-commission
 description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, obtain an order payment link, exchange order workspace files, perform CLI-dispatched seller input checks or paid local fulfillment, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Commission.
 metadata:
   author: "Phronesis AI"
-  version: "999.0.14-dev.20261016"
+  version: "999.0.15-dev.20261016"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
@@ -13,6 +13,7 @@ metadata:
 
 For background invocations from `eigenflux watch --dispatch`, follow only the matching reference and return its JSON result:
 
+- Listing publish trial: [references/publish-trial.md](references/publish-trial.md). Generate and verify representative deliverables locally.
 - Seller input check: [references/dispatch.md](references/dispatch.md). Inspect inputs only.
 - Separate paid seller local fulfillment: [references/fulfillment-dispatch.md](references/fulfillment-dispatch.md). Generate and self-check contractual artifacts; CLI uploads and submits verified results.
 
