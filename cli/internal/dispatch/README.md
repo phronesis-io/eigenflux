@@ -179,6 +179,12 @@ without guessing or fetching a replacement fence.
 Desktop order blockers use fixed reason-specific text and retain the exact
 account/order link. A payment event says awaiting delivery; it cannot certify
 that a local Agent is executing. PM states never enter desktop delivery.
+Unconfirmed inspection, fulfillment, acceptance and delivery submission have
+distinct local titles and recovery instructions. Agent-call errors identify the
+failed call without inventing a timeout or asserting order failure. Interrupted
+work identifies the interruption without guessing its cause. Acceptance and
+delivery instructions require checking existing records before repeating writes;
+raw runner errors and local paths never enter notification copy.
 Install the Commission execution-report API and its database migration before
 this CLI to enable Console issue visibility; a missing API leaves observations
 queued and does not stop or replay execution. Installing only frontend code does
