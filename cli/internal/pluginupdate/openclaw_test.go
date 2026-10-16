@@ -543,3 +543,67 @@ func TestPendingTargetDoesNotRestartChangedPIDWithoutRuntime(t *testing.T) {
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestUpdateProgressDistinguishesInstallationFromLoadedRuntime(t *testing.T) {
+	for _, ready := range []bool{false, true} {
+		t.Run(fmt.Sprintf("runtime-ready-%t", ready), func(t *testing.T) {
+			f := newFixture(t)
+			f.i.Plugin.Version, f.i.Install.Version, f.i.Install.ResolvedVersion = "0.0.45", "0.0.45", "0.0.45"
+			f.i.Install.ResolvedSpec = PackageName + "@0.0.45"
+			f.r.PluginVersion, f.autoRestart = "0.0.45", ready
+			var observations []Progress
+			f.o.OnProgress = func(p Progress) { observations = append(observations, p) }
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
+			defer cancel()
+			r := Update(ctx, f.o)
+			want := "restart_required"
+			if ready {
+				want = "loaded"
+			}
+			if r.Status != want || r.Phase != "load" {
+				t.Fatalf("terminal runtime evidence: %+v", r)
+			}
+			var stages []string
+			for _, p := range observations {
+				stages = append(stages, p.Phase+":"+p.Result)
+				if p.Phase != "check" && (p.FromVersion != "0.0.45" || p.TargetVersion != f.target) {
+					t.Fatalf("stage lost original or target version: %+v", p)
+				}
+				if p.Result == "loaded" {
+					t.Fatal("progress claimed runtime loading without the terminal runtime check")
+				}
+			}
+			if got := strings.Join(stages, ","); got != "check:started,verify:started,install:started,install:installed,load:started" {
+				t.Fatalf("update stages=%s", got)
+			}
+		})
+	}
+}
+
+func TestUpdateProgressPreservesSourceFailurePhaseAndDiscoveredTarget(t *testing.T) {
+	f := newFixture(t)
+	if err := os.WriteFile(filepath.Join(f.root, "dist/index.js"), []byte("modified"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var observations []Progress
+	f.o.OnProgress = func(p Progress) { observations = append(observations, p) }
+	r := Update(context.Background(), f.o)
+	if r.Status != "blocked" || r.Phase != "verify" || r.LatestVersion != f.target || f.updates != 0 {
+		t.Fatalf("source failure mislabeled: %+v", r)
+	}
+	if len(observations) != 2 || observations[1].Phase != "verify" || observations[1].TargetVersion != f.target {
+		t.Fatalf("source verification observation=%+v", observations)
+	}
+}
+
+func TestUpdateProgressPanicCannotInterruptInstallationOrRuntimeCheck(t *testing.T) {
+	f := newFixture(t)
+	f.i.Plugin.Version, f.i.Install.Version, f.i.Install.ResolvedVersion = "0.0.45", "0.0.45", "0.0.45"
+	f.i.Install.ResolvedSpec = PackageName + "@0.0.45"
+	f.r.PluginVersion, f.autoRestart = "0.0.45", true
+	f.o.OnProgress = func(Progress) { panic("observer failed") }
+	result := Update(context.Background(), f.o)
+	if result.Status != "loaded" || result.LoadedVersion != f.target || f.updates != 1 {
+		t.Fatalf("observer interrupted plugin maintenance: %+v updates=%d", result, f.updates)
+	}
+}

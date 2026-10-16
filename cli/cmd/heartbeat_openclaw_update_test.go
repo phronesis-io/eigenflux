@@ -1,14 +1,22 @@
 package cmd
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
+	"cli.eigenflux.ai/internal/maintenance"
 )
 
 func TestNativeRetryReachesWatchMaintenanceSchedule(t *testing.T) {
@@ -160,5 +168,54 @@ func TestPluginWorkerEnvironmentHasNoWatchHandoffMarkers(t *testing.T) {
 	env := cleanWatchUpdateEnvironment([]string{"PATH=/bin", "EIGENFLUX_HOME=/stable", updateReexecEnv + "=1", updateAttemptEnv + "=old", watchSupervisedEnv + "=1", watchAgentEnv + "=old", watchPrincipalEnv + "=old"})
 	if strings.Join(env, "|") != "PATH=/bin|EIGENFLUX_HOME=/stable" {
 		t.Fatalf("worker inherited stale handoff: %v", env)
+	}
+}
+
+func TestNativeWorkerKeepsScheduledAttemptAcrossDetachedProcess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake manager is a POSIX executable")
+	}
+	var received []maintenance.Event
+	var mu sync.Mutex
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Events []maintenance.Event `json:"events"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		mu.Lock()
+		received = append(received, body.Events...)
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+	}))
+	defer api.Close()
+	cfg, _ := runtimeTestConfig(t, api.URL, true)
+	clientMeta = client.Meta{Host: "openclaw", Mode: "plugin"}
+	bin := filepath.Join(t.TempDir(), "openclaw")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s' '{\"plugins\":[]}'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("EIGENFLUX_OPENCLAW_BIN", bin)
+	old := launchOpenClawUpdate
+	launchOpenClawUpdate = func(pluginMaintenance) error { return nil }
+	t.Cleanup(func() { launchOpenClawUpdate = old })
+	scheduled := scheduleOpenClawUpdate(pluginMaintenanceForHost("openclaw", "plugin", cfg))
+	result, err := runOpenClawUpdate(context.Background())
+	if err != nil || result.Status != "not_installed" || result.AttemptID != scheduled.AttemptID {
+		t.Fatalf("detached attempt changed: %+v %+v %v", scheduled, result, err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(received) != 2 {
+		t.Fatalf("expected check+not_installed observations, got %+v", received)
+	}
+	for _, event := range received {
+		if event.AttemptID != scheduled.AttemptID || event.Component != "plugin" || event.Phase != "check" {
+			t.Fatalf("worker event lost scheduled attempt: %+v", event)
+		}
+		if err := maintenance.Validate(event); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/selfupdate"
 	"cli.eigenflux.ai/internal/skills"
 	"crypto/ed25519"
@@ -19,6 +20,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -113,6 +115,80 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 			t.Fatal("manual update changed automatic-update settings")
 		}
 	})
+
+	for _, online := range []bool{true, false} {
+		t.Run(map[bool]string{true: "authenticated manual stages", false: "authenticated manual offline stages"}[online], func(t *testing.T) {
+			var mu sync.Mutex
+			var observed []maintenance.Event
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/cli/latest/release.json":
+					_ = json.NewEncoder(w).Encode(release)
+				case "/cli/0.0.48/" + name:
+					_, _ = w.Write(newBytes)
+				case "/api/v2/maintenance/events:batch":
+					if !online {
+						http.Error(w, "offline", http.StatusServiceUnavailable)
+						return
+					}
+					var body struct {
+						Events []maintenance.Event `json:"events"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						t.Error(err)
+					}
+					mu.Lock()
+					observed = append(observed, body.Events...)
+					mu.Unlock()
+					_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+				default:
+					t.Errorf("unexpected manual endpoint %s", r.URL.Path)
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+			_, server := runtimeTestConfig(t, srv.URL, true)
+			home := config.HomeDir()
+			bin := filepath.Join(t.TempDir(), "eigenflux")
+			if err := os.WriteFile(bin, oldBytes, 0755); err != nil {
+				t.Fatal(err)
+			}
+			command := exec.Command(bin, "--homedir", home, "--server", server, "update", "--format", "json")
+			command.Env = append(os.Environ(), "EIGENFLUX_UPDATE_REEXEC=0", "EIGENFLUX_CDN_URL="+srv.URL)
+			var stderr bytes.Buffer
+			command.Stderr = &stderr
+			out, err := command.Output()
+			if err != nil {
+				t.Fatalf("manual update failed: %s %s %v", out, stderr.String(), err)
+			}
+			var report cliUpdateOutput
+			if err := json.Unmarshal(out, &report); err != nil {
+				t.Fatalf("invalid result: %s %v", out, err)
+			}
+			wantStatus := "reported"
+			if !online {
+				wantStatus = "queued"
+			}
+			if report.CLIVersion != "0.0.48" || report.CLIUpdate.Status != "restarted" || report.Observation.Status != wantStatus {
+				t.Fatalf("incorrect runtime/report status %+v; %s", report, stderr.String())
+			}
+			mu.Lock()
+			events := append([]maintenance.Event(nil), observed...)
+			mu.Unlock()
+			if !online {
+				state, err := maintenance.Snapshot(maintenance.Scope{Home: home, Server: server, AgentID: "agent-1"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				events = state.Events
+			}
+			assertCLIUpdateStages(t, events, "manual", report.Observation.AttemptID)
+			creds, err := auth.LoadV2Credentials(server)
+			if err != nil || creds.AgentID != "agent-1" || creds.AccessToken != "test-v2" {
+				t.Fatalf("identity changed: %v", err)
+			}
+		})
+	}
 	for _, tc := range []struct {
 		mode, host string
 		forced     bool
@@ -123,6 +199,8 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 	} {
 		t.Run(tc.host+"/"+map[bool]string{false: "daily", true: "Skills minimum overrides TTL"}[tc.forced], func(t *testing.T) {
 			var requests, reported atomic.Int32
+			var eventMu sync.Mutex
+			var observations []maintenance.Event
 			var manifest *skills.Manifest
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
@@ -136,6 +214,15 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 				case "/api/v2/agent-context":
 					_, _ = w.Write([]byte(`{"code":0,"data":{"context_revision":1}}`))
 				case "/api/v2/maintenance/events:batch":
+					var body struct {
+						Events []maintenance.Event `json:"events"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						t.Error(err)
+					}
+					eventMu.Lock()
+					observations = append(observations, body.Events...)
+					eventMu.Unlock()
 					_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
 				case "/api/v2/agents/me/settings", "/api/v2/agent-settings/heartbeat-compatibility":
 					if r.Method == http.MethodPut || r.Method == http.MethodPost {
@@ -200,6 +287,10 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 			if plan.CLIVersion != "0.0.48" || requests.Load() != 1 || reported.Load() == 0 || !plan.CompatibilityReported {
 				t.Fatalf("upgrade/report failed: %+v requests=%d reports=%d", plan, requests.Load(), reported.Load())
 			}
+			eventMu.Lock()
+			captured := append([]maintenance.Event(nil), observations...)
+			eventMu.Unlock()
+			assertCLIUpdateStages(t, captured, "auto", "")
 			creds, err := auth.LoadV2Credentials(server)
 			if err != nil || creds.AgentID != "agent-1" || creds.AccessToken != "test-v2" {
 				t.Fatalf("identity changed: %v", err)
@@ -220,5 +311,40 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 				t.Fatal("plugin loop lost scheduler ownership")
 			}
 		})
+	}
+}
+
+func assertCLIUpdateStages(t *testing.T, events []maintenance.Event, trigger, attempt string) {
+	t.Helper()
+	phases := map[string]bool{}
+	for _, event := range events {
+		if event.Component != "cli" {
+			continue
+		}
+		if attempt == "" {
+			attempt = event.AttemptID
+		}
+		if event.AttemptID != attempt || event.Trigger != trigger {
+			t.Fatalf("update correlation lost: %+v", event)
+		}
+		if err := maintenance.Validate(event); err != nil {
+			t.Fatalf("invalid wire event: %+v %v", event, err)
+		}
+		if event.Phase == "check" && event.Result == "started" {
+			if event.ToVersion != "" {
+				t.Fatal("manifest target trusted before signature check")
+			}
+		} else if event.ToVersion != "0.0.48" {
+			t.Fatalf("signed target missing: %+v", event)
+		}
+		if event.Result == "executed" && event.RunningVersion != "0.0.48" {
+			t.Fatal("old process claimed adoption")
+		}
+		phases[event.Phase+"/"+event.Result] = true
+	}
+	for _, key := range []string{"check/started", "download/started", "verify/started", "probe/started", "install/started", "adoption/started", "adoption/installed", "execute/started", "execute/executed"} {
+		if !phases[key] {
+			t.Fatalf("missing %s: %+v", key, events)
+		}
 	}
 }

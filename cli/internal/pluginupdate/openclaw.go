@@ -31,7 +31,14 @@ const PackageName = "@phronesis-io/openclaw-eigenflux"
 const Registry = "https://registry.npmjs.org"
 
 type Run func(context.Context, ...string) ([]byte, error)
+
+// Progress reports local update stages without performing network work in the observer.
+type Progress struct {
+	Phase, Result, FromVersion, TargetVersion string
+}
+
 type Options struct {
+	OnProgress            func(Progress)
 	Run                   Run
 	Client                *http.Client
 	Registry              string
@@ -41,6 +48,7 @@ type Options struct {
 	RestartPendingVersion string
 }
 type Result struct {
+	Phase                 string `json:"phase"`
 	Status                string `json:"status"`
 	Scope                 string `json:"scope,omitempty"`
 	InstalledVersion      string `json:"installed_version,omitempty"`
@@ -101,7 +109,18 @@ type gatewayStatus struct {
 // Update preserves disabled/absent plugins, source selectors, and host configuration.
 // The caller runs it outside the Gateway so a source-change restart cannot kill it.
 func Update(ctx context.Context, o Options) (r Result) {
-	r.Status = "failed"
+	r.Status, r.Phase = "failed", "check"
+	fromVersion := ""
+	progress := func(phase, result string) {
+		r.Phase = phase
+		if o.OnProgress != nil {
+			func() {
+				defer func() { _ = recover() }()
+				o.OnProgress(Progress{Phase: phase, Result: result, FromVersion: fromVersion, TargetVersion: r.LatestVersion})
+			}()
+		}
+	}
+	progress("check", "started")
 	if selfupdate.ValidVersion(o.RestartPendingVersion) {
 		r.RestartPendingVersion = o.RestartPendingVersion
 	}
@@ -154,6 +173,7 @@ func Update(ctx context.Context, o Options) (r Result) {
 		return r
 	}
 	r.InstalledVersion = i.Plugin.Version
+	fromVersion = i.Plugin.Version
 	r.Scope = i.Install.InstallPath
 	if !i.Plugin.Enabled {
 		return fail("blocked", errors.New("plugin is disabled"))
@@ -183,6 +203,7 @@ func Update(ctx context.Context, o Options) (r Result) {
 		return fail("blocked", errors.New("plugin is disabled"))
 	}
 	r.InstalledVersion, r.Scope = i.Plugin.Version, i.Install.InstallPath
+	fromVersion = r.InstalledVersion
 	gateway, port, err := readLocalGateway(ctx, o)
 	if err != nil {
 		return fail("blocked", err)
@@ -191,11 +212,12 @@ func Update(ctx context.Context, o Options) (r Result) {
 	if err != nil {
 		return fail("blocked", err)
 	}
+	r.LatestVersion = selected
+	progress("verify", "started")
 	meta, err := fetchRelease(ctx, o, selected)
 	if err != nil {
 		return fail("failed", err)
 	}
-	r.LatestVersion = meta.Version
 	if meta.Name != PackageName || meta.Version != selected || !selfupdate.ValidVersion(meta.Version) {
 		return fail("blocked", errors.New("published plugin identity differs from the host-selected release"))
 	}
@@ -224,6 +246,9 @@ func Update(ctx context.Context, o Options) (r Result) {
 		return fail("blocked", errors.New("EigenFlux deliveries are active; retry when idle"))
 	}
 	changed := r.InstalledVersion != r.LatestVersion
+	if !changed {
+		progress("load", "started")
+	}
 	if !changed && runtimeErr == nil && before.PluginVersion == r.InstalledVersion && runtimeReady(before, o) {
 		r.Status, r.LoadedVersion = "loaded", before.PluginVersion
 		r.RestartPendingVersion = ""
@@ -237,6 +262,7 @@ func Update(ctx context.Context, o Options) (r Result) {
 		return fail("restart_required", errors.New("plugin is loaded but its account watch is not ready"))
 	}
 	if changed {
+		progress("install", "started")
 		// The host manager owns package verification, registry writes, and source-change restart.
 		if _, err := o.Run(ctx, "plugins", "update", PluginID); err != nil {
 			return fail("failed", fmt.Errorf("host plugin update failed: %w", err))
@@ -259,6 +285,8 @@ func Update(ctx context.Context, o Options) (r Result) {
 			return fail("blocked", err)
 		}
 		r.RestartPendingVersion = r.LatestVersion
+		progress("install", "installed")
+		progress("load", "started")
 	}
 	// The manager owns restart deferral. Repair a lost metadata notification once,
 	// without stopping the Gateway or restarting a watch that is only not ready.
