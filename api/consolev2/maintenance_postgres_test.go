@@ -1,11 +1,14 @@
 package consolev2
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/jackc/pgx/v5"
@@ -115,12 +118,171 @@ func TestMaintenancePostgresAgentAuthIdentityAndIdempotency(t *testing.T) {
 	if uninstallCount != 2 {
 		t.Fatalf("uninstall metadata or identity deduplication: %d", uninstallCount)
 	}
+	// Notification setup and submission are independently queryable. Replay
+	// inserts no extra row and identity remains the authenticated Agent's.
+	for i, result := range []string{"registered", "submitted", "failed"} {
+		e := validNotificationMaintenance()
+		e.EventID = fmt.Sprintf("%064x", 1000+i)
+		e.AttemptID = fmt.Sprintf("%032x", 2000+i)
+		e.Result = result
+		if result == "registered" {
+			e.Source, e.ErrorCode = "installer", "pending_first_notification"
+			e.Notification.Action, e.Notification.IDHash = "setup", ""
+		}
+		if result == "failed" {
+			e.ErrorCode = "provider_failed"
+			e.Notification.Stage, e.Notification.HResult = "toast_show", "0x80070005"
+		}
+		body = map[string]interface{}{"events": []maintenanceEvent{e}}
+		for _, id := range []int64{42, 42} {
+			if status := send(id); status != 202 {
+				t.Fatalf("notification ingestion: %d", status)
+			}
+		}
+	}
+	var notificationCount int64
+	if err := tx.Raw(`SELECT count(*) FROM telemetry_events_v2 WHERE agent_id=42 AND event_type='maintenance_attempt' AND properties->>'phase'='notification' AND properties->'notification'->>'visibility'='unknown'`).Scan(&notificationCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if notificationCount != 3 {
+		t.Fatalf("notification storage/deduplication: %d", notificationCount)
+	}
+	queries, err := os.ReadFile("../../scripts/reporting/notification_statistics.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	queryIndex := 0
+	for _, query := range strings.Split(string(queries), ";") {
+		if strings.TrimSpace(query) == "" {
+			continue
+		}
+		var rows []map[string]interface{}
+		if err := tx.Raw(query).Scan(&rows).Error; err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 1 {
+			t.Fatalf("statistics query %d: %v", queryIndex, rows)
+		}
+		queryIndex++
+	}
+	if queryIndex != 3 {
+		t.Fatal("statistics query coverage incomplete")
+	}
+
+	// Watch queue/attempt stages retain order and job correlation independently
+	// of helper observations. Same event replay deduplicates within the actor;
+	// another authenticated Agent may report the same client-side event ID.
+	svc.telemetryRates = map[string]telemetryRateState{}
+	for i, row := range []struct {
+		stage, result, code string
+		attempt             int
+	}{
+		{"queued", "queued", "", 0},
+		{"prepare_failed", "failed", "service_name_unavailable", 1},
+		{"os_submitted", "submitted", "", 2},
+		{"os_failed", "failed", "permission_denied", 3},
+	} {
+		e := validWatchNotificationMaintenance()
+		e.EventID, e.AttemptID = fmt.Sprintf("%064x", 3000+i), fmt.Sprintf("%032x", 4000+i)
+		e.Notification.Stage, e.Result, e.ErrorCode = row.stage, row.result, row.code
+		w := e.Notification.Watch
+		w.Origin, w.SourceNotificationID, w.Attempt = "local_blocker", "", row.attempt
+		w.JobID, w.JobKind, w.JobStatus, w.JobCode = strings.Repeat("e", 64), "commission_order", "unknown", "commission_intake_unconfirmed"
+		body = map[string]interface{}{"events": []maintenanceEvent{e}}
+		for _, id := range []int64{42, 42, 43} {
+			if status := send(id); status != 202 {
+				t.Fatalf("watch stage ingestion %s: %d", row.stage, status)
+			}
+		}
+	}
+	var watchRows []struct {
+		AgentID                                      int64
+		Stage, Result, OrderID, JobID, JobCode, Role string
+		Attempt                                      int
+		OrderVersion                                 int64
+	}
+	if err := tx.Raw(`SELECT agent_id,properties->'notification'->>'stage' AS stage,properties->>'result' AS result,
+properties->'notification'->'watch'->>'order_id' AS order_id,properties->'notification'->'watch'->>'job_id' AS job_id,
+properties->'notification'->'watch'->>'job_code' AS job_code,properties->'notification'->'watch'->>'role' AS role,
+(properties->'notification'->'watch'->>'attempt')::integer AS attempt,
+(properties->'notification'->'watch'->>'order_version')::bigint AS order_version
+FROM telemetry_events_v2 WHERE properties->'notification'->>'action'='watch' ORDER BY agent_id,attempt`).Scan(&watchRows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(watchRows) != 8 {
+		t.Fatalf("watch identity/deduplication: %+v", watchRows)
+	}
+	for i, row := range watchRows {
+		if row.AgentID != int64(42+i/4) || row.OrderID != "123" || row.OrderVersion != 2 || row.JobID != strings.Repeat("e", 64) || row.JobCode != "commission_intake_unconfirmed" || row.Role != "seller" || row.Attempt != i%4 {
+			t.Fatalf("watch correlation projection: %+v", row)
+		}
+	}
+	// Rejection is atomic, including an otherwise-valid preceding event.
+	valid := validWatchNotificationMaintenance()
+	valid.EventID = fmt.Sprintf("%064x", 9000)
+	invalid := validWatchNotificationMaintenance()
+	invalid.EventID, invalid.Notification.Watch.OrderID = fmt.Sprintf("%064x", 9001), "00123"
+	body = map[string]interface{}{"events": []maintenanceEvent{valid, invalid}}
+	if status := send(42); status != 400 {
+		t.Fatalf("invalid watch batch: %d", status)
+	}
+	var leaked int64
+	if err := tx.Raw(`SELECT count(*) FROM telemetry_events_v2 WHERE properties->'notification'->>'action'='watch'`).Scan(&leaked).Error; err != nil {
+		t.Fatal(err)
+	}
+	if leaked != 8 {
+		t.Fatal("invalid watch batch was partially persisted")
+	}
+
+	// Same device installation may be used by different accounts. Only status
+	// checks establish the latest permission; delayed uploads retain event time.
+	deviceID := strings.Repeat("d", 32)
+	observed := time.Now().Add(-time.Minute).UnixMilli()
+	for i, row := range []struct {
+		agent              int64
+		at                 int64
+		result, code, name string
+	}{
+		{42, observed, "disabled", "permission_denied", "我的电脑"},
+		{43, observed + 1, "ready", "", "另一个账号的电脑"},
+		{42, observed - 1, "ready", "", "旧状态延迟上传"},
+	} {
+		e := validNotificationMaintenance()
+		e.EventID, e.AttemptID = fmt.Sprintf("%064x", 5000+i), fmt.Sprintf("%032x", 6000+i)
+		e.EventAt, e.Result, e.ErrorCode = row.at, row.result, row.code
+		e.Notification.Action, e.Notification.IDHash = "status", ""
+		e.Notification.DeviceID, e.Notification.DeviceName = deviceID, row.name
+		body = map[string]interface{}{"events": []maintenanceEvent{e}}
+		if status := send(row.agent); status != 202 {
+			t.Fatalf("device status ingestion: %d", status)
+		}
+	}
+	h.GET("/devices", func(_ context.Context, c *app.RequestContext) { c.Set("agent_id", int64(42)) }, svc.listNotificationDevices)
+	status, payload, _ := performJSON(t, h, "GET", "/devices", nil)
+	if status != 200 {
+		t.Fatalf("device projection failed: %d %v", status, payload)
+	}
+	devices := payload["data"].(map[string]interface{})["devices"].([]interface{})
+	if len(devices) != 1 {
+		t.Fatalf("device scope: %v", devices)
+	}
+	device := devices[0].(map[string]interface{})
+	if device["device_name"] != "我的电脑" || device["permission_state"] != "denied" || device["stale"] != false {
+		t.Fatalf("late upload or other account replaced current permission: %v", device)
+	}
+	exec(`UPDATE telemetry_events_v2 SET event_at=? WHERE agent_id=42 AND properties->'notification'->>'device_id'=?`, time.Now().Add(-11*time.Minute).UnixMilli(), deviceID)
+	status, payload, _ = performJSON(t, h, "GET", "/devices", nil)
+	devices = payload["data"].(map[string]interface{})["devices"].([]interface{})
+	device = devices[0].(map[string]interface{})
+	if status != 200 || device["permission_state"] != "unknown" || device["stale"] != true {
+		t.Fatalf("offline observation reported as disabled: %v", payload)
+	}
 
 	exec(`UPDATE agent_credential_sessions SET scopes=ARRAY['feed:read'] WHERE principal_id=42`)
 	if status := send(42); status != 403 {
 		t.Fatalf("missing settings scope: %d", status)
 	}
-	status, _, _ := performJSON(t, h, "POST", "/api/v2/maintenance/events:batch", body)
+	status, _, _ = performJSON(t, h, "POST", "/api/v2/maintenance/events:batch", body)
 	if status != 401 {
 		t.Fatalf("anonymous maintenance accepted: %d", status)
 	}
