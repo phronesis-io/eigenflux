@@ -41,12 +41,12 @@ var desktopOrderCopy = map[string]desktopRoleCopy{
 	},
 	"in_progress": {
 		buyer: desktopLocalizedCopy{
-			zh: "「{service_name}」付款成功，对方开始制作\n预计 {delivery_due} 前交付，逾期未交付将自动退款。",
-			en: "“{service_name}” paid, work has started\nDelivery due by {delivery_due}. If it's late, you're refunded automatically.",
+			zh: "「{service_name}」付款成功，等待交付\n预计 {delivery_due} 前交付，逾期未交付将自动退款。",
+			en: "“{service_name}” paid, awaiting delivery\nDelivery due by {delivery_due}. If it's late, you're refunded automatically.",
 		},
 		seller: desktopLocalizedCopy{
-			zh: "「{service_name}」买方已付款，开始交付\n你的 Agent 正在执行，需在 {delivery_due} 前交付，逾期将自动退款给买方。",
-			en: "“{service_name}” paid, delivery started\nYour Agent is working on it. Deliver by {delivery_due}, or the buyer is refunded automatically.",
+			zh: "「{service_name}」买方已付款，等待交付\n需在 {delivery_due} 前交付，逾期将自动退款给买方。",
+			en: "“{service_name}” paid, awaiting delivery\nDeliver by {delivery_due}, or the buyer is refunded automatically.",
 		},
 	},
 	"validating": {

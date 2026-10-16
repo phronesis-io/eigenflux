@@ -111,7 +111,7 @@ func (w *accountWatch) enqueueDesktopBlockers() error {
 			return err
 		}
 		sum := sha256.Sum256([]byte(w.scope + ":" + job.ID + ":" + job.Status + ":" + job.Code))
-		title, body := desktopBlockerText(desktopnotify.SystemLanguage(), job.Status)
+		title, body := desktopCommissionBlockerText(desktopnotify.SystemLanguage(), job.Status, job.Code)
 		m := desktopnotify.Message{ID: "local:" + hex.EncodeToString(sum[:]), Title: title, Body: body, URL: target}
 		if err := w.desktop.Enqueue(m); err != nil {
 			return err

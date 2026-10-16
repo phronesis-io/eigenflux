@@ -67,6 +67,9 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 	if order.State != "in_progress" || order.Version != queued.OrderVersion {
 		return w.finishDispatch(job, "needs_user", "commission_fulfillment_order_changed", "", "")
 	}
+	if err := w.journal.SetCommissionExecution(job.ID, queued.OrderID, order.Version, order.ExecutionRevision, order.ExecutionIssue != nil); err != nil {
+		return err
+	}
 	// Cancellation interrupts local work if the identity or paid order changes.
 	// Stop this read-only guard before our own delivery changes the version.
 	guardDone := make(chan struct{})
@@ -86,7 +89,7 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 		status, code := "failed", "commission_fulfillment_prompt_unavailable"
 		switch {
 		case errors.Is(err, dispatch.ErrNeedsUser):
-			status, code = "needs_user", "commission_fulfillment_preflight_required"
+			status, code = "needs_user", commissionSkillFailureCode(err)
 		case errors.Is(err, errCommissionMaterialsMissing):
 			status, code = "needs_user", "commission_materials_missing"
 		case errors.Is(err, errCommissionMaterialsInvalid):

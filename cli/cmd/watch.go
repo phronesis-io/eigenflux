@@ -227,7 +227,7 @@ func (w *accountWatch) run(parent context.Context, out io.Writer) error {
 		runners = []func(context.Context) error{w.checkLoop, w.maintenanceLoop, w.commissionFallbackLoop, w.desktopLoop}
 	}
 	if w.journal != nil {
-		runners = append(runners, w.dispatchLoop, w.commissionDispatchLoop, w.commissionFulfillmentLoop)
+		runners = append(runners, w.dispatchLoop, w.commissionDispatchLoop, w.commissionFulfillmentLoop, w.commissionExecutionReportLoop)
 	}
 	for _, run := range runners {
 		workers.Add(1)

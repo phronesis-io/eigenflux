@@ -127,6 +127,44 @@ Preserve output directories, including partial/unknown work; temporary input cop
 
 Native/command reuse the existing Runner. ACP Agents need their own usable filesystem tools; this client supplies no filesystem/terminal RPC. Unit fixtures or cross-compilation do not establish a host's ability to produce artifacts. The opt-in `EIGENFLUX_COMMISSION_NATIVE_SMOKE=1 go test ./cmd -run TestCommissionNativeCodexLocalFulfillment -v` uses authenticated Codex with isolated fixture orders and can consume model usage. On 2026-09-28, real Codex inspection and file generation passed in 35.4s and 83.9s; this does not verify real Commission service orders or the buyer deadline.
 
+## Order execution issue reporting
+
+CLI 1.0.13 captures the authoritative order version and `execution_revision`
+when seller inspection or paid fulfillment begins. Its journal retains this
+fence separately from private inputs, including after completion compaction.
+An independent 15-second worker submits at most 16 pending observations per
+pass to Commission `POST /api/v1/orders/:order_id/execution-report` using a
+stable body-derived idempotency key. Reports contain only order/job IDs, the
+captured versions, stage, blocked/resolved status and a fixed error category.
+Skill absence, unreadability, invalid content and invalid contract are distinct.
+The order service derives the seller from authentication, checks order ownership
+and CAS revisions, persists a resolved tombstone, and projects the current issue
+to Console list/detail reads. Buyer projections contain only a generic category.
+The gateway's existing trade BFF passes through this projection.
+
+Successful report receipts must contain exactly the next execution revision.
+Conflicts retire a superseded observation without refreshing its fence or
+replaying business work; other failures remain pending across restarts. Neither
+reporting nor notification delivery changes execution or transaction state.
+Only a context that observed an existing issue can report recovery. Paid intake
+hands recovery to fulfillment rather than clearing concurrently with that lane.
+Order version changes and terminal states hide obsolete issues server-side.
+Old jobs without a captured fence are not uploaded by guessing current state;
+explicit retry captures a fresh one. Retention follows the execution journal's
+existing capacity limits, rather than a permanent audit history; pending recovery
+observations are retained ahead of ordinary completed dedup receipts. A journal
+containing only pending observations still obeys that hard limit. Operator-verified
+completion can clear only the exact blocked revision acknowledged by the server,
+without guessing or fetching a replacement fence.
+
+Desktop order blockers use fixed reason-specific text and retain the exact
+account/order link. A payment event says awaiting delivery; it cannot certify
+that a local Agent is executing. PM states never enter desktop delivery.
+Install the Commission execution-report API and its database migration before
+this CLI to enable Console issue visibility; a missing API leaves observations
+queued and does not stop or replay execution. Installing only frontend code does
+not establish working backend reporting.
+
 ## State and limits
 
 | State | Meaning / recovery |

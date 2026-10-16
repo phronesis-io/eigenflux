@@ -25,15 +25,24 @@ const commissionIntakeTimeout = 180 * time.Second
 
 var fulfillmentSkillName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,127}$`)
 
+var (
+	errCommissionSkillMissing    = errors.New("commission_skill_missing")
+	errCommissionSkillUnreadable = errors.New("commission_skill_unreadable")
+	errCommissionSkillInvalid    = errors.New("commission_skill_invalid")
+	errCommissionContractInvalid = errors.New("commission_contract_invalid")
+)
+
 type commissionIntakeOrder struct {
-	OrderID    notificationID  `json:"order_id"`
-	BuyerID    notificationID  `json:"buyer_agent_id"`
-	SellerID   notificationID  `json:"seller_agent_id"`
-	Version    int64           `json:"version"`
-	State      string          `json:"state"`
-	SnapshotID notificationID  `json:"current_snapshot_id"`
-	Contract   json.RawMessage `json:"contract"`
-	BuyerInput string          `json:"buyer_input"`
+	OrderID           notificationID  `json:"order_id"`
+	BuyerID           notificationID  `json:"buyer_agent_id"`
+	SellerID          notificationID  `json:"seller_agent_id"`
+	Version           int64           `json:"version"`
+	State             string          `json:"state"`
+	SnapshotID        notificationID  `json:"current_snapshot_id"`
+	Contract          json.RawMessage `json:"contract"`
+	BuyerInput        string          `json:"buyer_input"`
+	ExecutionRevision int64           `json:"execution_revision"`
+	ExecutionIssue    *struct{}       `json:"execution_issue"`
 }
 
 // A separate worker keeps intake off the PM execution lane. Its idle tick only
@@ -189,6 +198,9 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 	default:
 		return w.finishDispatch(job, "completed", "commission_order_not_actionable", "", "")
 	}
+	if err := w.journal.SetCommissionExecution(job.ID, id, order.Version, order.ExecutionRevision, order.ExecutionIssue != nil); err != nil {
+		return err
+	}
 	// Creation and seller acceptance can emit different notification versions
 	// before either arrives. Reuse only an actual decision for the same latest
 	// authoritative version; explicit operator retries still rerun the inspection.
@@ -216,7 +228,7 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 		case errors.Is(err, errCommissionMaterialsUnavailable):
 			code = "commission_materials_unavailable"
 		case errors.Is(err, dispatch.ErrNeedsUser):
-			status, code = "needs_user", "commission_fulfillment_skill_unavailable"
+			status, code = "needs_user", commissionSkillFailureCode(err)
 		}
 		return w.finishDispatch(job, status, code, "", "")
 	}
@@ -329,7 +341,7 @@ func (w *accountWatch) commissionAgentPrompt(ctx context.Context, job dispatch.J
 		RequiresMaterials *bool  `json:"requires_materials"`
 	}
 	if len(order.Contract) > 64<<10 || json.Unmarshal(order.Contract, &contract) != nil || contract.RequiresMaterials == nil || !fulfillmentSkillName.MatchString(contract.Skill) {
-		return "", false, nil, nil, dispatch.ErrNeedsUser
+		return "", false, nil, nil, errors.Join(dispatch.ErrNeedsUser, errCommissionContractInvalid)
 	}
 	rules, err := localHeartbeatSkillsAt(w.binding.SkillsDir, w.binding.Host)
 	if err != nil {
@@ -348,13 +360,19 @@ func (w *accountWatch) commissionAgentPrompt(ctx context.Context, job dispatch.J
 	if errors.Is(err, os.ErrNotExist) {
 		root, resolveErr := skills.ResolveSkillsDir("", w.binding.Host)
 		if resolveErr != nil {
-			return "", false, nil, nil, dispatch.ErrNeedsUser
+			return "", false, nil, nil, errors.Join(dispatch.ErrNeedsUser, errCommissionSkillUnreadable)
 		}
 		skillPath = filepath.Join(root, contract.Skill, "SKILL.md")
 		skill, err = readIntakeFile(skillPath)
 	}
-	if err != nil || !intakeSkillNameMatches(skill, contract.Skill) {
-		return "", false, nil, nil, dispatch.ErrNeedsUser
+	if errors.Is(err, os.ErrNotExist) {
+		return "", false, nil, nil, errors.Join(dispatch.ErrNeedsUser, errCommissionSkillMissing)
+	}
+	if errors.Is(err, errCommissionSkillInvalid) || (err == nil && !intakeSkillNameMatches(skill, contract.Skill)) {
+		return "", false, nil, nil, errors.Join(dispatch.ErrNeedsUser, errCommissionSkillInvalid)
+	}
+	if err != nil {
+		return "", false, nil, nil, errors.Join(dispatch.ErrNeedsUser, errCommissionSkillUnreadable)
 	}
 	directory, err := os.MkdirTemp(w.binding.WorkDir, ".eigenflux-intake-")
 	if err != nil {
@@ -390,13 +408,25 @@ func readIntakeFile(path string) ([]byte, error) {
 	defer file.Close()
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() {
-		return nil, errors.New("invalid_intake_skill_file")
+		return nil, errCommissionSkillInvalid
 	}
 	raw, err := io.ReadAll(io.LimitReader(file, (64<<10)+1))
-	if err != nil || len(raw) > 64<<10 || !utf8.Valid(raw) {
-		return nil, errors.New("invalid_intake_skill_file")
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > 64<<10 || !utf8.Valid(raw) {
+		return nil, errCommissionSkillInvalid
 	}
 	return raw, nil
+}
+
+func commissionSkillFailureCode(err error) string {
+	for _, candidate := range []error{errCommissionSkillMissing, errCommissionSkillUnreadable, errCommissionSkillInvalid, errCommissionContractInvalid} {
+		if errors.Is(err, candidate) {
+			return candidate.Error()
+		}
+	}
+	return "commission_fulfillment_preflight_required"
 }
 
 // Skill identifiers are literal lowercase names. Accept ordinary YAML scalar

@@ -59,6 +59,7 @@ type Job struct {
 	CommissionResult      *CommissionIntakeDecision    `json:"commission_result,omitempty"`
 	CommissionFulfillment *CommissionFulfillmentResult `json:"commission_fulfillment,omitempty"`
 	CommissionDirectory   string                       `json:"commission_directory,omitempty"`
+	CommissionExecution   *CommissionExecutionContext  `json:"commission_execution,omitempty"`
 }
 
 // CommissionIntakeDecision records input inspection, never order acceptance or fulfillment.

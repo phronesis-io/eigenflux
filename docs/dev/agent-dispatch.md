@@ -161,6 +161,17 @@ For small PMs, use a dedicated workspace with concise owner instructions. Host-w
 
 ## Commission integration status
 
+CLI 1.0.13 reports fixed seller execution issue categories to the Commission
+execution-report API. Deploy that API and its migration first. The independent
+worker retries observations without repeating execution, keeps the captured
+order/execution revision fence, and never switches account or refreshes a stale
+report fence. Console shows the current version's issue in order list/detail;
+buyers see only a generic blocker. Recovery or a later transaction stage removes
+obsolete prompts. Existing jobs without a captured fence need an explicit safe
+retry; upgrading does not infer or replay historical work. Reports and OS
+submission receipts do not prove that a user saw a notification. PM processing
+does not produce desktop notifications.
+
 The explicit `commission_order` subscription enables durable notification intake and a separate seller input-check worker. It reads the frozen contract and bound Skill, verifies downloaded inputs, invokes a fresh Agent session and saves a strict `commission_result` in `watch status`. Files are capped at 128 / 64 MiB; preparation and execution have a local 180-second ceiling after queue claim. Paid `ready` results atomically queue a separate local fulfillment worker. It saves output paths before execution, verifies real files and retains them with hashes and self-check evidence in `commission_fulfillment`. Awaiting-seller `ready` invokes seller-authenticated acceptance; unavailable Agents leave orders waiting. Paid `artifacts_ready` persists evidence before fixed-key uploads and delivery, then reads back the order before confirming submission. Uncertain mutations retain evidence as `unknown`; reconcile before retry. Buyer confirmation remains separate. Local readiness or artifacts alone are not delivery receipts.
 
 PM + Commission subscriptions share the Socket. A Commission-only subscription uses an initial HTTP request and 60-second reconciliation, because the current server Socket always consumes PM. The same account's ordinary stream skips Commission notification draining while watch owns it. Stop and inspect unresolved jobs before rebinding. The implementation and pending business decisions are in [Commission dispatch](commission-dispatch.md).

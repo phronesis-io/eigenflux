@@ -204,7 +204,7 @@ func TestDesktopLocalBlockerRecoveredOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry, ok := w.desktop.Next(time.Now())
-	wantTitle, _ := desktopBlockerText(desktopnotify.SystemLanguage(), "needs_user")
+	wantTitle, _ := desktopCommissionBlockerText(desktopnotify.SystemLanguage(), "needs_user", "missing_skill")
 	if !ok || entry.Message.Title != wantTitle {
 		t.Fatal(entry)
 	}

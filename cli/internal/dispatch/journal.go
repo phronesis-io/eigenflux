@@ -91,6 +91,9 @@ func readJournal(b Binding) (journalState, bool, error) {
 			return journalState{}, false, errors.New("invalid_journal_job")
 		}
 		seen[job.ID] = true
+		if !validCommissionExecutionContext(job) {
+			return journalState{}, false, errors.New("invalid_journal_commission_execution")
+		}
 		if job.CommissionResult != nil && job.Kind != "commission_order" {
 			return journalState{}, false, errors.New("invalid_journal_commission_result")
 		}
@@ -598,16 +601,34 @@ func trimCompleted(s *journalState) {
 	}
 	kept := make([]Job, 0, len(s.Jobs)-excess)
 	for _, job := range s.Jobs {
-		if excess > 0 && completedStatus(job.Status) {
+		_, pendingReport := commissionExecutionReport(job)
+		if excess > 0 && completedStatus(job.Status) && !pendingReport {
 			excess--
 			continue
 		}
 		kept = append(kept, job)
 	}
+	// Prefer pending recovery observations over ordinary dedup receipts while
+	// preserving the existing hard bound even when every receipt is pending.
+	if excess > 0 {
+		bounded := make([]Job, 0, len(kept)-excess)
+		for _, job := range kept {
+			if excess > 0 && completedStatus(job.Status) {
+				excess--
+				continue
+			}
+			bounded = append(bounded, job)
+		}
+		kept = bounded
+	}
 	s.Jobs = kept
 }
 
 func cloneJob(job Job) Job {
+	if job.CommissionExecution != nil {
+		value := *job.CommissionExecution
+		job.CommissionExecution = &value
+	}
 	if job.Message != nil {
 		m := *job.Message
 		job.Message = &m
