@@ -28,6 +28,30 @@ migration or new anonymous endpoint. Collection must deploy this API contract
 before the new CLI. Queries distinguish installer setup from watch/test/manual
 activity. PostgreSQL tests verify notification persistence and idempotency.
 
+## Notification device status
+
+Status observations may include `notification.device_id` (32 lowercase random
+hex characters, stable for the local Home) and `device_name` (1–64 Unicode
+characters, no control/format characters or surrounding whitespace). Both must
+be present together, only on `action=status`. Existing events remain valid.
+The identity is installation generated, never a hardware identifier.
+
+`GET /api/v2/console/notification-devices` uses the active Console cookie
+session and returns `devices` plus `checked_at` in Unix milliseconds. Select
+the latest status per device for that authenticated Agent from seven days of
+maintenance observations, ordered by observation time, not upload time. Return
+at most 50 devices and never cache the response. A send receipt or old CLI
+event without device metadata cannot establish current device permission.
+
+Each device contains `device_id`, `device_name`, `platform`, `permission_state`,
+`observed_at` and `stale`. Permission states are `ready`, `denied`,
+`not_requested`, `unavailable`, or `unknown`. Windows first-use registration
+is unknown. After ten minutes without an observation, or with more than one
+minute of future clock skew, return stale/unknown instead of a denied claim.
+The device name is account-private display text; never insert it into markup.
+The API does not identify the browser's current machine or control remote OS
+settings. Deploy API support before the matching CLI/web; no migration.
+
 ## Uninstall observations
 
 Accept phase=uninstall with trigger=manual and results started, removed, partial, failed or blocked. Sources are agent/manual; platforms darwin/windows/linux. Require reason_category: not_provided, other, usability, cost, performance, privacy or no_longer_needed. Reject this metadata outside uninstall; reject free-text reasons, paths and client-selected account identity. Count distinct attempt_id across accounts; only removed counts toward the reason pie chart. No CLI, Skill or other business behavior changes are included in this backend contract.

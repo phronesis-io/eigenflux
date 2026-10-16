@@ -96,6 +96,25 @@ Commission API. When disabled, authenticated requests bypass membership checks.
 An enabled empty allowlist denies every Agent; enabled malformed values prevent
 API startup.
 
+### Console notification permission devices
+
+`GET /api/v2/console/notification-devices` requires the active completed Console
+session and returns `data.devices` and `data.checked_at` (Unix milliseconds).
+Devices expose `device_id`, `device_name`, `platform`, `permission_state`,
+`observed_at`, and `stale`. State is `ready`, `denied`, `not_requested`,
+`unavailable`, or `unknown`; ten-minute-old observations become stale/unknown.
+No data from old clients means an empty list, not denied permission. Responses
+are account scoped and `Cache-Control: no-store`.
+
+The existing authenticated maintenance endpoint accepts paired device metadata
+only for notifier status events. Watch checks without prompting every minute,
+records changes and renews every five minutes. Upload retries remain bounded;
+this is eventual status reporting, not a guaranteed real-time OS callback.
+Device identity does not prove which machine is displaying the web page.
+Console settings links are fixed macOS/Windows destinations opening only the
+current computer, with manual instructions if the browser blocks the attempt.
+See `api/consolev2/maintenance.md` for validation and projection details.
+
 ### Console Order Notification Account Guard
 
 `GET /api/v2/console/bff/trade/orders/:order_id` accepts the optional

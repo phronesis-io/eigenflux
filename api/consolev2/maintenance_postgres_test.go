@@ -1,12 +1,14 @@
 package consolev2
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/jackc/pgx/v5"
@@ -167,11 +169,55 @@ func TestMaintenancePostgresAgentAuthIdentityAndIdempotency(t *testing.T) {
 		t.Fatal("statistics query coverage incomplete")
 	}
 
+	// Same device installation may be used by different accounts. Only status
+	// checks establish the latest permission; delayed uploads retain event time.
+	deviceID := strings.Repeat("d", 32)
+	observed := time.Now().Add(-time.Minute).UnixMilli()
+	for i, row := range []struct {
+		agent              int64
+		at                 int64
+		result, code, name string
+	}{
+		{42, observed, "disabled", "permission_denied", "我的电脑"},
+		{43, observed + 1, "ready", "", "另一个账号的电脑"},
+		{42, observed - 1, "ready", "", "旧状态延迟上传"},
+	} {
+		e := validNotificationMaintenance()
+		e.EventID, e.AttemptID = fmt.Sprintf("%064x", 5000+i), fmt.Sprintf("%032x", 6000+i)
+		e.EventAt, e.Result, e.ErrorCode = row.at, row.result, row.code
+		e.Notification.Action, e.Notification.IDHash = "status", ""
+		e.Notification.DeviceID, e.Notification.DeviceName = deviceID, row.name
+		body = map[string]interface{}{"events": []maintenanceEvent{e}}
+		if status := send(row.agent); status != 202 {
+			t.Fatalf("device status ingestion: %d", status)
+		}
+	}
+	h.GET("/devices", func(_ context.Context, c *app.RequestContext) { c.Set("agent_id", int64(42)) }, svc.listNotificationDevices)
+	status, payload, _ := performJSON(t, h, "GET", "/devices", nil)
+	if status != 200 {
+		t.Fatalf("device projection failed: %d %v", status, payload)
+	}
+	devices := payload["data"].(map[string]interface{})["devices"].([]interface{})
+	if len(devices) != 1 {
+		t.Fatalf("device scope: %v", devices)
+	}
+	device := devices[0].(map[string]interface{})
+	if device["device_name"] != "我的电脑" || device["permission_state"] != "denied" || device["stale"] != false {
+		t.Fatalf("late upload or other account replaced current permission: %v", device)
+	}
+	exec(`UPDATE telemetry_events_v2 SET event_at=? WHERE agent_id=42 AND properties->'notification'->>'device_id'=?`, time.Now().Add(-11*time.Minute).UnixMilli(), deviceID)
+	status, payload, _ = performJSON(t, h, "GET", "/devices", nil)
+	devices = payload["data"].(map[string]interface{})["devices"].([]interface{})
+	device = devices[0].(map[string]interface{})
+	if status != 200 || device["permission_state"] != "unknown" || device["stale"] != true {
+		t.Fatalf("offline observation reported as disabled: %v", payload)
+	}
+
 	exec(`UPDATE agent_credential_sessions SET scopes=ARRAY['feed:read'] WHERE principal_id=42`)
 	if status := send(42); status != 403 {
 		t.Fatalf("missing settings scope: %d", status)
 	}
-	status, _, _ := performJSON(t, h, "POST", "/api/v2/maintenance/events:batch", body)
+	status, _, _ = performJSON(t, h, "POST", "/api/v2/maintenance/events:batch", body)
 	if status != 401 {
 		t.Fatalf("anonymous maintenance accepted: %d", status)
 	}

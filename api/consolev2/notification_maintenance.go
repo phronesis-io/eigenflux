@@ -3,6 +3,9 @@ package consolev2
 import (
 	"fmt"
 	"regexp"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 type notificationMaintenanceData struct {
@@ -12,6 +15,8 @@ type notificationMaintenanceData struct {
 	Stage      string `json:"stage,omitempty"`
 	HResult    string `json:"hresult,omitempty"`
 	CLICommit  string `json:"cli_commit,omitempty"`
+	DeviceID   string `json:"device_id,omitempty"`
+	DeviceName string `json:"device_name,omitempty"`
 }
 
 var notificationMaintenanceHash = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -25,6 +30,11 @@ func validateNotificationMaintenance(e maintenanceEvent) error {
 	}
 	if !maintenanceOneOf(n.Action, "setup", "status", "send") || n.Visibility != "unknown" {
 		return fmt.Errorf("invalid notification action or visibility claim")
+	}
+	if n.DeviceID != "" || n.DeviceName != "" {
+		if n.Action != "status" || !notificationDeviceID.MatchString(n.DeviceID) || !validNotificationDeviceName(n.DeviceName) {
+			return fmt.Errorf("invalid notification device")
+		}
 	}
 	if n.Action == "send" {
 		if !maintenanceOneOf(e.Result, "submitted", "disabled", "failed") {
@@ -49,4 +59,18 @@ func validateNotificationMaintenance(e maintenanceEvent) error {
 		return fmt.Errorf("invalid notification metadata")
 	}
 	return nil
+}
+
+var notificationDeviceID = regexp.MustCompile(`^[a-f0-9]{32}$`)
+
+func validNotificationDeviceName(name string) bool {
+	if !utf8.ValidString(name) || strings.TrimSpace(name) != name || name == "" || utf8.RuneCountInString(name) > 64 {
+		return false
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
+			return false
+		}
+	}
+	return true
 }
