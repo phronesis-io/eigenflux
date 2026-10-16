@@ -10,16 +10,18 @@ import (
 
 	"cli.eigenflux.ai/internal/desktopnotify"
 	"cli.eigenflux.ai/internal/dispatch"
+	"cli.eigenflux.ai/internal/maintenance"
 )
 
 const maxEntries = 8192
 
 type Entry struct {
-	Message   desktopnotify.Message `json:"message"`
-	Created   int64                 `json:"created"`
-	Delivered bool                  `json:"delivered"`
-	Attempts  int                   `json:"attempts,omitempty"`
-	RetryAt   int64                 `json:"retry_at,omitempty"`
+	Watch     *maintenance.WatchNotification `json:"watch,omitempty"`
+	Message   desktopnotify.Message          `json:"message"`
+	Created   int64                          `json:"created"`
+	Delivered bool                           `json:"delivered"`
+	Attempts  int                            `json:"attempts,omitempty"`
+	RetryAt   int64                          `json:"retry_at,omitempty"`
 }
 type state struct {
 	Version int     `json:"version"`
@@ -68,6 +70,11 @@ func (q *Queue) save(entries []Entry) error {
 	return nil
 }
 func (q *Queue) Enqueue(message desktopnotify.Message) error {
+	return q.EnqueueWithTrace(message, nil)
+}
+
+// Trace is frozen with the message so restart/rebind cannot change its origin.
+func (q *Queue) EnqueueWithTrace(message desktopnotify.Message, trace *maintenance.WatchNotification) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if err := desktopnotify.Validate(message); err != nil {
@@ -91,7 +98,12 @@ func (q *Queue) Enqueue(message desktopnotify.Message) error {
 			return errors.New("desktop_queue_full")
 		}
 	}
-	entries = append(entries, Entry{Message: message, Created: time.Now().Unix()})
+	var frozen *maintenance.WatchNotification
+	if trace != nil {
+		copy := *trace
+		frozen = &copy
+	}
+	entries = append(entries, Entry{Message: message, Created: time.Now().Unix(), Watch: frozen})
 	return q.save(entries)
 }
 func (q *Queue) Next(now time.Time) (Entry, bool) {
@@ -99,6 +111,10 @@ func (q *Queue) Next(now time.Time) (Entry, bool) {
 	defer q.mu.Unlock()
 	for _, entry := range q.state.Entries {
 		if !entry.Delivered && entry.RetryAt <= now.Unix() {
+			if entry.Watch != nil {
+				copy := *entry.Watch
+				entry.Watch = &copy
+			}
 			return entry, true
 		}
 	}

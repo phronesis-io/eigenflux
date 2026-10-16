@@ -92,6 +92,18 @@ establish network readiness; require fresh `runtime_ready` and business evidence
 `started` and `runtime_ready` include the running `cli_commit` and `pid` so two
 test builds with the same version can be distinguished after restart.
 
+Watch notification lifecycle observations use `notification.action=watch` in
+the maintenance channel. Correlate order version, role, source notification or
+local blocker job/status/code, notification hash, lifecycle stage and attempt.
+`queued`, `prepare_failed`, `os_submitted` and `os_failed` do not claim human
+visibility or business completion. Immutable correlation is stored in the
+desktop queue; legacy entries omit unknown historical metadata.
+Invalid local observations retain original fields with
+`rejected=true/rejection_code=invalid_observation`; they do not block subsequent
+valid receipts. Transient I/O or lock errors stay retryable. No PM observation
+or desktop notification is added. Deploy API validation before the matching
+CLI; older APIs reject the new action and leave batches pending.
+
 Refund processing errors, cancelled-order late-payment refunds, wallet credit
 success/errors, and validation processing errors are informational. The intake
 worker completes these result notices before reading the order or calling an

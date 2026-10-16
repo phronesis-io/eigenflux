@@ -14,6 +14,7 @@ import (
 
 	"cli.eigenflux.ai/internal/desktopnotify"
 	"cli.eigenflux.ai/internal/desktopqueue"
+	"cli.eigenflux.ai/internal/maintenance"
 )
 
 type desktopProvider interface {
@@ -92,7 +93,16 @@ func (w *accountWatch) enqueueDesktopCommission(raw json.RawMessage) error {
 		return err
 	}
 	m.ID = w.scope + ":" + m.ID
-	return w.desktop.Enqueue(m)
+	var fact desktopOrderFact
+	if err := json.Unmarshal(raw, &fact); err != nil {
+		return err
+	}
+	trace := &maintenance.WatchNotification{Origin: "order_event", OrderID: strconv.FormatInt(int64(fact.Payload.OrderID), 10), OrderVersion: fact.Payload.OrderVersion, Role: fact.Payload.RecipientRole, SourceNotificationID: strconv.FormatInt(int64(fact.ID), 10)}
+	if err := w.desktop.EnqueueWithTrace(m, trace); err != nil {
+		return err
+	}
+	w.recordWatchNotification(desktopqueue.Entry{Message: m, Watch: trace}, "queued", nil)
+	return nil
 }
 
 // Recover unresolved local failures from durable execution state, including after a crash.
@@ -113,9 +123,11 @@ func (w *accountWatch) enqueueDesktopBlockers() error {
 		sum := sha256.Sum256([]byte(w.scope + ":" + job.ID + ":" + job.Status + ":" + job.Code))
 		title, body := desktopCommissionBlockerText(desktopnotify.SystemLanguage(), job.Status, job.Code)
 		m := desktopnotify.Message{ID: "local:" + hex.EncodeToString(sum[:]), Title: title, Body: body, URL: target}
-		if err := w.desktop.Enqueue(m); err != nil {
+		trace := &maintenance.WatchNotification{Origin: "local_blocker", OrderID: orderID, OrderVersion: job.OrderVersion, Role: role, JobID: job.ID, JobKind: job.Kind, JobStatus: job.Status, JobCode: maintenance.WatchJobCode(job.Code)}
+		if err := w.desktop.EnqueueWithTrace(m, trace); err != nil {
 			return err
 		}
+		w.recordWatchNotification(desktopqueue.Entry{Message: m, Watch: trace}, "queued", nil)
 	}
 	return nil
 }
@@ -156,19 +168,29 @@ func (w *accountWatch) desktopLoop(ctx context.Context) error {
 				if err := w.dispatchIdentityOK(); err != nil {
 					return err
 				}
+				// Recover an enqueue observation lost to a local write failure.
+				if entry.Watch != nil {
+					w.recordWatchNotification(entry, "queued", nil)
+				}
 				call, cancel := context.WithTimeout(ctx, 10*time.Second)
 				message, err := w.resolveDesktopServiceName(call, entry.Message)
 				if identityErr := w.dispatchIdentityOK(); identityErr != nil {
 					cancel()
 					return identityErr
 				}
+				stage := "prepare_failed"
 				if err == nil {
 					err = w.desktopProvider.Show(call, message)
+					stage = "os_submitted"
+					if err != nil {
+						stage = "os_failed"
+					}
 				}
 				cancel()
 				if err := w.dispatchIdentityOK(); err != nil {
 					return err
 				}
+				w.recordWatchNotification(entry, stage, err)
 				if saveErr := w.desktop.Complete(entry.Message.ID, err == nil, time.Now()); saveErr != nil {
 					return errors.Join(errWatchDispatchJournal, saveErr)
 				}

@@ -110,6 +110,31 @@ is no database migration. Read-only setup/message/error statistics are in
 `scripts/reporting/notification_statistics.sql`. PostgreSQL acceptance verifies
 all three results, account identity, duplicate suppression and queryability.
 
+### Watch order notices
+
+Watch order notices also emit `notification.action=watch` through this channel.
+Stages distinguish durable queue admission (`queued`), service-name preparation
+failure (`prepare_failed`), OS submission (`os_submitted`) and OS failure
+(`os_failed`). OS submission does not prove a visible banner or human view.
+The nested `notification.watch` carries the order ID/version, buyer/seller role,
+origin and attempt number. Server order events use `source_notification_id`;
+local execution blockers use `job_id`, `job_kind`, `job_status` and a bounded
+`job_code`. Historic entries without trustworthy correlation use `legacy` with
+version zero. No titles, bodies, raw errors, session IDs or paths are uploaded.
+
+For duplicate investigations group by authenticated `agent_id`, then
+`notification.id_hash`: one hash with distinct physical-attempt receipt IDs
+(`attempt_id`) means repeated local attempts; the retry counter can repeat when
+a crash prevents its desktop receipt from being saved. Upload retries preserve
+the same receipt ID and do not count as another physical attempt;
+different hashes with the same order and different job IDs mean distinct task
+notices. Event IDs deduplicate upload retries independently. Do not treat a
+queued record as OS submission, or a missing upload as proof of no local notice.
+The read-only per-order query is `scripts/reporting/watch_notification_trace.sql`.
+These events cannot change the device permission projection. The exact accepted
+cross-field contract is in `api/consolev2/maintenance.md`; deploy its API support
+before collecting the matching CLI records. No database migration is required.
+
 ## Queries
 
 These queries are read-only against the existing event table. Filter to a

@@ -169,6 +169,71 @@ func TestMaintenancePostgresAgentAuthIdentityAndIdempotency(t *testing.T) {
 		t.Fatal("statistics query coverage incomplete")
 	}
 
+	// Watch queue/attempt stages retain order and job correlation independently
+	// of helper observations. Same event replay deduplicates within the actor;
+	// another authenticated Agent may report the same client-side event ID.
+	svc.telemetryRates = map[string]telemetryRateState{}
+	for i, row := range []struct {
+		stage, result, code string
+		attempt             int
+	}{
+		{"queued", "queued", "", 0},
+		{"prepare_failed", "failed", "service_name_unavailable", 1},
+		{"os_submitted", "submitted", "", 2},
+		{"os_failed", "failed", "permission_denied", 3},
+	} {
+		e := validWatchNotificationMaintenance()
+		e.EventID, e.AttemptID = fmt.Sprintf("%064x", 3000+i), fmt.Sprintf("%032x", 4000+i)
+		e.Notification.Stage, e.Result, e.ErrorCode = row.stage, row.result, row.code
+		w := e.Notification.Watch
+		w.Origin, w.SourceNotificationID, w.Attempt = "local_blocker", "", row.attempt
+		w.JobID, w.JobKind, w.JobStatus, w.JobCode = strings.Repeat("e", 64), "commission_order", "unknown", "commission_intake_unconfirmed"
+		body = map[string]interface{}{"events": []maintenanceEvent{e}}
+		for _, id := range []int64{42, 42, 43} {
+			if status := send(id); status != 202 {
+				t.Fatalf("watch stage ingestion %s: %d", row.stage, status)
+			}
+		}
+	}
+	var watchRows []struct {
+		AgentID                                      int64
+		Stage, Result, OrderID, JobID, JobCode, Role string
+		Attempt                                      int
+		OrderVersion                                 int64
+	}
+	if err := tx.Raw(`SELECT agent_id,properties->'notification'->>'stage' AS stage,properties->>'result' AS result,
+properties->'notification'->'watch'->>'order_id' AS order_id,properties->'notification'->'watch'->>'job_id' AS job_id,
+properties->'notification'->'watch'->>'job_code' AS job_code,properties->'notification'->'watch'->>'role' AS role,
+(properties->'notification'->'watch'->>'attempt')::integer AS attempt,
+(properties->'notification'->'watch'->>'order_version')::bigint AS order_version
+FROM telemetry_events_v2 WHERE properties->'notification'->>'action'='watch' ORDER BY agent_id,attempt`).Scan(&watchRows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(watchRows) != 8 {
+		t.Fatalf("watch identity/deduplication: %+v", watchRows)
+	}
+	for i, row := range watchRows {
+		if row.AgentID != int64(42+i/4) || row.OrderID != "123" || row.OrderVersion != 2 || row.JobID != strings.Repeat("e", 64) || row.JobCode != "commission_intake_unconfirmed" || row.Role != "seller" || row.Attempt != i%4 {
+			t.Fatalf("watch correlation projection: %+v", row)
+		}
+	}
+	// Rejection is atomic, including an otherwise-valid preceding event.
+	valid := validWatchNotificationMaintenance()
+	valid.EventID = fmt.Sprintf("%064x", 9000)
+	invalid := validWatchNotificationMaintenance()
+	invalid.EventID, invalid.Notification.Watch.OrderID = fmt.Sprintf("%064x", 9001), "00123"
+	body = map[string]interface{}{"events": []maintenanceEvent{valid, invalid}}
+	if status := send(42); status != 400 {
+		t.Fatalf("invalid watch batch: %d", status)
+	}
+	var leaked int64
+	if err := tx.Raw(`SELECT count(*) FROM telemetry_events_v2 WHERE properties->'notification'->>'action'='watch'`).Scan(&leaked).Error; err != nil {
+		t.Fatal(err)
+	}
+	if leaked != 8 {
+		t.Fatal("invalid watch batch was partially persisted")
+	}
+
 	// Same device installation may be used by different accounts. Only status
 	// checks establish the latest permission; delayed uploads retain event time.
 	deviceID := strings.Repeat("d", 32)

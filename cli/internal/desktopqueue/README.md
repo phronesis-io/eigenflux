@@ -34,6 +34,24 @@ status, and code. Successful submission receipts prevent replay across restart o
 Keep at most 8192 entries; evict only submitted receipts, never pending work.
 Deduplication ends when a receipt is evicted.
 
+New entries persist a frozen, content-free `watch` correlation record alongside
+the message: order/version/role and either the source notification ID or blocker
+job/kind/status/fixed code. Old entries remain readable and report
+`origin=legacy`, version zero; never infer historical metadata from the current
+binding or order. Enqueue, preparation failure and OS attempt results enter the
+existing bounded notification observation log, then the authenticated
+maintenance queue. Stable lifecycle IDs deduplicate repeated blocker scans.
+Attempt zero denotes enqueue; later records include the existing retry counter
+plus one. Each real preparation/OS attempt has its own receipt ID. A crash before
+the delivery receipt is persisted can repeat the counter, but cannot merge the
+second observed submission into the first. No new business or notification
+dedup policy.
+
+Telemetry writes are best effort: they never change delivery receipts, invoke an
+Agent, or retry an OS submission. Pending entries retry unavailable enqueue
+observations before delivery. Retention, capacity or local I/O failure can still
+lose diagnostic evidence; no exactly-once audit guarantee is made.
+
 OS failures retain pending work with 1/2/4/8/16-minute retry delays; setup retries
 every five minutes. These failures do not stop Agent workers. Queue persistence
 failure or exhausted capacity stops watch; ingestion never ACKs an unsaved

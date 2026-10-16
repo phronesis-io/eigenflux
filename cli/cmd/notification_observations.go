@@ -82,7 +82,7 @@ func importNotificationObservations(scope maintenance.Scope) error {
 		if e.Platform != "windows" && e.Platform != "darwin" {
 			continue
 		}
-		if e.Queued || e.EventID == "" || e.At.Before(time.Now().Add(-maintenance.Retention)) {
+		if e.Queued || e.Rejected || e.EventID == "" || e.At.Before(time.Now().Add(-maintenance.Retention)) {
 			continue
 		}
 		if e.AgentID != "" && e.AgentID != scope.AgentID {
@@ -92,7 +92,17 @@ func importNotificationObservations(scope maintenance.Scope) error {
 			continue
 		}
 		event := notificationMaintenanceEvent(*e)
+		if err := maintenance.Validate(event); err != nil {
+			// Preserve the original observation for local diagnosis without letting
+			// a permanently invalid legacy record block later valid receipts.
+			e.Rejected, e.RejectionCode = true, "invalid_observation"
+			changed = true
+			continue
+		}
 		if err := maintenance.Record(scope, event); err != nil {
+			if changed {
+				return errors.Join(err, dispatch.WriteJSON(path, state))
+			}
 			return err
 		}
 		e.AgentID, e.Queued = scope.AgentID, true
@@ -112,7 +122,7 @@ func notificationMaintenanceEvent(e desktopnotify.Observation) maintenance.Event
 	event := maintenance.NewEvent(e.EventID, "notifier", trigger, "notification", e.Result)
 	event.EventAt = e.At.UnixMilli()
 	event.Source, event.Platform, event.ErrorCode, event.FromVersion, event.DurationMS = e.Source, e.Platform, e.Code, e.CLIVersion, e.DurationMS
-	event.Notification = &maintenance.Notification{Action: e.Action, Visibility: e.Visibility, IDHash: e.NotificationIDHash, Stage: e.Stage, HResult: e.HResult, CLICommit: e.CLICommit, DeviceID: e.DeviceID, DeviceName: e.DeviceName}
+	event.Notification = &maintenance.Notification{Action: e.Action, Visibility: e.Visibility, IDHash: e.NotificationIDHash, Stage: e.Stage, HResult: e.HResult, CLICommit: e.CLICommit, DeviceID: e.DeviceID, DeviceName: e.DeviceName, Watch: e.Watch}
 	return event
 }
 
@@ -176,6 +186,13 @@ func appendNotificationObservation(home, server string, e desktopnotify.Observat
 	state, err := readNotificationObservations(home, server)
 	if err != nil {
 		return err
+	}
+	if e.EventID != "" {
+		for _, previous := range state.Events {
+			if previous.EventID == e.EventID {
+				return nil
+			}
+		}
 	}
 	cutoff := time.Now().Add(-7 * 24 * time.Hour)
 	kept := []desktopnotify.Observation{}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -48,5 +49,38 @@ func TestNotificationUnknownFirstUseIsRegisteredNotReady(t *testing.T) {
 	}
 	if got["status"] != "registered" || got["code"] != "pending_first_notification" || got["visibility"] != "unknown" {
 		t.Fatal(got)
+	}
+}
+
+func TestNotificationObservationStableEventIDPreservesOriginalReceipt(t *testing.T) {
+	for _, status := range []string{"pending", "queued", "rejected"} {
+		t.Run(status, func(t *testing.T) {
+			home := t.TempDir()
+			original := notificationFixture("send", "agent-1", "watch")
+			original.Queued = status == "queued"
+			if status == "rejected" {
+				original.Rejected, original.RejectionCode = true, "invalid_observation"
+			}
+			if err := appendNotificationObservation(home, "eigenflux", original); err != nil {
+				t.Fatal(err)
+			}
+			path := notificationLogPath(home, "eigenflux")
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			duplicate := notificationFixture("send", "agent-1", "watch")
+			duplicate.EventID = original.EventID
+			duplicate.At = original.At.Add(time.Minute)
+			for i := 0; i < 2; i++ {
+				if err := appendNotificationObservation(home, "eigenflux", duplicate); err != nil {
+					t.Fatal(err)
+				}
+			}
+			after, err := os.ReadFile(path)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("duplicate replaced original receipt or status: %s %v", after, err)
+			}
+		})
 	}
 }

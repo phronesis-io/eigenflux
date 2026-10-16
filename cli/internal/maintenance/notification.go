@@ -9,14 +9,15 @@ import (
 )
 
 type Notification struct {
-	DeviceID   string `json:"device_id,omitempty"`
-	DeviceName string `json:"device_name,omitempty"`
-	Action     string `json:"action"`
-	Visibility string `json:"visibility"`
-	IDHash     string `json:"id_hash,omitempty"`
-	Stage      string `json:"stage,omitempty"`
-	HResult    string `json:"hresult,omitempty"`
-	CLICommit  string `json:"cli_commit,omitempty"`
+	Watch      *WatchNotification `json:"watch,omitempty"`
+	DeviceID   string             `json:"device_id,omitempty"`
+	DeviceName string             `json:"device_name,omitempty"`
+	Action     string             `json:"action"`
+	Visibility string             `json:"visibility"`
+	IDHash     string             `json:"id_hash,omitempty"`
+	Stage      string             `json:"stage,omitempty"`
+	HResult    string             `json:"hresult,omitempty"`
+	CLICommit  string             `json:"cli_commit,omitempty"`
 }
 
 var notificationHash = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -29,8 +30,14 @@ func validateNotification(e Event) error {
 	if n == nil || e.Component != "notifier" || !contains([]string{"auto", "manual"}, e.Trigger) || !contains([]string{"installer", "watch", "manual", "test"}, e.Source) || !contains([]string{"windows", "darwin"}, e.Platform) || e.ReasonCategory != "" {
 		return errors.New("invalid notification category")
 	}
-	if !contains([]string{"setup", "status", "send"}, n.Action) || n.Visibility != "unknown" {
+	if !contains([]string{"setup", "status", "send", "watch"}, n.Action) || n.Visibility != "unknown" {
 		return errors.New("invalid notification action or visibility claim")
+	}
+	if n.Action == "watch" {
+		return validateWatchNotification(e)
+	}
+	if n.Watch != nil {
+		return errors.New("watch metadata requires watch action")
 	}
 	if n.DeviceID != "" || n.DeviceName != "" {
 		if n.Action != "status" || !notificationDeviceID.MatchString(n.DeviceID) || !utf8.ValidString(n.DeviceName) || strings.TrimSpace(n.DeviceName) != n.DeviceName || n.DeviceName == "" || utf8.RuneCountInString(n.DeviceName) > 64 {

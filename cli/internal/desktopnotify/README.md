@@ -161,6 +161,14 @@ exercise the real getter/status gate with fake objects without touching OS state
 
 ## Verification and references
 
+Watch lifecycle records use `action=watch` with fixed stages and content-free
+order/job correlation in the same observation log. No title, body, URL, private
+input, raw error or session is uploaded. Per-attempt receipt IDs remain distinct
+if an OS submission repeats after a crash. Invalid historical observations stay
+locally visible as `rejected/invalid_observation` and cannot block later valid
+records; transient persistence failures remain pending. The read-only diagnostic
+query is `scripts/reporting/watch_notification_trace.sql` in the repository root.
+
 Run `go test ./internal/desktopnotify` from `cli/`; cross-compile Windows tests
 with `GOOS=windows GOARCH=amd64 go test -c -o ../build/notify.test.exe
 ./internal/desktopnotify`. Native acceptance requires each OS: allow permission,

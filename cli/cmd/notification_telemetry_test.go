@@ -2,8 +2,12 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -12,6 +16,7 @@ import (
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/desktopnotify"
 	"cli.eigenflux.ai/internal/maintenance"
+	"cli.eigenflux.ai/internal/watch"
 )
 
 func notificationFixture(action, agent, source string) desktopnotify.Observation {
@@ -57,6 +62,131 @@ func TestNotificationTelemetryImportsInstallationAndPinsAccounts(t *testing.T) {
 	other, err := maintenance.Snapshot(scope)
 	if err != nil || len(other.Events) != 1 || other.Events[0].Notification.Action != "send" {
 		t.Fatal("account events reassigned")
+	}
+}
+
+func TestNotificationTelemetryRejectsInvalidLegacyObservationWithoutBlockingReceipts(t *testing.T) {
+	home := t.TempDir()
+	bad := notificationFixture("send", "agent-1", "watch")
+	bad.CLICommit = "276005e6-fallback"
+	good := notificationFixture("send", "agent-1", "watch")
+	other := bad
+	other.EventID, other.AgentID = maintenance.NewID(), "agent-2"
+	unbound := bad
+	unbound.EventID, unbound.AgentID = maintenance.NewID(), ""
+	for _, e := range []desktopnotify.Observation{bad, good, other, unbound} {
+		if err := appendNotificationObservation(home, "eigenflux", e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scope := maintenance.Scope{Home: home, Server: "eigenflux", AgentID: "agent-1"}
+	for i := 0; i < 2; i++ {
+		if err := importNotificationObservations(scope); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state, err := readNotificationObservations(home, "eigenflux")
+	if err != nil || len(state.Events) != 4 {
+		t.Fatalf("original observations must remain: %+v %v", state, err)
+	}
+	expectedBad := bad
+	expectedBad.Rejected, expectedBad.RejectionCode = true, "invalid_observation"
+	if !reflect.DeepEqual(state.Events[0], expectedBad) {
+		t.Fatalf("rejection modified original fields or claimed success: %+v", state.Events[0])
+	}
+	if !state.Events[1].Queued || state.Events[1].Rejected {
+		t.Fatalf("valid receipt was blocked: %+v", state.Events[1])
+	}
+	if !reflect.DeepEqual(state.Events[2], other) || !reflect.DeepEqual(state.Events[3], unbound) {
+		t.Fatal("invalid records from another account or an unbound send were touched")
+	}
+	queued, err := maintenance.Snapshot(scope)
+	if err != nil || len(queued.Events) != 1 || queued.Events[0].AttemptID != good.EventID {
+		t.Fatalf("only one valid receipt should be queued: %+v %v", queued, err)
+	}
+	// notify log encodes this same state, including its fixed rejection reason.
+	raw, err := json.Marshal(state)
+	if err != nil || !strings.Contains(string(raw), `"rejection_code":"invalid_observation"`) {
+		t.Fatalf("rejection is not locally diagnosable: %s %v", raw, err)
+	}
+}
+
+func TestNotificationTelemetryWriteFailureKeepsReceiptPendingForRetry(t *testing.T) {
+	home := t.TempDir()
+	bad := notificationFixture("send", "agent-1", "watch")
+	bad.CLICommit = "276005e6-fallback"
+	good := notificationFixture("send", "agent-1", "watch")
+	for _, e := range []desktopnotify.Observation{bad, good} {
+		if err := appendNotificationObservation(home, "eigenflux", e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A real filesystem error prevents the maintenance queue from being created.
+	blocked := filepath.Join(home, "maintenance")
+	if err := os.WriteFile(blocked, []byte("occupied"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	scope := maintenance.Scope{Home: home, Server: "eigenflux", AgentID: "agent-1"}
+	if err := importNotificationObservations(scope); err == nil {
+		t.Fatal("temporary queue storage error was ignored")
+	}
+	state, err := readNotificationObservations(home, "eigenflux")
+	if err != nil || !state.Events[0].Rejected || !reflect.DeepEqual(state.Events[1], good) {
+		t.Fatalf("rejection must persist while valid receipt stays pending: %+v %v", state, err)
+	}
+	if err := os.Remove(blocked); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := importNotificationObservations(scope); err != nil {
+			t.Fatal(err)
+		}
+	}
+	queued, err := maintenance.Snapshot(scope)
+	if err != nil || len(queued.Events) != 1 || queued.Events[0].AttemptID != good.EventID {
+		t.Fatalf("retry must queue the valid receipt exactly once: %+v %v", queued, err)
+	}
+}
+
+func TestNotificationTelemetryBusyQueueKeepsReceiptPendingForRetry(t *testing.T) {
+	home := t.TempDir()
+	event := notificationFixture("send", "agent-1", "watch")
+	if err := appendNotificationObservation(home, "eigenflux", event); err != nil {
+		t.Fatal(err)
+	}
+	scope := maintenance.Scope{Home: home, Server: "eigenflux", AgentID: "agent-1"}
+	if _, err := maintenance.Snapshot(scope); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := filepath.Glob(filepath.Join(home, "maintenance", "*-events.json.lock"))
+	if err != nil || len(paths) != 1 {
+		t.Fatalf("maintenance lock fixture: %v %v", paths, err)
+	}
+	release, err := watch.AcquirePath(paths[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			release()
+		}
+	})
+	if err := importNotificationObservations(scope); !errors.Is(err, maintenance.ErrBusy) {
+		t.Fatalf("lock failure must remain retryable: %v", err)
+	}
+	state, err := readNotificationObservations(home, "eigenflux")
+	if err != nil || len(state.Events) != 1 || !reflect.DeepEqual(state.Events[0], event) {
+		t.Fatalf("temporary lock failure incorrectly changed receipt: %+v %v", state, err)
+	}
+	release()
+	released = true
+	if err := importNotificationObservations(scope); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := maintenance.Snapshot(scope)
+	if err != nil || len(queued.Events) != 1 || queued.Events[0].AttemptID != event.EventID {
+		t.Fatalf("receipt did not retry after queue unlocked: %+v %v", queued, err)
 	}
 }
 

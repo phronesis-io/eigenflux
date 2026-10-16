@@ -7,29 +7,34 @@ import (
 	"errors"
 	"runtime"
 	"time"
+
+	"cli.eigenflux.ai/internal/maintenance"
 )
 
 // Observation records submission, never banner visibility or human attention.
 // It excludes notification text, URLs, credentials and raw provider errors.
 type Observation struct {
-	DeviceID           string    `json:"device_id,omitempty"`
-	DeviceName         string    `json:"device_name,omitempty"`
-	EventID            string    `json:"event_id,omitempty"`
-	AgentID            string    `json:"agent_id,omitempty"`
-	Source             string    `json:"source,omitempty"`
-	Queued             bool      `json:"queued,omitempty"`
-	CLIVersion         string    `json:"cli_version,omitempty"`
-	CLICommit          string    `json:"cli_commit,omitempty"`
-	At                 time.Time `json:"at"`
-	Platform           string    `json:"platform"`
-	Action             string    `json:"action"`
-	Result             string    `json:"result"`
-	Visibility         string    `json:"visibility"`
-	NotificationIDHash string    `json:"notification_id_hash,omitempty"`
-	DurationMS         int64     `json:"duration_ms"`
-	Code               string    `json:"code,omitempty"`
-	Stage              string    `json:"stage,omitempty"`
-	HResult            string    `json:"hresult,omitempty"`
+	Watch              *maintenance.WatchNotification `json:"watch,omitempty"`
+	DeviceID           string                         `json:"device_id,omitempty"`
+	DeviceName         string                         `json:"device_name,omitempty"`
+	EventID            string                         `json:"event_id,omitempty"`
+	AgentID            string                         `json:"agent_id,omitempty"`
+	Source             string                         `json:"source,omitempty"`
+	Queued             bool                           `json:"queued,omitempty"`
+	Rejected           bool                           `json:"rejected,omitempty"`
+	RejectionCode      string                         `json:"rejection_code,omitempty"`
+	CLIVersion         string                         `json:"cli_version,omitempty"`
+	CLICommit          string                         `json:"cli_commit,omitempty"`
+	At                 time.Time                      `json:"at"`
+	Platform           string                         `json:"platform"`
+	Action             string                         `json:"action"`
+	Result             string                         `json:"result"`
+	Visibility         string                         `json:"visibility"`
+	NotificationIDHash string                         `json:"notification_id_hash,omitempty"`
+	DurationMS         int64                          `json:"duration_ms"`
+	Code               string                         `json:"code,omitempty"`
+	Stage              string                         `json:"stage,omitempty"`
+	HResult            string                         `json:"hresult,omitempty"`
 }
 
 func (n *Notifier) request(ctx context.Context, action string, message Message) error {

@@ -40,4 +40,5 @@ FROM telemetry_events_v2
 WHERE event_type = 'maintenance_attempt'
   AND properties->>'phase' = 'notification'
   AND properties->>'result' IN ('disabled', 'failed')
+  AND properties->'notification'->>'action' <> 'watch'
 GROUP BY 1, 2, 3, 4 ORDER BY 5 DESC;
