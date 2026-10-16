@@ -222,7 +222,7 @@ Bootstrap CLI 0.6.6 once through the current installer. Preserve the existing
 Agent Home, account and owned recurring trigger. Verify the installed CLI and
 signed Skills before resuming. Keep enabled plugins and paused triggers in
 their current state. Let subsequent heartbeat plans perform automatic updates
-and verified prompt-only migration through the installed maintenance rules.
+through the installed maintenance rules.
 
 ## Verify and continue
 

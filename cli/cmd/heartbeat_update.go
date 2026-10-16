@@ -104,7 +104,7 @@ func runObservedCLIUpdate(cmd *cobra.Command, cfg *config.Config, minimum string
 		trigger = "manual"
 	}
 	if os.Getenv(updateReexecEnv) == "1" {
-		recorder := resumedCLIRecorder(server, cmd.ErrOrStderr())
+		recorder := resumedCLIRecorder(server, trigger, cmd.ErrOrStderr())
 		return selfupdate.Result{Status: "restarted", Version: version}, false, recorder, nil
 	}
 	recorder := newMaintenanceRecorder(server, "cli", trigger, "", cmd.ErrOrStderr())
@@ -113,7 +113,10 @@ func runObservedCLIUpdate(cmd *cobra.Command, cfg *config.Config, minimum string
 	}
 	identity, err := captureCLIUpdateIdentity(server)
 	if err != nil {
-		return selfupdate.Result{Status: "failed", Version: version, Error: err.Error()}, false, recorder, err
+		if !manual {
+			return selfupdate.Result{Status: "failed", Version: version, Error: err.Error()}, false, recorder, err
+		}
+		recorder.failure("update_identity_unavailable")
 	}
 	path, err := os.Executable()
 	if err != nil {
@@ -146,14 +149,12 @@ func runObservedCLIUpdate(cmd *cobra.Command, cfg *config.Config, minimum string
 	}
 	recorder.Phase("execute", version, result.Version)
 	child := exec.CommandContext(ctx, result.Executable, heartbeatReexecArgs(os.Args[1:], config.HomeDir(), server)...)
-	child.Env = append(heartbeatReexecEnvironment(os.Environ()), updateAttemptEnv+"="+recorder.attempt)
+	child.Env = append(heartbeatReexecEnvironment(os.Environ()), updateAttemptEnv+"="+recorder.attempt, updateFromVersionEnv+"="+version)
 	if identity != nil {
 		encoded, _ := json.Marshal(identity)
 		child.Env = append(child.Env, updateIdentityEnv+"="+string(encoded))
 	}
-	if recorder.Status().Status == "record_failed" {
-		child.Env = append(child.Env, updateObservationFailedEnv+"=1")
-	}
+
 	child.Stdin, child.Stdout, child.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()
 	if err := runHeartbeatReexec(child); err != nil {
 		if child.Process == nil {
@@ -224,7 +225,7 @@ func heartbeatMaintenanceEnabled(mode string, cfg *config.Config, key string) bo
 func heartbeatReexecEnvironment(env []string) []string {
 	out := make([]string, 0, len(env)+2)
 	for _, v := range env {
-		if strings.HasPrefix(v, updateReexecEnv+"=") || strings.HasPrefix(v, updateAttemptEnv+"=") || strings.HasPrefix(v, updateIdentityEnv+"=") || strings.HasPrefix(v, updateObservationFailedEnv+"=") || strings.HasPrefix(v, "EIGENFLUX_HOME=") {
+		if strings.HasPrefix(v, updateReexecEnv+"=") || strings.HasPrefix(v, updateAttemptEnv+"=") || strings.HasPrefix(v, updateIdentityEnv+"=") || strings.HasPrefix(v, updateFromVersionEnv+"=") || strings.HasPrefix(v, "EIGENFLUX_HOME=") {
 			continue
 		}
 		out = append(out, v)

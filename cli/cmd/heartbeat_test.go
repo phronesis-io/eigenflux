@@ -256,7 +256,7 @@ func installHeartbeatTestRules(t *testing.T) string {
 	if err := os.WriteFile(modelRule, []byte("# Runtime Model Reporting\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"maintenance.md", "commands.md"} {
+	for _, name := range []string{"maintenance.md"} {
 		if err := os.WriteFile(filepath.Join(dir, "ef-broadcast", "references", name), []byte("# Central rules\n"), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -305,7 +305,7 @@ func captureHeartbeatStdout(t *testing.T, run func() error) (string, error) {
 func TestSchedulerMigrationUsesNativeHostOwnership(t *testing.T) {
 	launcher := "eigenflux --homedir /stable heartbeat plan --format agent"
 	tests := map[string][]string{
-		"workbuddy/5.3.14": {"automation_update", "owned EigenFlux task"},
+		"workbuddy/5.3.14": {"CronList/CronUpdate", "owned EigenFlux task"},
 		"codex/1.0":        {"native automation", "owned EigenFlux task"},
 		"hermes/0.20":      {"cron list/edit", "ownership marker", "matching Home"},
 		"openclaw/1.0":     {"plugin owns scheduling", "do not create a second heartbeat"},
@@ -357,7 +357,7 @@ func TestHeartbeatPlanAcceptsLegacyEnvironmentMode(t *testing.T) {
 				t.Fatal(err)
 			}
 			home, _ := config.HomeDirInfo()
-			for _, part := range []string{shellQuote("--homedir") + " " + shellQuote(home), shellQuote("--server") + " " + shellQuote(serverName), shellQuote("--runtime-mode") + " " + shellQuote(mode)} {
+			for _, part := range []string{"--homedir " + shellQuote(home), "--server " + shellQuote(serverName), "--runtime-mode " + shellQuote(mode)} {
 				if !strings.Contains(plan.CLIPrefix, part) || !strings.Contains(plan.SchedulerLauncher, part) {
 					t.Fatalf("legacy identity lost %q: %+v", part, plan)
 				}

@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -22,17 +21,6 @@ func WithV2CredentialsLock(serverName string, wait time.Duration, callback func(
 }
 
 func withV2CredentialsLock(serverName string, wait time.Duration, callback func() error, remove func(string) error) (resultErr error) {
-	return withV2CredentialsLockContext(context.Background(), serverName, wait, callback, remove)
-}
-
-func WithV2CredentialsLockContext(ctx context.Context, serverName string, wait time.Duration, callback func() error) error {
-	return withV2CredentialsLockContext(ctx, serverName, wait, callback, os.Remove)
-}
-
-func withV2CredentialsLockContext(ctx context.Context, serverName string, wait time.Duration, callback func() error, remove func(string) error) (resultErr error) {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	dir := filepath.Join(config.HomeDir(), "servers", serverName)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -42,9 +30,6 @@ func withV2CredentialsLockContext(ctx context.Context, serverName string, wait t
 	pid := os.Getpid()
 	var file *os.File
 	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
 		created, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 		if err == nil {
 			file = created
@@ -64,11 +49,7 @@ func withV2CredentialsLockContext(ctx context.Context, serverName string, wait t
 			}
 			continue
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(100 * time.Millisecond):
-		}
+		time.Sleep(100 * time.Millisecond)
 	}
 	defer func() {
 		_ = file.Close()
@@ -99,9 +80,6 @@ func withV2CredentialsLockContext(ctx context.Context, serverName string, wait t
 			}
 		}
 	}()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	return callback()
 }
 

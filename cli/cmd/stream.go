@@ -444,13 +444,21 @@ Examples:
 				}
 			case <-interrupt:
 				output.PrintMessage("Interrupted, closing connection...")
-				// Stop socket intake but let the reader finish caching and writing
-				// a packet it already received. The host owns forced-stop bounds.
+				// Stop socket intake and finish a received packet when output can
+				// drain. A stalled consumer must not prevent process termination.
+				drainTimer := time.NewTimer(3 * time.Second)
+				defer drainTimer.Stop()
 				_ = conn.WriteControl(websocket.CloseMessage,
 					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
 				_ = conn.Close()
-				<-done
-				return nil
+				select {
+				case <-done:
+					return nil
+				case <-interrupt:
+					return fmt.Errorf("stream shutdown interrupted before received packet output drained")
+				case <-drainTimer.C:
+					return fmt.Errorf("stream shutdown timed out draining received packet output")
+				}
 			}
 		}
 	},

@@ -44,21 +44,13 @@ type Event struct {
 }
 
 type State struct {
-	CLIAdoptions map[string]CLIAdoption `json:"cli_adoptions,omitempty"`
-	ReadAttempts map[string]Event       `json:"read_attempts,omitempty"`
-	Events       []Event                `json:"events"`
-	Dropped      uint64                 `json:"dropped"`
-	LastAttempt  int64                  `json:"last_attempt"`
-	NextFlush    int64                  `json:"next_flush"`
-	Failures     int                    `json:"failures"`
-	Attempts     map[string]Event       `json:"attempts,omitempty"`
-}
-
-// CLIAdoption retains bounded install evidence after its upload is acknowledged.
-// It is local account state; principal identifiers are never sent as telemetry.
-type CLIAdoption struct {
-	Event       Event  `json:"event"`
-	PrincipalID string `json:"principal_id"`
+	ReadAttempts map[string]Event `json:"read_attempts,omitempty"`
+	Events       []Event          `json:"events"`
+	Dropped      uint64           `json:"dropped"`
+	LastAttempt  int64            `json:"last_attempt"`
+	NextFlush    int64            `json:"next_flush"`
+	Failures     int              `json:"failures"`
+	Attempts     map[string]Event `json:"attempts,omitempty"`
 }
 
 func NewID() string {
@@ -138,20 +130,6 @@ func (s Scope) path() (string, error) {
 	return filepath.Join(s.Home, "maintenance", hex.EncodeToString(sum[:16])+"-events.json"), nil
 }
 func prune(st *State, now time.Time) {
-	var adoptions []CLIAdoption
-	for target, adoption := range st.CLIAdoptions {
-		if adoption.Event.EventAt < now.Add(-Retention).UnixMilli() {
-			delete(st.CLIAdoptions, target)
-		} else {
-			adoptions = append(adoptions, adoption)
-		}
-	}
-	sort.Slice(adoptions, func(i, j int) bool { return adoptions[i].Event.EventAt < adoptions[j].Event.EventAt })
-	if len(adoptions) > 8 {
-		for _, adoption := range adoptions[:len(adoptions)-8] {
-			delete(st.CLIAdoptions, adoption.Event.ToVersion)
-		}
-	}
 	var receipts []Event
 	for id, e := range st.ReadAttempts {
 		if e.EventAt < now.Add(-Retention).UnixMilli() {
@@ -274,38 +252,6 @@ func LastAttempt(s Scope, component string) (Event, error) {
 	var e Event
 	err := update(s, func(st *State) error { e = st.Attempts[component]; return nil })
 	return e, err
-}
-
-func RememberCLIAdoption(s Scope, principal string, e Event) error {
-	if err := Validate(e); err != nil {
-		return err
-	}
-	if e.Component != "cli" || e.ToVersion == "" || (e.Result != "installed" && e.Result != "executed") {
-		return errors.New("CLI adoption requires observed installation or execution")
-	}
-	return update(s, func(st *State) error {
-		if st.CLIAdoptions == nil {
-			st.CLIAdoptions = map[string]CLIAdoption{}
-		}
-		if previous, ok := st.CLIAdoptions[e.ToVersion]; ok && e.Result == "executed" && previous.Event.AttemptID != e.AttemptID {
-			return nil
-		}
-		st.CLIAdoptions[e.ToVersion] = CLIAdoption{Event: e, PrincipalID: principal}
-		return nil
-	})
-}
-
-func CLIAdoptionFor(s Scope, principal, running string) (Event, bool, error) {
-	var result Event
-	var found bool
-	err := update(s, func(st *State) error {
-		adoption, ok := st.CLIAdoptions[running]
-		if ok && adoption.PrincipalID == principal {
-			result, found = adoption.Event, true
-		}
-		return nil
-	})
-	return result, found, err
 }
 func Snapshot(s Scope) (State, error) {
 	var result State

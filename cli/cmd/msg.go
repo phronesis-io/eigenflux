@@ -313,13 +313,6 @@ func cacheMessages(data json.RawMessage) {
 		return
 	}
 	ensureProfileCached(srv)
-	cacheMessagesForServer(data, srv)
-}
-
-func cacheMessagesForServer(data json.RawMessage, srv string) {
-	if srv == "" {
-		return
-	}
 
 	type rawMsg struct {
 		MsgID            string `json:"msg_id"`

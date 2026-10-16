@@ -2,7 +2,6 @@ package maintenance
 
 import (
 	"errors"
-	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -205,76 +204,5 @@ func TestReadAttemptWindowIsBoundedAndSurvivesEventUpload(t *testing.T) {
 	scope.AgentID = "43"
 	if _, exists, err := ReadAttempt(scope, last); err != nil || exists {
 		t.Fatal("read receipt crossed identity boundary")
-	}
-}
-
-func TestCLIAdoptionReceiptsSurviveUploadAndChecks(t *testing.T) {
-	scope := Scope{Home: t.TempDir(), Server: "same", AgentID: "42"}
-	installed := NewEvent(NewID(), "cli", "manual", "adoption", "installed")
-	installed.ToVersion = "0.6.7"
-	if err := Record(scope, installed); err != nil {
-		t.Fatal(err)
-	}
-	if err := RememberCLIAdoption(scope, "principal", installed); err != nil {
-		t.Fatal(err)
-	}
-	if err := Flush(scope, time.Now(), func([]Event) error { return nil }); err != nil {
-		t.Fatal(err)
-	}
-	if err := Record(scope, NewEvent(NewID(), "cli", "auto", "check", "no_update")); err != nil {
-		t.Fatal(err)
-	}
-	got, found, err := CLIAdoptionFor(scope, "principal", "0.6.7")
-	if err != nil || !found || got.AttemptID != installed.AttemptID {
-		t.Fatalf("lost install receipt: %+v %v", got, err)
-	}
-	if _, found, err := CLIAdoptionFor(scope, "other-principal", "0.6.7"); err != nil || found {
-		t.Fatal("receipt crossed principal")
-	}
-	if _, found, err := CLIAdoptionFor(scope, "principal", "0.6.8"); err != nil || found {
-		t.Fatal("receipt crossed target version")
-	}
-	wrong := scope
-	wrong.AgentID = "43"
-	if _, found, err := CLIAdoptionFor(wrong, "principal", "0.6.7"); err != nil || found {
-		t.Fatal("receipt crossed Agent")
-	}
-	stale := NewEvent(NewID(), "cli", "auto", "execute", "executed")
-	stale.ToVersion, stale.RunningVersion = "0.6.7", "0.6.7"
-	if err := RememberCLIAdoption(scope, "principal", stale); err != nil {
-		t.Fatal(err)
-	}
-	got, _, _ = CLIAdoptionFor(scope, "principal", "0.6.7")
-	if got.AttemptID != installed.AttemptID {
-		t.Fatal("stale child replaced newer installation receipt")
-	}
-}
-
-func TestCLIAdoptionReceiptsBoundedAndExpire(t *testing.T) {
-	scope := Scope{Home: t.TempDir(), Server: "same", AgentID: "42"}
-	now := time.Now()
-	for i := 0; i < 12; i++ {
-		installed := NewEvent(NewID(), "cli", "auto", "install", "installed")
-		installed.ToVersion = fmt.Sprintf("0.6.%d", i)
-		installed.EventAt = now.Add(time.Duration(i) * time.Millisecond).UnixMilli()
-		if err := RememberCLIAdoption(scope, "principal", installed); err != nil {
-			t.Fatal(err)
-		}
-	}
-	state, err := Snapshot(scope)
-	if err != nil || len(state.CLIAdoptions) != 8 {
-		t.Fatalf("unbounded receipts: %d %v", len(state.CLIAdoptions), err)
-	}
-	if _, found, err := CLIAdoptionFor(scope, "principal", "0.6.0"); err != nil || found {
-		t.Fatal("old receipt retained")
-	}
-	old := NewEvent(NewID(), "cli", "auto", "install", "installed")
-	old.ToVersion = "0.5.0"
-	old.EventAt = now.Add(-Retention - time.Minute).UnixMilli()
-	if err := RememberCLIAdoption(scope, "principal", old); err != nil {
-		t.Fatal(err)
-	}
-	if _, found, err := CLIAdoptionFor(scope, "principal", "0.5.0"); err != nil || found {
-		t.Fatal("expired receipt retained")
 	}
 }

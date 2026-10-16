@@ -116,6 +116,54 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 		}
 	})
 
+	for _, broken := range []string{"credentials", "config"} {
+		t.Run("manual update with unreadable "+broken, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/cli/latest/release.json":
+					_ = json.NewEncoder(w).Encode(release)
+				case "/cli/0.0.48/" + name:
+					_, _ = w.Write(newBytes)
+				default:
+					t.Errorf("optional identity contacted unrelated endpoint: %s", r.URL.Path)
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+			_, server := runtimeTestConfig(t, srv.URL, true)
+			home := config.HomeDir()
+			path := filepath.Join(home, "servers", server, "agent-v2-credentials.json")
+			if broken == "config" {
+				path = filepath.Join(home, "config.json")
+			}
+			if err := os.WriteFile(path, []byte("invalid"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			bin := filepath.Join(t.TempDir(), "eigenflux")
+			if err := os.WriteFile(bin, oldBytes, 0755); err != nil {
+				t.Fatal(err)
+			}
+			command := exec.Command(bin, "--homedir", home, "--server", server, "update", "--format", "json")
+			command.Env = append(os.Environ(), "EIGENFLUX_UPDATE_REEXEC=0", "EIGENFLUX_CDN_URL="+srv.URL)
+			var stderr bytes.Buffer
+			command.Stderr = &stderr
+			out, err := command.Output()
+			if err != nil {
+				t.Fatalf("optional identity blocked binary update: %s %s %v", out, stderr.String(), err)
+			}
+			var report cliUpdateOutput
+			if err := json.Unmarshal(out, &report); err != nil {
+				t.Fatalf("invalid result: %s %v", out, err)
+			}
+			if report.CLIVersion != "0.0.48" || report.CLIUpdate.Status != "restarted" || report.Observation.Status != "record_failed" {
+				t.Fatalf("binary or observation status incorrect: %+v", report)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || string(data) != "invalid" {
+				t.Fatal("manual update modified account state")
+			}
+		})
+	}
 	for _, online := range []bool{true, false} {
 		t.Run(map[bool]string{true: "authenticated manual stages", false: "authenticated manual offline stages"}[online], func(t *testing.T) {
 			var mu sync.Mutex
@@ -190,14 +238,19 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 		})
 	}
 	for _, tc := range []struct {
-		mode, host string
-		forced     bool
+		mode, host             string
+		forced, contextFailure bool
 	}{
-		{"skill", "codex", false}, {"skill", "codex", true},
-		{"plugin", "claude-code", false}, {"plugin", "claude-code", true},
-		{"plugin", "openclaw", false}, {"plugin", "openclaw", true},
+		{"skill", "codex", false, false}, {"skill", "codex", true, false},
+		{"plugin", "claude-code", false, false}, {"plugin", "claude-code", true, false},
+		{"plugin", "openclaw", false, false}, {"plugin", "openclaw", true, false},
+		{"skill", "codex", true, true},
 	} {
-		t.Run(tc.host+"/"+map[bool]string{false: "daily", true: "Skills minimum overrides TTL"}[tc.forced], func(t *testing.T) {
+		caseName := map[bool]string{false: "daily", true: "Skills minimum overrides TTL"}[tc.forced]
+		if tc.contextFailure {
+			caseName += " with replacement business failure"
+		}
+		t.Run(tc.host+"/"+caseName, func(t *testing.T) {
 			var requests, reported atomic.Int32
 			var eventMu sync.Mutex
 			var observations []maintenance.Event
@@ -212,6 +265,10 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 				case "/skills/latest/manifest.json":
 					_ = json.NewEncoder(w).Encode(manifest)
 				case "/api/v2/agent-context":
+					if tc.contextFailure {
+						http.Error(w, "business unavailable after CLI replacement", http.StatusServiceUnavailable)
+						return
+					}
 					_, _ = w.Write([]byte(`{"code":0,"data":{"context_revision":1}}`))
 				case "/api/v2/maintenance/events:batch":
 					var body struct {
@@ -274,6 +331,33 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 			var stderr bytes.Buffer
 			cmd.Stderr = &stderr
 			out, err := cmd.Output()
+			if tc.contextFailure {
+				if err == nil {
+					t.Fatal("replacement business failure was hidden")
+				}
+				eventMu.Lock()
+				captured := append([]maintenance.Event(nil), observations...)
+				eventMu.Unlock()
+				assertCLIUpdateStages(t, captured, "auto", "")
+				validated := false
+				for _, event := range captured {
+					if event.Component != "skills" {
+						continue
+					}
+					if event.Result == "failed" {
+						t.Fatalf("child business failure falsely failed parent Skills: %+v", event)
+					}
+					validated = validated || event.Result == "no_update"
+				}
+				if !validated {
+					t.Fatalf("replacement Skills check did not complete: %+v", captured)
+				}
+				installed, readErr := os.ReadFile(bin)
+				if readErr != nil || !bytes.Equal(installed, newBytes) || requests.Load() != 1 {
+					t.Fatal("business failure affected successful CLI replacement")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("heartbeat failed: %s %s %v", out, stderr.String(), err)
 			}
@@ -298,7 +382,7 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 			if !strings.Contains(plan.SchedulerLauncher, config.HomeDir()) || !strings.Contains(plan.SchedulerLauncher, server) {
 				t.Fatal("stable Home/server lost after reexec")
 			}
-			if !strings.Contains(plan.SchedulerLauncher, shellQuote("--runtime-mode")+" "+shellQuote(tc.mode)) {
+			if !strings.Contains(plan.SchedulerLauncher, "--runtime-mode "+shellQuote(tc.mode)) {
 				t.Fatal("integration mode changed after upgrade")
 			}
 			if tc.host == "openclaw" && plan.PluginMaintenance.Status != "not_applicable" {

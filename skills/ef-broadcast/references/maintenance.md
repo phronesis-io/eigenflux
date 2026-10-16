@@ -1,46 +1,8 @@
-# Heartbeat Maintenance
+# Automatic Updates
 
-Require CLI 1.0.0. Preserve the current stable Home, server, Agent identity,
-installation mode, enabled state, and host permissions throughout maintenance.
-Use the current plan's CLI prefix for every EigenFlux command.
-
-## Native Scheduler Migration
-
-Run this procedure during an in-place upgrade and before each native heartbeat's
-business stages. Skip scheduler migration when a verified plugin owns the loop.
-Set `EIGENFLUX_MODE=skill` for migration commands after verifying that the
-current run belongs to a native trigger; retain that mode in its launcher.
-
-List every page and scheduler channel in the current host through its native
-tools. Normalize each record into `id`, `name`, `prompt`, `owner`, `purpose`, `home`,
-`server`, `schedule`, `status`, `thread_id`, and `metadata`. Preserve other
-scheduler configuration fields in `metadata`. Exclude generated timestamps,
-revision counters, and run history. Keep field representations stable across reads.
-Set `owner` to `eigenflux` only when the task's command, explicit ownership
-marker, or bound EigenFlux setup thread proves ownership. Set `purpose` to
-`heartbeat` only when the task's launcher or verified setup binding proves it
-runs the recurring EigenFlux heartbeat cycle. Resolve `home` and `server`
-from that task's explicit command, persisted environment, or verified
-setup binding. Stop on unresolved EigenFlux ownership or identity. Preserve
-unrelated tasks with their actual fields. Scope IDs by scheduler channel when
-the host does not provide globally unique IDs.
-
-Submit the complete inventory through stdin to `heartbeat migrate plan --stdin
---format json`, with `complete: true` and `tasks` containing those records.
-Inspect the returned `plan.status`:
-
-- `update`: use the host's native update tool to change only the identified
-  task's prompt to its exact value in `plan.after`; preserve every other field.
-- `current`: retain the freshly inspected task; no migration is needed.
-- `missing`: report that no owned native trigger was found; create a trigger
-  only through the authorized onboarding or explicit reconnect flow.
-
-For `update`, freshly list the same scheduler channels and pages.
-Submit `plan_id`, `complete: true`, and the normalized `tasks` to `heartbeat
-migrate verify --stdin --format json`. Require `status: verified` before
-claiming migration succeeded. Re-read and re-plan after concurrent changes.
-Report duplicate or ambiguous tasks for a concrete user decision. Preserve
-paused tasks and unrelated tasks. Keep failed migrations retryable on the next run.
+Require CLI 0.6.6. Preserve Home, server, Agent identity, installation mode,
+enabled state, and host permissions. Use the current plan CLI prefix.
+Respect auto_cli_update, auto_plugin_update, and auto_skill_sync.
 
 ## Current Host Plugin Update
 
@@ -99,13 +61,3 @@ If the manager cannot stage an update without interrupting the active loop,
 report `blocked` and defer installation to an authorized maintenance window.
 Report required user action once. Keep installation and loaded
 version claims distinct. Keep routine successful checks silent.
-
-## Scoped Maintenance
-
-Use the current plan scope. For maintenance-only, execute maintenance and return. For control-only, read commands.md and process owner commands. Keep Feed, private-message replies, and profile review outside these scoped runs.
-
-Respect auto_cli_update, auto_plugin_update, and auto_skill_sync for automatic operations. Preserve each setting during explicit user upgrades. Use current plan report templates with heartbeat maintenance-report --stdin only after observing their stated phase. Confirm rules_read after freshly reading the installed rule paths. Keep cli_running, watch runtime_ready, plugin installed, and plugin loaded distinct.
-
-For native migration, select the actual command shell with --shell. Resolve a missing server only from the exact task environment, verified setup binding, or a uniquely configured authenticated Home. Preserve ambiguous tasks for an explicit owner decision. Use WorkBuddy desktop automation_update where available. Keep native tasks bounded to heartbeat plan.
-
-Keep uninstallation reasons local unless the owner explicitly requests sharing. Use ef-uninstall for removal.

@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -18,7 +17,7 @@ import (
 	"cli.eigenflux.ai/internal/selfupdate"
 )
 
-const updateObservationFailedEnv = "EIGENFLUX_UPDATE_OBSERVATION_FAILED"
+const updateFromVersionEnv = "EIGENFLUX_UPDATE_FROM_VERSION"
 
 type maintenanceObservationStatus struct {
 	AttemptID string `json:"attempt_id"`
@@ -31,7 +30,7 @@ type maintenanceRecorder struct {
 	principal, endpoint, host, mode, component, trigger, attempt string
 	started                                                      time.Time
 	lastAt                                                       int64
-	initialDropped                                               uint64
+	pending                                                      map[string]bool
 	authenticated, recorded, recordFailed                        bool
 	diagnostics                                                  io.Writer
 }
@@ -43,7 +42,7 @@ func newMaintenanceRecorder(server, component, trigger, attempt string, diagnost
 	if diagnostics == nil {
 		diagnostics = os.Stderr
 	}
-	r := &maintenanceRecorder{component: component, trigger: trigger, attempt: attempt, started: time.Now(), diagnostics: diagnostics}
+	r := &maintenanceRecorder{component: component, trigger: trigger, attempt: attempt, started: time.Now(), diagnostics: diagnostics, pending: map[string]bool{}}
 	credentials, err := auth.LoadV2Credentials(server)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
@@ -65,12 +64,6 @@ func newMaintenanceRecorder(server, component, trigger, attempt string, diagnost
 	if !r.authenticated {
 		r.failure("configuration_unreadable")
 		return r
-	}
-	state, err := maintenance.Snapshot(r.scope)
-	if err != nil {
-		r.failure("maintenance_state_failed")
-	} else {
-		r.initialDropped = state.Dropped
 	}
 	meta := clientMetaForServerName(server)
 	r.host, r.mode = runtimeProduct(meta.Host), meta.Mode
@@ -121,11 +114,7 @@ func (r *maintenanceRecorder) Record(event maintenance.Event) {
 		return
 	}
 	r.recorded = true
-	if event.Component == "cli" && (event.Result == "installed" || event.Result == "executed") {
-		if err := maintenance.RememberCLIAdoption(r.scope, r.principal, event); err != nil {
-			r.failure("adoption_record_failed")
-		}
-	}
+	r.pending[event.EventID] = true
 }
 
 func (r *maintenanceRecorder) Phase(phase, from, target string) {
@@ -176,28 +165,28 @@ func (r *maintenanceRecorder) Flush() {
 	if !r.authenticated || !r.recorded {
 		return
 	}
-	if err := flushMaintenanceForIdentity(r.scope, r.principal, r.endpoint); err != nil {
+	sent, err := flushMaintenanceBatch(r.scope, r.principal, r.endpoint)
+	if err != nil {
 		fmt.Fprintf(r.diagnostics, "[eigenflux:maintenance] upload_pending attempt=%s\n", r.attempt)
+		return
+	}
+	for _, event := range sent {
+		delete(r.pending, event.EventID)
 	}
 }
 
-func resumedCLIRecorder(server string, diagnostics io.Writer) *maintenanceRecorder {
-	r := newMaintenanceRecorder(server, "cli", "adoption", os.Getenv(updateAttemptEnv), diagnostics)
-	if os.Getenv(updateObservationFailedEnv) == "1" {
-		r.recordFailed = true
-	}
-	if !r.authenticated {
+func resumedCLIRecorder(server, trigger string, diagnostics io.Writer) *maintenanceRecorder {
+	attempt := os.Getenv(updateAttemptEnv)
+	r := newMaintenanceRecorder(server, "cli", trigger, attempt, diagnostics)
+	if attempt == "" {
 		return r
 	}
-	previous, found, err := maintenance.CLIAdoptionFor(r.scope, r.principal, version)
-	if err != nil || !found || previous.AttemptID != r.attempt {
-		r.failure("execution_receipt_missing")
+	from := os.Getenv(updateFromVersionEnv)
+	if !selfupdate.ValidVersion(from) {
+		r.failure("invalid_update_context")
 		return r
 	}
-	r.trigger = previous.Trigger
-	r.started = time.UnixMilli(previous.EventAt).Add(-time.Duration(previous.DurationMS) * time.Millisecond)
-	r.lastAt = previous.EventAt
-	r.Finish("execute", "executed", previous.FromVersion, version, version, "")
+	r.Finish("execute", "executed", from, version, version, "")
 	return r
 }
 
@@ -214,69 +203,37 @@ func (r *maintenanceRecorder) Status() maintenanceObservationStatus {
 	if !r.recorded {
 		return status
 	}
-	state, err := maintenance.Snapshot(r.scope)
-	if err != nil {
-		status.Status, status.ErrorCode = "record_failed", "maintenance_state_failed"
-		return status
-	}
-	if state.Dropped > r.initialDropped {
-		status.Status, status.ErrorCode = "record_failed", "maintenance_events_dropped"
-		return status
-	}
 	status.Status = "reported"
-	for _, event := range state.Events {
-		if event.AttemptID == r.attempt {
-			status.Status = "queued"
-			break
-		}
+	if len(r.pending) > 0 {
+		status.Status = "queued"
 	}
 	return status
 }
 
+// Upload uses the existing token; normal CLI business owns credential refresh.
+// An expired or rejected token leaves the bounded queue for a later invocation.
 func flushMaintenanceForIdentity(scope maintenance.Scope, principal, endpoint string) error {
-	return maintenance.Flush(scope, time.Now(), func(events []maintenance.Event) error {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+	_, err := flushMaintenanceBatch(scope, principal, endpoint)
+	return err
+}
+
+func flushMaintenanceBatch(scope maintenance.Scope, principal, endpoint string) ([]maintenance.Event, error) {
+	var sent []maintenance.Event
+	err := maintenance.Flush(scope, time.Now(), func(events []maintenance.Event) error {
 		credentials, err := maintenanceIdentity(scope, principal, endpoint)
 		if err != nil {
 			return err
 		}
-		if credentials.ExpiresAt <= time.Now().Add(30*time.Second).UnixMilli() {
-			credentials, err = refreshPinnedV2Credentials(ctx, scope.Server, endpoint, false, scope.AgentID, principal)
-			if err != nil {
-				return err
-			}
-		}
 		c := client.New(strings.TrimRight(endpoint, "/")+"/api/v2", credentials.AccessToken, version, clientMetaForServerName(scope.Server))
-		c.HTTPClient = &http.Client{Timeout: 5 * time.Second, Transport: pinnedRefreshTransport{parent: ctx, base: http.DefaultTransport}}
-		c.OnUnauthorized = func() (string, error) {
-			if _, err := maintenanceIdentity(scope, principal, endpoint); err != nil {
-				return "", err
-			}
-			refreshed, err := refreshPinnedV2Credentials(ctx, scope.Server, endpoint, true, scope.AgentID, principal)
-			if err != nil {
-				return "", err
-			}
-			return refreshed.AccessToken, nil
-		}
-		if _, err := maintenanceIdentity(scope, principal, endpoint); err != nil {
-			return err
-		}
+		c.HTTPClient = &http.Client{Timeout: 5 * time.Second}
 		_, err = c.Post("/maintenance/events:batch", map[string]interface{}{"events": events})
+		if err == nil {
+			sent = events
+		}
 		return err
 	})
-}
-
-func cliAdoptionEvent(scope maintenance.Scope, principal, running string) (maintenance.Event, bool, error) {
-	credentials, err := auth.LoadV2Credentials(scope.Server)
-	if err != nil || credentials.AgentID != scope.AgentID || credentials.PrincipalID != principal {
-		return maintenance.Event{}, false, fmt.Errorf("maintenance identity changed")
+	if err != nil {
+		return nil, err
 	}
-	previous, found, err := maintenance.CLIAdoptionFor(scope, principal, running)
-	if err != nil || !found {
-		return maintenance.Event{}, false, err
-	}
-	event := maintenance.NewEvent(previous.AttemptID, "cli", "adoption", "adoption", "runtime_ready")
-	event.FromVersion, event.ToVersion, event.RunningVersion = previous.FromVersion, running, running
-	return event, true, nil
+	return sent, nil
 }
