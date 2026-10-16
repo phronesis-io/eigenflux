@@ -8,6 +8,7 @@ import (
 	"eigenflux_server/pkg/recallsource"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,13 +34,16 @@ type Engine struct {
 	Learned           LearnedRanker
 	FriendFeedEnabled bool
 	ConsumedRefillBPS int
-	SourceLimits      []SourceLimit
-	Compiler          *Compiler
-	Needs             NeedReader
-	IDs               IDGenerator
-	Sources           Sources
-	Rules             Rules
-	Policies          func(context.Context, []Candidate, Mode, int) ([]Candidate, error)
+	// ProfileSemanticBPS selects Agents whose broadcast recommendations use
+	// profile-vector recall, gating and ordering.
+	ProfileSemanticBPS int
+	SourceLimits       []SourceLimit
+	Compiler           *Compiler
+	Needs              NeedReader
+	IDs                IDGenerator
+	Sources            Sources
+	Rules              Rules
+	Policies           func(context.Context, []Candidate, Mode, int) ([]Candidate, error)
 }
 type Execution struct {
 	SourceLimits   []SourceLimit `json:"source_limits,omitempty"`
@@ -306,6 +310,19 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		x.Status = "insufficient_context"
 		return x, nil
 	}
+	var profileVector []float32
+	if mode == Recommendation && profileSemanticEnabled(owner, e.ProfileSemanticBPS) {
+		if src, ok := e.Sources.(ProfileSemanticSources); !ok {
+			x.PartialReasons = append(x.PartialReasons, "profile_semantic:unsupported")
+		} else if v, err := src.ProfileVector(ctx, owner); err != nil {
+			x.PartialReasons = append(x.PartialReasons, "profile_semantic:unavailable")
+		} else if len(v) == 0 {
+			x.PartialReasons = append(x.PartialReasons, "profile_semantic:no_vector")
+		} else {
+			profileVector = v
+		}
+	}
+	semanticOn := len(profileVector) > 0
 	type channelResult struct {
 		ci      int
 		kind    Kind
@@ -326,7 +343,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		docs []Document
 		err  error
 	}
-	userRecalls := map[string]*userRecall{"swing_i2i": {}}
+	userRecalls := map[string]*userRecall{"swing_i2i": {}, profileDenseKey: {}}
 	sem := make(chan struct{}, 6)
 	for ci, c := range contexts {
 		c.retrievalAt = now
@@ -342,7 +359,8 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				continue
 			}
 			channels := []string{"lexical"}
-			if len(c.Vector) > 0 {
+			profileDense := semanticOn && kind == Broadcast && c.Origin == "agent_context" && len(c.Vector) == 0
+			if len(c.Vector) > 0 || profileDense {
 				channels = append(channels, "dense")
 			}
 			if kind == Broadcast && mode == Recommendation {
@@ -359,6 +377,10 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			}
 			for _, channel := range channels {
 				ci, c, kind, channel := ci, c, kind, channel
+				shareKey := channel
+				if channel == "dense" && profileDense {
+					shareKey = profileDenseKey
+				}
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
@@ -381,10 +403,25 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 					if channel == "new_ugc_recall" {
 						limit = 10
 					}
+					if shareKey == profileDenseKey {
+						limit = profileDenseLimit
+					}
 					var docs []Document
 					var err error
-					if shared := userRecalls[channel]; shared != nil {
-						shared.once.Do(func() { shared.docs, shared.err = e.Sources.Recall(ctx, Context{OwnerID: owner}, kind, channel, limit) })
+					if shared := userRecalls[shareKey]; shared != nil {
+						shared.once.Do(func() {
+							if shareKey == profileDenseKey {
+								// One profile kNN per request; each clause applies its own filters after recall.
+								shared.docs, shared.err = e.Sources.(ProfileSemanticSources).RecallProfile(ctx, c, profileVector, limit)
+								// Profile similarity is filled for every candidate below; a
+								// profile kNN score is not Need/query semantic evidence.
+								for i := range shared.docs {
+									shared.docs[i].DenseScore = nil
+								}
+								return
+							}
+							shared.docs, shared.err = e.Sources.Recall(ctx, Context{OwnerID: owner}, kind, channel, limit)
+						})
 						docs, err = append([]Document(nil), shared.docs...), shared.err
 						for i := range docs {
 							docs[i].NeedExclusionText = len(c.Filters.ExcludeTerms) > 0
@@ -424,8 +461,44 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		states = make([]refillContext, len(contexts))
 		seenHeadGroups = map[int64]bool{}
 	}
+	// Request-local profile cosine by broadcast ID; NaN marks an item without an embedding.
+	profileCos := map[int64]float64{}
+	var profileMu sync.Mutex
+	fillProfileCosine := func(fillCtx context.Context, docs []Document) {
+		if !semanticOn {
+			return
+		}
+		profileMu.Lock()
+		defer profileMu.Unlock()
+		missing, queued := []int64{}, map[int64]bool{}
+		for _, d := range docs {
+			if _, ok := profileCos[d.Ref.ID]; d.Ref.Type == Broadcast && !ok && !queued[d.Ref.ID] {
+				queued[d.Ref.ID] = true
+				missing = append(missing, d.Ref.ID)
+			}
+		}
+		if len(missing) == 0 {
+			return
+		}
+		got, err := e.Sources.(ProfileSemanticSources).ProfileCosine(fillCtx, profileVector, missing)
+		if err != nil {
+			// Candidates without profile evidence keep the ordinary rule score.
+			x.PartialReasons = append(x.PartialReasons, "profile_semantic:cosine_unavailable")
+			return
+		}
+		for _, id := range missing {
+			v, ok := got[id]
+			if !ok {
+				v = math.NaN()
+			}
+			profileCos[id] = v
+		}
+	}
 	evaluate := func(evalCtx context.Context, c Context, merged map[string]Document, docs []Document) ([]Candidate, error) {
 		eligible := []Candidate{}
+		if c.Origin != "baseline" {
+			fillProfileCosine(evalCtx, docs)
+		}
 		fresh, err := e.Sources.Hydrate(evalCtx, owner, mode, docs)
 		if err != nil {
 			return nil, err
@@ -479,10 +552,22 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			}
 			d.Text = ""
 			score := ScoreRules(c, d, e.Rules[d.Ref.Type][mode], now)
-			if mode == Recommendation && d.RecallSources().Has(recallsource.Friend) {
+			friend := mode == Recommendation && d.RecallSources().Has(recallsource.Friend)
+			if friend {
 				score.Eligible = true
 				score.Features["friend_relevance_bypass"] = 1
 				score.Version += ":friend_feed_v1"
+			}
+			if semanticOn && d.Ref.Type == Broadcast && c.Origin != "baseline" {
+				profileMu.Lock()
+				cos, ok := profileCos[d.Ref.ID]
+				profileMu.Unlock()
+				if ok && math.IsNaN(cos) {
+					score.Eligible = friend
+					score.Missing = append(score.Missing, "profile_cosine")
+				} else if ok {
+					score = scoreProfile(score, d, cos, e.Rules[d.Ref.Type][mode], now, friend)
+				}
 			}
 			if !score.Eligible {
 				below = true
@@ -494,6 +579,12 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		}
 		return eligible, nil
 	}
+	type pendingContext struct {
+		c      Context
+		merged map[string]Document
+		docs   []Document
+	}
+	pending := []pendingContext{}
 	for ci, c := range contexts {
 		if c.UnverifiedNeedReason != "" {
 			continue
@@ -565,7 +656,20 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				}
 			}
 		}
-		eligible, err := evaluate(ctx, c, merged, docs)
+		pending = append(pending, pendingContext{c, merged, docs})
+	}
+	if semanticOn {
+		// One similarity read for every context's candidates.
+		all := []Document{}
+		for _, p := range pending {
+			if p.c.Origin != "baseline" {
+				all = append(all, p.docs...)
+			}
+		}
+		fillProfileCosine(ctx, all)
+	}
+	for _, p := range pending {
+		eligible, err := evaluate(ctx, p.c, p.merged, p.docs)
 		if err != nil {
 			return x, err
 		}
@@ -579,7 +683,10 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			return []Candidate{}, nil
 		}
 		in = append([]Candidate(nil), in...)
-		e.rankLearned(in, mode)
+		if !semanticOn {
+			// The LR scorer was not trained on profile similarity.
+			e.rankLearned(in, mode)
+		}
 		if e.Policies != nil {
 			var err error
 			in, err = e.Policies(ctx, in, mode, resultLimit)

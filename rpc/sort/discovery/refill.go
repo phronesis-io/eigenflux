@@ -2,9 +2,7 @@ package discovery
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
-	"hash/fnv"
 	"sort"
 	"strconv"
 	"strings"
@@ -47,15 +45,7 @@ type refillContext struct {
 }
 
 func consumedRefillEnabled(owner int64, bps int) bool {
-	if bps <= 0 || bps > 10000 {
-		return false
-	}
-	h := fnv.New64a()
-	_, _ = h.Write([]byte("discovery-consumed-refill-v1:"))
-	var b [8]byte
-	binary.BigEndian.PutUint64(b[:], uint64(owner))
-	_, _ = h.Write(b[:])
-	return h.Sum64()%10000 < uint64(bps)
+	return bucketEnabled("discovery-consumed-refill-v1:", owner, bps)
 }
 
 // Atomic bound check prevents a concurrent impression writer from growing the

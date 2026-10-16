@@ -197,6 +197,7 @@ type Document struct {
 	Quality           float64           `json:"quality"`
 	Fulfillment       float64           `json:"fulfillment"`
 	DenseScore        *float64          `json:"dense_score,omitempty"`
+	ProfileCosine     *float64          `json:"-"` // Request-local; scored evidence lives in Score.Features.
 	Lexical           float64           `json:"lexical"`
 	Channels          []string          `json:"channels"`
 	ExactMatch        string            `json:"exact_match,omitempty"`

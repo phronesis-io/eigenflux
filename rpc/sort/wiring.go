@@ -30,6 +30,9 @@ func initDiscovery(ctx context.Context, cfg *config.Config, policies func(contex
 	if cfg.DiscoveryConsumedRefillBPS < 0 || cfg.DiscoveryConsumedRefillBPS > 10000 {
 		return nil, nil, fmt.Errorf("DISCOVERY_CONSUMED_REFILL_BPS must be in [0,10000]")
 	}
+	if cfg.DiscoveryProfileSemanticBPS < 0 || cfg.DiscoveryProfileSemanticBPS > 10000 {
+		return nil, nil, fmt.Errorf("DISCOVERY_PROFILE_SEMANTIC_BPS must be in [0,10000]")
+	}
 	if err := cfg.ValidateCommissionDiscoveryConfiguration(); err != nil {
 		return nil, nil, err
 	}
@@ -82,10 +85,10 @@ func initDiscovery(ctx context.Context, cfg *config.Config, policies func(contex
 	}
 	engine := &discovery.Engine{
 		FriendFeedEnabled: cfg.FriendFeedEnabled, SourceLimits: sourceLimits,
-		ConsumedRefillBPS: cfg.DiscoveryConsumedRefillBPS,
-		Compiler:          &discovery.Compiler{Cache: contexts, Embedder: embed, NeedVectors: vectors, EmbeddingVersion: vectors.Generation()},
-		Needs:             discovery.CachedNeeds{NeedReader: need.Store{DB: db.DB}, Cache: contexts},
-		IDs:               ids, Rules: rules, Policies: policies, Sources: sources,
+		ConsumedRefillBPS: cfg.DiscoveryConsumedRefillBPS, ProfileSemanticBPS: cfg.DiscoveryProfileSemanticBPS,
+		Compiler: &discovery.Compiler{Cache: contexts, Embedder: embed, NeedVectors: vectors, EmbeddingVersion: vectors.Generation()},
+		Needs:    discovery.CachedNeeds{NeedReader: need.Store{DB: db.DB}, Cache: contexts},
+		IDs:      ids, Rules: rules, Policies: policies, Sources: sources,
 	}
 	interval, err := time.ParseDuration(cfg.DiscoveryLRReloadInterval)
 	if err != nil && cfg.DiscoveryLREnabled {
