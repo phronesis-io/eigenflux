@@ -463,6 +463,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	}
 	// Request-local profile cosine by broadcast ID; NaN marks an item without an embedding.
 	profileCos := map[int64]float64{}
+	profileCosFailed := false
 	var profileMu sync.Mutex
 	fillProfileCosine := func(fillCtx context.Context, docs []Document) {
 		if !semanticOn {
@@ -470,6 +471,9 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		}
 		profileMu.Lock()
 		defer profileMu.Unlock()
+		if profileCosFailed {
+			return
+		}
 		missing, queued := []int64{}, map[int64]bool{}
 		for _, d := range docs {
 			if _, ok := profileCos[d.Ref.ID]; d.Ref.Type == Broadcast && !ok && !queued[d.Ref.ID] {
@@ -480,9 +484,13 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		if len(missing) == 0 {
 			return
 		}
-		got, err := e.Sources.(ProfileSemanticSources).ProfileCosine(fillCtx, profileVector, missing)
+		readCtx, cancel := context.WithTimeout(fillCtx, profileCosineTimeout)
+		got, err := e.Sources.(ProfileSemanticSources).ProfileCosine(readCtx, profileVector, missing)
+		cancel()
 		if err != nil {
-			// Candidates without profile evidence keep the ordinary rule score.
+			// Candidates without profile evidence keep the ordinary rule score;
+			// the request does not retry the read for later contexts.
+			profileCosFailed = true
 			x.PartialReasons = append(x.PartialReasons, "profile_semantic:cosine_unavailable")
 			return
 		}
@@ -496,7 +504,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	}
 	evaluate := func(evalCtx context.Context, c Context, merged map[string]Document, docs []Document) ([]Candidate, error) {
 		eligible := []Candidate{}
-		if c.Origin != "baseline" {
+		if profileScored(c) {
 			fillProfileCosine(evalCtx, docs)
 		}
 		fresh, err := e.Sources.Hydrate(evalCtx, owner, mode, docs)
@@ -558,15 +566,19 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				score.Features["friend_relevance_bypass"] = 1
 				score.Version += ":friend_feed_v1"
 			}
-			if semanticOn && d.Ref.Type == Broadcast && c.Origin != "baseline" {
+			var rank *float64
+			if semanticOn && d.Ref.Type == Broadcast && profileScored(c) {
 				profileMu.Lock()
 				cos, ok := profileCos[d.Ref.ID]
 				profileMu.Unlock()
-				if ok && math.IsNaN(cos) {
-					score.Eligible = friend
-					score.Missing = append(score.Missing, "profile_cosine")
-				} else if ok {
-					score = scoreProfile(score, d, cos, e.Rules[d.Ref.Type][mode], now, friend)
+				if ok && math.IsNaN(cos) && !friend {
+					metrics.DiscoveryRejected.WithLabelValues(string(d.Ref.Type), "profile_embedding_missing").Inc()
+					continue
+				}
+				if ok && !math.IsNaN(cos) {
+					var r float64
+					score, r = scoreProfile(score, d, cos, e.Rules[d.Ref.Type][mode], now, friend)
+					rank = &r
 				}
 			}
 			if !score.Eligible {
@@ -574,7 +586,11 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				metrics.DiscoveryRejected.WithLabelValues(string(d.Ref.Type), "below_threshold").Inc()
 			}
 			if score.Eligible {
-				eligible = append(eligible, Candidate{FinalScore: score.Value, Context: c, Document: d, Score: score})
+				candidate := Candidate{FinalScore: score.Value, Context: c, Document: d, Score: score, ProfileRank: rank}
+				if rank != nil {
+					candidate.FinalScore = *rank
+				}
+				eligible = append(eligible, candidate)
 			}
 		}
 		return eligible, nil
@@ -662,7 +678,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		// One similarity read for every context's candidates.
 		all := []Document{}
 		for _, p := range pending {
-			if p.c.Origin != "baseline" {
+			if profileScored(p.c) {
 				all = append(all, p.docs...)
 			}
 		}
@@ -683,10 +699,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			return []Candidate{}, nil
 		}
 		in = append([]Candidate(nil), in...)
-		if !semanticOn {
-			// The LR scorer was not trained on profile similarity.
-			e.rankLearned(in, mode)
-		}
+		e.rankLearned(in, mode)
 		if e.Policies != nil {
 			var err error
 			in, err = e.Policies(ctx, in, mode, resultLimit)

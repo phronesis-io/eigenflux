@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"eigenflux_server/pkg/need"
 )
 
 type profileFake struct {
@@ -59,12 +61,17 @@ func profileDoc(id int64, lexical float64, ageDays int64) Document {
 }
 
 func profileFixture() (*Engine, *profileFake) {
-	e, s, _ := engineFixture()
+	e, f, _ := profileFixtureWithStore()
+	return e, f
+}
+
+func profileFixtureWithStore() (*Engine, *profileFake, *memStore) {
+	e, s, store := engineFixture()
 	s.owner = OwnerContext{Clauses: []string{"battery", "solid state"}}
 	f := &profileFake{sourceFake: s, vector: []float32{1, 0}, cosine: map[int64]float64{}}
 	e.Sources = f
 	e.ProfileSemanticBPS = 10000
-	return e, f
+	return e, f, store
 }
 
 func runProfile(t *testing.T, e *Engine) Execution {
@@ -154,8 +161,12 @@ func TestProfileSemanticGatesRecallsAndOrders(t *testing.T) {
 		t.Fatalf("similarity must be read once for all contexts: %d %v", s.cosineCalls, s.cosineIDs)
 	}
 	for _, c := range x.Candidates {
-		if c.Score.Kind != profileSemanticKind || !strings.HasSuffix(c.Score.Version, profileSemanticVersion) || c.Score.Features["profile_cosine"] != s.cosine[c.Document.Ref.ID] {
-			t.Fatalf("missing attribution: %+v", c.Score)
+		if c.Score.Kind != "rule_score" || !strings.HasSuffix(c.Score.Version, profileSemanticVersion) || c.Score.Features["profile_cosine"] != s.cosine[c.Document.Ref.ID] || c.ProfileRank == nil || c.FinalScore != *c.ProfileRank {
+			t.Fatalf("missing attribution: %+v", c)
+		}
+		rule := ScoreRules(c.Context, c.Document, e.Rules[Broadcast][Recommendation], testNow)
+		if c.Score.Value != rule.Value || c.Score.Relevance != rule.Relevance || c.Score.Value < 0 || c.Score.Value > 1 {
+			t.Fatalf("rule score contract changed: %+v vs %+v", c.Score, rule)
 		}
 		if c.Document.Ref.ID == 6 && c.Document.DenseScore != nil {
 			t.Fatal("profile kNN score must not become Need semantic evidence")
@@ -163,7 +174,7 @@ func TestProfileSemanticGatesRecallsAndOrders(t *testing.T) {
 	}
 	b, _ := json.Marshal(x.Candidates[0].Document)
 	if strings.Contains(string(b), "profile") {
-		t.Fatalf("request-local cosine leaked into the document snapshot: %s", b)
+		t.Fatalf("profile evidence leaked into the document snapshot: %s", b)
 	}
 }
 
@@ -195,8 +206,11 @@ func TestProfileSemanticDegradesToRules(t *testing.T) {
 			s.cosine[1] = .1
 			mutate(s)
 			x := runProfile(t, e)
-			if len(x.Candidates) != 1 || x.Candidates[0].Score.Kind != "rule_score" {
+			if len(x.Candidates) != 1 || x.Candidates[0].ProfileRank != nil || strings.Contains(x.Candidates[0].Score.Version, "profile") {
 				t.Fatalf("expected rule fallback: %+v", x.Candidates)
+			}
+			if s.cosineCalls > 1 {
+				t.Fatalf("failed similarity read retried per context: %d", s.cosineCalls)
 			}
 			found := false
 			for _, r := range x.PartialReasons {
@@ -235,5 +249,24 @@ func TestDenseQueryExcludesConsumedGroups(t *testing.T) {
 	b, _ := json.Marshal(after)
 	if strings.Contains(string(a), `"group_id"`) || !strings.Contains(string(b), `"group_id":[11]`) {
 		t.Fatalf("dense exclusion: %s / %s", a, b)
+	}
+}
+
+func TestProfileSemanticKeepsCapturedNeedRelevance(t *testing.T) {
+	e, s, store := profileFixtureWithStore()
+	store.active = []need.Snapshot{capturedFixture(9, Broadcast)}
+	lr := &learnedFake{}
+	e.Learned = lr
+	s.docs = []Document{profileDoc(1, 5, 1)}
+	s.cosine[1] = .05 // A Need far from the standing profile.
+	x := runProfile(t, e)
+	if len(x.Candidates) != 1 || x.Candidates[0].Context.CapturedNeed == nil || x.Candidates[0].ProfileRank != nil {
+		t.Fatalf("captured Need must keep rule relevance: %+v", x.Candidates)
+	}
+	if lr.calls == 0 || x.Candidates[0].LR == nil {
+		t.Fatal("Need candidates keep the learned ranker")
+	}
+	if s.recallCalls != 0 || s.cosineCalls != 0 {
+		t.Fatalf("no Profile context, no profile reads: recall=%d cosine=%d", s.recallCalls, s.cosineCalls)
 	}
 }

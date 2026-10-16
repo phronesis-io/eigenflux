@@ -69,8 +69,9 @@ func TestDiscoveryProfileSemanticRecommendation(t *testing.T) {
 	sample := decode[struct {
 		Search discovery.Candidate `json:"search"`
 	}](t, []byte(raw))
-	require.Equal(t, "profile_semantic", sample.Search.Score.Kind)
+	require.Equal(t, "rule_score", sample.Search.Score.Kind, "the LR training contract is retained")
 	require.True(t, strings.HasSuffix(sample.Search.Score.Version, ":profile_semantic_v1"), sample.Search.Score.Version)
 	require.InDelta(t, 1, sample.Search.Score.Features["profile_cosine"], .00001)
-	require.Nil(t, sample.Search.LR, "profile-semantic requests bypass the discovery LR scorer")
+	require.NotNil(t, sample.Search.ProfileRank)
+	require.Nil(t, sample.Search.LR, "profile-ranked candidates bypass the discovery LR scorer")
 }

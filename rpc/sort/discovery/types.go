@@ -197,7 +197,6 @@ type Document struct {
 	Quality           float64           `json:"quality"`
 	Fulfillment       float64           `json:"fulfillment"`
 	DenseScore        *float64          `json:"dense_score,omitempty"`
-	ProfileCosine     *float64          `json:"-"` // Request-local; scored evidence lives in Score.Features.
 	Lexical           float64           `json:"lexical"`
 	Channels          []string          `json:"channels"`
 	ExactMatch        string            `json:"exact_match,omitempty"`
@@ -221,14 +220,16 @@ type Score struct {
 	Missing       []string           `json:"missing,omitempty"`
 }
 type Candidate struct {
-	LR              *discoverylr.Result `json:"lr,omitempty"`
-	FinalScore      float64             `json:"final_score"`
-	Order           int                 `json:"policy_order,omitempty"`
-	ClaimTTLSeconds int64               `json:"claim_ttl_seconds,omitempty"`
-	Context         Context             `json:"context"`
-	Document        Document            `json:"document"`
-	Score           Score               `json:"score"`
-	Reasons         []string            `json:"policy_reasons,omitempty"`
+	LR         *discoverylr.Result `json:"lr,omitempty"`
+	FinalScore float64             `json:"final_score"`
+	// ProfileRank orders profile-semantic candidates; Score keeps the rule contract.
+	ProfileRank     *float64 `json:"profile_rank,omitempty"`
+	Order           int      `json:"policy_order,omitempty"`
+	ClaimTTLSeconds int64    `json:"claim_ttl_seconds,omitempty"`
+	Context         Context  `json:"context"`
+	Document        Document `json:"document"`
+	Score           Score    `json:"score"`
+	Reasons         []string `json:"policy_reasons,omitempty"`
 }
 type ResultItem struct {
 	Ref          SourceRef         `json:"source_ref"`

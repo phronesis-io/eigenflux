@@ -25,7 +25,8 @@ func TestProfileSemanticESReads(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	index := fmt.Sprintf("profile-semantic-test-%d", time.Now().UnixNano())
+	prefix := fmt.Sprintf("profile-semantic-test-%d", time.Now().UnixNano())
+	index, rollover := prefix+"-000001", prefix+"-000002"
 	do := func(method, path, body string) {
 		t.Helper()
 		resp, err := es.Client.Transport.Perform(mustRequest(t, method, esURL+path, body))
@@ -37,8 +38,11 @@ func TestProfileSemanticESReads(t *testing.T) {
 			t.Fatalf("%s %s: %d", method, path, resp.StatusCode)
 		}
 	}
-	do("PUT", "/"+index, `{"mappings":{"properties":{"id":{"type":"long"},"group_id":{"type":"long"},"author_agent_id":{"type":"long"},"content":{"type":"text"},"summary":{"type":"text"},"embedding":{"type":"dense_vector","dims":2,"index":true,"similarity":"cosine"}}}}`)
-	defer do("DELETE", "/"+index, "")
+	mapping := `{"mappings":{"properties":{"id":{"type":"long"},"group_id":{"type":"long"},"author_agent_id":{"type":"long"},"content":{"type":"text"},"summary":{"type":"text"},"embedding":{"type":"dense_vector","dims":2,"index":true,"similarity":"cosine"}}}}`
+	for _, name := range []string{index, rollover} {
+		do("PUT", "/"+name, mapping)
+		defer do("DELETE", "/"+name, "")
+	}
 	docs := map[int64]string{
 		1: `{"id":1,"group_id":11,"author_agent_id":9,"content":"a","embedding":[1,0]}`,
 		2: `{"id":2,"group_id":12,"author_agent_id":9,"content":"b","embedding":[0.6,0.8]}`,
@@ -48,9 +52,11 @@ func TestProfileSemanticESReads(t *testing.T) {
 	for id, body := range docs {
 		do("PUT", fmt.Sprintf("/%s/_doc/%d", index, id), body)
 	}
-	do("POST", "/"+index+"/_refresh", "")
+	// The same item in a later rollover generation must not crowd out others.
+	do("PUT", fmt.Sprintf("/%s/_doc/2", rollover), docs[2])
+	do("POST", "/"+prefix+"-*/_refresh", "")
 
-	s := &discovery.Source{BroadcastIndex: index}
+	s := &discovery.Source{BroadcastIndex: prefix + "-*"}
 	got, err := s.ProfileCosine(ctx, []float32{1, 0}, []int64{1, 2, 3, 99})
 	if err != nil {
 		t.Fatal(err)
@@ -62,9 +68,13 @@ func TestProfileSemanticESReads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ids := []string{}
+	// Rollover duplicates are merged by source key downstream, as for lexical recall.
+	ids, dup := []string{}, map[int64]bool{}
 	for _, d := range recalled {
-		ids = append(ids, fmt.Sprint(d.Ref.ID))
+		if !dup[d.Ref.ID] {
+			dup[d.Ref.ID] = true
+			ids = append(ids, fmt.Sprint(d.Ref.ID))
+		}
 	}
 	if strings.Join(ids, ",") != "1,2" {
 		t.Fatalf("profile kNN must rank by cosine and keep author exclusion: %v", ids)

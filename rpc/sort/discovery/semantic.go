@@ -10,6 +10,7 @@ import (
 	"hash/fnv"
 	"io"
 	"math"
+	"time"
 
 	"eigenflux_server/pkg/cache"
 	embcodec "eigenflux_server/pkg/embedding"
@@ -19,10 +20,11 @@ import (
 const (
 	profileSemanticSalt    = "discovery-profile-semantic-v1:"
 	profileSemanticVersion = ":profile_semantic_v1"
-	profileSemanticKind    = "profile_semantic"
 	profileDenseKey        = "profile_dense"
 	profileDenseLimit      = 80
-	maxProfileCosineIDs    = 2000
+	maxProfileCosineIDs    = 5000
+	profileCosineTimeout   = 300 * time.Millisecond
+	profileHistoryTimeout  = 300 * time.Millisecond
 	profileFreshnessWeight = 0.05
 	day                    = int64(24 * 60 * 60 * 1000)
 )
@@ -71,22 +73,23 @@ func profileMinCosine(freshAt, now int64) float64 {
 	}
 }
 
-// scoreProfile replaces broadcast recommendation relevance with the profile
-// cosine. Friend candidates keep their relevance bypass but are ordered on the
-// same scale.
-func scoreProfile(s Score, d Document, cos float64, rule Rule, now int64, bypass bool) Score {
-	fresh := decay(d.FreshAt, now, rule.HalfLifeMS)
+// profileScored reports whether a context's broadcast candidates use the
+// profile gate. Captured Needs keep their own relevance: an explicit Need may
+// differ from the standing profile. Baseline contexts have their own score.
+func profileScored(c Context) bool {
+	return c.CapturedNeed == nil && c.Origin != "baseline"
+}
+
+// scoreProfile gates a candidate by profile cosine and returns its ordering
+// value. The rule score's value, relevance and contributions are retained so
+// replay samples keep the discovery LR feature contract.
+func scoreProfile(s Score, d Document, cos float64, rule Rule, now int64, bypass bool) (Score, float64) {
 	floor := profileMinCosine(d.FreshAt, now)
-	s.Kind = profileSemanticKind
 	s.Version += profileSemanticVersion
-	s.Relevance = cos
-	s.Value = cos + profileFreshnessWeight*fresh
-	s.Threshold, s.MinRelevance = floor, floor
 	s.Features["profile_cosine"] = cos
-	s.Features["freshness"] = fresh
-	s.Contributions = map[string]float64{"profile_cosine": cos, "freshness": profileFreshnessWeight * fresh}
+	s.Features["profile_min_cosine"] = floor
 	s.Eligible = bypass || cos >= floor
-	return s
+	return s, cos + profileFreshnessWeight*decay(d.FreshAt, now, rule.HalfLifeMS)
 }
 
 func (s *Source) ProfileVector(ctx context.Context, owner int64) ([]float32, error) {
@@ -135,8 +138,8 @@ func (s *Source) ProfileCosine(ctx context.Context, vector []float32, ids []int6
 	if index == "" {
 		index = es.ReadIndexPattern
 	}
-	// Rollover generations may hold the same item; size covers every copy.
-	body := map[string]any{"size": 2 * len(ids), "track_total_hits": false, "_source": []string{"id"},
+	// Rollover generations may hold the same item; collapse keeps one hit per ID.
+	body := map[string]any{"size": len(ids), "track_total_hits": false, "_source": []string{"id"}, "collapse": map[string]any{"field": "id"},
 		"query": map[string]any{"script_score": map[string]any{
 			"query":  map[string]any{"bool": map[string]any{"filter": []any{terms("id", ids), map[string]any{"exists": map[string]any{"field": "embedding"}}}}},
 			"script": map[string]any{"source": "cosineSimilarity(params.v, 'embedding') + 1.0", "params": map[string]any{"v": vector}},
@@ -186,7 +189,10 @@ func (s *Source) RecallProfile(ctx context.Context, c Context, vector []float32,
 	if s.DisabledChannels["dense"] {
 		return nil, nil
 	}
-	groups, _, err := s.ConsumedGroups(ctx, c.OwnerID)
+	// Exclusion is best effort: a slow or failed history read keeps the recall.
+	historyCtx, cancel := context.WithTimeout(ctx, profileHistoryTimeout)
+	groups, _, err := s.ConsumedGroups(historyCtx, c.OwnerID)
+	cancel()
 	if err != nil {
 		groups = nil
 	}
