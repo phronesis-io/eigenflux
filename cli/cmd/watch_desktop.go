@@ -31,16 +31,12 @@ func orderDesktopURL(endpoint, agentID, orderID, role string) (string, error) {
 	if role != "buyer" && role != "seller" {
 		return "", errors.New("invalid_desktop_role")
 	}
-	return desktopConsoleURL(endpoint, "/dashboard/notifications/open", url.Values{"agent_id": {agentID}, "order_id": {orderID}, "role": {role}})
-}
-
-func desktopConsoleURL(endpoint, path string, query url.Values) (string, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return "", errors.New("invalid_desktop_origin")
 	}
-	u.Path, u.RawPath = path, ""
-	u.RawQuery = query.Encode()
+	u.Path, u.RawPath = "/dashboard/notifications/open", ""
+	u.RawQuery = url.Values{"agent_id": {agentID}, "order_id": {orderID}, "role": {role}}.Encode()
 	if err := desktopnotify.ValidateURL(u.String()); err != nil {
 		return "", err
 	}
@@ -72,7 +68,7 @@ func commissionDesktopMessage(raw json.RawMessage, endpoint, agentID, language s
 	return desktopnotify.Message{ID: "commission:" + strconv.FormatInt(int64(fact.ID), 10), Title: title, Body: body, URL: target}, nil
 }
 func (w *accountWatch) enableDesktop() error {
-	if !w.receivesCommission() && (w.binding == nil || !w.binding.Handles("pm_push")) {
+	if !w.receivesCommission() {
 		return nil
 	}
 	if _, err := orderDesktopURL(w.server.Endpoint, w.identity.AgentID, "1", "seller"); err != nil {
@@ -121,27 +117,7 @@ func (w *accountWatch) enqueueDesktopBlockers() error {
 			return err
 		}
 	}
-	if w.binding != nil && w.binding.Handles("pm_push") {
-		target, err := desktopConsoleURL(w.server.Endpoint, "/dashboard/messages", nil)
-		if err != nil {
-			return err
-		}
-		for _, job := range w.journal.PrivateMessageBlockers() {
-			sum := sha256.Sum256([]byte(w.scope + ":pm:" + job.ID + ":needs_user:" + job.Code))
-			title, body := desktopPrivateMessageCopy(desktopnotify.SystemLanguage())
-			if err := w.desktop.Enqueue(desktopnotify.Message{ID: "local:pm:" + hex.EncodeToString(sum[:]), Title: title, Body: body, URL: target}); err != nil {
-				return err
-			}
-		}
-	}
 	return nil
-}
-
-func desktopPrivateMessageCopy(language string) (string, string) {
-	if language == "zh" {
-		return "私信需要你处理", "有一条私信等待你的确认。请打开消息页，在接收私信的账号中查看；尚未自动回复。"
-	}
-	return "Private message needs your attention", "Open Messages in the receiving Agent's account to review it. No reply has been sent."
 }
 
 func desktopBlockerText(language, status string) (string, string) {

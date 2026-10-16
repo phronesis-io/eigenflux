@@ -7,23 +7,6 @@ type CommissionBlocker struct {
 	ID, OrderID, Role, Status, Code string
 }
 
-// PrivateMessageBlocker exposes no message body or counterparty-supplied routing.
-type PrivateMessageBlocker struct {
-	ID, Code string
-}
-
-func (j *Journal) PrivateMessageBlockers() []PrivateMessageBlocker {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	result := []PrivateMessageBlocker{}
-	for _, job := range j.state.Jobs {
-		if job.Kind == "pm_push" && job.Status == "needs_user" {
-			result = append(result, PrivateMessageBlocker{ID: job.ID, Code: job.Code})
-		}
-	}
-	return result
-}
-
 // CommissionBlockers recovers unresolved work for user notification without
 // weakening Snapshot's redaction or changing execution/remote ACK state.
 func (j *Journal) CommissionBlockers() ([]CommissionBlocker, error) {
