@@ -12,6 +12,8 @@ import (
 // Observation records submission, never banner visibility or human attention.
 // It excludes notification text, URLs, credentials and raw provider errors.
 type Observation struct {
+	DeviceID           string    `json:"device_id,omitempty"`
+	DeviceName         string    `json:"device_name,omitempty"`
 	EventID            string    `json:"event_id,omitempty"`
 	AgentID            string    `json:"agent_id,omitempty"`
 	Source             string    `json:"source,omitempty"`

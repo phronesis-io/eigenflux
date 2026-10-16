@@ -13,3 +13,10 @@ backoff, so an online removal is observable before its CLI exits even with an
 old maintenance backlog. It preserves unrelated history. The caller pins account
 identity, supplies a bounded HTTP budget, and carries no free-text reason into
 events. See `cli/cmd/UNINSTALL.md` for the uninstall lifecycle and server contract.
+
+Notification `status` observations may carry a complete `device_id` /
+`device_name` pair. Device IDs are random 32-hex installation IDs; names are
+nonempty sanitized strings of at most 64 Unicode characters. Setup and send
+events cannot carry this pair. Old records without device metadata remain
+valid. The existing `result`, `error_code`, `platform` and original `event_at`
+describe permission observations; queue upload time must not refresh their age.

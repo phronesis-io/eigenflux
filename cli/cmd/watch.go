@@ -222,9 +222,9 @@ func (w *accountWatch) run(parent context.Context, out io.Writer) error {
 		return err
 	}
 	var workers sync.WaitGroup
-	runners := []func(context.Context) error{w.pmLoop, w.controlLoop, w.runtimeLoop, w.checkLoop, w.maintenanceLoop, w.pmFallbackLoop, w.commissionFallbackLoop, w.desktopLoop}
+	runners := []func(context.Context) error{w.pmLoop, w.controlLoop, w.runtimeLoop, w.checkLoop, w.maintenanceLoop, w.pmFallbackLoop, w.commissionFallbackLoop, w.desktopLoop, w.notificationPermissionLoop}
 	if w.notificationsOnly {
-		runners = []func(context.Context) error{w.checkLoop, w.maintenanceLoop, w.commissionFallbackLoop, w.desktopLoop}
+		runners = []func(context.Context) error{w.checkLoop, w.maintenanceLoop, w.commissionFallbackLoop, w.desktopLoop, w.notificationPermissionLoop}
 	}
 	if w.journal != nil {
 		runners = append(runners, w.dispatchLoop, w.commissionDispatchLoop, w.commissionFulfillmentLoop, w.commissionExecutionReportLoop)

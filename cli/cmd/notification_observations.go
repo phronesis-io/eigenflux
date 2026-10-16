@@ -112,7 +112,7 @@ func notificationMaintenanceEvent(e desktopnotify.Observation) maintenance.Event
 	event := maintenance.NewEvent(e.EventID, "notifier", trigger, "notification", e.Result)
 	event.EventAt = e.At.UnixMilli()
 	event.Source, event.Platform, event.ErrorCode, event.FromVersion, event.DurationMS = e.Source, e.Platform, e.Code, e.CLIVersion, e.DurationMS
-	event.Notification = &maintenance.Notification{Action: e.Action, Visibility: e.Visibility, IDHash: e.NotificationIDHash, Stage: e.Stage, HResult: e.HResult, CLICommit: e.CLICommit}
+	event.Notification = &maintenance.Notification{Action: e.Action, Visibility: e.Visibility, IDHash: e.NotificationIDHash, Stage: e.Stage, HResult: e.HResult, CLICommit: e.CLICommit, DeviceID: e.DeviceID, DeviceName: e.DeviceName}
 	return event
 }
 

@@ -3,9 +3,14 @@ package maintenance
 import (
 	"errors"
 	"regexp"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 type Notification struct {
+	DeviceID   string `json:"device_id,omitempty"`
+	DeviceName string `json:"device_name,omitempty"`
 	Action     string `json:"action"`
 	Visibility string `json:"visibility"`
 	IDHash     string `json:"id_hash,omitempty"`
@@ -15,6 +20,7 @@ type Notification struct {
 }
 
 var notificationHash = regexp.MustCompile(`^[a-f0-9]{64}$`)
+var notificationDeviceID = regexp.MustCompile(`^[a-f0-9]{32}$`)
 var notificationHResult = regexp.MustCompile(`^0x[0-9A-Fa-f]{8}$`)
 var notificationCommit = regexp.MustCompile(`^[a-f0-9]{8,40}(-dirty)?$`)
 
@@ -25,6 +31,16 @@ func validateNotification(e Event) error {
 	}
 	if !contains([]string{"setup", "status", "send"}, n.Action) || n.Visibility != "unknown" {
 		return errors.New("invalid notification action or visibility claim")
+	}
+	if n.DeviceID != "" || n.DeviceName != "" {
+		if n.Action != "status" || !notificationDeviceID.MatchString(n.DeviceID) || !utf8.ValidString(n.DeviceName) || strings.TrimSpace(n.DeviceName) != n.DeviceName || n.DeviceName == "" || utf8.RuneCountInString(n.DeviceName) > 64 {
+			return errors.New("invalid notification device")
+		}
+		for _, r := range n.DeviceName {
+			if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
+				return errors.New("invalid notification device name")
+			}
+		}
 	}
 	allowed := []string{"ready", "registered", "disabled", "failed"}
 	if n.Action == "send" {

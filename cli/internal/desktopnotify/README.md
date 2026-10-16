@@ -119,6 +119,21 @@ The backend contract and statistics queries are in `docs/dev/maintenance-observa
 Recording
 failure is reported separately and cannot retry an already submitted message.
 
+While desktop notifications are enabled, watch checks the OS setting every
+minute in an independent read-only lane, including while there are no orders.
+It records startup, state changes and five-minute freshness renewals through
+the same account-pinned maintenance queue. Checks never register the sender,
+request permission or send a test notification. Windows first-use registration
+remains unknown. Device-bearing status records add a random 32-hex installation
+`device_id` and a sanitized hostname `device_name` (at most 64 Unicode characters).
+The ID is stored in `notifications/device.json` and survives CLI upgrades;
+copying the entire Home also copies this installation identity. No hardware
+identifier is collected. Old events without device fields remain compatible.
+Upload uses the existing minute lane and retry backoff; an online state change
+can take about two minutes to reach the server, and offline data must become
+stale rather than claiming current permission. The server uses `event_at` for
+freshness, not the time a delayed upload arrives.
+
 Setup displays `EigenFlux`, writes the embedded brand PNG into
 `%LOCALAPPDATA%\EigenFlux\Notifications`, sets the notification registration's
 `IconUri` to the PNG. Content-hashed filenames

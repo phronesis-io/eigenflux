@@ -70,6 +70,13 @@ maintenance upload lane. Import pending local events before each flush; never
 reassign another account's records. Only setup captured before authentication
 may bind to the first account. Installer/manual/test/watch sources remain
 distinct; remote upload failure never changes notification delivery state.
+`watch_notification_permission.go` independently performs a silent OS `Check`
+every minute while desktop notifications are enabled. Startup, changes and
+five-minute renewals add an installation-scoped `device_id` and sanitized
+`device_name` to status observations in the same bounded maintenance lane.
+Checks never register, prompt or display a notification; Windows first-use
+registration remains unknown. Delayed uploads retain their observation time,
+so the server can mark offline devices stale. This lane adds no PM notifications.
 Setup's `desktop_notification_status` keeps
 the existing status and adds fixed `code`/`action` on failure: missing helper,
 unrequested permission, denied permission, timeout, unsupported platform or
