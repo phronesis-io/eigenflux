@@ -690,7 +690,8 @@ have missing semantic evidence rather than triggering a vector read or model
 call. Broadcast uses the same dense-score evidence; no candidate vector is loaded
 after recall. Broadcast rule versions carry `:broadcast_dense_v1` to distinguish
 this evidence change. Lexical/pool-only broadcasts no longer receive locally
-computed cosine unless also present in the dense channel.
+computed cosine unless also present in the dense channel. The opt-in [profile-semantic experiment](#profile-semantic-recommendation-experiment)
+reads profile cosine for every broadcast candidate in ES instead.
 
 `lexical = bm25 / (bm25 + bm25_scale)` and
 `semantic = clamp((cosine - cosine_floor) / (1 - cosine_floor))`.
@@ -846,3 +847,48 @@ additional candidates cannot bypass authority checks; existing validated
 candidates remain available. Parent cancellation still fails the request.
 `discovery_rejected_total{reason="source_version"}` separately records stale
 recall/forward mismatches. Fixing those projections is outside this switch.
+
+### Profile-semantic recommendation experiment
+
+`DISCOVERY_PROFILE_SEMANTIC_BPS=0` disables the experiment (default). Values
+1–10000 select a stable hash bucket of Agent IDs, independent of the refill
+bucket; 10000 selects all Agents. Restart Sort to apply a changed value. Search
+is unaffected. Analyse the experiment by bucket assignment (intent to treat):
+selected Agents without a profile vector run the ordinary path. While the value
+is positive, control-bucket recommendations also record `profile_cosine` as a
+shadow score feature for Profile and friend candidates, without changing
+eligibility, ordering, partial reasons or LR scoring.
+
+For a selected broadcast recommendation, Sort reads the Agent's stored profile
+embedding (`agent_profiles.profile_embedding`, through the
+`cache:profile:emb:{agent_id}` Redis cache) and then:
+
+- runs two profile-vector dense recalls per request, shared by all Profile
+  contexts: an unrestricted lane (80 rows) and a recent lane limited to content
+  created in the last 30 days (40 rows). Both exclude verified consumed groups
+  (history read bounded to 300 ms; on timeout recall runs without the
+  exclusion);
+- reads the cosine between the profile vector and every broadcast candidate of
+  Profile and friend contexts with one ES `script_score` query (300 ms budget,
+  collapsed by item ID), without transferring candidate vectors;
+- gates those candidates by cosine: ≥ 0.30 for content up to 30 days old,
+  ≥ 0.40 up to 90 days and ≥ 0.50 otherwise. Friend candidates keep their
+  relevance bypass. Candidates without an item embedding are rejected as
+  `profile_embedding_missing` unless they are friend candidates;
+- orders them by `profile_rank = profile_cosine + 0.05 * freshness`, which
+  replaces the discovery LR probability for these candidates only.
+
+The rule `score` keeps its value, relevance and contributions so replay samples
+retain the discovery LR feature contract. Profile-ranked samples carry a
+`:profile_semantic_v1` scorer-version suffix, `profile_cosine` and
+`profile_min_cosine` features, and `profile_rank`. Captured Need contexts keep
+rule relevance and LR ordering, because an explicit Need may differ from the
+standing profile; baseline contexts keep their own score. Need precedence,
+rerank policies and source limits remain in force.
+
+A missing or zero profile vector, a vector read error or a similarity read
+error keeps ordinary scoring for the request and reports a `profile_semantic:*`
+partial reason; a failed similarity read is not retried within the request.
+The thresholds were calibrated on rated 2026-10-15/16 recommendations, where
+profile cosine separated positive from `-1` ratings (within-Agent AUC 0.77;
+0.68 on the 2026-10-13/15 holdout) while rule relevance did not (0.49/0.50).

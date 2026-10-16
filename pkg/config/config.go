@@ -232,9 +232,12 @@ type Config struct {
 	LRRankerModelPath          string
 	LRRankerReloadInterval     string
 	DiscoveryConsumedRefillBPS int
-	DiscoveryLREnabled         bool
-	DiscoveryLRModelPath       string
-	DiscoveryLRReloadInterval  string
+	// DiscoveryProfileSemanticBPS is the share of Agents (basis points) whose
+	// broadcast recommendations use profile-vector recall, gating and ordering.
+	DiscoveryProfileSemanticBPS int
+	DiscoveryLREnabled          bool
+	DiscoveryLRModelPath        string
+	DiscoveryLRReloadInterval   string
 
 	// Per-type freshness decay
 	FreshnessAlertOffset  string
@@ -435,6 +438,7 @@ func Load() *Config {
 		LRRankerModelPath:            getEnv("LR_RANKER_MODEL_PATH", "/data/models/eigenflux/lr-ranker/current/model.json"),
 		LRRankerReloadInterval:       getEnv("LR_RANKER_RELOAD_INTERVAL", "60s"),
 		DiscoveryConsumedRefillBPS:   getEnvInt("DISCOVERY_CONSUMED_REFILL_BPS", 0),
+		DiscoveryProfileSemanticBPS:  getEnvInt("DISCOVERY_PROFILE_SEMANTIC_BPS", 0),
 		DiscoveryLREnabled:           getEnvBool("DISCOVERY_LR_ENABLED", false),
 		DiscoveryLRModelPath:         getEnv("DISCOVERY_LR_MODEL_PATH", "/data/models/eigenflux/discovery-lr/current/model.json"),
 		DiscoveryLRReloadInterval:    getEnv("DISCOVERY_LR_RELOAD_INTERVAL", "60s"),

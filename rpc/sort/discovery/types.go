@@ -126,6 +126,7 @@ type Context struct {
 	retrievalAt           int64
 	excludeConsumedGroups []int64
 	excludeRecalledIDs    []int64
+	createdSince          int64
 	UnverifiedNeedReason  string                    `json:"unverified_need_reason,omitempty"`
 	CapturedNeed          *need.Snapshot            `json:"captured_need,omitempty"`
 	QueryAnalysis         *queryprocessing.Analysis `json:"query_analysis,omitempty"`
@@ -220,14 +221,16 @@ type Score struct {
 	Missing       []string           `json:"missing,omitempty"`
 }
 type Candidate struct {
-	LR              *discoverylr.Result `json:"lr,omitempty"`
-	FinalScore      float64             `json:"final_score"`
-	Order           int                 `json:"policy_order,omitempty"`
-	ClaimTTLSeconds int64               `json:"claim_ttl_seconds,omitempty"`
-	Context         Context             `json:"context"`
-	Document        Document            `json:"document"`
-	Score           Score               `json:"score"`
-	Reasons         []string            `json:"policy_reasons,omitempty"`
+	LR         *discoverylr.Result `json:"lr,omitempty"`
+	FinalScore float64             `json:"final_score"`
+	// ProfileRank orders profile-semantic candidates; Score keeps the rule contract.
+	ProfileRank     *float64 `json:"profile_rank,omitempty"`
+	Order           int      `json:"policy_order,omitempty"`
+	ClaimTTLSeconds int64    `json:"claim_ttl_seconds,omitempty"`
+	Context         Context  `json:"context"`
+	Document        Document `json:"document"`
+	Score           Score    `json:"score"`
+	Reasons         []string `json:"policy_reasons,omitempty"`
 }
 type ResultItem struct {
 	Ref          SourceRef         `json:"source_ref"`
