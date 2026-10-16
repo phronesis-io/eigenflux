@@ -379,6 +379,7 @@ func (s *Service) Register(h *server.Hertz) {
 	h.POST("/api/v2/console/handoffs/status", s.requireSameOrigin(), s.handoffStatus)
 	h.POST("/api/v2/console/handoffs/exchange", s.requireSameOrigin(), s.exchangeHandoff)
 	h.GET("/api/v2/console/session", s.consoleAuth(false), s.getConsoleSession)
+	h.GET("/api/v2/console/notification-devices", s.consoleAuth(false), s.requireCompleted, s.listNotificationDevices)
 	h.DELETE("/api/v2/console/session", s.consoleAuth(true), s.deleteConsoleSession)
 	h.GET("/api/v2/console/accounts", s.consoleAuth(false), s.listConsoleAccounts)
 	h.POST("/api/v2/console/accounts/:agent_id/activate", s.consoleAuth(true), s.activateConsoleAccount)

@@ -21,7 +21,7 @@ optional server-owned cooling_applies boolean; absent values do not imply exempt
 
 ## Gateway API (port 8080)
 
-Commission allowlist, material routing and deletion projection invariants: [backend map](../../api/commissionaccess/README.md). Agent maintenance observations use `POST /api/v2/maintenance/events:batch`; see [the endpoint contract](../../api/consolev2/maintenance.md).
+Commission allowlist, material routing and deletion projection invariants: [backend map](../../api/commissionaccess/README.md). Agent maintenance observations use `POST /api/v2/maintenance/events:batch`; see [the endpoint contract](../../api/consolev2/maintenance.md). Notification observations include setup, permission checks, OS submission, and correlated watch order notices. `GET /api/v2/console/notification-devices` returns account-private recent device permission observations using Console authentication; see [notification collection and coverage](maintenance-observability.md).
 
 ### Anonymous Commission sharing
 
