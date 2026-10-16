@@ -17,6 +17,7 @@ import (
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/maintenance"
 )
 
 func TestWatchHandoffDrainsDestructivePMPullBeforeRestart(t *testing.T) {
@@ -271,5 +272,66 @@ func TestWatchReadinessInvalidatesAndRecovers(t *testing.T) {
 	w.reportReady()
 	if strings.Join(events, ",") != "runtime_ready,runtime_unavailable,runtime_ready" {
 		t.Fatalf("readiness history wrong: %v", events)
+	}
+}
+
+func TestWatchReadyCorrelatesOnlyProvenAccountUpgrade(t *testing.T) {
+	for _, tc := range []string{"matching", "other-version", "other-principal", "other-agent", "no-proof"} {
+		t.Run(tc, func(t *testing.T) {
+			cfg, name := watchTestConfig(t, "http://127.0.0.1:1", true)
+			server, _ := cfg.GetActive(name)
+			identity, _ := auth.LoadV2Credentials(name)
+			identity.PrincipalID = "principal-1"
+			if err := auth.SaveV2Credentials(name, identity); err != nil {
+				t.Fatal(err)
+			}
+			w := &accountWatch{home: config.HomeDir(), server: *server, identity: *identity}
+			w.emit = func(string, interface{}) error { return nil }
+			proof := maintenance.NewEvent(maintenance.NewID(), "cli", "manual", "install", "installed")
+			proof.FromVersion, proof.ToVersion = "0.6.6", version
+			proofScope, principal := w.maintenanceScope(), identity.PrincipalID
+			switch tc {
+			case "other-version":
+				proof.ToVersion = "9.9.9"
+			case "other-principal":
+				principal = "principal-2"
+			case "other-agent":
+				proofScope.AgentID = "agent-2"
+			}
+			if tc != "no-proof" {
+				if err := maintenance.RememberCLIAdoption(proofScope, principal, proof); err != nil {
+					t.Fatal(err)
+				}
+			}
+			w.wsOnline.Store(true)
+			w.runtimeOnline.Store(true)
+			w.reportReady()
+			state, err := maintenance.Snapshot(w.maintenanceScope())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc != "matching" {
+				if len(state.Events) != 0 {
+					t.Fatalf("unproven runtime attributed to an upgrade: %+v", state.Events)
+				}
+				return
+			}
+			if len(state.Events) != 1 {
+				t.Fatalf("upgrade adoption observations: %+v", state.Events)
+			}
+			event := state.Events[0]
+			if event.AttemptID != proof.AttemptID || event.Result != "runtime_ready" || event.RunningVersion != version || event.FromVersion != proof.FromVersion {
+				t.Fatalf("runtime adoption lost installation proof: %+v", event)
+			}
+			// A reconnect must not create another attempt or readiness receipt.
+			w.runtimeOnline.Store(false)
+			w.reportReady()
+			w.runtimeOnline.Store(true)
+			w.reportReady()
+			state, err = maintenance.Snapshot(w.maintenanceScope())
+			if err != nil || len(state.Events) != 1 {
+				t.Fatalf("duplicate adoption: %+v %v", state, err)
+			}
+		})
 	}
 }

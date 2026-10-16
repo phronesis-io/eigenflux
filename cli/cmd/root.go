@@ -57,6 +57,9 @@ Examples:
 		if homeDirFlag != "" {
 			config.SetHomeDir(homeDirFlag)
 		}
+		if err := verifyCLIUpdateReexecIdentity(); err != nil {
+			return err
+		}
 		clientMeta = client.ResolveMeta()
 		clientMeta.CLIVersion = version
 		if cmd.Flags().Changed("runtime-mode") {

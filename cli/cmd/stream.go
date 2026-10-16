@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
@@ -167,7 +168,8 @@ Examples:
 
 		// Graceful shutdown on interrupt.
 		interrupt := make(chan os.Signal, 1)
-		signal.Notify(interrupt, os.Interrupt)
+		signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
+		defer signal.Stop(interrupt)
 
 		// Track latest cursor for reconnect resume.
 		var mu sync.Mutex
@@ -442,13 +444,12 @@ Examples:
 				}
 			case <-interrupt:
 				output.PrintMessage("Interrupted, closing connection...")
-				conn.WriteMessage(websocket.CloseMessage,
-					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-				select {
-				case <-done:
-				case <-time.After(time.Second):
-				}
-				conn.Close()
+				// Stop socket intake but let the reader finish caching and writing
+				// a packet it already received. The host owns forced-stop bounds.
+				_ = conn.WriteControl(websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
+				_ = conn.Close()
+				<-done
 				return nil
 			}
 		}

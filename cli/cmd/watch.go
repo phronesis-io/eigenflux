@@ -255,12 +255,25 @@ func (w *accountWatch) reportReady() {
 	}
 	if w.wsOnline.Load() && w.runtimeOnline.Load() && w.ready.CompareAndSwap(false, true) {
 		_ = w.emit("runtime_ready", w.runtimeData())
-		if w.adopted.CompareAndSwap(false, true) {
-			event := maintenance.NewEvent(maintenance.NewID(), "cli", "adoption", "adoption", "runtime_ready")
-			event.ToVersion, event.RunningVersion = version, version
-			meta := clientMetaForServer(&w.server)
-			event.Host, event.Mode = runtimeProduct(meta.Host), meta.Mode
-			_ = maintenance.Record(w.maintenanceScope(), event)
+		if !w.adopted.Load() && w.identity.AgentID != "" {
+			if err := w.verifyHandoffIdentity(); err != nil {
+				_ = w.diagnostic("maintenance", err)
+				return
+			}
+			event, ok, err := cliAdoptionEvent(w.maintenanceScope(), w.identity.PrincipalID, version)
+			if err != nil {
+				_ = w.diagnostic("maintenance", err)
+				return
+			}
+			if ok {
+				meta := clientMetaForServer(&w.server)
+				event.Host, event.Mode = runtimeProduct(meta.Host), meta.Mode
+				if err := maintenance.Record(w.maintenanceScope(), event); err != nil {
+					_ = w.diagnostic("maintenance", err)
+					return
+				}
+				w.adopted.Store(true)
+			}
 		}
 	}
 }

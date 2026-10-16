@@ -20,10 +20,21 @@ its signed version under the same stable Home before adoption. Probe failures
 restore the previous binary. Cancellation waits for rollback before returning.
 
 After installation, the original command is re-executed once with its stable
-Home, explicit server and runtime metadata. Child errors and termination exit
+Home, explicit server and runtime metadata. Authenticated handoffs independently
+pin the canonical Home, Agent, principal and endpoint, checking before resuming
+and again in the replacement process before business commands. Token rotation
+remains allowed. Child errors and termination exit
 codes propagate without repeating business work. Native tasks remain finite
 heartbeat calls; hosted and standalone watch processes adopt the new CLI through
 the lifecycle described in [watch.md](watch.md).
+
+Claude stream replacement keeps reading old stdout until process stdio closes,
+then drains local channel notifications before starting the replacement. Failed
+notifications remain in the plugin process for retry. CLI streams handle TERM and
+INT by closing socket intake and finishing cache/output for an already-received
+packet. Forced kills, a crashed plugin, or a server-side read acknowledged before
+socket delivery remain outside this local drain guarantee; the cursor does not
+replay already-read messages.
 
 Run `eigenflux --homedir <stable-home> update --format json` to check immediately.
 This explicit owner command bypasses the daily throttle, keeps the binary lock,
@@ -64,6 +75,53 @@ Codex and Claude Code retain their existing host-driven maintenance path. Skills
 use the declared executor, verified current scope and live process evidence.
 Native scheduler migration changes only a verified owned task's prompt and
 requires fresh host readback; it preserves identity, cadence and paused state.
+
+## Update observations
+
+Automatic heartbeat checks and the explicit `update` command share one recorder.
+A single `attempt_id` follows CLI check, download, verify, temporary probe,
+install, installed-path probe (`adoption`), and replacement-process execution.
+`started` marks entry into a phase; it never proves completion. The target version
+is attached only after manifest signature verification. Failed verification has
+no trusted target. Rollback is reported only after restoration and directory sync.
+
+`installed` proves binary replacement and the installed-path probe. `executed`
+comes from the replacement CLI itself. `runtime_ready` comes from a watch only
+after both subscriptions are ready and a matching account/version install receipt
+exists. Uploaded install receipts remain locally for seven days, capped at eight
+versions, so a later `no_update` check cannot break adoption correlation.
+The same version with a different Agent or principal never supplies that receipt.
+
+OpenClaw emits check, verify, install and load observations using its worker's
+attempt ID. Manager-owned package resolution and download belong to `install`;
+there is no independent download observation without a manager callback.
+`installed`, `loaded`, `restart_required`, `blocked` and `failed` remain distinct.
+Only live host evidence may establish `loaded`.
+
+An authenticated Home stores the existing account-scoped maintenance events and
+uploads one batch outside replacement locks. Upload and credential refresh share
+a five-second request budget. Metadata uses bounded error codes; free-text errors,
+private paths, tokens and principal identifiers never enter telemetry. Observation
+failures do not stop an update. The explicit command includes `observation.status`:
+
+- `local_only`: no Agent V2 credentials; output proves only local execution.
+- `not_attempted`: no event was recorded for this invocation.
+- `queued`: events remain local, including offline upload or backoff.
+- `reported`: the recorded events were acknowledged and no new queue drops occurred.
+- `record_failed`: local observation could not be preserved, including unreadable
+  state/credentials, identity changes or queue drops during the attempt.
+
+The queue retains at most 256 events for seven days and retries during subsequent
+eligible invocations; an exited command does not leave a dedicated upload daemon.
+For online acceptance, keep Home, server alias, endpoint, Agent and principal fixed.
+Changing an endpoint behind an existing alias reuses that account queue path;
+use a separate Home or alias for another environment instead of repurposing it.
+
+The observability repository provides the **Update maintenance** dashboard under
+System health. It shows phase timelines and the latest observation per
+Agent/attempt/component, with version and error filters. The dashboard must be
+merged and deployed separately before it can be used in production. Missing events
+or an `installed` event alone cannot establish a running replacement process.
 
 ## Publication and verification
 
