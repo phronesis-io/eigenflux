@@ -40,7 +40,6 @@ func openClawMaintenancePlanAt(p pluginMaintenance, server string, now time.Time
 		p.Status, p.Due, p.Error = saved.Status, false, saved.Error
 	}
 	p.Scope, p.LatestVersion, p.CheckedAt = saved.Scope, saved.LatestVersion, saved.CheckedAt
-	p.RestartPendingVersion = saved.RestartPendingVersion
 	p.AttemptID = saved.AttemptID
 	return p
 }
@@ -56,7 +55,7 @@ var launchOpenClawUpdate = func(p pluginMaintenance) error {
 		args = append(args, "--runtime-mode", mode)
 	}
 	child := exec.Command(path, args...)
-	child.Env = cleanWatchUpdateEnvironment(os.Environ())
+	child.Env = cleanPluginUpdateEnvironment(os.Environ())
 	child.Dir = p.Context
 	log, err := os.OpenFile(maintenancePath("plugin-openclaw-worker")+".log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
@@ -71,11 +70,11 @@ var launchOpenClawUpdate = func(p pluginMaintenance) error {
 	return child.Process.Release()
 }
 
-func cleanWatchUpdateEnvironment(env []string) []string {
+func cleanPluginUpdateEnvironment(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, value := range env {
 		skip := false
-		for _, key := range []string{updateReexecEnv, updateAttemptEnv, watchSupervisedEnv, watchAgentEnv, watchPrincipalEnv} {
+		for _, key := range []string{updateReexecEnv, updateAttemptEnv, updateIdentityEnv, updateFromVersionEnv} {
 			if strings.HasPrefix(value, key+"=") {
 				skip = true
 				break
@@ -162,20 +161,19 @@ func runOpenClawUpdate(ctx context.Context) (pluginMaintenance, error) {
 			recorder.Finish(progress.Phase, progress.Result, progress.FromVersion, progress.TargetVersion, "", "")
 		}
 	}
-	r := pluginupdate.Update(ctx, pluginupdate.Options{OnProgress: recordProgress, Server: activeServerName(), CLIVersion: version, RestartPendingVersion: saved.RestartPendingVersion, Run: func(ctx context.Context, args ...string) ([]byte, error) {
+	r := pluginupdate.Update(ctx, pluginupdate.Options{OnProgress: recordProgress, LoadedVersion: meta.PluginVersion, Run: func(ctx context.Context, args ...string) ([]byte, error) {
 		// Keep manager credentials in its own configuration; do not capture stderr in receipts.
 		cmd := exec.CommandContext(ctx, bin, args...)
 		return cmd.Output()
 	}})
 	p.Status, p.Scope, p.Error = r.Status, r.Scope, r.Error
 	p.InstalledVersion, p.LatestVersion, p.LoadedVersion = r.InstalledVersion, r.LatestVersion, r.LoadedVersion
-	p.RestartPendingVersion = r.RestartPendingVersion
 	p.CheckedAt = time.Now()
 	if fromVersion == "" {
 		fromVersion = r.InstalledVersion
 	}
 	errorCode := ""
-	if p.Error != "" {
+	if p.Status == "failed" || p.Status == "blocked" {
 		errorCode = "host_maintenance_failed"
 	}
 	recorder.Finish(r.Phase, p.Status, fromVersion, p.LatestVersion, p.LoadedVersion, errorCode)

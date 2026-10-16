@@ -14,61 +14,35 @@ import (
 	"testing"
 	"time"
 
-	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/maintenance"
 )
 
-func TestNativeRetryReachesWatchMaintenanceSchedule(t *testing.T) {
+func TestNativeRetryCacheIsBoundedWithoutWatchSchedule(t *testing.T) {
+	_, server := runtimeTestConfig(t, "http://127.0.0.1:1", true)
+	now := time.Now()
 	for _, status := range []string{"blocked", "failed", "restart_required", "updating", "loaded", "not_installed"} {
 		t.Run(status, func(t *testing.T) {
-			cfg, server := runtimeTestConfig(t, "http://127.0.0.1:1", true)
-			clientMeta = client.Meta{Host: "openclaw", Mode: "plugin"}
-			p := pluginMaintenanceForHost("openclaw", "plugin", cfg)
-			p.Status, p.CheckedAt = status, time.Now()
-			if err := saveMaintenance(maintenancePath("plugin-openclaw-native"), p); err != nil {
+			original := pluginMaintenance{Host: "openclaw", PluginID: "openclaw-eigenflux", Context: pluginContext(), Status: "due", Due: true}
+			saved := original
+			saved.Status, saved.CheckedAt = status, now
+			if err := saveMaintenance(maintenancePathForServer("plugin-openclaw-native", server), saved); err != nil {
 				t.Fatal(err)
 			}
-			markMaintenanceAttempt(server)
-			if maintenanceDue(server, p.CheckedAt.Add(4*time.Minute)) {
-				t.Fatal("retried before the five-minute boundary")
+			if got := openClawMaintenancePlanAt(original, server, now.Add(4*time.Minute)); got.Due {
+				t.Fatal("retried before five-minute boundary")
 			}
 			wantRetry := status != "loaded" && status != "not_installed"
-			if got := maintenanceDue(server, p.CheckedAt.Add(6*time.Minute)); got != wantRetry {
-				t.Fatalf("six-minute retry=%v want=%v", got, wantRetry)
+			if got := openClawMaintenancePlanAt(original, server, now.Add(6*time.Minute)); got.Due != wantRetry {
+				t.Fatalf("six-minute retry=%v want=%v", got.Due, wantRetry)
 			}
-			if !maintenanceDue(server, p.CheckedAt.Add(25*time.Hour)) {
+			if got := openClawMaintenancePlanAt(original, server, now.Add(25*time.Hour)); !got.Due {
 				t.Fatal("daily maintenance never becomes due")
 			}
-			if err := cfg.SetKV("auto_plugin_update", "false"); err != nil {
-				t.Fatal(err)
-			}
-			if maintenanceDue(server, p.CheckedAt.Add(6*time.Minute)) {
-				t.Fatal("disabled native updater bypassed daily schedule")
+			if got := openClawMaintenancePlanAt(original, "other", now.Add(4*time.Minute)); !got.Due {
+				t.Fatal("cache crossed server scope")
 			}
 		})
-	}
-}
-
-func TestNativeRetryScheduleUsesRequestedServer(t *testing.T) {
-	cfg, server := runtimeTestConfig(t, "http://127.0.0.1:1", true)
-	clientMeta = client.Meta{Host: "openclaw", Mode: "plugin"}
-	if err := cfg.AddServer("other", "http://127.0.0.1:2"); err != nil {
-		t.Fatal(err)
-	}
-	if err := auth.SaveV2Credentials("other", &auth.V2Credentials{AgentID: "agent-other"}); err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now()
-	for _, entry := range []struct{ server, status string }{{server, "failed"}, {"other", "loaded"}} {
-		p := pluginMaintenance{Context: pluginContext(), Status: entry.status, CheckedAt: now.Add(-6 * time.Minute)}
-		if err := saveMaintenance(maintenancePathForServer("plugin-openclaw-native", entry.server), p); err != nil {
-			t.Fatal(err)
-		}
-		markMaintenanceAttempt(entry.server)
-	}
-	if !maintenanceDue(server, now) || maintenanceDue("other", now) {
-		t.Fatal("retry schedule crossed server receipt scopes")
 	}
 }
 
@@ -141,33 +115,23 @@ func TestNativeWorkerLaunchFailureIsConcreteAndRetryable(t *testing.T) {
 	}
 }
 
-func TestNativePendingAdoptionSurvivesWorkerRelaunch(t *testing.T) {
+func TestNativePendingInstallRemainsDiscoveryCacheWithoutLoadedEvidence(t *testing.T) {
 	cfg, _ := runtimeTestConfig(t, "http://127.0.0.1:1", true)
 	p := pluginMaintenanceForHost("openclaw", "plugin", cfg)
-	p.Status, p.CheckedAt, p.RestartPendingVersion = "restart_required", time.Now().Add(-6*time.Minute), "0.0.47"
+	p.Status, p.CheckedAt, p.LatestVersion, p.InstalledVersion = "restart_required", time.Now().Add(-6*time.Minute), "0.0.47", "0.0.47"
 	if err := saveMaintenance(maintenancePath("plugin-openclaw-native"), p); err != nil {
 		t.Fatal(err)
 	}
-	old := launchOpenClawUpdate
-	launchOpenClawUpdate = func(p pluginMaintenance) error {
-		// The detached worker reads the updating receipt written before launch.
-		got := openClawMaintenancePlan(pluginMaintenance{Context: p.Context})
-		if got.Status != "updating" || got.RestartPendingVersion != "0.0.47" || got.LoadedVersion != "" {
-			t.Fatalf("pending adoption was lost or became live evidence: %+v", got)
-		}
-		return nil
-	}
-	t.Cleanup(func() { launchOpenClawUpdate = old })
-	got := scheduleOpenClawUpdate(pluginMaintenanceForHost("openclaw", "plugin", cfg))
-	if got.Status != "updating" || got.RestartPendingVersion != "0.0.47" {
-		t.Fatalf("pending upgrade was not carried into next worker: %+v", got)
+	got := pluginMaintenanceForHost("openclaw", "plugin", cfg)
+	if !got.Due || got.LatestVersion != "0.0.47" || got.LoadedVersion != "" || got.InstalledVersion != "" {
+		t.Fatalf("pending install fabricated live evidence: %+v", got)
 	}
 }
 
-func TestPluginWorkerEnvironmentHasNoWatchHandoffMarkers(t *testing.T) {
-	env := cleanWatchUpdateEnvironment([]string{"PATH=/bin", "EIGENFLUX_HOME=/stable", updateReexecEnv + "=1", updateAttemptEnv + "=old", watchSupervisedEnv + "=1", watchAgentEnv + "=old", watchPrincipalEnv + "=old"})
-	if strings.Join(env, "|") != "PATH=/bin|EIGENFLUX_HOME=/stable" {
-		t.Fatalf("worker inherited stale handoff: %v", env)
+func TestPluginWorkerEnvironmentHasNoInheritedUpdateMarkers(t *testing.T) {
+	env := cleanPluginUpdateEnvironment([]string{"PATH=/bin", "EIGENFLUX_HOME=/stable", "EIGENFLUX_PLUGIN_VERSION=0.0.46", updateReexecEnv + "=1", updateAttemptEnv + "=old", updateIdentityEnv + "=old", updateFromVersionEnv + "=0.6.6"})
+	if strings.Join(env, "|") != "PATH=/bin|EIGENFLUX_HOME=/stable|EIGENFLUX_PLUGIN_VERSION=0.0.46" {
+		t.Fatalf("stale update handoff inherited: %v", env)
 	}
 }
 

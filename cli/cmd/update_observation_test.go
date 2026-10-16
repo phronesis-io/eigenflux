@@ -17,7 +17,7 @@ import (
 	"cli.eigenflux.ai/internal/selfupdate"
 )
 
-func TestUpdateObservationOfflineReplayAndReceipt(t *testing.T) {
+func TestUpdateObservationOfflineReplay(t *testing.T) {
 	var mu sync.Mutex
 	var received []maintenance.Event
 	offline := true
@@ -60,23 +60,11 @@ func TestUpdateObservationOfflineReplayAndReceipt(t *testing.T) {
 	mu.Lock()
 	offline = false
 	mu.Unlock()
-	// The next eligible invocation honors the queue's bounded backoff.
-	if err := maintenance.Flush(recorder.scope, time.Now().Add(time.Minute), func(events []maintenance.Event) error {
-		mu.Lock()
-		received = append(received, events...)
-		mu.Unlock()
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
+	// Retry after the existing two-second queue backoff.
+	time.Sleep(2100 * time.Millisecond)
+	recorder.Flush()
 	if got := recorder.Status().Status; got != "reported" {
 		t.Fatalf("acknowledged observation %s", got)
-	}
-	recorder.Phase("check", "0.6.7", "")
-	recorder.Complete(selfupdate.Result{Status: "current", Phase: "check", TargetVersion: "0.6.7", Attempted: true}, "0.6.7")
-	previous, found, err := maintenance.CLIAdoptionFor(recorder.scope, recorder.principal, "0.6.7")
-	if err != nil || !found || previous.AttemptID != recorder.attempt {
-		t.Fatalf("later check erased receipt: %+v %v", previous, err)
 	}
 	mu.Lock()
 	defer mu.Unlock()
@@ -169,17 +157,22 @@ func TestUpdateObservationFailuresStayVisible(t *testing.T) {
 			}
 		})
 	}
-	t.Run("queue eviction", func(t *testing.T) {
-		_, server := runtimeTestConfig(t, "http://127.0.0.1:1", true)
+	t.Run("unrelated eviction does not fail current attempt", func(t *testing.T) {
+		api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{"code":0,"data":{}}`)) }))
+		defer api.Close()
+		_, server := runtimeTestConfig(t, api.URL, true)
 		recorder := newMaintenanceRecorder(server, "cli", "manual", "", nil)
-		recorder.Phase("check", "0.6.6", "")
 		for i := 0; i < maintenance.MaxEvents; i++ {
 			if err := maintenance.Record(recorder.scope, maintenance.NewEvent(maintenance.NewID(), "skills", "auto", "check", "started")); err != nil {
 				t.Fatal(err)
 			}
 		}
-		if got := recorder.Status(); got.Status != "record_failed" || got.ErrorCode != "maintenance_events_dropped" {
-			t.Fatalf("dropped event reported delivered: %+v", got)
+		recorder.Phase("check", "0.6.6", "")
+		for i := 0; i < 6; i++ {
+			recorder.Flush()
+		}
+		if got := recorder.Status(); got.Status != "reported" {
+			t.Fatalf("old event eviction failed acknowledged current event: %+v", got)
 		}
 	})
 	t.Run("rollback precedes error wording", func(t *testing.T) {

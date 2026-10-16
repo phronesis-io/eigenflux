@@ -1,15 +1,9 @@
 package cmd
 
 import (
-	"bytes"
 	"cli.eigenflux.ai/internal/config"
-	"cli.eigenflux.ai/internal/heartbeatmigration"
-	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/skills"
-	"encoding/json"
-	"os"
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -64,70 +58,5 @@ func TestHeartbeatReexecPreservesIdentityEnvironment(t *testing.T) {
 	args := heartbeatReexecArgs([]string{"heartbeat", "plan", "--format", "json", "--"}, "/stable/.eigenflux", "original-server")
 	if !reflect.DeepEqual(args, []string{"heartbeat", "plan", "--format", "json", "--homedir", "/stable/.eigenflux", "--server", "original-server"}) {
 		t.Fatalf("reexec failed to pin identity: %v", args)
-	}
-}
-
-func TestMigrationCommandsPersistOnlyAfterVerifiedReadback(t *testing.T) {
-	_, server := runtimeTestConfig(t, "http://127.0.0.1:1", true)
-	oldFormat := formatFlag
-	formatFlag = "json"
-	t.Cleanup(func() { formatFlag = oldFormat })
-	planCmd, _, err := rootCmd.Find([]string{"heartbeat", "migrate", "plan"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	verifyCmd, _, err := rootCmd.Find([]string{"heartbeat", "migrate", "verify"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	in := heartbeatmigration.Inventory{Complete: true, Tasks: []heartbeatmigration.Task{{ID: "original", Name: "old", Owner: "eigenflux", Purpose: "heartbeat", Home: config.HomeDir(), Server: server, Prompt: "static rules", Schedule: "2h", Status: "PAUSED", ThreadID: "original-thread"}}}
-	b, _ := json.Marshal(in)
-	planCmd.SetIn(bytes.NewReader(b))
-	_ = planCmd.Flags().Set("stdin", "true")
-	out, err := captureHeartbeatStdout(t, func() error { return planCmd.RunE(planCmd, nil) })
-	if err != nil {
-		t.Fatal(err)
-	}
-	var record migrationRecord
-	if err = json.Unmarshal([]byte(out), &record); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = os.Stat(migrationReceiptPath(record.Host)); !os.IsNotExist(err) {
-		t.Fatal("plan alone recorded migration success")
-	}
-	_ = verifyCmd.Flags().Set("stdin", "true")
-	for _, valid := range []bool{false, true} {
-		actual := in
-		actual.Tasks = append([]heartbeatmigration.Task(nil), in.Tasks...)
-		if valid {
-			actual = record.Plan.After
-		}
-		b, _ = json.Marshal(map[string]interface{}{"plan_id": record.ID, "complete": true, "tasks": actual.Tasks})
-		verifyCmd.SetIn(bytes.NewReader(b))
-		out, err = captureHeartbeatStdout(t, func() error { return verifyCmd.RunE(verifyCmd, nil) })
-		if valid && (err != nil || !strings.Contains(out, "verified")) {
-			t.Fatalf("valid readback failed: %s %v", out, err)
-		}
-		if !valid && err == nil {
-			t.Fatal("unchanged old prompt accepted")
-		}
-	}
-	b, err = os.ReadFile(migrationReceiptPath(record.Host))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = json.Unmarshal(b, &record); err != nil || record.Verified.IsZero() {
-		t.Fatal("missing verification receipt")
-	}
-	scope, scopeErr := maintenanceScope(server)
-	if scopeErr != nil {
-		t.Fatal(scopeErr)
-	}
-	observation, observeErr := maintenance.LastAttempt(scope, "scheduler")
-	if observeErr != nil {
-		t.Fatal(observeErr)
-	}
-	if observation.AttemptID != record.ID || observation.Result != "verified" || observation.Phase != "migration" {
-		t.Fatalf("missing successful scheduler observation: %+v", observation)
 	}
 }

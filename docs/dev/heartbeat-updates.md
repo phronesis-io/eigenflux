@@ -1,138 +1,97 @@
 # Automatic updates
 
-CLI 0.6.6 adds signed binary updates, current-host plugin maintenance and a
-transport-only account watch. Existing commands, installation verification,
-uninstall behavior and host business delivery remain on the main baseline.
+CLI 0.6.6 adds signed CLI updates and current-host plugin maintenance to the
+existing heartbeat plan. Existing scheduling, business stages and account
+commands remain on the main baseline.
 
 ## CLI binary
 
-Native and plugin heartbeat plans share the updater. Explicit `skill` and
-`plugin` modes enable maintenance; unknown modes leave it disabled. Home and
-per-server `auto_cli_update`, `auto_plugin_update` and `auto_skill_sync` settings
-retain their current overrides.
+Explicit skill and plugin modes enable maintenance. Unknown modes leave it
+disabled. Home and per-server auto_cli_update, auto_plugin_update and
+auto_skill_sync settings retain their overrides.
 
-The updater checks a signed `cli/latest/release.json` once daily. A verified
-Skills minimum may trigger one additional check. The manifest binds each
-platform artifact to a size and SHA-256, with a domain-separated Ed25519
-signature verified by the compiled trust key. A lock beside the executable
-serializes replacement across Homes. The downloaded executable must report
-its signed version under the same stable Home before adoption. Probe failures
-restore the previous binary. Cancellation waits for rollback before returning.
+Check the signed cli/latest/release.json once daily. A verified Skills minimum
+may admit one additional check. Verify the domain-separated Ed25519 signature,
+platform size and SHA-256 using the compiled trust key. Serialize replacement
+with a lock beside the shared binary. Probe the temporary and installed binaries
+under the original Home. Atomically replace the binary, retain its previous
+bytes and synchronously restore them if the installed-path probe fails.
+Cancellation completes rollback before returning. Reject signed version rollback.
 
-After installation, the original command is re-executed once with its stable
-Home, explicit server and runtime metadata. Authenticated handoffs independently
-pin the canonical Home, Agent, principal and endpoint, checking before resuming
-and again in the replacement process before business commands. Token rotation
-remains allowed. Child errors and termination exit
-codes propagate without repeating business work. Native tasks remain finite
-heartbeat calls; hosted and standalone watch processes adopt the new CLI through
-the lifecycle described in [watch.md](watch.md).
+After installation, execute the original command once with its stable Home,
+explicit server and runtime metadata. Authenticated handoffs pin canonical Home,
+Agent, principal and endpoint before resuming and before replacement-process
+business commands. Token rotation remains allowed. Preserve child exit codes and
+forward termination signals, with a bounded forced-stop fallback.
 
-Claude stream replacement keeps reading old stdout until process stdio closes,
-then drains local channel notifications before starting the replacement. Failed
-notifications remain in the plugin process for retry. CLI streams handle TERM and
-INT by closing socket intake and finishing cache/output for an already-received
-packet. Forced kills, a crashed plugin, or a server-side read acknowledged before
-socket delivery remain outside this local drain guarantee; the cursor does not
-replay already-read messages.
+Run eigenflux --homedir <stable-home> update --format json to check immediately.
+This owner command bypasses only the daily throttle. Missing or unreadable account
+files do not block manual binary updates. It needs no login and reports
+the replacement process version, PID and Home. It does not change update switches.
+A bootstrap install is required for older CLIs. Installation permission failures
+and running-executable replacement restrictions remain explicit failures.
 
-Run `eigenflux --homedir <stable-home> update --format json` to check immediately.
-This explicit owner command bypasses the daily throttle, keeps the binary lock,
-signature, checksum, anti-rollback and probe checks, then executes the new binary
-to report its own `cli_version` and PID. It needs no Agent login, does not sync
-Skills or update host plugins, and leaves automatic-update settings unchanged.
-A failed or blocked request returns a nonzero exit status.
-
-A bootstrap install is required for older CLIs to obtain this updater.
-Unconfigured development binaries do not update. Installation permissions and
-running-executable replacement restrictions remain explicit failures; no
-privilege elevation is attempted.
+Claude adopts the new CLI through its existing stream lifecycle. Keep reading old
+stdout until process stdio closes, then finish received channel notifications
+before replacement. Retry failed notifications within the plugin process.
+CLI stream handles TERM/INT by stopping socket intake and completing cache/output
+for an already-received packet within a three-second drain window. A second signal
+or the deadline returns an explicit incomplete-drain error. Forced kills, plugin crashes and server-side
+mark-read before socket delivery remain outside this local drain guarantee.
 
 ## Host plugin
 
-OpenClaw maintenance uses one detached CLI worker. It preserves absent/disabled
-plugins and pinned versions. The host manager selects the compatible target via
-its dry-run resolution. Unsupported output blocks the attempt. npm identity,
-recorded installation scope, archive integrity and installed package bytes are
-verified before installation; `provenance-invalid` alone is not an integrity
-verdict.
+OpenClaw maintenance runs in one detached CLI worker. Preserve absent/disabled
+plugins and pinned sources. Use the published manager's dry-run to discover the
+compatible target; block unsupported output. Verify npm identity, recorded install
+scope, archive integrity and installed package bytes. A provenance-invalid catalog
+classification alone does not prove changed package bytes.
 
-All runtime RPC calls target the verified loopback service port. Successful
-adoption requires the target plugin version, a PID matching fresh local Gateway
-status and ready/running watches using the worker's CLI version for every
-configured account. Changed installs require a replacement PID. Busy deliveries
-defer maintenance.
+Use the published plugins update command. Its source-change handling owns the
+idle-deferred Gateway restart. Do not force-stop the Gateway or require additional
+EigenFlux runtime RPCs. After a changed install, report installed followed by
+restart_required. A later heartbeat may report loaded only when the actual calling
+plugin version matches the verified installed target. A worker inherited from the
+old plugin cannot establish that evidence. Cached checks never claim a loaded
+version. Successful/absent discovery uses a daily cache; failures and pending
+restart retry after five minutes on a subsequent heartbeat.
 
-A verified install retains its pending target across retries, including when
-the previously loaded adapter lacks the runtime RPC. Each attempt may send at
-most one managed `plugins.refresh` to recover a missing notification, then wait
-within the existing three-minute deadline. The host owns restart deferral;
-the worker never forces a service stop. Successful/absent checks use a daily
-cache; failed, blocked and interrupted attempts retry after five minutes through
-watch eligibility. Cached plans contain no loaded-version claims.
+Claude Code and Codex use their existing official managers through the declared
+host-driven maintenance instructions. Preserve installation scope and permissions;
+verify the installed version and distinguish it from current-process load evidence.
 
-Codex and Claude Code retain their existing host-driven maintenance path. Skills
-use the declared executor, verified current scope and live process evidence.
-Native scheduler migration changes only a verified owned task's prompt and
-requires fresh host readback; it preserves identity, cadence and paused state.
+## Observations
 
-## Update observations
+Automatic and manual CLI updates share check, download, verify, probe, install,
+installed-path adoption and execute events. One attempt_id crosses the CLI handoff;
+the child reports its own executed version. Target versions come only from verified
+manifests. Started means phase entry. Rolled_back requires successful restoration
+and directory sync. Plugin events distinguish check, verify, install and load;
+manager-owned downloads belong to install.
 
-Automatic heartbeat checks and the explicit `update` command share one recorder.
-A single `attempt_id` follows CLI check, download, verify, temporary probe,
-install, installed-path probe (`adoption`), and replacement-process execution.
-`started` marks entry into a phase; it never proves completion. The target version
-is attached only after manifest signature verification. Failed verification has
-no trusted target. Rollback is reported only after restoration and directory sync.
+Use the existing account-scoped maintenance queue: at most 256 events for seven
+days, one oldest-first batch of fifty per flush, bounded backoff and stable event
+IDs. Store fixed error codes rather than tokens, paths or free-text errors.
+Uploads have a five-second HTTP timeout and use the current token. Normal CLI
+business owns credential refresh; expired/rejected tokens leave events queued
+until a subsequent invocation. Observation failures do not stop replacement.
 
-`installed` proves binary replacement and the installed-path probe. `executed`
-comes from the replacement CLI itself. `runtime_ready` comes from a watch only
-after both subscriptions are ready and a matching account/version install receipt
-exists. Uploaded install receipts remain locally for seven days, capped at eight
-versions, so a later `no_update` check cannot break adoption correlation.
-The same version with a different Agent or principal never supplies that receipt.
+The explicit command observation status describes events recorded by that process:
+local_only means no Agent V2 credentials; not_attempted means no events; queued
+means no acknowledgement observed; reported means its events were acknowledged;
+record_failed means a local write failed. A child does not attest completeness of
+its parent's observations. Inspect the shared queue and server timeline separately.
+Keep Home, server alias, endpoint, Agent and principal fixed for online acceptance.
+Use a separate Home or alias for another environment.
 
-OpenClaw emits check, verify, install and load observations using its worker's
-attempt ID. Manager-owned package resolution and download belong to `install`;
-there is no independent download observation without a manager callback.
-`installed`, `loaded`, `restart_required`, `blocked` and `failed` remain distinct.
-Only live host evidence may establish `loaded`.
+The separate observability dashboard shows the observed phase timeline and latest
+state per Agent/attempt/component. Started and installed alone never establish
+successful execution. Dashboard changes require their own merge and deployment.
 
-An authenticated Home stores the existing account-scoped maintenance events and
-uploads one batch outside replacement locks. Upload and credential refresh share
-a five-second request budget. Metadata uses bounded error codes; free-text errors,
-private paths, tokens and principal identifiers never enter telemetry. Observation
-failures do not stop an update. The explicit command includes `observation.status`:
+## Verification
 
-- `local_only`: no Agent V2 credentials; output proves only local execution.
-- `not_attempted`: no event was recorded for this invocation.
-- `queued`: events remain local, including offline upload or backoff.
-- `reported`: the recorded events were acknowledged and no new queue drops occurred.
-- `record_failed`: local observation could not be preserved, including unreadable
-  state/credentials, identity changes or queue drops during the attempt.
-
-The queue retains at most 256 events for seven days and retries during subsequent
-eligible invocations; an exited command does not leave a dedicated upload daemon.
-For online acceptance, keep Home, server alias, endpoint, Agent and principal fixed.
-Changing an endpoint behind an existing alias reuses that account queue path;
-use a separate Home or alias for another environment instead of repurposing it.
-
-The observability repository provides the **Update maintenance** dashboard under
-System health. It shows phase timelines and the latest observation per
-Agent/attempt/component, with version and error filters. The dashboard must be
-merged and deployed separately before it can be used in production. Missing events
-or an `installed` event alone cannot establish a running replacement process.
-
-## Publication and verification
-
-The release build generates the signed manifest after all final platform
-artifacts and checksums exist. Publication keeps the six-platform preflight and
-public-download checks, validates immutable versioned objects, uses conditional
-writes, then publishes the signed latest pointer. CLI and Skills publication
-share a serialization group. Skills publication verifies an available signed
-CLI and all platform digests first.
-
-Run `go test ./...` in `cli/`, the publication tests under `tests/cli_release`,
-and cross-platform builds. Local upgrade tests use signed fixtures and real
-subprocesses to cover signature rejection, rollback, cancellation, original
-arguments, identity preservation, process replacement and host recovery.
+Run the CLI Go suite, relevant race tests, publication tests and six-platform
+builds. Signed fixtures and actual subprocesses cover replacement, checksum and
+signature rejection, rollback, cancellation, identity and exit codes, online/offline
+observations and TERM/INT stream draining. Release preflight verifies immutable
+versioned artifacts and public downloads before advancing the signed latest pointer.
