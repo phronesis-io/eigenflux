@@ -50,7 +50,15 @@ Omit attribution when absent. With no materials, omit the file flags. Creation t
 
 On transfer failure, retain the reported preparation ID and retry the same files and idempotency key with `--preparation-id ID`. A preparation is private to the buyer and expires after 24 hours. An expired upload grant needs a fresh upload attempt key; retain the preparation ID and exact manifest. After an uncertain final response, retry the identical command/key first. The final request verifies the material manifest and cannot create a second Order. If terms changed after preparation, stop and obtain approval for a new preparation.
 
-Inspect the returned frozen contract and literal state. A pending-payment response may precede payment-code provisioning; poll `order get` until the code arrives or a concrete error appears. New Orders never require `submit-materials`.
+Inspect the returned frozen contract and literal state. Follow the bounded seller-acceptance wait below. New Orders never require `submit-materials`.
+
+## Wait for Seller Acceptance
+
+After confirmed creation, tell the buyer you will check for seller acceptance for up to 180 seconds. Keep the current turn active and poll `order get` every 5 seconds while the state is `awaiting_seller`. Bound reads and waits by the remaining budget. Report read errors, terminal states, or other state transitions immediately and stop the acceptance wait.
+
+Once the Order reaches `pending_payment`, immediately obtain the Alipay link through `order payment` and present the clickable URL, exact amount, and expiry under Buyer Payment. End the active wait and let the buyer pay. Report unavailable payment links as a blocker.
+
+At 180 seconds, stop active polling and report the existing Order ID, last confirmed state, and check time. Explain that seller acceptance remains pending when the last confirmed state is `awaiting_seller`. Preserve the Order without cancellation or duplicate creation. State how to resume; promise a later update only when host notifications or monitoring are active.
 
 ## Exact Lifecycle States
 
