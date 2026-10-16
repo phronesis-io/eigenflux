@@ -854,15 +854,20 @@ recall/forward mismatches. Fixing those projections is outside this switch.
 1–10000 select a stable hash bucket of Agent IDs, independent of the refill
 bucket; 10000 selects all Agents. Restart Sort to apply a changed value. Search
 is unaffected. Analyse the experiment by bucket assignment (intent to treat):
-selected Agents without a profile vector run the ordinary path.
+selected Agents without a profile vector run the ordinary path. While the value
+is positive, control-bucket recommendations also record `profile_cosine` as a
+shadow score feature for Profile and friend candidates, without changing
+eligibility, ordering, partial reasons or LR scoring.
 
 For a selected broadcast recommendation, Sort reads the Agent's stored profile
 embedding (`agent_profiles.profile_embedding`, through the
 `cache:profile:emb:{agent_id}` Redis cache) and then:
 
-- runs one profile-vector dense recall per request (80 rows) shared by all
-  Profile contexts, excluding verified consumed groups (history read bounded
-  to 300 ms; on timeout the recall runs without the exclusion);
+- runs two profile-vector dense recalls per request, shared by all Profile
+  contexts: an unrestricted lane (80 rows) and a recent lane limited to content
+  created in the last 30 days (40 rows). Both exclude verified consumed groups
+  (history read bounded to 300 ms; on timeout recall runs without the
+  exclusion);
 - reads the cosine between the profile vector and every broadcast candidate of
   Profile and friend contexts with one ES `script_score` query (300 ms budget,
   collapsed by item ID), without transferring candidate vectors;

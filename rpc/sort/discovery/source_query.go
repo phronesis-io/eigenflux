@@ -98,6 +98,9 @@ func Query(c Context, k Kind, channel string, limit int) (map[string]any, error)
 	if k == Broadcast && (channel == "lexical" || channel == "dense") && len(c.excludeConsumedGroups) > 0 {
 		not = append(not, terms("group_id", c.excludeConsumedGroups))
 	}
+	if k == Broadcast && channel == "dense" && c.createdSince > 0 {
+		filters = append(filters, rangeFilter("created_at", "gte", time.UnixMilli(c.createdSince).UTC().Format(time.RFC3339Nano)))
+	}
 	if k == Broadcast && channel == "lexical" {
 		if len(c.excludeRecalledIDs) > 0 {
 			not = append(not, terms("id", c.excludeRecalledIDs))

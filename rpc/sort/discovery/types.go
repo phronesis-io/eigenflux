@@ -126,6 +126,7 @@ type Context struct {
 	retrievalAt           int64
 	excludeConsumedGroups []int64
 	excludeRecalledIDs    []int64
+	createdSince          int64
 	UnverifiedNeedReason  string                    `json:"unverified_need_reason,omitempty"`
 	CapturedNeed          *need.Snapshot            `json:"captured_need,omitempty"`
 	QueryAnalysis         *queryprocessing.Analysis `json:"query_analysis,omitempty"`

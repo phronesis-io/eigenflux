@@ -38,14 +38,14 @@ func TestProfileSemanticESReads(t *testing.T) {
 			t.Fatalf("%s %s: %d", method, path, resp.StatusCode)
 		}
 	}
-	mapping := `{"mappings":{"properties":{"id":{"type":"long"},"group_id":{"type":"long"},"author_agent_id":{"type":"long"},"content":{"type":"text"},"summary":{"type":"text"},"embedding":{"type":"dense_vector","dims":2,"index":true,"similarity":"cosine"}}}}`
+	mapping := `{"mappings":{"properties":{"id":{"type":"long"},"group_id":{"type":"long"},"author_agent_id":{"type":"long"},"content":{"type":"text"},"summary":{"type":"text"},"created_at":{"type":"date"},"embedding":{"type":"dense_vector","dims":2,"index":true,"similarity":"cosine"}}}}`
 	for _, name := range []string{index, rollover} {
 		do("PUT", "/"+name, mapping)
 		defer do("DELETE", "/"+name, "")
 	}
 	docs := map[int64]string{
-		1: `{"id":1,"group_id":11,"author_agent_id":9,"content":"a","embedding":[1,0]}`,
-		2: `{"id":2,"group_id":12,"author_agent_id":9,"content":"b","embedding":[0.6,0.8]}`,
+		1: `{"id":1,"group_id":11,"author_agent_id":9,"content":"a","created_at":"2020-01-01T00:00:00Z","embedding":[1,0]}`,
+		2: fmt.Sprintf(`{"id":2,"group_id":12,"author_agent_id":9,"content":"b","created_at":%q,"embedding":[0.6,0.8]}`, time.Now().UTC().Format(time.RFC3339)),
 		3: `{"id":3,"group_id":13,"author_agent_id":9,"content":"c"}`,
 		4: `{"id":4,"group_id":14,"author_agent_id":7,"content":"d","embedding":[1,0.1]}`,
 	}
@@ -64,7 +64,7 @@ func TestProfileSemanticESReads(t *testing.T) {
 	if len(got) != 2 || math.Abs(got[1]-1) > 1e-6 || math.Abs(got[2]-0.6) > 1e-6 {
 		t.Fatalf("cosine: %v", got)
 	}
-	recalled, err := s.RecallProfile(ctx, discovery.Context{OwnerID: 7, Filters: discovery.Filters{ExcludeAuthors: []string{"7"}}}, []float32{1, 0}, 10)
+	recalled, err := s.RecallProfile(ctx, discovery.Context{OwnerID: 7, Filters: discovery.Filters{ExcludeAuthors: []string{"7"}}}, []float32{1, 0}, 0, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,6 +78,18 @@ func TestProfileSemanticESReads(t *testing.T) {
 	}
 	if strings.Join(ids, ",") != "1,2" {
 		t.Fatalf("profile kNN must rank by cosine and keep author exclusion: %v", ids)
+	}
+	recent, err := s.RecallProfile(ctx, discovery.Context{OwnerID: 7, Filters: discovery.Filters{ExcludeAuthors: []string{"7"}}}, []float32{1, 0}, time.Now().Add(-30*24*time.Hour).UnixMilli(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range recent {
+		if d.Ref.ID != 2 {
+			t.Fatalf("recent-only lane returned old content: %+v", recent)
+		}
+	}
+	if len(recent) == 0 {
+		t.Fatal("recent-only lane missed recent content")
 	}
 }
 

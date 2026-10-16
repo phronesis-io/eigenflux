@@ -22,6 +22,7 @@ type profileFake struct {
 	recallCalls  int
 	cosineIDs    [][]int64
 	recallVector []float32
+	recallSince  []int64
 }
 
 func (s *profileFake) ProfileVector(context.Context, int64) ([]float32, error) {
@@ -41,12 +42,18 @@ func (s *profileFake) ProfileCosine(_ context.Context, _ []float32, ids []int64)
 	}
 	return out, s.cosineErr
 }
-func (s *profileFake) RecallProfile(_ context.Context, _ Context, v []float32, _ int) ([]Document, error) {
+func (s *profileFake) RecallProfile(_ context.Context, _ Context, v []float32, since int64, _ int) ([]Document, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.recallCalls++
 	s.recallVector = v
-	out := append([]Document(nil), s.profileDocs...)
+	s.recallSince = append(s.recallSince, since)
+	out := []Document{}
+	for _, d := range s.profileDocs {
+		if d.FreshAt >= since {
+			out = append(out, d)
+		}
+	}
 	for i := range out {
 		score := 0.9
 		out[i].DenseScore = &score
@@ -154,8 +161,15 @@ func TestProfileSemanticGatesRecallsAndOrders(t *testing.T) {
 	if got != "[6 5 2 7]" {
 		t.Fatalf("got %s: %+v", got, x.PartialReasons)
 	}
-	if s.recallCalls != 1 || len(s.recallVector) != 2 {
-		t.Fatalf("profile kNN must run once per request: %d", s.recallCalls)
+	if s.recallCalls != 2 || len(s.recallVector) != 2 {
+		t.Fatalf("each profile lane must run once per request: %d", s.recallCalls)
+	}
+	fresh := false
+	for _, since := range s.recallSince {
+		fresh = fresh || since == testNow-profileFreshDays*day
+	}
+	if !fresh {
+		t.Fatalf("missing recent-only lane: %v", s.recallSince)
 	}
 	if s.cosineCalls != 1 {
 		t.Fatalf("similarity must be read once for all contexts: %d %v", s.cosineCalls, s.cosineIDs)
@@ -268,5 +282,53 @@ func TestProfileSemanticKeepsCapturedNeedRelevance(t *testing.T) {
 	}
 	if s.recallCalls != 0 || s.cosineCalls != 0 {
 		t.Fatalf("no Profile context, no profile reads: recall=%d cosine=%d", s.recallCalls, s.cosineCalls)
+	}
+}
+
+func TestProfileSemanticControlRecordsShadowCosine(t *testing.T) {
+	e, s := profileFixture()
+	bps := 10000
+	for bps > 0 && profileSemanticEnabled(1, bps) {
+		bps--
+	}
+	if bps == 0 {
+		t.Skip("owner 1 hashes to bucket 0")
+	}
+	e.ProfileSemanticBPS = bps
+	lr := &learnedFake{}
+	e.Learned = lr
+	s.docs = []Document{profileDoc(1, 5, 1)}
+	s.cosine[1] = .1 // Below every treatment floor; control must still deliver it.
+	x := runProfile(t, e)
+	if len(x.Candidates) != 1 || x.Candidates[0].ProfileRank != nil || strings.Contains(x.Candidates[0].Score.Version, "profile") {
+		t.Fatalf("control behaviour changed: %+v", x.Candidates)
+	}
+	if x.Candidates[0].Score.Features["profile_cosine"] != .1 || lr.calls == 0 {
+		t.Fatalf("shadow feature or LR missing: %+v", x.Candidates[0])
+	}
+	if s.recallCalls != 0 || len(x.PartialReasons) != 0 {
+		t.Fatalf("control must not run profile recall or report reasons: %d %v", s.recallCalls, x.PartialReasons)
+	}
+	s.vector = nil
+	if x = runProfile(t, e); len(x.Candidates) != 1 || len(x.PartialReasons) != 0 {
+		t.Fatalf("control without a vector must stay silent: %+v", x)
+	}
+}
+
+func TestDenseQueryRecentOnly(t *testing.T) {
+	c := Context{Vector: []float32{1, 0}, createdSince: 1000}
+	q, err := Query(c, Broadcast, "dense", 40)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(q)
+	if !strings.Contains(string(b), `"created_at":{"gte":"1970-01-01T00:00:01Z"}`) {
+		t.Fatalf("recent-only filter missing: %s", b)
+	}
+	c.createdSince = 0
+	q, _ = Query(c, Broadcast, "dense", 40)
+	b, _ = json.Marshal(q)
+	if strings.Contains(string(b), "created_at") {
+		t.Fatalf("unbounded lane must not filter by date: %s", b)
 	}
 }

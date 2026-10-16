@@ -22,6 +22,9 @@ const (
 	profileSemanticVersion = ":profile_semantic_v1"
 	profileDenseKey        = "profile_dense"
 	profileDenseLimit      = 80
+	profileFreshKey        = "profile_fresh"
+	profileFreshLimit      = 40
+	profileFreshDays       = 30
 	maxProfileCosineIDs    = 5000
 	profileCosineTimeout   = 300 * time.Millisecond
 	profileHistoryTimeout  = 300 * time.Millisecond
@@ -38,8 +41,9 @@ type ProfileSemanticSources interface {
 	// Items without an embedding are omitted.
 	ProfileCosine(context.Context, []float32, []int64) (map[int64]float64, error)
 	// RecallProfile runs dense recall with the profile vector, excluding the
-	// Agent's verified consumed groups when that history is available.
-	RecallProfile(context.Context, Context, []float32, int) ([]Document, error)
+	// Agent's verified consumed groups when that history is available. A
+	// positive since (epoch ms) restricts recall to content created after it.
+	RecallProfile(ctx context.Context, c Context, vector []float32, since int64, limit int) ([]Document, error)
 }
 
 func bucketEnabled(salt string, owner int64, bps int) bool {
@@ -185,7 +189,7 @@ func (s *Source) ProfileCosine(ctx context.Context, vector []float32, ids []int6
 	return out, nil
 }
 
-func (s *Source) RecallProfile(ctx context.Context, c Context, vector []float32, limit int) ([]Document, error) {
+func (s *Source) RecallProfile(ctx context.Context, c Context, vector []float32, since int64, limit int) ([]Document, error) {
 	if s.DisabledChannels["dense"] {
 		return nil, nil
 	}
@@ -196,6 +200,6 @@ func (s *Source) RecallProfile(ctx context.Context, c Context, vector []float32,
 	if err != nil {
 		groups = nil
 	}
-	c.Vector, c.excludeConsumedGroups, c.excludeRecalledIDs = vector, groups, nil
+	c.Vector, c.excludeConsumedGroups, c.excludeRecalledIDs, c.createdSince = vector, groups, nil, since
 	return s.search(ctx, c, Broadcast, "dense", limit)
 }

@@ -310,19 +310,28 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		x.Status = "insufficient_context"
 		return x, nil
 	}
+	// While the experiment runs, control requests also record profile cosine
+	// as a shadow feature without changing eligibility or ordering.
 	var profileVector []float32
-	if mode == Recommendation && profileSemanticEnabled(owner, e.ProfileSemanticBPS) {
+	treated := mode == Recommendation && profileSemanticEnabled(owner, e.ProfileSemanticBPS)
+	shadow := mode == Recommendation && e.ProfileSemanticBPS > 0 && !treated
+	if treated || shadow {
+		reason := ""
 		if src, ok := e.Sources.(ProfileSemanticSources); !ok {
-			x.PartialReasons = append(x.PartialReasons, "profile_semantic:unsupported")
+			reason = "profile_semantic:unsupported"
 		} else if v, err := src.ProfileVector(ctx, owner); err != nil {
-			x.PartialReasons = append(x.PartialReasons, "profile_semantic:unavailable")
+			reason = "profile_semantic:unavailable"
 		} else if len(v) == 0 {
-			x.PartialReasons = append(x.PartialReasons, "profile_semantic:no_vector")
+			reason = "profile_semantic:no_vector"
 		} else {
 			profileVector = v
 		}
+		if treated && reason != "" {
+			x.PartialReasons = append(x.PartialReasons, reason)
+		}
 	}
-	semanticOn := len(profileVector) > 0
+	semanticOn := treated && len(profileVector) > 0
+	shadowOn := shadow && len(profileVector) > 0
 	type channelResult struct {
 		ci      int
 		kind    Kind
@@ -343,7 +352,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		docs []Document
 		err  error
 	}
-	userRecalls := map[string]*userRecall{"swing_i2i": {}, profileDenseKey: {}}
+	userRecalls := map[string]*userRecall{"swing_i2i": {}, profileDenseKey: {}, profileFreshKey: {}}
 	sem := make(chan struct{}, 6)
 	for ci, c := range contexts {
 		c.retrievalAt = now
@@ -375,12 +384,21 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			if kind == Commission && r.CommissionID > 0 {
 				channels = []string{"exact"}
 			}
+			lanes := [][2]string{}
 			for _, channel := range channels {
-				ci, c, kind, channel := ci, c, kind, channel
-				shareKey := channel
+				key := channel
 				if channel == "dense" && profileDense {
-					shareKey = profileDenseKey
+					key = profileDenseKey
 				}
+				lanes = append(lanes, [2]string{channel, key})
+			}
+			if profileDense {
+				// A recent-only lane keeps fresh matches from being crowded out by
+				// older, more similar content.
+				lanes = append(lanes, [2]string{"dense", profileFreshKey})
+			}
+			for _, lane := range lanes {
+				ci, c, kind, channel, shareKey := ci, c, kind, lane[0], lane[1]
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
@@ -403,16 +421,20 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 					if channel == "new_ugc_recall" {
 						limit = 10
 					}
-					if shareKey == profileDenseKey {
+					since := int64(0)
+					switch shareKey {
+					case profileDenseKey:
 						limit = profileDenseLimit
+					case profileFreshKey:
+						limit, since = profileFreshLimit, now-profileFreshDays*day
 					}
 					var docs []Document
 					var err error
 					if shared := userRecalls[shareKey]; shared != nil {
 						shared.once.Do(func() {
-							if shareKey == profileDenseKey {
-								// One profile kNN per request; each clause applies its own filters after recall.
-								shared.docs, shared.err = e.Sources.(ProfileSemanticSources).RecallProfile(ctx, c, profileVector, limit)
+							if shareKey == profileDenseKey || shareKey == profileFreshKey {
+								// One profile kNN per lane and request; each clause applies its own filters after recall.
+								shared.docs, shared.err = e.Sources.(ProfileSemanticSources).RecallProfile(ctx, c, profileVector, since, limit)
 								// Profile similarity is filled for every candidate below; a
 								// profile kNN score is not Need/query semantic evidence.
 								for i := range shared.docs {
@@ -466,7 +488,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	profileCosFailed := false
 	var profileMu sync.Mutex
 	fillProfileCosine := func(fillCtx context.Context, docs []Document) {
-		if !semanticOn {
+		if !semanticOn && !shadowOn {
 			return
 		}
 		profileMu.Lock()
@@ -491,7 +513,9 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			// Candidates without profile evidence keep the ordinary rule score;
 			// the request does not retry the read for later contexts.
 			profileCosFailed = true
-			x.PartialReasons = append(x.PartialReasons, "profile_semantic:cosine_unavailable")
+			if semanticOn {
+				x.PartialReasons = append(x.PartialReasons, "profile_semantic:cosine_unavailable")
+			}
 			return
 		}
 		for _, id := range missing {
@@ -567,6 +591,14 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				score.Version += ":friend_feed_v1"
 			}
 			var rank *float64
+			if shadowOn && d.Ref.Type == Broadcast && profileScored(c) {
+				profileMu.Lock()
+				cos, ok := profileCos[d.Ref.ID]
+				profileMu.Unlock()
+				if ok && !math.IsNaN(cos) {
+					score.Features["profile_cosine"] = cos
+				}
+			}
 			if semanticOn && d.Ref.Type == Broadcast && profileScored(c) {
 				profileMu.Lock()
 				cos, ok := profileCos[d.Ref.ID]
@@ -674,7 +706,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		}
 		pending = append(pending, pendingContext{c, merged, docs})
 	}
-	if semanticOn {
+	if semanticOn || shadowOn {
 		// One similarity read for every context's candidates.
 		all := []Document{}
 		for _, p := range pending {
