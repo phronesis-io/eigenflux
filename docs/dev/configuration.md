@@ -241,7 +241,8 @@ retain their snapshot. See [bounded refill](discovery.md#bounded-consumed-candid
 for bounds, Redis 7 requirements and partial-result semantics.
 
 `DISCOVERY_PROFILE_SEMANTIC_BPS` defaults to `0` and accepts 0–10000. It selects
-stable Agent buckets whose broadcast Profile recommendations use profile-vector
-recall, profile-cosine eligibility and ordering instead of rule relevance and
-the discovery LR scorer. Captured Needs are unaffected. Restart Sort after changing the value. See
-[the profile-semantic experiment](discovery.md#profile-semantic-recommendation-experiment).
+stable Agent buckets whose broadcast recommendations add profile-vector recall
+for Profile contexts and use cosine to the profile or captured Need vector for
+additional eligibility and ordering in place of the discovery LR scorer.
+Restart Sort after changing the value. See
+[the semantic experiment](discovery.md#semantic-recommendation-experiment).

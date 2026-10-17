@@ -223,8 +223,8 @@ type Score struct {
 type Candidate struct {
 	LR         *discoverylr.Result `json:"lr,omitempty"`
 	FinalScore float64             `json:"final_score"`
-	// ProfileRank orders profile-semantic candidates; Score keeps the rule contract.
-	ProfileRank     *float64 `json:"profile_rank,omitempty"`
+	// SemanticRank orders profile-semantic candidates; Score keeps the rule contract.
+	SemanticRank    *float64 `json:"semantic_rank,omitempty"`
 	Order           int      `json:"policy_order,omitempty"`
 	ClaimTTLSeconds int64    `json:"claim_ttl_seconds,omitempty"`
 	Context         Context  `json:"context"`
