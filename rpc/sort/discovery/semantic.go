@@ -79,27 +79,51 @@ func profileMinCosine(freshAt, now int64) float64 {
 	}
 }
 
-// missingSemanticRank orders rule-eligible candidates without an item
-// embedding after every similarity-scored candidate.
-const missingSemanticRank = -1.0
+// Semantic tiers order scored candidates across contexts of equal priority:
+// a candidate at its cosine floor, then a rule-eligible candidate below it,
+// then a rule-eligible candidate without an item embedding. Ranks stay
+// positive and banded by tier so multiplicative rerank boosts keep their
+// direction.
+const (
+	semanticTierMissing = iota
+	semanticTierBelowFloor
+	semanticTierAtFloor
+)
 
-// scoreSemantic orders a candidate by its cosine to the profile or captured
+func semanticNames(need bool) (string, string) {
+	if need {
+		return "need", needSemanticVersion
+	}
+	return "profile", profileSemanticVersion
+}
+
+// scoreSemantic scores a candidate by its cosine to the profile or captured
 // Need vector. Eligibility is additive: a candidate the rule score already
 // accepts stays eligible, and a candidate reaching the age-tiered cosine floor
 // becomes eligible (vector-only recall otherwise needs cosine near 0.7). The
 // rule score's value, relevance and contributions are retained so replay
 // samples keep the discovery LR feature contract.
-func scoreSemantic(s Score, d Document, cos float64, rule Rule, now int64, bypass, need bool) (Score, float64) {
+func scoreSemantic(s Score, d Document, cos float64, rule Rule, now int64, bypass, need bool) (Score, float64, int) {
 	floor := profileMinCosine(d.FreshAt, now)
-	name, version := "profile", profileSemanticVersion
-	if need {
-		name, version = "need", needSemanticVersion
-	}
+	name, version := semanticNames(need)
 	s.Version += version
 	s.Features[name+"_cosine"] = cos
 	s.Features[name+"_min_cosine"] = floor
-	s.Eligible = s.Eligible || bypass || cos >= floor
-	return s, cos + profileFreshnessWeight*decay(d.FreshAt, now, rule.HalfLifeMS)
+	if cos >= floor {
+		s.Eligible = true
+		return s, 2 + cos + profileFreshnessWeight*decay(d.FreshAt, now, rule.HalfLifeMS), semanticTierAtFloor
+	}
+	s.Eligible = s.Eligible || bypass
+	return s, 1 + (1+cos)/2*0.99, semanticTierBelowFloor
+}
+
+// scoreUnembedded keeps the rule decision for a candidate without an item
+// embedding and ranks it after every similarity-scored candidate.
+func scoreUnembedded(s Score, need bool) (Score, float64, int) {
+	name, version := semanticNames(need)
+	s.Version += version
+	s.Features[name+"_embedding_missing"] = 1
+	return s, math.Max(0, math.Min(1, s.Value)), semanticTierMissing
 }
 
 func (s *Source) ProfileVector(ctx context.Context, owner int64) ([]float32, error) {
@@ -139,7 +163,7 @@ func (s *Source) Cosine(ctx context.Context, vector []float32, ids []int64) (map
 		return out, nil
 	}
 	if len(ids) > maxCosineIDs {
-		return nil, fmt.Errorf("profile cosine budget exceeded")
+		return nil, fmt.Errorf("cosine budget exceeded")
 	}
 	if es.Client == nil {
 		return nil, fmt.Errorf("source index unavailable")
@@ -164,7 +188,7 @@ func (s *Source) Cosine(ctx context.Context, vector []float32, ids []int64) (map
 	}
 	defer resp.Body.Close()
 	if resp.IsError() {
-		return nil, fmt.Errorf("profile cosine read failed: %d", resp.StatusCode)
+		return nil, fmt.Errorf("cosine read failed: %d", resp.StatusCode)
 	}
 	var env struct {
 		TimedOut bool `json:"timed_out"`
@@ -184,7 +208,7 @@ func (s *Source) Cosine(ctx context.Context, vector []float32, ids []int64) (map
 		return nil, err
 	}
 	if env.TimedOut || env.Shards.Failed > 0 {
-		return nil, fmt.Errorf("incomplete profile cosine read")
+		return nil, fmt.Errorf("incomplete cosine read")
 	}
 	for _, h := range env.Hits.Hits {
 		cos := h.Score - 1

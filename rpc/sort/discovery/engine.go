@@ -7,6 +7,7 @@ import (
 	"eigenflux_server/pkg/need"
 	"eigenflux_server/pkg/recallsource"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -34,8 +35,9 @@ type Engine struct {
 	Learned           LearnedRanker
 	FriendFeedEnabled bool
 	ConsumedRefillBPS int
-	// ProfileSemanticBPS selects Agents whose broadcast recommendations use
-	// profile-vector recall, gating and ordering.
+	// ProfileSemanticBPS selects Agents whose broadcast recommendations add
+	// profile-vector recall and use profile/Need similarity for eligibility
+	// and ordering.
 	ProfileSemanticBPS int
 	SourceLimits       []SourceLimit
 	Compiler           *Compiler
@@ -326,7 +328,11 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		} else {
 			profileVector = v
 		}
-		if treated && reason != "" {
+		usesProfile := false
+		for _, c := range contexts {
+			usesProfile = usesProfile || (c.CapturedNeed == nil && c.Origin != "baseline")
+		}
+		if treated && reason != "" && usesProfile {
 			x.PartialReasons = append(x.PartialReasons, reason)
 		}
 	}
@@ -503,14 +509,15 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		}
 		return "", nil, false
 	}
+	semanticDegraded := false
 	fillCosine := func(fillCtx context.Context, c Context, docs []Document) {
 		key, vector, need := vectorFor(c)
 		if key == "" {
 			return
 		}
 		semanticMu.Lock()
-		defer semanticMu.Unlock()
-		if semanticFailed[key] {
+		if semanticDegraded || semanticFailed[key] {
+			semanticMu.Unlock()
 			return
 		}
 		known := semanticCos[key]
@@ -525,16 +532,23 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				missing = append(missing, d.Ref.ID)
 			}
 		}
+		semanticMu.Unlock()
 		if len(missing) == 0 {
 			return
 		}
 		readCtx, cancel := context.WithTimeout(fillCtx, cosineTimeout)
 		got, err := e.Sources.(ProfileSemanticSources).Cosine(readCtx, vector, missing)
 		cancel()
+		semanticMu.Lock()
+		defer semanticMu.Unlock()
 		if err != nil {
 			// Candidates without similarity evidence keep the ordinary rule score;
-			// the request does not retry the read for later contexts.
+			// the request does not retry the read, and a timeout stops every
+			// further similarity read in this request.
 			semanticFailed[key] = true
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				semanticDegraded = true
+			}
 			if need {
 				x.PartialReasons = append(x.PartialReasons, "need_semantic:cosine_unavailable")
 			} else if semanticOn {
@@ -620,19 +634,19 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				score.Version += ":friend_feed_v1"
 			}
 			var rank *float64
+			tier := 0
 			if cos, ok, need := cosineOf(c, d.Ref.ID); ok && d.Ref.Type == Broadcast {
+				var r float64
 				switch {
 				case shadowOn:
 					if !math.IsNaN(cos) {
 						score.Features["profile_cosine"] = cos
 					}
 				case math.IsNaN(cos):
-					// No item embedding: keep the rule decision, order after scored items.
-					r := missingSemanticRank
+					score, r, tier = scoreUnembedded(score, need)
 					rank = &r
 				default:
-					var r float64
-					score, r = scoreSemantic(score, d, cos, e.Rules[d.Ref.Type][mode], now, friend, need)
+					score, r, tier = scoreSemantic(score, d, cos, e.Rules[d.Ref.Type][mode], now, friend, need)
 					rank = &r
 				}
 			}
@@ -641,7 +655,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				metrics.DiscoveryRejected.WithLabelValues(string(d.Ref.Type), "below_threshold").Inc()
 			}
 			if score.Eligible {
-				candidate := Candidate{FinalScore: score.Value, Context: c, Document: d, Score: score, SemanticRank: rank}
+				candidate := Candidate{FinalScore: score.Value, Context: c, Document: d, Score: score, SemanticRank: rank, SemanticTier: tier}
 				if rank != nil {
 					candidate.FinalScore = *rank
 				}
@@ -730,20 +744,37 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		pending = append(pending, pendingContext{c, merged, docs})
 	}
 	if needOn || shadowOn {
-		// One similarity read per vector: all Profile contexts share the profile.
+		// One similarity read per vector, all in parallel under one deadline:
+		// Profile and friend contexts share the profile vector.
 		var profileContext *Context
 		all := []Document{}
+		type read struct {
+			c    Context
+			docs []Document
+		}
+		reads := []read{}
 		for i, p := range pending {
 			if key, _, need := vectorFor(p.c); key != "" && !need {
 				profileContext = &pending[i].c
 				all = append(all, p.docs...)
 			} else if need {
-				fillCosine(ctx, p.c, p.docs)
+				reads = append(reads, read{p.c, p.docs})
 			}
 		}
 		if profileContext != nil {
-			fillCosine(ctx, *profileContext, all)
+			reads = append(reads, read{*profileContext, all})
 		}
+		prefillCtx, cancel := context.WithTimeout(ctx, cosineTimeout)
+		var prefill sync.WaitGroup
+		for _, r := range reads {
+			prefill.Add(1)
+			go func(r read) {
+				defer prefill.Done()
+				fillCosine(prefillCtx, r.c, r.docs)
+			}(r)
+		}
+		prefill.Wait()
+		cancel()
 	}
 	for _, p := range pending {
 		eligible, err := evaluate(ctx, p.c, p.merged, p.docs)

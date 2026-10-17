@@ -872,8 +872,10 @@ For a selected broadcast recommendation, Sort:
   (40 rows). Both exclude verified consumed groups (history read bounded to
   300 ms; on timeout recall runs without the exclusion);
 - reads cosine similarity for every broadcast candidate with one ES
-  `script_score` query per vector (300 ms budget, collapsed by item ID), without
-  transferring candidate vectors. Profile and friend contexts use the profile
+  `script_score` query per vector, all vectors in parallel under one 300 ms
+  budget (collapsed by item ID, without transferring candidate vectors). Refill
+  candidates are read on demand. A timeout stops further similarity reads in
+  the request. Profile and friend contexts use the profile
   vector; a captured Need context with a ready Need vector uses that Need
   vector. Captured Needs whose vector is pending, and baseline contexts, keep
   their ordinary score and LR ordering;
@@ -882,16 +884,21 @@ For a selected broadcast recommendation, Sort:
   to 90 days and ≥ 0.50 otherwise (vector-only recall otherwise needs cosine
   near 0.7 to pass the rule gate). Friend candidates keep their relevance
   bypass;
-- orders scored candidates by `semantic_rank = cosine + 0.05 * freshness`,
-  which replaces the discovery LR probability for these candidates only.
-  Candidates without an item embedding keep the rule decision and sort last
-  in their context.
+- assigns a `semantic_tier`: at the floor (rank `2 + cosine + 0.05 *
+  freshness`), rule-eligible below the floor (rank between 1 and 2), and
+  rule-eligible without an item embedding (rank = rule value, 0–1, with a
+  `*_embedding_missing` feature). The rank replaces the discovery LR
+  probability for these candidates and feeds the rerank policies;
+- merges scored candidates across contexts of equal priority by tier, then by
+  policy-adjusted score, so one Profile clause or Need cannot fill the page with
+  weak candidates ahead of another's strong ones. Captured Needs still precede
+  Profile contexts, and the policy order still applies within a context.
 
 The rule `score` keeps its value, relevance and contributions so replay samples
 retain the discovery LR feature contract. Scored samples carry a
 `:profile_semantic_v2` or `:need_semantic_v1` scorer-version suffix,
-`profile_cosine`/`need_cosine` and the matching `*_min_cosine` features, and
-`semantic_rank`. Need precedence, rerank policies and source limits remain in
+`profile_cosine`/`need_cosine` and the matching `*_min_cosine` features (or
+`*_embedding_missing`), `semantic_rank` and `semantic_tier`. Need precedence, rerank policies and source limits remain in
 force.
 
 A missing or zero profile vector, a vector read error or a similarity read

@@ -148,6 +148,17 @@ func Merge(in []Candidate, kinds []Kind, mode Mode, limit int) []Candidate {
 		if a.Context.Priority != b.Context.Priority {
 			return a.Context.Priority > b.Context.Priority
 		}
+		// Similarity-scored candidates compete across contexts of equal
+		// priority, so one clause's or Need's weak candidates cannot displace
+		// another's strong ones. Within a context the policy order applies.
+		if mode == Recommendation && a.SemanticRank != nil && b.SemanticRank != nil {
+			if a.SemanticTier != b.SemanticTier {
+				return a.SemanticTier > b.SemanticTier
+			}
+			if a.Context.ID != b.Context.ID && a.FinalScore != b.FinalScore {
+				return a.FinalScore > b.FinalScore
+			}
+		}
 		if mode == Recommendation && a.Context.UpdatedAt != b.Context.UpdatedAt {
 			return a.Context.UpdatedAt > b.Context.UpdatedAt
 		}
