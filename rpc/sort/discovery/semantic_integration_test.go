@@ -57,7 +57,7 @@ func TestProfileSemanticESReads(t *testing.T) {
 	do("POST", "/"+prefix+"-*/_refresh", "")
 
 	s := &discovery.Source{BroadcastIndex: prefix + "-*"}
-	got, err := s.ProfileCosine(ctx, []float32{1, 0}, []int64{1, 2, 3, 99})
+	got, err := s.Cosine(ctx, []float32{1, 0}, []int64{1, 2, 3, 99})
 	if err != nil {
 		t.Fatal(err)
 	}

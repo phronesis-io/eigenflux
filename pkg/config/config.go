@@ -233,7 +233,8 @@ type Config struct {
 	LRRankerReloadInterval     string
 	DiscoveryConsumedRefillBPS int
 	// DiscoveryProfileSemanticBPS is the share of Agents (basis points) whose
-	// broadcast recommendations use profile-vector recall, gating and ordering.
+	// broadcast recommendations add profile-vector recall and use profile/Need
+	// similarity for eligibility and ordering.
 	DiscoveryProfileSemanticBPS int
 	DiscoveryLREnabled          bool
 	DiscoveryLRModelPath        string
