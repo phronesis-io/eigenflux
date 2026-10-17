@@ -38,7 +38,7 @@ func TestProfileSemanticESReads(t *testing.T) {
 			t.Fatalf("%s %s: %d", method, path, resp.StatusCode)
 		}
 	}
-	mapping := `{"mappings":{"properties":{"id":{"type":"long"},"group_id":{"type":"long"},"author_agent_id":{"type":"long"},"content":{"type":"text"},"summary":{"type":"text"},"created_at":{"type":"date"},"embedding":{"type":"dense_vector","dims":2,"index":true,"similarity":"cosine"}}}}`
+	mapping := `{"mappings":{"properties":{"id":{"type":"long"},"group_id":{"type":"long"},"author_agent_id":{"type":"long"},"content":{"type":"text"},"summary":{"type":"text"},"created_at":{"type":"date"},"expire_time":{"type":"date"},"embedding":{"type":"dense_vector","dims":2,"index":true,"similarity":"cosine"}}}}`
 	for _, name := range []string{index, rollover} {
 		do("PUT", "/"+name, mapping)
 		defer do("DELETE", "/"+name, "")
@@ -48,6 +48,7 @@ func TestProfileSemanticESReads(t *testing.T) {
 		2: fmt.Sprintf(`{"id":2,"group_id":12,"author_agent_id":9,"content":"b","created_at":%q,"embedding":[0.6,0.8]}`, time.Now().UTC().Format(time.RFC3339)),
 		3: `{"id":3,"group_id":13,"author_agent_id":9,"content":"c"}`,
 		4: `{"id":4,"group_id":14,"author_agent_id":7,"content":"d","embedding":[1,0.1]}`,
+		5: `{"id":5,"group_id":15,"author_agent_id":9,"content":"e","expire_time":"2020-01-01T00:00:00Z","embedding":[1,0.05]}`,
 	}
 	for id, body := range docs {
 		do("PUT", fmt.Sprintf("/%s/_doc/%d", index, id), body)
@@ -77,7 +78,7 @@ func TestProfileSemanticESReads(t *testing.T) {
 		}
 	}
 	if strings.Join(ids, ",") != "1,2" {
-		t.Fatalf("profile kNN must rank by cosine and keep author exclusion: %v", ids)
+		t.Fatalf("profile kNN must rank by cosine, keep author exclusion and skip expired items: %v", ids)
 	}
 	recent, err := s.RecallProfile(ctx, discovery.Context{OwnerID: 7, Filters: discovery.Filters{ExcludeAuthors: []string{"7"}}}, []float32{1, 0}, time.Now().Add(-30*24*time.Hour).UnixMilli(), 10)
 	if err != nil {
