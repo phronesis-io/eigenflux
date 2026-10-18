@@ -131,6 +131,7 @@ Examples:
 		accessToken := ""
 		activeAgentID := ""
 		streamPath := "/ws/pm"
+		var notificationClient *client.Client
 		if hasV2 {
 			credentials, credentialErr := ensureV2Credentials(srv.Name, srv.Endpoint)
 			if credentialErr != nil {
@@ -139,6 +140,10 @@ Examples:
 			accessToken = credentials.AccessToken
 			activeAgentID = credentials.AgentID
 			streamPath = "/api/v2/agent/events/ws"
+			notificationClient, _, err = newV2ClientForServer(srv.Name, true)
+			if err != nil {
+				return fmt.Errorf("initialize notification client: %w", err)
+			}
 		} else {
 			credentials, credentialErr := auth.LoadCredentials(srv.Name)
 			if credentialErr != nil {
@@ -164,7 +169,10 @@ Examples:
 		if myProfile != nil {
 			myAgentID = myProfile.AgentID
 		}
-
+		language := "en"
+		if normalized, ok := normalizeAccountLanguage(cfg.GetKV("lang")); ok {
+			language = normalized
+		}
 		// Graceful shutdown on interrupt.
 		interrupt := make(chan os.Signal, 1)
 		signal.Notify(interrupt, os.Interrupt)
@@ -276,6 +284,7 @@ Examples:
 
 			done := make(chan struct{})
 			shouldReconnect := true
+			var processingErr error
 			format := resolveFormat()
 
 			go func() {
@@ -316,13 +325,30 @@ Examples:
 						Data json.RawMessage `json:"data"`
 					}
 					pushOK := json.Unmarshal(msg, &push) == nil
-					if pushOK {
+					if pushOK && push.Type == "pm_push" {
 						cacheMessages(push.Data)
+					}
+					if pushOK && push.Type == "notification_push" {
+						if err := drainOrderNotifications(notificationClient, format, language, os.Stdout); err != nil {
+							output.PrintMessage("Order notification processing failed: %v", err)
+							if once {
+								processingErr = err
+							}
+						}
+						if once {
+							shouldReconnect = false
+							return
+						}
+						continue
 					}
 
 					if format == "json" {
 						fmt.Fprintln(os.Stdout, string(msg))
 						if once {
+							if err := drainOrderNotifications(notificationClient, format, language, os.Stdout); err != nil {
+								output.PrintMessage("Order notification processing failed: %v", err)
+								processingErr = err
+							}
 							// --once: the first packet (offline history replay)
 							// has been emitted; exit. JSON mode doesn't track
 							// firstPacket, but the first message IS the backlog
@@ -411,6 +437,10 @@ Examples:
 							}
 							firstPacket = false
 							if once {
+								if err := drainOrderNotifications(notificationClient, format, language, os.Stdout); err != nil {
+									output.PrintMessage("Order notification processing failed: %v", err)
+									processingErr = err
+								}
 								// Offline backlog drained — exit without reconnecting.
 								shouldReconnect = false
 								return
@@ -427,6 +457,9 @@ Examples:
 			select {
 			case <-done:
 				conn.Close()
+				if processingErr != nil {
+					return processingErr
+				}
 				if !shouldReconnect {
 					return nil
 				}

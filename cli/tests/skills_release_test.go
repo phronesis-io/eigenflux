@@ -204,7 +204,7 @@ func TestConfiguredReleaseRequiresSupportedCLI(t *testing.T) {
 		Into: filepath.Join(t.TempDir(), "skills"), CLIVersion: "0.0.42", CDNBase: server.URL,
 	}
 	// These published CLIs lack required attribution or direct runtime/JSON flags.
-	for _, oldVersion := range []string{"0.0.42", "0.0.49", "0.0.50", "0.0.51"} {
+	for _, oldVersion := range []string{"0.0.42", "0.0.49", "0.0.50", "0.0.51", "0.0.105", "0.0.106"} {
 		options.CLIVersion = oldVersion
 		if _, err := skills.Sync(options); err == nil || !strings.Contains(err.Error(), "upgrade the CLI") {
 			t.Fatalf("incompatible CLI %s was not rejected: %v", oldVersion, err)
