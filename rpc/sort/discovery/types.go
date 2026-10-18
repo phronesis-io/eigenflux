@@ -221,8 +221,11 @@ type Score struct {
 	Missing       []string           `json:"missing,omitempty"`
 }
 type Candidate struct {
-	LR         *discoverylr.Result `json:"lr,omitempty"`
-	FinalScore float64             `json:"final_score"`
+	LR *discoverylr.Result `json:"lr,omitempty"`
+	// RatingFeatures is the discovery_rating_lr_v1 input when that model
+	// scored the candidate, in contract order.
+	RatingFeatures []float64 `json:"rating_features,omitempty"`
+	FinalScore     float64   `json:"final_score"`
 	// SemanticRank and SemanticTier order similarity-scored candidates in the
 	// semantic experiment; Score keeps the rule contract.
 	SemanticRank    *float64 `json:"semantic_rank,omitempty"`
@@ -268,6 +271,9 @@ func PublicItem(c Candidate) ResultItem {
 		r.Match["scorer_type"] = "lr"
 		r.Match["scorer_version"] = c.LR.ModelVersion
 		r.Match["score_kind"] = "followup_probability"
+		if c.LR.Contract == discoverylr.RatingContract {
+			r.Match["score_kind"] = "positive_rating_probability"
+		}
 	}
 	if c.Document.ExactMatch != "" {
 		r.Match["exact"] = c.Document.ExactMatch

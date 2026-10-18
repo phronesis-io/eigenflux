@@ -909,3 +909,76 @@ read is not retried within the request. On rated recommendations, cosine
 separated positive from `-1` ratings far better than rule relevance: profile
 cosine within-Agent AUC 0.77 (0.68 on a holdout) versus 0.49, and Need cosine
 0.85 versus 0.66 on 2026-10-08/15 Need deliveries.
+
+### Positive-rating ranker experiment
+
+`DISCOVERY_RATING_LR_BPS=0` disables the experiment (default). Values 1–10000
+select a stable hash bucket of Agent IDs, independent of the refill and semantic
+buckets; 10000 selects all Agents. Restart Sort to apply a changed value. Sort
+then loads `DISCOVERY_RATING_LR_MODEL_PATH` (default
+`/data/models/eigenflux/discovery-rating-lr/current/model.json`) every
+`DISCOVERY_LR_RELOAD_INTERVAL`. Loading applies the same size, promotion,
+coefficient and self-test checks as the follow-up model and accepts only the
+`discovery_rating_lr_v1` contract. Reload and scoring outcomes are counted in
+`discovery_lr_reload_total` and `discovery_lr_scoring_total` with a `rating_`
+result prefix.
+
+The model predicts a positive rating (score ≥ 1 among rated broadcast
+recommendation deliveries). It scores broadcast-only recommendations (the Feed
+request) of selected Agents. Every eligible candidate is scored, including
+similarity-ranked candidates of the semantic experiment, and the follow-up
+model is not applied to that request. Search, multi-kind recommendations and
+unselected Agents are unchanged.
+
+For each selected request, Sort reads in parallel, under one 300 ms budget and
+without retries (a refill reads only its new candidates and authors, under its
+own budget):
+
+- cosine similarity between every candidate and the stored profile embedding,
+  and between every candidate and each distinct ready captured broadcast Need
+  vector (at most 16), one ES `script_score` query per vector in parallel;
+- each author's PGC classification, using the same cached email-suffix verdicts
+  as the UGC boost. A failed classification read is an error, never UGC.
+
+Any failed read, exceeded budget, out-of-range input or missing model keeps the
+existing follow-up LR or rule ordering for the whole request; a request never
+mixes scorers, and the fallback is not a partial result. Rerank policies
+receive the probability as their initial score. Captured Needs still precede
+Profile contexts and context priority still applies. Within equal priority,
+candidates compete across contexts by policy-adjusted probability; an injected
+candidate takes its context's best score so it keeps the front of its context.
+Hard filters, eligibility, deduplication and source ceilings are unchanged.
+
+The 40 ordered inputs, all in [0, 1]:
+
+| Inputs | Definition |
+|---|---|
+| `f_lexical`, `f_semantic`, `f_fresh`, `f_quality`, `relevance`, `value`, `sem_missing`, `o_baseline`, `o_friend` | The nine `discovery_lr_v1` inputs |
+| `o_need`, `o_profile` | Context origin is `need_input` / `agent_context` |
+| `ct_info`, `ct_demand`, `ct_supply`, `ct_alert` | Document content type |
+| `is_pgc`, `known_contact` | Author is a PGC publisher; document `known_contact` |
+| `ch_dense`, `ch_friend`, `ch_hot_recall`, `ch_lexical`, `ch_lexical_recent`, `ch_new_recall`, `ch_new_ugc_recall`, `ch_swing_i2i` | The item's recall channels across the request's candidates, as recorded at delivery |
+| `src_curated`, `src_original`, `src_forwarded` | Document source type |
+| `ttl01` | `clip((expires_at − request_time) / 30 days)`; 0 without an expiry |
+| `need_cos_ctx0` | Cosine to this context's own Need vector; 0 for other contexts |
+| `need_cos_max0`, `prof_cos0`, `cos_best0` | Highest cosine over the Agent's Need vectors, profile cosine, and their maximum; negative values and missing evidence are 0 |
+| `has_need`, `has_prof` | The item has a Need / profile cosine (an item without an embedding has neither) |
+| `need_cos_max_h35`, `need_cos_max_h45`, `prof_cos_h35`, `prof_cos_h45` | `max(cos − 0.35, 0)` and `max(cos − 0.45, 0)` |
+| `n_needs01` | `min(Need vectors with a cosine for the item / 10, 1)` |
+
+`Candidate.LR` records the model version, contract and probability, and
+`Candidate.rating_features` records the exact input vector in contract order.
+Both are written under `replay_logs.item_features.search`. Public results report
+`score_kind` `positive_rating_probability`. The frozen rule `score` keeps the
+`discovery_lr_v1` contract, so the daily follow-up training is unaffected.
+
+`rpc/sort/discoverylr/testdata/discovery_rating_lr_v1.json` holds an offline
+bundle and rated deliveries whose raw serving fields, similarity evidence,
+inputs and probabilities were computed by the offline training code;
+`TestRatingVectorMatchesPythonFixture` checks both input and probability parity.
+`TestDiscoveryRatingRecommendation` exercises real HTTP/RPC serving, ES
+similarity, PGC classification and delivered replay samples.
+
+The daily trainer does not produce this contract. Install a reviewed offline
+bundle in the model directory with an atomic `current` link. Setting
+`DISCOVERY_RATING_LR_BPS=0` and restarting Sort restores the existing ordering.

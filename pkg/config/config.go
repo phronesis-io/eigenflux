@@ -239,6 +239,10 @@ type Config struct {
 	DiscoveryLREnabled          bool
 	DiscoveryLRModelPath        string
 	DiscoveryLRReloadInterval   string
+	// DiscoveryRatingLRBPS is the share of Agents (basis points) whose
+	// broadcast recommendations are ordered by the positive-rating model.
+	DiscoveryRatingLRBPS       int
+	DiscoveryRatingLRModelPath string
 
 	// Per-type freshness decay
 	FreshnessAlertOffset  string
@@ -443,6 +447,8 @@ func Load() *Config {
 		DiscoveryLREnabled:           getEnvBool("DISCOVERY_LR_ENABLED", false),
 		DiscoveryLRModelPath:         getEnv("DISCOVERY_LR_MODEL_PATH", "/data/models/eigenflux/discovery-lr/current/model.json"),
 		DiscoveryLRReloadInterval:    getEnv("DISCOVERY_LR_RELOAD_INTERVAL", "60s"),
+		DiscoveryRatingLRBPS:         getEnvInt("DISCOVERY_RATING_LR_BPS", 0),
+		DiscoveryRatingLRModelPath:   getEnv("DISCOVERY_RATING_LR_MODEL_PATH", "/data/models/eigenflux/discovery-rating-lr/current/model.json"),
 		FeatureIndexConfigDir:        getEnv("FEATURE_INDEX_CONFIG_DIR", "configs/featureindex"),
 		FeatureIndexReloadInterval:   getEnv("FEATURE_INDEX_RELOAD_INTERVAL", "5s"),
 		RecallRedisNamespace:         getEnv("REC_REDIS_NAMESPACE", "rec"),

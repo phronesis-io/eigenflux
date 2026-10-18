@@ -31,8 +31,13 @@ type Sources interface {
 }
 type Engine struct {
 	// frozenContexts is set only by the offline replay entry point.
-	frozenContexts    []Context
-	Learned           LearnedRanker
+	frozenContexts []Context
+	Learned        LearnedRanker
+	// RatingLearned orders broadcast recommendations for Agents in the
+	// RatingLRBPS bucket; when it cannot score a request, Learned applies.
+	RatingLearned     LearnedRanker
+	RatingLRBPS       int
+	PGCAuthors        PGCAuthors
 	FriendFeedEnabled bool
 	ConsumedRefillBPS int
 	// ProfileSemanticBPS selects Agents whose broadcast recommendations add
@@ -786,12 +791,15 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	if !anySuccess && len(results) > 0 {
 		return x, Failure(503, "retrieval_unavailable")
 	}
+	rating := &ratingRequest{}
 	selectCandidates := func(in []Candidate) ([]Candidate, error) {
 		if len(in) == 0 {
 			return []Candidate{}, nil
 		}
 		in = append([]Candidate(nil), in...)
-		e.rankLearned(in, mode)
+		if !e.rankRating(ctx, owner, r.SourceKinds, contexts, in, mode, profileVector, rating) {
+			e.rankLearned(in, mode)
+		}
 		if e.Policies != nil {
 			var err error
 			in, err = e.Policies(ctx, in, mode, resultLimit)

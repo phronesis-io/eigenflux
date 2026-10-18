@@ -23,7 +23,7 @@ import (
 	"time"
 )
 
-func initDiscovery(ctx context.Context, cfg *config.Config, policies func(context.Context, []discovery.Candidate, discovery.Mode, int) ([]discovery.Candidate, error), sourceLimits []discovery.SourceLimit) (*discovery.Service, func(), error) {
+func initDiscovery(ctx context.Context, cfg *config.Config, policies func(context.Context, []discovery.Candidate, discovery.Mode, int) ([]discovery.Candidate, error), sourceLimits []discovery.SourceLimit, pgcAuthors discovery.PGCAuthors) (*discovery.Service, func(), error) {
 	if !cfg.EnableNeedSearch {
 		return nil, func() {}, nil
 	}
@@ -32,6 +32,9 @@ func initDiscovery(ctx context.Context, cfg *config.Config, policies func(contex
 	}
 	if cfg.DiscoveryProfileSemanticBPS < 0 || cfg.DiscoveryProfileSemanticBPS > 10000 {
 		return nil, nil, fmt.Errorf("DISCOVERY_PROFILE_SEMANTIC_BPS must be in [0,10000]")
+	}
+	if cfg.DiscoveryRatingLRBPS < 0 || cfg.DiscoveryRatingLRBPS > 10000 {
+		return nil, nil, fmt.Errorf("DISCOVERY_RATING_LR_BPS must be in [0,10000]")
 	}
 	if err := cfg.ValidateCommissionDiscoveryConfiguration(); err != nil {
 		return nil, nil, err
@@ -89,13 +92,15 @@ func initDiscovery(ctx context.Context, cfg *config.Config, policies func(contex
 		Compiler: &discovery.Compiler{Cache: contexts, Embedder: embed, NeedVectors: vectors, EmbeddingVersion: vectors.Generation()},
 		Needs:    discovery.CachedNeeds{NeedReader: need.Store{DB: db.DB}, Cache: contexts},
 		IDs:      ids, Rules: rules, Policies: policies, Sources: sources,
+		RatingLRBPS: cfg.DiscoveryRatingLRBPS, PGCAuthors: pgcAuthors,
 	}
 	interval, err := time.ParseDuration(cfg.DiscoveryLRReloadInterval)
-	if err != nil && cfg.DiscoveryLREnabled {
+	if err != nil && (cfg.DiscoveryLREnabled || cfg.DiscoveryRatingLRBPS > 0) {
 		close()
 		return nil, nil, err
 	}
 	learned := discoverylr.New(cfg.DiscoveryLREnabled, cfg.DiscoveryLRModelPath, interval)
-	engine.Learned = learned
-	return &discovery.Service{Engine: engine}, func() { learned.Close(); close() }, nil
+	rating := discoverylr.NewRating(cfg.DiscoveryRatingLRBPS > 0, cfg.DiscoveryRatingLRModelPath, interval)
+	engine.Learned, engine.RatingLearned = learned, rating
+	return &discovery.Service{Engine: engine}, func() { rating.Close(); learned.Close(); close() }, nil
 }
