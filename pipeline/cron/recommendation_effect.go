@@ -89,6 +89,22 @@ func refreshRecommendationEffect(ctx context.Context) error {
 			}
 		}
 	}
+
+	matchDays, matchErr := recommendationmetrics.MatchPendingDays(ctx, conn, cutoff)
+	if matchErr != nil {
+		return fmt.Errorf("select match overview days: %w", matchErr)
+	}
+	for _, day := range matchDays {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err := recommendationmetrics.RefreshMatchDay(ctx, conn, day, cutoff); err != nil {
+			logger.Default().Warn("match overview day failed", "day", day, "err", err)
+			if firstError == nil {
+				firstError = err
+			}
+		}
+	}
 	return firstError
 }
 
