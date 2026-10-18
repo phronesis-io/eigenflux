@@ -34,7 +34,8 @@ type Engine struct {
 	frozenContexts []Context
 	Learned        LearnedRanker
 	// RatingLearned orders broadcast recommendations for Agents in the
-	// RatingLRBPS bucket; when it cannot score a request, Learned applies.
+	// RatingLRBPS bucket; when it cannot score a request, the existing
+	// semantic, Learned or rule ordering applies.
 	RatingLearned     LearnedRanker
 	RatingLRBPS       int
 	PGCAuthors        PGCAuthors

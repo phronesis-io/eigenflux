@@ -15,10 +15,12 @@ import (
 	"eigenflux_server/rpc/sort/discoverylr"
 )
 
-// ratingFake scores by cos_best0 so tests can predict the order.
+// ratingFake scores by one input (cos_best0 by default) so tests can predict
+// the order.
 type ratingFake struct {
 	calls int
 	fail  bool
+	by    string
 }
 
 var cosBest = slices.Index(discoverylr.RatingFeatureNames, "cos_best0")
@@ -28,9 +30,13 @@ func (f *ratingFake) ScoreBatch(v [][]float64) ([]discoverylr.Result, bool) {
 	if f.fail {
 		return nil, false
 	}
+	at := cosBest
+	if f.by != "" {
+		at = slices.Index(discoverylr.RatingFeatureNames, f.by)
+	}
 	out := make([]discoverylr.Result, len(v))
 	for i, x := range v {
-		out[i] = discoverylr.Result{ModelVersion: "rating-test", Contract: discoverylr.RatingContract, Probability: .1 + .8*x[cosBest]}
+		out[i] = discoverylr.Result{ModelVersion: "rating-test", Contract: discoverylr.RatingContract, Probability: .1 + .8*x[at]}
 	}
 	return out, true
 }
@@ -324,5 +330,30 @@ func TestRatingVectorBoundsSimilarity(t *testing.T) {
 	}
 	if _, ok := ratingVector(c, ratingSimilarity{MaxNeed: math.NaN(), Needs: 1}, nil, false); ok {
 		t.Fatal("accepted a NaN similarity")
+	}
+}
+
+func TestRatingReplacesSemanticOrderingWhenBothRun(t *testing.T) {
+	e, s, _, rating, learned, _ := ratingFixture()
+	e.ProfileSemanticBPS = 10000
+	rating.by = "is_pgc"
+	s.docs = []Document{profileDoc(1, 5, 1), profileDoc(2, 5, 1)}
+	s.docs[1].AuthorID = 77
+	s.cosine[1], s.cosine[2] = .6, .35
+	x := runProfile(t, e)
+	if got := fmt.Sprint(ids(x)); got != "[2 1]" || rating.calls != 1 || learned.calls != 0 {
+		t.Fatalf("got %s rating=%d learned=%d", got, rating.calls, learned.calls)
+	}
+	for _, c := range x.Candidates {
+		if c.SemanticRank == nil || !ratingRanked(c) || c.FinalScore == *c.SemanticRank {
+			t.Fatalf("semantic candidates must be scored by the rating model: %+v", c)
+		}
+	}
+	if s.vectorCalls != 1 {
+		t.Fatalf("the semantic profile vector must be reused: %d reads", s.vectorCalls)
+	}
+	e.RatingLRBPS = 0
+	if x = runProfile(t, e); fmt.Sprint(ids(x)) != "[1 2]" || ratingRanked(x.Candidates[0]) {
+		t.Fatalf("control keeps semantic ordering: %v", ids(x))
 	}
 }

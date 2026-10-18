@@ -941,7 +941,8 @@ own budget):
   as the UGC boost. A failed classification read is an error, never UGC.
 
 Any failed read, exceeded budget, out-of-range input or missing model keeps the
-existing follow-up LR or rule ordering for the whole request; a request never
+existing ordering (semantic rank, follow-up LR or rule score) for the whole
+request; a request never
 mixes scorers, and the fallback is not a partial result. Rerank policies
 receive the probability as their initial score. Captured Needs still precede
 Profile contexts and context priority still applies. Within equal priority,
