@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
@@ -167,7 +168,8 @@ Examples:
 
 		// Graceful shutdown on interrupt.
 		interrupt := make(chan os.Signal, 1)
-		signal.Notify(interrupt, os.Interrupt)
+		signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
+		defer signal.Stop(interrupt)
 
 		// Track latest cursor for reconnect resume.
 		var mu sync.Mutex
@@ -442,14 +444,21 @@ Examples:
 				}
 			case <-interrupt:
 				output.PrintMessage("Interrupted, closing connection...")
-				conn.WriteMessage(websocket.CloseMessage,
-					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+				// Stop socket intake and finish a received packet when output can
+				// drain. A stalled consumer must not prevent process termination.
+				drainTimer := time.NewTimer(3 * time.Second)
+				defer drainTimer.Stop()
+				_ = conn.WriteControl(websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
+				_ = conn.Close()
 				select {
 				case <-done:
-				case <-time.After(time.Second):
+					return nil
+				case <-interrupt:
+					return fmt.Errorf("stream shutdown interrupted before received packet output drained")
+				case <-drainTimer.C:
+					return fmt.Errorf("stream shutdown timed out draining received packet output")
 				}
-				conn.Close()
-				return nil
 			}
 		}
 	},
