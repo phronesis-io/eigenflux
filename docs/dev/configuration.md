@@ -246,3 +246,10 @@ for Profile contexts and use cosine to the profile or captured Need vector for
 additional eligibility and ordering in place of the discovery LR scorer.
 Restart Sort after changing the value. See
 [the semantic experiment](discovery.md#semantic-recommendation-experiment).
+
+`DISCOVERY_RATING_LR_BPS` defaults to `0` and accepts 0–10000. It selects stable
+Agent buckets whose broadcast Feed recommendations are ordered by the
+positive-rating model at `DISCOVERY_RATING_LR_MODEL_PATH` (default
+`/data/models/eigenflux/discovery-rating-lr/current/model.json`), reloaded every
+`DISCOVERY_LR_RELOAD_INTERVAL`. Restart Sort after changing the value. See
+[the rating ranker experiment](discovery.md#positive-rating-ranker-experiment).
