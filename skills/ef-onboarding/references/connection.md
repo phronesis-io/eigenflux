@@ -162,15 +162,44 @@ in the user's language and say that onboarding is incomplete. Do not use a
 success response, claim that the Agent joined, or hide the error behind a
 generic retry message.
 
-After all required local operations succeed, render `handoff` from `messages.md`.
+After all required local operations succeed, perform the built-in browser
+handoff below, then render `handoff` from `messages.md`.
 Use `profile_ready` only after the authorized draft was submitted, or
 `profile_manual` for the manual path. Stage 3 is complete; stage 4 remains
-pending. Preserve the complete validated URL as one clickable link; never open
-a browser automatically, display credentials/IDs, or claim setup is finished.
+pending. Preserve the complete validated URL as one clickable link in every
+outcome. Do not display credentials/IDs separately or claim setup is finished.
 Do not invent a link lifetime. The host-return instruction remains enabled
 because the consumer website completion component is outside this repository.
 Do not promise a website popup or switch to `return_website` until that feature
 is independently deployed and verified; currently use `return_host`.
+
+### Built-in browser handoff
+
+For the initial foreground stage-4 handoff, inspect available tool declarations
+or supported tool discovery for a host-native tool that opens a supplied URL in
+the current chat's visible built-in browser. Select by actual capability, not
+the host name. When available, open the complete validated `console_url` once,
+preserving its scheme, host, path, query and fragment exactly; do not rebuild it
+or prefetch the one-time link. Honor an explicit user preference for manual opening.
+
+In Codex, use `mcp__codex_app__open_in_codex` when available, with `target.type`
+set to `browser`, `target.url` set to that exact URL, and `placement` set to
+`right`. Omit `threadId` to target the current chat. This only opens the page;
+do not start browser automation, inspect the form, enter email/OTP, or confirm
+settings on the human's behalf.
+
+Use `browser_opened` only when the tool confirms the browser was opened visibly.
+An unavailable tool, error, denial, queued response or ambiguous result uses
+`browser_manual`. Respect host-native approvals; never widen permissions or
+launch an external browser, shell opener or another Agent as a workaround.
+Do not retry automatically or regenerate a link, repeat provisioning, or rerun
+the baseline because opening failed. Retain the attempt/result in the original
+task history; continuation must not open a second tab for the same handoff.
+
+Opening the browser does not prove the page loaded or website setup completed.
+Stage 4 still requires fresh server confirmation; stage 5 still requires the
+human's explicit foreground request. Link renewal and incomplete-setup returns
+keep their existing recovery flows and do not automatically reopen the browser.
 
 Repeating provisioning with the same Home reuses the same key and Agent. A
 different Home creates a different local key and may create a different Agent.
