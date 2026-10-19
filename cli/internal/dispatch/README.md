@@ -129,17 +129,17 @@ and recheck identity before OS submission. Lookup failures retain the notificati
 for existing queue retries with `service_name_unavailable`; older queued copy
 without the service placeholder remains unchanged. This adds no Agent calls.
 
-`Next` excludes both Commission kinds; `NextKind` serializes their separate workers. Buyer notifications are recorded without invoking a seller Agent. The worker re-reads seller identity, order state, frozen contract and fulfillment Skill. Only `awaiting_seller`, `pending_payment` and `in_progress` allow inspection. Read-only preparation and execution share a local 180-second ceiling, excluding queue time; the host's shorter timeout still applies.
+`Next` excludes both Commission kinds; `NextKind` serializes their separate workers. Buyer notifications do not enter the seller execution lane. The separate main-notice lane is capability-gated. The seller worker re-reads identity, order state, frozen contract and fulfillment Skill. Only `awaiting_seller` invokes model input inspection; pending payment waits and in_progress reuses retained evidence. Read-only preparation and execution share a local 180-second ceiling, excluding queue time; the host's shorter timeout still applies.
 
 Official dispatch rules must be signed manifest members, read through `skills.ReadSignedFile`; third-party fulfillment Skills remain explicitly bound local content. Fetch the authenticated V2 order-detail input manifest, then each immutable snapshot/path grant using pinned credentials. Check manifest role/version/buyer, SHA-256 and byte count before passing local files to the Agent. Inputs use their own snapshot IDs, not the current order snapshot. Bound downloads to 128 files / 64 MiB total; keep URLs and credentials out of prompts. The public endpoint requires the exact GET detail Caddy route.
 
-Use a fresh Agent session. Require matching request/order/version and `ready`, `needs_input`, `needs_user` or `failed`, a brief summary and inspected logical paths. `ready` must cover all supplied verified inputs; required materials cannot be empty. Recheck identity and unchanged order. For awaiting-seller `ready`, POST seller-authenticated acceptance with expected version and deterministic key; uncertainty becomes `unknown`, without automatic replay. Atomically store `commission_result`. Preserve the result when completed notification bodies are compacted. Reuse actual non-failed checks only for the same latest order version; explicit retry rechecks. Interruptions remain `unknown`; do not replay automatically. Clean up owned temporary downloads after the run. Results are local status data, not user-visible or buyer-visible receipts.
+Use a fresh Agent session. Require matching request/order/version and `ready`, `needs_input`, `needs_user` or `failed`, a brief summary and inspected logical paths. `ready` must cover all supplied verified inputs; required materials cannot be empty. Recheck identity and unchanged order. For awaiting-seller `ready`, POST seller-authenticated acceptance with expected version and deterministic key; uncertainty becomes `unknown`, without automatic replay. Atomically store `commission_result`. Preserve the result when completed notification bodies are compacted. Preserve the actual pre-acceptance ready result and input fingerprint across acceptance/payment versions; explicit retry may recheck only before acceptance. Interruptions remain `unknown`; do not replay automatically. Clean up owned temporary downloads after the run. Results are local status data, not user-visible or buyer-visible receipts.
 
 ## Paid local fulfillment
 
-`CompleteCommissionIntakeAndQueue` atomically stores a `ready` check and queues `commission_fulfillment` only when the caller freshly observed `in_progress`. Its payload retains the checked result; source-result compaction cannot erase readiness evidence. Deduplicate by binding scope/revision/order, including across notification versions. A new notification rechecks an older development-build `ready` when no fulfillment record exists. Historical orders are not bulk-scanned.
+`SaveCommissionReadiness` persists the original ready check before acceptance. `QueueCommissionFromReadiness` atomically queues paid fulfillment after fingerprint validation, retaining the original inspection version separately from the current execution version. Protect unconsumed readiness from ordinary log compaction. Deduplicate by binding scope/revision/order, including across notification versions. A new paid notification without verifiable readiness blocks; it never invents or repeats a pre-acceptance model check. Historical orders are not bulk-scanned.
 
-The separate fulfillment worker re-reads the same paid order version, resolves signed `fulfillment-dispatch.md`, and verifies freshly downloaded inputs against the checked logical paths. It uses the binding's host timeout, not the intake budget. Poll order state every 10 seconds independently of one-second local identity checks; a blocked network read cannot delay identity cancellation. Changed identity/order or interrupted execution stops work without automatic replay.
+The separate fulfillment worker re-reads the same paid order version, resolves signed `fulfillment-dispatch.md`, and verifies freshly downloaded inputs against the retained contract/input/file fingerprint. It uses the binding's host timeout, not the intake budget. Poll order state every 10 seconds independently of one-second local identity checks; a blocked network read cannot delay identity cancellation. Changed identity/order or interrupted execution stops work without automatic replay.
 
 Persist a new private output directory inside the bound WorkDir before invoking a fresh Agent session. Skills perform the frozen procedure, write new local deliverables and self-check contractual conditions. CLI requires a matching structured decision, then verifies all declared regular files through a confined filesystem root, rejects symlinks/traversal and duplicates, and computes SHA-256/byte counts from bounded reads. Limits: 128 outputs / 64 MiB. Portable validation cannot prove hard-link origin. Models may only claim local completion; unsupported tools, permissions or external effects require user action.
 
@@ -334,3 +334,59 @@ before retry; no automatic trial replay or reusable readiness flag exists.
 This is a CLI gate. Direct Commission API publishing remains independently
 available; server-enforced attestation is outside this change. A successful sample
 proves only that invocation, not every future input or external capability.
+
+## Main-conversation transaction notices (test branch)
+
+`main_notice.go` selects Codex App Server turn via the official running-host
+`app-server proxy`; other explicitly configured hosts use ACP. This is separate
+from PM replies, input inspection and paid artifact execution. The exact bound
+main session is required. Never select a recent thread, start/resume/fork a new
+writer, fall back to queue/exec, or retry an uncertain call. ACP must load the
+existing session; unsupported load fails without creating a replacement.
+
+All hosts are `untested`. The Codex proxy is not running on the current test
+machine. The official schema has additionalContext and accepts an empty input
+array structurally, but hidden Desktop input, turn execution and atomic idle
+admission have not been verified. `VerifiedHiddenInput` is internal host acceptance
+evidence, not an operator override. It remains false in production construction;
+no main-conversation notifications currently execute. Never report configuration
+or fixture success as an actual main-conversation delivery. No prompt is printed.
+
+`main_notice_queue.go` and `watch_commission_main_notice.go` persist a separate
+notice for every notification ID before ACK. Same-version workflow results and
+reminders remain separate from seller execution deduplication. Notices run in an
+independent lane, use signed main-notice.md with an exact trusted Home/server CLI prefix, and contain only fixed routing data. Check identity again before entry and cancel on a one-second identity guard during execution.
+Failure is local skipped state, with no Order mutation or alternate conversation.
+A running record found after restart becomes skipped/unconfirmed, never replayed.
+Bounded receipt retention is not a permanent delivery tombstone. Desktop delivery
+continues independently; notifications-only mode never invokes an Agent.
+
+## Order-entry inspection reuse
+
+Only awaiting_seller invokes the model to inspect inputs. Save the real ready
+result and canonical contract/buyer-input/file-manifest fingerprint before accept.
+Pending payment does not inspect again. Once paid, verify identity, payable state
+and the same input fingerprint, then queue fulfillment using the original checked
+version and the current paid execution version separately. Fulfillment retains
+file download/digest checks but never repeats the model readiness assessment.
+
+Upgraded Orders without the new local inspection evidence remain blocked; never
+invent a historical inspection or silently recheck. Current input changes also
+block. This change does not introduce a clarification-message protocol or reopen
+buyer workspace writes. Automatic text clarification and supplemental inputs are
+specified in docs/dev/commission-main-conversation.md and remain unimplemented.
+
+## Publisher notification permission and buyer confirmation
+
+Before a CLI publish trial, silently Check this computer's OS notification state.
+Denied/unrequested permission produces prominent bilingual stderr guidance with a
+fixed macOS/Windows settings link; unknown remains unknown. Do not Setup/Show/open,
+change stdout or turn a settings click into proof of permission. This warns rather
+than denying a seller's explicitly authorized publish.
+
+The read-only order pending-confirmations command paginates authoritative buyer
+Orders and returns reminders for every normal cycle without a read receipt. Exact
+Commission access denial returns not_enabled and remains quiet, rather than empty.
+Full completed-access heartbeat appends commission_confirmations; standalone Feed
+uses the same Skill rule. Do not expand maintenance/control or baseline access,
+append prose to machine Feed JSON, or automatically confirm receipt.

@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -9,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -196,21 +199,26 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 	switch order.State {
 	case "awaiting_seller", "pending_payment", "in_progress":
 	default:
+		if err := w.journal.RetireCommissionReadiness(id); err != nil {
+			return err
+		}
 		return w.finishDispatch(job, "completed", "commission_order_not_actionable", "", "")
 	}
 	if err := w.journal.SetCommissionExecution(job.ID, id, order.Version, order.ExecutionRevision, order.ExecutionIssue != nil); err != nil {
 		return err
 	}
-	// Creation and seller acceptance can emit different notification versions
-	// before either arrives. Reuse only an actual decision for the same latest
-	// authoritative version; explicit operator retries still rerun the inspection.
+	if order.State == "pending_payment" {
+		return w.finishDispatch(job, "completed", "commission_waiting_for_payment", "", "")
+	}
+	if order.State == "in_progress" {
+		return w.queueCommissionFromCheckedInputs(ctx, job, order)
+	}
+	// Repeated creation notices reuse an actual decision for the same current
+	// version; explicit operator retries may repeat this pre-acceptance inspection.
 	if job.Code != "operator_retry" {
 		for _, prior := range w.journal.Snapshot() {
 			result := prior.CommissionResult
 			if prior.ID != job.ID && result != nil && prior.Code != "operator_verified" && result.Outcome != "failed" && result.OrderID == id && result.OrderVersion == order.Version {
-				if result.Outcome == "ready" && order.State == "in_progress" && !w.journal.HasCommissionFulfillment(id) {
-					continue // Earlier development builds stored ready without a fulfillment job.
-				}
 				return w.finishDispatch(job, "completed", "commission_intake_already_checked", "", "")
 			}
 		}
@@ -265,6 +273,16 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 		return w.finishDispatch(job, "failed", "commission_order_changed", result.SessionID, "")
 	}
 	if order.State == "awaiting_seller" && decision.Outcome == "ready" {
+		fingerprint, err := commissionInputFingerprint(order, files)
+		if err != nil {
+			return w.finishDispatch(job, "failed", "commission_materials_invalid", result.SessionID, "")
+		}
+		if err := w.journal.SaveCommissionReadiness(job.ID, dispatch.CommissionReadiness{Result: decision, InputFingerprint: fingerprint}); err != nil {
+			if errors.Is(err, dispatch.ErrCommissionReadinessCapacity) {
+				return w.finishDispatch(job, "needs_user", "commission_readiness_capacity_exceeded", "", "")
+			}
+			return err
+		}
 		if err := w.acceptInspectedCommission(ctx, order); err != nil {
 			return w.finishDispatch(job, "unknown", "commission_accept_unconfirmed", result.SessionID, "")
 		}
@@ -276,11 +294,86 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 			}
 			return err
 		}
-		if err := w.journal.CompleteCommissionIntakeAndQueue(job.ID, decision, result.SessionID, order.State == "in_progress"); err != nil {
+		if err := w.journal.CompleteCommissionIntake(job.ID, decision, result.SessionID); err != nil {
 			return err
 		}
 		return w.emit("dispatch_status", map[string]string{"job_id": job.ID, "kind": job.Kind, "order_id": id, "code": "commission_intake_" + decision.Outcome, "outcome": decision.Outcome})
 	})
+}
+
+// A paid state change advances the order version, but never substitutes a new
+// model inspection for the actual check completed before acceptance.
+func (w *accountWatch) queueCommissionFromCheckedInputs(ctx context.Context, job dispatch.Job, order commissionIntakeOrder) error {
+	id := strconv.FormatInt(int64(order.OrderID), 10)
+	if w.journal.HasCommissionFulfillment(id) {
+		return w.finishDispatch(job, "completed", "commission_fulfillment_already_queued", "", "")
+	}
+	var source dispatch.Job
+	for _, prior := range w.journal.Snapshot() {
+		readiness := prior.CommissionReadiness
+		if readiness != nil && readiness.Result.Outcome == "ready" && readiness.Result.OrderID == id && readiness.Result.OrderVersion < order.Version && (source.CommissionReadiness == nil || source.CommissionReadiness.Result.OrderVersion < readiness.Result.OrderVersion) {
+			source = prior
+		}
+	}
+	if source.CommissionReadiness == nil {
+		return w.finishDispatch(job, "needs_user", "commission_intake_evidence_missing", "", "")
+	}
+	directory, err := os.MkdirTemp(w.binding.WorkDir, ".eigenflux-intake-")
+	if err != nil {
+		return w.finishDispatch(job, "failed", "commission_materials_unavailable", "", "")
+	}
+	defer os.RemoveAll(directory)
+	files, err := w.prepareCommissionMaterials(ctx, order, directory)
+	if err != nil {
+		return w.finishDispatch(job, "needs_user", "commission_materials_unavailable", "", "")
+	}
+	fingerprint, err := commissionInputFingerprint(order, files)
+	if err != nil || fingerprint != source.CommissionReadiness.InputFingerprint {
+		return w.finishDispatch(job, "needs_user", "commission_fulfillment_inputs_changed", "", "")
+	}
+	current, err := w.readCommissionOrder(ctx, id)
+	if err != nil || !sameCommissionIntakeOrder(order, current) || ctx.Err() != nil {
+		return w.finishDispatch(job, "needs_user", "commission_fulfillment_order_changed", "", "")
+	}
+	if err := w.commissionIdentityOK(); err != nil {
+		return err
+	}
+	return w.journal.QueueCommissionFromReadiness(job.ID, source.ID, id, order.Version)
+}
+
+func commissionInputFingerprint(order commissionIntakeOrder, files []commissionLocalFile) (string, error) {
+	var contract any
+	decoder := json.NewDecoder(strings.NewReader(string(order.Contract)))
+	decoder.UseNumber()
+	if err := decoder.Decode(&contract); err != nil {
+		return "", err
+	}
+	if decoder.Decode(new(any)) != io.EOF {
+		return "", errCommissionContractInvalid
+	}
+	type inputFile struct {
+		Path     string `json:"path"`
+		SHA256   string `json:"sha256"`
+		ByteSize int64  `json:"byte_size"`
+	}
+	inputs := make([]inputFile, 0, len(files))
+	for _, file := range files {
+		inputs = append(inputs, inputFile{file.LogicalPath, strings.ToLower(file.SHA256), file.ByteSize})
+	}
+	sort.Slice(inputs, func(i, j int) bool { return inputs[i].Path < inputs[j].Path })
+	raw, err := json.Marshal(struct {
+		OrderID    notificationID `json:"order_id"`
+		Buyer      notificationID `json:"buyer"`
+		Seller     notificationID `json:"seller"`
+		Contract   any            `json:"contract"`
+		BuyerInput string         `json:"buyer_input"`
+		Files      []inputFile    `json:"files"`
+	}{order.OrderID, order.BuyerID, order.SellerID, contract, order.BuyerInput, inputs})
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(raw)
+	return hex.EncodeToString(digest[:]), nil
 }
 
 // Acceptance is a seller-authenticated mutation following an actual Agent

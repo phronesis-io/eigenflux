@@ -8,8 +8,8 @@ to the CLI. The CLI uploads verified contractual artifacts and submits delivery.
 
 1. Preserve `request_id`, `agent_id`, `server`, and `order.order_id/version`.
    Require `order.state` to be `in_progress` and `intake_result` to report `ready`
-   for this Order and version. Return `needs_user` for a mismatch.
-2. Execute the bound `fulfillment_skill.name/path/content` within the frozen
+   for this Order, with its original checked version no later than the current execution version. The CLI has verified the same input fingerprint. Return `needs_user` for a mismatch.
+2. Reuse the completed order-entry input inspection; do not repeat its readiness assessment. Execute the bound `fulfillment_skill.name/path/content` within the frozen
    `order.contract`. Use `order.buyer_input` and the real contents of every
    `local_files[].path`. The CLI has verified these downloads against the input
    manifest. Keep inputs read-only.

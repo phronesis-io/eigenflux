@@ -243,11 +243,7 @@ func TestWatchHandoffWaitsForPaidFulfillmentDelivery(t *testing.T) {
 	defer server.Close()
 	w := newCommissionWatch(t, server.URL, "commission_order")
 	installCommissionIntakeRules(t, w)
-	intake := claimCommissionIntake(t, w)
-	decision := dispatch.CommissionIntakeDecision{Version: 1, RequestID: intake.ID, OrderID: "901", OrderVersion: 3, Outcome: "ready", Summary: "Inputs inspected", InspectedFiles: []string{}}
-	if err := w.journal.CompleteCommissionIntakeAndQueue(intake.ID, decision, "intake", true); err != nil {
-		t.Fatal(err)
-	}
+	queueCheckedPaidCommission(t, w)
 	w.handoff = newWatchHandoff()
 	entered, finish := make(chan struct{}), make(chan struct{})
 	w.runAgent = func(ctx context.Context, request dispatch.Request) (dispatch.Result, error) {

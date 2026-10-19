@@ -147,6 +147,9 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 			if w.notificationsOnly && w.desktop == nil {
 				return errors.New("notification_desktop_queue_unavailable")
 			}
+			if err := w.enqueueCommissionMainNotice(raw); err != nil {
+				return errors.Join(errWatchDispatchJournal, err)
+			}
 			if err := w.enqueueDesktopCommission(raw); err != nil {
 				return errors.Join(errWatchDispatchJournal, err)
 			}

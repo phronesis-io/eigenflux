@@ -57,9 +57,17 @@ type Job struct {
 	SessionID             string                       `json:"session_id,omitempty"`
 	ReplyID               string                       `json:"reply_id,omitempty"`
 	CommissionResult      *CommissionIntakeDecision    `json:"commission_result,omitempty"`
+	CommissionReadiness   *CommissionReadiness         `json:"commission_readiness,omitempty"`
 	CommissionFulfillment *CommissionFulfillmentResult `json:"commission_fulfillment,omitempty"`
 	CommissionDirectory   string                       `json:"commission_directory,omitempty"`
 	CommissionExecution   *CommissionExecutionContext  `json:"commission_execution,omitempty"`
+}
+
+// CommissionReadiness preserves the actual pre-acceptance check independently
+// of later order versions. InputFingerprint is computed by the CLI, not the Agent.
+type CommissionReadiness struct {
+	Result           CommissionIntakeDecision `json:"result"`
+	InputFingerprint string                   `json:"input_fingerprint"`
 }
 
 // CommissionIntakeDecision records input inspection, never order acceptance or fulfillment.

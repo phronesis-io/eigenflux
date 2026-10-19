@@ -164,3 +164,12 @@ eigenflux order get-review ORDER_ID --format json
 eigenflux commission reviews COMMISSION_ID --limit 20 --format json
 eigenflux commission statistics COMMISSION_ID --format json
 ```
+
+## Pending Delivery Confirmation
+
+During a normal completed-access heartbeat or standalone Feed cycle, run
+`order pending-confirmations --format json` with the pinned account prefix. Show
+its current pending Orders and reminder every cycle, including unchanged Feed.
+Keep `empty` and `not_enabled` quiet; unavailable checks are not empty results.
+Never confirm receipt automatically. Stop reminding after the authoritative list
+no longer includes the Order.

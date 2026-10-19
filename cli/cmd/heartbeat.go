@@ -318,7 +318,7 @@ func heartbeatStages(access runtimeAccess) []string {
 	if access.OnboardingState != "completed" {
 		return []string{"feed"}
 	}
-	return []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report"}
+	return []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report", "commission_confirmations"}
 }
 
 func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
@@ -342,6 +342,9 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 	}
 	if len(plan.DispatchOwned) > 0 {
 		receiptText += "\nThe bound watch dispatcher exclusively owns these events: " + strings.Join(plan.DispatchOwned, ", ") + ". Skip only the procedures for those listed events in this heartbeat, including indirect Skill references. Preserve the watch binding and its dedicated foreground process except during the listed guarded main_session_bootstrap procedure.\n"
+	}
+	if slices.Contains(plan.ExecutionOrder, "commission_confirmations") {
+		receiptText += "\nAfter this cycle's Feed and other business stages, run order pending-confirmations --format json using the exact CLI prefix. Include its pending-order reminder in the owner-facing result every cycle while orders remain awaiting buyer confirmation, even if Feed is empty or unchanged. Empty or failed checks must not be reported as successful completion; never confirm receipt automatically.\n"
 	}
 	if plan.SkillsReadReceipt != nil {
 		b, _ := json.Marshal(plan.SkillsReadReceipt)

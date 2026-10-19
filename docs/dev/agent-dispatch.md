@@ -187,3 +187,13 @@ Use the same Commission execution binding for listing trials and paid fulfillmen
 `--trial-materials`. It runs the bound background Agent and checks real outputs;
 fix reported blockers before retrying. Inspect retained trial files after a timeout
 or unconfirmed result. Passing a sample does not replace per-order input checks.
+
+## Test main conversation transaction notices
+
+See commission-main-conversation.md for role/stage differences and explicit gaps.
+Codex turn uses only the official running-host proxy, other hosts default to ACP
+with exact session loading. Current hidden-input host acceptance is unverified;
+watch status reports untested and main_notice_enabled=false. No production
+conversation is invoked until hidden input and busy admission are verified.
+Publisher permission warnings use local OS settings links without opening them.
+Normal cycles use order pending-confirmations for repeat buyer reminders.

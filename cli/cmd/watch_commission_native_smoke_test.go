@@ -23,6 +23,7 @@ func TestCommissionNativeCodexLocalFulfillment(t *testing.T) {
 		t.Fatal(err)
 	}
 	order := paidCommissionTestOrder()
+	order.State, order.Version = "awaiting_seller", 1
 	order.BuyerInput = "Write exactly two lines: alpha and beta, in that order, each followed by a newline."
 	server := commissionFulfillmentServer(t, func() commissionIntakeOrder { return order }, true)
 	defer server.Close()
@@ -43,7 +44,7 @@ func TestCommissionNativeCodexLocalFulfillment(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
 	started := time.Now()
-	intake := claimCommissionIntake(t, w)
+	intake := claimCommissionIntakeVersion(t, w, 1)
 	if err := w.dispatchCommissionIntake(ctx, intake); err != nil {
 		t.Fatal(err)
 	}
@@ -57,6 +58,11 @@ func TestCommissionNativeCodexLocalFulfillment(t *testing.T) {
 		t.Fatalf("real intake did not pass: status=%s code=%s", checked.Status, checked.Code)
 	}
 	t.Logf("real Codex intake: %.3fs; session=%s", time.Since(started).Seconds(), checked.SessionID)
+	order.State, order.Version = "in_progress", 3
+	paid := claimCommissionIntakeVersion(t, w, 3)
+	if err := w.dispatchCommissionIntake(ctx, paid); err != nil {
+		t.Fatal(err)
+	}
 	work, ok, err := w.journal.NextKind("commission_fulfillment")
 	if err != nil || !ok {
 		t.Fatal("paid order not queued for local work")

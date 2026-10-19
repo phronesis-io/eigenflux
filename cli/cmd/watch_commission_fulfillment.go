@@ -51,8 +51,11 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 		return err
 	}
 	var queued dispatch.CommissionFulfillmentJob
-	if json.Unmarshal(job.Data, &queued) != nil || queued.OrderID == "" || queued.OrderVersion <= 0 || queued.IntakeResult.Outcome != "ready" || queued.IntakeResult.OrderID != queued.OrderID || queued.IntakeResult.OrderVersion != queued.OrderVersion {
+	if json.Unmarshal(job.Data, &queued) != nil || queued.OrderID == "" || queued.OrderVersion <= 0 || queued.IntakeResult.Outcome != "ready" || queued.IntakeResult.OrderID != queued.OrderID || queued.IntakeResult.OrderVersion > queued.OrderVersion {
 		return w.finishDispatch(job, "failed", "commission_fulfillment_job_invalid", "", "")
+	}
+	if queued.InputFingerprint == "" {
+		return w.finishDispatch(job, "needs_user", "commission_intake_evidence_missing", "", "")
 	}
 	timeout := w.binding.TimeoutSeconds
 	if timeout <= 0 {
@@ -101,7 +104,8 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 	}
 	defer cleanup()
 	// The current immutable input set must still be the one actually inspected.
-	if !validCommissionInspectedFiles(queued.IntakeResult, files, required) {
+	fingerprint, fingerprintErr := commissionInputFingerprint(order, files)
+	if fingerprintErr != nil || fingerprint != queued.InputFingerprint || !validCommissionInspectedFiles(queued.IntakeResult, files, required) {
 		return w.finishDispatch(job, "needs_user", "commission_fulfillment_inputs_changed", "", "")
 	}
 	before, err := w.readCommissionOrder(ctx, queued.OrderID)

@@ -36,6 +36,12 @@ type acpClient struct {
 }
 
 func (r Runner) runACP(ctx context.Context, req Request) (Result, error) {
+	return r.runACPWithOptions(ctx, req, false)
+}
+
+// strictMain is reserved for separately verified main-conversation transports.
+// Ordinary dispatch retains its existing per-conversation session behavior.
+func (r Runner) runACPWithOptions(ctx context.Context, req Request, strictMain bool) (Result, error) {
 	cmd, err := r.command(r.Binding.Args)
 	if err != nil {
 		return Result{}, err
@@ -79,12 +85,26 @@ func (r Runner) runACP(ctx context.Context, req Request) (Result, error) {
 	if json.Unmarshal(raw, &init) != nil || init.ProtocolVersion != 1 {
 		return Result{}, errors.New("acp_protocol_version_mismatch")
 	}
+	if strictMain && (req.SessionID == "" || !init.AgentCapabilities.LoadSession) {
+		return Result{}, ErrMainNoticeUnsupported
+	}
 	params := map[string]any{"cwd": r.Binding.WorkDir, "mcpServers": []any{}}
 	if req.SessionID != "" && init.AgentCapabilities.LoadSession {
 		c.sessionID = req.SessionID
 		params["sessionId"] = req.SessionID
-		if _, err = c.call("session/load", params, false); err != nil {
+		if raw, err = c.call("session/load", params, false); err != nil {
 			return Result{}, err
+		}
+		if strictMain {
+			var loaded struct {
+				SessionID *string `json:"sessionId"`
+			}
+			// ACP load responses may omit sessionId. The original request and
+			// subsequent update IDs still pin the target; an explicit reply ID
+			// may never replace it.
+			if string(raw) == "null" || json.Unmarshal(raw, &loaded) != nil || loaded.SessionID != nil && *loaded.SessionID != req.SessionID {
+				return Result{}, ErrMainSessionMismatch
+			}
 		}
 	} else {
 		raw, err = c.call("session/new", params, false)

@@ -96,6 +96,7 @@ func publishCommissionAfterTrial(cmd *cobra.Command, id, version int64) error {
 		return err
 	}
 	w := &accountWatch{home: expected.Home, scope: expected.Scope, server: *server, identity: *cred, binding: &binding, runAgent: (dispatch.Runner{Binding: binding}).Run}
+	warnCommissionNotificationPermission(cmd)
 	return w.publishWithTrial(cmd, id, version, input)
 }
 

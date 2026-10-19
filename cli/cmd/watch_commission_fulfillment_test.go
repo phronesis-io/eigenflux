@@ -38,6 +38,13 @@ func commissionFulfillmentServer(t *testing.T, current func() commissionIntakeOr
 					t.Error("missing stable mutation key")
 				}
 				switch r.URL.Path {
+				case "/api/v1/orders/901/accept":
+					accepted := current()
+					if accepted.State != "awaiting_seller" {
+						t.Error("acceptance outside the original inspection")
+					}
+					accepted.State, accepted.Version = "pending_payment", accepted.Version+1
+					materialTestResponse(out, map[string]any{"order": accepted})
 				case "/api/v1/orders/901/uploads":
 					materialTestResponse(out, map[string]any{"grant": map[string]any{"object_id": 903, "url": "http://" + r.Host + "/storage", "method": "PUT"}})
 				case "/storage":
@@ -85,13 +92,29 @@ func commissionFulfillmentServer(t *testing.T, current func() commissionIntakeOr
 	}))
 }
 
-func claimPaidCommission(t *testing.T, w *accountWatch) dispatch.Job {
+func queueCheckedPaidCommission(t *testing.T, w *accountWatch) {
 	t.Helper()
-	intake := claimCommissionIntake(t, w)
-	decision := dispatch.CommissionIntakeDecision{Version: 1, RequestID: intake.ID, OrderID: "901", OrderVersion: 3, Outcome: "ready", Summary: "Inputs inspected", InspectedFiles: []string{}}
-	if err := w.journal.CompleteCommissionIntakeAndQueue(intake.ID, decision, "intake-session", true); err != nil {
+	intake := claimCommissionIntakeVersion(t, w, 1)
+	decision := dispatch.CommissionIntakeDecision{Version: 1, RequestID: intake.ID, OrderID: "901", OrderVersion: 1, Outcome: "ready", Summary: "Inputs inspected before acceptance", InspectedFiles: []string{}}
+	fingerprint, err := commissionInputFingerprint(paidCommissionTestOrder(), nil)
+	if err != nil {
 		t.Fatal(err)
 	}
+	if err := w.journal.SaveCommissionReadiness(intake.ID, dispatch.CommissionReadiness{Result: decision, InputFingerprint: fingerprint}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.journal.CompleteCommissionIntake(intake.ID, decision, "intake-session"); err != nil {
+		t.Fatal(err)
+	}
+	paid := claimCommissionIntakeVersion(t, w, 3)
+	if err := w.journal.QueueCommissionFromReadiness(paid.ID, intake.ID, "901", 3); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func claimPaidCommission(t *testing.T, w *accountWatch) dispatch.Job {
+	t.Helper()
+	queueCheckedPaidCommission(t, w)
 	job, ok, err := w.journal.NextKind("commission_fulfillment")
 	if err != nil || !ok {
 		t.Fatalf("fulfillment claim: %v %v", ok, err)
@@ -117,7 +140,7 @@ func fulfillmentTestPayload(t *testing.T, request dispatch.Request) struct {
 	return data
 }
 
-func TestCommissionPaidIntakeRunsLocalFulfillmentAndRetainsEvidence(t *testing.T) {
+func TestCommissionPaidOrderReusesEarlierCheckAndRetainsDeliveryEvidence(t *testing.T) {
 	order := paidCommissionTestOrder()
 	server := commissionFulfillmentServer(t, func() commissionIntakeOrder { return order }, true)
 	defer server.Close()
@@ -136,7 +159,7 @@ func TestCommissionPaidIntakeRunsLocalFulfillmentAndRetainsEvidence(t *testing.T
 			value = dispatch.CommissionIntakeDecision{Version: 1, RequestID: request.ID, OrderID: "901", OrderVersion: 3, Outcome: "ready", Summary: "Inputs inspected", InspectedFiles: []string{}}
 		case "commission_fulfillment":
 			data := fulfillmentTestPayload(t, request)
-			if data.Order.State != "in_progress" || data.Intake.Outcome != "ready" || data.Intake.OrderVersion != data.Order.Version {
+			if data.Order.State != "in_progress" || data.Intake.Outcome != "ready" || data.Intake.OrderVersion != 1 || data.Order.Version != 3 {
 				t.Fatal("missing paid/readiness context")
 			}
 			saved, err := dispatch.ReadJournalStatus(*w.binding)
@@ -165,17 +188,7 @@ func TestCommissionPaidIntakeRunsLocalFulfillmentAndRetainsEvidence(t *testing.T
 		raw, _ := json.Marshal(value)
 		return dispatch.Result{Text: string(raw), SessionID: "session-" + request.Kind}, nil
 	}
-	intake := claimCommissionIntake(t, w)
-	if err := w.dispatchCommissionIntake(context.Background(), intake); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok, err := w.journal.Next(); err != nil || ok {
-		t.Fatal("ordinary worker claimed fulfillment")
-	}
-	fulfillment, ok, err := w.journal.NextKind("commission_fulfillment")
-	if err != nil || !ok {
-		t.Fatalf("no paid fulfillment: %v %v", ok, err)
-	}
+	fulfillment := claimPaidCommission(t, w)
 	if err := w.dispatchCommissionFulfillment(context.Background(), fulfillment); err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +196,7 @@ func TestCommissionPaidIntakeRunsLocalFulfillmentAndRetainsEvidence(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls != 2 || len(jobs) != 2 {
+	if calls != 1 || len(jobs) != 3 {
 		t.Fatalf("unexpected executions %d or jobs %d", calls, len(jobs))
 	}
 	var got dispatch.Job
@@ -364,7 +377,7 @@ func TestCommissionFulfillmentIdentityGuardContinuesDuringBlockedOrderRead(t *te
 	}
 }
 
-func TestCommissionNewNotificationQueuesPreviouslyCheckedPaidOrder(t *testing.T) {
+func TestCommissionLegacyReadyWithoutFingerprintBlocksWithoutRechecking(t *testing.T) {
 	order := paidCommissionTestOrder()
 	order.Version = 4
 	server := commissionFulfillmentServer(t, func() commissionIntakeOrder { return order })
@@ -395,7 +408,12 @@ func TestCommissionNewNotificationQueuesPreviouslyCheckedPaidOrder(t *testing.T)
 	if err := w.dispatchCommissionIntake(context.Background(), job); err != nil {
 		t.Fatal(err)
 	}
-	if calls != 1 || !w.journal.HasCommissionFulfillment("901") || w.journal.HasCommissionFulfillment("902") {
-		t.Fatal("old ready bypassed fulfillment queue or leaked order identity")
+	if calls != 0 || w.journal.HasCommissionFulfillment("901") || w.journal.HasCommissionFulfillment("902") {
+		t.Fatal("legacy ready was rechecked or treated as verified readiness")
+	}
+	for _, saved := range w.journal.Snapshot() {
+		if saved.ID == job.ID && (saved.Status != "needs_user" || saved.Code != "commission_intake_evidence_missing") {
+			t.Fatalf("missing evidence not blocked: %+v", saved)
+		}
 	}
 }

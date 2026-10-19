@@ -81,3 +81,10 @@ to-do as a new instruction to onboard, provision, or upload Prefill.
 When progress cannot be established, report the incomplete cycle through the
 host protocol rather than replaying mutations or claiming success. This is a
 recovery boundary, not a diagnosis of the cause of context drift.
+
+## Buyer Confirmation Reminder
+
+When the plan includes `commission_confirmations`, run `order pending-confirmations`
+after the normal business stages using the pinned CLI prefix. Include pending
+Orders and their reminder every cycle, even with no new Feed content. Never confirm
+receipt automatically. Keep maintenance/control and baseline cycles narrow.

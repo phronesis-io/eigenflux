@@ -18,7 +18,8 @@ import (
 const (
 	journalMaxBytes   = 16 << 20
 	journalMaxPending = 256
-	// Deduplication covers all unresolved jobs and the most recent 1024 completed jobs.
+	// Active readiness has its own bounded protection; ordinary completed-job
+	// deduplication retains the most recent 1024 receipts.
 	journalMaxCompleted = 1024
 )
 
@@ -97,6 +98,11 @@ func readJournal(b Binding) (journalState, bool, error) {
 		if job.CommissionResult != nil && job.Kind != "commission_order" {
 			return journalState{}, false, errors.New("invalid_journal_commission_result")
 		}
+		if readiness := job.CommissionReadiness; readiness != nil {
+			if job.Kind != "commission_order" || readiness.Result.RequestID != job.ID || !validCommissionReadiness(*readiness) {
+				return journalState{}, false, errors.New("invalid_journal_commission_readiness")
+			}
+		}
 		if job.Kind != "commission_fulfillment" && (job.CommissionFulfillment != nil || job.CommissionDirectory != "") {
 			return journalState{}, false, errors.New("invalid_journal_commission_fulfillment")
 		}
@@ -137,7 +143,7 @@ func readJournal(b Binding) (journalState, bool, error) {
 			return journalState{}, false, errors.New("invalid_journal_kind")
 		}
 	}
-	if unresolvedCount(*s) > journalMaxPending || len(s.Jobs)-unresolvedCount(*s) > journalMaxCompleted {
+	if unresolvedCount(*s) > journalMaxPending || commissionReadinessCount(*s, false) > journalMaxPending || len(s.Jobs)-unresolvedCount(*s)-commissionReadinessCount(*s, true) > journalMaxCompleted {
 		return journalState{}, false, errors.New("journal_capacity_exceeded")
 	}
 	return *s, true, nil
@@ -194,7 +200,7 @@ func (j *Journal) save(next journalState) error {
 		}
 	}
 	trimCompleted(&next)
-	if unresolvedCount(next) > journalMaxPending {
+	if unresolvedCount(next) > journalMaxPending || commissionReadinessCount(next, false) > journalMaxPending {
 		return errors.New("journal_capacity_exceeded")
 	}
 	raw, err := json.MarshalIndent(next, "", "  ")
@@ -595,14 +601,14 @@ func moveCompletedLast(s *journalState, index int) {
 }
 
 func trimCompleted(s *journalState) {
-	excess := len(s.Jobs) - unresolvedCount(*s) - journalMaxCompleted
+	excess := len(s.Jobs) - unresolvedCount(*s) - commissionReadinessCount(*s, true) - journalMaxCompleted
 	if excess <= 0 {
 		return
 	}
 	kept := make([]Job, 0, len(s.Jobs)-excess)
 	for _, job := range s.Jobs {
 		_, pendingReport := commissionExecutionReport(job)
-		if excess > 0 && completedStatus(job.Status) && !pendingReport {
+		if excess > 0 && completedStatus(job.Status) && job.CommissionReadiness == nil && !pendingReport {
 			excess--
 			continue
 		}
@@ -613,7 +619,7 @@ func trimCompleted(s *journalState) {
 	if excess > 0 {
 		bounded := make([]Job, 0, len(kept)-excess)
 		for _, job := range kept {
-			if excess > 0 && completedStatus(job.Status) {
+			if excess > 0 && completedStatus(job.Status) && job.CommissionReadiness == nil {
 				excess--
 				continue
 			}
@@ -625,6 +631,11 @@ func trimCompleted(s *journalState) {
 }
 
 func cloneJob(job Job) Job {
+	if job.CommissionReadiness != nil {
+		value := *job.CommissionReadiness
+		value.Result.InspectedFiles = append([]string{}, value.Result.InspectedFiles...)
+		job.CommissionReadiness = &value
+	}
 	if job.CommissionExecution != nil {
 		value := *job.CommissionExecution
 		job.CommissionExecution = &value
@@ -719,6 +730,7 @@ func (j *Journal) Retry(id string) error {
 		job.Code = "operator_retry"
 		if job.Kind == "commission_order" {
 			job.CommissionResult = nil
+			job.CommissionReadiness = nil
 		}
 		if job.Kind == "commission_fulfillment" {
 			job.CommissionFulfillment = nil

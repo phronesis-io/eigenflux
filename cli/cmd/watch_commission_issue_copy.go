@@ -4,6 +4,10 @@ import "cli.eigenflux.ai/internal/dispatch"
 
 func desktopCommissionBlockerText(language, status, code string) (string, string) {
 	uncertain := map[string]struct{ zhTitle, zhBody, enTitle, enBody string }{
+		"commission_intake_evidence_missing": {
+			"缺少下单材料确认记录", "本机没有可核验的下单材料确认记录，尚未启动履约。请由 Agent 核对原接单记录；系统不会自动重复审材料或执行交付。",
+			"Order-entry inspection evidence unavailable", "This computer has no verifiable order-entry inspection record. Fulfillment has not started. The Agent must check the original acceptance record; input inspection and delivery are not automatically repeated.",
+		},
 		"commission_intake_unconfirmed": {
 			"材料检查未完成", "调用后台 Agent 检查材料时出错，尚未确认检查结果。请让 Agent 核对后继续。",
 			"Input inspection unconfirmed", "The background Agent call for input inspection returned an error. Its result is unconfirmed. Ask your Agent to check before continuing.",

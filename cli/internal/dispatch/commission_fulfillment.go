@@ -13,11 +13,12 @@ import (
 )
 
 type CommissionFulfillmentJob struct {
-	Version         int                      `json:"version"`
-	OrderID         string                   `json:"order_id"`
-	OrderVersion    int64                    `json:"order_version"`
-	IntakeRequestID string                   `json:"intake_request_id"`
-	IntakeResult    CommissionIntakeDecision `json:"intake_result"`
+	Version          int                      `json:"version"`
+	OrderID          string                   `json:"order_id"`
+	OrderVersion     int64                    `json:"order_version"`
+	IntakeRequestID  string                   `json:"intake_request_id"`
+	IntakeResult     CommissionIntakeDecision `json:"intake_result"`
+	InputFingerprint string                   `json:"input_fingerprint,omitempty"`
 }
 
 type CommissionArtifact struct {
@@ -77,7 +78,7 @@ func (value *CommissionFulfillmentJob) UnmarshalJSON(raw []byte) error {
 	if _, err := positiveNotificationInteger([]byte(decoded.OrderID)); err != nil {
 		return errors.New("invalid_commission_fulfillment_order")
 	}
-	if decoded.IntakeResult.Outcome != "ready" || validateCommissionIntakeDecision(decoded.IntakeResult, decoded.IntakeRequestID, decoded.OrderID, decoded.OrderVersion) != nil {
+	if decoded.IntakeResult.Outcome != "ready" || decoded.IntakeResult.OrderVersion > decoded.OrderVersion || validateCommissionIntakeDecision(decoded.IntakeResult, decoded.IntakeRequestID, decoded.OrderID, decoded.IntakeResult.OrderVersion) != nil || (decoded.InputFingerprint != "" && !validCommissionInputFingerprint(decoded.InputFingerprint)) {
 		return errors.New("invalid_commission_fulfillment_intake")
 	}
 	*value = CommissionFulfillmentJob(decoded)

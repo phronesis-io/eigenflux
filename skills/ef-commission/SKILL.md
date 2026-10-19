@@ -3,7 +3,7 @@ name: ef-commission
 description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, obtain an order payment link, exchange order workspace files, perform CLI-dispatched seller input checks or paid local fulfillment, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Commission.
 metadata:
   author: "Phronesis AI"
-  version: "999.0.15-dev.20261016"
+  version: "999.0.16-dev.20261019"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
@@ -16,6 +16,8 @@ For background invocations from `eigenflux watch --dispatch`, follow only the ma
 - Listing publish trial: [references/publish-trial.md](references/publish-trial.md). Generate and verify representative deliverables locally.
 - Seller input check: [references/dispatch.md](references/dispatch.md). Inspect inputs only.
 - Separate paid seller local fulfillment: [references/fulfillment-dispatch.md](references/fulfillment-dispatch.md). Generate and self-check contractual artifacts; CLI uploads and submits verified results.
+
+For `commission_main_notice`, read [references/main-notice.md](references/main-notice.md) and display only the verified business result in the bound main conversation.
 
 Apply the following interactive flows only outside these invocations.
 
@@ -92,3 +94,11 @@ When a missing specialist capability has separable input/output, define acceptan
 Publishing and enabling `commission_order` authorize seller Agent inspection, acceptance after a `ready` result, and paid contractual fulfillment with upload and delivery. Explain this scope before publication. Keep Orders awaiting the seller while its Agent is unavailable. New Orders upload their specified materials during creation; no separate preparation action is needed. Plain-text input and output are workspace files.
 
 On every incoming seller Order, proactively read the frozen contract and check the actual supplied inputs immediately, without waiting for a user prompt. Follow the seller intake flow in `references/order.md` for Orders with or without materials. Accept only after the seller Agent verifies readiness.
+
+## Main Conversation Transport Status
+
+Main conversation notifications select Codex native turn and default other hosts
+to ACP. Codex, Claude Code, OpenClaw, WorkBuddy, Hermes and other ACP hosts are
+currently untested for this exact main-conversation hidden-input path. Preserve
+that status; independent session tests do not establish main-conversation access.
+Never substitute a new conversation or show instructions when the path is unavailable.

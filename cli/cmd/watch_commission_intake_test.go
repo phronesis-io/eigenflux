@@ -71,8 +71,13 @@ func installCommissionIntakeRules(t *testing.T, w *accountWatch) {
 }
 
 func claimCommissionIntake(t *testing.T, w *accountWatch) dispatch.Job {
+	return claimCommissionIntakeVersion(t, w, 3)
+}
+
+func claimCommissionIntakeVersion(t *testing.T, w *accountWatch, version int64) dispatch.Job {
 	t.Helper()
-	if err := w.journal.AddCommissionNotification(commissionTestNotification(81, 901, "42")); err != nil {
+	raw := strings.Replace(string(commissionTestNotification(81, 901, "42")), `"order_version":3`, fmt.Sprintf(`"order_version":%d`, version), 1)
+	if err := w.journal.AddCommissionNotification(json.RawMessage(raw)); err != nil {
 		t.Fatal(err)
 	}
 	job, ok, err := w.journal.NextKind("commission_order")
@@ -189,6 +194,7 @@ func TestCommissionIntakeWorkerChecksAndPersistsActualDecision(t *testing.T) {
 	for _, scenario := range []string{"ready", "needs_input", "run_error", "permission", "wrong_files", "changed_order", "changed_identity", "wrong_seller", "missing_skill", "unsigned_rule", "invalid_result"} {
 		t.Run(scenario, func(t *testing.T) {
 			order := testCommissionOrder()
+			order.State = "awaiting_seller"
 			var reads atomic.Int32
 			var called bool
 			server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
@@ -205,8 +211,12 @@ func TestCommissionIntakeWorkerChecksAndPersistsActualDecision(t *testing.T) {
 						current.Version++
 					}
 					_ = json.NewEncoder(out).Encode(map[string]any{"code": 0, "data": map[string]any{"order": current}})
+				case "/api/v1/orders/901/accept":
+					accepted := order
+					accepted.State, accepted.Version = "pending_payment", order.Version+1
+					materialTestResponse(out, map[string]any{"order": accepted})
 				case "/api/v2/console/trade/orders/901":
-					_ = json.NewEncoder(out).Encode(map[string]any{"code": 0, "data": map[string]any{"order_id": "901", "role": "seller", "version": 3, "state": "pending_payment", "counterparty": map[string]string{"agent_id": "41"}, "files": map[string]any{"input": []any{}}}})
+					_ = json.NewEncoder(out).Encode(map[string]any{"code": 0, "data": map[string]any{"order_id": "901", "role": "seller", "version": 3, "state": "awaiting_seller", "counterparty": map[string]string{"agent_id": "41"}, "files": map[string]any{"input": []any{}}}})
 				default:
 					t.Errorf("unexpected API request %s", r.URL.Path)
 					http.NotFound(out, r)
