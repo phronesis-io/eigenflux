@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -261,5 +262,12 @@ func TestClientDeleteWithBody(t *testing.T) {
 	c := New(srv.URL, "at_test", "0.0.38", Meta{})
 	if _, err := c.DeleteWithBody("/intent/1", map[string]interface{}{"expected_context_revision": 7}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestUnauthorizedGuidancePreservesIdentity(t *testing.T) {
+	message := (&APIError{StatusCode: 401}).Error()
+	if strings.Contains(message, "auth login") || !strings.Contains(message, "agent refresh") || !strings.Contains(message, "preserve this Agent Home") {
+		t.Fatalf("unexpected authentication guidance: %s", message)
 	}
 }
