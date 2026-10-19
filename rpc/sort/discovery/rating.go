@@ -17,6 +17,9 @@ import (
 
 const (
 	ratingLRSalt = "discovery-rating-lr-v1:"
+	// ratingNextSalt selects, among rating-ranked Agents, those served by the
+	// challenger model.
+	ratingNextSalt = "discovery-rating-lr-v2:"
 	// ratingEvidenceTimeout bounds the parallel profile, Need and author reads
 	// of one selection; a refill reads only its new evidence.
 	ratingEvidenceTimeout = 300 * time.Millisecond
@@ -34,6 +37,30 @@ var (
 // PGCAuthors reports, for each requested author ID, whether the author is a
 // PGC publisher. An error leaves the request on its existing ranking.
 type PGCAuthors func(context.Context, []int64) (map[int64]bool, error)
+
+// RatingCounts are an item's rating counts from all Agents (item_stats).
+type RatingCounts struct {
+	Negative int64 `json:"negative"`
+	Zero     int64 `json:"zero"`
+	One      int64 `json:"one"`
+	Two      int64 `json:"two"`
+}
+
+// RatingStatsSource reads real-time item rating counts. An item without a row
+// has no ratings.
+type RatingStatsSource interface {
+	ItemRatingStats(context.Context, []int64) (map[int64]RatingCounts, error)
+}
+
+// ratingHeat is the challenger's three item inputs: log-scaled rating count and
+// smoothed positive and -1 rates.
+func ratingHeat(c RatingCounts) ([]float64, bool) {
+	if c.Negative < 0 || c.Zero < 0 || c.One < 0 || c.Two < 0 {
+		return nil, false
+	}
+	n := float64(c.Negative + c.Zero + c.One + c.Two)
+	return []float64{math.Min(math.Log1p(n)/math.Log(101), 1), (float64(c.One+c.Two) + 1) / (n + 3), (float64(c.Negative) + 1) / (n + 3)}, true
+}
 
 // ratingSimilarity is one candidate's similarity evidence. Needs counts the
 // Agent's distinct captured Need vectors with a cosine for the item; an item
@@ -61,12 +88,16 @@ type ratingRequest struct {
 	needCos     []map[int64]float64
 	read        map[int64]bool
 	pgc         map[int64]bool
+	// heat holds the challenger's item counts; after a failed read the request
+	// uses the incumbent model.
+	heat       map[int64]RatingCounts
+	heatFailed bool
 }
 
 func ratingEnabled(owner int64, bps int) bool { return bucketEnabled(ratingLRSalt, owner, bps) }
 
 func ratingRanked(c Candidate) bool {
-	return c.LR != nil && c.LR.Contract == discoverylr.RatingContract
+	return c.LR != nil && discoverylr.IsRating(c.LR.Contract)
 }
 
 func injected(c Candidate) bool {
@@ -342,16 +373,32 @@ func (e *Engine) rankRating(ctx context.Context, owner int64, kinds []Kind, cont
 		}
 		vectors = append(vectors, v)
 	}
-	scores, ok := e.RatingLearned.ScoreBatch(vectors)
-	if !ok || len(scores) != len(indices) {
-		return fallback("unavailable")
-	}
-	for _, s := range scores {
-		if s.Contract != discoverylr.RatingContract || s.ModelVersion != scores[0].ModelVersion || !finite(s.Probability) || s.Probability < 0 || s.Probability > 1 {
-			return fallback("invalid_scores")
+	var scores []discoverylr.Result
+	if heat, ok := e.ratingChallenger(ctx, owner, candidates, indices, state); ok {
+		next := make([][]float64, len(vectors))
+		for j, i := range indices {
+			next[j] = append(append([]float64(nil), vectors[j]...), heat[candidates[i].Document.Ref.ID]...)
+		}
+		if got, ok := e.RatingNext.ScoreBatch(next); ok && validRatingScores(got, len(indices), discoverylr.RatingV2Contract) {
+			scores, vectors = got, next
+			metrics.DiscoveryLRScoring.WithLabelValues("rating_v2_scored").Inc()
+		} else {
+			// A missing or invalid challenger model leaves the incumbent in charge.
+			state.heatFailed = true
+			metrics.DiscoveryLRScoring.WithLabelValues("rating_v2_unavailable").Inc()
 		}
 	}
-	metrics.DiscoveryLRScoring.WithLabelValues("rating_scored").Inc()
+	if scores == nil {
+		got, ok := e.RatingLearned.ScoreBatch(vectors)
+		if !ok || len(got) != len(indices) {
+			return fallback("unavailable")
+		}
+		if !validRatingScores(got, len(indices), discoverylr.RatingContract) {
+			return fallback("invalid_scores")
+		}
+		scores = got
+		metrics.DiscoveryLRScoring.WithLabelValues("rating_scored").Inc()
+	}
 	for j, i := range indices {
 		result := scores[j]
 		candidates[i].LR = &result
@@ -359,4 +406,94 @@ func (e *Engine) rankRating(ctx context.Context, owner int64, kinds []Kind, cont
 		candidates[i].FinalScore = result.Probability
 	}
 	return true
+}
+
+// validRatingScores requires one finite probability per candidate from a
+// single model version of the expected contract.
+func validRatingScores(scores []discoverylr.Result, n int, contract string) bool {
+	if len(scores) != n {
+		return false
+	}
+	for _, s := range scores {
+		if s.Contract != contract || s.ModelVersion != scores[0].ModelVersion || !finite(s.Probability) || s.Probability < 0 || s.Probability > 1 {
+			return false
+		}
+	}
+	return true
+}
+
+// ratingChallenger returns the challenger's item inputs by broadcast ID when
+// the Agent is in its bucket and the counts and model are available. Otherwise
+// the incumbent scores the request.
+func (e *Engine) ratingChallenger(ctx context.Context, owner int64, candidates []Candidate, indices []int, state *ratingRequest) (map[int64][]float64, bool) {
+	if e.RatingNext == nil || state.heatFailed || !bucketEnabled(ratingNextSalt, owner, e.RatingNextBPS) {
+		return nil, false
+	}
+	src, ok := e.Sources.(RatingStatsSource)
+	if !ok {
+		return nil, false
+	}
+	fail := func(reason string) (map[int64][]float64, bool) {
+		state.heatFailed = true
+		metrics.DiscoveryLRScoring.WithLabelValues("rating_v2_" + reason).Inc()
+		return nil, false
+	}
+	if state.heat == nil {
+		state.heat = map[int64]RatingCounts{}
+	}
+	missing, queued := []int64{}, map[int64]bool{}
+	for _, i := range indices {
+		id := candidates[i].Document.Ref.ID
+		if _, ok := state.heat[id]; !ok && !queued[id] {
+			queued[id] = true
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) > 0 {
+		readCtx, cancel := context.WithTimeout(ctx, ratingEvidenceTimeout)
+		got, err := src.ItemRatingStats(readCtx, missing)
+		cancel()
+		if err != nil {
+			return fail("stats_unavailable")
+		}
+		for _, id := range missing {
+			state.heat[id] = got[id]
+		}
+	}
+	out := map[int64][]float64{}
+	for _, i := range indices {
+		id := candidates[i].Document.Ref.ID
+		v, ok := ratingHeat(state.heat[id])
+		if !ok {
+			return fail("invalid_stats")
+		}
+		out[id] = v
+	}
+	return out, true
+}
+
+// ItemRatingStats reads item_stats rating counts for broadcast IDs. The table
+// is updated from rating events by the item statistics consumer.
+func (s *Source) ItemRatingStats(ctx context.Context, ids []int64) (map[int64]RatingCounts, error) {
+	out := map[int64]RatingCounts{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	if len(ids) > maxCosineIDs {
+		return nil, fmt.Errorf("rating stats budget exceeded")
+	}
+	var rows []struct {
+		ItemID         int64 `gorm:"column:item_id"`
+		ScoreNeg1Count int64 `gorm:"column:score_neg1_count"`
+		Score0Count    int64 `gorm:"column:score_0_count"`
+		Score1Count    int64 `gorm:"column:score_1_count"`
+		Score2Count    int64 `gorm:"column:score_2_count"`
+	}
+	if err := s.DB.WithContext(ctx).Raw(`SELECT item_id, score_neg1_count, score_0_count, score_1_count, score_2_count FROM item_stats WHERE item_id IN ?`, ids).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[r.ItemID] = RatingCounts{Negative: r.ScoreNeg1Count, Zero: r.Score0Count, One: r.Score1Count, Two: r.Score2Count}
+	}
+	return out, nil
 }

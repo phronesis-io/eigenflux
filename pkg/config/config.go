@@ -243,6 +243,10 @@ type Config struct {
 	// broadcast recommendations are ordered by the positive-rating model.
 	DiscoveryRatingLRBPS       int
 	DiscoveryRatingLRModelPath string
+	// DiscoveryRatingLRV2BPS is the share of rating-ranked Agents (basis
+	// points) served by the discovery_rating_lr_v2 challenger.
+	DiscoveryRatingLRV2BPS       int
+	DiscoveryRatingLRV2ModelPath string
 
 	// Per-type freshness decay
 	FreshnessAlertOffset  string
@@ -449,6 +453,8 @@ func Load() *Config {
 		DiscoveryLRReloadInterval:    getEnv("DISCOVERY_LR_RELOAD_INTERVAL", "60s"),
 		DiscoveryRatingLRBPS:         getEnvInt("DISCOVERY_RATING_LR_BPS", 0),
 		DiscoveryRatingLRModelPath:   getEnv("DISCOVERY_RATING_LR_MODEL_PATH", "/data/models/eigenflux/discovery-rating-lr/current/model.json"),
+		DiscoveryRatingLRV2BPS:       getEnvInt("DISCOVERY_RATING_LR_V2_BPS", 0),
+		DiscoveryRatingLRV2ModelPath: getEnv("DISCOVERY_RATING_LR_V2_MODEL_PATH", "/data/models/eigenflux/discovery-rating-lr-v2/current/model.json"),
 		FeatureIndexConfigDir:        getEnv("FEATURE_INDEX_CONFIG_DIR", "configs/featureindex"),
 		FeatureIndexReloadInterval:   getEnv("FEATURE_INDEX_RELOAD_INTERVAL", "5s"),
 		RecallRedisNamespace:         getEnv("REC_REDIS_NAMESPACE", "rec"),

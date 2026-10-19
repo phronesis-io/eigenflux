@@ -222,8 +222,8 @@ type Score struct {
 }
 type Candidate struct {
 	LR *discoverylr.Result `json:"lr,omitempty"`
-	// RatingFeatures is the discovery_rating_lr_v1 input when that model
-	// scored the candidate, in contract order.
+	// RatingFeatures is the rating model's input in the order of the contract
+	// recorded in LR.
 	RatingFeatures []float64 `json:"rating_features,omitempty"`
 	FinalScore     float64   `json:"final_score"`
 	// SemanticRank and SemanticTier order similarity-scored candidates in the
@@ -271,7 +271,7 @@ func PublicItem(c Candidate) ResultItem {
 		r.Match["scorer_type"] = "lr"
 		r.Match["scorer_version"] = c.LR.ModelVersion
 		r.Match["score_kind"] = "followup_probability"
-		if c.LR.Contract == discoverylr.RatingContract {
+		if discoverylr.IsRating(c.LR.Contract) {
 			r.Match["score_kind"] = "positive_rating_probability"
 		}
 	}

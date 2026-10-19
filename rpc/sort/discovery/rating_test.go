@@ -18,9 +18,10 @@ import (
 // ratingFake scores by one input (cos_best0 by default) so tests can predict
 // the order.
 type ratingFake struct {
-	calls int
-	fail  bool
-	by    string
+	calls    int
+	fail     bool
+	by       string
+	contract string
 }
 
 var cosBest = slices.Index(discoverylr.RatingFeatureNames, "cos_best0")
@@ -32,11 +33,15 @@ func (f *ratingFake) ScoreBatch(v [][]float64) ([]discoverylr.Result, bool) {
 	}
 	at := cosBest
 	if f.by != "" {
-		at = slices.Index(discoverylr.RatingFeatureNames, f.by)
+		at = slices.Index(discoverylr.RatingV2FeatureNames, f.by)
+	}
+	contract := f.contract
+	if contract == "" {
+		contract = discoverylr.RatingContract
 	}
 	out := make([]discoverylr.Result, len(v))
 	for i, x := range v {
-		out[i] = discoverylr.Result{ModelVersion: "rating-test", Contract: discoverylr.RatingContract, Probability: .1 + .8*x[at]}
+		out[i] = discoverylr.Result{ModelVersion: "rating-test", Contract: contract, Probability: .1 + .8*x[at]}
 	}
 	return out, true
 }
@@ -355,5 +360,175 @@ func TestRatingReplacesSemanticOrderingWhenBothRun(t *testing.T) {
 	e.RatingLRBPS = 0
 	if x = runProfile(t, e); fmt.Sprint(ids(x)) != "[1 2]" || ratingRanked(x.Candidates[0]) {
 		t.Fatalf("control keeps semantic ordering: %v", ids(x))
+	}
+}
+
+type statsFake struct {
+	*profileFake
+	counts map[int64]RatingCounts
+	err    error
+	reads  [][]int64
+}
+
+func (s *statsFake) ItemRatingStats(_ context.Context, ids []int64) (map[int64]RatingCounts, error) {
+	s.reads = append(s.reads, append([]int64(nil), ids...))
+	if s.err != nil {
+		return nil, s.err
+	}
+	out := map[int64]RatingCounts{}
+	for _, id := range ids {
+		if c, ok := s.counts[id]; ok {
+			out[id] = c
+		}
+	}
+	return out, nil
+}
+
+func challengerFixture() (*Engine, *statsFake, *ratingFake, *ratingFake) {
+	e, s, _, rating, _, _ := ratingFixture()
+	f := &statsFake{profileFake: s, counts: map[int64]RatingCounts{}}
+	e.Sources = f
+	next := &ratingFake{contract: discoverylr.RatingV2Contract, by: "it_pos_rate"}
+	e.RatingNext, e.RatingNextBPS = next, 10000
+	s.docs = []Document{profileDoc(1, 5, 1), profileDoc(2, 5, 1), profileDoc(3, 5, 1)}
+	for id, cos := range map[int64]float64{1: .6, 2: .4, 3: .2} {
+		s.cosine[id] = cos
+	}
+	return e, f, rating, next
+}
+
+func TestRatingV2VectorMatchesPythonFixture(t *testing.T) {
+	raw, err := os.ReadFile("../discoverylr/testdata/discovery_rating_lr_v2.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var data struct {
+		Model json.RawMessage `json:"model"`
+		Cases []struct {
+			Candidate   Candidate        `json:"candidate"`
+			Similarity  ratingSimilarity `json:"similarity"`
+			PGC         bool             `json:"pgc"`
+			Counts      RatingCounts     `json:"counts"`
+			Features    []float64        `json:"features"`
+			Probability float64          `json:"probability"`
+		} `json:"cases"`
+	}
+	if err = json.Unmarshal(raw, &data); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "model.json")
+	if err = os.WriteFile(path, data.Model, 0600); err != nil {
+		t.Fatal(err)
+	}
+	model := discoverylr.NewRatingV2(true, path, time.Hour)
+	defer model.Close()
+	if len(data.Cases) < 40 {
+		t.Fatalf("fixture too small: %d", len(data.Cases))
+	}
+	for i, tc := range data.Cases {
+		base, ok := ratingVector(tc.Candidate, tc.Similarity, tc.Candidate.Document.Channels, tc.PGC)
+		heat, hok := ratingHeat(tc.Counts)
+		got := append(base, heat...)
+		if !ok || !hok || len(got) != len(discoverylr.RatingV2FeatureNames) || len(tc.Features) != len(got) {
+			t.Fatalf("case %d: ok=%v/%v len=%d", i, ok, hok, len(got))
+		}
+		for j := range got {
+			if math.Abs(got[j]-tc.Features[j]) > 1e-12 {
+				t.Fatalf("case %d %s: got %v want %v", i, discoverylr.RatingV2FeatureNames[j], got[j], tc.Features[j])
+			}
+		}
+		scores, ok := model.ScoreBatch([][]float64{got})
+		if !ok || math.Abs(scores[0].Probability-tc.Probability) > 1e-9 || scores[0].Contract != discoverylr.RatingV2Contract {
+			t.Fatalf("case %d: score %+v ok=%v want %v", i, scores, ok, tc.Probability)
+		}
+	}
+}
+
+func TestRatingChallengerAddsItemCounts(t *testing.T) {
+	e, s, rating, next := challengerFixture()
+	s.counts[3] = RatingCounts{One: 8, Two: 2}
+	s.counts[1] = RatingCounts{Negative: 9, Zero: 1}
+	x := runProfile(t, e)
+	// Ordered by it_pos_rate: 3 has 10 positives of 10, 2 has none, 1 has nine -1s.
+	if got := fmt.Sprint(ids(x)); got != "[3 2 1]" || next.calls != 1 || rating.calls != 0 {
+		t.Fatalf("got %s next=%d incumbent=%d", got, next.calls, rating.calls)
+	}
+	for _, c := range x.Candidates {
+		if c.LR == nil || c.LR.Contract != discoverylr.RatingV2Contract || len(c.RatingFeatures) != len(discoverylr.RatingV2FeatureNames) || !ratingRanked(c) {
+			t.Fatalf("challenger attribution: %+v", c)
+		}
+	}
+	top := x.Candidates[0].RatingFeatures
+	want := []float64{math.Log1p(10) / math.Log(101), 11.0 / 13, 1.0 / 13}
+	for i, v := range want {
+		if math.Abs(top[len(discoverylr.RatingFeatureNames)+i]-v) > 1e-12 {
+			t.Fatalf("heat input %d = %v, want %v", i, top[len(discoverylr.RatingFeatureNames)+i], v)
+		}
+	}
+	if len(s.reads) != 1 || len(s.reads[0]) != 3 {
+		t.Fatalf("one count read for all candidates: %v", s.reads)
+	}
+	if item := PublicItem(x.Candidates[0]); item.Match["score_kind"] != "positive_rating_probability" {
+		t.Fatalf("public attribution: %+v", item.Match)
+	}
+}
+
+func TestRatingChallengerFallsBackToIncumbent(t *testing.T) {
+	e, s, rating, next := challengerFixture()
+	s.err = fmt.Errorf("db down")
+	x := runProfile(t, e)
+	if next.calls != 0 || rating.calls != 1 {
+		t.Fatalf("next=%d incumbent=%d", next.calls, rating.calls)
+	}
+	for _, c := range x.Candidates {
+		if c.LR == nil || c.LR.Contract != discoverylr.RatingContract || len(c.RatingFeatures) != len(discoverylr.RatingFeatureNames) {
+			t.Fatalf("incumbent must score the whole request: %+v", c)
+		}
+	}
+}
+
+func TestRatingChallengerWithoutModelKeepsIncumbent(t *testing.T) {
+	e, _, rating, next := challengerFixture()
+	next.fail = true
+	x := runProfile(t, e)
+	if rating.calls != 1 || len(x.Candidates) == 0 {
+		t.Fatalf("incumbent=%d candidates=%d", rating.calls, len(x.Candidates))
+	}
+	for _, c := range x.Candidates {
+		if c.LR == nil || c.LR.Contract != discoverylr.RatingContract || len(c.RatingFeatures) != len(discoverylr.RatingFeatureNames) {
+			t.Fatalf("incumbent inputs must not carry challenger inputs: %+v", c)
+		}
+	}
+}
+
+func TestRatingChallengerScope(t *testing.T) {
+	e, s, rating, next := challengerFixture()
+	e.RatingNextBPS = 0
+	runProfile(t, e)
+	if next.calls != 0 || rating.calls != 1 || len(s.reads) != 0 {
+		t.Fatalf("challenger off: next=%d incumbent=%d reads=%d", next.calls, rating.calls, len(s.reads))
+	}
+	e.RatingNextBPS, e.RatingLRBPS = 10000, 0
+	runProfile(t, e)
+	if next.calls != 0 || len(s.reads) != 0 {
+		t.Fatal("the challenger only serves rating-ranked Agents")
+	}
+	e.RatingLRBPS = 10000
+	e.Sources = s.profileFake
+	runProfile(t, e)
+	if next.calls != 0 || rating.calls != 2 {
+		t.Fatal("a source without item counts keeps the incumbent")
+	}
+}
+
+func TestRatingNextBucketIsIndependent(t *testing.T) {
+	agree, n := 0, 2000
+	for owner := int64(1); owner <= int64(n); owner++ {
+		if bucketEnabled(ratingNextSalt, owner, 5000) == ratingEnabled(owner, 5000) {
+			agree++
+		}
+	}
+	if agree < n*4/10 || agree > n*6/10 {
+		t.Fatalf("buckets correlated: %d/%d agree", agree, n)
 	}
 }
