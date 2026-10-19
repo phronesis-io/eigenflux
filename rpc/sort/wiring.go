@@ -36,6 +36,9 @@ func initDiscovery(ctx context.Context, cfg *config.Config, policies func(contex
 	if cfg.DiscoveryRatingLRBPS < 0 || cfg.DiscoveryRatingLRBPS > 10000 {
 		return nil, nil, fmt.Errorf("DISCOVERY_RATING_LR_BPS must be in [0,10000]")
 	}
+	if cfg.DiscoveryRatingLRV2BPS < 0 || cfg.DiscoveryRatingLRV2BPS > 10000 {
+		return nil, nil, fmt.Errorf("DISCOVERY_RATING_LR_V2_BPS must be in [0,10000]")
+	}
 	if err := cfg.ValidateCommissionDiscoveryConfiguration(); err != nil {
 		return nil, nil, err
 	}
@@ -92,15 +95,16 @@ func initDiscovery(ctx context.Context, cfg *config.Config, policies func(contex
 		Compiler: &discovery.Compiler{Cache: contexts, Embedder: embed, NeedVectors: vectors, EmbeddingVersion: vectors.Generation()},
 		Needs:    discovery.CachedNeeds{NeedReader: need.Store{DB: db.DB}, Cache: contexts},
 		IDs:      ids, Rules: rules, Policies: policies, Sources: sources,
-		RatingLRBPS: cfg.DiscoveryRatingLRBPS, PGCAuthors: pgcAuthors,
+		RatingLRBPS: cfg.DiscoveryRatingLRBPS, RatingNextBPS: cfg.DiscoveryRatingLRV2BPS, PGCAuthors: pgcAuthors,
 	}
 	interval, err := time.ParseDuration(cfg.DiscoveryLRReloadInterval)
-	if err != nil && (cfg.DiscoveryLREnabled || cfg.DiscoveryRatingLRBPS > 0) {
+	if err != nil && (cfg.DiscoveryLREnabled || cfg.DiscoveryRatingLRBPS > 0 || cfg.DiscoveryRatingLRV2BPS > 0) {
 		close()
 		return nil, nil, err
 	}
 	learned := discoverylr.New(cfg.DiscoveryLREnabled, cfg.DiscoveryLRModelPath, interval)
 	rating := discoverylr.NewRating(cfg.DiscoveryRatingLRBPS > 0, cfg.DiscoveryRatingLRModelPath, interval)
-	engine.Learned, engine.RatingLearned = learned, rating
-	return &discovery.Service{Engine: engine}, func() { rating.Close(); learned.Close(); close() }, nil
+	next := discoverylr.NewRatingV2(cfg.DiscoveryRatingLRBPS > 0 && cfg.DiscoveryRatingLRV2BPS > 0, cfg.DiscoveryRatingLRV2ModelPath, interval)
+	engine.Learned, engine.RatingLearned, engine.RatingNext = learned, rating, next
+	return &discovery.Service{Engine: engine}, func() { next.Close(); rating.Close(); learned.Close(); close() }, nil
 }

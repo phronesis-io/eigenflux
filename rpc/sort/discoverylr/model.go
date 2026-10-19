@@ -30,14 +30,27 @@ var RatingFeatureNames = []string{
 	"need_cos_max_h35", "need_cos_max_h45", "prof_cos_h35", "prof_cos_h45", "n_needs01",
 }
 
+// RatingV2Contract adds the item's real-time rating counts from all Agents to
+// the RatingContract inputs.
+const RatingV2Contract = "discovery_rating_lr_v2"
+
+var RatingV2FeatureNames = append(append([]string(nil), RatingFeatureNames...), "it_n01", "it_pos_rate", "it_neg_rate")
+
 func featureNames(contract string) ([]string, bool) {
 	switch contract {
 	case Contract:
 		return FeatureNames, true
 	case RatingContract:
 		return RatingFeatureNames, true
+	case RatingV2Contract:
+		return RatingV2FeatureNames, true
 	}
 	return nil, false
+}
+
+// IsRating reports whether a contract predicts a positive rating.
+func IsRating(contract string) bool {
+	return contract == RatingContract || contract == RatingV2Contract
 }
 
 type Result struct {

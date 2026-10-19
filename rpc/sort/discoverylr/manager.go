@@ -28,6 +28,11 @@ func NewRating(enabled bool, path string, interval time.Duration) *Manager {
 	return newManager(RatingContract, enabled, path, interval)
 }
 
+// NewRatingV2 serves the discovery_rating_lr_v2 positive-rating model.
+func NewRatingV2(enabled bool, path string, interval time.Duration) *Manager {
+	return newManager(RatingV2Contract, enabled, path, interval)
+}
+
 func newManager(contract string, enabled bool, path string, interval time.Duration) *Manager {
 	m := &Manager{contract: contract, stop: make(chan struct{}), done: make(chan struct{})}
 	if !enabled {
@@ -54,10 +59,13 @@ func newManager(contract string, enabled bool, path string, interval time.Durati
 	return m
 }
 
-// outcome keeps the original follow-up labels and prefixes rating outcomes.
+// outcome keeps the original follow-up labels and prefixes rating outcomes by contract.
 func (m *Manager) outcome(result string) string {
-	if m.contract == RatingContract {
+	switch m.contract {
+	case RatingContract:
 		return "rating_" + result
+	case RatingV2Contract:
+		return "rating_v2_" + result
 	}
 	return result
 }

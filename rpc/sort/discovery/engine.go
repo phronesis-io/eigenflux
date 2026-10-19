@@ -36,8 +36,12 @@ type Engine struct {
 	// RatingLearned orders broadcast recommendations for Agents in the
 	// RatingLRBPS bucket; when it cannot score a request, the existing
 	// semantic, Learned or rule ordering applies.
-	RatingLearned     LearnedRanker
-	RatingLRBPS       int
+	RatingLearned LearnedRanker
+	RatingLRBPS   int
+	// RatingNext is the challenger for the RatingNextBPS bucket of
+	// rating-ranked Agents.
+	RatingNext        LearnedRanker
+	RatingNextBPS     int
 	PGCAuthors        PGCAuthors
 	FriendFeedEnabled bool
 	ConsumedRefillBPS int

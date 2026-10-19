@@ -983,3 +983,40 @@ similarity, PGC classification and delivered replay samples.
 The daily trainer does not produce this contract. Install a reviewed offline
 bundle in the model directory with an atomic `current` link. Setting
 `DISCOVERY_RATING_LR_BPS=0` and restarting Sort restores the existing ordering.
+
+#### Item rating-count challenger
+
+`DISCOVERY_RATING_LR_V2_BPS=0` disables the challenger (default). Values 1–10000
+select a stable hash bucket of Agent IDs, independent of the other buckets.
+The challenger serves only Agents that the rating ranker already selects
+(`DISCOVERY_RATING_LR_BPS`). Sort loads `DISCOVERY_RATING_LR_V2_MODEL_PATH`
+(default `/data/models/eigenflux/discovery-rating-lr-v2/current/model.json`),
+which must use the `discovery_rating_lr_v2` contract, with the same reload
+interval and validation as the incumbent. Restart Sort to apply a changed value.
+
+The challenger appends three inputs to the 40 `discovery_rating_lr_v1` inputs.
+They come from the item's rating counts from all Agents in `item_stats`, which
+the item statistics consumer updates from rating events:
+
+| Input | Definition |
+|---|---|
+| `it_n01` | `min(log(1 + n) / log(101), 1)`, where `n` counts -1, 0, 1 and 2 ratings |
+| `it_pos_rate` | `(ratings ≥ 1 + 1) / (n + 3)` |
+| `it_neg_rate` | `(-1 ratings + 1) / (n + 3)` |
+
+An item without a row has `n = 0`. Sort reads the counts for every eligible
+candidate with one primary-key query after the similarity and author reads,
+under its own 300 ms budget. A refill reads only new items. A failed or invalid
+read, or a missing challenger model, scores the whole request with the
+incumbent model and is counted as
+`discovery_lr_scoring_total{result="rating_v2_stats_unavailable"}`,
+`rating_v2_invalid_stats` or `rating_v2_unavailable`. Challenger scores are counted as
+`rating_v2_scored`, and reload outcomes as `discovery_lr_reload_total` with
+the `rating_v2_` prefix. `Candidate.LR` records the challenger contract, and
+`rating_features` holds all 43 inputs. Ordering, policies and public
+attribution are the same as for the incumbent.
+
+`rpc/sort/discoverylr/testdata/discovery_rating_lr_v2.json` holds the offline
+bundle and rated deliveries with their counts. `TestRatingV2VectorMatchesPythonFixture`
+checks input and probability parity, and `TestDiscoveryRatingV2Recommendation`
+covers real `item_stats` reads through HTTP/RPC serving and replay samples.

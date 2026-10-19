@@ -127,3 +127,92 @@ func TestDiscoveryRatingRecommendation(t *testing.T) {
 		require.Equal(t, wantPGC, feature(c, "is_pgc"), "item %d", id)
 	}
 }
+
+// With the challenger on for every rating-ranked Agent, the item's real-time
+// rating counts are read from item_stats, recorded as the last three inputs,
+// and order otherwise identical candidates.
+func TestDiscoveryRatingV2Recommendation(t *testing.T) {
+	paths := map[string]string{}
+	models := map[string]struct {
+		Version      string    `json:"model_version"`
+		Coefficients []float64 `json:"coefficients"`
+		Intercept    float64   `json:"intercept"`
+	}{}
+	for _, name := range []string{"discovery_rating_lr_v1", "discovery_rating_lr_v2"} {
+		raw, err := os.ReadFile("../../rpc/sort/discoverylr/testdata/" + name + ".json")
+		require.NoError(t, err)
+		var fixture struct {
+			Model json.RawMessage `json:"model"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &fixture))
+		m := models[name]
+		require.NoError(t, json.Unmarshal(fixture.Model, &m))
+		models[name] = m
+		paths[name] = filepath.Join(t.TempDir(), name+".json")
+		require.NoError(t, os.WriteFile(paths[name], fixture.Model, 0600))
+	}
+	s := startStack(t, map[string]string{"DISCOVERY_RATING_LR_BPS": "10000", "DISCOVERY_RATING_LR_MODEL_PATH": paths["discovery_rating_lr_v1"],
+		"DISCOVERY_RATING_LR_V2_BPS": "10000", "DISCOVERY_RATING_LR_V2_MODEL_PATH": paths["discovery_rating_lr_v2"]})
+	ctx := context.Background()
+	now := time.Now()
+	query := fmt.Sprintf("ratingvtwo%d", s.owner)
+	s.changeInputs(t, "UPDATE agent_context_revisions SET compiled_context=?::jsonb WHERE agent_id=?", fmt.Sprintf(`{"intent_actions":[{"watch_for":%q,"trigger_when":""}]}`, query), s.owner)
+	s.sql(t, "INSERT INTO agent_profiles(agent_id,status,profile_embedding,updated_at) VALUES(?,3,?,?) ON CONFLICT(agent_id) DO UPDATE SET profile_embedding=EXCLUDED.profile_embedding", s.owner, embcodec.Encode(s.vector), now.UnixMilli())
+	liked, disliked := s.item+70001, s.item+70002
+	counts := map[int64][4]int64{liked: {0, 1, 7, 2}, disliked: {9, 1, 0, 0}} // -1, 0, 1, 2
+	for id, c := range counts {
+		text := fmt.Sprintf("%s update %d", query, id)
+		s.sql(t, "INSERT INTO raw_items(item_id,author_agent_id,raw_content,raw_url,created_at) VALUES(?,?,?,'',?)", id, s.author, text, now.UnixMilli())
+		s.sql(t, "INSERT INTO processed_items(item_id,status,summary,lang,quality_score,group_id,updated_at,broadcast_type,source_type) VALUES(?,3,?,'en',0.8,?,?,'info','original')", id, text, id, now.UnixMilli())
+		s.sql(t, "INSERT INTO item_stats(item_id,author_agent_id,score_neg1_count,score_0_count,score_1_count,score_2_count,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)", id, s.author, c[0], c[1], c[2], c[3], now.UnixMilli(), now.UnixMilli())
+		require.NoError(t, sortdal.IndexItem(ctx, &sortdal.Item{ID: id, AuthorAgentID: s.author, Content: text, Summary: text, Lang: "en", Type: "info", SourceType: "original", QualityScore: .8, GroupID: id, CreatedAt: now, UpdatedAt: now, Embedding: s.vector}))
+	}
+	t.Cleanup(func() {
+		ids := []int64{liked, disliked}
+		s.sql(t, "DELETE FROM item_stats WHERE item_id IN ?", ids)
+		s.sql(t, "DELETE FROM processed_items WHERE item_id IN ?", ids)
+		s.sql(t, "DELETE FROM raw_items WHERE item_id IN ?", ids)
+		for _, id := range ids {
+			r, err := es.Client.DeleteByQuery([]string{es.ReadIndexPattern}, bytes.NewBufferString(fmt.Sprintf(`{"query":{"term":{"id":%d}}}`, id)), es.Client.DeleteByQuery.WithRefresh(true))
+			if err == nil {
+				r.Body.Close()
+			}
+			require.NoError(t, err)
+		}
+	})
+	response, err := es.Client.Indices.Refresh(es.Client.Indices.Refresh.WithIndex(es.IndexName))
+	require.NoError(t, err)
+	response.Body.Close()
+
+	result := s.recommend(t, discovery.Request{SourceKinds: []discovery.Kind{discovery.Broadcast}, Limit: 20}, "rating-lr-v2")
+	at := map[int64]int{}
+	for i, item := range result.Items {
+		at[item.Ref.ID] = i + 1
+	}
+	require.NotZero(t, at[liked], "%+v", result)
+	require.NotZero(t, at[disliked], "%+v", result)
+	require.Less(t, at[liked], at[disliked], "item rating counts order otherwise identical candidates: %+v", result)
+	s.waitSamples(t, result.ImpressionID, len(result.Items))
+	model := models["discovery_rating_lr_v2"]
+	n := len(discoverylr.RatingFeatureNames)
+	for id, c := range counts {
+		var raw string
+		require.NoError(t, s.db.Table("replay_logs").Select("item_features").Where("impression_id=? AND item_id=?", result.ImpressionID, id).Scan(&raw).Error)
+		cand := decode[struct {
+			Search discovery.Candidate `json:"search"`
+		}](t, []byte(raw)).Search
+		require.NotNil(t, cand.LR)
+		require.Equal(t, discoverylr.RatingV2Contract, cand.LR.Contract)
+		require.Equal(t, model.Version, cand.LR.ModelVersion)
+		require.Len(t, cand.RatingFeatures, len(discoverylr.RatingV2FeatureNames))
+		total := float64(c[0] + c[1] + c[2] + c[3])
+		require.InDelta(t, math.Log1p(total)/math.Log(101), cand.RatingFeatures[n], 1e-12)
+		require.InDelta(t, (float64(c[2]+c[3])+1)/(total+3), cand.RatingFeatures[n+1], 1e-12)
+		require.InDelta(t, (float64(c[0])+1)/(total+3), cand.RatingFeatures[n+2], 1e-12)
+		z := model.Intercept
+		for i, v := range cand.RatingFeatures {
+			z += v * model.Coefficients[i]
+		}
+		require.InDelta(t, 1/(1+math.Exp(-z)), cand.LR.Probability, 1e-12)
+	}
+}

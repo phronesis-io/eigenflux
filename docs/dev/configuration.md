@@ -253,3 +253,10 @@ positive-rating model at `DISCOVERY_RATING_LR_MODEL_PATH` (default
 `/data/models/eigenflux/discovery-rating-lr/current/model.json`), reloaded every
 `DISCOVERY_LR_RELOAD_INTERVAL`. Restart Sort after changing the value. See
 [the rating ranker experiment](discovery.md#positive-rating-ranker-experiment).
+
+`DISCOVERY_RATING_LR_V2_BPS` defaults to `0` and accepts 0–10000. Among the
+rating-ranked Agents, it selects a stable bucket that the
+`discovery_rating_lr_v2` challenger serves from `DISCOVERY_RATING_LR_V2_MODEL_PATH`
+(default `/data/models/eigenflux/discovery-rating-lr-v2/current/model.json`).
+The challenger adds real-time item rating counts from `item_stats`. See
+[the challenger](discovery.md#item-rating-count-challenger).
