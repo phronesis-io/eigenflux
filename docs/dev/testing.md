@@ -52,6 +52,13 @@ with public registration enabled and disabled, no extra account or handoff, and
 the guarded manual recovery command using the same endpoint. Revoked expiry
 must exit 4 without provisioning. Unavailable local keys in guarded provisioning
 must also exit 4 with an owner-notification notice and preserve saved credentials.
+Owner-action regressions verify separate instructions for inaccessible local
+identity files and rejected V2 sessions, including the current Home and server,
+an explicit owner reply, revocation confirmation, and preservation of the
+existing host instruction and exit code. They verify that notice generation
+does not modify saved identity files or disclose their contents, that legacy
+failures omit V2-specific actions, and that credential 503/429 failures retain
+their non-login classification without an owner recovery action.
 
 ## Codex installer compatibility
 

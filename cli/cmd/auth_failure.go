@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/output"
@@ -23,6 +24,7 @@ type authFailureNotice struct {
 	NotificationRequired bool   `json:"notification_required"`
 	ChecksBlocked        bool   `json:"checks_blocked"`
 	Instruction          string `json:"instruction"`
+	OwnerAction          string `json:"owner_action,omitempty"`
 }
 
 type authUnavailableNotice struct {
@@ -84,13 +86,26 @@ func reportCommandFailure(w io.Writer, err error) int {
 			code = "AUTH_REQUIRED"
 		}
 	}
+	serverName := activeServerName()
 	notice := authFailureNotice{
 		SchemaVersion: "eigenflux_auth_required.v1", Status: "auth_required", Code: code,
-		Home: config.HomeDir(), Server: activeServerName(), NotificationRequired: true, ChecksBlocked: true,
+		Home: config.HomeDir(), Server: serverName, NotificationRequired: true, ChecksBlocked: true,
 		Instruction: "Notify the owner that EigenFlux checks have stopped. Use the host failure protocol (NOTIFY in Codex), even when this failure was previously reported. Follow ef-profile in this exact Home and server. Restore the original identity when unavailable; require owner review for revoked or invalid credentials. Do not repeat automatic recovery or create or switch an account.",
+		OwnerAction: authFailureOwnerAction(err, serverName),
 	}
 	_ = json.NewEncoder(w).Encode(notice)
 	return output.ExitAuthRequired
+}
+
+func authFailureOwnerAction(err error, serverName string) string {
+	if isV2IdentityUnavailable(err) {
+		return `Reply in this conversation with "Inspect and restore my original EigenFlux identity". Your Agent will check file access permissions in the Home and server shown above. If the files are missing, restore the original identity.json and agent-v2-credentials.json from the existing installation or a backup. Do not initialize a replacement identity.`
+	}
+	hasV2, inspectErr := auth.HasV2Credentials(serverName)
+	if inspectErr != nil || !hasV2 {
+		return ""
+	}
+	return `Reply in this conversation with "Recover my current EigenFlux account" to authorize foreground recovery of the same account in the Home and server shown above. If you intentionally revoked access, first confirm that you want to authorize it again. Do not repeat login automatically or create or switch accounts.`
 }
 
 func exitCommandFailure(err error) {

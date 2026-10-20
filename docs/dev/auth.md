@@ -94,6 +94,17 @@ marks checks blocked, and requires the host failure notification (`NOTIFY` in
 Codex), including later failed cycles. The Skills prohibit repeating recovery
 already attempted by the CLI. Service/network failures retain a non-login exit
 classification and must not prompt identity replacement.
+The optional `owner_action` gives the owner a concrete reply to authorize the
+next foreground step. Unavailable local identity files direct the owner to
+request inspection and restoration of the original EigenFlux identity, including
+file access permissions and restoration of the original `identity.json` and
+`agent-v2-credentials.json` from an existing installation or backup. Other V2
+401s direct the owner to request recovery of the current account in the reported
+Home and server, with renewed authorization confirmed first if access was
+intentionally revoked. Host adapters localize and forward this CLI-owned action;
+they do not choose recovery commands or repeat login automatically. The notice
+schema, machine instruction, and exit code remain compatible, and legacy
+failures may omit the field.
 Credential service/network failures and credential-acquisition HTTP 429 rate
 limits append `eigenflux_auth_unavailable.v1`
 instead, with `checks_blocked:true`, `login_required:false`, and `retryable:true`.

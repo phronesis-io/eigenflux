@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/output"
@@ -63,6 +66,85 @@ func TestCommandFailureDoesNotClassifyServiceAndPermissionErrorsAsLoginRequired(
 	}
 }
 
+func TestCommandFailureProvidesScopedOwnerAction(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		v2         bool
+		failure    error
+		wantAction []string
+	}{
+		{
+			name: "unavailable original identity", v2: true,
+			failure:    unavailableV2Identity(errors.New("original identity is inaccessible")),
+			wantAction: []string{"Inspect and restore my original EigenFlux identity", "file access permissions", "identity.json and agent-v2-credentials.json", "existing installation or a backup", "Do not initialize a replacement identity"},
+		},
+		{
+			name:       "identity unavailable without saved credentials",
+			failure:    unavailableV2Identity(errors.New("original credentials are missing")),
+			wantAction: []string{"Inspect and restore my original EigenFlux identity", "file access permissions", "identity.json and agent-v2-credentials.json"},
+		},
+		{
+			name: "invalid V2 session", v2: true,
+			failure:    wrapV2CredentialError(&client.APIError{StatusCode: 401, ErrorCode: "REFRESH_INVALID"}),
+			wantAction: []string{"Recover my current EigenFlux account", "authorize foreground recovery of the same account", "If you intentionally revoked access", "Do not repeat login automatically or create or switch accounts"},
+		},
+		{
+			name: "revoked V2 session", v2: true,
+			failure:    &client.APIError{StatusCode: 401, ErrorCode: "AGENT_AUTH_INVALID"},
+			wantAction: []string{"Recover my current EigenFlux account", "If you intentionally revoked access", "first confirm that you want to authorize it again"},
+		},
+		{
+			name:    "legacy session",
+			failure: &client.APIError{StatusCode: 401, ErrorCode: "AUTH_REQUIRED"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, serverName := runtimeTestConfig(t, "http://127.0.0.1:1", tc.v2)
+			dir := filepath.Join(config.HomeDir(), "servers", serverName)
+			identityPath := filepath.Join(dir, "identity.json")
+			identityBefore, _ := os.ReadFile(identityPath)
+			credentialsPath := filepath.Join(dir, "agent-v2-credentials.json")
+			credentialsBefore, _ := os.ReadFile(credentialsPath)
+			var key auth.IdentityKey
+			_ = json.Unmarshal(identityBefore, &key)
+			for cycle := 0; cycle < 2; cycle++ {
+				var out bytes.Buffer
+				if code := reportCommandFailure(&out, tc.failure); code != output.ExitAuthRequired {
+					t.Fatalf("exit=%d output=%s", code, &out)
+				}
+				lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+				var notice authFailureNotice
+				if err := json.Unmarshal([]byte(lines[len(lines)-1]), &notice); err != nil {
+					t.Fatal(err)
+				}
+				if notice.SchemaVersion != "eigenflux_auth_required.v1" || notice.Status != "auth_required" ||
+					!notice.NotificationRequired || !notice.ChecksBlocked || notice.Home != config.HomeDir() || notice.Server != serverName ||
+					!strings.Contains(notice.Instruction, "NOTIFY") || !strings.Contains(notice.Instruction, "Do not repeat automatic recovery") {
+					t.Fatalf("owner action changed the existing host contract: %+v", notice)
+				}
+				for _, phrase := range tc.wantAction {
+					if !strings.Contains(notice.OwnerAction, phrase) {
+						t.Fatalf("missing actionable recovery phrase %q: %q", phrase, notice.OwnerAction)
+					}
+				}
+				if len(tc.wantAction) == 0 && (notice.OwnerAction != "" || strings.Contains(lines[len(lines)-1], `"owner_action"`)) {
+					t.Fatalf("legacy authentication received V2 recovery advice: %s", &out)
+				}
+				for _, secret := range []string{"test-v1", "test-v2", "test-refresh", key.PrivateKey} {
+					if secret != "" && strings.Contains(out.String(), secret) {
+						t.Fatal("authentication notice exposed a saved credential or private key")
+					}
+				}
+			}
+			identityAfter, _ := os.ReadFile(identityPath)
+			credentialsAfter, _ := os.ReadFile(credentialsPath)
+			if !bytes.Equal(identityBefore, identityAfter) || !bytes.Equal(credentialsBefore, credentialsAfter) {
+				t.Fatal("reporting an owner action changed the original identity or credentials")
+			}
+		})
+	}
+}
+
 func TestCommandFailureReportsCredentialServiceUnavailableWithoutLogin(t *testing.T) {
 	tempHome(t)
 	cfg, err := config.Load()
@@ -97,6 +179,9 @@ func TestCommandFailureReportsCredentialServiceUnavailableWithoutLogin(t *testin
 				notice.Code != tc.code || !notice.ChecksBlocked || notice.LoginRequired || !notice.Retryable ||
 				notice.Home != config.HomeDir() || notice.Server != serverFlag {
 				t.Fatalf("incorrect temporary failure contract: %+v", notice)
+			}
+			if strings.Contains(lines[len(lines)-1], `"owner_action"`) {
+				t.Fatalf("temporary credential failure requested owner recovery: %s", &out)
 			}
 		})
 	}
