@@ -54,7 +54,13 @@ func (w *accountWatch) enqueueCommissionMainNotice(raw json.RawMessage) error {
 	if state == "" {
 		state = notice.Payload.State
 	}
-	return queue.Add(dispatch.MainNotice{ID: strconv.FormatInt(int64(notice.ID), 10), OrderID: strconv.FormatInt(int64(notice.Payload.Order), 10), Version: notice.Payload.Version, Role: notice.Payload.Role, Event: event, State: state})
+	id := strconv.FormatInt(int64(notice.ID), 10)
+	err = queue.Add(dispatch.MainNotice{ID: id, OrderID: strconv.FormatInt(int64(notice.Payload.Order), 10), Version: notice.Payload.Version, Role: notice.Payload.Role, Event: event, State: state})
+	if errors.Is(err, dispatch.ErrMainNoticeQueueFull) {
+		_ = w.emit("commission_main_notice_status", map[string]string{"notification_id": id, "status": "skipped", "code": "main_notice_queue_full"})
+		return nil
+	}
+	return err
 }
 func (w *accountWatch) commissionMainNoticeLoop(ctx context.Context) error {
 	queue, err := w.mainNoticeQueue()
@@ -64,6 +70,16 @@ func (w *accountWatch) commissionMainNoticeLoop(ctx context.Context) error {
 	for ctx.Err() == nil {
 		if !w.handoff.begin() {
 			return nil
+		}
+		if w.journal != nil {
+			blockers, err := w.journal.CommissionBlockers()
+			if err == nil {
+				err = queue.SyncLocalBlockers(blockers)
+			}
+			if err != nil && !errors.Is(err, dispatch.ErrMainNoticeQueueFull) {
+				w.handoff.end()
+				return err
+			}
 		}
 		item, ok, err := queue.Next()
 		if err != nil {
@@ -95,7 +111,11 @@ func (w *accountWatch) commissionMainNoticePrompt(item dispatch.MainNotice) (str
 	if err != nil {
 		return "", err
 	}
-	data, err := json.Marshal(map[string]any{"notification_id": item.ID, "order_id": item.OrderID, "observed_order_version": item.Version, "role": item.Role, "event_kind": item.Event, "observed_state": item.State, "agent_id": w.binding.AgentID, "server": w.binding.Server})
+	payload := map[string]any{"notification_id": item.ID, "order_id": item.OrderID, "observed_order_version": item.Version, "role": item.Role, "event_kind": item.Event, "observed_state": item.State, "agent_id": w.binding.AgentID, "server": w.binding.Server}
+	if item.IsLocalBlocker() {
+		payload["local_execution"] = map[string]string{"job_id": item.JobID, "status": item.JobStatus, "code": item.JobCode}
+	}
+	data, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
 	}
@@ -109,6 +129,26 @@ func (w *accountWatch) commissionMainNoticePrompt(item dispatch.MainNotice) (str
 func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item dispatch.MainNotice) (string, string) {
 	if w.commissionIdentityOK() != nil {
 		return "skipped", "identity_changed"
+	}
+	if item.IsLocalBlocker() {
+		if w.journal == nil {
+			return "skipped", "main_notice_blocker_unavailable"
+		}
+		blockers, err := w.journal.CommissionBlockers()
+		matched := false
+		for _, blocker := range blockers {
+			matched = matched || item.MatchesLocalBlocker(w.scope, blocker)
+		}
+		if err != nil || !matched {
+			return "skipped", "main_notice_blocker_resolved"
+		}
+		order, err := w.readCommissionOrder(ctx, item.OrderID)
+		if err != nil {
+			return "skipped", "main_notice_blocker_unavailable"
+		}
+		if order.Version != item.Version || order.State != "awaiting_seller" && order.State != "in_progress" {
+			return "skipped", "main_notice_blocker_obsolete"
+		}
 	}
 	prompt, err := w.commissionMainNoticePrompt(item)
 	if err != nil || w.runMainNotice == nil {

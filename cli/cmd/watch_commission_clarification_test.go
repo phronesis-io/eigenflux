@@ -68,6 +68,10 @@ func TestCommissionClarificationBuyerAnswersOnlyKnownInputs(t *testing.T) {
 					materialTestResponse(out, map[string]any{"order": current})
 					return
 				}
+				if r.URL.Path == "/api/v2/console/trade/orders/901" && r.Method == http.MethodGet {
+					materialTestResponse(out, buyerClarificationTestDetail(order, []map[string]any{}))
+					return
+				}
 				if r.URL.Path == "/api/v1/orders/901/supplement-inputs" && r.Method == http.MethodPost {
 					writes++
 					if !ran || scenario != "answered" && scenario != "multiline_answer" && scenario != "uncertain_write" && scenario != "invalid_receipt" {

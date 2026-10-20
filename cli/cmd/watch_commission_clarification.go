@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -219,7 +220,20 @@ func (w *accountWatch) dispatchCommissionClarification(parent context.Context, j
 	if err != nil {
 		return w.finishDispatch(job, "failed", "commission_clarification_rules_unavailable", "", "")
 	}
-	payload, _ := json.Marshal(map[string]any{"request_id": job.ID, "agent_id": w.binding.AgentID, "server": w.binding.Server, "order": order, "input_request_id": data.RequestID, "authorized_context": map[string]string{"buyer_input": order.BuyerInput}})
+	directory, err := os.MkdirTemp(w.binding.WorkDir, ".eigenflux-clarification-")
+	if err != nil {
+		return w.finishDispatch(job, "failed", "commission_clarification_materials_unavailable", "", "")
+	}
+	defer os.RemoveAll(directory)
+	files, err := w.prepareBuyerClarificationMaterials(ctx, order, directory)
+	if err != nil {
+		return w.finishDispatch(job, "failed", "commission_clarification_materials_unavailable", "", "")
+	}
+	current, err := w.readBuyerClarificationOrder(ctx, data.OrderID)
+	if err != nil || !clarificationMatchesOrder(data, current) || !sameCommissionIntakeOrder(order, current) {
+		return w.finishDispatch(job, "completed", "commission_clarification_order_changed", "", "")
+	}
+	payload, _ := json.Marshal(map[string]any{"request_id": job.ID, "agent_id": w.binding.AgentID, "server": w.binding.Server, "order": order, "input_request_id": data.RequestID, "authorized_context": map[string]any{"buyer_input": order.BuyerInput, "local_files": files}})
 	if err := w.commissionIdentityOK(); err != nil {
 		return err
 	}
@@ -237,7 +251,7 @@ func (w *accountWatch) dispatchCommissionClarification(parent context.Context, j
 	if err := w.commissionIdentityOK(); err != nil {
 		return err
 	}
-	current, err := w.readBuyerClarificationOrder(ctx, data.OrderID)
+	current, err = w.readBuyerClarificationOrder(ctx, data.OrderID)
 	if err != nil || !clarificationMatchesOrder(data, current) || !sameCommissionIntakeOrder(order, current) {
 		return w.finishDispatch(job, "completed", "commission_clarification_order_changed", result.SessionID, "")
 	}

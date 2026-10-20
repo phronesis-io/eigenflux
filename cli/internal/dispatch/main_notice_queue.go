@@ -11,16 +11,21 @@ import (
 	"sync"
 )
 
+var ErrMainNoticeQueueFull = errors.New("main_notice_queue_full")
+
 // MainNotice stores routing metadata only. Its lifecycle never changes an Order.
 type MainNotice struct {
-	ID      string `json:"notification_id"`
-	OrderID string `json:"order_id"`
-	Version int64  `json:"order_version"`
-	Role    string `json:"role"`
-	Event   string `json:"event"`
-	State   string `json:"state"`
-	Status  string `json:"status"`
-	Code    string `json:"code,omitempty"`
+	ID        string `json:"notification_id"`
+	OrderID   string `json:"order_id"`
+	Version   int64  `json:"order_version"`
+	Role      string `json:"role"`
+	Event     string `json:"event"`
+	State     string `json:"state"`
+	Status    string `json:"status"`
+	Code      string `json:"code,omitempty"`
+	JobID     string `json:"job_id,omitempty"`
+	JobStatus string `json:"job_status,omitempty"`
+	JobCode   string `json:"job_code,omitempty"`
 }
 type mainNoticeQueueState struct {
 	Scope    string       `json:"scope"`
@@ -74,11 +79,21 @@ func OpenMainNoticeQueue(binding Binding) (*MainNoticeQueue, error) {
 	return q, nil
 }
 func validMainNotice(item MainNotice) bool {
-	for _, value := range []string{item.ID, item.OrderID} {
-		n, err := strconv.ParseInt(value, 10, 64)
-		if err != nil || n <= 0 || strconv.FormatInt(n, 10) != value {
+	if item.IsLocalBlocker() {
+		if !strings.HasPrefix(item.ID, "local:") || !executionReceiptPattern.MatchString(strings.TrimPrefix(item.ID, "local:")) || !executionReceiptPattern.MatchString(item.JobID) || item.Role != "seller" || item.JobCode == "" || len(item.JobCode) > 128 || strings.ContainsAny(item.JobCode, "\x00\r\n") || item.JobStatus != "failed" && item.JobStatus != "needs_user" && item.JobStatus != "unknown" {
 			return false
 		}
+	} else if item.JobID != "" || item.JobStatus != "" || item.JobCode != "" {
+		return false
+	} else {
+		n, err := strconv.ParseInt(item.ID, 10, 64)
+		if err != nil || n <= 0 || strconv.FormatInt(n, 10) != item.ID {
+			return false
+		}
+	}
+	n, err := strconv.ParseInt(item.OrderID, 10, 64)
+	if err != nil || n <= 0 || strconv.FormatInt(n, 10) != item.OrderID {
+		return false
 	}
 	if item.Version <= 0 || (item.Role != "buyer" && item.Role != "seller") || len(item.Event) > 128 || len(item.State) > 64 {
 		return false
@@ -117,20 +132,28 @@ func (q *MainNoticeQueue) Add(item MainNotice) error {
 		}
 	}
 	entries := append([]MainNotice{}, q.state.Entries...)
+	entries, err := appendMainNotice(entries, item)
+	if err != nil {
+		return err
+	}
+	return q.save(entries)
+}
+
+func appendMainNotice(entries []MainNotice, item MainNotice) ([]MainNotice, error) {
 	if len(entries) >= 1024 {
 		removed := false
 		for i, old := range entries {
-			if old.Status == "delivered" || old.Status == "skipped" {
+			if !old.IsLocalBlocker() && (old.Status == "delivered" || old.Status == "skipped") {
 				entries = append(entries[:i], entries[i+1:]...)
 				removed = true
 				break
 			}
 		}
 		if !removed {
-			return errors.New("main_notice_queue_full")
+			return nil, ErrMainNoticeQueueFull
 		}
 	}
-	return q.save(append(entries, item))
+	return append(entries, item), nil
 }
 func (q *MainNoticeQueue) Next() (MainNotice, bool, error) {
 	q.mu.Lock()

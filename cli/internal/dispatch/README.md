@@ -58,8 +58,8 @@ With PM subscribed, notifications reuse its socket; Commission-only uses an init
 
 When desktop notifications are enabled, save both the execution job and desktop
 message before ACK. The desktop queue deduplicates notification IDs separately,
-so same-version reminders still appear. Both subscribed buyer and seller events
-notify without extra Agent calls. `CommissionBlockers` exposes only validated
+so same-version reminders still appear. Desktop delivery for subscribed buyer and seller events
+does not require Agent execution. `CommissionBlockers` exposes only validated
 job/order/role/status/code for unresolved local work; retain `Snapshot` payload
 redaction. Desktop delivery and OS retries never change business execution state.
 Setup runs before any order arrives.
@@ -378,12 +378,22 @@ result appeared without a prompt bubble. A second call during a controlled busy
 turn was rejected and created no second turn.
 
 main_notice_queue.go persists one notice per notification ID before ACK, separate
-from seller execution and desktop delivery. Signed main-notice.md pins the exact
+from seller execution and desktop delivery. Explicit main-notice capacity overflow
+skips only that notice; business intake, desktop enqueue and ACK continue. Other
+persistence errors retain the existing fail-closed behavior. Signed main-notice.md pins the exact
 Home/server read prefix. Guard identity before/during/after execution. Failure is
 local skipped/unconfirmed with no alternative target or Order mutation. Restarted
 running entries become skipped and are not replayed; retention is bounded.
 Notifications-only mode never invokes an Agent. Internal input coordination remains
 silent and does not enter this lane.
+
+The same serial worker synchronizes existing seller CommissionBlockers into local
+notices keyed by scope/job/order-version/status/code. Use the actual execution version when
+available. Retain receipts while each exact blocker exists, so bounded server
+receipt eviction cannot replay it; retire resolved or changed blockers. Before
+calling the Agent, recheck the job and current seller Order/version/state. Pass
+only fixed diagnostic categories; delayed server issue projection is not local
+success. These notices explain the blocker and never retry the job or change ACKs.
 
 ## Order-entry inspection reuse
 
@@ -411,8 +421,12 @@ Only the authenticated buyer's order.inputs.requested.v1 notice can queue
 commission_clarification. Atomically finish notification intake and admit one
 job per scope/revision/order/question. Use signed clarification-dispatch.md and
 a fresh existing execution adapter; this lane does not imply hidden main-thread
-support or access to previous chats. Supply the frozen Order and its authorized
-buyer_input only. Accept a strict answered/waiting decision; unknown facts remain
+support or access to previous chats. Supply the frozen Order, existing buyer_input
+and verified local copies of that buyer's uploaded input files. The buyer-only
+reader validates manifest role/parties/version, immutable snapshot grants, paths,
+file count, aggregate size and digests. Recheck Order identity/version after
+download; remove private temporary files after execution. Ambient files and prior
+chats remain inaccessible. Accept a strict answered/waiting decision; unknown facts remain
 waiting. Fixed missing-file requests wait without running the model or uploading
 unverified files. Do not scan ambient files or delegate the question to a human.
 
@@ -434,15 +448,19 @@ migration 15 before testing this CLI against the service.
 
 ## Publisher notification permission and buyer confirmation
 
-Before a CLI publish trial, silently Check this computer's OS notification state.
-Denied/unrequested permission produces prominent bilingual stderr guidance with a
-fixed macOS/Windows settings link; unknown remains unknown. Do not Setup/Show/open,
-change stdout or turn a settings click into proof of permission. This warns rather
-than denying a seller's explicitly authorized publish.
+Before publication approval, Skills run notify status --publish-preflight --format
+json on the seller's computer and show any warning with its settings link and
+manual path. The independent read-only Check returns ready, permission_denied,
+permission_required or unknown; it does not register, prompt, show or upload
+telemetry. The publish command retains bilingual stderr guidance as a fallback.
+Preserve existing approval; permission warnings do not add a publication gate or
+claim that clicking the settings link enabled notifications.
 
 The read-only order pending-confirmations command paginates authoritative buyer
 Orders and returns reminders for every normal cycle without a read receipt. Exact
 Commission access denial returns not_enabled and remains quiet, rather than empty.
 Full completed-access heartbeat appends commission_confirmations; standalone Feed
-uses the same Skill rule. Do not expand maintenance/control or baseline access,
+uses the same rule in feed.md, contract.md and the synchronized served static
+contract. Pending confirmation is an explicit exception to Feed silence, including
+empty or unchanged Feed cycles. Do not expand maintenance/control or baseline access,
 append prose to machine Feed JSON, or automatically confirm receipt.

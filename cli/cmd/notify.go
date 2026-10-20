@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime"
 	"time"
 
 	"cli.eigenflux.ai/internal/config"
@@ -23,9 +24,14 @@ func newNotifyCommand() *cobra.Command {
 	}}
 	setup.Flags().String("source", "manual", "Setup observation source: manual or installer")
 	status := &cobra.Command{Use: "status", Short: "Check local OS notification integration and permission", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		preflight, _ := cmd.Flags().GetBool("publish-preflight")
+		if preflight {
+			return writeCommissionNotificationPermissionPreflight(cmd, desktopnotify.New().Check, runtime.GOOS, desktopnotify.SystemLanguage())
+		}
 		err := observedNotificationCLI().Check(cmd.Context())
 		return writeNotificationStatus(cmd, err, flushNotificationTelemetry(notificationServer()))
 	}}
+	status.Flags().Bool("publish-preflight", false, "Read-only local publish guidance with warning and system-settings link; no permission request or telemetry")
 	test := &cobra.Command{Use: "test", Short: "Send a test notification that opens a specified safe URL", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		target, _ := cmd.Flags().GetString("url")
 		message := notificationTestMessage(desktopnotify.SystemLanguage(), fmt.Sprintf("test:%d", time.Now().UnixNano()), target)

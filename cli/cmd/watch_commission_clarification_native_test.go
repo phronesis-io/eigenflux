@@ -43,7 +43,11 @@ func TestCommissionNativeCodexTextClarification(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/orders/901":
 			materialTestResponse(out, map[string]any{"order": order})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/console/trade/orders/901":
-			materialTestResponse(out, map[string]any{"order_id": "901", "role": "seller", "version": order.Version, "state": order.State, "counterparty": map[string]string{"agent_id": "42"}, "files": map[string]any{"input": []any{}}})
+			if order.InputRequest.Status == "waiting_buyer" {
+				materialTestResponse(out, buyerClarificationTestDetail(order, []map[string]any{}))
+			} else {
+				materialTestResponse(out, map[string]any{"order_id": "901", "role": "seller", "version": order.Version, "state": order.State, "counterparty": map[string]string{"agent_id": "42"}, "files": map[string]any{"input": []any{}}})
+			}
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/orders/901/supplement-inputs":
 			var body struct {
 				Version   int64  `json:"expected_version"`

@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -66,6 +67,60 @@ func TestCommissionNotificationPermissionWarning(t *testing.T) {
 				}
 			} else if !strings.Contains(text, "Clicking does not confirm") || !strings.Contains(text, "this computer only") {
 				t.Fatalf("missing native settings boundary: %s", text)
+			}
+		})
+	}
+}
+
+func TestCommissionNotificationPermissionPreflight(t *testing.T) {
+	for _, tt := range []struct {
+		name, platform, status, code string
+		checkErr                     error
+		warning                      bool
+	}{
+		{name: "ready", platform: "darwin", status: "ready"},
+		{name: "mac_denied", platform: "darwin", status: "permission_denied", code: "permission_denied", checkErr: desktopnotify.ErrPermission, warning: true},
+		{name: "windows_unrequested", platform: "windows", status: "permission_required", code: "permission_required", checkErr: desktopnotify.ErrPermissionRequired, warning: true},
+		{name: "windows_unknown", platform: "windows", status: "unknown", code: "pending_first_notification", checkErr: desktopnotify.ErrPendingFirstNotification, warning: true},
+		{name: "helper_missing", platform: "darwin", status: "unknown", code: "helper_missing", checkErr: desktopnotify.ErrHelperMissing, warning: true},
+		{name: "private_error", platform: "windows", status: "unknown", code: "check_failed", checkErr: errors.New("private-provider-data"), warning: true},
+		{name: "timeout", platform: "darwin", status: "unknown", code: "check_timeout", checkErr: context.DeadlineExceeded, warning: true},
+		{name: "cancelled", platform: "darwin", status: "unknown", code: "check_cancelled", checkErr: context.Canceled},
+		{name: "unsupported", platform: "linux", status: "unsupported", code: "unsupported_platform", checkErr: desktopnotify.ErrUnsupported, warning: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var out, diagnostic bytes.Buffer
+			cmd := &cobra.Command{}
+			cmd.SetOut(&out)
+			cmd.SetErr(&diagnostic)
+			cmd.SetContext(context.Background())
+			checked := 0
+			err := writeCommissionNotificationPermissionPreflight(cmd, func(ctx context.Context) error {
+				checked++
+				deadline, ok := ctx.Deadline()
+				if !ok || time.Until(deadline) > 10*time.Second || time.Until(deadline) < 9*time.Second {
+					t.Fatalf("unbounded read-only check: %v %v", deadline, ok)
+				}
+				return tt.checkErr
+			}, tt.platform, "zh")
+			if err != nil || checked != 1 || diagnostic.Len() != 0 {
+				t.Fatalf("preflight must check once and return only JSON: %v, %d, %q", err, checked, diagnostic.String())
+			}
+			var result commissionNotificationPermission
+			if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			if result.Status != tt.status || result.Code != tt.code || (result.Warning != "") != tt.warning {
+				t.Fatalf("incorrect permission fact: %+v", result)
+			}
+			if strings.Contains(out.String(), "private-provider-data") {
+				t.Fatal("provider diagnostic leaked")
+			}
+			if tt.warning && tt.platform != "linux" && (result.SettingsURL == "" || result.SettingsPath == "") {
+				t.Fatalf("warning has no local settings action: %+v", result)
+			}
+			if !tt.warning && (result.SettingsURL != "" || result.SettingsPath != "") {
+				t.Fatal("ready or cancelled check unexpectedly prompted an action")
 			}
 		})
 	}

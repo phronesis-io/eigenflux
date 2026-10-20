@@ -4,12 +4,13 @@ Update this file and cli/internal/dispatch/README.md when this logic changes.
 
 ## Current delivery boundary
 
-Codex macOS main-thread hidden execution is verified and enabled in CLI 1.0.18.
+Codex macOS main-thread hidden execution is verified and enabled since CLI 1.0.18.
+CLI 1.0.19 fixes uploaded-input clarification, auxiliary notice overflow, local
+blocker delivery, Feed reminder contracts and pre-publish permission guidance.
 It uses the existing Desktop owner IPC, not app-server proxy or a new writer.
 The earlier proxy-only probe did not test this route. Windows, Claude Code,
 OpenClaw, WorkBuddy, Hermes and other ACP main-thread transports remain untested
-and disabled. Existing text clarification, inspection reuse, permission warnings
-and periodic buyer reminders remain unchanged.
+and disabled. Inspection reuse and host ownership remain unchanged.
 
 Desktop 26.1013.40934 / Codex 0.163.0-alpha.10.2 accepted empty input plus hidden
 application/untrusted context. The real Go runner completed in 3.614 seconds,
@@ -63,7 +64,11 @@ buyer_input, stores answered, seals a snapshot and notifies the seller to rechec
 the new version. Pending questions block acceptance. One pending question and at
 most three rounds prevent loops. Original deadlines remain unchanged.
 
-The buyer answers only from the supplied authorized Order buyer_input. This lane
+The buyer answers from supplied Order buyer_input and verified uploaded input
+files, including inputs/request.txt used by normal Order creation. The dedicated
+buyer reader validates the current manifest, participants, immutable grants,
+paths, count, size and hashes, then provides private read-only temporary copies.
+Recheck the Order after download and remove the copies after execution. This lane
 does not read prior chats, arbitrary local files or account control context.
 Missing facts
 remain waiting; neither Agent fabricates consent, data or a deliverable. Do not
@@ -87,7 +92,9 @@ existing access guard or falsely claim fully automatic material recovery.
 Every full completed-access heartbeat and standalone Feed cycle queries order
 pending-confirmations once per cycle. Include current pending deliveries and
 links in the host result even without new Feed items. Empty results stay quiet;
-failed checks never mean there are no pending Orders. No one-off timer is created.
+failed checks never mean there are no pending Orders. No one-off timer is created. The same rule is present in the local Feed rules,
+mandatory contract and served static copy, overriding Feed silence only for
+current pending confirmations.
 
 ## Verification (2026-10-20)
 
@@ -103,3 +110,27 @@ sessions (17.25/20.39 seconds) with localhost Order fixtures. It does not establ
 main-thread access. Commission 75908d2 passed real PostgreSQL persistence,
 transaction, notification and migration tests. Deploy that matching backend and
 migration 15 before exercising text clarification against the service.
+
+## Local blockers and publisher permission
+
+Existing seller blockers enter the main-notice worker once per scope/job/order-version/status/
+code, using the actual execution version. Retain the receipt while the blocker
+exists. Recheck current local status and seller Order version/state before
+invocation; resolved or obsolete blockers do not start a turn. Server issue
+projection may lag the verified local failure. Report only; never restart work.
+Explicit main-notice capacity overflow cannot stop business intake or ACK.
+
+Before publication approval, Skills independently run notify status
+--publish-preflight --format json and display any warning, settings link and
+manual path. Preserve existing approval and retain publish stderr as fallback.
+The read-only check does not request permission, show notifications or upload
+telemetry; unknown permission remains unknown.
+
+## Business regression (CLI 1.0.19)
+
+Fixtures cover normal uploaded request.txt with empty legacy buyer_input, buyer
+manifest/grant/hash/identity rejection, notification overflow without lost business
+ACK or desktop delivery, blocker deduplication/restart/retention/resolution and
+actual execution-version routing. Contract tests cover empty Feed reminders and
+permission guidance before publication. These tests do not establish new live
+payment or delivery-confirmation acceptance.

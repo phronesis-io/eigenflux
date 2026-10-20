@@ -38,6 +38,9 @@ func (j *Journal) CommissionBlockers() ([]CommissionBlocker, error) {
 			item.OrderID = data.OrderID
 			item.OrderVersion = data.OrderVersion
 		}
+		if execution := job.CommissionExecution; execution != nil && execution.OrderID == item.OrderID && execution.OrderVersion > 0 {
+			item.OrderVersion = execution.OrderVersion
+		}
 		result = append(result, item)
 	}
 	return result, nil

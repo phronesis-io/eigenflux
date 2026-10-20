@@ -209,3 +209,18 @@ and no user message. The owner separately confirmed the hidden-input UI. These
 are main-thread integration tests with local fixture data, not live payment or
 delivery acceptance. Publisher permission warnings and normal-cycle buyer
 confirmation reminders retain their existing behavior.
+
+### CLI 1.0.19 business fixes
+
+Use matched CLI/Skills 1.0.19 or newer. Before publishing, run notify status
+--publish-preflight --format json separately and display its warning/settings
+link before using existing approval or requesting it. Publish keeps stderr
+guidance as fallback; this adds no mandatory permission gate.
+
+Buyer clarification reads verified uploaded Order inputs, including request.txt,
+through a buyer-only manifest/grant boundary. New-file supplementation remains
+unsupported. Explicit main-notice queue overflow skips only that auxiliary
+notice. Existing local seller blockers notify the bound main conversation once
+per job/order-version/status/code, without restarting work; stale or resolved blockers are
+skipped. Full Feed contracts now preserve pending-confirmation reminders even
+when no Feed item warrants display.

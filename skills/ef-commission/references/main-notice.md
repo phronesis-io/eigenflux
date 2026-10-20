@@ -20,6 +20,12 @@ and machine JSON. Do not send messages to other chats.
 | rejected, cancelled, refunded | Report the authoritative result | Report the authoritative result |
 | refund, settlement or validation processing result | Report the relevant confirmed result or blocker | Report the relevant confirmed result or blocker |
 | review created | Do not repeat a review action | Summarize the actual received review |
+| local execution blocked | Report only the applicable confirmed result | Explain the verified local blocker and current Order state; do not restart work |
+
+For `order.execution.blocked.local.v1`, use the supplied verified local execution
+status/code and read the current Order. Report a blocker only while its Order
+version still matches and remains awaiting_seller or in_progress. Read any
+execution_issue; a missing server projection does not prove local work succeeded.
 
 Do not pay, accept, confirm receipt, refund, cancel, modify terms or restart work
 from a notice. Never infer payment from a generated link or infer withdrawal from
