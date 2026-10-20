@@ -59,6 +59,20 @@ The runner requires explicit endpoints, binaries, private control tokens, and
 test OTP settings. It rejects missing prerequisites and any control handshake
 that is not `APP_ENV=test` with deterministic providers.
 
+## Legacy authentication fixtures
+
+Legacy login no longer creates identities. `LoginAndGetToken` and
+`RegisterAgent` seed a legacy identity and profile in the test database before
+performing real API login. Direct `LoginStart` and `LoginStartRaw` calls never
+seed data; login-policy and OTP tests must explicitly prepare existing identities
+with `EnsureLegacyTestAgent`. Unknown-email tests assert code `410` and no new
+Agent or OTP challenge.
+
+Run `go test ./tests/testutil -run TestEnsureLegacyTestAgentPostgres -count=1`
+with an explicit loopback `PG_DSN` to validate fixture creation and preservation
+of existing identity/profile fields. The test copies the migrated table schema
+into a disposable schema and removes it afterward.
+
 ## Running Tests
 
 Publish persistence has colocated failure, cancellation and own-listing tests
