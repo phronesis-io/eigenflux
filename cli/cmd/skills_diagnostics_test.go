@@ -80,7 +80,7 @@ func TestDoctorCommandReportsRetainedLocalEdits(t *testing.T) {
 func TestSkillsSyncDiagnosticsKeepJSONAndQuietContracts(t *testing.T) {
 	if os.Getenv("EIGENFLUX_SYNC_DIAGNOSTIC_TEST") == "1" {
 		formatFlag = "json"
-		for key, value := range map[string]string{"into": os.Getenv("EIGENFLUX_SKILLS_DIR"), "if-stale": "true", "quiet": os.Getenv("EIGENFLUX_SYNC_DIAGNOSTIC_QUIET")} {
+		for key, value := range map[string]string{"into": os.Getenv("EIGENFLUX_SKILLS_DIR"), "if-stale": os.Getenv("EIGENFLUX_SYNC_DIAGNOSTIC_IF_STALE"), "quiet": os.Getenv("EIGENFLUX_SYNC_DIAGNOSTIC_QUIET")} {
 			if err := skillsSyncCmd.Flags().Set(key, value); err != nil {
 				t.Fatal(err)
 			}
@@ -107,13 +107,43 @@ func TestSkillsSyncDiagnosticsKeepJSONAndQuietContracts(t *testing.T) {
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) }))
 	defer server.Close()
-	for _, quiet := range []string{"false", "true"} {
-		t.Run("quiet="+quiet, func(t *testing.T) {
+	for _, tc := range []struct {
+		name, ifStale, quiet string
+		wantFailure          bool
+	}{
+		{"default failure", "false", "false", true},
+		{"if-stale", "true", "false", false},
+		{"quiet", "false", "true", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			command := exec.Command(os.Args[0], "-test.run=^TestSkillsSyncDiagnosticsKeepJSONAndQuietContracts$")
-			command.Env = append(os.Environ(), "EIGENFLUX_SYNC_DIAGNOSTIC_TEST=1", "EIGENFLUX_SYNC_DIAGNOSTIC_QUIET="+quiet, "EIGENFLUX_SKILLS_DIR="+dir, "EIGENFLUX_CDN_URL="+server.URL, "EIGENFLUX_HOME="+t.TempDir())
+			command.Env = append(os.Environ(), "EIGENFLUX_SYNC_DIAGNOSTIC_TEST=1", "EIGENFLUX_SYNC_DIAGNOSTIC_QUIET="+tc.quiet, "EIGENFLUX_SYNC_DIAGNOSTIC_IF_STALE="+tc.ifStale, "EIGENFLUX_SKILLS_DIR="+dir, "EIGENFLUX_CDN_URL="+server.URL, "EIGENFLUX_HOME="+t.TempDir())
 			var stderr bytes.Buffer
 			command.Stderr = &stderr
 			data, err := command.Output()
+			if tc.wantFailure {
+				exit, ok := err.(*exec.ExitError)
+				if !ok || exit.ExitCode() != 1 {
+					t.Fatalf("default sync must keep generic exit code 1: %v: %s", err, stderr.String())
+				}
+				if len(data) != 0 {
+					t.Fatalf("failed sync changed stdout contract: %s", data)
+				}
+				resolvedDir, resolveErr := filepath.EvalSymlinks(dir)
+				if resolveErr != nil {
+					t.Fatal(resolveErr)
+				}
+				for _, want := range []string{resolvedDir, "remote manifest unavailable", "local revision=", "Keep the existing Skills", "Error: skills sync:"} {
+					if !strings.Contains(stderr.String(), want) {
+						t.Fatalf("default failure lost %q: %s", want, stderr.String())
+					}
+				}
+				content, readErr := os.ReadFile(filepath.Join(folder, "SKILL.md"))
+				if readErr != nil || string(content) != "---\nversion: 1.0.0\n---\nofficial" {
+					t.Fatalf("failed sync changed retained Skill: %q, %v", content, readErr)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("sync failed: %v: %s", err, stderr.String())
 			}
@@ -124,10 +154,10 @@ func TestSkillsSyncDiagnosticsKeepJSONAndQuietContracts(t *testing.T) {
 			if len(result.Diagnostics) != 1 || !result.NoNetwork {
 				t.Fatalf("missing retention diagnostic: %+v", result)
 			}
-			if quiet == "true" && stderr.Len() != 0 {
+			if tc.quiet == "true" && stderr.Len() != 0 {
 				t.Fatalf("quiet sync emitted stderr: %s", stderr.String())
 			}
-			if quiet == "false" && !strings.Contains(stderr.String(), result.SkillsDir) {
+			if tc.quiet == "false" && !strings.Contains(stderr.String(), result.SkillsDir) {
 				t.Fatalf("normal sync hid retention path: %s", stderr.String())
 			}
 		})

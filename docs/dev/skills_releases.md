@@ -124,7 +124,9 @@ requests. Agent Home writes and heartbeat freshness requirements are unchanged.
 that cannot accept a release. Its JSON result keeps the existing fields and adds
 `diagnostics`: the affected absolute path, retention reason, local and target
 Skill versions or bundle revisions when known, and safe recovery instructions.
-Normal invocations also show diagnostics on stderr; `--quiet` keeps stderr quiet
+Normal invocations also show diagnostics on stderr before any error exit,
+including manifest failures that retain an intact local installation. The
+existing nonzero exit code and empty stdout on failure are preserved. `--quiet` keeps stderr quiet
 for retained-content outcomes and leaves diagnostics in JSON for host adapters.
 Permission and installation errors retain their existing nonzero behavior.
 

@@ -53,13 +53,13 @@ reconciled away when they leave the manifest.`,
 			CLIVersion: version,
 			CDNBase:    cdnBase(),
 		})
+		if res != nil && !quiet {
+			printSkillsDiagnostics(res.Diagnostics)
+		}
 		if err != nil {
 			// Generic failure (network/IO/checksum) — NOT auth. Using exit 4
 			// here would make hooks misread a CDN outage as "re-login needed".
 			output.Die(output.ExitError, "skills sync: %v", err)
-		}
-		if !quiet {
-			printSkillsDiagnostics(res.Diagnostics)
 		}
 		if resolveFormat() == "table" {
 			fmt.Printf("skills %s -> %s (source=%s, removed=%d, atomic=%t, stale=%t)\n",
