@@ -34,6 +34,43 @@ and ACP session/permission/cancellation behavior without contacting real users
 or model providers. See [Local Agent Dispatch](agent-dispatch.md) for binding,
 Windows packaging, manual acceptance, and unsupported-host boundaries.
 
+## Agent V2 authentication regressions
+
+Use an isolated PostgreSQL database for `PG_DSN`. Run
+`go test ./api/consolev2 -run 'TestAgentRefreshPostgres|TestRefreshDatabaseFailureClassificationAndRedaction|TestAgentAuthorizationPostgres' -count=1`
+to exercise sliding refresh windows, idempotent response-loss recovery, expired
+versus revoked sessions, nonce/rotation/revocation SQL failures, commit failures,
+and sanitized rejection logs. These tests create synthetic temporary tables and
+must not point at production. Run the full package against a migrated test
+database to include the existing Console flows.
+
+In `cli/`, run `go test ./...` and
+`go test -race ./cmd ./internal/auth -run 'TestStream|TestV2|TestExpiredV2|TestHeartbeatStops|TestCommandFailure' -count=1`.
+The suites use temporary Agent Homes, local HTTP servers, and real local
+WebSocket connections. They cover same-key recovery without account creation,
+concurrent refresh reuse, repeated stream renewal with cursor preservation,
+single-attempt heartbeat failures, and host notification/exit classification.
+Heartbeat authentication-failure regressions use a signed local CDN and verify
+Skills synchronization before a single credential attempt. Feed/Runtime missing
+key tests verify that no replacement identity or authentication request is made.
+Temporary credential failures, including recovery rate limits, retain exit 2
+and the structured non-login notice;
+unrelated endpoint failures do not receive that notice.
+Run `go test ./tests/installv2` with a migrated test database and
+`EIGENFLUX_TEST_CLI` pointing at the built CLI. The real CLI/handler recovery
+test verifies preserved Agent, principal, key, profile, draft, and attribution,
+with public registration enabled and disabled, no extra account or handoff, and
+the guarded manual recovery command using the same endpoint. Revoked expiry
+must exit 4 without provisioning. Unavailable local keys in guarded provisioning
+must also exit 4 with an owner-notification notice and preserve saved credentials.
+Owner-action regressions verify separate instructions for inaccessible local
+identity files and rejected V2 sessions, including the current Home and server,
+an explicit owner reply, revocation confirmation, and preservation of the
+existing host instruction and exit code. They verify that notice generation
+does not modify saved identity files or disclose their contents, that legacy
+failures omit V2-specific actions, and that credential 503/429 failures retain
+their non-login classification without an owner recovery action.
+
 ## Codex installer compatibility
 
 Run `python3 -m unittest discover -s tests/cli_release -p 'test_codex_install.py'`
@@ -76,6 +113,20 @@ Both create and resume must upload and confirm material bytes before finalizing
 when the response has no Order, null, an empty object, or `order_id: 0`.
 Only a positive Order ID matching the preparation permits skipping uploads on
 a finalized retry; malformed, negative or mismatched IDs stop the command.
+
+## Legacy authentication fixtures
+
+Legacy login no longer creates identities. `LoginAndGetToken` and
+`RegisterAgent` seed a legacy identity and profile in the test database before
+performing real API login. Direct `LoginStart` and `LoginStartRaw` calls never
+seed data; login-policy and OTP tests must explicitly prepare existing identities
+with `EnsureLegacyTestAgent`. Unknown-email tests assert code `410` and no new
+Agent or OTP challenge.
+
+Run `go test ./tests/testutil -run TestEnsureLegacyTestAgentPostgres -count=1`
+with an explicit loopback `PG_DSN` to validate fixture creation and preservation
+of existing identity/profile fields. The test copies the migrated table schema
+into a disposable schema and removes it afterward.
 
 ## Running Tests
 
@@ -186,6 +237,15 @@ through real API/Feed/Sort processes. Unit tests under
 `rpc/sort/discovery/needembedding` verify cache identity and invalid vectors.
 
 ## CLI release integrity and Windows download tests
+
+Run `python3 -m unittest discover -s tests/cli_release -p 'test_install_attribution.py'`
+for bounded installer reporting retries, HTTP/business failures, and invalid
+responses. The production shell functions run with an isolated curl fixture.
+`go test ./cmd ./internal/auth ./internal/client` in the CLI module covers V2
+report failure and reprovision retry using the selected server and saved ref.
+The real-CLI `TestCLIInstallRefToV2Identity` in `tests/installv2` also verifies
+that provision repairs a pending install and repeated reports preserve the
+first conversion timestamp.
 
 Run `python3 -m unittest discover -s tests/cli_release -p 'test_cli_artifacts.py'`
 for checksum generation, publisher preflight, failed uploads, public CDN

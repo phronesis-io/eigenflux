@@ -25,7 +25,7 @@ optional server-owned cooling_applies boolean; absent values do not imply exempt
 
 ## Gateway API (port 8080)
 
-Commission allowlist, material routing and deletion projection invariants: [backend map](../../api/commissionaccess/README.md). Agent maintenance observations use `POST /api/v2/maintenance/events:batch`; see [the endpoint contract](../../api/consolev2/maintenance.md).
+Commission allowlist, material routing and deletion projection invariants: [backend map](../../api/commissionaccess/README.md). Agent maintenance observations use `POST /api/v2/maintenance/events:batch`; see [the endpoint contract](../../api/consolev2/maintenance.md). Notification observations include setup, permission checks, OS submission, and correlated watch order notices. `GET /api/v2/console/notification-devices` returns account-private recent device permission observations using Console authentication; see [notification collection and coverage](maintenance-observability.md).
 
 ### Anonymous Commission sharing
 
@@ -872,7 +872,29 @@ identified crawlers, link unfurlers (including Feishu `LarkUrl`), and explicit
 preview/prefetch/prerender requests. These requests create no landing rows or
 ad conversion callbacks. Browser requests from WeChat, QQ, Feishu, Bilibili,
 Xiaohongshu, YouTube, and Reddit remain eligible; app names alone are not
-preview identities. `/r/:ref` serves preview requests without minting invite
+preview identities. UA classification matches complete crawler product identifiers,
+not keywords embedded in app metadata or encoded extension fields. `/r/:ref`
+serves preview requests without minting invite
 tokens or stamping an existing token as fetched. UA/header filtering cannot
 distinguish crawlers that impersonate ordinary browsers. Historical landing
 rows are retained.
+
+Every excluded request emits `install_preview_blocked` with a stage
+(`landing_token`, `invite_instruction`, or `token_instruction`), bounded UA,
+classification reason, matched `crawler_identity`, and the available referral/invite identifier. The matched identity remains visible even when the UA is truncated. Fixed-code
+instruction previews also retain `install_invite_bot` for compatibility; those
+two event names must not be added together. A token-instruction preview does not
+read or update its token. A preview rejected at token creation records only a
+syntactically valid invite code from its body, without resolving it or creating
+rows. Successful webpage token creation records `preview_checked: true` and the
+bounded UA on `install_ref_new` for auditing; it is not proof of a human visitor.
+No request bodies, full referrer queries, or additional client IPs are logged.
+
+The channel dashboard counts browser-entry records separately from direct
+instruction-entry records. Browser automatic-request counts use backend
+`install_preview_blocked` events at `stage=landing_token`, grouped by invite code;
+retained requests before 2026-10-15 18:16:47.666 UTC+8 use the historical Caddy
+classification and channel Referer. The two time intervals are exclusive. Count that stage
+once per request, not once for HTML, assets, and each API request. These request
+counts cannot be subtracted from token counts: rejected previews mint no token,
+while historical tokens have no stored UA evidence for exact reclassification.

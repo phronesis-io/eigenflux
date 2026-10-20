@@ -70,4 +70,26 @@ func TestLoadOrCreateIdentityRejectsSymlink(t *testing.T) {
 	if _, _, _, err := LoadOrCreateIdentity("test"); err == nil {
 		t.Fatal("symlink identity path was accepted")
 	}
+	if _, _, err := LoadIdentity("test"); err == nil {
+		t.Fatal("read-only identity load accepted a symlink")
+	}
+}
+
+func TestLoadIdentityReadsExistingKeyWithoutCreatingMissingFiles(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("EIGENFLUX_HOME", dir)
+	if _, _, err := LoadIdentity("missing"); !os.IsNotExist(err) {
+		t.Fatalf("missing identity error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".eigenflux", "servers", "missing")); !os.IsNotExist(err) {
+		t.Fatalf("read-only identity load created a directory: %v", err)
+	}
+	public, private, _, err := LoadOrCreateIdentity("existing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loadedPublic, loadedPrivate, err := LoadIdentity("existing")
+	if err != nil || !bytes.Equal(public, loadedPublic) || !bytes.Equal(private, loadedPrivate) {
+		t.Fatalf("existing identity changed: %v", err)
+	}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/network/standard"
 
 	"eigenflux_server/api/consolev2"
+	"eigenflux_server/api/install"
 	"eigenflux_server/pkg/config"
 )
 
@@ -45,6 +46,7 @@ func TestCLIInstallRefToV2Identity(t *testing.T) {
 	}
 	live := server.New(server.WithListener(listener), server.WithTransport(standard.NewTransporter))
 	svc.Register(live)
+	install.Register(live, testOrigin)
 	stopped := make(chan error, 1)
 	go func() { stopped <- live.Run() }()
 	t.Cleanup(func() {
@@ -108,16 +110,42 @@ func TestCLIInstallRefToV2Identity(t *testing.T) {
 	if created["created"] != true || h.agent(t, agentID).AcquisitionChannel != "bilibili" {
 		t.Fatalf("delayed CLI provision lost the saved ref: %#v", created)
 	}
+	var installed install.Token
+	if err := h.db.Where("token = ?", ref).First(&installed).Error; err != nil {
+		t.Fatal(err)
+	}
+	if created["install_reported"] != true || installed.Status != "installed" || installed.ReportCount != 1 || installed.ReportedAt <= 0 {
+		t.Fatalf("CLI did not repair missing install report: response=%#v token=%+v", created, installed)
+	}
 	otherRef := h.mint(t, "google", "")
 	reused := provision(home, otherRef)
 	if reused["agent_id"] != agentID || reused["created"] != false || h.agent(t, agentID).AcquisitionChannel != "bilibili" {
 		t.Fatalf("repeated CLI provision changed acquisition: %#v", reused)
 	}
 
+	var repeated, untouched install.Token
+	if err := h.db.Where("token = ?", ref).First(&repeated).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := h.db.Where("token = ?", otherRef).First(&untouched).Error; err != nil {
+		t.Fatal(err)
+	}
+	if reused["install_reported"] != true || repeated.ReportCount != 2 || repeated.ReportedAt != installed.ReportedAt || untouched.ReportCount != 0 {
+		t.Fatalf("repeat report changed conversion/ref: repeated=%+v untouched=%+v", repeated, untouched)
+	}
+
 	directHome := t.TempDir()
 	runCLI(directHome, "server", "update", "--name", "eigenflux", "--endpoint", endpoint)
-	direct := provision(directHome, h.mint(t, "bilibili", ""))
+	directRef := h.mint(t, "bilibili", "")
+	direct := provision(directHome, directRef)
 	if direct["created"] != true || h.agent(t, direct["agent_id"].(string)).AcquisitionChannel != "bilibili" {
 		t.Fatalf("explicit CLI ref did not reach V2 identity: %#v", direct)
+	}
+	var directToken install.Token
+	if err := h.db.Where("token = ?", directRef).First(&directToken).Error; err != nil {
+		t.Fatal(err)
+	}
+	if direct["install_reported"] != true || directToken.Status != "installed" || directToken.ReportCount != 1 {
+		t.Fatalf("explicit ref not reported: %+v", directToken)
 	}
 }

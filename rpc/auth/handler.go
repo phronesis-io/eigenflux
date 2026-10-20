@@ -18,7 +18,6 @@ import (
 
 	"eigenflux_server/kitex_gen/eigenflux/auth"
 	"eigenflux_server/kitex_gen/eigenflux/base"
-	"eigenflux_server/pkg/agentcard"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/email"
@@ -186,10 +185,11 @@ func (s *AuthServiceImpl) buildStartLoginDirectResp(loginResp *auth.VerifyLoginR
 	return resp
 }
 
+const legacyRegistrationRetired = "LEGACY_REGISTRATION_RETIRED: legacy email login cannot create an Agent; follow https://www.eigenflux.ai/install for a new connection"
+
 func (s *AuthServiceImpl) completeEmailLogin(ctx context.Context, normalizedEmail string, clientIP, userAgent *string) (*auth.VerifyLoginResp, error) {
 	var agent *dal.Agent
 	var err error
-	isNew := false
 
 	agent, err = dal.GetAgentByEmail(db.DB, normalizedEmail)
 	if err != nil {
@@ -199,32 +199,14 @@ func (s *AuthServiceImpl) completeEmailLogin(ctx context.Context, normalizedEmai
 	}
 
 	if agent == nil {
-		if s.agentIDGen == nil {
-			return &auth.VerifyLoginResp{
-				BaseResp: &base.BaseResp{Code: 500, Msg: "agent id generator is not initialized"},
-			}, nil
-		}
-		newAgentID, genErr := s.agentIDGen.NextID()
-		if genErr != nil {
-			return &auth.VerifyLoginResp{
-				BaseResp: &base.BaseResp{Code: 500, Msg: "failed to generate agent id: " + genErr.Error()},
-			}, nil
-		}
-		agent, err = dal.CreateMinimalAgent(db.DB, newAgentID, normalizedEmail)
-		if err != nil {
-			return &auth.VerifyLoginResp{
-				BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create agent: " + err.Error()},
-			}, nil
-		}
-		isNew = true
+		return &auth.VerifyLoginResp{
+			BaseResp: &base.BaseResp{Code: 410, Msg: legacyRegistrationRetired},
+		}, nil
 	}
 	if agent.EmailKind != "" && agent.EmailKind != "legacy_real" {
 		return &auth.VerifyLoginResp{
 			BaseResp: &base.BaseResp{Code: 403, Msg: "this identity must use Console V2 authentication"},
 		}, nil
-	}
-	if isNew {
-		agentcard.PublishRebuild(ctx, agent.AgentID, "agent_registered")
 	}
 
 	now := time.Now().UnixMilli()
@@ -265,7 +247,7 @@ func (s *AuthServiceImpl) completeEmailLogin(ctx context.Context, normalizedEmai
 		AgentId:                agent.AgentID,
 		AccessToken:            accessToken,
 		ExpiresAt:              expireAt,
-		IsNewAgent:             isNew,
+		IsNewAgent:             false,
 		NeedsProfileCompletion: needsProfile,
 		BaseResp:               &base.BaseResp{Code: 0, Msg: "success"},
 	}
@@ -302,7 +284,11 @@ func (s *AuthServiceImpl) StartLogin(ctx context.Context, req *auth.StartLoginRe
 		return &auth.StartLoginResp{
 			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to validate login policy"},
 		}, nil
-	} else if existing != nil && existing.EmailKind != "" && existing.EmailKind != "legacy_real" {
+	} else if existing == nil {
+		return &auth.StartLoginResp{
+			BaseResp: &base.BaseResp{Code: 410, Msg: legacyRegistrationRetired},
+		}, nil
+	} else if existing.EmailKind != "" && existing.EmailKind != "legacy_real" {
 		return &auth.StartLoginResp{
 			BaseResp: &base.BaseResp{Code: 400, Msg: "email is unavailable for this login method"},
 		}, nil

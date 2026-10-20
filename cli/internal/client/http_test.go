@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -300,5 +301,40 @@ func TestClientDeleteWithBody(t *testing.T) {
 	c := New(srv.URL, "at_test", "0.0.38", Meta{})
 	if _, err := c.DeleteWithBody("/intent/1", map[string]interface{}{"expected_context_revision": 7}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestUnauthorizedGuidancePreservesIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, want string
+		guidance         bool
+	}{
+		{"empty", "", "agent refresh", true},
+		{"empty JSON", "{}", "agent refresh", true},
+		{"generic", `{"msg":"Unauthorized"}`, "agent refresh", true},
+		{"legacy detail", `{"msg":"token revoked by owner"}`, "token revoked by owner", false},
+		{"typed detail", `{"error":{"code":"AGENT_AUTH_INVALID","message":"credential revoked"}}`, "AGENT_AUTH_INVALID (HTTP 401): credential revoked", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusUnauthorized)
+				io.WriteString(w, tc.body)
+			}))
+			defer server.Close()
+			_, err := New(server.URL, "token", "test", Meta{}).Get("/profile", nil)
+			if err == nil {
+				t.Fatal("expected unauthorized error")
+			}
+			message := err.Error()
+			if !strings.Contains(message, tc.want) || strings.Contains(message, "auth login") {
+				t.Fatalf("unexpected guidance: %s", message)
+			}
+			if tc.guidance && !strings.Contains(message, "preserve this Agent Home") {
+				t.Fatalf("identity preservation missing: %s", message)
+			}
+			if !tc.guidance && strings.Contains(message, "agent refresh") {
+				t.Fatalf("server detail replaced: %s", message)
+			}
+		})
 	}
 }

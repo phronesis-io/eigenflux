@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-14",
+  "timezone": "Asia/Singapore",
+  "deployed_commit": "455be4406636515015de70a80ad9a3847ae008ea",
+  "cohort": {
+    "size": 225,
+    "selection": "External Agents with valid scores on at least 5 Shanghai calendar dates from 2026-10-05 through 2026-10-11; selected before rollback. Keep silent members at zero.",
+    "baseline": [
+      "2026-10-10",
+      "2026-10-11"
+    ],
+    "after": [
+      "2026-10-13"
+    ],
+    "exclude_transition_day": "2026-10-12"
+  },
+  "daily": [
+    {
+      "day": "2026-10-10",
+      "delivered": 49366,
+      "feedback": 24033,
+      "positive": 5575,
+      "pgc_positive": 2091,
+      "ugc_positive": 3477
+    },
+    {
+      "day": "2026-10-11",
+      "delivered": 44503,
+      "feedback": 21534,
+      "positive": 6044,
+      "pgc_positive": 1472,
+      "ugc_positive": 4566
+    },
+    {
+      "day": "2026-10-13",
+      "delivered": 4136,
+      "feedback": 3531,
+      "positive": 1484,
+      "pgc_positive": 353,
+      "ugc_positive": 1131
+    }
+  ],
+  "paired": {
+    "declined": 140,
+    "improved": 44,
+    "unchanged": 41,
+    "zero_positive_after": 93,
+    "lost_all_positive_from_nonzero": 60,
+    "delivered_down_over_80pct": 130
+  },
+  "pre_rollback_channels": {
+    "total_delivery_rows": 93869,
+    "lexical_recent_only_relevance_rows": 88445,
+    "share": 0.9422173454495094
+  }
+}

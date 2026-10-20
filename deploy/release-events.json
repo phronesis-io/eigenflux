@@ -1,1 +1,47 @@
-[]
+[
+  {
+    "id": "discovery-consumed-refill-v1",
+    "kind": "behavior",
+    "deploy_scope": "full",
+    "dashboards": [
+      "recommendation-effect"
+    ],
+    "title": "Empty-page consumed-candidate recovery available",
+    "description": "Default off; enabled Agent buckets can recover matching candidates only when the current recommendation page is empty. Nonempty pages keep their original candidates. Deployment does not activate recovery. Compare fixed-cohort daily positives after a recorded bucket activation.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/415"
+  },
+  {
+    "id": "install-preview-entry-coverage-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "api",
+    "dashboards": [
+      "user-growth"
+    ],
+    "title": "补齐网页与指引预加载识别记录",
+    "description": "新增记录从API健康部署后生效；看板可查保留期内的网页自动请求。历史落地无完整UA证据，不作真人回填；安装补报仍依赖新版CLI，未合并为同一计数单位。",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/416"
+  },
+  {
+    "id": "legacy-email-registration-retired-v1",
+    "kind": "behavior",
+    "deploy_scope": "full",
+    "dashboards": [
+      "user-growth"
+    ],
+    "title": "Legacy email registration retired",
+    "description": "Unknown emails can no longer create Agents through legacy login after the Auth RPC rollout. Existing legacy login remains available. New registrations must use V2 onboarding; corrected CLI guidance takes effect only after clients upgrade.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/427"
+  },
+  {
+    "id": "agent-v2-sliding-renewal-v1",
+    "kind": "behavior",
+    "deploy_scope": "api",
+    "dashboards": [
+      "card-refresh",
+      "auto-publish"
+    ],
+    "title": "Keep active Agent sessions renewable",
+    "description": "Successful refresh rotations advance a rolling 30-day window after API deployment. Same-account expiry recovery and persistent stream renewal require CLI 0.6.7; host notifications and Skills adopt separately. Historical failed checks are not backfilled.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/428"
+  }
+]

@@ -14,18 +14,19 @@ import (
 )
 
 type doctorReport struct {
-	Scheduler            map[string]interface{} `json:"scheduler"`
-	InstallationWritable bool                   `json:"installation_writable"`
-	CLIVersion           string                 `json:"cli_version"`
-	LatestVersion        string                 `json:"latest_version"`
-	Outdated             bool                   `json:"outdated"`
-	SkillsDir            string                 `json:"skills_dir"`
-	HostDetected         string                 `json:"host_detected"`
-	Writable             bool                   `json:"writable"`
-	Stale                bool                   `json:"stale"`
-	Skills               []skills.LocalSkill    `json:"skills"`
-	AutoSync             autoSyncStatus         `json:"auto_sync"`
-	Hint                 string                 `json:"hint,omitempty"`
+	Scheduler            map[string]interface{}  `json:"scheduler"`
+	InstallationWritable bool                    `json:"installation_writable"`
+	CLIVersion           string                  `json:"cli_version"`
+	LatestVersion        string                  `json:"latest_version"`
+	Outdated             bool                    `json:"outdated"`
+	SkillsDir            string                  `json:"skills_dir"`
+	HostDetected         string                  `json:"host_detected"`
+	Writable             bool                    `json:"writable"`
+	Stale                bool                    `json:"stale"`
+	Skills               []skills.LocalSkill     `json:"skills"`
+	AutoSync             autoSyncStatus          `json:"auto_sync"`
+	Diagnostics          []skills.SyncDiagnostic `json:"diagnostics,omitempty"`
+	Hint                 string                  `json:"hint,omitempty"`
 }
 
 // autoSyncStatus surfaces the last background (heartbeat) skills refresh so ops
@@ -81,6 +82,7 @@ silently corrupted or hand-modified.`,
 		for _, s := range rep.Skills {
 			if !s.SHAMatch {
 				anyModified = true
+				rep.Diagnostics = append(rep.Diagnostics, skills.ModifiedDiagnostic(dir, s.Name, s.DisplayVersion, ""))
 			}
 		}
 		if !rep.Writable || anyModified {
@@ -129,7 +131,10 @@ func printDoctorTable(rep doctorReport) {
 		if ver == "" {
 			ver = "-"
 		}
-		fmt.Printf("  %-18s %-8s %s\n", s.Name, ver, flag)
+		fmt.Printf("  %-18s %-8s %s (%s)\n", s.Name, ver, flag, filepath.Join(rep.SkillsDir, s.Name))
+	}
+	for _, d := range rep.Diagnostics {
+		fmt.Printf("  %s: %s\n  %s\n", d.Path, d.Reason, d.Hint)
 	}
 	if rep.Hint != "" {
 		fmt.Printf("\n%s\n", rep.Hint)

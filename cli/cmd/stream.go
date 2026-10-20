@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"os"
 	"os/signal"
@@ -36,8 +38,41 @@ var errStreamUnauthorized = errors.New("stream authentication rejected")
 
 var streamAccessRetryDelay = reconnectMax
 
+// Match the proactive refresh window used by ensureV2Credentials. A minimum
+// delay avoids a tight reconnect loop if a server returns a short-lived token.
+func streamCredentialRefreshDelay(credentials *auth.V2Credentials, now time.Time) time.Duration {
+	delay := time.UnixMilli(credentials.ExpiresAt).Sub(now) - 30*time.Second
+	if delay < time.Second {
+		return time.Second
+	}
+	return delay
+}
+
 type streamDialer interface {
 	Dial(string, http.Header) (*websocket.Conn, *http.Response, error)
+}
+
+type contextStreamDialer struct {
+	ctx context.Context
+	*websocket.Dialer
+}
+
+func (d contextStreamDialer) Dial(rawURL string, headers http.Header) (*websocket.Conn, *http.Response, error) {
+	// Gorilla applies the context deadline to the handshake but does not close
+	// an established socket when that context is canceled before the upgrade.
+	stopCancel := func() bool { return false }
+	ctx := httptrace.WithClientTrace(d.ctx, &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) {
+		stopCancel = context.AfterFunc(d.ctx, func() { info.Conn.Close() })
+	}})
+	conn, response, err := d.Dialer.DialContext(ctx, rawURL, headers)
+	stopCancel()
+	if d.ctx.Err() != nil {
+		if conn != nil {
+			conn.Close()
+		}
+		return nil, response, d.ctx.Err()
+	}
+	return conn, response, err
 }
 
 func streamHandshakeError(response *http.Response, fallback error) error {
@@ -110,6 +145,12 @@ Examples:
   eigenflux stream --cursor 123456789
   eigenflux stream --format json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
+		defer stop()
 		cursor, _ := cmd.Flags().GetString("cursor")
 		// --once: connect, print the first packet (which replays all offline
 		// unread history), then exit. For cold-spawn hosts (codex/gemini/…) that
@@ -126,10 +167,11 @@ Examples:
 		}
 		hasV2, err := auth.HasV2Credentials(srv.Name)
 		if err != nil {
-			return fmt.Errorf("inspect Agent V2 credentials: %w", err)
+			return unavailableV2Identity(fmt.Errorf("inspect Agent V2 credentials: %w", err))
 		}
 		accessToken := ""
 		activeAgentID := ""
+		var activeCredentials *auth.V2Credentials
 		streamPath := "/ws/pm"
 		var notificationClient *client.Client
 		if hasV2 {
@@ -137,6 +179,7 @@ Examples:
 			if credentialErr != nil {
 				return credentialErr
 			}
+			activeCredentials = credentials
 			accessToken = credentials.AccessToken
 			activeAgentID = credentials.AgentID
 			streamPath = "/api/v2/agent/events/ws"
@@ -147,10 +190,10 @@ Examples:
 		} else {
 			credentials, credentialErr := auth.LoadCredentials(srv.Name)
 			if credentialErr != nil {
-				output.Die(output.ExitAuthRequired, "not logged in to server %q — run 'eigenflux auth login --email <email>' first", srv.Name)
+				output.Die(output.ExitAuthRequired, "not logged in to server %q — preserve this Agent Home; use ef-profile for existing-account recovery or ef-onboarding for an explicitly requested new connection", srv.Name)
 			}
 			if credentials.IsExpired() {
-				output.Die(output.ExitAuthRequired, "token expired for server %q — run 'eigenflux auth login --email <email>'", srv.Name)
+				output.Die(output.ExitAuthRequired, "token expired for server %q — preserve this Agent Home and use ef-profile for credential refresh or account recovery", srv.Name)
 			}
 			accessToken = credentials.AccessToken
 		}
@@ -173,18 +216,32 @@ Examples:
 		if normalized, ok := normalizeAccountLanguage(cfg.GetKV("lang")); ok {
 			language = normalized
 		}
-		// Graceful shutdown on interrupt.
-		interrupt := make(chan os.Signal, 1)
-		signal.Notify(interrupt, os.Interrupt)
 
 		// Track latest cursor for reconnect resume.
 		var mu sync.Mutex
 		lastCursor := cursor
 
 		backoff := reconnectMin
-		allowCredentialRefresh := hasV2
 
 		for {
+			if ctx.Err() != nil {
+				return nil
+			}
+			if hasV2 {
+				credentials, credentialErr := ensureV2Credentials(srv.Name, srv.Endpoint)
+				if credentialErr != nil {
+					return credentialErr
+				}
+				if activeAgentID != "" && activeAgentID != credentials.AgentID {
+					mu.Lock()
+					lastCursor = ""
+					mu.Unlock()
+				}
+				activeCredentials = credentials
+				accessToken = credentials.AccessToken
+				activeAgentID = credentials.AgentID
+				myAgentID = credentials.AgentID
+			}
 			mu.Lock()
 			curCursor := lastCursor
 			mu.Unlock()
@@ -213,21 +270,19 @@ Examples:
 			}
 			clientMeta.SetHeaders(dialHeaders)
 			var refresh func() (*auth.V2Credentials, error)
-			if allowCredentialRefresh {
+			if hasV2 {
 				refresh = func() (*auth.V2Credentials, error) {
-					return refreshV2Credentials(srv.Name, srv.Endpoint, true)
+					return refreshV2CredentialsAfterUnauthorized(srv.Name, srv.Endpoint, accessToken)
 				}
 			}
-			conn, refreshedCredentials, refreshAttempted, dialErr := dialStreamWithCredentialRefresh(websocket.DefaultDialer, u.String(), dialHeaders, activeAgentID, refresh)
-			if refreshAttempted {
-				allowCredentialRefresh = false
-			}
+			conn, refreshedCredentials, refreshAttempted, dialErr := dialStreamWithCredentialRefresh(contextStreamDialer{ctx, websocket.DefaultDialer}, u.String(), dialHeaders, activeAgentID, refresh)
 			if refreshedCredentials != nil {
 				if activeAgentID != "" && activeAgentID != refreshedCredentials.AgentID {
 					mu.Lock()
 					lastCursor = ""
 					mu.Unlock()
 				}
+				activeCredentials = refreshedCredentials
 				accessToken = refreshedCredentials.AccessToken
 				activeAgentID = refreshedCredentials.AgentID
 				myAgentID = refreshedCredentials.AgentID
@@ -240,17 +295,14 @@ Examples:
 					if once {
 						return fmt.Errorf("connect failed: %w", dialErr)
 					}
-					// A restriction confirms valid credentials. A later access change
-					// may require another rotation before this stream can connect.
-					allowCredentialRefresh = hasV2
 					select {
 					case <-time.After(streamAccessRetryDelay):
 						continue
-					case <-interrupt:
+					case <-ctx.Done():
 						return nil
 					}
 				}
-				if refreshAttempted {
+				if refreshAttempted && refreshedCredentials == nil {
 					return fmt.Errorf("Agent V2 stream credential refresh failed: %w", dialErr)
 				}
 				if errors.Is(dialErr, errStreamUnauthorized) {
@@ -267,7 +319,7 @@ Examples:
 						backoff = reconnectMax
 					}
 					continue
-				case <-interrupt:
+				case <-ctx.Done():
 					return nil
 				}
 			}
@@ -282,6 +334,18 @@ Examples:
 				return conn.WriteControl(websocket.PongMessage, nil, time.Now().Add(writeWait))
 			})
 
+			var refreshTimer *time.Timer
+			var refreshDue <-chan time.Time
+			if hasV2 && !once {
+				refreshTimer = time.NewTimer(streamCredentialRefreshDelay(activeCredentials, time.Now()))
+				refreshDue = refreshTimer.C
+			}
+			stopRefreshTimer := func() {
+				if refreshTimer != nil {
+					refreshTimer.Stop()
+				}
+			}
+			stopping := make(chan struct{})
 			done := make(chan struct{})
 			shouldReconnect := true
 			var processingErr error
@@ -293,6 +357,11 @@ Examples:
 				for {
 					_, msg, err := conn.ReadMessage()
 					if err != nil {
+						select {
+						case <-stopping:
+							return
+						default:
+						}
 						if websocket.IsCloseError(err, websocket.CloseNormalClosure) {
 							output.PrintMessage("Connection closed normally")
 							shouldReconnect = false
@@ -456,6 +525,7 @@ Examples:
 
 			select {
 			case <-done:
+				stopRefreshTimer()
 				conn.Close()
 				if processingErr != nil {
 					return processingErr
@@ -470,18 +540,22 @@ Examples:
 					if backoff > reconnectMax {
 						backoff = reconnectMax
 					}
-				case <-interrupt:
+				case <-ctx.Done():
 					return nil
 				}
-			case <-interrupt:
-				output.PrintMessage("Interrupted, closing connection...")
-				conn.WriteMessage(websocket.CloseMessage,
-					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-				select {
-				case <-done:
-				case <-time.After(time.Second):
-				}
+			case <-refreshDue:
+				stopRefreshTimer()
+				close(stopping)
 				conn.Close()
+				<-done
+				// The next connection reloads and refreshes credentials under the
+				// same Home lock, preserving the cursor for this Agent.
+				continue
+			case <-ctx.Done():
+				stopRefreshTimer()
+				close(stopping)
+				conn.Close()
+				<-done
 				return nil
 			}
 		}

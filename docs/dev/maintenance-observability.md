@@ -135,6 +135,25 @@ These events cannot change the device permission projection. The exact accepted
 cross-field contract is in `api/consolev2/maintenance.md`; deploy its API support
 before collecting the matching CLI records. No database migration is required.
 
+## Device permission observations
+
+Status observations may include an installation-generated device ID and an
+account-private display name. The authenticated Console endpoint
+`GET /api/v2/console/notification-devices` projects the latest observation per
+device, with stale observations returned as unknown. Sends and watch receipts
+do not establish permission. The API cannot identify the browser's current
+machine or change device settings. See the endpoint contract for freshness,
+validation, and response fields.
+
+## Rollout and coverage
+
+API-only deployment enables acceptance and projection on the existing telemetry
+table; it requires no migration or RPC restart. It does not install CLI, Skills,
+or frontend changes. Collection depends on matching client adoption and a
+successful authenticated upload. Missing events cannot prove an action did not
+occur. Local queues are bounded and may drop records; this is sampled operational
+telemetry, not a complete audit trail. The SQL reports are read-only.
+
 ## Queries
 
 These queries are read-only against the existing event table. Filter to a

@@ -36,16 +36,20 @@ func reportInstallRef(ref, agentID, email string) {
 }
 
 var authCmd = &cobra.Command{
-	Use:   "auth",
-	Short: "Legacy email authentication commands",
-	Long:  "Legacy compatibility for email-based identities. New Agents use `eigenflux agent provision` and bind email optionally in Console V2.",
+	Use:    "auth",
+	Hidden: true,
+	Short:  "Legacy email authentication commands",
+	Long: `Legacy compatibility for existing email-based identities only.
+New Agents must use eigenflux agent provision through ef-onboarding, then verify a real email in Console V2. Email verification is required to complete onboarding.
+For authentication failures, keep the same Agent Home and server and follow ef-profile for credential refresh or existing-account recovery. Do not create or switch identities to recover authentication.`,
 }
 
 var authLoginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Log in to a legacy identity with email",
 	Long: `Legacy compatibility for an existing email-based identity.
-New Agents must use eigenflux agent provision and bind email optionally in Console V2.
+New Agents must use eigenflux agent provision through ef-onboarding, then verify a real email in Console V2. Email verification is required to complete onboarding.
+For authentication failures, keep the same Agent Home and server and follow ef-profile for credential refresh or existing-account recovery. Do not create or switch identities to recover authentication.
 
 Examples:
   eigenflux auth login --email user@example.com
@@ -106,9 +110,8 @@ To intentionally replace the existing identity, re-run with --force.`,
 			return fmt.Errorf("parse login response: %w", err)
 		}
 		if data.VerificationRequired {
-			// The printed command must carry --ref through to verify: new users
-			// always take the OTP path, and verify's report is the only one that
-			// carries their identity — dropping the ref here loses attribution.
+			// Carry --ref through OTP verification so the completed legacy login
+			// can report attribution together with its authenticated identity.
 			ref, _ := cmd.Flags().GetString("ref")
 			ref = strings.TrimSpace(ref)
 			if !refRe.MatchString(ref) {

@@ -94,20 +94,22 @@ var heartbeatPlanCmd = &cobra.Command{
 		cliUpdate := selfupdate.Result{Status: "skipped", Version: version}
 		var restarted bool
 		var updateErr error
+		flushMaintenance := false
 		if !controlOnly {
 			if maintenanceOnly {
 				markMaintenanceAttempt(activeServerName())
 			}
-			defer func() { _ = flushMaintenanceEvents(activeServerName()) }()
+			defer func() {
+				if flushMaintenance {
+					_ = flushMaintenanceEvents(activeServerName())
+				}
+			}()
 			cliUpdate, restarted, updateErr = updateHeartbeatCLI(cmd, cfg, "")
 		}
 		if restarted || updateErr != nil {
 			return updateErr
 		}
-		runtimeReport := runtimeReportResult{Status: "skipped"}
-		if !controlOnly {
-			runtimeReport, _ = reportRuntimeSettings(cfg, "", "", "", "", false)
-		}
+		// Public recovery rules remain available before authenticated work.
 		meta := clientMetaForServerName(activeServerName())
 		skillsScope, _ := maintenanceScope(activeServerName())
 		recordSkills := func(e maintenance.Event) { _ = recordMaintenanceEventAtScope(skillsScope, e) }
@@ -133,6 +135,14 @@ var heartbeatPlanCmd = &cobra.Command{
 				return fmt.Errorf("heartbeat needs CLI >= %s; automatic update %s: %s", res.RequiredCLIVersion, cliUpdate.Status, cliUpdate.Error)
 			}
 			err = nil // Continue only the already-installed compatible rules.
+		}
+		runtimeReport := runtimeReportResult{Status: "skipped"}
+		if !controlOnly {
+			var reportErr error
+			runtimeReport, reportErr = reportRuntimeSettings(cfg, "", "", "", "", false)
+			if isV2CredentialError(reportErr) || v2CredentialNeedsLogin(reportErr) || isAgentAuthUnavailable(reportErr) {
+				return reportErr
+			}
 		}
 		if err != nil || res == nil {
 			if !controlOnly {
@@ -182,6 +192,7 @@ var heartbeatPlanCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		flushMaintenance = !controlOnly
 
 		home, _ := config.HomeDirInfo()
 		shellName, _ := cmd.Flags().GetString("shell")
@@ -286,6 +297,10 @@ var heartbeatPlanCmd = &cobra.Command{
 		// a provisional local bundle can render a plan but cannot unlock V2.
 		if !controlOnly && res.VerifiedManifest && access.OnboardingState == "completed" {
 			if err := pushHeartbeatCompatibility(cfg, heartbeatContractVersion, manifest.Revision); err != nil {
+				if isV2CredentialError(err) || v2CredentialNeedsLogin(err) || isAgentAuthUnavailable(err) {
+					flushMaintenance = false
+					return err
+				}
 				plan.CompatibilityError = err.Error()
 			} else {
 				plan.CompatibilityReported = true
@@ -393,7 +408,7 @@ For new native tasks, the scheduler stores this fixed execution prompt. Store it
 }
 
 func heartbeatSchedulerPrompt(launcher string) string {
-	return "Run one EigenFlux heartbeat cycle. Execute directly: " + launcher + ". Freshly read its installed rule sources and follow its plan in this run. Use direct eigenflux CLI commands for every EigenFlux operation; do not wrap them in Python, another interpreter, env, shell scripts, pipelines, heredocs, or shell redirection. Use CLI flags for runtime metadata and JSON input. Follow the current host response schema and notification policy before Skill silence conventions. Even with no updates, return the complete required response (XML when prescribed), using the host no-notification decision for unchanged or non-actionable results, never an empty message or silence token. Routine cycle completion alone does not warrant notification. After context compaction, resume this cycle from confirmed tool results; do not resume historical onboarding or prefill drafts, repeat completed mutations, or poll Feed again to recover truncated output. Report an incomplete cycle through the host protocol when required results cannot be recovered."
+	return "Run one EigenFlux heartbeat cycle. Execute directly: " + launcher + ". Freshly read its installed rule sources and follow its plan in this run. Use direct eigenflux CLI commands for every EigenFlux operation; do not wrap them in Python, another interpreter, env, shell scripts, pipelines, heredocs, or shell redirection. Use CLI flags for runtime metadata and JSON input. Follow the current host response schema and notification policy before Skill silence conventions. Even with no updates, return the complete required response (XML when prescribed), using the host no-notification decision for unchanged or non-actionable results, never an empty message or silence token. Routine cycle completion alone does not warrant notification. Authentication failure stops this check and requires the host failure notification; use NOTIFY for Codex, state that EigenFlux checks are blocked, and provide the CLI recovery instruction. Do not suppress unresolved authentication failures as unchanged results or repeat an automatic recovery already attempted by the CLI. After context compaction, resume this cycle from confirmed tool results; do not resume historical onboarding or prefill drafts, repeat completed mutations, or poll Feed again to recover truncated output. Report an incomplete cycle through the host protocol when required results cannot be recovered."
 }
 
 func schedulerMigrationForRuntime(host, mode, launcher string) string {

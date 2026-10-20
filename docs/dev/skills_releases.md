@@ -117,3 +117,24 @@ Tests cover read-only no-change checks, read and write permission failures,
 a retry after permissions are granted, concurrent CLI processes, signed sequence
 advancement, offline provisional reuse, ignored files, and recovery before remote
 requests. Agent Home writes and heartbeat freshness requirements are unchanged.
+
+## Retained-content diagnostics
+
+`skills sync` retains locally modified official Skills and intact installations
+that cannot accept a release. Its JSON result keeps the existing fields and adds
+`diagnostics`: the affected absolute path, retention reason, local and target
+Skill versions or bundle revisions when known, and safe recovery instructions.
+Normal invocations also show diagnostics on stderr before any error exit,
+including manifest failures that retain an intact local installation. The
+existing nonzero exit code and empty stdout on failure are preserved. `--quiet` keeps stderr quiet
+for retained-content outcomes and leaves diagnostics in JSON for host adapters.
+Permission and installation errors retain their existing nonzero behavior.
+
+`doctor` reports each modified Skill's exact load path and the same recovery
+instructions in table and JSON output. Back up local edits outside the Skills
+load directory, review and move the modified directory out of the load path,
+then sync the same target directory and refresh the host's Skills context.
+Compatibility failures require upgrading the CLI before retrying. Signed
+rollback failures require a corrected release; retain the local manifest and
+its rollback protection. Skills releases do not require a CLI or plugin release
+unless the minimum supported CLI changes.

@@ -123,32 +123,35 @@ func (r *Request) UnmarshalJSON(raw []byte) error {
 
 type Context struct {
 	// Request-local clock; excluded from persisted context/hash contracts.
-	retrievalAt          int64
-	UnverifiedNeedReason string                    `json:"unverified_need_reason,omitempty"`
-	CapturedNeed         *need.Snapshot            `json:"captured_need,omitempty"`
-	QueryAnalysis        *queryprocessing.Analysis `json:"query_analysis,omitempty"`
-	SourceNeedID         int64                     `json:"source_need_id,string,omitempty"`
-	SourceNeedRevision   int64                     `json:"source_need_revision,omitempty"`
-	ID                   int64                     `json:"context_id,string"`
-	OwnerID              int64                     `json:"agent_id,string"`
-	Revision             int64                     `json:"revision"`
-	Persistence          string                    `json:"persistence"`
-	Origin               string                    `json:"input_origin"`
-	State                string                    `json:"state"`
-	Query                string                    `json:"query,omitempty"`
-	Kinds                []Kind                    `json:"source_kinds"`
-	Filters              Filters                   `json:"effective_filters"`
-	Priority             float64                   `json:"priority"`
-	Origins              map[string]string         `json:"field_origins,omitempty"`
-	SourceRevision       string                    `json:"source_revision,omitempty"`
-	CompilerVersion      string                    `json:"compiler_version"`
-	EmbeddingVersion     string                    `json:"embedding_version,omitempty"`
-	Vector               []float32                 `json:"-"`
-	SpecHash             string                    `json:"spec_hash"`
-	CreatedAt            int64                     `json:"created_at"`
-	UpdatedAt            int64                     `json:"updated_at"`
-	ExpiresAt            int64                     `json:"expires_at,omitempty"`
-	Warnings             []string                  `json:"warnings,omitempty"`
+	retrievalAt           int64
+	excludeConsumedGroups []int64
+	excludeRecalledIDs    []int64
+	createdSince          int64
+	UnverifiedNeedReason  string                    `json:"unverified_need_reason,omitempty"`
+	CapturedNeed          *need.Snapshot            `json:"captured_need,omitempty"`
+	QueryAnalysis         *queryprocessing.Analysis `json:"query_analysis,omitempty"`
+	SourceNeedID          int64                     `json:"source_need_id,string,omitempty"`
+	SourceNeedRevision    int64                     `json:"source_need_revision,omitempty"`
+	ID                    int64                     `json:"context_id,string"`
+	OwnerID               int64                     `json:"agent_id,string"`
+	Revision              int64                     `json:"revision"`
+	Persistence           string                    `json:"persistence"`
+	Origin                string                    `json:"input_origin"`
+	State                 string                    `json:"state"`
+	Query                 string                    `json:"query,omitempty"`
+	Kinds                 []Kind                    `json:"source_kinds"`
+	Filters               Filters                   `json:"effective_filters"`
+	Priority              float64                   `json:"priority"`
+	Origins               map[string]string         `json:"field_origins,omitempty"`
+	SourceRevision        string                    `json:"source_revision,omitempty"`
+	CompilerVersion       string                    `json:"compiler_version"`
+	EmbeddingVersion      string                    `json:"embedding_version,omitempty"`
+	Vector                []float32                 `json:"-"`
+	SpecHash              string                    `json:"spec_hash"`
+	CreatedAt             int64                     `json:"created_at"`
+	UpdatedAt             int64                     `json:"updated_at"`
+	ExpiresAt             int64                     `json:"expires_at,omitempty"`
+	Warnings              []string                  `json:"warnings,omitempty"`
 }
 
 func (c Context) NeedID() int64 {
@@ -218,14 +221,21 @@ type Score struct {
 	Missing       []string           `json:"missing,omitempty"`
 }
 type Candidate struct {
-	LR              *discoverylr.Result `json:"lr,omitempty"`
-	FinalScore      float64             `json:"final_score"`
-	Order           int                 `json:"policy_order,omitempty"`
-	ClaimTTLSeconds int64               `json:"claim_ttl_seconds,omitempty"`
-	Context         Context             `json:"context"`
-	Document        Document            `json:"document"`
-	Score           Score               `json:"score"`
-	Reasons         []string            `json:"policy_reasons,omitempty"`
+	LR *discoverylr.Result `json:"lr,omitempty"`
+	// RatingFeatures is the rating model's input in the order of the contract
+	// recorded in LR.
+	RatingFeatures []float64 `json:"rating_features,omitempty"`
+	FinalScore     float64   `json:"final_score"`
+	// SemanticRank and SemanticTier order similarity-scored candidates in the
+	// semantic experiment; Score keeps the rule contract.
+	SemanticRank    *float64 `json:"semantic_rank,omitempty"`
+	SemanticTier    int      `json:"semantic_tier,omitempty"`
+	Order           int      `json:"policy_order,omitempty"`
+	ClaimTTLSeconds int64    `json:"claim_ttl_seconds,omitempty"`
+	Context         Context  `json:"context"`
+	Document        Document `json:"document"`
+	Score           Score    `json:"score"`
+	Reasons         []string `json:"policy_reasons,omitempty"`
 }
 type ResultItem struct {
 	Ref          SourceRef         `json:"source_ref"`
@@ -261,6 +271,9 @@ func PublicItem(c Candidate) ResultItem {
 		r.Match["scorer_type"] = "lr"
 		r.Match["scorer_version"] = c.LR.ModelVersion
 		r.Match["score_kind"] = "followup_probability"
+		if discoverylr.IsRating(c.LR.Contract) {
+			r.Match["score_kind"] = "positive_rating_probability"
+		}
 	}
 	if c.Document.ExactMatch != "" {
 		r.Match["exact"] = c.Document.ExactMatch

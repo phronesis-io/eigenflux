@@ -1,0 +1,266 @@
+{
+  "authority_bucket_members": 8192,
+  "daily_buckets": 30,
+  "deadline_ms": 750,
+  "environment": "isolated local Redis 7, macOS Docker; not production capacity",
+  "history_members": 65536,
+  "matches": 0,
+  "samples": [
+    {
+      "kind": "sequential",
+      "ms": 65.39,
+      "failed": false
+    },
+    {
+      "kind": "sequential",
+      "ms": 65.917,
+      "failed": false
+    },
+    {
+      "kind": "cold",
+      "ms": 65.946,
+      "failed": false
+    },
+    {
+      "kind": "sequential",
+      "ms": 66.16,
+      "failed": false
+    },
+    {
+      "kind": "sequential",
+      "ms": 66.952,
+      "failed": false
+    },
+    {
+      "kind": "sequential",
+      "ms": 67.081,
+      "failed": false
+    },
+    {
+      "kind": "sequential",
+      "ms": 67.414,
+      "failed": false
+    },
+    {
+      "kind": "sequential",
+      "ms": 67.481,
+      "failed": false
+    },
+    {
+      "kind": "sequential",
+      "ms": 68.515,
+      "failed": false
+    },
+    {
+      "kind": "sequential",
+      "ms": 68.592,
+      "failed": false
+    },
+    {
+      "kind": "sequential",
+      "ms": 69.261,
+      "failed": false
+    },
+    {
+      "kind": "sequential",
+      "ms": 70.126,
+      "failed": false
+    },
+    {
+      "kind": "sequential",
+      "ms": 70.2,
+      "failed": false
+    },
+    {
+      "kind": "sequential",
+      "ms": 70.306,
+      "failed": false
+    },
+    {
+      "kind": "sequential",
+      "ms": 70.735,
+      "failed": false
+    },
+    {
+      "kind": "sequential",
+      "ms": 70.827,
+      "failed": false
+    },
+    {
+      "kind": "sequential",
+      "ms": 71.048,
+      "failed": false
+    },
+    {
+      "kind": "sequential",
+      "ms": 72.622,
+      "failed": false
+    },
+    {
+      "kind": "sequential",
+      "ms": 73.313,
+      "failed": false
+    },
+    {
+      "kind": "sequential",
+      "ms": 74.636,
+      "failed": false
+    },
+    {
+      "kind": "sequential",
+      "ms": 74.671,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 102.97,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 133.864,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 173.576,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 174.467,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 181.782,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 223.863,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 233.449,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 277.994,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 279.637,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 282.529,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 284.144,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 284.158,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 296.953,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 297.438,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 297.447,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 299.694,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 306.307,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 306.788,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 313.114,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 313.116,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 347.482,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 349.061,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 349.151,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 399.881,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 399.895,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 399.909,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 399.993,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 400.699,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 400.714,
+      "failed": false
+    },
+    {
+      "kind": "concurrent6",
+      "ms": 428.827,
+      "failed": false
+    }
+  ],
+  "verified_prefix": 8192
+}

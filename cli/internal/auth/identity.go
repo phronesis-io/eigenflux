@@ -24,7 +24,7 @@ func identityPath(serverName string) string {
 	return filepath.Join(config.HomeDir(), "servers", serverName, "identity.json")
 }
 
-// LoadIdentity reads an existing private identity without generating or replacing it.
+// LoadIdentity reads an existing installation key without creating or replacing it.
 func LoadIdentity(serverName string) (ed25519.PublicKey, ed25519.PrivateKey, error) {
 	path := identityPath(serverName)
 	info, err := os.Lstat(path)

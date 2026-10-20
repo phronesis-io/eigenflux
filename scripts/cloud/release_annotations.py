@@ -16,7 +16,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-DASHBOARDS = {'recommendation-effect', 'card-refresh', 'auto-publish'}
+DASHBOARDS = {'recommendation-effect', 'card-refresh', 'auto-publish', 'user-growth'}
 TAG = 'eigenflux-release'
 PREFIX = 'eigenflux-release-id:'
 DEFAULT_STATE = Path('/var/lib/eigenflux-deployer/annotations')

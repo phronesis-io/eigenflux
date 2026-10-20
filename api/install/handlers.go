@@ -102,6 +102,7 @@ func normalizeLang(s string) string {
 func mintRef(_ context.Context, c *app.RequestContext) {
 	c.Header("Cache-Control", "no-store")
 	if isPreviewRequest(c) {
+		logPreview(c, "landing_token", "", previewMintInviteCode(c))
 		reply(c, http.StatusForbidden, 403, "link preview is not an install visit", nil)
 		return
 	}
@@ -156,7 +157,9 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	event("install_ref_new", t.Token, "channel", t.Channel,
-		"paid", t.ClickID != "" || t.BilibiliTrackID != "" || t.Twclid != "" || t.Gclid != "" || t.XingtuClickID != "" || t.OceanengineClickID != "", "invite_code", t.InviteCode)
+		"paid", t.ClickID != "" || t.BilibiliTrackID != "" || t.Twclid != "" || t.Gclid != "" || t.XingtuClickID != "" || t.OceanengineClickID != "", "invite_code", t.InviteCode,
+		"stage", "landing_token", "preview_checked", true,
+		"user_agent", trunc(string(c.GetHeader("User-Agent")), 512))
 	// The token is now durably created; report this server-confirmed funnel
 	// stage to X when it came from an X ad click.
 	fireXAdsTokenCreatedCallback(t.Token)
@@ -314,6 +317,7 @@ func serveRef(_ context.Context, c *app.RequestContext) {
 		// Link unfurlers fetching a publicly posted invite URL get the doc but
 		// mint nothing — bots must not count as landings in the KOL funnel.
 		if isPreviewRequest(c) {
+			logPreview(c, "invite_instruction", ic.Code, ic.Code)
 			event("install_invite_bot", ic.Code)
 			c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(renderJoinDoc(ic.Code, requestBaseURL)))
 			return
@@ -338,6 +342,7 @@ func serveRef(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	if isPreviewRequest(c) {
+		logPreview(c, "token_instruction", ref, "")
 		c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(renderJoinDoc(ref, requestBaseURL)))
 		return
 	}

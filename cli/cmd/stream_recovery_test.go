@@ -161,6 +161,9 @@ func TestStreamRefreshRestrictionWaitsAndCanRefreshAfterAccessChanges(t *testing
 				}))
 				defer server.Close()
 				cfg, serverName := runtimeTestConfig(t, server.URL, true)
+				if _, _, _, err := auth.LoadOrCreateIdentity(serverName); err != nil {
+					t.Fatal(err)
+				}
 				if err := cfg.UpdateServer(serverName, server.URL, "ws"+strings.TrimPrefix(server.URL, "http")); err != nil {
 					t.Fatal(err)
 				}

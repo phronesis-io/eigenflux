@@ -33,8 +33,8 @@ func (e *APIError) Error() string {
 	if e.ErrorCode != "" {
 		return fmt.Sprintf("%s (HTTP %d): %s", e.ErrorCode, e.StatusCode, e.Msg)
 	}
-	if e.StatusCode == 401 && e.Msg == "" {
-		return "authentication required — run 'eigenflux auth login' first"
+	if e.StatusCode == 401 && (e.Msg == "" || e.Msg == http.StatusText(http.StatusUnauthorized)) {
+		return "authentication required — preserve this Agent Home; use eigenflux agent refresh for an existing V2 identity, or ef-profile for account recovery"
 	}
 	return fmt.Sprintf("API error (HTTP %d): %s", e.StatusCode, e.Msg)
 }

@@ -4,6 +4,7 @@ import "github.com/prometheus/client_golang/prometheus"
 
 // Labels contain bounded modes, source kinds and evaluator reason codes only.
 var (
+	DiscoveryRefill            = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "discovery_consumed_refill_total", Help: "Bounded consumed-candidate refill outcomes."}, []string{"outcome"})
 	DiscoveryLRScoring         = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "discovery_lr_scoring_total", Help: "Discovery LR candidate batches by outcome."}, []string{"result"})
 	DiscoveryLRReload          = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "discovery_lr_reload_total", Help: "Discovery LR local model load outcomes."}, []string{"result"})
 	DiscoveryContextCache      = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "discovery_context_cache_total", Help: "Discovery input and compiled-value cache outcomes."}, []string{"scope", "outcome"})
@@ -16,6 +17,6 @@ var (
 )
 
 func init() {
-	Registry.MustRegister(DiscoveryLRScoring, DiscoveryLRReload)
+	Registry.MustRegister(DiscoveryLRScoring, DiscoveryLRReload, DiscoveryRefill)
 	Registry.MustRegister(DiscoveryContextCache, DiscoveryNeedEmbedding, DiscoveryRecordingFailures, DiscoveryDuration, DiscoveryRejected, DiscoveryChannelFailures, DiscoveryFallback)
 }

@@ -95,7 +95,10 @@ func (s *Service) loadConsoleSessionCredential(db *gorm.DB, credential consoleCo
 		JOIN agent_principals p ON p.principal_id = s.principal_id
 		JOIN agents a ON a.agent_id = s.agent_id
 		WHERE s.session_id = ? AND s.status = 'active'`, credential.SessionID).Scan(&session).Error
-	if err != nil || session.SessionID == "" ||
+	if err != nil {
+		return consoleSession{}, err
+	}
+	if session.SessionID == "" ||
 		subtle.ConstantTimeCompare([]byte(session.SecretHash), []byte(hashString(credential.Secret))) != 1 {
 		return consoleSession{}, errUnauthorized
 	}
@@ -108,7 +111,15 @@ func validConsoleSessionAt(session consoleSession, now int64) bool {
 			session.PrincipalStatus, session.PrincipalRevokedAt)
 }
 
-func (s *Service) resolveActiveConsoleSession(c *app.RequestContext, now int64) (int, consoleSession, error) {
+type consoleSessionStorageError struct {
+	reason string
+	cause  error
+}
+
+func (e *consoleSessionStorageError) Error() string { return "Console session storage is unavailable" }
+func (e *consoleSessionStorageError) Unwrap() error { return e.cause }
+
+func (s *Service) resolveActiveConsoleSession(ctx context.Context, c *app.RequestContext, now int64) (int, consoleSession, error) {
 	preferred := activeConsoleSlot(c)
 	order := []int{preferred}
 	for slot := 0; slot < maxConsoleAccountSlots; slot++ {
@@ -123,15 +134,20 @@ func (s *Service) resolveActiveConsoleSession(c *app.RequestContext, now int64) 
 			continue
 		}
 		foundCredential = true
-		session, err := s.loadConsoleSessionCredential(s.db, credential)
+		session, err := s.loadConsoleSessionCredential(s.authenticationDB(ctx), credential)
 		if err != nil {
-			continue
+			if errors.Is(err, errUnauthorized) {
+				continue
+			}
+			return 0, consoleSession{}, &consoleSessionStorageError{reason: "session_lookup_failed", cause: err}
 		}
 		if !validConsoleSessionAt(session, now) {
 			if !validActiveIdentityBinding(session.AgentID, session.PrincipalAgentID, session.IdentityState,
 				session.PrincipalStatus, session.PrincipalRevokedAt) {
-				s.db.Exec(`UPDATE console_v2_sessions SET status = 'revoked', revoked_at = ?
-					WHERE session_id = ? AND status = 'active'`, now, session.SessionID)
+				if err := s.authenticationDB(ctx).Exec(`UPDATE console_v2_sessions SET status = 'revoked', revoked_at = ?
+					WHERE session_id = ? AND status = 'active'`, now, session.SessionID).Error; err != nil {
+					return 0, session, &consoleSessionStorageError{reason: "session_revocation_failed", cause: err}
+				}
 			}
 			continue
 		}

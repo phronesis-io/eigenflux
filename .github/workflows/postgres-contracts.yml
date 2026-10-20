@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - 'api/consolev2/**'
+      - 'tests/installv2/**'
+      - 'cli/cmd/v2_*.go'
+      - 'cli/cmd/agent_v2.go'
+      - 'cli/internal/auth/**'
       - 'rpc/auth/**'
       - 'api/dal/**'
       - 'api/middleware/**'
@@ -21,6 +25,7 @@ on:
       - 'pipeline/consumer/**'
       - 'rpc/item/**'
       - 'rpc/sort/discovery/**'
+      - 'scripts/discovery_fidelity_replay/**'
       - 'rpc/pm/dal/**'
       - 'tests/pmtimestampbackfill/**'
       - 'pkg/consolev2retention/**'
@@ -36,6 +41,10 @@ on:
     branches: [main]
     paths:
       - 'api/consolev2/**'
+      - 'tests/installv2/**'
+      - 'cli/cmd/v2_*.go'
+      - 'cli/cmd/agent_v2.go'
+      - 'cli/internal/auth/**'
       - 'rpc/auth/**'
       - 'api/dal/**'
       - 'api/middleware/**'
@@ -53,6 +62,7 @@ on:
       - 'pipeline/consumer/**'
       - 'rpc/item/**'
       - 'rpc/sort/discovery/**'
+      - 'scripts/discovery_fidelity_replay/**'
       - 'rpc/pm/dal/**'
       - 'tests/pmtimestampbackfill/**'
       - 'pkg/consolev2retention/**'
@@ -103,6 +113,10 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Bounded recommendation refill contracts
+        run: |
+          go test -race ./rpc/sort/discovery ./rpc/feed/delivery ./pkg/config ./scripts/discovery_fidelity_replay
+          python3 -m unittest discover -s scripts/discovery_fidelity_replay -p 'test*report.py'
       - name: Apply every migration and rollout helper
         run: bash scripts/common/migrate_up.sh
       - name: Verify broadcast keyword expiry query
@@ -132,10 +146,16 @@ jobs:
         run: go test -count=1 ./pkg/testaccountreset && go vet ./scripts/test_account_reset
       - name: Verify runtime observation and request identity
         run: go test -count=1 ./api/dal ./api/middleware ./pkg/reqinfo ./pkg/runtimeidentity
+      - name: Verify CLI installation reporting through V2 provision
+        run: |
+          (cd cli && go build -o ../build/eigenflux-cli .)
+          EIGENFLUX_TEST_CLI="$GITHUB_WORKSPACE/build/eigenflux-cli" go test -count=1 ./tests/installv2
       - name: Verify short-ID install attribution
         run: go test -count=1 ./api/install -run '^TestPostgresShortIDInviteAttribution$'
       - name: Verify Console V2 PostgreSQL flow and races
         run: go test -count=1 ./api/consolev2 -run 'Test(ConsoleV2ProvisionHandoffAndOnboardingFlow|HistoricalRecovery.*|Postgres.*|RuntimeObservationPostgresHTTP)'
+      - name: Verify V2 renewal, recovery failures, and sanitized auth logs
+        run: go test -count=1 ./api/consolev2 -run '^Test(AgentRefreshPostgres|AgentAuthorizationPostgres|ExistingIdentityRecoveryPostgres|RefreshDatabaseFailure|ProvisionDatabaseFailures|ProvisionInvalidProofConsumption|ProvisionReceiptConflict|ConsoleAuth)'
       - name: Verify isolated OTP retry and concurrent consumption
         env:
           AUTH_RETRY_PG_DSN: postgres://postgres:postgres@127.0.0.1:5432/eigenflux?sslmode=disable

@@ -76,3 +76,58 @@ recall and authoritative hydration while preserving creation times and IDs.
 Model re-extraction variability
 remains part of the sensitivity; these estimates do not establish causal uplift.
 `pgc_pipeline_replay -workers N` defaults to 8 and accepts 1–32 bounded workers.
+
+## Fixed-cohort consumed-candidate replay
+
+`-mode refill-capture` requires `cohort.json` containing exactly 225 distinct
+`{"AgentID": <int64>}` rows chosen before comparing outcomes, plus frozen deployed
+`rules.json`, `model.json` and `rerank.yaml`. It compiles current contexts for every
+Agent, including Agents absent from recent delivery logs, reads all enabled
+recall channels, and captures up to 640 additional lexical hits per context.
+It copies live forward hashes into isolated local Redis before authoritative
+hydration; repairs write only there. Shared item forward facts and injection
+claims are frozen on first observation per capture process (bounded at 100,000
+items); owner-specific authority and consumption are read for each Agent. Capture workers have separate scratch Redis databases (six by default;
+`REFILL_CAPTURE_WORKERS=1..12`), at most six ES/remote-Redis connections and
+four read-only PG connections.
+Failures remain errors and are retried by a later invocation; they are not zeros.
+
+For a slow SSH tunnel, `REFILL_CAPTURE_SSH_HOST=<read-host>` streams production
+query bodies through six bounded, read-only SSH workers. They execute only item
+searches and read-only consumption scripts, and calculate the same content
+fingerprint near the data; full source
+text crosses the connection only for exclusion filters. A cross-language parity
+test covers Unicode, HTML escaping, slot ordering and IDs above 2^53.
+Consumption parity tests cover owner isolation, the 30-day boundary and chunking. This mode
+requires the read host's `/etc/eigenflux/runtime.env` and Python standard library;
+it creates no remote files and sends no delivery/feedback requests. The normal
+local capture transport narrows friend recall to IDs because that channel only
+consumes IDs. `REFILL_CAPTURE_VERBOSE=1` logs query sizes and timings, not values.
+
+`-mode refill-replay` runs the production Engine, deployed rules/LR/rerank,
+200-candidate Feed prefetch and page source ceilings for 24 repeated refresh
+requests of 20 slots per Agent. Each arm independently advances consumption and
+shared cross-Agent injection claims. It verifies A/A equality from the same
+captured inputs and rejects duplicate/initially consumed delivery. This is a
+frozen-supply exhaustion scenario, not a reconstruction of a historical day:
+time, contexts and supply stay fixed; claims do not expire; no new content,
+context updates, request-frequency differences or cache `load_more` schedule are
+invented. A/A checks snapshot determinism, not historical causality.
+
+A truncated capture is flagged when fewer than 80 refill rows remain or the
+bounded history prefix drops an initially excluded group. Such arms are censored
+and cannot establish the release gate. The 8,192-group production history bound
+and 750 ms optional budget stay active during replay; online dependency latency
+must be measured separately because frozen sources are local.
+
+`refill_report.py --dir <private-dir> --out <sanitized-dir>` emits anonymous
+per-Agent CSV rows, request-by-request source mix, rejection stages, original-item
+retention, friend provenance independent of winning context, and two
+positive-event sensitivities. The enabled serving arm uses empty-page recovery;
+nonempty and partial pages keep the baseline snapshot. It requires `rate-history.jsonl` with fixed-window
+Agent/source/age delivery and positive-event counts. Both estimates use a
+20-delivery cohort prior: source-only and source-plus-age. Missing exposure
+support is an error; unlinked feedback is not classified as negative. Event lag,
+missing impression linkage and exposure selection prevent interpreting these
+as calibrated positive probabilities or causal daily uplift. Keep credentials,
+cohort IDs, queries and item snapshots out of the repository and PR.

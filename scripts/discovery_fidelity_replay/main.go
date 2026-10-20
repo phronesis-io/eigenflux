@@ -35,11 +35,19 @@ type readOnlyRedis struct{}
 func (readOnlyRedis) DialHook(next redis.DialHook) redis.DialHook { return next }
 func allowed(cmd redis.Cmder) error {
 	switch strings.ToLower(cmd.Name()) {
+	case "eval_ro":
+		if allowedConsumptionVerification(cmd.Args()) {
+			return nil
+		}
+		// Only the bounded, read-only consumption-history script is permitted.
+		if len(cmd.Args()) == 5 && fmt.Sprint(cmd.Args()[1]) == captureHistoryScript && fmt.Sprint(cmd.Args()[2]) == "1" && strings.HasPrefix(fmt.Sprint(cmd.Args()[3]), "impr:agent:") && fmt.Sprint(cmd.Args()[4]) == "65536" {
+			return nil
+		}
 	case "client":
 		if len(cmd.Args()) > 1 && strings.ToLower(fmt.Sprint(cmd.Args()[1])) == "setinfo" {
 			return nil
 		}
-	case "hello", "auth", "select", "ping", "get", "mget", "exists", "zrange", "zrangebyscore", "zrevrange", "zrevrangebyscore", "sismember", "smismember", "smembers":
+	case "hello", "auth", "select", "ping", "get", "mget", "exists", "zrange", "zrangebyscore", "zrevrange", "zrevrangebyscore", "sismember", "smismember", "smembers", "scard", "hgetall":
 		return nil
 	}
 	return fmt.Errorf("production Redis command denied: %s", cmd.Name())
@@ -49,7 +57,12 @@ func (readOnlyRedis) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
 		if err := allowed(c); err != nil {
 			return err
 		}
-		return next(ctx, c)
+		start := time.Now()
+		err := next(ctx, c)
+		if os.Getenv("REFILL_CAPTURE_VERBOSE") == "1" {
+			fmt.Fprintf(os.Stderr, "redis %s ms=%d error=%t\n", c.Name(), time.Since(start).Milliseconds(), err != nil)
+		}
+		return err
 	}
 }
 func (readOnlyRedis) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
@@ -59,7 +72,12 @@ func (readOnlyRedis) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.P
 				return err
 			}
 		}
-		return next(ctx, cs)
+		start := time.Now()
+		err := next(ctx, cs)
+		if os.Getenv("REFILL_CAPTURE_VERBOSE") == "1" {
+			fmt.Fprintf(os.Stderr, "redis pipeline commands=%d ms=%d error=%t\n", len(cs), time.Since(start).Milliseconds(), err != nil)
+		}
+		return err
 	}
 }
 func must(err error) {
@@ -101,6 +119,10 @@ func main() {
 	}
 	must(os.MkdirAll(*dir, 0700))
 	cfg := config.Load()
+	if *mode == "refill-replay" {
+		replayRefill(cfg, *dir)
+		return
+	}
 	if *mode == "compare" {
 		counterfactual(cfg, *dir)
 		return
@@ -109,18 +131,29 @@ func main() {
 		replayAll(cfg, *dir)
 		return
 	}
-	if *mode != "capture" && *mode != "evidence" && *mode != "history" && *mode != "observed" {
+	if *mode != "capture" && *mode != "evidence" && *mode != "history" && *mode != "observed" && *mode != "refill-capture" {
 		panic("invalid mode")
 	}
 	// Require server-enforced read-only PG sessions, not a caller promise.
-	db, err := gorm.Open(postgres.New(postgres.Config{DSN: cfg.PgDSN, PreferSimpleProtocol: true}), &gorm.Config{DisableAutomaticPing: true, Logger: glog.Default.LogMode(glog.Silent)})
+	pgConfig := postgres.Config{DSN: cfg.PgDSN, PreferSimpleProtocol: true}
+	if *mode == "refill-capture" {
+		connection, err := captureDB(cfg.PgDSN)
+		must(err)
+		pgConfig.Conn = connection
+	}
+	db, err := gorm.Open(postgres.New(pgConfig), &gorm.Config{DisableAutomaticPing: true, Logger: glog.Default.LogMode(glog.Silent)})
 	must(err)
 	// The provider proxy can stall pgx's comment-only idle-connection ping.
-	// Diagnostics use bounded short-lived read-only sessions instead.
+	// Refill capture uses bounded persistent read-only sessions with the
+	// dedicated liveness wrapper; older modes retain short-lived sessions.
 	sqlDB, err := db.DB()
 	must(err)
 	sqlDB.SetMaxOpenConns(2)
 	sqlDB.SetMaxIdleConns(0)
+	if *mode == "refill-capture" {
+		sqlDB.SetMaxOpenConns(4)
+		sqlDB.SetMaxIdleConns(4)
+	}
 	defer sqlDB.Close()
 	var ro string
 	must(db.Raw("SHOW default_transaction_read_only").Scan(&ro).Error)
@@ -146,13 +179,21 @@ func main() {
 	}
 	scratch := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
 	defer scratch.Close()
-	remote := redis.NewClient(&redis.Options{Addr: os.Getenv("FROZEN_REMOTE_REDIS_ADDR"), Password: cfg.RedisPassword, ReadTimeout: 30 * time.Second, WriteTimeout: 10 * time.Second, PoolSize: 6, MaxRetries: -1, Protocol: 2, MaintNotificationsConfig: &maintnotifications.Config{Mode: maintnotifications.ModeDisabled}})
+	remote := redis.NewClient(&redis.Options{Addr: os.Getenv("FROZEN_REMOTE_REDIS_ADDR"), Password: cfg.RedisPassword, ReadTimeout: 30 * time.Second, WriteTimeout: 10 * time.Second, PoolSize: 6, ReadBufferSize: 1 << 20, WriteBufferSize: 1 << 20, MaxRetries: -1, Protocol: 2, MaintNotificationsConfig: &maintnotifications.Config{Mode: maintnotifications.ModeDisabled}})
 	remote.AddHook(readOnlyRedis{})
 	defer remote.Close()
 	// The offline client crosses an SSH tunnel; use a bounded transport suited
 	// to that latency rather than the production in-VPC five-second header budget.
-	es.Client, err = elasticsearch.NewClient(elasticsearch.Config{Addresses: []string{os.Getenv("ES_URL")}, Username: os.Getenv("ES_USERNAME"), Password: os.Getenv("ES_PASSWORD"), DisableRetry: true, Transport: &http.Transport{MaxIdleConnsPerHost: 6, ResponseHeaderTimeout: 60 * time.Second}})
+	var transport http.RoundTripper = &http.Transport{MaxIdleConnsPerHost: 6, MaxConnsPerHost: 6, ResponseHeaderTimeout: 60 * time.Second}
+	if *mode == "refill-capture" {
+		transport = captureESTransport{next: transport}
+	}
+	es.Client, err = elasticsearch.NewClient(elasticsearch.Config{Addresses: []string{os.Getenv("ES_URL")}, Username: os.Getenv("ES_USERNAME"), Password: os.Getenv("ES_PASSWORD"), DisableRetry: true, Transport: transport})
 	must(err)
+	if *mode == "refill-capture" {
+		captureRefill(cfg, *dir, db, remote, scratch)
+		return
+	}
 	// All contexts from the most recent broadcast recommendation for each Agent;
 	// all channels are executed afresh, including candidates never delivered.
 	var rows []struct {

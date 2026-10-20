@@ -92,7 +92,21 @@ func Query(c Context, k Kind, channel string, limit int) (map[string]any, error)
 		return nil, fmt.Errorf("invalid retrieval limit")
 	}
 	filters, not := []any{}, []any{}
+	if len(c.excludeConsumedGroups) > MaxRefillGroups || len(c.excludeRecalledIDs) > 80 {
+		return nil, fmt.Errorf("refill exclusion budget exceeded")
+	}
+	if k == Broadcast && (channel == "lexical" || channel == "dense") && len(c.excludeConsumedGroups) > 0 {
+		not = append(not, terms("group_id", c.excludeConsumedGroups))
+	}
+	if k == Broadcast && channel == "dense" && c.createdSince > 0 {
+		filters = append(filters, rangeFilter("created_at", "gte", time.UnixMilli(c.createdSince).UTC().Format(time.RFC3339Nano)))
+	}
 	if k == Broadcast && channel == "lexical" {
+		if len(c.excludeRecalledIDs) > 0 {
+			not = append(not, terms("id", c.excludeRecalledIDs))
+		}
+	}
+	if k == Broadcast && (channel == "lexical" || channel == "dense") {
 		at := time.Now()
 		if c.retrievalAt != 0 {
 			at = time.UnixMilli(c.retrievalAt)

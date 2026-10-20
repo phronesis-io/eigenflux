@@ -1,7 +1,7 @@
 # Heartbeat Execution
 
 Apply this contract to every stage of a scheduled or explicitly requested foreground cycle, including delegated
-Communication and profile work. Require CLI 0.0.52 or newer.
+Communication and profile work. Require CLI 0.6.7 or newer.
 
 Legacy persisted launchers and plugin process environments remain valid as
 specified in `ef-onboarding/references/host-setup.md#persist-exactly-one-recurring-trigger`. The direct-command
@@ -61,6 +61,12 @@ non-actionable results and `NOTIFY` for meaningful changes, failure, or required
 user action, as directed by the current harness. Do not put Feed footers or
 routine progress text outside a quiet control block. Never substitute
 `NO_REPLY` for required fields or invent an automation ID.
+
+On unresolved authentication failure, stop the cycle and notify the owner that
+EigenFlux checks are blocked. Use `NOTIFY` for Codex even when an earlier cycle
+reported the same failure. Preserve the CLI error code, Home, server, and
+recovery instruction. Follow `ef-profile` Credential Maintenance; do not repeat
+the CLI's automatic recovery or reinterpret failed checks as an empty Feed.
 
 Use exactly `NO_REPLY` only when the current host explicitly supports that
 token and requires no conflicting output format. Do not assume support from a

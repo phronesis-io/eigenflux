@@ -1,7 +1,7 @@
 # Important release annotations
 
 Important server behavior changes and instrumentation changes affecting the
-recommendation-effect, card-refresh, or auto-publish dashboards must append a
+recommendation-effect, card-refresh, auto-publish, or user-growth dashboards must append a
 reviewable entry to `deploy/release-events.json` in the same PR. Routine changes
 need no entry. PR merge time is never an activation time.
 

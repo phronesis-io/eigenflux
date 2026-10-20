@@ -1106,6 +1106,64 @@ setup_agents() {
 # the campaign from the ref and flips it to "installed" on the first report.
 # Best-effort: a failed or skipped report never blocks the install.
 
+# Validate the top-level API code without optional Python or jq dependencies.
+install_report_response_ok() {
+  awk '
+    function ws() { while (substr(s,p,1) ~ /[ \t\r\n]/ && p <= length(s)) p++ }
+    function string_value(   start,c) {
+      if (substr(s,p++,1) != "\"") return 0
+      start=p
+      while (p <= length(s)) {
+        c=substr(s,p++,1)
+        if (c == "\"") { token=substr(s,start,p-start-1); return 1 }
+        if (c == "\\") {
+          c=substr(s,p++,1)
+          if (c == "u") {
+            if (substr(s,p,4) !~ /^[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]$/) return 0
+            p+=4
+          } else if (c !~ /^["\\\/bfnrt]$/) return 0
+        } else if (c ~ /[[:cntrl:]]/) return 0
+      }
+      return 0
+    }
+    function value(depth,   c,key,start,n,is_code) {
+      if (depth > 64) return 0
+      ws(); c=substr(s,p,1)
+      if (c == "\"") return string_value()
+      if (c == "{" || c == "[") {
+        p++; ws()
+        if (substr(s,p,1) == (c == "{" ? "}" : "]")) { p++; return 1 }
+        while (p <= length(s)) {
+          is_code=0
+          if (c == "{") {
+            if (!string_value()) return 0
+            key=token; ws()
+            if (substr(s,p++,1) != ":") return 0
+            ws(); is_code=(depth == 0 && key == "code")
+          }
+          start=p
+          if (!value(depth+1)) return 0
+          if (is_code) {
+            n=substr(s,start,p-start); gsub(/[ \t\r\n]/,"",n)
+            if (seen++ || n != "0") return 0
+            success=1
+          }
+          ws(); n=substr(s,p++,1)
+          if (n == (c == "{" ? "}" : "]")) return 1
+          if (n != ",") return 0
+          ws()
+        }
+        return 0
+      }
+      if (match(substr(s,p),/^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?/)) { p+=RLENGTH; return 1 }
+      if (match(substr(s,p),/^(true|false|null)/)) { p+=RLENGTH; return 1 }
+      return 0
+    }
+    { s=s $0 "\n" }
+    END { p=1; ws(); valid=(substr(s,p,1)=="{" && value(0)); ws(); exit !(valid && success && p>length(s)) }
+  '
+}
+
 report_attribution() {
   [ -n "$INSTALL_REF" ] || return 0
 
@@ -1119,15 +1177,30 @@ report_attribution() {
   payload=$(printf '{"ref":"%s","metadata":{"os":"%s","arch":"%s","via":"install.sh"}}' \
     "$INSTALL_REF" "$os" "$arch")
 
-  code=$(curl -s -o /dev/null -w '%{http_code}' \
-    -X POST -H "Content-Type: application/json" \
-    -d "$payload" "${EIGENFLUX_API_URL}/api/v1/install/report" 2>/dev/null || echo 000)
-
-  if [ "$code" = "200" ]; then
-    ok "Install attributed (ref ${INSTALL_REF})"
-  else
-    info "Attribution report skipped (HTTP ${code}); install continues"
-  fi
+  attempt=1
+  while [ "$attempt" -le 3 ]; do
+    curl_status=0
+    response=$(curl -s --connect-timeout 5 --max-time 15 -w '\n%{http_code}' \
+      -X POST -H "Content-Type: application/json" \
+      -d "$payload" "${EIGENFLUX_API_URL}/api/v1/install/report" 2>/dev/null) || curl_status=$?
+    code=$(printf '%s\n' "$response" | tail -n 1)
+    body=$(printf '%s\n' "$response" | sed '$d')
+    if [ "$curl_status" -eq 0 ] && [ "$code" = "200" ] && printf '%s' "$body" | install_report_response_ok; then
+      ok "Install attributed (ref ${INSTALL_REF})"
+      return 0
+    fi
+    if [ "$curl_status" -eq 0 ]; then
+      case "$code" in
+        408|429|5??|200) ;;
+        *) break ;;
+      esac
+    fi
+    [ "$attempt" -lt 3 ] || break
+    sleep "$attempt"
+    attempt=$((attempt + 1))
+  done
+  info "CLI installation succeeded, but attribution reporting is incomplete (HTTP ${code:-unknown}, curl ${curl_status}); installation continues."
+  return 0
 }
 
 # ── Main ──────────────────────────────────────────────────────

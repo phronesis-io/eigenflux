@@ -205,6 +205,27 @@ func TestAutomaticRegistrationChallengeBindsRequestToPublicKey(t *testing.T) {
 	}
 }
 
+func TestExistingAgentRecoveryChallengeBindsKeyAndExpectedAccount(t *testing.T) {
+	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	poster := &captureV2Poster{}
+	grant, nonce, err := requestExistingAgentRecoveryChallenge(poster, publicKey, "42")
+	if err != nil || grant != "efbg_auto" || nonce != "efn_auto" {
+		t.Fatalf("recovery challenge: grant=%q nonce=%q error=%v", grant, nonce, err)
+	}
+	if poster.path != "/agent-identities/recovery-challenges" ||
+		poster.body["expected_agent_id"] != "42" ||
+		poster.body["public_key"] != base64.RawURLEncoding.EncodeToString(publicKey) {
+		t.Fatalf("recovery challenge lost account/key binding: path=%q body=%v", poster.path, poster.body)
+	}
+	poster.path = ""
+	if _, _, err := requestExistingAgentRecoveryChallenge(poster, publicKey, ""); !isV2IdentityUnavailable(err) || poster.path != "" {
+		t.Fatalf("missing expected account reached the server: path=%q error=%v", poster.path, err)
+	}
+}
+
 type legacyUpgradePoster struct {
 	captureV2Poster
 }
@@ -374,7 +395,7 @@ func TestProvisionLiteralDraftReachesSignedRequest(t *testing.T) {
 		calls++
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/api/v2/agent-identities/registration-challenges":
+		case "/api/v2/agent-identities/recovery-challenges":
 			fmt.Fprint(w, `{"code":0,"data":{"bootstrap_grant":"test-grant","nonce":"test-nonce"}}`)
 		case "/api/v2/agent-identities/provision":
 			if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
