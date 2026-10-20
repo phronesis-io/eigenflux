@@ -23,6 +23,59 @@ authorization checks. Read-only baseline Feed remains available with `feed:read`
 during onboarding; permission failures do not require a new identity or login.
 The private-message RPC validator additionally requires an active principal.
 
+## Agent V2 renewal and recovery
+
+Each successful refresh rotation creates a successor with a full 15-minute
+access lifetime and a refresh deadline 30 days from that rotation's database
+clock. Activity that refreshes credentials therefore advances the window;
+ordinary access validation does not itself extend a refresh deadline. A retry
+with the same rotation request returns the existing successor without extending
+either lifetime again. That retry remains valid after the predecessor's old
+deadline while its successor is current and unexpired. A stale or different
+rotation request still revokes the family as reuse.
+
+Refresh challenges and refresh completion return `401 REFRESH_EXPIRED` only for
+an expired, unrevoked leaf belonging to an active principal and identity.
+Revoked credentials, invalid proofs, and reuse retain their distinct rejection
+paths. SQL read, nonce consumption, rotation, revocation, and commit failures
+return `503 AGENT_AUTH_UNAVAILABLE`; they cannot be reported as expiry or a
+successful revocation. Refresh rejections produce one structured log containing
+phase, reason, trace ID, available internal IDs, and SQLSTATE for database
+failures. These handlers suppress raw ORM error logs and never log bearer
+tokens, their hashes, nonces, signatures, raw SQL, or database error text.
+
+CLI 0.6.6 refreshes near access expiry and retries one rejected request. On
+`REFRESH_EXPIRED` it uses the selected Home's existing Ed25519 key to provision
+with `expected_agent_id` and no handoff. It persists credentials only after
+verifying the same Agent/principal, explicit `created:false`, and complete valid
+credentials. Missing keys never trigger key creation. Other 401s, reuse,
+revocation, 503s, and network failures never enter automatic provisioning.
+Concurrent processes reuse newly saved credentials under the credentials lock.
+Provisioning without an onboarding draft preserves the existing draft; explicit
+draft updates retain their existing semantics. Provision database failures also
+return `503 AGENT_AUTH_UNAVAILABLE` with sanitized phase and reason logs.
+
+The CLI stream renews credentials before expiry, closes the old socket, and
+reconnects with the new access token and existing cursor. Each handshake has its
+own single authentication retry. V1 and `--once` streams keep their existing
+lifecycle. Heartbeat planning stops after a credential acquisition failure
+instead of repeating authentication in a later stage; unrelated runtime
+metadata reporting failures remain nonfatal.
+
+Unresolved authentication failures exit with code 4 and append a structured
+`eigenflux_auth_required.v1` notice to stderr. It preserves Home and server,
+marks checks blocked, and requires the host failure notification (`NOTIFY` in
+Codex), including later failed cycles. The Skills prohibit repeating recovery
+already attempted by the CLI. Service/network failures retain a non-login exit
+classification and must not prompt identity replacement.
+
+Console browser session lookup, stale-identity revocation, and sliding idle
+renewal failures return `503 CONSOLE_AUTH_UNAVAILABLE` with sanitized reason
+logs. Invalid, expired, revoked, and wrong-secret sessions retain 401. A failed
+lookup never silently selects another account to hide a storage outage.
+
+## Legacy email authentication limits
+
 Login start IP rate limiting (30 times/10min) always applies. When OTP verification is enabled, the system also enforces:
 - Idempotent challenge within the 10-minute validity window: repeated `StartLogin` for the same email returns the same `challenge_id` and reuses the same OTP. Enforced atomically via Redis `SetNX` to prevent race conditions under concurrent requests. Each call still sends the email and counts toward the IP rate limit.
 - Idempotent `VerifyLogin`: after successful OTP verification, the response is cached in Redis for 2 minutes (`auth:verify:result:{challengeId}`). Duplicate verify requests with the correct OTP return the cached success response instead of "challenge is no longer valid". This prevents client double-click scenarios from causing login loops. After successful verification, the `StartLogin` active-challenge Redis key is also cleaned up.

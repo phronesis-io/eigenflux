@@ -221,6 +221,40 @@ type v2Poster interface {
 	Post(path string, body interface{}) (*client.APIResponse, error)
 }
 
+type provisionV2Response struct {
+	AgentID         string   `json:"agent_id"`
+	PrincipalID     string   `json:"principal_id"`
+	Created         bool     `json:"created"`
+	AccessToken     string   `json:"access_token"`
+	RefreshToken    string   `json:"refresh_token"`
+	ExpiresAt       int64    `json:"expires_at"`
+	Scopes          []string `json:"scopes"`
+	NextStep        int16    `json:"next_step"`
+	createdProvided bool
+}
+
+func requestV2Provision(v2 v2Poster, request provisionV2Request, privateKey ed25519.PrivateKey) (*provisionV2Response, error) {
+	transcript, err := provisionV2Transcript(request)
+	if err != nil {
+		return nil, err
+	}
+	request.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, transcript))
+	response, err := v2.Post("/agent-identities/provision", request)
+	if err != nil {
+		return nil, err
+	}
+	var provisioned provisionV2Response
+	if json.Unmarshal(response.Data, &provisioned) != nil || provisioned.AgentID == "" || provisioned.AccessToken == "" {
+		return nil, fmt.Errorf("invalid Agent V2 provision response")
+	}
+	var presence struct {
+		Created *bool `json:"created"`
+	}
+	_ = json.Unmarshal(response.Data, &presence)
+	provisioned.createdProvided = presence.Created != nil
+	return &provisioned, nil
+}
+
 func requestAutomaticRegistrationChallenge(v2 v2Poster, publicKey ed25519.PublicKey) (string, string, error) {
 	requestNonce, err := newBrowserNonce()
 	if err != nil {
@@ -359,7 +393,13 @@ var agentV2ProvisionCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		publicKey, privateKey, _, err := auth.LoadOrCreateIdentity(server.Name)
+		var publicKey ed25519.PublicKey
+		var privateKey ed25519.PrivateKey
+		if requireExistingAgent {
+			publicKey, privateKey, err = auth.LoadIdentity(server.Name)
+		} else {
+			publicKey, privateKey, _, err = auth.LoadOrCreateIdentity(server.Name)
+		}
 		if err != nil {
 			return err
 		}
@@ -439,27 +479,9 @@ var agentV2ProvisionCmd = &cobra.Command{
 			FieldProvenance: fieldProvenance,
 			Ref:             ref,
 		}
-		transcript, err := provisionV2Transcript(request)
+		provisioned, err := requestV2Provision(v2, request, privateKey)
 		if err != nil {
 			return err
-		}
-		request.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, transcript))
-		response, err := v2.Post("/agent-identities/provision", request)
-		if err != nil {
-			return err
-		}
-		var provisioned struct {
-			AgentID      string   `json:"agent_id"`
-			PrincipalID  string   `json:"principal_id"`
-			Created      bool     `json:"created"`
-			AccessToken  string   `json:"access_token"`
-			RefreshToken string   `json:"refresh_token"`
-			ExpiresAt    int64    `json:"expires_at"`
-			Scopes       []string `json:"scopes"`
-			NextStep     int16    `json:"next_step"`
-		}
-		if json.Unmarshal(response.Data, &provisioned) != nil || provisioned.AgentID == "" || provisioned.AccessToken == "" {
-			return fmt.Errorf("invalid Agent V2 provision response")
 		}
 		if expectedAgentID != "" && provisioned.AgentID != expectedAgentID {
 			return fmt.Errorf("Agent identity mismatch: expected %s, received %s", expectedAgentID, provisioned.AgentID)

@@ -18,9 +18,16 @@ type runtimeAccess struct {
 func runtimeAccessForServer(serverName string) (runtimeAccess, error) {
 	hasV2, err := auth.HasV2Credentials(serverName)
 	if err != nil {
-		return runtimeAccess{}, err
+		return runtimeAccess{}, unavailableV2Identity(err)
 	}
-	return readRuntimeAccess(newClientForServer(serverName), hasV2)
+	if hasV2 {
+		c, _, err := newV2ClientForServer(serverName, true)
+		if err != nil {
+			return runtimeAccess{}, err
+		}
+		return readRuntimeAccess(c, true)
+	}
+	return readRuntimeAccess(newClientForServer(serverName), false)
 }
 
 func readRuntimeAccess(c *client.Client, v2 bool) (runtimeAccess, error) {

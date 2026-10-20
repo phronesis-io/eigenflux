@@ -240,7 +240,7 @@ func newSettingsClient(cfg *config.Config, serverName string) (*client.Client, e
 	}
 	hasV2, err := auth.HasV2Credentials(serverName)
 	if err != nil {
-		return nil, err
+		return nil, unavailableV2Identity(err)
 	}
 	if hasV2 {
 		c, _, err := newV2ClientForServer(serverName, true)
@@ -318,7 +318,7 @@ func reportRuntimeSettings(cfg *config.Config, mode, model, runtimeName, runtime
 	}
 	hasV2, err := auth.HasV2Credentials(serverName)
 	if err != nil {
-		return result, err
+		return result, unavailableV2Identity(err)
 	}
 	apiFamily := "/api/v1"
 	if hasV2 {
