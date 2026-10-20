@@ -174,6 +174,23 @@ func (w *accountWatch) desktopLoop(ctx context.Context) error {
 				}
 				call, cancel := context.WithTimeout(ctx, 10*time.Second)
 				message, err := w.resolveDesktopServiceName(call, entry.Message)
+				current, currentErr := true, error(nil)
+				if err == nil {
+					current, currentErr = w.buyerMaterialDesktopCurrent(call, entry.Message.ID)
+				}
+				if currentErr == nil && !current {
+					cancel()
+					if err := w.desktop.Complete(entry.Message.ID, true, time.Now()); err != nil {
+						return errors.Join(errWatchDispatchJournal, err)
+					}
+					if err := w.emit("desktop_notification_status", map[string]string{"notification_id": entry.Message.ID, "status": "skipped", "code": "input_request_changed"}); err != nil {
+						return err
+					}
+					continue
+				}
+				if currentErr != nil {
+					err = errDesktopServiceName
+				}
 				if identityErr := w.dispatchIdentityOK(); identityErr != nil {
 					cancel()
 					return identityErr

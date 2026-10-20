@@ -5,12 +5,11 @@ Update this file and cli/internal/dispatch/README.md when this logic changes.
 ## Current delivery boundary
 
 Codex macOS main-thread hidden execution is verified and enabled since CLI 1.0.18.
-CLI 1.0.19 fixes uploaded-input clarification, auxiliary notice overflow, local
-blocker delivery, Feed reminder contracts and pre-publish permission guidance.
+CLI 1.0.20 adds buyer material escalation and staged Order-page supplementation
+to the CLI 1.0.19 business fixes.
 It uses the existing Desktop owner IPC, not app-server proxy or a new writer.
-The earlier proxy-only probe did not test this route. Windows, Claude Code,
-OpenClaw, WorkBuddy, Hermes and other ACP main-thread transports remain untested
-and disabled. Inspection reuse and host ownership remain unchanged.
+The earlier proxy-only probe did not test this route. Windows Codex owner transport remains unimplemented. Claude Code, OpenClaw,
+WorkBuddy, Hermes and other ACP main-thread transports remain untested and disabled. Inspection reuse and host ownership remain unchanged.
 
 Desktop 26.1013.40934 / Codex 0.163.0-alpha.10.2 accepted empty input plus hidden
 application/untrusted context. The real Go runner completed in 3.614 seconds,
@@ -53,7 +52,7 @@ Require host acceptance for hidden-input UI and busy-thread semantics before
 activation. Others, including Claude Code, OpenClaw, WorkBuddy and Hermes, remain
 untested even when independent ACP handshake or new-session tests succeeded.
 
-## Input clarification (text implemented)
+## Input clarification and buyer supplementation
 
 During awaiting_seller, seller needs_input creates request-inputs. Commission
 stores the question and waiting_buyer status, advances the Order version and
@@ -70,22 +69,32 @@ buyer reader validates the current manifest, participants, immutable grants,
 paths, count, size and hashes, then provides private read-only temporary copies.
 Recheck the Order after download and remove the copies after execution. This lane
 does not read prior chats, arbitrary local files or account control context.
-Missing facts
-remain waiting; neither Agent fabricates consent, data or a deliverable. Do not
-send raw execution prompts or secrets. The seller inspects the resolved input once
-and persists its readiness evidence before acceptance. No fees, terms or deadlines
-change during clarification. Ordinary PM auto-reply does not gain Order writes.
-The two coordination events remain silent in desktop/main notices. A
-notifications-only consumer leaves them unacknowledged for an execution owner.
-The matching Commission test branch and migration 15 are required; this commit
-does not deploy them.
+When existing authorized facts suffice, persist the answer silently. When files
+or new facts are needed, persist one buyer desktop and exact-main reminder before
+finishing the automatic attempt. Store only routing/request metadata in the main
+queue. Verify buyer, awaiting_seller, version and request ID before dispatch;
+skip obsolete reminders, including delayed desktop retries after title lookup.
+During a main call, recheck the request every five seconds and at completion;
+cancel invalidated calls and do not record them as delivered. An admitted owner
+turn may still finish; no API can retract an already displayed result. The
+desktop-only owner may drain prior reminders using its pinned buyer identity
+without an execution binding. Failed main calls
+remain skipped and never redirect to another chat.
 
-Current activated buyer workspace is read-only. Missing files need a new restricted
-awaiting_seller supplemental-input operation with participant authorization,
-expected-version fencing, immutable snapshot lineage and evidence invalidation.
-A PM attachment is not authoritative input. Text clarification does not implement
-that file operation; requests for new files remain waiting. Do not weaken the
-existing access guard or falsely claim fully automatic material recovery.
+The buyer uses the account-protected Order page to answer and select new or
+replacement input files. Uploads are staged against that buyer/order/request/
+version. Confirming bytes alone changes no admitted input. A single supplement
+transaction admits confirmed objects, seals the new snapshot, advances the Order
+version, answers the request and notifies the seller. The existing seller lane
+rechecks the new version and accepts only after readiness. Original deadlines,
+contract, payment and ordinary activated-workspace guards stay fixed.
+
+Implementations: cmd/watch_commission_material_notice.go and
+internal/dispatch/main_notice_inputs.go; the Console BFF is documented in
+api/tradebff/ORDER_INPUTS.md. Deploy matching Commission migrations 15/16,
+BFF and Console together; verify object-store browser PUT CORS before acceptance.
+Ordinary PMs never admit Order files. Internal request/supplied events stay silent
+unless automatic clarification discovers a genuine need for the buyer's help.
 
 ## Normal-cycle reminder
 
@@ -115,8 +124,9 @@ migration 15 before exercising text clarification against the service.
 
 Existing seller blockers enter the main-notice worker once per scope/job/order-version/status/
 code, using the actual execution version. Retain the receipt while the blocker
-exists. Recheck current local status and seller Order version/state before
-invocation; resolved or obsolete blockers do not start a turn. Server issue
+exists. Recheck current local status after reading the seller Order and immediately
+before invocation; cancel a running notice when its local blocker is recovered.
+Verify seller Order version/state; resolved or obsolete blockers do not start a turn. Server issue
 projection may lag the verified local failure. Report only; never restart work.
 Explicit main-notice capacity overflow cannot stop business intake or ACK.
 
@@ -134,3 +144,13 @@ ACK or desktop delivery, blocker deduplication/restart/retention/resolution and
 actual execution-version routing. Contract tests cover empty Feed reminders and
 permission guidance before publication. These tests do not establish new live
 payment or delivery-confirmation acceptance.
+
+## Buyer supplement regression (CLI 1.0.20)
+
+CLI full regression: 2,104 tests passed; eight explicitly opt-in tests skipped.
+Related race checks, vet and Darwin arm64/Windows amd64/arm64 builds passed.
+Fixtures verify missing files/facts versus silent automatic answers, exact buyer
+routing, stale-request cancellation and desktop rechecks after title resolution.
+Console BFF fixtures verify mutation binding, signed-grant filtering and exact
+missing-upload recovery codes. These checks do not replace deployed OSS CORS,
+new Socket/HTTP business events or native Windows/main-conversation acceptance.

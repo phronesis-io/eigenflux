@@ -50,7 +50,7 @@ func safeClarificationText(value string, limit int) bool {
 }
 
 // Preserve the existing seller-only reader. This reader authorizes only the
-// bound buyer and never relaxes seller acceptance or fulfillment guards.
+// pinned buyer and never relaxes seller acceptance or fulfillment guards.
 func (w *accountWatch) readBuyerClarificationOrder(ctx context.Context, id string) (commissionIntakeOrder, error) {
 	var data struct {
 		Order commissionIntakeOrder `json:"order"`
@@ -67,7 +67,7 @@ func (w *accountWatch) readBuyerClarificationOrder(ctx context.Context, id strin
 		return data.Order, errors.New("commission_order_unavailable")
 	}
 	order := data.Order
-	if strconv.FormatInt(int64(order.OrderID), 10) != id || strconv.FormatInt(int64(order.BuyerID), 10) != w.binding.AgentID || order.SellerID <= 0 || order.Version <= 0 || order.SnapshotID <= 0 {
+	if strconv.FormatInt(int64(order.OrderID), 10) != id || strconv.FormatInt(int64(order.BuyerID), 10) != w.identity.AgentID || order.SellerID <= 0 || order.Version <= 0 || order.SnapshotID <= 0 {
 		return order, errors.New("commission_buyer_mismatch")
 	}
 	var contract map[string]json.RawMessage
@@ -206,11 +206,11 @@ func (w *accountWatch) dispatchCommissionClarification(parent context.Context, j
 	if err != nil {
 		return w.finishDispatch(job, "failed", "commission_order_unavailable", "", "")
 	}
-	if validCommissionInputRequest(order.InputRequest) && len(order.InputRequest.MissingInputs) > 0 {
-		return w.finishDispatch(job, "completed", "commission_clarification_waiting_files", "", "")
-	}
-	if !clarificationMatchesOrder(data, order) {
+	if !clarificationRequestMatchesOrder(data, order) {
 		return w.finishDispatch(job, "completed", "commission_clarification_not_actionable", "", "")
+	}
+	if len(order.InputRequest.MissingInputs) > 0 {
+		return w.finishBuyerMaterialWaiting(ctx, job, data, "commission_clarification_waiting_files", "")
 	}
 	rules, err := localHeartbeatSkillsAt(w.binding.SkillsDir, w.binding.Host)
 	if err != nil {
@@ -246,7 +246,7 @@ func (w *accountWatch) dispatchCommissionClarification(parent context.Context, j
 		return w.finishDispatch(job, "failed", "commission_clarification_result_invalid", result.SessionID, "")
 	}
 	if decision.Outcome == "waiting" {
-		return w.finishDispatch(job, "completed", "commission_clarification_waiting_facts", result.SessionID, "")
+		return w.finishBuyerMaterialWaiting(ctx, job, data, "commission_clarification_waiting_facts", result.SessionID)
 	}
 	if err := w.commissionIdentityOK(); err != nil {
 		return err
@@ -262,7 +262,11 @@ func (w *accountWatch) dispatchCommissionClarification(parent context.Context, j
 }
 
 func clarificationMatchesOrder(job dispatch.CommissionClarificationJob, order commissionIntakeOrder) bool {
-	return strconv.FormatInt(int64(order.OrderID), 10) == job.OrderID && strconv.FormatInt(int64(order.BuyerID), 10) == job.BuyerID && order.State == "awaiting_seller" && order.Version == job.OrderVersion && validCommissionInputRequest(order.InputRequest) && order.InputRequest.RequestID == job.RequestID && order.InputRequest.Round == job.Round && order.InputRequest.Status == "waiting_buyer" && len(order.InputRequest.MissingInputs) == 0
+	return clarificationRequestMatchesOrder(job, order) && len(order.InputRequest.MissingInputs) == 0
+}
+
+func clarificationRequestMatchesOrder(job dispatch.CommissionClarificationJob, order commissionIntakeOrder) bool {
+	return strconv.FormatInt(int64(order.OrderID), 10) == job.OrderID && strconv.FormatInt(int64(order.BuyerID), 10) == job.BuyerID && order.State == "awaiting_seller" && order.Version == job.OrderVersion && validCommissionInputRequest(order.InputRequest) && order.InputRequest.RequestID == job.RequestID && order.InputRequest.Round == job.Round && order.InputRequest.Status == "waiting_buyer"
 }
 
 func (w *accountWatch) supplementCommissionInputs(ctx context.Context, jobID string, order commissionIntakeOrder, answer string) error {

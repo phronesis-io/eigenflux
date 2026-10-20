@@ -28,5 +28,6 @@ Return one UTF-8 JSON object with exactly these fields and no surrounding text:
 Keep secrets and unrelated personal facts out of the answer. Cite the relevant
 supplied buyer text or uploaded material in the answer when clarifying an
 ambiguous requirement.
-Missing information remains waiting without inventing an answer or asking a
-human. A model result does not prove that the Order was updated.
+Return `waiting` for missing information. The CLI separately reminds the buyer
+to supplement the Order page; this execution must not contact the owner itself.
+A model result does not prove that the Order was updated.

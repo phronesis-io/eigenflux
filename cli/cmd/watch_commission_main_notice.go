@@ -115,6 +115,14 @@ func (w *accountWatch) commissionMainNoticePrompt(item dispatch.MainNotice) (str
 	if item.IsLocalBlocker() {
 		payload["local_execution"] = map[string]string{"job_id": item.JobID, "status": item.JobStatus, "code": item.JobCode}
 	}
+	if item.IsBuyerInputRequest() {
+		payload["input_request_id"] = item.InputRequestID
+		target, err := orderDesktopURL(w.server.Endpoint, w.binding.AgentID, item.OrderID, "buyer")
+		if err != nil {
+			return "", err
+		}
+		payload["order_url"] = target
+	}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
@@ -131,15 +139,7 @@ func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item di
 		return "skipped", "identity_changed"
 	}
 	if item.IsLocalBlocker() {
-		if w.journal == nil {
-			return "skipped", "main_notice_blocker_unavailable"
-		}
-		blockers, err := w.journal.CommissionBlockers()
-		matched := false
-		for _, blocker := range blockers {
-			matched = matched || item.MatchesLocalBlocker(w.scope, blocker)
-		}
-		if err != nil || !matched {
+		if !w.localMainNoticeBlockerCurrent(item) {
 			return "skipped", "main_notice_blocker_resolved"
 		}
 		order, err := w.readCommissionOrder(ctx, item.OrderID)
@@ -149,6 +149,9 @@ func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item di
 		if order.Version != item.Version || order.State != "awaiting_seller" && order.State != "in_progress" {
 			return "skipped", "main_notice_blocker_obsolete"
 		}
+	}
+	if item.IsBuyerInputRequest() && !w.buyerInputNoticeCurrent(ctx, item) {
+		return "skipped", "main_notice_input_request_changed"
 	}
 	prompt, err := w.commissionMainNoticePrompt(item)
 	if err != nil || w.runMainNotice == nil {
@@ -161,12 +164,18 @@ func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item di
 		defer close(guardDone)
 		tick := time.NewTicker(time.Second)
 		defer tick.Stop()
+		checks := 0
 		for {
 			select {
 			case <-callCtx.Done():
 				return
 			case <-tick.C:
-				if w.commissionIdentityOK() != nil {
+				checks++
+				if w.commissionIdentityOK() != nil || item.IsLocalBlocker() && !w.localMainNoticeBlockerCurrent(item) {
+					cancel()
+					return
+				}
+				if item.IsBuyerInputRequest() && checks%5 == 0 && !w.buyerInputNoticeCurrent(callCtx, item) {
 					cancel()
 					return
 				}
@@ -177,9 +186,34 @@ func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item di
 	if w.commissionIdentityOK() != nil {
 		return "skipped", "identity_changed"
 	}
+	if item.IsLocalBlocker() && !w.localMainNoticeBlockerCurrent(item) {
+		return "skipped", "main_notice_blocker_resolved"
+	}
+	if item.IsBuyerInputRequest() && !w.buyerInputNoticeCurrent(callCtx, item) {
+		return "skipped", "main_notice_input_request_changed"
+	}
 	result, runErr := w.runMainNotice(callCtx, prompt)
-	if runErr == nil && result.Text != "" && w.commissionIdentityOK() == nil {
+	if item.IsBuyerInputRequest() && !w.buyerInputNoticeCurrent(callCtx, item) {
+		return "skipped", "main_notice_input_request_changed"
+	}
+	if runErr == nil && callCtx.Err() == nil && result.Text != "" && w.commissionIdentityOK() == nil && (!item.IsLocalBlocker() || w.localMainNoticeBlockerCurrent(item)) {
 		return "delivered", "main_notice_confirmed"
 	}
 	return "skipped", "main_notice_unconfirmed"
+}
+
+func (w *accountWatch) localMainNoticeBlockerCurrent(item dispatch.MainNotice) bool {
+	if w.journal == nil {
+		return false
+	}
+	blockers, err := w.journal.CommissionBlockers()
+	if err != nil {
+		return false
+	}
+	for _, blocker := range blockers {
+		if item.MatchesLocalBlocker(w.scope, blocker) {
+			return true
+		}
+	}
+	return false
 }

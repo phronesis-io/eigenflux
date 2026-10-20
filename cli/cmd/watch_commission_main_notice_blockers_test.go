@@ -57,12 +57,14 @@ func TestMainNoticeOverflowPreservesBusinessDesktopAndACK(t *testing.T) {
 }
 
 func TestLocalBlockerMainNoticeChecksCurrentJobAndOrder(t *testing.T) {
-	for _, scenario := range []string{"current", "advanced_execution", "resolved", "new_version", "terminal", "read_failed"} {
+	for _, scenario := range []string{"current", "advanced_execution", "resolved", "new_version", "terminal", "read_failed", "recovered_during_read"} {
 		t.Run(scenario, func(t *testing.T) {
 			order := paidCommissionTestOrder()
 			if scenario == "advanced_execution" {
 				order.Version++
 			}
+			var w *accountWatch
+			var jobID string
 			server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodGet || r.URL.Path != "/api/v1/orders/901" {
 					t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
@@ -72,6 +74,11 @@ func TestLocalBlockerMainNoticeChecksCurrentJobAndOrder(t *testing.T) {
 				if scenario == "read_failed" {
 					http.Error(out, "unavailable", 503)
 					return
+				}
+				if scenario == "recovered_during_read" {
+					if err := w.journal.Retry(jobID); err != nil {
+						t.Error(err)
+					}
 				}
 				current := order
 				if scenario == "new_version" {
@@ -83,7 +90,7 @@ func TestLocalBlockerMainNoticeChecksCurrentJobAndOrder(t *testing.T) {
 				materialTestResponse(out, map[string]any{"order": current})
 			}))
 			defer server.Close()
-			w := newCommissionWatch(t, server.URL, "commission_order")
+			w = newCommissionWatch(t, server.URL, "commission_order")
 			installCommissionIntakeRules(t, w)
 			if err := w.journal.AddCommissionNotification(commissionTestNotification(81, 901, "42")); err != nil {
 				t.Fatal(err)
@@ -92,6 +99,7 @@ func TestLocalBlockerMainNoticeChecksCurrentJobAndOrder(t *testing.T) {
 			if err != nil || !ok {
 				t.Fatal(ok, err)
 			}
+			jobID = job.ID
 			if scenario == "advanced_execution" {
 				if err = w.journal.SetCommissionExecution(job.ID, "901", order.Version, 0); err != nil {
 					t.Fatal(err)

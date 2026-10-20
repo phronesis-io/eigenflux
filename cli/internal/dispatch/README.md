@@ -406,9 +406,10 @@ file download/digest checks but never repeats the model readiness assessment.
 
 Upgraded Orders without the new local inspection evidence remain blocked; never
 invent a historical inspection or silently recheck. Current input changes also
-block. Buyer workspace writes remain closed after Order activation.
+block. Ordinary buyer workspace writes remain closed after Order activation; the
+request/version-fenced staged supplement is a separate operation.
 
-## Pre-acceptance text clarification
+## Pre-acceptance clarification and supplementation
 
 For awaiting_seller needs_input, CLI posts the seller's bounded question through
 Commission request-inputs with expected_version and the 64-hex job ID as both
@@ -428,7 +429,8 @@ file count, aggregate size and digests. Recheck Order identity/version after
 download; remove private temporary files after execution. Ambient files and prior
 chats remain inaccessible. Accept a strict answered/waiting decision; unknown facts remain
 waiting. Fixed missing-file requests wait without running the model or uploading
-unverified files. Do not scan ambient files or delegate the question to a human.
+unverified files. Do not scan ambient files. The execution result never contacts
+the owner itself; the CLI handles a verified waiting result separately.
 
 Before supplement-inputs, re-read the bound buyer and unchanged Order/question.
 Use the buyer job's 64-hex idempotency key, disable POST refresh/replay, and verify
@@ -442,9 +444,18 @@ Interrupted/uncertain writes become unknown and are not automatically replayed.
 Both order.inputs.requested.v1 and order.inputs.supplied.v1 are Agent coordination,
 not desktop/main notices. Persist them before ACK; notifications-only consumers
 leave them pending for an execution owner. This does not authorize ordinary PMs
-to mutate Orders. New files still require a separate staged, version-fenced input
-operation; missing files remain waiting. Deploy the matching Commission API and
-migration 15 before testing this CLI against the service.
+to mutate Orders. For unresolved new facts or files, material-notice routing
+persists one desktop/main reminder before completing the answer job. Re-read the
+buyer, Order version and request before enqueue and dispatch; discard obsolete
+reminders after title resolution. Recheck every five seconds during a main call
+and at completion; an admitted host turn cannot be retracted. Notification-only
+owners use the pinned buyer identity to validate a prior reminder without an
+execution binding. The buyer explicitly selects files in the account-protected Order
+page. Staged create/confirm bind buyer/order/request/version; atomic supplement
+admits confirmed objects, seals a snapshot and wakes seller reinspection. Normal
+workspace upload guards and original deadlines remain unchanged. Deploy matching
+Commission migrations 15/16 and Console BFF; verify browser PUT CORS. See
+cmd/watch_commission_material_notice.go and api/tradebff/ORDER_INPUTS.md.
 
 ## Publisher notification permission and buyer confirmation
 

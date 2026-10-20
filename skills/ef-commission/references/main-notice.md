@@ -20,12 +20,20 @@ and machine JSON. Do not send messages to other chats.
 | rejected, cancelled, refunded | Report the authoritative result | Report the authoritative result |
 | refund, settlement or validation processing result | Report the relevant confirmed result or blocker | Report the relevant confirmed result or blocker |
 | review created | Do not repeat a review action | Summarize the actual received review |
+| buyer material needed | Read the current waiting_buyer question and missing paths; explain what is needed and show the supplied Order link for the buyer to supplement | Leave intake paused until supplementation |
 | local execution blocked | Report only the applicable confirmed result | Explain the verified local blocker and current Order state; do not restart work |
 
 For `order.execution.blocked.local.v1`, use the supplied verified local execution
 status/code and read the current Order. Report a blocker only while its Order
 version still matches and remains awaiting_seller or in_progress. Read any
 execution_issue; a missing server projection does not prove local work succeeded.
+
+For `order.inputs.owner_required.local.v1`, verify the bound buyer, current
+awaiting_seller state, exact Order version and input_request_id. Read the current
+question and missing_inputs; request only these facts or files. Show the supplied
+account-protected Order link. Explain that submitting resumes seller inspection
+and preserves the original deadline. Do not repeat an answered or superseded
+request, select ambient files or claim that opening the link submitted materials.
 
 Do not pay, accept, confirm receipt, refund, cancel, modify terms or restart work
 from a notice. Never infer payment from a generated link or infer withdrawal from

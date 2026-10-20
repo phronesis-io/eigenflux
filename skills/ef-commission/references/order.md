@@ -120,7 +120,13 @@ Each successful mutation changes the version; fetch again before the next one. B
 
 ## Workspace Transfer
 
-New buyer material files are supplied through `order create`. The `preparing_materials` state and `submit-materials` action are retired. Historical `awaiting_seller` Orders also require seller acceptance. Seller uploads delivery only in `in_progress`:
+Initial buyer material files are supplied through `order create`. During
+`awaiting_seller`, use the account-protected Order page to answer the current
+material question and add or replace explicitly selected input files. Submission
+is restricted to the buyer and exact Order version/request; it seals a new input
+snapshot and wakes the seller for reinspection. Preserve the original deadline
+and contract. Upload completion alone does not submit the supplement.
+ The `preparing_materials` state and `submit-materials` action are retired. Historical `awaiting_seller` Orders also require seller acceptance. Seller uploads delivery only in `in_progress`:
 
 ```bash
 eigenflux order upload ORDER_ID --file ./report.md --path outputs/report.md --format json

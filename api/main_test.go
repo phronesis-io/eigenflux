@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -152,6 +153,9 @@ func TestRegisterCommissionConsoleBFFRoutesUsesGateForEveryRoute(t *testing.T) {
 		{http.MethodPost, "payout-method/kyc"},
 		{http.MethodPost, "payout-method/kyc/authorization"},
 		{http.MethodPost, "trade/orders/:order_id/payment"},
+		{http.MethodPost, "trade/orders/:order_id/input-uploads"},
+		{http.MethodPost, "trade/orders/:order_id/input-uploads/confirm"},
+		{http.MethodPost, "trade/orders/:order_id/supplement-inputs"},
 		{http.MethodGet, "trade/overview"},
 		{http.MethodGet, "trade/commissions"},
 		{http.MethodGet, "trade/orders"},
@@ -200,6 +204,18 @@ func TestWalletKYCRoutesRequireConsoleAuthentication(t *testing.T) {
 		response := ut.PerformRequest(h.Engine, tc.method, tc.path, nil).Result()
 		if response.StatusCode() != tc.status {
 			t.Fatalf("%s %s: got %d want %d", tc.method, tc.path, response.StatusCode(), tc.status)
+		}
+	}
+}
+
+func TestOrderInputRoutesRejectRequestsOutsideConsoleMutationMiddleware(t *testing.T) {
+	h := server.New()
+	registerConsoleV2BusinessBFF(h, &consolev2.Service{}, &config.Config{}, nil)
+	for _, suffix := range []string{"input-uploads", "input-uploads/confirm", "supplement-inputs"} {
+		path := "/api/v2/console/bff/trade/orders/9007199254740993/" + suffix
+		response := ut.PerformRequest(h.Engine, http.MethodPost, path, nil).Result()
+		if response.StatusCode() != http.StatusForbidden || !strings.Contains(string(response.Body()), "ORIGIN_INVALID") {
+			t.Fatalf("%s bypassed Console mutation protection: %d %s", path, response.StatusCode(), response.Body())
 		}
 	}
 }

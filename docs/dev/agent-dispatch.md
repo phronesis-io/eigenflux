@@ -195,7 +195,8 @@ Codex macOS main notices use the existing Desktop owner through its pinned local
 IPC socket; CLI 1.0.18 enables the tested hidden-input adapter. No writer is
 resumed or replaced. Signed rules enter application context and event metadata
 remains untrusted; input is empty and only the final result appears in the main
-conversation. Windows and other ACP hosts remain untested and disabled.
+conversation. Windows Codex owner transport is not implemented; other ACP hosts
+remain untested and disabled.
 
 watch doctor --probe-main only discovers the exact owner. Its owner_ready result
 is connectivity, not idle status or business completion. watch status separates
@@ -218,8 +219,11 @@ link before using existing approval or requesting it. Publish keeps stderr
 guidance as fallback; this adds no mandatory permission gate.
 
 Buyer clarification reads verified uploaded Order inputs, including request.txt,
-through a buyer-only manifest/grant boundary. New-file supplementation remains
-unsupported. Explicit main-notice queue overflow skips only that auxiliary
+through a buyer-only manifest/grant boundary. CLI 1.0.20 escalates unresolved
+facts/files to the buyer and links the account-protected Order page. Staged
+add/replace uploads become authoritative only through the atomic supplement,
+which wakes seller reinspection. Deploy Commission migrations 15/16 and the BFF;
+verify object-store browser PUT CORS. Explicit main-notice queue overflow skips only that auxiliary
 notice. Existing local seller blockers notify the bound main conversation once
 per job/order-version/status/code, without restarting work; stale or resolved blockers are
 skipped. Full Feed contracts now preserve pending-confirmation reminders even

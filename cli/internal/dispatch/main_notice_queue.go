@@ -15,17 +15,18 @@ var ErrMainNoticeQueueFull = errors.New("main_notice_queue_full")
 
 // MainNotice stores routing metadata only. Its lifecycle never changes an Order.
 type MainNotice struct {
-	ID        string `json:"notification_id"`
-	OrderID   string `json:"order_id"`
-	Version   int64  `json:"order_version"`
-	Role      string `json:"role"`
-	Event     string `json:"event"`
-	State     string `json:"state"`
-	Status    string `json:"status"`
-	Code      string `json:"code,omitempty"`
-	JobID     string `json:"job_id,omitempty"`
-	JobStatus string `json:"job_status,omitempty"`
-	JobCode   string `json:"job_code,omitempty"`
+	ID             string `json:"notification_id"`
+	OrderID        string `json:"order_id"`
+	Version        int64  `json:"order_version"`
+	Role           string `json:"role"`
+	Event          string `json:"event"`
+	State          string `json:"state"`
+	Status         string `json:"status"`
+	Code           string `json:"code,omitempty"`
+	JobID          string `json:"job_id,omitempty"`
+	JobStatus      string `json:"job_status,omitempty"`
+	JobCode        string `json:"job_code,omitempty"`
+	InputRequestID string `json:"input_request_id,omitempty"`
 }
 type mainNoticeQueueState struct {
 	Scope    string       `json:"scope"`
@@ -79,7 +80,13 @@ func OpenMainNoticeQueue(binding Binding) (*MainNoticeQueue, error) {
 	return q, nil
 }
 func validMainNotice(item MainNotice) bool {
-	if item.IsLocalBlocker() {
+	if item.IsBuyerInputRequest() {
+		if !strings.HasPrefix(item.ID, "inputs:") || !executionReceiptPattern.MatchString(strings.TrimPrefix(item.ID, "inputs:")) || !executionReceiptPattern.MatchString(item.InputRequestID) || item.Role != "buyer" || item.State != "awaiting_seller" || item.JobID != "" || item.JobStatus != "" || item.JobCode != "" {
+			return false
+		}
+	} else if item.InputRequestID != "" {
+		return false
+	} else if item.IsLocalBlocker() {
 		if !strings.HasPrefix(item.ID, "local:") || !executionReceiptPattern.MatchString(strings.TrimPrefix(item.ID, "local:")) || !executionReceiptPattern.MatchString(item.JobID) || item.Role != "seller" || item.JobCode == "" || len(item.JobCode) > 128 || strings.ContainsAny(item.JobCode, "\x00\r\n") || item.JobStatus != "failed" && item.JobStatus != "needs_user" && item.JobStatus != "unknown" {
 			return false
 		}
