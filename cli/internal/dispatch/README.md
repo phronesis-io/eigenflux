@@ -499,3 +499,18 @@ uses the same rule in feed.md, contract.md and the synchronized served static
 contract. Pending confirmation is an explicit exception to Feed silence, including
 empty or unchanged Feed cycles. Do not expand maintenance/control or baseline access,
 append prose to machine Feed JSON, or automatically confirm receipt.
+
+## WorkBuddy publication preflight
+
+Notification helper filesystem denial is `unknown/local_access_denied`, not OS
+permission denial. Retry the same read-only check through host-authorized local
+execution. Preserve native settings links and report the result.
+
+Before approval, check the same account's binding and `commission_order`
+subscription using `watch doctor`. A successful initialize/configuration check
+does not establish model authentication or contractual artifact production.
+WorkBuddy's bundled ACP engine may require authentication independent of its
+Desktop login. Keep main-owner hidden reminders separate from isolated seller
+execution. Publish performs the real trial before its publish mutation and never
+enables subscriptions. Unit fixture Homes override inherited global Home flags
+and restore them afterwards; fixtures must not write into a real account.

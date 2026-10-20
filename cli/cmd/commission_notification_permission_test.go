@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -62,7 +63,7 @@ func TestCommissionNotificationPermissionWarning(t *testing.T) {
 				t.Fatal("first use has no setup guidance")
 			}
 			if tt.language == "zh" {
-				if !strings.Contains(text, "点击后仍需本人开启") || !strings.Contains(text, "链接只打开当前电脑") {
+				if !strings.Contains(text, "权限未开启时仍需本人开启") || !strings.Contains(text, "链接只打开当前电脑") {
 					t.Fatalf("missing native settings boundary: %s", text)
 				}
 			} else if !strings.Contains(text, "Clicking does not confirm") || !strings.Contains(text, "this computer only") {
@@ -85,6 +86,7 @@ func TestCommissionNotificationPermissionPreflight(t *testing.T) {
 		{name: "helper_missing", platform: "darwin", status: "unknown", code: "helper_missing", checkErr: desktopnotify.ErrHelperMissing, warning: true},
 		{name: "private_error", platform: "windows", status: "unknown", code: "check_failed", checkErr: errors.New("private-provider-data"), warning: true},
 		{name: "timeout", platform: "darwin", status: "unknown", code: "check_timeout", checkErr: context.DeadlineExceeded, warning: true},
+		{name: "sandbox_denied", platform: "darwin", status: "unknown", code: "local_access_denied", checkErr: fmt.Errorf("helper lock: %w", os.ErrPermission), warning: true},
 		{name: "cancelled", platform: "darwin", status: "unknown", code: "check_cancelled", checkErr: context.Canceled},
 		{name: "unsupported", platform: "linux", status: "unsupported", code: "unsupported_platform", checkErr: desktopnotify.ErrUnsupported, warning: true},
 	} {
@@ -123,5 +125,14 @@ func TestCommissionNotificationPermissionPreflight(t *testing.T) {
 				t.Fatal("ready or cancelled check unexpectedly prompted an action")
 			}
 		})
+	}
+}
+
+func TestCommissionPermissionSandboxFailureDoesNotClaimOSDenial(t *testing.T) {
+	for _, language := range []string{"zh", "en"} {
+		got := checkCommissionNotificationPermission(context.Background(), func(context.Context) error { return fmt.Errorf("local helper: %w", os.ErrPermission) }, "darwin", language)
+		if got.Status != "unknown" || got.Code != "local_access_denied" || !strings.Contains(got.Warning, map[string]string{"zh": "只读检查", "en": "read-only check"}[language]) {
+			t.Fatalf("wrong recovery: %+v", got)
+		}
 	}
 }

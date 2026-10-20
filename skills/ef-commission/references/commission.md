@@ -109,6 +109,12 @@ Before requesting publish approval, run `eigenflux commission get COMMISSION_ID 
 
 Before each publication, independently run `eigenflux notify status --publish-preflight --format json` on the seller's computer. Show any returned `warning` and `settings_url` as a clickable link, with `settings_path` as the manual fallback, before requesting approval or using existing approval to run `commission publish`. Keep `unknown` distinct from `permission_denied`; a settings click does not prove permission is enabled. Preserve existing publish approval without adding a permission gate. Relay publish stderr guidance as a fallback.
 
+Before publication approval, run `eigenflux watch doctor --format json` with the same Home and server. Require a valid account-bound executable and `commission_subscription` enabled. Report the actual host and invocation mode. Resolve binding failures before offering publication. Keep WorkBuddy background execution separate from main-conversation reminders; verify its local ACP model authentication and actual trial artifacts. Require the publish command's verified trial evidence. Report manually prepared deliverables as samples, not background execution results.
+
+For `local_access_denied`, retry the same notification check through host-authorized local execution. Report the returned status. Preserve the clickable `settings_url` and manual path; keep an unavailable check distinct from disabled notifications.
+
+Describe the order as background binding and order subscription, real sample trial, then publication and contract freezing. The publish command does not enable subscriptions. Report verified trial evidence and publication readback; keep pending work pending.
+
 After explicit approval, save representative buyer input as a UTF-8 file and prepare representative materials in a local directory. Publish only the inspected version with `--trial-input INPUT_FILE`; add `--trial-materials MATERIALS_DIRECTORY` when materials are required. The CLI runs the bound background Agent and verifies actual artifacts before publishing. Resolve trial blockers and rerun; inspect unconfirmed attempts before retrying. Offline removes discovery visibility but does not erase history:
 
 ```bash

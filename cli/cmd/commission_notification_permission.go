@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
 	"time"
 
@@ -39,10 +40,10 @@ func writeCommissionNotificationPermissionWarning(cmd *cobra.Command, check func
 		return
 	}
 	if language == "zh" {
-		fmt.Fprintf(cmd.ErrOrStderr(), "[打开这台电脑的通知设置](%s)\n无法跳转时，请手动打开：%s。链接只打开当前电脑；点击后仍需本人开启，CLI 不会把点击当作开启成功。\n", result.SettingsURL, result.SettingsPath)
+		fmt.Fprintf(cmd.ErrOrStderr(), "[打开这台电脑的通知设置](%s)\n无法跳转时，请手动打开：%s。链接只打开当前电脑；权限未开启时仍需本人开启；CLI 不会把点击当作开启成功。\n", result.SettingsURL, result.SettingsPath)
 		return
 	}
-	fmt.Fprintf(cmd.ErrOrStderr(), "[Open notification settings on this computer](%s)\nIf the link does not open, navigate manually: %s. The link opens this computer only; enable permission yourself. Clicking does not confirm that permission is enabled.\n", result.SettingsURL, result.SettingsPath)
+	fmt.Fprintf(cmd.ErrOrStderr(), "[Open notification settings on this computer](%s)\nIf the link does not open, navigate manually: %s. The link opens this computer only; if permission is disabled, enable it yourself. Clicking does not confirm that permission is enabled.\n", result.SettingsURL, result.SettingsPath)
 }
 
 // This status mode is independent of publish and has no observer or telemetry.
@@ -87,6 +88,8 @@ func checkCommissionNotificationPermission(parent context.Context, check func(co
 		}
 	default:
 		switch {
+		case errors.Is(err, os.ErrPermission):
+			code = "local_access_denied"
 		case errors.Is(err, desktopnotify.ErrPendingFirstNotification):
 			code = "pending_first_notification"
 		case errors.Is(err, desktopnotify.ErrHelperMissing):
@@ -99,6 +102,12 @@ func checkCommissionNotificationPermission(parent context.Context, check func(co
 		message = "Notice: EigenFlux notification permission could not be confirmed on this computer. Check the notification component and system settings; the current state does not prove that notifications are disabled."
 		if zh {
 			message = "提醒：暂时无法确认这台电脑的 EigenFlux 通知权限。请检查通知组件和系统设置；当前状态不代表通知已关闭。"
+		}
+	}
+	if code == "local_access_denied" {
+		message = "Notice: the current execution environment cannot access the local notification helper. Retry this read-only check through host-authorized local execution; OS notification permission has not been determined."
+		if zh {
+			message = "提醒：当前执行环境无法访问本机通知组件。请通过宿主授权的本地执行方式重试这一次只读检查；这不是系统通知已关闭的结论。"
 		}
 	}
 	if zh {

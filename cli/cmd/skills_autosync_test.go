@@ -39,6 +39,10 @@ func TestClassifyAutoSync(t *testing.T) {
 func tempHome(t *testing.T) string {
 	t.Helper()
 	t.Setenv("EIGENFLUX_HOME", t.TempDir())
+	t.Cleanup(config.UseHomeDir(""))
+	previousHomeFlag := homeDirFlag
+	homeDirFlag = ""
+	t.Cleanup(func() { homeDirFlag = previousHomeFlag })
 	return config.HomeDir()
 }
 
