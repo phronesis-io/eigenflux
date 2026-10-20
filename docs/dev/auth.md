@@ -374,11 +374,13 @@ Emails matching `OFFICIAL_TEST_EMAIL_SUFFIXES` use the fixed `OFFICIAL_TEST_OTP`
 
 ## CLI refresh lock errors
 
-Expired CLI Agent V2 refresh locks are removed on demand. If removal fails,
-the command stops with the lock path and underlying filesystem error, with
-guidance to check file/directory permissions, ownership, and host sandbox access.
-Keep `agent-v2-credentials.json` intact. An already-removed lock is safe to retry;
-all lock contention retries remain bounded by the caller's wait deadline.
+Valid CLI Agent V2 access credentials are read without acquiring a lock.
+Refresh and unauthorized-response recovery use an OS-backed file lock and reload
+credentials after acquiring it so concurrent processes reuse a completed rotation.
+The lock file remains in place after release; process exit releases the OS lock.
+Existing lock-file contents do not indicate ownership or expiry. Lock contention
+has a bounded wait, and open/acquisition failures report the path and underlying
+filesystem error. Keep `agent-v2-credentials.json` intact.
 
 ## Logout
 

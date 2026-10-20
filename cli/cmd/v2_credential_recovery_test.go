@@ -420,3 +420,26 @@ func TestV2CredentialRecoveryPreservesOperationalErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestV2ValidCredentialsBypassLockFile(t *testing.T) {
+	name, previous := setupV2CredentialRecovery(t, "http://127.0.0.1:1", true)
+	previous.ExpiresAt = time.Now().Add(time.Hour).UnixMilli()
+	if err := auth.SaveV2Credentials(name, previous); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(config.HomeDir(), "servers", name, ".agent-v2-refresh.lock")
+	if err := os.Mkdir(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	credentials, err := ensureV2Credentials(name, "http://127.0.0.1:1")
+	if err != nil || credentials.AccessToken != previous.AccessToken {
+		t.Fatalf("valid credentials touched lock: %v", err)
+	}
+	previous.ExpiresAt = time.Now().Add(-time.Minute).UnixMilli()
+	if err := auth.SaveV2Credentials(name, previous); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ensureV2Credentials(name, "http://127.0.0.1:1"); err == nil {
+		t.Fatal("expired credentials bypassed lock")
+	}
+}
