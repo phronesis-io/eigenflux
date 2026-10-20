@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - 'api/consolev2/**'
+      - 'tests/installv2/**'
+      - 'cli/cmd/v2_*.go'
+      - 'cli/cmd/agent_v2.go'
+      - 'cli/internal/auth/**'
       - 'rpc/auth/**'
       - 'api/dal/**'
       - 'api/middleware/**'
@@ -37,6 +41,10 @@ on:
     branches: [main]
     paths:
       - 'api/consolev2/**'
+      - 'tests/installv2/**'
+      - 'cli/cmd/v2_*.go'
+      - 'cli/cmd/agent_v2.go'
+      - 'cli/internal/auth/**'
       - 'rpc/auth/**'
       - 'api/dal/**'
       - 'api/middleware/**'
@@ -146,6 +154,8 @@ jobs:
         run: go test -count=1 ./api/install -run '^TestPostgresShortIDInviteAttribution$'
       - name: Verify Console V2 PostgreSQL flow and races
         run: go test -count=1 ./api/consolev2 -run 'Test(ConsoleV2ProvisionHandoffAndOnboardingFlow|HistoricalRecovery.*|Postgres.*|RuntimeObservationPostgresHTTP)'
+      - name: Verify V2 renewal, recovery failures, and sanitized auth logs
+        run: go test -count=1 ./api/consolev2 -run '^Test(AgentRefreshPostgres|AgentAuthorizationPostgres|RefreshDatabaseFailure|ProvisionDatabaseFailures|ProvisionInvalidProofConsumption|ProvisionReceiptConflict|ConsoleAuth)'
       - name: Verify isolated OTP retry and concurrent consumption
         env:
           AUTH_RETRY_PG_DSN: postgres://postgres:postgres@127.0.0.1:5432/eigenflux?sslmode=disable

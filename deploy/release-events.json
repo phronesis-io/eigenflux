@@ -20,5 +20,17 @@
     "title": "补齐网页与指引预加载识别记录",
     "description": "新增记录从API健康部署后生效；看板可查保留期内的网页自动请求。历史落地无完整UA证据，不作真人回填；安装补报仍依赖新版CLI，未合并为同一计数单位。",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/416"
+  },
+  {
+    "id": "agent-v2-sliding-renewal-v1",
+    "kind": "behavior",
+    "deploy_scope": "api",
+    "dashboards": [
+      "card-refresh",
+      "auto-publish"
+    ],
+    "title": "Keep active Agent sessions renewable",
+    "description": "Successful refresh rotations advance a rolling 30-day window after API deployment. Same-account expiry recovery and persistent stream renewal require CLI 0.6.6; host notifications and Skills adopt separately. Historical failed checks are not backfilled.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/428"
   }
 ]
