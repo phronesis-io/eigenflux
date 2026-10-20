@@ -79,6 +79,7 @@ func TestCommandFailureReportsCredentialServiceUnavailableWithoutLogin(t *testin
 		{"refresh service", "AGENT_AUTH_UNAVAILABLE", wrapV2CredentialError(&client.APIError{StatusCode: 503, ErrorCode: "AGENT_AUTH_UNAVAILABLE"})},
 		{"access validator", "AGENT_AUTH_UNAVAILABLE", &client.APIError{StatusCode: 503, ErrorCode: "AGENT_AUTH_UNAVAILABLE"}},
 		{"registration service", "REGISTRATION_UNAVAILABLE", wrapV2CredentialError(&client.APIError{StatusCode: 503, ErrorCode: "REGISTRATION_UNAVAILABLE"})},
+		{"recovery rate limit", "RECOVERY_RATE_LIMITED", wrapV2CredentialError(&client.APIError{StatusCode: 429, ErrorCode: "RECOVERY_RATE_LIMITED"})},
 		{"credential network", "AUTH_NETWORK_UNAVAILABLE", wrapV2CredentialError(&url.Error{Op: "Post", URL: "http://127.0.0.1:1/refresh", Err: errors.New("connection refused")})},
 		{"credential protocol", "AUTH_CREDENTIALS_UNAVAILABLE", wrapV2CredentialError(errors.New("invalid refresh response"))},
 	} {
@@ -105,6 +106,8 @@ func TestCommandFailureDoesNotMarkUnrelatedEndpointFailuresAsCredentialUnavailab
 	for _, failure := range []error{
 		&client.APIError{StatusCode: 503, ErrorCode: "SETTINGS_UNAVAILABLE"},
 		&client.APIError{StatusCode: 503, ErrorCode: "UNAVAILABLE"},
+		&client.APIError{StatusCode: 429, ErrorCode: "RECOVERY_RATE_LIMITED"},
+		&client.APIError{StatusCode: 429, ErrorCode: "RATE_LIMITED"},
 		errors.New("unrelated connection failure"),
 		wrapV2CredentialError(&client.APIError{StatusCode: 403, ErrorCode: "AGENT_SCOPE_REQUIRED"}),
 		wrapV2CredentialError(&client.APIError{StatusCode: 404, ErrorCode: "NOT_FOUND"}),

@@ -47,7 +47,7 @@ func reportAuthUnavailable(w io.Writer, err error, apiErr *client.APIError) {
 	if !isV2CredentialError(err) && !isAgentAuthUnavailable(err) {
 		return
 	}
-	if apiErr != nil && apiErr.StatusCode < http.StatusInternalServerError {
+	if apiErr != nil && apiErr.StatusCode < http.StatusInternalServerError && apiErr.StatusCode != http.StatusTooManyRequests {
 		return
 	}
 	code := "AUTH_CREDENTIALS_UNAVAILABLE"

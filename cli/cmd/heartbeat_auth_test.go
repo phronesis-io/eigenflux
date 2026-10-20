@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -19,9 +20,76 @@ import (
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/output"
 	"cli.eigenflux.ai/internal/skills"
 	"github.com/spf13/cobra"
 )
+
+func TestHeartbeatRecoveryRateLimitReportsBlockedCycle(t *testing.T) {
+	for _, reportMetadata := range []bool{false, true} {
+		t.Run(map[bool]string{false: "access", true: "metadata"}[reportMetadata], func(t *testing.T) {
+			var refreshes, recoveries, otherRequests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v2/agent-sessions/refresh-challenges":
+					refreshes.Add(1)
+					writeV2RecoveryError(w, http.StatusUnauthorized, "REFRESH_EXPIRED")
+				case "/api/v2/agent-identities/recovery-challenges":
+					recoveries.Add(1)
+					writeV2RecoveryError(w, http.StatusTooManyRequests, "RECOVERY_RATE_LIMITED")
+				default:
+					otherRequests.Add(1)
+					t.Errorf("rate-limited recovery reached %s", r.URL.Path)
+					w.WriteHeader(http.StatusInternalServerError)
+				}
+			}))
+			defer server.Close()
+			_, serverName := runtimeTestConfig(t, server.URL, true)
+			version = "0.6.7"
+			t.Setenv("EIGENFLUX_HOST", "terminal")
+			t.Setenv("EIGENFLUX_MODE", "")
+			t.Setenv("EIGENFLUX_MODEL", "")
+			if reportMetadata {
+				t.Setenv("EIGENFLUX_HOST", "codex")
+				t.Setenv("EIGENFLUX_MODE", "skill")
+			}
+			serveHeartbeatTestManifest(t, installHeartbeatTestRules(t))
+			if _, _, _, err := auth.LoadOrCreateIdentity(serverName); err != nil {
+				t.Fatal(err)
+			}
+			credentials, err := auth.LoadV2Credentials(serverName)
+			if err != nil {
+				t.Fatal(err)
+			}
+			credentials.ExpiresAt = time.Now().Add(-time.Minute).UnixMilli()
+			if err := auth.SaveV2Credentials(serverName, credentials); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(config.HomeDir(), "servers", serverName, "agent-v2-credentials.json")
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stdout, err := runArgs(t, "heartbeat", "plan")
+			var stderr bytes.Buffer
+			if exit := reportCommandFailure(&stderr, err); exit != output.ExitUsageError {
+				t.Fatalf("rate limit became a login failure: exit=%d stderr=%s", exit, &stderr)
+			}
+			lines := bytes.Split(bytes.TrimSpace(stderr.Bytes()), []byte("\n"))
+			var notice authUnavailableNotice
+			if decodeErr := json.Unmarshal(lines[len(lines)-1], &notice); decodeErr != nil ||
+				notice.SchemaVersion != "eigenflux_auth_unavailable.v1" || notice.Code != "RECOVERY_RATE_LIMITED" ||
+				!notice.ChecksBlocked || notice.LoginRequired || !notice.Retryable ||
+				notice.Home != config.HomeDir() || notice.Server != serverName {
+				t.Fatalf("host cannot distinguish rate-limited credentials from an ordinary plan failure: error=%v stderr=%s", decodeErr, &stderr)
+			}
+			after, readErr := os.ReadFile(path)
+			if readErr != nil || !bytes.Equal(before, after) || stdout != "" || refreshes.Load() != 1 || recoveries.Load() != 1 || otherRequests.Load() != 0 {
+				t.Fatalf("rate limit repeated authentication or changed credentials: error=%v refresh=%d recovery=%d other=%d stdout=%q", readErr, refreshes.Load(), recoveries.Load(), otherRequests.Load(), stdout)
+			}
+		})
+	}
+}
 
 func TestHeartbeatStopsAfterOneCredentialFailure(t *testing.T) {
 	for _, reportMetadata := range []bool{false, true} {

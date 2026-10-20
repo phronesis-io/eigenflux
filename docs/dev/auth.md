@@ -94,7 +94,8 @@ marks checks blocked, and requires the host failure notification (`NOTIFY` in
 Codex), including later failed cycles. The Skills prohibit repeating recovery
 already attempted by the CLI. Service/network failures retain a non-login exit
 classification and must not prompt identity replacement.
-Credential service/network failures append `eigenflux_auth_unavailable.v1`
+Credential service/network failures and credential-acquisition HTTP 429 rate
+limits append `eigenflux_auth_unavailable.v1`
 instead, with `checks_blocked:true`, `login_required:false`, and `retryable:true`.
 The non-login exit code remains 2. Host adapters use this classification to stop
 the current cycle before Feed without requesting another login; unrelated

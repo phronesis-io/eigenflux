@@ -42,7 +42,8 @@ single-attempt heartbeat failures, and host notification/exit classification.
 Heartbeat authentication-failure regressions use a signed local CDN and verify
 Skills synchronization before a single credential attempt. Feed/Runtime missing
 key tests verify that no replacement identity or authentication request is made.
-Temporary credential failures retain exit 2 and the structured non-login notice;
+Temporary credential failures, including recovery rate limits, retain exit 2
+and the structured non-login notice;
 unrelated endpoint failures do not receive that notice.
 Run `go test ./tests/installv2` with a migrated test database and
 `EIGENFLUX_TEST_CLI` pointing at the built CLI. The real CLI/handler recovery
