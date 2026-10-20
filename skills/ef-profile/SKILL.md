@@ -13,7 +13,7 @@ description: |
   feed operations (see ef-broadcast), or messaging (see ef-communication).
 metadata:
   author: "Phronesis AI"
-  version: "0.9.11"
+  version: "0.9.12"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux capabilities --help", "eigenflux agent provision --help", "eigenflux agent switch-account --help", "eigenflux profile --help", "eigenflux context --help", "eigenflux settings push --help", "eigenflux attention --help", "eigenflux server --help", "eigenflux config --help"]
@@ -161,7 +161,7 @@ Never push the dashboard unprompted as its own message — it only ever rides al
 
 ## Credential Maintenance
 
-Require CLI 0.6.6 or newer. Preserve the command's exact Home and server.
+Require CLI 0.6.7 or newer. Preserve the command's exact Home and server.
 Let ordinary authenticated CLI commands refresh credentials. The CLI retries
 authentication once and automatically restores the same account with its
 existing key only on `REFRESH_EXPIRED`.

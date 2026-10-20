@@ -57,15 +57,17 @@ var heartbeatPlanCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		runtimeReport, reportErr := reportRuntimeSettings(cfg, "", "", "", "", false)
-		if isV2CredentialError(reportErr) || v2CredentialNeedsLogin(reportErr) {
-			return reportErr
-		}
+		// Recovery instructions arrive through the public Skills bundle, so its
+		// update must remain available while Agent authentication is blocked.
 		meta := clientMetaForServerName(activeServerName())
 		res, err := skills.Sync(skills.SyncOptions{
 			Host: meta.Host, IfStale: true, Quiet: true, CLIVersion: version, CDNBase: cdnBase(),
 			HTTPClient: &http.Client{Timeout: autoSkillSyncTimeout},
 		})
+		runtimeReport, reportErr := reportRuntimeSettings(cfg, "", "", "", "", false)
+		if isV2CredentialError(reportErr) || v2CredentialNeedsLogin(reportErr) || isAgentAuthUnavailable(reportErr) {
+			return reportErr
+		}
 		if err != nil || res == nil {
 			return fmt.Errorf("heartbeat plan: skills sync failed: %w", err)
 		}
@@ -130,7 +132,7 @@ var heartbeatPlanCmd = &cobra.Command{
 		// a provisional local bundle can render a plan but cannot unlock V2.
 		if res.VerifiedManifest && access.OnboardingState == "completed" {
 			if err := pushHeartbeatCompatibility(cfg, heartbeatContractVersion, manifest.Revision); err != nil {
-				if isV2CredentialError(err) || v2CredentialNeedsLogin(err) {
+				if isV2CredentialError(err) || v2CredentialNeedsLogin(err) || isAgentAuthUnavailable(err) {
 					return err
 				}
 				plan.CompatibilityError = err.Error()

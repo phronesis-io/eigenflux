@@ -41,7 +41,7 @@
       "auto-publish"
     ],
     "title": "Keep active Agent sessions renewable",
-    "description": "Successful refresh rotations advance a rolling 30-day window after API deployment. Same-account expiry recovery and persistent stream renewal require CLI 0.6.6; host notifications and Skills adopt separately. Historical failed checks are not backfilled.",
+    "description": "Successful refresh rotations advance a rolling 30-day window after API deployment. Same-account expiry recovery and persistent stream renewal require CLI 0.6.7; host notifications and Skills adopt separately. Historical failed checks are not backfilled.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/428"
   }
 ]

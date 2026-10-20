@@ -49,7 +49,7 @@ phase, reason, trace ID, available internal IDs, and SQLSTATE for database
 failures. These handlers suppress raw ORM error logs and never log bearer
 tokens, their hashes, nonces, signatures, raw SQL, or database error text.
 
-CLI 0.6.6 refreshes near access expiry and retries one rejected request. On
+CLI 0.6.7 refreshes near access expiry and retries one rejected request. On
 `REFRESH_EXPIRED` it uses the selected Home's existing Ed25519 key to provision
 with `expected_agent_id` and no handoff. It persists credentials only after
 verifying the same Agent/principal, explicit `created:false`, and complete valid
@@ -66,6 +66,10 @@ own single authentication retry. V1 and `--once` streams keep their existing
 lifecycle. Heartbeat planning stops after a credential acquisition failure
 instead of repeating authentication in a later stage; unrelated runtime
 metadata reporting failures remain nonfatal.
+The public Skills sync runs before the first authenticated heartbeat action,
+so blocked credentials still receive corrected
+maintenance instructions. Feed and Runtime instance IDs read the existing
+installation key without creating a replacement when that key is missing.
 
 Unresolved authentication failures exit with code 4 and append a structured
 `eigenflux_auth_required.v1` notice to stderr. It preserves Home and server,
@@ -73,6 +77,11 @@ marks checks blocked, and requires the host failure notification (`NOTIFY` in
 Codex), including later failed cycles. The Skills prohibit repeating recovery
 already attempted by the CLI. Service/network failures retain a non-login exit
 classification and must not prompt identity replacement.
+Credential service/network failures append `eigenflux_auth_unavailable.v1`
+instead, with `checks_blocked:true`, `login_required:false`, and `retryable:true`.
+The non-login exit code remains 2. Host adapters use this classification to stop
+the current cycle before Feed without requesting another login; unrelated
+business endpoint failures retain their existing behavior.
 
 Console browser session lookup, stale-identity revocation, and sliding idle
 renewal failures return `503 CONSOLE_AUTH_UNAVAILABLE` with sanitized reason

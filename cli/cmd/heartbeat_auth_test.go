@@ -32,6 +32,7 @@ func TestHeartbeatStopsAfterOneCredentialFailure(t *testing.T) {
 			}
 			t.Run(name+map[bool]string{true: "/metadata", false: "/access"}[reportMetadata], func(t *testing.T) {
 				var challenges, business atomic.Int32
+				var cdnRequests *atomic.Int32
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					if r.URL.Path != "/api/v2/agent-sessions/refresh-challenges" {
 						business.Add(1)
@@ -39,6 +40,9 @@ func TestHeartbeatStopsAfterOneCredentialFailure(t *testing.T) {
 						return
 					}
 					challenges.Add(1)
+					if cdnRequests.Load() != 1 {
+						t.Error("authentication started before the public Skills sync")
+					}
 					if status == 0 {
 						conn, _, err := w.(http.Hijacker).Hijack()
 						if err == nil {
@@ -54,10 +58,15 @@ func TestHeartbeatStopsAfterOneCredentialFailure(t *testing.T) {
 				}))
 				defer server.Close()
 				_, serverName := runtimeTestConfig(t, server.URL, true)
+				version = "0.6.6"
+				t.Setenv("EIGENFLUX_HOST", "terminal")
+				t.Setenv("EIGENFLUX_MODE", "")
+				t.Setenv("EIGENFLUX_MODEL", "")
 				if reportMetadata {
-					clientMeta = client.Meta{Host: "codex", Mode: "skill"}
+					t.Setenv("EIGENFLUX_HOST", "codex")
+					t.Setenv("EIGENFLUX_MODE", "skill")
 				}
-				installHeartbeatTestRules(t)
+				cdnRequests = serveHeartbeatTestManifest(t, installHeartbeatTestRules(t))
 				if _, _, _, err := auth.LoadOrCreateIdentity(serverName); err != nil {
 					t.Fatal(err)
 				}
@@ -69,9 +78,9 @@ func TestHeartbeatStopsAfterOneCredentialFailure(t *testing.T) {
 				if err := auth.SaveV2Credentials(serverName, credentials); err != nil {
 					t.Fatal(err)
 				}
-				err = heartbeatPlanCmd.RunE(&cobra.Command{}, nil)
-				if !isV2CredentialError(err) || challenges.Load() != 1 || business.Load() != 0 {
-					t.Fatalf("credential acquisition repeated or swallowed: err=%v challenges=%d business=%d", err, challenges.Load(), business.Load())
+				out, err := runArgs(t, "heartbeat", "plan")
+				if !isV2CredentialError(err) || challenges.Load() != 1 || business.Load() != 0 || cdnRequests.Load() != 1 || out != "" {
+					t.Fatalf("Skills sync skipped, credential acquisition repeated, or failure swallowed: err=%v CDN=%d challenges=%d business=%d output=%q", err, cdnRequests.Load(), challenges.Load(), business.Load(), out)
 				}
 				if status != 0 {
 					var apiErr *client.APIError
@@ -84,9 +93,52 @@ func TestHeartbeatStopsAfterOneCredentialFailure(t *testing.T) {
 	}
 }
 
+func serveHeartbeatTestManifest(t *testing.T, dir string) *atomic.Int32 {
+	t.Helper()
+	manifest, err := skills.ReadLocalManifest(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousKey := skills.VerifyPublicKeyBase64
+	skills.VerifyPublicKeyBase64 = base64.StdEncoding.EncodeToString(publicKey)
+	t.Cleanup(func() { skills.VerifyPublicKeyBase64 = previousKey })
+	digest := sha256.Sum256(nil)
+	manifest.TarSHA256, manifest.Sequence = hex.EncodeToString(digest[:]), 1
+	if err := skills.SignManifest(manifest, privateKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := skills.WriteManifestAtomic(dir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	requests := new(atomic.Int32)
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.URL.Path != "/skills/latest/"+skills.RemoteManifest {
+			t.Errorf("unexpected CDN request: %s", r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(manifest)
+	}))
+	t.Cleanup(cdn.Close)
+	t.Setenv("EIGENFLUX_CDN_URL", cdn.URL)
+	return requests
+}
+
 func TestHeartbeatCompatibilityAuthenticationFailureStopsPlan(t *testing.T) {
-	for _, status := range []int{401, 503} {
-		t.Run(http.StatusText(status), func(t *testing.T) {
+	for _, tc := range []struct {
+		name, code string
+		status     int
+	}{
+		{"unauthorized", "REPORT_FAILED", 401},
+		{"auth service unavailable", "AGENT_AUTH_UNAVAILABLE", 503},
+		{"ordinary report unavailable", "REPORT_FAILED", 503},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			challenges, reports := 0, 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
@@ -94,7 +146,7 @@ func TestHeartbeatCompatibilityAuthenticationFailureStopsPlan(t *testing.T) {
 					_, _ = w.Write([]byte(`{"data":{"context_revision":1}}`))
 				case "/api/v2/agent-settings/heartbeat-compatibility":
 					reports++
-					writeV2RecoveryError(w, status, "REPORT_FAILED")
+					writeV2RecoveryError(w, tc.status, tc.code)
 				case "/api/v2/agent-sessions/refresh-challenges":
 					challenges++
 					writeV2RecoveryError(w, 401, "REFRESH_INVALID")
@@ -105,43 +157,47 @@ func TestHeartbeatCompatibilityAuthenticationFailureStopsPlan(t *testing.T) {
 			defer server.Close()
 			runtimeTestConfig(t, server.URL, true)
 			version = "0.6.6"
-			dir := installHeartbeatTestRules(t)
-			manifest, err := skills.ReadLocalManifest(dir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
-			if err != nil {
-				t.Fatal(err)
-			}
-			previousKey := skills.VerifyPublicKeyBase64
-			skills.VerifyPublicKeyBase64 = base64.StdEncoding.EncodeToString(publicKey)
-			t.Cleanup(func() { skills.VerifyPublicKeyBase64 = previousKey })
-			digest := sha256.Sum256(nil)
-			manifest.TarSHA256, manifest.Sequence = hex.EncodeToString(digest[:]), 1
-			if err := skills.SignManifest(manifest, privateKey); err != nil {
-				t.Fatal(err)
-			}
-			if err := skills.WriteManifestAtomic(dir, manifest); err != nil {
-				t.Fatal(err)
-			}
-			cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if filepath.Base(r.URL.Path) != skills.RemoteManifest {
-					t.Errorf("unexpected CDN request: %s", r.URL.Path)
-				}
-				_ = json.NewEncoder(w).Encode(manifest)
-			}))
-			defer cdn.Close()
-			t.Setenv("EIGENFLUX_CDN_URL", cdn.URL)
+			serveHeartbeatTestManifest(t, installHeartbeatTestRules(t))
 			out, err := captureHeartbeatStdout(t, func() error { return heartbeatPlanCmd.RunE(&cobra.Command{}, nil) })
-			if status == 401 {
+			if tc.status == 401 {
 				if !isV2CredentialError(err) || out != "" || challenges != 1 || reports != 1 {
 					t.Fatalf("authentication failure became a successful plan: err=%v output=%s challenges=%d reports=%d", err, out, challenges, reports)
+				}
+			} else if tc.code == "AGENT_AUTH_UNAVAILABLE" {
+				if !isAgentAuthUnavailable(err) || out != "" || challenges != 0 || reports != 1 {
+					t.Fatalf("authentication service failure became a successful plan or retried: err=%v output=%s challenges=%d reports=%d", err, out, challenges, reports)
 				}
 			} else if err != nil || reports != 1 || challenges != 0 || out == "" {
 				t.Fatalf("ordinary report failure blocked the plan: err=%v output=%s", err, out)
 			}
 		})
+	}
+}
+
+func TestHeartbeatMetadataAuthenticationServiceFailureStopsPlan(t *testing.T) {
+	var metadata, otherRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && r.URL.Path == "/api/v2/agents/me/settings" {
+			metadata.Add(1)
+			writeV2RecoveryError(w, http.StatusServiceUnavailable, "AGENT_AUTH_UNAVAILABLE")
+			return
+		}
+		otherRequests.Add(1)
+		t.Errorf("authentication service failure did not stop the plan: %s %s", r.Method, r.URL.Path)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	runtimeTestConfig(t, server.URL, true)
+	version = "0.6.6"
+	t.Setenv("EIGENFLUX_HOST", "codex")
+	t.Setenv("EIGENFLUX_MODE", "skill")
+	cdnRequests := serveHeartbeatTestManifest(t, installHeartbeatTestRules(t))
+	out, err := captureHeartbeatStdout(t, func() error {
+		_, runErr := runArgs(t, "heartbeat", "plan")
+		return runErr
+	})
+	if !isAgentAuthUnavailable(err) || metadata.Load() != 1 || otherRequests.Load() != 0 || cdnRequests.Load() != 1 || out != "" {
+		t.Fatalf("authentication service failure repeated or swallowed: err=%v metadata=%d other=%d CDN=%d output=%q", err, metadata.Load(), otherRequests.Load(), cdnRequests.Load(), out)
 	}
 }
 
