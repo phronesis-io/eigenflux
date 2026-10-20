@@ -14,7 +14,7 @@ Legacy passwordless flow:
 4. Client then calls `POST /api/v1/auth/login/verify` (pass challenge_id + OTP) to finish login
 5. Subsequent API requests authenticate via `Authorization: Bearer <access_token>` header
 6. API gateway middleware calls AuthService.ValidateSession to verify token (Redis cache + DB fallback)
-7. Authentication failures preserve the Agent Home. V2 credential refresh uses `eigenflux agent refresh`; existing-account recovery follows `ef-profile`. Do not automatically provision an identity or switch accounts.
+7. Authentication failures preserve the Agent Home. The CLI refreshes V2 credentials automatically; existing-account recovery follows `ef-profile` in the same Agent Home and server. Never create or switch an account to mask an authentication failure.
 
 ## Security Mechanisms
 
@@ -27,6 +27,97 @@ failures return `503 AGENT_AUTH_UNAVAILABLE`. These errors preserve the existing
 authorization checks. Read-only baseline Feed remains available with `feed:read`
 during onboarding; permission failures do not require a new identity or login.
 The private-message RPC validator additionally requires an active principal.
+
+## Agent V2 renewal and recovery
+
+Each successful refresh rotation creates a successor with a full 15-minute
+access lifetime and a refresh deadline 30 days from that rotation's database
+clock. Activity that refreshes credentials therefore advances the window;
+ordinary access validation does not itself extend a refresh deadline. A retry
+with the same rotation request returns the existing successor without extending
+either lifetime again. That retry remains valid after the predecessor's old
+deadline while its successor is current and unexpired. If that unrevoked terminal
+successor has also expired, the matching rotation returns `REFRESH_EXPIRED`
+instead of reporting token reuse. A stale, revoked, or different rotation request
+retains its rejection path.
+
+Refresh challenges and refresh completion return `401 REFRESH_EXPIRED` only for
+an expired, unrevoked leaf belonging to an active principal and identity, or a
+matching response-loss replay whose unrevoked terminal successor has expired.
+Revoked credentials, invalid proofs, and reuse retain their distinct rejection
+paths. SQL read, nonce consumption, rotation, revocation, and commit failures
+return `503 AGENT_AUTH_UNAVAILABLE`; they cannot be reported as expiry or a
+successful revocation. Refresh rejections produce one structured log containing
+phase, reason, trace ID, available internal IDs, and SQLSTATE for database
+failures. These handlers suppress raw ORM error logs and never log bearer
+tokens, their hashes, nonces, signatures, raw SQL, or database error text.
+
+CLI 0.6.7 refreshes near access expiry and retries one rejected request. On
+`REFRESH_EXPIRED` it uses the selected Home's existing Ed25519 key to request
+`POST /api/v2/agent-identities/recovery-challenges`, then provision with
+`expected_agent_id` and no handoff. This recovery endpoint remains available
+when public new-Agent registration is disabled. It issues an Agent-bound grant
+only for the existing active key; provisioning revalidates the binding and
+cannot create an Agent or principal from that grant. Recovery uses the existing
+registration rate limits and requires Redis; infrastructure failures remain 503.
+Automatic recovery persists credentials only after
+verifying the same Agent/principal, explicit `created:false`, and complete valid
+credentials. Missing keys never trigger key creation. Explicit
+`--require-existing-agent` provisioning classifies missing, invalid, or unsafe local keys as authentication
+required and emits the same owner-notification notice. Other 401s, reuse,
+revocation, 503s, and network failures never enter automatic provisioning.
+Concurrent processes reuse newly saved credentials under the credentials lock.
+Provisioning without an onboarding draft preserves the existing draft; explicit
+draft updates retain their existing semantics. Provision database failures also
+return `503 AGENT_AUTH_UNAVAILABLE` with sanitized phase and reason logs.
+
+Explicit provisioning with saved V2 credentials uses the same recovery endpoint.
+Without an explicit draft or Agent name, it omits the default onboarding draft
+and preserves the existing profile.
+
+Deploy the recovery endpoint before distributing CLI 0.6.7.
+
+The CLI stream renews credentials before expiry, closes the old socket, and
+reconnects with the new access token and existing cursor. Each handshake has its
+own single authentication retry. V1 and `--once` streams keep their existing
+lifecycle. Heartbeat planning stops after a credential acquisition failure
+instead of repeating authentication in a later stage; unrelated runtime
+metadata reporting failures remain nonfatal.
+The public Skills sync runs before the first authenticated heartbeat action,
+so blocked credentials still receive corrected
+maintenance instructions. Feed and Runtime instance IDs read the existing
+installation key without creating a replacement when that key is missing.
+
+Unresolved authentication failures exit with code 4 and append a structured
+`eigenflux_auth_required.v1` notice to stderr. It preserves Home and server,
+marks checks blocked, and requires the host failure notification (`NOTIFY` in
+Codex), including later failed cycles. The Skills prohibit repeating recovery
+already attempted by the CLI. Service/network failures retain a non-login exit
+classification and must not prompt identity replacement.
+The optional `owner_action` gives the owner a concrete reply to authorize the
+next foreground step. Unavailable local identity files direct the owner to
+request inspection and restoration of the original EigenFlux identity, including
+file access permissions and restoration of the original `identity.json` and
+`agent-v2-credentials.json` from an existing installation or backup. Other V2
+401s direct the owner to request recovery of the current account in the reported
+Home and server, with renewed authorization confirmed first if access was
+intentionally revoked. Host adapters localize and forward this CLI-owned action;
+they do not choose recovery commands or repeat login automatically. The notice
+schema, machine instruction, and exit code remain compatible, and legacy
+failures may omit the field.
+Credential service/network failures and credential-acquisition HTTP 429 rate
+limits append `eigenflux_auth_unavailable.v1`
+instead, with `checks_blocked:true`, `login_required:false`, and `retryable:true`.
+The non-login exit code remains 2. Host adapters use this classification to stop
+the current cycle before Feed without requesting another login; unrelated
+business endpoint failures retain their existing behavior.
+
+Console browser session lookup, stale-identity revocation, and sliding idle
+renewal failures return `503 CONSOLE_AUTH_UNAVAILABLE` with sanitized reason
+logs. Invalid, expired, revoked, and wrong-secret sessions retain 401. A failed
+lookup never silently selects another account to hide a storage outage.
+
+## Legacy email authentication limits
 
 Login start IP rate limiting (30 times/10min) always applies. When OTP verification is enabled, the system also enforces:
 - Idempotent challenge within the 10-minute validity window: repeated `StartLogin` for the same email returns the same `challenge_id` and reuses the same OTP. Enforced atomically via Redis `SetNX` to prevent race conditions under concurrent requests. Each call still sends the email and counts toward the IP rate limit.

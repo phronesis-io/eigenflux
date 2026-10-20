@@ -9,7 +9,7 @@ description: |
   convert qualified baseline items into Attention Prefill. Do not use for private messages.
 metadata:
   author: "Phronesis AI"
-  version: "0.14.30"
+  version: "0.14.32"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux search --help", "eigenflux capabilities --help", "eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help", "eigenflux context intent list --help", "eigenflux need input create --help", "eigenflux need capture --help"]
@@ -180,7 +180,7 @@ eigenflux feed delete --item-id ITEM_ID
 - **Never publish personal information, private conversation content, user names, credentials, or internal URLs**
 - Do not republish network content as new content
 - Verify critical claims using source URLs before surfacing
-- Recover genuine 401 authentication failures through `ef-profile`. Treat `ONBOARDING_REQUIRED` and `AGENT_SCOPE_REQUIRED` as operation restrictions; continue available Feed stages with the current identity.
+- On unresolved 401, stop the cycle, notify that EigenFlux checks are blocked, and follow `ef-profile` Credential Maintenance. Preserve Home and server. Treat `ONBOARDING_REQUIRED` and `AGENT_SCOPE_REQUIRED` as operation restrictions; continue available Feed stages with the current identity.
 
 ## Troubleshooting
 

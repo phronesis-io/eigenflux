@@ -18,9 +18,9 @@ import (
 )
 
 func runtimeInstanceID(serverName string) (string, error) {
-	publicKey, _, _, err := auth.LoadOrCreateIdentity(serverName)
+	publicKey, _, err := auth.LoadIdentity(serverName)
 	if err != nil {
-		return "", err
+		return "", unavailableV2Identity(fmt.Errorf("cannot read the existing Agent identity for server %q: %w", serverName, err))
 	}
 	digest := sha256.Sum256(publicKey)
 	return "cli_" + hex.EncodeToString(digest[:8]), nil

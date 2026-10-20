@@ -359,6 +359,7 @@ func (s *Service) requireSameOrigin() app.HandlerFunc {
 // Console V2 feature flag, so disabled deployments retain the exact V1 surface.
 func (s *Service) Register(h *server.Hertz) {
 	h.POST("/api/v2/bootstrap-grants", s.issueBootstrapGrant)
+	h.POST("/api/v2/agent-identities/recovery-challenges", s.issueExistingIdentityRecoveryChallenge)
 	if s.enablePublicRegistration {
 		h.POST("/api/v2/agent-identities/registration-challenges", s.issuePublicRegistrationChallenge)
 	}
@@ -702,9 +703,14 @@ func (s *Service) consoleAuth(requireCSRF bool) app.HandlerFunc {
 			return
 		}
 		now := time.Now().UnixMilli()
-		slot, session, err := s.resolveActiveConsoleSession(c, now)
+		slot, session, err := s.resolveActiveConsoleSession(ctx, c, now)
 		if err != nil || session.SessionID == "" {
-			if errors.Is(err, errConsoleSessionInvalid) {
+			var storageError *consoleSessionStorageError
+			if errors.As(err, &storageError) {
+				failure := authenticationFailure{ctx: ctx, stage: "console", agentID: session.AgentID, principalID: session.PrincipalID, consoleSessionID: session.SessionID}
+				failure.log(http.StatusServiceUnavailable, "CONSOLE_AUTH_UNAVAILABLE", storageError.reason, storageError.cause)
+				fail(c, http.StatusServiceUnavailable, "CONSOLE_AUTH_UNAVAILABLE", "Console V2 authentication is temporarily unavailable", nil)
+			} else if errors.Is(err, errConsoleSessionInvalid) {
 				fail(c, http.StatusUnauthorized, "CONSOLE_SESSION_INVALID", "Console V2 session is invalid or expired", nil)
 			} else {
 				fail(c, http.StatusUnauthorized, "CONSOLE_SESSION_REQUIRED", "Console V2 session is required", nil)
@@ -726,8 +732,14 @@ func (s *Service) consoleAuth(requireCSRF bool) app.HandlerFunc {
 			if idle > session.AbsoluteExpiry {
 				idle = session.AbsoluteExpiry
 			}
-			s.db.Exec(`UPDATE console_v2_sessions SET last_seen_at = ?, idle_expires_at = ?
-				WHERE session_id = ? AND last_seen_at = ?`, now, idle, session.SessionID, session.LastSeenAt)
+			if err := s.authenticationDB(ctx).Exec(`UPDATE console_v2_sessions SET last_seen_at = ?, idle_expires_at = ?
+				WHERE session_id = ? AND last_seen_at = ?`, now, idle, session.SessionID, session.LastSeenAt).Error; err != nil {
+				failure := authenticationFailure{ctx: ctx, stage: "console", agentID: session.AgentID, principalID: session.PrincipalID, consoleSessionID: session.SessionID}
+				failure.log(http.StatusServiceUnavailable, "CONSOLE_AUTH_UNAVAILABLE", "session_renewal_failed", err)
+				fail(c, http.StatusServiceUnavailable, "CONSOLE_AUTH_UNAVAILABLE", "Console V2 authentication is temporarily unavailable", nil)
+				c.Abort()
+				return
+			}
 		}
 		c.Set("agent_id", session.AgentID)
 		c.Set("principal_id", session.PrincipalID)

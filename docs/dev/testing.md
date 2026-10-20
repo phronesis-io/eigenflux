@@ -23,6 +23,43 @@ Tests live beside the packages they exercise and in the service integration suit
 | `tests/installv2/` | Install ref through signed V2 provision, email binding, identity reuse, and transaction rollback | `go test -v ./tests/installv2/` |
 | `tests/replay/` | Offline replay service tests (sort simulation with custom params, inline profiles) | `go test -v ./tests/replay/` |
 
+## Agent V2 authentication regressions
+
+Use an isolated PostgreSQL database for `PG_DSN`. Run
+`go test ./api/consolev2 -run 'TestAgentRefreshPostgres|TestRefreshDatabaseFailureClassificationAndRedaction|TestAgentAuthorizationPostgres' -count=1`
+to exercise sliding refresh windows, idempotent response-loss recovery, expired
+versus revoked sessions, nonce/rotation/revocation SQL failures, commit failures,
+and sanitized rejection logs. These tests create synthetic temporary tables and
+must not point at production. Run the full package against a migrated test
+database to include the existing Console flows.
+
+In `cli/`, run `go test ./...` and
+`go test -race ./cmd ./internal/auth -run 'TestStream|TestV2|TestExpiredV2|TestHeartbeatStops|TestCommandFailure' -count=1`.
+The suites use temporary Agent Homes, local HTTP servers, and real local
+WebSocket connections. They cover same-key recovery without account creation,
+concurrent refresh reuse, repeated stream renewal with cursor preservation,
+single-attempt heartbeat failures, and host notification/exit classification.
+Heartbeat authentication-failure regressions use a signed local CDN and verify
+Skills synchronization before a single credential attempt. Feed/Runtime missing
+key tests verify that no replacement identity or authentication request is made.
+Temporary credential failures, including recovery rate limits, retain exit 2
+and the structured non-login notice;
+unrelated endpoint failures do not receive that notice.
+Run `go test ./tests/installv2` with a migrated test database and
+`EIGENFLUX_TEST_CLI` pointing at the built CLI. The real CLI/handler recovery
+test verifies preserved Agent, principal, key, profile, draft, and attribution,
+with public registration enabled and disabled, no extra account or handoff, and
+the guarded manual recovery command using the same endpoint. Revoked expiry
+must exit 4 without provisioning. Unavailable local keys in guarded provisioning
+must also exit 4 with an owner-notification notice and preserve saved credentials.
+Owner-action regressions verify separate instructions for inaccessible local
+identity files and rejected V2 sessions, including the current Home and server,
+an explicit owner reply, revocation confirmation, and preservation of the
+existing host instruction and exit code. They verify that notice generation
+does not modify saved identity files or disclose their contents, that legacy
+failures omit V2-specific actions, and that credential 503/429 failures retain
+their non-login classification without an owner recovery action.
+
 ## Codex installer compatibility
 
 Run `python3 -m unittest discover -s tests/cli_release -p 'test_codex_install.py'`

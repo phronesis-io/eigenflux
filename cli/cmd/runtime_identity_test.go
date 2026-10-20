@@ -64,6 +64,9 @@ func runtimeTestConfig(t *testing.T, endpoint string, v2 bool) (*config.Config, 
 		t.Fatal(err)
 	}
 	if v2 {
+		if _, _, _, keyErr := auth.LoadOrCreateIdentity(server.Name); keyErr != nil {
+			t.Fatal(keyErr)
+		}
 		err = auth.SaveV2Credentials(server.Name, &auth.V2Credentials{AgentID: "agent-1", AccessToken: "test-v2", RefreshToken: "test-refresh", ExpiresAt: time.Now().Add(time.Hour).UnixMilli()})
 	} else {
 		err = auth.SaveCredentials(server.Name, &auth.Credentials{AgentID: "agent-1", AccessToken: "test-v1"})
