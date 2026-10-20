@@ -234,7 +234,19 @@ var watchDoctorCmd = &cobra.Command{
 		if _, err = localHeartbeatSkillsAt(b.SkillsDir, b.Host); err != nil {
 			return err
 		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"status": "configuration_ready", "host": b.Host, "mode": b.Mode, "protocol_checked": false, "main_notice": dispatch.MainNoticeCapability(b.Host), "main_notice_enabled": false, "business_verified": false, "commission_subscription": commissionSubscription(b), "events": b.Events, "workbuddy_local_identity": "unverified"})
+		result := map[string]any{"status": "configuration_ready", "host": b.Host, "mode": b.Mode, "protocol_checked": false, "main_notice": dispatch.MainNoticeCapability(b.Host), "main_notice_enabled": false, "business_verified": false, "commission_subscription": commissionSubscription(b), "events": b.Events, "workbuddy_local_identity": "unverified"}
+		probeMain, _ := cmd.Flags().GetBool("probe-main")
+		if probeMain {
+			probe := dispatch.ProbeMainNotice(cmd.Context(), dispatch.MainNoticeTarget{Host: b.Host, SessionID: b.MainSessionID, Binding: b})
+			currentIdentity, identityErr := watchBindingIdentity()
+			currentBinding, bindingErr := dispatch.ReadBinding(b.Home, b.Server)
+			if identityErr != nil || bindingErr != nil || !sameBindingIdentity(currentIdentity, b) || !sameBindingIdentity(currentBinding, b) || currentBinding.Revision != b.Revision || currentBinding.MainSessionID != b.MainSessionID || currentBinding.Env["CODEX_HOME"] != b.Env["CODEX_HOME"] {
+				return errWatchIdentity
+			}
+			result["main_notice_probe"] = probe
+			result["protocol_checked"] = probe.TransportAvailable
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
 	},
 }
 
@@ -309,6 +321,7 @@ var watchReconcileCmd = &cobra.Command{
 
 func init() {
 	watchCmd.Flags().Bool("dispatch", false, "Execute events using this account's local Agent binding (replaces plugin consumption)")
+	watchDoctorCmd.Flags().Bool("probe-main", false, "Read existing Codex host connectivity and exact bound target without starting a turn")
 	watchBindCmd.Flags().String("config", "", "local Agent binding JSON file; identity is pinned from this account")
 	watchRetryCmd.Flags().String("order-id", "", "Recover one seller order absent from notification intake; stop watch first")
 	watchReconcileCmd.Flags().Bool("verified", false, "confirm you inspected Agent execution and the business outcome")

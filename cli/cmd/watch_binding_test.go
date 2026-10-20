@@ -175,6 +175,28 @@ func TestWatchBindingDoctorIsStatic(t *testing.T) {
 	}
 }
 
+func TestWatchBindingDoctorProbeKeepsUnsupportedHostDisabled(t *testing.T) {
+	newDispatchWatchFixture(t, "")
+	cmd, out := bindingTestCommand()
+	cmd.Flags().Bool("probe-main", true, "")
+	if err := watchDoctorCmd.RunE(cmd, nil); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Status           string                   `json:"status"`
+		ProtocolChecked  bool                     `json:"protocol_checked"`
+		BusinessVerified bool                     `json:"business_verified"`
+		MainEnabled      bool                     `json:"main_notice_enabled"`
+		Probe            dispatch.MainNoticeProbe `json:"main_notice_probe"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "configuration_ready" || result.ProtocolChecked || result.BusinessVerified || result.MainEnabled || result.Probe.Enabled || result.Probe.Code != "main_notice_host_unverified" {
+		t.Fatalf("doctor overstated host readiness: %+v", result)
+	}
+}
+
 func TestWatchBindingStatusDoesNotRecoverRunningJobs(t *testing.T) {
 	f := newDispatchWatchFixture(t, "")
 	job := dispatchTestNext(t, f.watch)

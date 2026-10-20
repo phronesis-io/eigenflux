@@ -195,5 +195,12 @@ Codex turn uses only the official running-host proxy, other hosts default to ACP
 with exact session loading. Current hidden-input host acceptance is unverified;
 watch status reports untested and main_notice_enabled=false. No production
 conversation is invoked until hidden input and busy admission are verified.
+Use `watch doctor --probe-main` for an explicit read-only check of the existing
+Codex proxy and exact bound thread. It never starts a daemon, resumes a writer,
+sends prompt text or calls turn/start. `main_notice_probe.code` reports transport
+or target failure; a readable idle thread still reports
+`main_notice_hidden_input_unverified` and remains disabled. Plain doctor retains
+its static configuration checks. The 2026-10-20 installed-host probe returned
+`main_notice_proxy_unavailable`; the real main-conversation path is not passed.
 Publisher permission warnings use local OS settings links without opening them.
 Normal cycles use order pending-confirmations for repeat buyer reminders.

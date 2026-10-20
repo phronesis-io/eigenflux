@@ -5,10 +5,20 @@ Update this file and cli/internal/dispatch/README.md when this logic changes.
 ## Current delivery boundary
 
 Test-branch adapters, notice queue, role/stage rules, publish permission warning,
-inspection reuse and periodic buyer reminder are implemented. All real main-host
+inspection reuse, pre-acceptance text clarification and periodic buyer reminder
+are implemented. All real main-host
 transports remain untested and disabled: Codex's official running-host proxy is
 absent; hidden input and atomic idle turn admission are unverified. Current
 fixtures do not establish main-thread UI behavior or live Order delivery.
+
+The 2026-10-20 installed-host probe used the existing binding and returned
+`main_notice_proxy_unavailable`, with transport/target/enabled all false.
+Desktop 26.1013.40934 / Codex 0.163.0-alpha.10.2 holds the thread through a
+stdio-only App Server; no public control socket is running. A second daemon
+cannot reuse that desktop writer. `watch doctor --probe-main` can reproduce the
+read-only check without sending prompt text, calling a model, starting a daemon
+or changing the target. Host access, hidden live/history UI, exact receipts and
+concurrent-turn admission still require real host acceptance before activation.
 
 ## Per-stage contract
 
@@ -39,25 +49,34 @@ Require host acceptance for hidden-input UI and busy-thread semantics before
 activation. Others, including Claude Code, OpenClaw, WorkBuddy and Hermes, remain
 untested even when independent ACP handshake or new-session tests succeeded.
 
-## Input clarification (specified, not implemented)
+## Input clarification (text implemented)
 
-During awaiting_seller, needs_input must initiate an order-scoped exchange between
-seller and buyer Agents, without asking either human. Use fixed counterpart IDs
-from the authenticated Order, question/correlation IDs, deduplication, bounded
-rounds and persisted waiting/answered/resolved state. Ordinary PM auto-reply cannot
-be repurposed as permission to send elsewhere or change an Order.
+During awaiting_seller, seller needs_input creates request-inputs. Commission
+stores the question and waiting_buyer status, advances the Order version and
+notifies the fixed buyer. Its separate CLI answer lane uses a signed rule and
+the existing fresh-session adapter. An answered result triggers supplement-inputs
+only after identity/version checks. The server appends the factual answer to
+buyer_input, stores answered, seals a snapshot and notifies the seller to recheck
+the new version. Pending questions block acceptance. One pending question and at
+most three rounds prevent loops. Original deadlines remain unchanged.
 
-The buyer answers only from already authorized context/materials. Missing facts
+The buyer answers only from the supplied authorized Order buyer_input. This lane
+does not read prior chats, arbitrary local files or account control context.
+Missing facts
 remain waiting; neither Agent fabricates consent, data or a deliverable. Do not
 send raw execution prompts or secrets. The seller inspects the resolved input once
 and persists its readiness evidence before acceptance. No fees, terms or deadlines
-change during clarification.
+change during clarification. Ordinary PM auto-reply does not gain Order writes.
+The two coordination events remain silent in desktop/main notices. A
+notifications-only consumer leaves them unacknowledged for an execution owner.
+The matching Commission test branch and migration 15 are required; this commit
+does not deploy them.
 
 Current activated buyer workspace is read-only. Missing files need a new restricted
 awaiting_seller supplemental-input operation with participant authorization,
 expected-version fencing, immutable snapshot lineage and evidence invalidation.
-A PM attachment is not authoritative input. Until that operation and its tests
-exist, file-based clarification cannot complete automatically. Do not weaken the
+A PM attachment is not authoritative input. Text clarification does not implement
+that file operation; requests for new files remain waiting. Do not weaken the
 existing access guard or falsely claim fully automatic material recovery.
 
 ## Normal-cycle reminder
@@ -66,3 +85,15 @@ Every full completed-access heartbeat and standalone Feed cycle queries order
 pending-confirmations once per cycle. Include current pending deliveries and
 links in the host result even without new Feed items. Empty results stay quiet;
 failed checks never mean there are no pending Orders. No one-off timer is created.
+
+## Verification (2026-10-20)
+
+The opt-in TestCommissionNativeCodexTextClarification used real local Codex
+fresh sessions for a buyer answer (17.25 seconds) and independent seller
+reinspection (20.39 seconds). Localhost fixture APIs confirmed one persisted
+answer and one acceptance into pending_payment. No live Order or payment was
+created. This verifies native model execution with the clarification contract,
+not desktop main-thread access, hidden prompt UI or a production two-account
+exchange. Commission 75908d2 separately passed real PostgreSQL persistence,
+transaction, notification and migration tests. The installed-host read-only
+probe failed connectivity as recorded above; main notices remain disabled.

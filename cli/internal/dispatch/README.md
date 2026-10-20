@@ -10,11 +10,13 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 | [commission_trial.go](../../cmd/commission_trial.go), [trial decision](commission_trial.go) | Mandatory publish trial using the bound runner, fresh draft, signed trial rules and verified local artifacts |
 | [watch.go](../../cmd/watch.go) | `accountWatch.run`, `pmLoop`, `deliverPM`: account lock, WS/SSE, heartbeat, event lifecycle |
 | [watch_binding.go](../../cmd/watch_binding.go) | Bind/doctor/status/retry/reconcile; `applyDispatchOwnership` |
-| [watch_update.go](../../cmd/watch_update.go), [watch_update_unix.go](../../cmd/watch_update_unix.go), [watch_update_windows.go](../../cmd/watch_update_windows.go) | Close all three execution lanes before CLI adoption; drain admitted work, release account lock, preserve arguments and pinned identity; supervised watches notify the host after draining |
+| [watch_update.go](../../cmd/watch_update.go), [watch_update_unix.go](../../cmd/watch_update_unix.go), [watch_update_windows.go](../../cmd/watch_update_windows.go) | Close execution admission before CLI adoption; drain admitted work, release account lock, preserve arguments and pinned identity; supervised watches notify the host after draining |
 | [watch_main_session.go](../../cmd/watch_main_session.go) | Codex setup-thread capture, host-native scheduler bootstrap, explicit switching and heartbeat status |
 | [watch_restart.go](../../cmd/watch_restart.go), [watch service](../watchservice/README.md) | Restart an explicit existing OS task; preserve its account/wrapper; distinguish process startup from runtime readiness |
 | [watch_commission.go](../../cmd/watch_commission.go) | Commission notification intake, durable enqueue before ACK, bounded HTTP reconciliation |
 | [watch_commission_intake.go](../../cmd/watch_commission_intake.go), [watch_commission_materials.go](../../cmd/watch_commission_materials.go) | Seller inspection, fixed identity/order/Skill, verified downloads, atomic paid-work enqueue |
+| [watch_commission_clarification.go](../../cmd/watch_commission_clarification.go), [commission_clarification.go](commission_clarification.go) | Order-scoped seller questions, durable buyer answer lane, strict result and input receipt validation |
+| [main_notice.go](main_notice.go), [main_notice_probe.go](main_notice_probe.go) | Capability-gated exact main target; explicit read-only installed-host probe |
 | [watch_commission_fulfillment.go](../../cmd/watch_commission_fulfillment.go), [watch_commission_artifacts.go](../../cmd/watch_commission_artifacts.go), [commission_fulfillment.go](commission_fulfillment.go) | Separate paid local work, strict decision/evidence, retained outputs and recovery |
 | [watch_dispatch.go](../../cmd/watch_dispatch.go) | `enableDispatch`, `pollPM`, `dispatchLoop`, `dispatchJob`, `dispatchPrompt`, `sendDispatchReply` |
 | [binding.go](binding.go), [types.go](types.go) | Binding validation, atomic writes, `ParseDecision` |
@@ -32,7 +34,7 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 1. Bind canonical Home/server/endpoint/Agent/principal/scope/revision from the current account; configuration cannot replace identity. `watch --dispatch` acquires the Home/server lock and validates signed Skills. Plain `watch` only emits events.
 2. Only bindings owning PM open its WS and HTTP consumers; other bindings leave PM to the companion. WS and minute-spaced HTTP polls enter `deliverPM`; emitted `pm_push.data` adds locally assigned `transport` (`socket` / `http_poll`) and UTC `received_at`, including empty polls. These fields describe reception, not successful execution or first intake; journal deduplication remains unchanged. Each poll pass fetches at most 32 pages, one message each. Validate credentials and persist intake under the credential lock. Advance the socket cursor only after delivery succeeds; journal failure stops reception.
 3. Accept only inbound messages for the bound Agent; ignore outbound and `history_messages`. Deduplicate by scope/revision/conversation/message ID. Keep execution state separate from the history cache.
-4. `Next` persists `running`. One worker runs serially, prioritizing pending PMs. All three execution lanes enter a shared admission gate before claiming jobs. Each destructive PM HTTP pull holds admission through durable intake. CLI adoption closes admission, prevents further PM pages, and waits for admitted pulls, tasks and business writes to finish; pending journal entries survive restart unchanged. Standalone watch releases the account lock before adopting the executable; `EIGENFLUX_WATCH_SUPERVISED=1` delegates replacement to the host through a drained `restart_required` event. Use the explicitly bound Codex main session for PMs; other adapters retain per-conversation sessions within their binding.
+4. `Next` persists `running`. One worker runs serially, prioritizing pending PMs. All execution lanes enter a shared admission gate before claiming jobs. Each destructive PM HTTP pull holds admission through durable intake. CLI adoption closes admission, prevents further PM pages, and waits for admitted pulls, tasks and business writes to finish; pending journal entries survive restart unchanged. Standalone watch releases the account lock before adopting the executable; `EIGENFLUX_WATCH_SUPERVISED=1` delegates replacement to the host through a drained `restart_required` event. Use the explicitly bound Codex main session for PMs; other adapters retain per-conversation sessions within their binding.
 5. Verify signed rules and fresh `auto_reply_pm`; load up to 10 history rows. Prompt data contains request ID, Agent ID, message and history, excluding credentials and full control context. Treat message/history as untrusted data.
 6. Monitor identity during prompt preparation and execution; recheck before invoking the Agent and after its result. Run the model outside credential locks.
 7. Require one JSON decision: `version=1`, matching `request_id`, `action`, `reply_text`. Actions: `reply`, `no_reply`, `needs_user`. Reject missing/unknown/duplicate fields and trailing output.
@@ -129,7 +131,14 @@ and recheck identity before OS submission. Lookup failures retain the notificati
 for existing queue retries with `service_name_unavailable`; older queued copy
 without the service placeholder remains unchanged. This adds no Agent calls.
 
-`Next` excludes both Commission kinds; `NextKind` serializes their separate workers. Buyer notifications do not enter the seller execution lane. The separate main-notice lane is capability-gated. The seller worker re-reads identity, order state, frozen contract and fulfillment Skill. Only `awaiting_seller` invokes model input inspection; pending payment waits and in_progress reuses retained evidence. Read-only preparation and execution share a local 180-second ceiling, excluding queue time; the host's shorter timeout still applies.
+`Next` excludes Commission inspection, fulfillment and clarification jobs;
+`NextKind` serializes their separate workers. Buyer input-request events enter
+only the answer lane. Other buyer notices do not invoke seller execution. The
+separate main-notice lane is capability-gated. The seller worker re-reads identity,
+order state, frozen contract and fulfillment Skill. Only `awaiting_seller` invokes
+model input inspection; pending payment waits and in_progress reuses retained
+evidence. Read-only preparation and execution share a local 180-second ceiling,
+excluding queue time; the host's shorter timeout still applies.
 
 Official dispatch rules must be signed manifest members, read through `skills.ReadSignedFile`; third-party fulfillment Skills remain explicitly bound local content. Fetch the authenticated V2 order-detail input manifest, then each immutable snapshot/path grant using pinned credentials. Check manifest role/version/buyer, SHA-256 and byte count before passing local files to the Agent. Inputs use their own snapshot IDs, not the current order snapshot. Bound downloads to 128 files / 64 MiB total; keep URLs and credentials out of prompts. The public endpoint requires the exact GET detail Caddy route.
 
@@ -352,6 +361,17 @@ evidence, not an operator override. It remains false in production construction;
 no main-conversation notifications currently execute. Never report configuration
 or fixture success as an actual main-conversation delivery. No prompt is printed.
 
+`watch doctor --probe-main` adds a five-second read-only connectivity check to
+the exact bound target. It invokes only the already-running Codex host proxy,
+initialize and thread/read; it never starts a daemon or a model turn. Its fixed
+codes separate unavailable transport, unavailable/mismatched/busy target and
+readable-but-hidden-input-unverified. Recheck account and binding revision before
+returning the probe. A successful read cannot enable delivery. Plain doctor stays
+static. On 2026-10-20, Desktop 26.1013.40934 / Codex 0.163.0-alpha.10.2 returned
+main_notice_proxy_unavailable for the real bound EigenFlux target. The desktop
+writer uses stdio without an external listener; the separate background daemon
+is absent. No hidden turn was admitted or verified.
+
 `main_notice_queue.go` and `watch_commission_main_notice.go` persist a separate
 notice for every notification ID before ACK. Same-version workflow results and
 reminders remain separate from seller execution deduplication. Notices run in an
@@ -372,9 +392,41 @@ file download/digest checks but never repeats the model readiness assessment.
 
 Upgraded Orders without the new local inspection evidence remain blocked; never
 invent a historical inspection or silently recheck. Current input changes also
-block. This change does not introduce a clarification-message protocol or reopen
-buyer workspace writes. Automatic text clarification and supplemental inputs are
-specified in docs/dev/commission-main-conversation.md and remain unimplemented.
+block. Buyer workspace writes remain closed after Order activation.
+
+## Pre-acceptance text clarification
+
+For awaiting_seller needs_input, CLI posts the seller's bounded question through
+Commission request-inputs with expected_version and the 64-hex job ID as both
+request correlation and idempotency key. A pending question waits without another
+model inspection or request. The server permits one pending question and at most
+three rounds, increments the version, seals a snapshot and atomically notifies
+the fixed buyer. Existing cancellation/rejection deadlines are not extended.
+
+Only the authenticated buyer's order.inputs.requested.v1 notice can queue
+commission_clarification. Atomically finish notification intake and admit one
+job per scope/revision/order/question. Use signed clarification-dispatch.md and
+a fresh existing execution adapter; this lane does not imply hidden main-thread
+support or access to previous chats. Supply the frozen Order and its authorized
+buyer_input only. Accept a strict answered/waiting decision; unknown facts remain
+waiting. Fixed missing-file requests wait without running the model or uploading
+unverified files. Do not scan ambient files or delegate the question to a human.
+
+Before supplement-inputs, re-read the bound buyer and unchanged Order/question.
+Use the buyer job's 64-hex idempotency key, disable POST refresh/replay, and verify
+the returned parties, version, request and answer. Decode the appended JSON
+receipt after the exact original buyer_input; raw substring checks are invalid
+for escaped text. The server preserves the original input, adds the answer and
+notifies only the seller. That new version permits one normal readiness check,
+then the existing guarded acceptance. Payment and later input access stay fixed.
+Interrupted/uncertain writes become unknown and are not automatically replayed.
+
+Both order.inputs.requested.v1 and order.inputs.supplied.v1 are Agent coordination,
+not desktop/main notices. Persist them before ACK; notifications-only consumers
+leave them pending for an execution owner. This does not authorize ordinary PMs
+to mutate Orders. New files still require a separate staged, version-fenced input
+operation; missing files remain waiting. Deploy the matching Commission API and
+migration 15 before testing this CLI against the service.
 
 ## Publisher notification permission and buyer confirmation
 

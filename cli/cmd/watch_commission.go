@@ -13,6 +13,25 @@ import (
 
 const commissionPollPages = 32
 
+// Input coordination is Agent-only work. It must not become a desktop or
+// main-conversation notice merely because its Order remains awaiting_seller.
+func isCommissionInputCoordination(raw json.RawMessage) bool {
+	var notice struct {
+		Type    string `json:"type"`
+		Payload struct {
+			Event string `json:"event_kind"`
+		} `json:"payload"`
+	}
+	if json.Unmarshal(raw, &notice) != nil {
+		return false
+	}
+	event := notice.Payload.Event
+	if event == "" {
+		event = notice.Type
+	}
+	return event == "order.inputs.requested.v1" || event == "order.inputs.supplied.v1"
+}
+
 type commissionNotificationPage struct {
 	Notifications []json.RawMessage `json:"notifications"`
 	HasMore       bool              `json:"has_more"`
@@ -139,6 +158,12 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 			if notification.Source != "commission_order" {
 				continue
 			}
+			internal := isCommissionInputCoordination(raw)
+			// A notifications-only consumer cannot handle Agent coordination.
+			// Keep it pending on the server until an execution owner can persist it.
+			if internal && w.journal == nil {
+				continue
+			}
 			if w.journal != nil {
 				if err := w.journal.AddCommissionNotification(raw); err != nil {
 					return errors.Join(errWatchDispatchJournal, err)
@@ -147,11 +172,13 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 			if w.notificationsOnly && w.desktop == nil {
 				return errors.New("notification_desktop_queue_unavailable")
 			}
-			if err := w.enqueueCommissionMainNotice(raw); err != nil {
-				return errors.Join(errWatchDispatchJournal, err)
-			}
-			if err := w.enqueueDesktopCommission(raw); err != nil {
-				return errors.Join(errWatchDispatchJournal, err)
+			if !internal {
+				if err := w.enqueueCommissionMainNotice(raw); err != nil {
+					return errors.Join(errWatchDispatchJournal, err)
+				}
+				if err := w.enqueueDesktopCommission(raw); err != nil {
+					return errors.Join(errWatchDispatchJournal, err)
+				}
 			}
 			var id notificationID
 			if json.Unmarshal(notification.ID, &id) != nil {

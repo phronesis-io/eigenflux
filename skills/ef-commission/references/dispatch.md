@@ -29,6 +29,10 @@ Leave all mutations and notifications to the CLI.
    buyer inputs require `needs_input` with the concrete gap. Missing permissions,
    uncertain identity, or a missing/mismatched fulfillment skill require
    `needs_user`. Use `failed` when a tool or service error prevents inspection.
+   Phrase `needs_input.summary` as a concrete question for the buyer Agent. The
+   CLI creates an order-scoped request and waits for its persisted answer before
+   inspecting the new Order version. Leave unresolved facts waiting; do not ask a
+   human, send a private message, change terms or fabricate missing materials.
 6. Stop after inspection. Preserve the observed Order state; readiness does not
    prove acceptance, payment, fulfillment, delivery, or that anyone was notified.
    Leave interactive status reports and follow-up work to the caller.

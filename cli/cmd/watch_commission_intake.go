@@ -36,16 +36,17 @@ var (
 )
 
 type commissionIntakeOrder struct {
-	OrderID           notificationID  `json:"order_id"`
-	BuyerID           notificationID  `json:"buyer_agent_id"`
-	SellerID          notificationID  `json:"seller_agent_id"`
-	Version           int64           `json:"version"`
-	State             string          `json:"state"`
-	SnapshotID        notificationID  `json:"current_snapshot_id"`
-	Contract          json.RawMessage `json:"contract"`
-	BuyerInput        string          `json:"buyer_input"`
-	ExecutionRevision int64           `json:"execution_revision"`
-	ExecutionIssue    *struct{}       `json:"execution_issue"`
+	OrderID           notificationID          `json:"order_id"`
+	BuyerID           notificationID          `json:"buyer_agent_id"`
+	SellerID          notificationID          `json:"seller_agent_id"`
+	Version           int64                   `json:"version"`
+	State             string                  `json:"state"`
+	SnapshotID        notificationID          `json:"current_snapshot_id"`
+	Contract          json.RawMessage         `json:"contract"`
+	BuyerInput        string                  `json:"buyer_input"`
+	ExecutionRevision int64                   `json:"execution_revision"`
+	ExecutionIssue    *struct{}               `json:"execution_issue"`
+	InputRequest      *commissionInputRequest `json:"input_request,omitempty"`
 }
 
 // A separate worker keeps intake off the PM execution lane. Its idle tick only
@@ -169,7 +170,10 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 		return w.finishDispatch(job, "completed", "commission_result_notification_recorded", "", "")
 	}
 	if notification.Payload.Role != "seller" {
-		return w.finishDispatch(job, "completed", "commission_buyer_notification_recorded", "", "")
+		if notification.Type != "order.inputs.requested.v1" && notification.Payload.EventKind != "order.inputs.requested.v1" {
+			return w.finishDispatch(job, "completed", "commission_buyer_notification_recorded", "", "")
+		}
+		return w.queueBuyerCommissionClarification(parent, job, strconv.FormatInt(int64(notification.Payload.OrderID), 10))
 	}
 	ctx, cancel := context.WithTimeout(parent, commissionIntakeTimeout)
 	defer cancel()
@@ -204,6 +208,12 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 		}
 		return w.finishDispatch(job, "completed", "commission_order_not_actionable", "", "")
 	}
+	if order.State == "awaiting_seller" && order.InputRequest != nil && order.InputRequest.Status == "waiting_buyer" {
+		if !validCommissionInputRequest(order.InputRequest) {
+			return w.finishDispatch(job, "failed", "commission_clarification_invalid", "", "")
+		}
+		return w.finishDispatch(job, "completed", "commission_clarification_waiting_buyer", "", "")
+	}
 	if err := w.journal.SetCommissionExecution(job.ID, id, order.Version, order.ExecutionRevision, order.ExecutionIssue != nil); err != nil {
 		return err
 	}
@@ -225,6 +235,9 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 	}
 	prompt, requiresMaterials, files, cleanup, err := w.commissionIntakePrompt(ctx, job, order)
 	if err != nil {
+		if errors.Is(err, errCommissionMaterialsMissing) && order.State == "awaiting_seller" {
+			return w.requestCommissionInputs(ctx, job, order, "The required buyer input files are missing. Clarify the available authorized materials needed by the frozen contract.", "", "required_input_files")
+		}
 		status, code := "failed", "commission_intake_prompt_unavailable"
 		switch {
 		case errors.Is(err, errCommissionMaterialsLimit):
@@ -271,6 +284,9 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 	current, err := w.readCommissionOrder(ctx, id)
 	if err != nil || !sameCommissionIntakeOrder(order, current) {
 		return w.finishDispatch(job, "failed", "commission_order_changed", result.SessionID, "")
+	}
+	if order.State == "awaiting_seller" && decision.Outcome == "needs_input" {
+		return w.requestCommissionInputs(ctx, job, order, decision.Summary, result.SessionID)
 	}
 	if order.State == "awaiting_seller" && decision.Outcome == "ready" {
 		fingerprint, err := commissionInputFingerprint(order, files)
@@ -461,6 +477,10 @@ func (w *accountWatch) commissionAgentPrompt(ctx context.Context, job dispatch.J
 	if err != nil {
 		cleanup()
 		return "", false, nil, nil, err
+	}
+	if *contract.RequiresMaterials && len(files) == 0 {
+		cleanup()
+		return "", false, nil, nil, errCommissionMaterialsMissing
 	}
 	data := map[string]any{
 		"request_id": job.ID, "agent_id": w.binding.AgentID, "server": w.binding.Server,

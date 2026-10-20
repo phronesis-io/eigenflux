@@ -107,6 +107,17 @@ func readJournal(b Binding) (journalState, bool, error) {
 			return journalState{}, false, errors.New("invalid_journal_commission_fulfillment")
 		}
 		switch job.Kind {
+		case "commission_clarification":
+			if job.Message != nil {
+				return journalState{}, false, errors.New("invalid_clarification_job")
+			}
+			if completedStatus(job.Status) && len(job.Data) == 0 {
+				continue
+			}
+			var data CommissionClarificationJob
+			if decodeStrictObject(job.Data, &data) != nil || !validCommissionClarification(data, b.AgentID) || job.ID != commissionClarificationID(b, data.OrderID, data.RequestID) {
+				return journalState{}, false, errors.New("invalid_clarification_job")
+			}
 		case "commission_fulfillment":
 			if !validCommissionFulfillmentJob(job, b) {
 				return journalState{}, false, errors.New("invalid_journal_commission_fulfillment")
@@ -396,7 +407,7 @@ func (j *Journal) Next() (Job, bool, error) {
 // worker cannot claim commission notifications before their business flow exists.
 func (j *Journal) NextKind(kind string) (Job, bool, error) {
 	switch kind {
-	case "pm_push", "profile_review_due", "maintenance_due", "control_pending", "commission_order", "commission_fulfillment":
+	case "pm_push", "profile_review_due", "maintenance_due", "control_pending", "commission_order", "commission_fulfillment", "commission_clarification":
 		return j.next(kind)
 	default:
 		return Job{}, false, errors.New("unsupported_dispatch_kind")
@@ -408,7 +419,7 @@ func (j *Journal) next(kind string) (Job, bool, error) {
 	defer j.mu.Unlock()
 	index := -1
 	for i, job := range j.state.Jobs {
-		if (kind == "" && (job.Kind == "commission_order" || job.Kind == "commission_fulfillment")) || (kind != "" && job.Kind != kind) {
+		if (kind == "" && (job.Kind == "commission_order" || job.Kind == "commission_fulfillment" || job.Kind == "commission_clarification")) || (kind != "" && job.Kind != kind) {
 			continue
 		}
 		if job.Status == "running" || job.Status == "sending" {

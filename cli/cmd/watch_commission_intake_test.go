@@ -167,6 +167,16 @@ func TestCommissionAwaitingSellerAcceptedOnlyAfterReadyAgent(t *testing.T) {
 					acceptedOrder := order
 					acceptedOrder.State, acceptedOrder.Version = "pending_payment", order.Version+1
 					materialTestResponse(out, map[string]any{"order": acceptedOrder})
+				case "/api/v1/orders/901/request-inputs":
+					var request struct {
+						RequestID string `json:"request_id"`
+						Question  string `json:"question"`
+					}
+					_ = json.NewDecoder(r.Body).Decode(&request)
+					requested := order
+					requested.Version++
+					requested.InputRequest = &commissionInputRequest{RequestID: request.RequestID, Question: request.Question, Round: 1, Status: "waiting_buyer", MissingInputs: []string{}}
+					materialTestResponse(out, map[string]any{"order": requested})
 				default:
 					t.Errorf("unexpected %s", r.URL.Path)
 				}
@@ -215,6 +225,16 @@ func TestCommissionIntakeWorkerChecksAndPersistsActualDecision(t *testing.T) {
 					accepted := order
 					accepted.State, accepted.Version = "pending_payment", order.Version+1
 					materialTestResponse(out, map[string]any{"order": accepted})
+				case "/api/v1/orders/901/request-inputs":
+					var request struct {
+						RequestID string `json:"request_id"`
+						Question  string `json:"question"`
+					}
+					_ = json.NewDecoder(r.Body).Decode(&request)
+					requested := order
+					requested.Version++
+					requested.InputRequest = &commissionInputRequest{RequestID: request.RequestID, Question: request.Question, Round: 1, Status: "waiting_buyer", MissingInputs: []string{}}
+					materialTestResponse(out, map[string]any{"order": requested})
 				case "/api/v2/console/trade/orders/901":
 					_ = json.NewEncoder(out).Encode(map[string]any{"code": 0, "data": map[string]any{"order_id": "901", "role": "seller", "version": 3, "state": "awaiting_seller", "counterparty": map[string]string{"agent_id": "41"}, "files": map[string]any{"input": []any{}}}})
 				default:
@@ -301,7 +321,11 @@ func TestCommissionIntakeWorkerChecksAndPersistsActualDecision(t *testing.T) {
 			}
 			got := jobs[0]
 			switch scenario {
-			case "ready", "needs_input":
+			case "needs_input":
+				if got.Status != "completed" || got.Code != "commission_clarification_waiting_buyer" || got.SessionID != "independent-session" {
+					t.Fatalf("missing input did not enter automatic clarification: %+v", got)
+				}
+			case "ready":
 				expected := "completed"
 				if scenario == "needs_input" {
 					expected = "needs_user"
