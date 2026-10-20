@@ -273,6 +273,18 @@ func TestSyncMinCLIVersionGuard(t *testing.T) {
 	if dirExists(filepath.Join(dst, "ef-broadcast")) {
 		t.Fatal("must not install skills requiring a newer CLI")
 	}
+	old := stageSkills(t, map[string]map[string]string{"ef-broadcast": {"SKILL.md": "old compatible content"}})
+	if _, err := InstallFromBundle(SyncOptions{Into: dst, BundleDir: old, CLIVersion: "0.0.16", Allowlist: names}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Sync(syncOpts(dst, "0.0.16", srv.URL, names))
+	if err != nil || len(res.Diagnostics) != 1 || !strings.Contains(res.Diagnostics[0].Reason, "9.9.9") || res.Diagnostics[0].TargetRevision != m.Revision {
+		t.Fatalf("compatibility diagnosis missing: %+v, %v", res, err)
+	}
+	data, err := os.ReadFile(filepath.Join(dst, "ef-broadcast", "SKILL.md"))
+	if err != nil || string(data) != "old compatible content" {
+		t.Fatalf("old compatible skill overwritten: %q, %v", data, err)
+	}
 }
 
 func TestSignedManifestRejectsTampering(t *testing.T) {

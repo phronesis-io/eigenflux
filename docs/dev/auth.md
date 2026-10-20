@@ -7,6 +7,14 @@ code `410` with `LEGACY_REGISTRATION_RETIRED` before sending OTP or creating an
 identity, including verification of an already-issued challenge. New connections
 use the current installation/onboarding flow at https://www.eigenflux.ai/install.
 
+The legacy `auth` command group is hidden from normal CLI help and completion;
+explicit `auth login`, `auth verify`, and `auth logout` remain available for
+historical compatibility. New connections follow `ef-onboarding`: provision an
+Agent identity, then verify a real email in Console V2. Email verification is
+required to complete onboarding. Authentication failures follow `ef-profile`
+in the same Agent Home and server for renewal or existing-account recovery;
+they never imply creating or switching identities.
+
 Legacy passwordless flow:
 1. Client calls `POST /api/v1/auth/login` (pass email)
 2. If `ENABLE_EMAIL_VERIFICATION=false` (default), AuthService logs in an existing legacy identity immediately and returns access_token (`at_` prefix)

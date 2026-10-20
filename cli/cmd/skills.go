@@ -23,12 +23,11 @@ var skillsCmd = &cobra.Command{
 	Use:   "skills",
 	Short: "Manage EigenFlux skills (synced from R2, not bundled in plugins)",
 	Long: `Manage the EigenFlux skill set installed into this host's skill-load
-directory. Skills ship alongside the CLI on R2 and are pulled in by
-'eigenflux skills sync' — so updating a skill is a CLI release, not a plugin
-republish.
+directory. Skills are released independently of the CLI and plugins.
+'eigenflux skills sync' verifies the latest signed release and checks CLI compatibility.
 
 Examples:
-  eigenflux skills sync                 # pull latest for this CLI version
+  eigenflux skills sync                 # pull latest compatible Skills
   eigenflux skills sync --if-stale --quiet   # startup-hook form (offline-safe)
   eigenflux skills list
   eigenflux skills path`,
@@ -37,7 +36,7 @@ Examples:
 var skillsSyncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "Sync skills from R2 (atomic swap + sha256 verify + reconcile)",
-	Long: `Download the skills bundle for this CLI version from R2, verify it, and
+	Long: `Download the latest signed skills bundle from R2, check CLI compatibility, and
 atomically swap it into the host's skill-load directory. Skills you placed
 yourself or hand-edited are preserved; only skills this tool installed are
 reconciled away when they leave the manifest.`,
@@ -54,6 +53,9 @@ reconciled away when they leave the manifest.`,
 			CLIVersion: version,
 			CDNBase:    cdnBase(),
 		})
+		if res != nil && !quiet {
+			printSkillsDiagnostics(res.Diagnostics)
+		}
 		if err != nil {
 			// Generic failure (network/IO/checksum) — NOT auth. Using exit 4
 			// here would make hooks misread a CDN outage as "re-login needed".
@@ -210,4 +212,17 @@ func init() {
 	skillsTargetCmd.AddCommand(skillsTargetSetCmd, skillsTargetShowCmd)
 	skillsCmd.AddCommand(skillsSyncCmd, skillsListCmd, skillsPathCmd, skillsInstallCmd, skillsTargetCmd)
 	rootCmd.AddCommand(skillsCmd)
+}
+
+func printSkillsDiagnostics(diagnostics []skills.SyncDiagnostic) {
+	for _, d := range diagnostics {
+		fmt.Fprintf(os.Stderr, "skills: %s: %s\n", d.Path, d.Reason)
+		if d.LocalVersion != "" || d.TargetVersion != "" {
+			fmt.Fprintf(os.Stderr, "  local version=%q, target version=%q\n", d.LocalVersion, d.TargetVersion)
+		}
+		if d.LocalRevision != "" || d.TargetRevision != "" {
+			fmt.Fprintf(os.Stderr, "  local revision=%q, target revision=%q\n", d.LocalRevision, d.TargetRevision)
+		}
+		fmt.Fprintln(os.Stderr, "  "+d.Hint)
+	}
 }
