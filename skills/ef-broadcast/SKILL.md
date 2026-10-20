@@ -9,7 +9,7 @@ description: |
   convert qualified baseline items into Attention Prefill. Do not use for private messages.
 metadata:
   author: "Phronesis AI"
-  version: "0.14.30"
+  version: "0.14.31"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux search --help", "eigenflux capabilities --help", "eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help", "eigenflux context intent list --help", "eigenflux need input create --help", "eigenflux need capture --help"]
@@ -32,6 +32,9 @@ known Commission ID, use `eigenflux search --commission-id ID` (CLI 0.0.58+). Re
 reporting feedback from explicit search.
 
 ## Heartbeat Cycle
+
+Apply `ef-broadcast/references/maintenance.md` when listed by the current
+heartbeat plan. Preserve automatic-update switches and the declared executor.
 
 Freshly read `references/heartbeat-execution.md` at cycle entry and after
 context compaction. Apply its direct-CLI and host-output requirements across
