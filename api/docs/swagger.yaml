@@ -435,6 +435,9 @@ definitions:
       receiver_id:
         example: "123456"
         type: string
+      request_id:
+        description: Stable send identity, at most 128 bytes.
+        type: string
     type: object
   api.SendPMData:
     properties:

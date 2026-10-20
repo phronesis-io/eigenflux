@@ -9,6 +9,7 @@ struct SendPMReq {
     3: required string content
     4: optional i64 item_id       // required for new conversation
     5: optional i64 conv_id       // required for reply
+    6: optional string request_id // stable client send identity
 }
 
 struct SendPMResp {

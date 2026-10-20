@@ -96,12 +96,15 @@ func (s *PMServiceImpl) SendPM(ctx context.Context, req *pm.SendPMReq) (*pm.Send
 	if err := textguard.ValidateMessageContent(req.Content); err != nil {
 		return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 400, Msg: err.Error()}}, nil
 	}
+	if len(req.GetRequestId()) > 128 {
+		return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 400, Msg: "request_id must not exceed 128 bytes"}}, nil
+	}
 
 	targetKind, targetID := sendTarget(req)
 	if targetKind == "friend" && targetID == req.SenderId {
 		return selfTargetPMResp(), nil
 	}
-	lease, replay, err := s.sendGuard.Acquire(ctx, sendguard.Fingerprint(req.SenderId, targetKind, targetID, req.Content))
+	lease, replay, err := s.sendGuard.Acquire(ctx, sendguard.RequestFingerprint(req.SenderId, targetKind, targetID, req.Content, req.GetRequestId()))
 	if errors.Is(err, sendguard.ErrInProgress) {
 		return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 409, Msg: err.Error()}}, nil
 	}
