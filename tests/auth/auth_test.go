@@ -80,74 +80,26 @@ func TestAuthLoginFlow(t *testing.T) {
 		"kairui12@pgc.eigenflux.one",
 	}
 	testutil.CleanupTestEmails(t, allEmails...)
+	t.Cleanup(func() { testutil.CleanupTestEmails(t, allEmails...) })
+	for _, email := range allEmails {
+		if email != "auth_new@test.com" {
+			testutil.EnsureLegacyTestAgent(t, email)
+		}
+	}
 
-	t.Run("NewUser_Login", func(t *testing.T) {
+	t.Run("NewUser_RegistrationRetired", func(t *testing.T) {
 		email := "auth_new@test.com"
 		t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
-
-		startData := testutil.LoginStart(t, email)
-		if emailVerificationEnabled {
-			challengeID := startData["challenge_id"].(string)
-			expiresIn := int(startData["expires_in_sec"].(float64))
-			resendAfter := int(startData["resend_after_sec"].(float64))
-
-			if challengeID == "" {
-				t.Fatal("expected non-empty challenge_id")
-			}
-			if expiresIn <= 0 {
-				t.Fatalf("expected positive expires_in_sec, got %d", expiresIn)
-			}
-			if resendAfter < 0 {
-				t.Fatalf("expected non-negative resend_after_sec, got %d", resendAfter)
-			}
-			if startData["verification_required"] != true {
-				t.Fatalf("expected verification_required=true, got %v", startData["verification_required"])
-			}
-			t.Logf("Challenge created: id=%s, expires_in=%d, resend_after=%d", challengeID, expiresIn, resendAfter)
-
-			otp := testutil.GetMockOTP(t)
-			if len(otp) != 6 {
-				t.Fatalf("expected 6-digit OTP, got %q", otp)
-			}
-		} else {
-			if startData["verification_required"] != false {
-				t.Fatalf("expected verification_required=false, got %v", startData["verification_required"])
-			}
-			if _, ok := startData["challenge_id"]; ok {
-				t.Fatalf("expected direct login without challenge_id, got %v", startData["challenge_id"])
-			}
+		response := testutil.LoginStartRaw(t, map[string]string{"login_method": "email", "email": email})
+		if response["code"] != float64(410) || !strings.Contains(response["msg"].(string), "LEGACY_REGISTRATION_RETIRED") {
+			t.Fatalf("unexpected response: %v", response)
 		}
-
-		data := startData
-		if _, ok := startData["access_token"].(string); !ok || startData["access_token"].(string) == "" {
-			challengeID := startData["challenge_id"].(string)
-			verifyResp := testutil.LoginVerifyOTP(t, challengeID, testutil.GetMockOTP(t))
-			if int(verifyResp["code"].(float64)) != 0 {
-				t.Fatalf("verify failed: %v", verifyResp["msg"])
-			}
-			data = verifyResp["data"].(map[string]interface{})
+		var count int
+		if err := testutil.TestDB.QueryRow("SELECT count(*) FROM agents WHERE email=$1", email).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("unexpected registration: %d, %v", count, err)
 		}
-		if !data["is_new_agent"].(bool) {
-			t.Error("expected is_new_agent=true for new email")
-		}
-		if !data["needs_profile_completion"].(bool) {
-			t.Error("expected needs_profile_completion=true for new agent")
-		}
-		accessToken := data["access_token"].(string)
-		if accessToken == "" {
-			t.Fatal("expected non-empty access_token")
-		}
-		expiresAt := int64(data["expires_at"].(float64))
-		if expiresAt <= time.Now().UnixMilli() {
-			t.Fatal("expected expires_at in the future")
-		}
-		t.Logf("New agent registered: id=%v, is_new=%v, token=%s...",
-			data["agent_id"], data["is_new_agent"], accessToken[:8])
-
-		agentData := testutil.GetAgent(t, accessToken)
-		profile := agentData["profile"].(map[string]interface{})
-		if profile["email"].(string) != email {
-			t.Fatalf("expected email=%s, got %s", email, profile["email"])
+		if err := testutil.TestDB.QueryRow("SELECT count(*) FROM auth_email_challenges WHERE email=$1", email).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("unexpected OTP challenge: %d, %v", count, err)
 		}
 	})
 
@@ -214,8 +166,8 @@ func TestAuthLoginFlow(t *testing.T) {
 			dataA = verifyA["data"].(map[string]interface{})
 		}
 		agentIDA := testutil.MustID(t, dataA["agent_id"], "agent_id")
-		if !dataA["is_new_agent"].(bool) {
-			t.Fatal("expected first login to create new agent")
+		if dataA["is_new_agent"].(bool) {
+			t.Fatal("expected login to reuse the seeded legacy Agent")
 		}
 
 		startB := testutil.LoginStart(t, emailLower)
@@ -763,8 +715,8 @@ func TestAuthProfileCompletion(t *testing.T) {
 	t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
 
 	token, _, isNew := testutil.LoginAndGetToken(t, email)
-	if !isNew {
-		t.Fatal("expected is_new_agent=true")
+	if isNew {
+		t.Fatal("expected is_new_agent=false for seeded legacy Agent")
 	}
 
 	agentData := testutil.GetAgent(t, token)
@@ -812,8 +764,8 @@ func TestAuthProfileCompletionRequiresAgentName(t *testing.T) {
 	t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
 
 	token, _, isNew := testutil.LoginAndGetToken(t, email)
-	if !isNew {
-		t.Fatal("expected is_new_agent=true")
+	if isNew {
+		t.Fatal("expected is_new_agent=false for seeded legacy Agent")
 	}
 
 	updateBody := map[string]string{
@@ -864,7 +816,7 @@ func reloginAndVerify(t *testing.T, email string) map[string]interface{} {
 	return verifyResp["data"].(map[string]interface{})
 }
 
-func TestAuthAntiEnumeration(t *testing.T) {
+func TestAuthUnknownEmailsReturnSameMigrationResponse(t *testing.T) {
 	testutil.WaitForAPI(t)
 	email := "existing_enum_test@test.com"
 	testutil.CleanupTestEmails(t, email)
@@ -890,7 +842,10 @@ func TestAuthAntiEnumeration(t *testing.T) {
 	if msg1 != msg2 {
 		t.Errorf("response messages differ: existing=%q, nonexistent=%q (anti-enumeration violation)", msg1, msg2)
 	}
-	t.Log("Anti-enumeration check passed: responses are identical")
+	if code1 != 410 {
+		t.Fatalf("expected retired registration code, got %d", code1)
+	}
+	t.Log("Unknown emails return the same migration response")
 }
 
 func TestAuthVerifyTokenRejected(t *testing.T) {
@@ -901,6 +856,7 @@ func TestAuthVerifyTokenRejected(t *testing.T) {
 	email := "auth_verify_token_rejected@test.com"
 	testutil.CleanupTestEmails(t, email)
 	t.Cleanup(func() { testutil.CleanupTestEmails(t, email) })
+	testutil.EnsureLegacyTestAgent(t, email)
 	startData := testutil.LoginStart(t, email)
 	challengeID := startData["challenge_id"].(string)
 

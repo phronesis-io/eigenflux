@@ -185,10 +185,10 @@ Examples:
 		} else {
 			credentials, credentialErr := auth.LoadCredentials(srv.Name)
 			if credentialErr != nil {
-				output.Die(output.ExitAuthRequired, "not logged in to server %q — run 'eigenflux auth login --email <email>' first", srv.Name)
+				output.Die(output.ExitAuthRequired, "not logged in to server %q — preserve this Agent Home; use ef-profile for existing-account recovery or ef-onboarding for an explicitly requested new connection", srv.Name)
 			}
 			if credentials.IsExpired() {
-				output.Die(output.ExitAuthRequired, "token expired for server %q — run 'eigenflux auth login --email <email>'", srv.Name)
+				output.Die(output.ExitAuthRequired, "token expired for server %q — preserve this Agent Home and use ef-profile for credential refresh or account recovery", srv.Name)
 			}
 			accessToken = credentials.AccessToken
 		}

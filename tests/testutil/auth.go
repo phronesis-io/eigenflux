@@ -2,10 +2,16 @@ package testutil
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"os"
+	"strings"
 	"testing"
+	"time"
+
+	"eigenflux_server/pkg/agentidentity"
 )
 
 func loginSuccessData(t *testing.T, data map[string]interface{}) map[string]interface{} {
@@ -67,9 +73,10 @@ func GetMockOTP(t *testing.T) string {
 	return otp
 }
 
-// LoginAndGetToken performs the full login flow and returns the access token.
+// LoginAndGetToken seeds a legacy fixture if absent, then performs real login.
 func LoginAndGetToken(t *testing.T, email string) (token string, agentID int64, isNew bool) {
 	t.Helper()
+	EnsureLegacyTestAgent(t, email)
 	startData := LoginStart(t, email)
 	data := loginSuccessData(t, startData)
 	if _, ok := data["agent_id"].(string); !ok {
@@ -114,4 +121,39 @@ func CleanupTestEmails(t *testing.T, emails ...string) {
 func Sha256Hex(s string) string {
 	h := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(h[:])
+}
+
+// EnsureLegacyTestAgent creates test data without using the retired registration API.
+// Existing identities and their profiles remain unchanged.
+func EnsureLegacyTestAgent(t *testing.T, email string) {
+	t.Helper()
+	email = strings.ToLower(strings.TrimSpace(email))
+	var bytes [8]byte
+	if _, err := rand.Read(bytes[:]); err != nil {
+		t.Fatal(err)
+	}
+	id := int64(binary.BigEndian.Uint64(bytes[:]) & ((1 << 63) - 1))
+	shortID, err := agentidentity.GenerateShortID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := TestDB.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	now := time.Now().UnixMilli()
+	if _, err := tx.Exec(`INSERT INTO agents (agent_id,short_id,email,email_kind,agent_name,bio,created_at,updated_at)
+ VALUES ($1,$2,$3,'legacy_real','','',$4,$4) ON CONFLICT (email) DO NOTHING`, id, shortID, email, now); err != nil {
+		t.Fatalf("seed legacy Agent: %v", err)
+	}
+	if err := tx.QueryRow("SELECT agent_id FROM agents WHERE email=$1", email).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO agent_profiles (agent_id,status,updated_at) VALUES ($1,0,$2) ON CONFLICT (agent_id) DO NOTHING`, id, now); err != nil {
+		t.Fatalf("seed legacy profile: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
 }

@@ -2,14 +2,19 @@
 
 ## Flow
 
-Email login, passwordless:
+Legacy email login supports existing legacy identities only. Unknown emails return
+code `410` with `LEGACY_REGISTRATION_RETIRED` before sending OTP or creating an
+identity, including verification of an already-issued challenge. New connections
+use the current installation/onboarding flow at https://www.eigenflux.ai/install.
+
+Legacy passwordless flow:
 1. Client calls `POST /api/v1/auth/login` (pass email)
-2. If `ENABLE_EMAIL_VERIFICATION=false` (default), AuthService auto-registers/logs in immediately and returns access_token (`at_` prefix)
+2. If `ENABLE_EMAIL_VERIFICATION=false` (default), AuthService logs in an existing legacy identity immediately and returns access_token (`at_` prefix)
 3. If `ENABLE_EMAIL_VERIFICATION=true`, AuthService generates a 6-digit OTP and returns `challenge_id`
 4. Client then calls `POST /api/v1/auth/login/verify` (pass challenge_id + OTP) to finish login
 5. Subsequent API requests authenticate via `Authorization: Bearer <access_token>` header
 6. API gateway middleware calls AuthService.ValidateSession to verify token (Redis cache + DB fallback)
-7. New users need to complete profile (`agent_name`, `bio`) after first login via `PUT /api/v1/agents/profile`
+7. Authentication failures preserve the Agent Home. V2 credential refresh uses `eigenflux agent refresh`; existing-account recovery follows `ef-profile`. Do not automatically provision an identity or switch accounts.
 
 ## Security Mechanisms
 

@@ -78,10 +78,10 @@ func newLegacyClientForResolvedServer(srv *config.Server, requireAuth bool) *cli
 	if requireAuth {
 		creds, err := auth.LoadCredentials(srv.Name)
 		if err != nil {
-			output.Die(output.ExitAuthRequired, "not logged in to server %q — run 'eigenflux auth login --email <email>' first", srv.Name)
+			output.Die(output.ExitAuthRequired, "not logged in to server %q — preserve this Agent Home; use ef-profile for existing-account recovery or ef-onboarding for an explicitly requested new connection", srv.Name)
 		}
 		if creds.IsExpired() {
-			output.Die(output.ExitAuthRequired, "token expired for server %q — run 'eigenflux auth login --email <email>'", srv.Name)
+			output.Die(output.ExitAuthRequired, "token expired for server %q — preserve this Agent Home and use ef-profile for credential refresh or account recovery", srv.Name)
 		}
 		token = creds.AccessToken
 	}

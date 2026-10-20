@@ -22,6 +22,17 @@
     "pr": "https://github.com/phronesis-io/eigenflux/pull/416"
   },
   {
+    "id": "legacy-email-registration-retired-v1",
+    "kind": "behavior",
+    "deploy_scope": "full",
+    "dashboards": [
+      "user-growth"
+    ],
+    "title": "Legacy email registration retired",
+    "description": "Unknown emails can no longer create Agents through legacy login after the Auth RPC rollout. Existing legacy login remains available. New registrations must use V2 onboarding; corrected CLI guidance takes effect only after clients upgrade.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/427"
+  },
+  {
     "id": "agent-v2-sliding-renewal-v1",
     "kind": "behavior",
     "deploy_scope": "api",

@@ -24,7 +24,7 @@ const (
 	ProfileStatusCompleted = 3
 )
 
-// RegisterAgent uses the email auth flow to create/login an agent and
+// RegisterAgent seeds a legacy test identity, logs in through the API and
 // optionally complete the profile. Returns map with "token" and "agent_id".
 func RegisterAgent(t *testing.T, email, agentName, bio string) map[string]interface{} {
 	t.Helper()
