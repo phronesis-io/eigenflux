@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -23,7 +24,7 @@ func noticeFixtureTarget(t *testing.T, host, scenario string) MainNoticeTarget {
 	if host == "codex" {
 		mode = "native"
 	}
-	return MainNoticeTarget{Host: host, SessionID: noticeSession, VerifiedHiddenInput: true, Binding: Binding{
+	return MainNoticeTarget{Host: host, SessionID: noticeSession, HiddenInputEnabled: true, Binding: Binding{
 		Host: host, Mode: mode, Home: t.TempDir(), Server: "test", WorkDir: t.TempDir(), TimeoutSeconds: 5,
 		Command: []string{exe, "-test.run=^TestMainNoticeFixture$", "--"},
 		Env:     map[string]string{"EF_MAIN_NOTICE_FIXTURE": scenario, "EF_MAIN_NOTICE_MARKER": filepath.Join(t.TempDir(), "calls")},
@@ -96,7 +97,7 @@ func TestMainNoticeFixture(t *testing.T) {
 func TestMainNoticeHiddenInputGateDoesNotStartProcess(t *testing.T) {
 	for _, host := range []string{"codex", "hermes", "unknown"} {
 		target := noticeFixtureTarget(t, host, "unused")
-		target.VerifiedHiddenInput = false
+		target.HiddenInputEnabled = false
 		result, err := (MainNoticeRunner{Target: target}).Run(context.Background(), noticePrompt)
 		if !errors.Is(err, ErrMainNoticeUnsupported) || result != (Result{}) {
 			t.Fatalf("%s: result %#v error %v", host, result, err)
@@ -110,8 +111,14 @@ func TestMainNoticeHiddenInputGateDoesNotStartProcess(t *testing.T) {
 			want = "codex_turn"
 		}
 		wantStatus := "untested"
-		if MainNoticeHostVerified(host) {
-			wantStatus = "verified_macos"
+		if host == "codex" {
+			wantStatus = "unsupported_platform"
+			if runtime.GOOS == "darwin" {
+				wantStatus = "verified_macos"
+			}
+			if runtime.GOOS == "windows" {
+				wantStatus = "implemented_untested"
+			}
 		}
 		if capability.Protocol != want || capability.Status != wantStatus {
 			t.Fatalf("capability %#v", capability)

@@ -195,8 +195,10 @@ Codex macOS main notices use the existing Desktop owner through its pinned local
 IPC socket; CLI 1.0.18 enables the tested hidden-input adapter. No writer is
 resumed or replaced. Signed rules enter application context and event metadata
 remains untrusted; input is empty and only the final result appears in the main
-conversation. Windows Codex owner transport is not implemented; other ACP hosts
-remain untested and disabled.
+conversation. CLI 1.0.21 implements the Windows Desktop local named pipe and
+enables exact native Codex test bindings. Status remains implemented_untested;
+real Windows acceptance is pending. Other ACP main-session bindings/hidden-input
+adapters remain incomplete and disabled despite the generic session/load skeleton.
 
 watch doctor --probe-main only discovers the exact owner. Its owner_ready result
 is connectivity, not idle status or business completion. watch status separates
@@ -228,3 +230,19 @@ notice. Existing local seller blockers notify the bound main conversation once
 per job/order-version/status/code, without restarting work; stale or resolved blockers are
 skipped. Full Feed contracts now preserve pending-confirmation reminders even
 when no Feed item warrants display.
+
+### Windows main-conversation acceptance
+
+CLI 1.0.21 uses the existing Desktop owner at its fixed local named pipe, checks
+current Windows user/session identity, then reuses the exact-owner hidden turn
+and read-only receipts. No administrator permission or new host daemon is needed.
+Keep CODEX_HOME and the main session bound to the same local store. watch status
+shows implemented_untested; watch doctor --probe-main reports owner reachability,
+implementation_status and host_verified independently. A ready probe starts no
+turn and does not prove hidden UI or business delivery.
+
+On the later Windows machine, install the complete test package, retain the exact
+binding, probe it, then verify one controlled main result without a prompt bubble,
+busy-thread rejection and real buyer payment/confirmation notices. Do not repeat
+an uncertain turn or select a different conversation. This change does not run
+that acceptance or install/restart the local package.

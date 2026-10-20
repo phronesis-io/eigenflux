@@ -185,7 +185,7 @@ func newNoticeOwnerFixture(t *testing.T, scenario string) (MainNoticeTarget, *no
 	if err != nil {
 		t.Fatal(err)
 	}
-	return MainNoticeTarget{Host: "codex", SessionID: noticeSession, VerifiedHiddenInput: true, Binding: Binding{
+	return MainNoticeTarget{Host: "codex", SessionID: noticeSession, HiddenInputEnabled: true, Binding: Binding{
 		Host: "codex", Mode: "native", Home: t.TempDir(), Server: "test", WorkDir: t.TempDir(), TimeoutSeconds: 5,
 		Command: []string{exe, "-test.run=^TestMainNoticeCodexReaderFixture$", "--"},
 		Env:     map[string]string{"CODEX_HOME": home, "EF_CODEX_READER_FIXTURE": scenario, "EF_MAIN_NOTICE_MARKER": filepath.Join(home, "reader-calls"), "EF_CODEX_OWNER_STARTED": fixture.started, "EF_PRIVATE_SENTINEL": "SECRET_CREDENTIAL_NOT_ALLOWED"},

@@ -16,13 +16,13 @@ import (
 var ErrMainNoticeUnsupported = errors.New("main_notice_transport_unverified")
 var ErrMainNoticeBusy = errors.New("main_notice_target_busy")
 
-// MainNoticeTarget is runtime host acceptance evidence, not a user-configurable
-// permission bypass. Production enables only the verified macOS owner transport.
+// MainNoticeTarget carries the bound hidden-input adapter's admission decision.
+// Implementation availability and real-host acceptance are reported separately.
 type MainNoticeTarget struct {
-	Host                string
-	SessionID           string
-	VerifiedHiddenInput bool
-	Binding             Binding
+	Host               string
+	SessionID          string
+	HiddenInputEnabled bool
+	Binding            Binding
 }
 
 type MainNoticeRunner struct{ Target MainNoticeTarget }
@@ -34,24 +34,37 @@ type MainNoticeCapabilityInfo struct {
 }
 
 func MainNoticeCapability(host string) MainNoticeCapabilityInfo {
+	return mainNoticeCapabilityForPlatform(host, runtime.GOOS)
+}
+
+func mainNoticeCapabilityForPlatform(host, platform string) MainNoticeCapabilityInfo {
 	if host == "codex" {
-		status := "untested"
-		if MainNoticeHostVerified(host) {
+		status := "unsupported_platform"
+		if platform == "darwin" {
 			status = "verified_macos"
+		} else if platform == "windows" {
+			status = "implemented_untested"
 		}
 		return MainNoticeCapabilityInfo{Protocol: "codex_turn", Status: status, Experimental: true}
 	}
 	return MainNoticeCapabilityInfo{Protocol: "acp", Status: "untested"}
 }
 
-// This is implementation acceptance, not an operator override. Other hosts and
-// Windows remain disabled until their exact main-thread/UI paths are tested.
+// This reports completed real-host acceptance, not implementation availability.
 func MainNoticeHostVerified(host string) bool {
 	return host == "codex" && runtime.GOOS == "darwin"
 }
 
+func MainNoticeHostImplemented(host string) bool {
+	return mainNoticeHostImplementedOn(host, runtime.GOOS)
+}
+
+func mainNoticeHostImplementedOn(host, platform string) bool {
+	return host == "codex" && (platform == "darwin" || platform == "windows")
+}
+
 func MainNoticeBindingEnabled(binding Binding) bool {
-	return MainNoticeHostVerified(binding.Host) && binding.Mode == "native" && binding.MainSessionID != "" && filepath.IsAbs(binding.Env["CODEX_HOME"])
+	return MainNoticeHostImplemented(binding.Host) && binding.Mode == "native" && binding.MainSessionID != "" && filepath.IsAbs(binding.Env["CODEX_HOME"])
 }
 
 // Run never creates a conversation or falls back to visible user input. The
@@ -59,7 +72,7 @@ func MainNoticeBindingEnabled(binding Binding) bool {
 // whose admission or completion is uncertain.
 func (r MainNoticeRunner) Run(ctx context.Context, prompt string) (Result, error) {
 	t := r.Target
-	if !t.VerifiedHiddenInput {
+	if !t.HiddenInputEnabled {
 		return Result{}, ErrMainNoticeUnsupported
 	}
 	if err := ctx.Err(); err != nil {

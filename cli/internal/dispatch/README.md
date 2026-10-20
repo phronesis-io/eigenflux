@@ -16,7 +16,7 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 | [watch_commission.go](../../cmd/watch_commission.go) | Commission notification intake, durable enqueue before ACK, bounded HTTP reconciliation |
 | [watch_commission_intake.go](../../cmd/watch_commission_intake.go), [watch_commission_materials.go](../../cmd/watch_commission_materials.go) | Seller inspection, fixed identity/order/Skill, verified downloads, atomic paid-work enqueue |
 | [watch_commission_clarification.go](../../cmd/watch_commission_clarification.go), [commission_clarification.go](commission_clarification.go) | Order-scoped seller questions, durable buyer answer lane, strict result and input receipt validation |
-| [main_notice.go](main_notice.go), [main_notice_codex.go](main_notice_codex.go), [codex_owner_ipc.go](codex_owner_ipc.go), [main_notice_probe.go](main_notice_probe.go) | Exact main target, Desktop owner IPC, read-only completion receipts and connectivity probe |
+| [main_notice.go](main_notice.go), [main_notice_codex.go](main_notice_codex.go), [codex_owner_ipc.go](codex_owner_ipc.go), [codex_owner_ipc_windows.go](codex_owner_ipc_windows.go), [main_notice_probe.go](main_notice_probe.go) | Exact main target, Desktop owner IPC, read-only completion receipts and connectivity probe |
 | [watch_commission_fulfillment.go](../../cmd/watch_commission_fulfillment.go), [watch_commission_artifacts.go](../../cmd/watch_commission_artifacts.go), [commission_fulfillment.go](commission_fulfillment.go) | Separate paid local work, strict decision/evidence, retained outputs and recovery |
 | [watch_dispatch.go](../../cmd/watch_dispatch.go) | `enableDispatch`, `pollPM`, `dispatchLoop`, `dispatchJob`, `dispatchPrompt`, `sendDispatchReply` |
 | [binding.go](binding.go), [types.go](types.go) | Binding validation, atomic writes, `ParseDecision` |
@@ -351,8 +351,20 @@ Codex on macOS uses Desktop owner IPC: the pinned CODEX_HOME/ipc/ipc.sock,
 initialize v0, exact thread-owner-discovery v1, then one owner-directed
 thread-follower-start-turn v2. Require supportsUntrustedAppInput. Validate private
 socket/directory ownership, modes and peer UID. This is a version-sensitive local
-Desktop interface, not app-server proxy. Windows and ACP hosts remain untested
-and disabled. Never select another Home/thread/owner, create/resume/fork a writer,
+Desktop interface, not app-server proxy. Windows uses the fixed local named pipe
+`\\.\pipe\codex-ipc`, confirmed in the installed Desktop 26.1013.40934 win32
+router code. Dial with go-winio anonymous impersonation and a five-second timeout.
+Before initialize, verify the pipe server process token has the current user SID
+and login SessionId; close on any failure. The pipe is not scoped by CODEX_HOME.
+Preserve the pinned store reader, exact thread/owner discovery, hidden envelope
+and matching final receipt checks. Same-user identity is not a Codex account proof.
+
+Windows is implemented and enabled for test bindings since CLI 1.0.21, but native
+Desktop/UI acceptance has not run. Report implemented_untested and host_verified=false;
+macOS remains verified_macos. Separate implementation admission from acceptance,
+so Windows can be tested without a new override. Other ACP hosts remain disabled;
+the generic session/load skeleton does not implement their main-session binding
+or hidden-input host adapter. Never select another Home/thread/owner, create/resume/fork a writer,
 fall back to visible queue/exec, or automatically replay uncertain work.
 
 Send input=[] with signed rules as application additionalContext and routing data
@@ -370,8 +382,9 @@ old turns, commentary, admission alone or a visible input never count. Cancellat
 closes IPC and the owned reader, not the Desktop or its admitted turn.
 
 watch doctor --probe-main sends only initialize/discovery. owner_ready means the
-exact target is reachable and the tested adapter is enabled, not that it is idle
-or a business event completed. Plain doctor remains static. Recheck account and
+exact target is reachable and the implemented adapter is enabled, not that it is idle
+or a business event completed. Its implementation_status and host_verified fields
+distinguish Windows implementation from Mac acceptance. Plain doctor remains static. Recheck account and
 binding before returning. On Desktop 26.1013.40934 / Codex 0.163.0-alpha.10.2,
 real Go hidden-turn execution passed in 3.614 seconds; the owner confirmed the
 result appeared without a prompt bubble. A second call during a controlled busy

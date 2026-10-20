@@ -1,4 +1,4 @@
-//go:build !darwin
+//go:build !darwin && !windows
 
 package dispatch
 
@@ -7,8 +7,7 @@ import (
 	"net"
 )
 
-// Windows named-pipe transport is untested; do not guess an endpoint or use a
-// different store, daemon or writer when the supported transport is unavailable.
+// Do not select another store, daemon or writer on unsupported platforms.
 func dialCodexOwnerIPC(context.Context, Binding) (net.Conn, error) {
 	return nil, errCodexOwnerIPCUnsupported
 }

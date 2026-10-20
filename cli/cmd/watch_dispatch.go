@@ -48,9 +48,9 @@ func (w *accountWatch) enableDispatch() error {
 	}
 	w.binding, w.journal = &b, q
 	w.runAgent = (dispatch.Runner{Binding: b}).Run
-	// Host acceptance has not established hidden input on this installation.
-	// Keep the transport closed; do not substitute queue/exec or visible prompts.
-	w.runMainNotice = (dispatch.MainNoticeRunner{Target: dispatch.MainNoticeTarget{Host: b.Host, SessionID: b.MainSessionID, VerifiedHiddenInput: dispatch.MainNoticeBindingEnabled(b), Binding: b}}).Run
+	// Enable only implemented exact-bound adapters. Capability/status separately
+	// report real-host acceptance; never substitute queue/exec or visible input.
+	w.runMainNotice = (dispatch.MainNoticeRunner{Target: dispatch.MainNoticeTarget{Host: b.Host, SessionID: b.MainSessionID, HiddenInputEnabled: dispatch.MainNoticeBindingEnabled(b), Binding: b}}).Run
 	return nil
 }
 

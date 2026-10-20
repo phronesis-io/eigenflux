@@ -10,18 +10,21 @@ import (
 
 // Connectivity is separate from implementation acceptance and business results.
 type MainNoticeProbe struct {
-	Protocol           string `json:"protocol"`
-	Code               string `json:"code"`
-	TransportAvailable bool   `json:"transport_available"`
-	TargetMatched      bool   `json:"target_matched"`
-	TargetStatus       string `json:"target_status,omitempty"`
-	Enabled            bool   `json:"enabled"`
+	Protocol             string `json:"protocol"`
+	Code                 string `json:"code"`
+	TransportAvailable   bool   `json:"transport_available"`
+	TargetMatched        bool   `json:"target_matched"`
+	TargetStatus         string `json:"target_status,omitempty"`
+	Enabled              bool   `json:"enabled"`
+	ImplementationStatus string `json:"implementation_status"`
+	HostVerified         bool   `json:"host_verified"`
 }
 
 // ProbeMainNotice sends only initialize and exact owner discovery. It does not
 // start a daemon, read conversation contents or start/queue a model turn.
 func ProbeMainNotice(parent context.Context, target MainNoticeTarget) MainNoticeProbe {
-	probe := MainNoticeProbe{Protocol: MainNoticeCapability(target.Host).Protocol, Code: "main_notice_host_unverified"}
+	capability := MainNoticeCapability(target.Host)
+	probe := MainNoticeProbe{Protocol: capability.Protocol, ImplementationStatus: capability.Status, HostVerified: MainNoticeHostVerified(target.Host), Code: "main_notice_host_unverified"}
 	if target.Host != "codex" {
 		return probe
 	}

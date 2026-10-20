@@ -8,8 +8,13 @@ Codex macOS main-thread hidden execution is verified and enabled since CLI 1.0.1
 CLI 1.0.20 adds buyer material escalation and staged Order-page supplementation
 to the CLI 1.0.19 business fixes.
 It uses the existing Desktop owner IPC, not app-server proxy or a new writer.
-The earlier proxy-only probe did not test this route. Windows Codex owner transport remains unimplemented. Claude Code, OpenClaw,
-WorkBuddy, Hermes and other ACP main-thread transports remain untested and disabled. Inspection reuse and host ownership remain unchanged.
+The earlier proxy-only probe did not test this route. CLI 1.0.21 implements the
+Windows Desktop named-pipe transport and enables exact native Codex test bindings.
+Windows status is implemented_untested; host_verified stays false until real
+Windows acceptance. Claude Code, OpenClaw, WorkBuddy, Hermes and other ACP main
+conversation bindings/hidden-input adapters remain incomplete and disabled,
+although the generic ACP session/load skeleton exists. Inspection reuse and host
+ownership remain unchanged.
 
 Desktop 26.1013.40934 / Codex 0.163.0-alpha.10.2 accepted empty input plus hidden
 application/untrusted context. The real Go runner completed in 3.614 seconds,
@@ -48,9 +53,10 @@ promise that arbitrary Agent side effects can be rolled back after a timeout.
 Reuse only an exact EigenFlux-owned bound target sourced from explicit binding or
 verified host scheduler ownership, with Home/server/Agent/principal isolation.
 Do not find a thread by title. Codex uses native turn, ACP uses strict session/load.
-Require host acceptance for hidden-input UI and busy-thread semantics before
-activation. Others, including Claude Code, OpenClaw, WorkBuddy and Hermes, remain
-untested even when independent ACP handshake or new-session tests succeeded.
+Separate implemented test admission from real-host acceptance. Windows Codex may
+run its exact binding while visibly marked untested; every call still verifies
+owner hidden-input capability and exact thread/turn receipts. Independent ACP
+handshake or new-session tests do not establish main-conversation support.
 
 ## Input clarification and buyer supplementation
 
@@ -154,3 +160,27 @@ routing, stale-request cancellation and desktop rechecks after title resolution.
 Console BFF fixtures verify mutation binding, signed-grant filtering and exact
 missing-upload recovery codes. These checks do not replace deployed OSS CORS,
 new Socket/HTTP business events or native Windows/main-conversation acceptance.
+
+## Windows Codex owner transport (CLI 1.0.21)
+
+The installed Desktop 26.1013.40934 win32 router uses the fixed local pipe
+`\\.\pipe\codex-ipc` with the same length-prefixed owner protocol. This is local
+bundle evidence, not a documented stable public transport. Only connect; never
+create a router, start Desktop or change its writer. go-winio provides bounded
+cancellable dial, anonymous impersonation and net.Conn deadlines. Before writing,
+check the server process SID and Windows SessionId against the current process.
+The endpoint does not identify CODEX_HOME or the EigenFlux account; preserve all
+existing pinned-store, account, exact-session/owner and no-userMessage checks.
+
+watch status/doctor report implementation separately from verification. Windows
+is enabled with implemented_untested, experimental=true and host_verified=false.
+Read-only probe performs only initialize/discovery. Linux/other hosts stay closed.
+Tests use unique fixture pipes; native Windows pipe/permissions, hidden UI, busy
+rejection and payment/confirmation business delivery remain manual acceptance.
+No real host turn is started by this change or ordinary regression tests.
+
+Local verification on macOS: 26 CLI packages and 2,106 tests passed; eight opt-in
+tests skipped. Related race checks and macOS/Windows static checks passed.
+Windows amd64/arm64 CLI and dispatch test executables compiled; Darwin arm64 and
+Linux amd64 builds passed. Windows-only tests were compiled, not executed. Real
+Windows host, permission and UI acceptance remains pending.

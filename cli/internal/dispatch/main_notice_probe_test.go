@@ -19,7 +19,7 @@ func TestMainNoticeProbeNeverWritesConversation(t *testing.T) {
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			target, owner := newNoticeOwnerFixture(t, scenario.name)
-			target.VerifiedHiddenInput = false
+			target.HiddenInputEnabled = false
 			target.Binding.MainSessionID = target.SessionID
 			probe := ProbeMainNotice(context.Background(), target)
 			if probe.Code != scenario.code || !probe.TransportAvailable || probe.TargetMatched != scenario.matched || probe.Enabled != scenario.matched {

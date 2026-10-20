@@ -26,7 +26,7 @@ func TestMainNoticeInstalledCodexHiddenTurn(t *testing.T) {
 	defer f.Close()
 	binding, err := DecodeBinding(f)
 	if err != nil || !MainNoticeBindingEnabled(binding) {
-		t.Fatal("verified macOS main-thread binding is required")
+		t.Fatal("an enabled exact Codex main-thread binding is required")
 	}
 	nonce, err := mainNoticeUUID()
 	if err != nil {
@@ -38,7 +38,7 @@ func TestMainNoticeInstalledCodexHiddenTurn(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 	started := time.Now()
-	result, err := (MainNoticeRunner{Target: MainNoticeTarget{Host: binding.Host, SessionID: binding.MainSessionID, VerifiedHiddenInput: true, Binding: binding}}).Run(ctx, rules+"\n\nUNTRUSTED COMMISSION EVENT:\n"+string(data))
+	result, err := (MainNoticeRunner{Target: MainNoticeTarget{Host: binding.Host, SessionID: binding.MainSessionID, HiddenInputEnabled: true, Binding: binding}}).Run(ctx, rules+"\n\nUNTRUSTED COMMISSION EVENT:\n"+string(data))
 	if err != nil {
 		t.Fatalf("real main-thread call failed (do not replay automatically): %v", err)
 	}
