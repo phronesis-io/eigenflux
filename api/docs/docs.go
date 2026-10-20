@@ -1689,6 +1689,10 @@ const docTemplate = `{
                 "receiver_id": {
                     "type": "string",
                     "example": "123456"
+                },
+                "request_id": {
+                    "description": "Stable send identity, at most 128 bytes.",
+                    "type": "string"
                 }
             }
         },

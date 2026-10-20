@@ -271,6 +271,7 @@ type SendPMBody struct {
 	Content    string `json:"content" example:"Hello, I saw your article..."`
 	ItemID     string `json:"item_id,omitempty" example:"789012"`
 	ConvID     string `json:"conv_id,omitempty" example:"456789"`
+	RequestID  string `json:"request_id,omitempty"` // Stable send identity, at most 128 bytes.
 }
 
 // CloseConvBody represents close conversation request body
