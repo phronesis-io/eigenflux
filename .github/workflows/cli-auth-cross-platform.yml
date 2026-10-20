@@ -9,6 +9,8 @@ on:
       - 'cli/internal/config/**'
       - 'cli/cmd/**'
       - 'cli/.cli.config'
+      - 'channels/**'
+      - 'scripts/release/build-channel-packages.py'
       - 'skills/**'
       - 'static/install.sh'
       - 'static/install.ps1'
@@ -34,6 +36,8 @@ on:
       - 'cli/internal/config/**'
       - 'cli/cmd/**'
       - 'cli/.cli.config'
+      - 'channels/**'
+      - 'scripts/release/build-channel-packages.py'
       - 'skills/**'
       - 'static/install.sh'
       - 'static/install.ps1'
@@ -92,6 +96,16 @@ jobs:
           python3 -m unittest discover -s tests/cli_release -p 'test_*.py'
           python3 -m unittest discover -s tests/installer_release -p 'test_*.py'
           go test ./tests/installhome ./tests/installentry ./api/install
+      - name: Build channel upload packages
+        if: runner.os == 'Linux'
+        working-directory: .
+        run: python3 scripts/release/build-channel-packages.py --output-dir build/channel-packages
+      - name: Upload channel packages
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eigenflux-channel-packages
+          path: build/channel-packages/*.zip
       - name: Build Windows test binary
         if: runner.os == 'Windows'
         run: |
