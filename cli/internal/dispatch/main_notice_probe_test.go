@@ -13,24 +13,24 @@ func TestMainNoticeProbeNeverWritesConversation(t *testing.T) {
 		name, code string
 		matched    bool
 	}{
-		{"codex-success", "main_notice_hidden_input_unverified", true},
-		{"codex-busy", "main_notice_target_busy", true},
-		{"codex-wrong-read", "main_notice_target_mismatch", false},
+		{"success", "main_notice_owner_ready", true},
+		{"unsupported", "main_notice_owner_capability_unverified", false},
+		{"missing-capability", "main_notice_owner_capability_unverified", false},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			target := noticeFixtureTarget(t, "codex", scenario.name)
+			target, owner := newNoticeOwnerFixture(t, scenario.name)
 			target.VerifiedHiddenInput = false
 			target.Binding.MainSessionID = target.SessionID
 			probe := ProbeMainNotice(context.Background(), target)
-			if probe.Code != scenario.code || !probe.TransportAvailable || probe.TargetMatched != scenario.matched || probe.Enabled {
+			if probe.Code != scenario.code || !probe.TransportAvailable || probe.TargetMatched != scenario.matched || probe.Enabled != scenario.matched {
 				t.Fatalf("probe: %+v", probe)
 			}
-			calls, err := os.ReadFile(target.Binding.Env["EF_MAIN_NOTICE_MARKER"])
-			if err != nil {
-				t.Fatal(err)
+			calls := owner.requests()
+			if len(calls) != 2 || string(calls[0]["method"]) != `"initialize"` || string(calls[1]["method"]) != `"thread-owner-discovery"` {
+				t.Fatalf("probe sent non-discovery methods: %+v", calls)
 			}
-			if string(calls) != "initialize\ninitialized\nthread/read\n" {
-				t.Fatalf("probe sent non-read methods: %s", calls)
+			if _, err := os.Stat(target.Binding.Env["EF_MAIN_NOTICE_MARKER"]); !os.IsNotExist(err) {
+				t.Fatalf("probe started a reader/model process: %v", err)
 			}
 		})
 	}
@@ -42,7 +42,7 @@ func TestMainNoticeProbeUnavailableOrInvalid(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	probe := ProbeMainNotice(ctx, target)
-	if probe.Code != "main_notice_proxy_unavailable" || probe.TransportAvailable || probe.Enabled {
+	if probe.Code != "main_notice_owner_ipc_unavailable" || probe.TransportAvailable || probe.Enabled {
 		t.Fatalf("cancelled probe: %+v", probe)
 	}
 	if _, err := os.Stat(target.Binding.Env["EF_MAIN_NOTICE_MARKER"]); !os.IsNotExist(err) {
@@ -87,8 +87,8 @@ func TestMainNoticeInstalledHostReadOnlyProbe(t *testing.T) {
 	}
 	probe := ProbeMainNotice(context.Background(), MainNoticeTarget{Host: binding.Host, SessionID: binding.MainSessionID, Binding: binding})
 	encoded, err := json.Marshal(probe)
-	if err != nil || probe.Enabled {
-		t.Fatalf("probe unexpectedly enabled delivery: %+v", probe)
+	if err != nil {
+		t.Fatal("cannot encode redacted probe")
 	}
 	t.Log(string(encoded))
 	if expected := strings.TrimSpace(os.Getenv("EIGENFLUX_MAIN_NOTICE_EXPECT_CODE")); expected != "" && probe.Code != expected {

@@ -190,17 +190,22 @@ or unconfirmed result. Passing a sample does not replace per-order input checks.
 
 ## Test main conversation transaction notices
 
-See commission-main-conversation.md for role/stage differences and explicit gaps.
-Codex turn uses only the official running-host proxy, other hosts default to ACP
-with exact session loading. Current hidden-input host acceptance is unverified;
-watch status reports untested and main_notice_enabled=false. No production
-conversation is invoked until hidden input and busy admission are verified.
-Use `watch doctor --probe-main` for an explicit read-only check of the existing
-Codex proxy and exact bound thread. It never starts a daemon, resumes a writer,
-sends prompt text or calls turn/start. `main_notice_probe.code` reports transport
-or target failure; a readable idle thread still reports
-`main_notice_hidden_input_unverified` and remains disabled. Plain doctor retains
-its static configuration checks. The 2026-10-20 installed-host probe returned
-`main_notice_proxy_unavailable`; the real main-conversation path is not passed.
-Publisher permission warnings use local OS settings links without opening them.
-Normal cycles use order pending-confirmations for repeat buyer reminders.
+See commission-main-conversation.md for role/stage differences and limits.
+Codex macOS main notices use the existing Desktop owner through its pinned local
+IPC socket; CLI 1.0.18 enables the tested hidden-input adapter. No writer is
+resumed or replaced. Signed rules enter application context and event metadata
+remains untrusted; input is empty and only the final result appears in the main
+conversation. Windows and other ACP hosts remain untested and disabled.
+
+watch doctor --probe-main only discovers the exact owner. Its owner_ready result
+is connectivity, not idle status or business completion. watch status separates
+enabled from business_verified. Busy/failed/uncertain calls are not queued or
+replayed into another conversation. The controlled busy test passed, but Desktop
+inject/start is not an atomic idle-only API. A started turn may finish after the
+caller times out; do not promise rollback.
+
+The 2026-10-20 real Go test completed in 3.614 seconds with a matching final answer
+and no user message. The owner separately confirmed the hidden-input UI. These
+are main-thread integration tests with local fixture data, not live payment or
+delivery acceptance. Publisher permission warnings and normal-cycle buyer
+confirmation reminders retain their existing behavior.

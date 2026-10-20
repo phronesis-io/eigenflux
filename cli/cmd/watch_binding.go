@@ -210,7 +210,7 @@ var watchStatusCmd = &cobra.Command{
 		if !sameBindingIdentity(expected, b) {
 			state = "identity_changed"
 		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"status": state, "agent_id": b.AgentID, "host": b.Host, "mode": b.Mode, "events": b.Events, "binding_revision": b.Revision, "main_session_id": b.MainSessionID, "main_notice": dispatch.MainNoticeCapability(b.Host), "main_notice_enabled": false, "workdir": b.WorkDir, "jobs": jobs, "business_verified": false, "commission_subscription": commissionSubscription(b)})
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"status": state, "agent_id": b.AgentID, "host": b.Host, "mode": b.Mode, "events": b.Events, "binding_revision": b.Revision, "main_session_id": b.MainSessionID, "main_notice": dispatch.MainNoticeCapability(b.Host), "main_notice_enabled": dispatch.MainNoticeBindingEnabled(b), "workdir": b.WorkDir, "jobs": jobs, "business_verified": false, "commission_subscription": commissionSubscription(b)})
 	},
 }
 
@@ -234,7 +234,7 @@ var watchDoctorCmd = &cobra.Command{
 		if _, err = localHeartbeatSkillsAt(b.SkillsDir, b.Host); err != nil {
 			return err
 		}
-		result := map[string]any{"status": "configuration_ready", "host": b.Host, "mode": b.Mode, "protocol_checked": false, "main_notice": dispatch.MainNoticeCapability(b.Host), "main_notice_enabled": false, "business_verified": false, "commission_subscription": commissionSubscription(b), "events": b.Events, "workbuddy_local_identity": "unverified"}
+		result := map[string]any{"status": "configuration_ready", "host": b.Host, "mode": b.Mode, "protocol_checked": false, "main_notice": dispatch.MainNoticeCapability(b.Host), "main_notice_enabled": dispatch.MainNoticeBindingEnabled(b), "business_verified": false, "commission_subscription": commissionSubscription(b), "events": b.Events, "workbuddy_local_identity": "unverified"}
 		probeMain, _ := cmd.Flags().GetBool("probe-main")
 		if probeMain {
 			probe := dispatch.ProbeMainNotice(cmd.Context(), dispatch.MainNoticeTarget{Host: b.Host, SessionID: b.MainSessionID, Binding: b})

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -15,7 +17,7 @@ var ErrMainNoticeUnsupported = errors.New("main_notice_transport_unverified")
 var ErrMainNoticeBusy = errors.New("main_notice_target_busy")
 
 // MainNoticeTarget is runtime host acceptance evidence, not a user-configurable
-// permission bypass. No production host currently has verified hidden input.
+// permission bypass. Production enables only the verified macOS owner transport.
 type MainNoticeTarget struct {
 	Host                string
 	SessionID           string
@@ -33,9 +35,23 @@ type MainNoticeCapabilityInfo struct {
 
 func MainNoticeCapability(host string) MainNoticeCapabilityInfo {
 	if host == "codex" {
-		return MainNoticeCapabilityInfo{Protocol: "codex_turn", Status: "untested", Experimental: true}
+		status := "untested"
+		if MainNoticeHostVerified(host) {
+			status = "verified_macos"
+		}
+		return MainNoticeCapabilityInfo{Protocol: "codex_turn", Status: status, Experimental: true}
 	}
 	return MainNoticeCapabilityInfo{Protocol: "acp", Status: "untested"}
+}
+
+// This is implementation acceptance, not an operator override. Other hosts and
+// Windows remain disabled until their exact main-thread/UI paths are tested.
+func MainNoticeHostVerified(host string) bool {
+	return host == "codex" && runtime.GOOS == "darwin"
+}
+
+func MainNoticeBindingEnabled(binding Binding) bool {
+	return MainNoticeHostVerified(binding.Host) && binding.Mode == "native" && binding.MainSessionID != "" && filepath.IsAbs(binding.Env["CODEX_HOME"])
 }
 
 // Run never creates a conversation or falls back to visible user input. The
@@ -73,103 +89,12 @@ func (r MainNoticeRunner) Run(ctx context.Context, prompt string) (Result, error
 	return (Runner{Binding: t.Binding}).runACPWithOptions(ctx, Request{Prompt: prompt, SessionID: t.SessionID}, true)
 }
 
-// runCodex connects only to the already-running host through its official CLI
-// proxy. It does not start a daemon or acquire, resume or replace a writer.
-// additionalContext + empty input remains experimental and unverified in the
-// desktop host; the acceptance gate above must stay closed until host testing.
-// The schema also offers no atomic idle-only admission: acceptance testing must
-// prove that concurrent user work cannot turn this request into a steering input.
-func (r MainNoticeRunner) runCodex(ctx context.Context, prompt string) (Result, error) {
-	cmd, err := (Runner{Binding: r.Target.Binding}).command([]string{"app-server", "proxy"})
-	if err != nil {
-		return Result{}, err
-	}
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return Result{}, errors.New("main_notice_pipe_failed")
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		stdin.Close()
-		return Result{}, errors.New("main_notice_pipe_failed")
-	}
-	cmd.Stderr = io.Discard
-	guard, err := startManaged(cmd)
-	if err != nil {
-		stdin.Close()
-		stdout.Close()
-		return Result{}, errors.New("main_notice_proxy_unavailable")
-	}
-	p := &mainNoticeRPC{ctx: ctx, stdin: stdin, incoming: make(chan acpRead, 16), stop: make(chan struct{})}
-	defer func() {
-		close(p.stop)
-		stdin.Close()
-		guard.kill()
-		stdout.Close()
-		_ = cmd.Wait()
-		guard.close()
-	}()
-	go p.read(stdout)
-	if _, err := p.call("initialize", map[string]any{"clientInfo": map[string]string{"name": "eigenflux_main_notice", "version": "1"}, "capabilities": map[string]bool{"experimentalApi": true}}); err != nil {
-		return Result{}, err
-	}
-	if err := p.write(map[string]any{"method": "initialized", "params": map[string]any{}}); err != nil {
-		return Result{}, err
-	}
-	raw, err := p.call("thread/read", map[string]any{"threadId": r.Target.SessionID, "includeTurns": false})
-	if err != nil {
-		return Result{}, err
-	}
-	var current struct {
-		Thread struct {
-			ID     string `json:"id"`
-			Status struct {
-				Type string `json:"type"`
-			} `json:"status"`
-		} `json:"thread"`
-	}
-	if json.Unmarshal(raw, &current) != nil || current.Thread.ID != r.Target.SessionID {
-		return Result{}, ErrMainSessionMismatch
-	}
-	if current.Thread.Status.Type != "idle" {
-		return Result{}, ErrMainNoticeBusy
-	}
-	// Drop unsolicited pre-admission history. Nothing from a prior turn counts
-	// as this request's execution or final result.
-	p.pending = nil
-	p.pendingBytes = 0
-	contextEntries := map[string]any{"eigenflux_business_notice": map[string]string{"kind": "untrusted", "value": prompt}}
-	if application, data, ok := strings.Cut(prompt, "\n\nUNTRUSTED COMMISSION EVENT:\n"); ok {
-		contextEntries["eigenflux_notice_rules"] = map[string]string{"kind": "application", "value": application}
-		contextEntries["eigenflux_business_notice"] = map[string]string{"kind": "untrusted", "value": data}
-	}
-	raw, err = p.call("turn/start", map[string]any{"threadId": r.Target.SessionID, "input": []any{}, "additionalContext": contextEntries})
-	if err != nil {
-		return Result{}, err
-	}
-	var started struct {
-		Turn mainNoticeTurn `json:"turn"`
-	}
-	if json.Unmarshal(raw, &started) != nil || started.Turn.ID == "" || started.Turn.Status != "inProgress" {
-		return Result{}, errors.New("main_notice_turn_unconfirmed")
-	}
-	return p.completed(r.Target.SessionID, started.Turn.ID)
-}
-
-type mainNoticeTurn struct {
-	ID     string          `json:"id"`
-	Status string          `json:"status"`
-	Error  json.RawMessage `json:"error"`
-}
-
 type mainNoticeRPC struct {
-	ctx          context.Context
-	stdin        io.WriteCloser
-	incoming     chan acpRead
-	stop         chan struct{}
-	nextID       int
-	pending      []acpMessage
-	pendingBytes int
+	ctx      context.Context
+	stdin    io.WriteCloser
+	incoming chan acpRead
+	stop     chan struct{}
+	nextID   int
 }
 
 func (p *mainNoticeRPC) read(reader io.Reader) {
@@ -235,17 +160,18 @@ func (p *mainNoticeRPC) call(method string, params any) (json.RawMessage, error)
 	if err := p.write(map[string]any{"id": id, "method": method, "params": params}); err != nil {
 		return nil, err
 	}
+	notifications, notificationBytes := 0, 0
 	for {
 		msg, err := p.next()
 		if err != nil {
 			return nil, err
 		}
 		if msg.Method != "" {
-			p.pendingBytes += len(msg.Params) + len(msg.Method)
-			if len(p.pending) >= 1024 || p.pendingBytes > maxRunnerOutput {
+			notificationBytes += len(msg.Params) + len(msg.Method)
+			notifications++
+			if notifications > 1024 || notificationBytes > maxRunnerOutput {
 				return nil, errOutputLimit
 			}
-			p.pending = append(p.pending, msg)
 			continue
 		}
 		var got int
@@ -259,53 +185,5 @@ func (p *mainNoticeRPC) call(method string, params any) (json.RawMessage, error)
 			return nil, errors.New("main_notice_missing_result")
 		}
 		return msg.Result, nil
-	}
-}
-
-func (p *mainNoticeRPC) completed(session, turn string) (Result, error) {
-	text := ""
-	for {
-		var msg acpMessage
-		if len(p.pending) > 0 {
-			msg, p.pending = p.pending[0], p.pending[1:]
-		} else {
-			var err error
-			msg, err = p.next()
-			if err != nil {
-				return Result{}, err
-			}
-		}
-		var event struct {
-			ThreadID string         `json:"threadId"`
-			TurnID   string         `json:"turnId"`
-			Turn     mainNoticeTurn `json:"turn"`
-			Item     struct {
-				Type  string `json:"type"`
-				Phase string `json:"phase"`
-				Text  string `json:"text"`
-			} `json:"item"`
-		}
-		if msg.Method != "item/completed" && msg.Method != "turn/completed" {
-			continue
-		}
-		if json.Unmarshal(msg.Params, &event) != nil {
-			return Result{}, errors.New("invalid_main_notice_receipt")
-		}
-		if event.ThreadID != session {
-			return Result{}, ErrMainSessionMismatch
-		}
-		if msg.Method == "item/completed" {
-			if event.TurnID != turn {
-				return Result{}, errors.New("main_notice_turn_mismatch")
-			}
-			if event.Item.Type == "agentMessage" && event.Item.Phase == "final_answer" {
-				text = event.Item.Text
-			}
-			continue
-		}
-		if event.Turn.ID != turn || event.Turn.Status != "completed" || len(event.Turn.Error) > 0 && string(event.Turn.Error) != "null" || strings.TrimSpace(text) == "" {
-			return Result{}, errors.New("main_notice_completion_unconfirmed")
-		}
-		return Result{Text: text, SessionID: session, RunID: turn}, nil
 	}
 }

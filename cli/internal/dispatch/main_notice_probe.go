@@ -2,15 +2,13 @@ package dispatch
 
 import (
 	"context"
-	"encoding/json"
-	"io"
+	"errors"
 	"strings"
 	"time"
 	"unicode/utf8"
 )
 
-// MainNoticeProbe is connectivity evidence only. It cannot enable delivery or
-// establish that a host hides additionalContext or admits an idle-only turn.
+// Connectivity is separate from implementation acceptance and business results.
 type MainNoticeProbe struct {
 	Protocol           string `json:"protocol"`
 	Code               string `json:"code"`
@@ -20,8 +18,8 @@ type MainNoticeProbe struct {
 	Enabled            bool   `json:"enabled"`
 }
 
-// ProbeMainNotice uses only initialize and thread/read against the existing
-// Codex host. Never resume, create, subscribe, enqueue or start a turn here.
+// ProbeMainNotice sends only initialize and exact owner discovery. It does not
+// start a daemon, read conversation contents or start/queue a model turn.
 func ProbeMainNotice(parent context.Context, target MainNoticeTarget) MainNoticeProbe {
 	probe := MainNoticeProbe{Protocol: MainNoticeCapability(target.Host).Protocol, Code: "main_notice_host_unverified"}
 	if target.Host != "codex" {
@@ -31,78 +29,31 @@ func ProbeMainNotice(parent context.Context, target MainNoticeTarget) MainNotice
 		probe.Code = "main_notice_target_invalid"
 		return probe
 	}
-	probe.Code = "main_notice_proxy_unavailable"
 	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
-	if ctx.Err() != nil {
-		return probe
-	}
-	cmd, err := (Runner{Binding: target.Binding}).command([]string{"app-server", "proxy"})
+	probe.Code = "main_notice_owner_ipc_unavailable"
+	ipc, err := openCodexOwnerIPC(ctx, target.Binding)
 	if err != nil {
+		if errors.Is(err, errCodexOwnerIPCUnsupported) {
+			probe.Code = "main_notice_owner_ipc_unsupported"
+		}
 		return probe
 	}
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return probe
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		stdin.Close()
-		return probe
-	}
-	cmd.Stderr = io.Discard
-	guard, err := startManaged(cmd)
-	if err != nil {
-		stdin.Close()
-		stdout.Close()
-		return probe
-	}
-	p := &mainNoticeRPC{ctx: ctx, stdin: stdin, incoming: make(chan acpRead, 16), stop: make(chan struct{})}
-	defer func() {
-		close(p.stop)
-		stdin.Close()
-		guard.kill()
-		stdout.Close()
-		_ = cmd.Wait()
-		guard.close()
-	}()
-	go p.read(stdout)
-	if _, err := p.call("initialize", map[string]any{"clientInfo": map[string]string{"name": "eigenflux_main_notice_probe", "version": "1"}, "capabilities": map[string]bool{"experimentalApi": true}}); err != nil {
-		return probe
-	}
-	if p.write(map[string]any{"method": "initialized", "params": map[string]any{}}) != nil {
-		return probe
-	}
+	defer ipc.Close()
 	probe.TransportAvailable = true
-	probe.Code = "main_notice_target_unavailable"
-	raw, err := p.call("thread/read", map[string]any{"threadId": target.SessionID, "includeTurns": false})
-	if err != nil {
-		return probe
-	}
-	var current struct {
-		Thread struct {
-			ID     string `json:"id"`
-			Status struct {
-				Type string `json:"type"`
-			} `json:"status"`
-		} `json:"thread"`
-	}
-	if json.Unmarshal(raw, &current) != nil || current.Thread.ID != target.SessionID {
-		probe.Code = "main_notice_target_mismatch"
+	probe.Code = "main_notice_owner_unavailable"
+	if _, err := mainNoticeOwner(ctx, ipc, target.SessionID); err != nil {
+		if errors.Is(err, ErrMainNoticeUnsupported) {
+			probe.Code = "main_notice_owner_capability_unverified"
+		}
 		return probe
 	}
 	probe.TargetMatched = true
-	switch current.Thread.Status.Type {
-	case "idle":
-		probe.TargetStatus = "idle"
+	probe.TargetStatus = "owner_found"
+	probe.Enabled = MainNoticeBindingEnabled(target.Binding)
+	probe.Code = "main_notice_owner_ready"
+	if !probe.Enabled {
 		probe.Code = "main_notice_hidden_input_unverified"
-	case "active":
-		probe.TargetStatus = "active"
-		probe.Code = "main_notice_target_busy"
-	case "notLoaded", "systemError":
-		probe.TargetStatus = current.Thread.Status.Type
-	default:
-		probe.TargetStatus = "unknown"
 	}
 	return probe
 }

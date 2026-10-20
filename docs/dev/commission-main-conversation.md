@@ -4,21 +4,24 @@ Update this file and cli/internal/dispatch/README.md when this logic changes.
 
 ## Current delivery boundary
 
-Test-branch adapters, notice queue, role/stage rules, publish permission warning,
-inspection reuse, pre-acceptance text clarification and periodic buyer reminder
-are implemented. All real main-host
-transports remain untested and disabled: Codex's official running-host proxy is
-absent; hidden input and atomic idle turn admission are unverified. Current
-fixtures do not establish main-thread UI behavior or live Order delivery.
+Codex macOS main-thread hidden execution is verified and enabled in CLI 1.0.18.
+It uses the existing Desktop owner IPC, not app-server proxy or a new writer.
+The earlier proxy-only probe did not test this route. Windows, Claude Code,
+OpenClaw, WorkBuddy, Hermes and other ACP main-thread transports remain untested
+and disabled. Existing text clarification, inspection reuse, permission warnings
+and periodic buyer reminders remain unchanged.
 
-The 2026-10-20 installed-host probe used the existing binding and returned
-`main_notice_proxy_unavailable`, with transport/target/enabled all false.
-Desktop 26.1013.40934 / Codex 0.163.0-alpha.10.2 holds the thread through a
-stdio-only App Server; no public control socket is running. A second daemon
-cannot reuse that desktop writer. `watch doctor --probe-main` can reproduce the
-read-only check without sending prompt text, calling a model, starting a daemon
-or changing the target. Host access, hidden live/history UI, exact receipts and
-concurrent-turn admission still require real host acceptance before activation.
+Desktop 26.1013.40934 / Codex 0.163.0-alpha.10.2 accepted empty input plus hidden
+application/untrusted context. The real Go runner completed in 3.614 seconds,
+returned the exact new turn's final result and persisted zero user messages.
+The owner confirmed no prompt bubble appeared. A separate controlled test
+confirmed a second invocation was rejected while the first ran, with one new
+turn only. Desktop's injection/start sequence still has a concurrent-input
+window; it is not an atomic idle-only API. Uncertain calls are never replayed.
+
+watch doctor --probe-main now uses only initialize and exact owner discovery.
+It does not send a prompt, start a turn, start a daemon or change the target.
+owner_ready is reachability, not idle status or a completed business result.
 
 ## Per-stage contract
 
@@ -88,12 +91,15 @@ failed checks never mean there are no pending Orders. No one-off timer is create
 
 ## Verification (2026-10-20)
 
-The opt-in TestCommissionNativeCodexTextClarification used real local Codex
-fresh sessions for a buyer answer (17.25 seconds) and independent seller
-reinspection (20.39 seconds). Localhost fixture APIs confirmed one persisted
-answer and one acceptance into pending_payment. No live Order or payment was
-created. This verifies native model execution with the clarification contract,
-not desktop main-thread access, hidden prompt UI or a production two-account
-exchange. Commission 75908d2 separately passed real PostgreSQL persistence,
-transaction, notification and migration tests. The installed-host read-only
-probe failed connectivity as recorded above; main notices remain disabled.
+TestMainNoticeInstalledCodexHiddenTurn uses the actual bound main thread, Desktop
+owner and production Go runner. Hidden fixture arithmetic returned 42 in 3.614
+seconds; exact final/thread/turn matched and no userMessage existed. Direct owner
+probes and the owner's visual confirmation independently passed. The controlled
+busy probe rejected its second request and left only the first completed turn.
+No live Order, payment or delivery was created or changed by these tests.
+
+TestCommissionNativeCodexTextClarification separately used fresh buyer/seller
+sessions (17.25/20.39 seconds) with localhost Order fixtures. It does not establish
+main-thread access. Commission 75908d2 passed real PostgreSQL persistence,
+transaction, notification and migration tests. Deploy that matching backend and
+migration 15 before exercising text clarification against the service.

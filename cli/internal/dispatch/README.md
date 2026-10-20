@@ -16,7 +16,7 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 | [watch_commission.go](../../cmd/watch_commission.go) | Commission notification intake, durable enqueue before ACK, bounded HTTP reconciliation |
 | [watch_commission_intake.go](../../cmd/watch_commission_intake.go), [watch_commission_materials.go](../../cmd/watch_commission_materials.go) | Seller inspection, fixed identity/order/Skill, verified downloads, atomic paid-work enqueue |
 | [watch_commission_clarification.go](../../cmd/watch_commission_clarification.go), [commission_clarification.go](commission_clarification.go) | Order-scoped seller questions, durable buyer answer lane, strict result and input receipt validation |
-| [main_notice.go](main_notice.go), [main_notice_probe.go](main_notice_probe.go) | Capability-gated exact main target; explicit read-only installed-host probe |
+| [main_notice.go](main_notice.go), [main_notice_codex.go](main_notice_codex.go), [codex_owner_ipc.go](codex_owner_ipc.go), [main_notice_probe.go](main_notice_probe.go) | Exact main target, Desktop owner IPC, read-only completion receipts and connectivity probe |
 | [watch_commission_fulfillment.go](../../cmd/watch_commission_fulfillment.go), [watch_commission_artifacts.go](../../cmd/watch_commission_artifacts.go), [commission_fulfillment.go](commission_fulfillment.go) | Separate paid local work, strict decision/evidence, retained outputs and recovery |
 | [watch_dispatch.go](../../cmd/watch_dispatch.go) | `enableDispatch`, `pollPM`, `dispatchLoop`, `dispatchJob`, `dispatchPrompt`, `sendDispatchReply` |
 | [binding.go](binding.go), [types.go](types.go) | Binding validation, atomic writes, `ParseDecision` |
@@ -314,6 +314,7 @@ desktop lifecycle remain unverified. Fixtures do not prove a live PM receipt.
 |---|---|
 | Binding / decisions / journal | `binding_test.go`, `types_test.go`, `journal_test.go`, `../../cmd/watch_binding_test.go` |
 | Host / ACP / cancellation | `runner_test.go`, `acp_test.go`, `process_windows_test.go` |
+| Main target / Desktop IPC / hidden receipts | `main_notice_test.go`, `main_notice_codex_test.go`, `main_notice_probe_test.go`, `codex_owner_ipc*_test.go`; opt-in real host: `main_notice_native_test.go` |
 | Intake → Agent → reply / identity / permission | `../../cmd/watch_dispatch_test.go`, `../../cmd/watch_test.go` |
 | Commission intake / inspection / materials / ownership | `journal_commission_test.go`, `commission_intake_test.go`, `commission_fulfillment_test.go`, `../../cmd/watch_commission*_test.go`, `../../cmd/order_notifications_test.go`, `../../cmd/order_result_notifications_test.go`, `../skills/read_signed_test.go` |
 | Heartbeat ownership / discovery | `../../cmd/heartbeat_modes_test.go`, `../../cmd/heartbeat_migration_test.go`, `../../cmd/capability_registry_contract_test.go` |
@@ -346,40 +347,43 @@ proves only that invocation, not every future input or external capability.
 
 ## Main-conversation transaction notices (test branch)
 
-`main_notice.go` selects Codex App Server turn via the official running-host
-`app-server proxy`; other explicitly configured hosts use ACP. This is separate
-from PM replies, input inspection and paid artifact execution. The exact bound
-main session is required. Never select a recent thread, start/resume/fork a new
-writer, fall back to queue/exec, or retry an uncertain call. ACP must load the
-existing session; unsupported load fails without creating a replacement.
+Codex on macOS uses Desktop owner IPC: the pinned CODEX_HOME/ipc/ipc.sock,
+initialize v0, exact thread-owner-discovery v1, then one owner-directed
+thread-follower-start-turn v2. Require supportsUntrustedAppInput. Validate private
+socket/directory ownership, modes and peer UID. This is a version-sensitive local
+Desktop interface, not app-server proxy. Windows and ACP hosts remain untested
+and disabled. Never select another Home/thread/owner, create/resume/fork a writer,
+fall back to visible queue/exec, or automatically replay uncertain work.
 
-All hosts are `untested`. The Codex proxy is not running on the current test
-machine. The official schema has additionalContext and accepts an empty input
-array structurally, but hidden Desktop input, turn execution and atomic idle
-admission have not been verified. `VerifiedHiddenInput` is internal host acceptance
-evidence, not an operator override. It remains false in production construction;
-no main-conversation notifications currently execute. Never report configuration
-or fixture success as an actual main-conversation delivery. No prompt is printed.
+Send input=[] with signed rules as application additionalContext and routing data
+as untrusted context. The Desktop-native untrusted_input responseItems pair
+activates its busy checks. The existing owner retains settings and starts the
+turn. Already-busy rejection is verified; the host's inject_items -> turn/start
+sequence is not an atomic idle-only transaction. Do not claim concurrent user
+input can never race it. The local worker remains serial and does not interrupt
+or automatically retry. No raw prompt is printed or sent as a user message.
 
-`watch doctor --probe-main` adds a five-second read-only connectivity check to
-the exact bound target. It invokes only the already-running Codex host proxy,
-initialize and thread/read; it never starts a daemon or a model turn. Its fixed
-codes separate unavailable transport, unavailable/mismatched/busy target and
-readable-but-hidden-input-unverified. Recheck account and binding revision before
-returning the probe. A successful read cannot enable delivery. Plain doctor stays
-static. On 2026-10-20, Desktop 26.1013.40934 / Codex 0.163.0-alpha.10.2 returned
-main_notice_proxy_unavailable for the real bound EigenFlux target. The desktop
-writer uses stdio without an external listener; the separate background daemon
-is absent. No hidden turn was admitted or verified.
+A separate short-lived app-server --stdio child only initializes and reads the
+exact thread/turn history. It never resumes or starts a turn. Confirm a new
+owner-returned turn ID, completed status, its final_answer and no userMessage;
+old turns, commentary, admission alone or a visible input never count. Cancellation
+closes IPC and the owned reader, not the Desktop or its admitted turn.
 
-`main_notice_queue.go` and `watch_commission_main_notice.go` persist a separate
-notice for every notification ID before ACK. Same-version workflow results and
-reminders remain separate from seller execution deduplication. Notices run in an
-independent lane, use signed main-notice.md with an exact trusted Home/server CLI prefix, and contain only fixed routing data. Check identity again before entry and cancel on a one-second identity guard during execution.
-Failure is local skipped state, with no Order mutation or alternate conversation.
-A running record found after restart becomes skipped/unconfirmed, never replayed.
-Bounded receipt retention is not a permanent delivery tombstone. Desktop delivery
-continues independently; notifications-only mode never invokes an Agent.
+watch doctor --probe-main sends only initialize/discovery. owner_ready means the
+exact target is reachable and the tested adapter is enabled, not that it is idle
+or a business event completed. Plain doctor remains static. Recheck account and
+binding before returning. On Desktop 26.1013.40934 / Codex 0.163.0-alpha.10.2,
+real Go hidden-turn execution passed in 3.614 seconds; the owner confirmed the
+result appeared without a prompt bubble. A second call during a controlled busy
+turn was rejected and created no second turn.
+
+main_notice_queue.go persists one notice per notification ID before ACK, separate
+from seller execution and desktop delivery. Signed main-notice.md pins the exact
+Home/server read prefix. Guard identity before/during/after execution. Failure is
+local skipped/unconfirmed with no alternative target or Order mutation. Restarted
+running entries become skipped and are not replayed; retention is bounded.
+Notifications-only mode never invokes an Agent. Internal input coordination remains
+silent and does not enter this lane.
 
 ## Order-entry inspection reuse
 

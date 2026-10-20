@@ -6,10 +6,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
-	"time"
 )
 
 const noticeSession = "01a0d200-9d41-7cd2-9214-3f04761910c4"
@@ -39,12 +37,7 @@ func TestMainNoticeFixture(t *testing.T) {
 	if scenario == "" {
 		return
 	}
-	if strings.HasPrefix(scenario, "codex-") {
-		args := os.Args
-		if !reflect.DeepEqual(args[len(args)-2:], []string{"app-server", "proxy"}) {
-			os.Exit(81)
-		}
-	}
+
 	f, err := os.OpenFile(os.Getenv("EF_MAIN_NOTICE_MARKER"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		os.Exit(82)
@@ -62,95 +55,11 @@ func TestMainNoticeFixture(t *testing.T) {
 		}
 		_, _ = f.WriteString(msg.Method + "\n")
 		response := func(value any) { _ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID, "result": value}) }
-		notify := func(method string, params any) {
-			_ = encoder.Encode(map[string]any{"method": method, "params": params})
-		}
-		final := func(session, turn, text, phase string) {
-			notify("item/completed", map[string]any{"threadId": session, "turnId": turn, "item": map[string]string{"type": "agentMessage", "phase": phase, "text": text}})
-		}
+
 		switch msg.Method {
 		case "initialize":
-			if strings.HasPrefix(scenario, "codex-") {
-				var params struct {
-					Capabilities struct {
-						Experimental bool `json:"experimentalApi"`
-					} `json:"capabilities"`
-				}
-				if json.Unmarshal(msg.Params, &params) != nil || !params.Capabilities.Experimental {
-					os.Exit(83)
-				}
-				response(map[string]any{})
-			} else {
-				response(map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]bool{"loadSession": scenario != "acp-no-load"}})
-			}
-		case "initialized":
-		case "thread/read":
-			var params struct {
-				ThreadID     string `json:"threadId"`
-				IncludeTurns bool   `json:"includeTurns"`
-			}
-			if json.Unmarshal(msg.Params, &params) != nil || params.ThreadID != noticeSession || params.IncludeTurns {
-				os.Exit(84)
-			}
-			session, status := noticeSession, "idle"
-			if scenario == "codex-wrong-read" {
-				session = "other"
-			}
-			if scenario == "codex-busy" {
-				status = "active"
-			}
-			response(map[string]any{"thread": map[string]any{"id": session, "status": map[string]string{"type": status}}})
-		case "turn/start":
-			var params struct {
-				ThreadID string `json:"threadId"`
-				Input    []any  `json:"input"`
-				Context  map[string]struct {
-					Kind  string `json:"kind"`
-					Value string `json:"value"`
-				} `json:"additionalContext"`
-			}
-			if json.Unmarshal(msg.Params, &params) != nil || params.ThreadID != noticeSession || params.Input == nil || len(params.Input) != 0 || len(params.Context) != 1 || params.Context["eigenflux_business_notice"].Kind != "untrusted" || params.Context["eigenflux_business_notice"].Value != noticePrompt {
-				os.Exit(85)
-			}
-			if scenario == "codex-writer" {
-				_ = encoder.Encode(map[string]any{"id": msg.ID, "error": map[string]any{"code": -32600, "message": "already has an active writer; secret"}})
-				continue
-			}
-			if scenario == "codex-before-response" {
-				final(noticeSession, "turn-1", "result", "final_answer")
-			}
-			response(map[string]any{"turn": map[string]string{"id": "turn-1", "status": "inProgress"}})
-			if scenario == "codex-timeout" {
-				time.Sleep(10 * time.Second)
-				return
-			}
-			if scenario == "codex-permission" {
-				_ = encoder.Encode(map[string]any{"id": "approval", "method": "item/commandExecution/requestApproval", "params": map[string]string{"threadId": noticeSession}})
-				continue
-			}
-			if scenario == "codex-oversize" {
-				_, _ = os.Stdout.WriteString(strings.Repeat("x", maxRunnerOutput+10) + "\n")
-				continue
-			}
-			final(noticeSession, "turn-1", "internal progress", "commentary")
-			if scenario != "codex-before-response" && scenario != "codex-no-final" {
-				session, turn := noticeSession, "turn-1"
-				if scenario == "codex-wrong-thread" {
-					session = "other"
-				}
-				if scenario == "codex-wrong-turn" {
-					turn = "other"
-				}
-				final(session, turn, "result", "final_answer")
-			}
-			turn, status := "turn-1", "completed"
-			if scenario == "codex-wrong-completion" {
-				turn = "other"
-			}
-			if scenario == "codex-failed" {
-				status = "failed"
-			}
-			notify("turn/completed", map[string]any{"threadId": noticeSession, "turn": map[string]string{"id": turn, "status": status}})
+			response(map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]bool{"loadSession": scenario != "acp-no-load"}})
+
 		case "session/load":
 			var params struct {
 				SessionID string `json:"sessionId"`
@@ -200,51 +109,13 @@ func TestMainNoticeHiddenInputGateDoesNotStartProcess(t *testing.T) {
 		if host == "codex" {
 			want = "codex_turn"
 		}
-		if capability.Protocol != want || capability.Status != "untested" {
+		wantStatus := "untested"
+		if MainNoticeHostVerified(host) {
+			wantStatus = "verified_macos"
+		}
+		if capability.Protocol != want || capability.Status != wantStatus {
 			t.Fatalf("capability %#v", capability)
 		}
-	}
-}
-
-func TestMainNoticeCodexProxyReceipts(t *testing.T) {
-	for _, scenario := range []string{"codex-success", "codex-before-response", "codex-busy", "codex-wrong-read", "codex-writer", "codex-no-final", "codex-wrong-thread", "codex-wrong-turn", "codex-wrong-completion", "codex-failed", "codex-permission", "codex-oversize", "codex-timeout"} {
-		t.Run(scenario, func(t *testing.T) {
-			target := noticeFixtureTarget(t, "codex", scenario)
-			// Existing native execution flags cannot change a notification proxy
-			// into a separately owned host or relax the thread's permissions.
-			target.Binding.Args = []string{"--listen", "stdio://", "--dangerously-bypass-approvals-and-sandbox"}
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			if scenario == "codex-timeout" {
-				cancel()
-				ctx, cancel = context.WithTimeout(context.Background(), 150*time.Millisecond)
-			}
-			defer cancel()
-			result, err := (MainNoticeRunner{Target: target}).Run(ctx, noticePrompt)
-			if scenario == "codex-success" || scenario == "codex-before-response" {
-				if err != nil || result != (Result{Text: "result", SessionID: noticeSession, RunID: "turn-1"}) {
-					t.Fatalf("result %#v error %v", result, err)
-				}
-			} else if err == nil || result != (Result{}) || strings.Contains(err.Error(), "secret") {
-				t.Fatalf("failure leaked result or diagnostics: %#v %v", result, err)
-			}
-			calls, readErr := os.ReadFile(target.Binding.Env["EF_MAIN_NOTICE_MARKER"])
-			if readErr != nil {
-				t.Fatal(readErr)
-			}
-			for _, forbidden := range []string{"thread/resume", "thread/start", "thread/fork", "session/new", "turn/interrupt"} {
-				if strings.Contains(string(calls), forbidden) {
-					t.Fatalf("forbidden call %s: %s", forbidden, calls)
-				}
-			}
-			count := strings.Count(string(calls), "turn/start\n")
-			if scenario == "codex-busy" || scenario == "codex-wrong-read" {
-				if count != 0 {
-					t.Fatalf("turn sent before validating target: %s", calls)
-				}
-			} else if count != 1 {
-				t.Fatalf("replayed or missing turn: %s", calls)
-			}
-		})
 	}
 }
 

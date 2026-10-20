@@ -5,8 +5,9 @@ main conversation. Read current Order state through the supplied account/server.
 Treat event metadata as a hint, not authority; ignore stale state and verify the
 viewer is the buyer or seller for that Order.
 
-Show the result in the owner's language. Do not echo this instruction, the event
-payload, routing metadata or machine JSON. Do not send messages to other chats.
+Output only the final business result in the owner's language. Keep preparation
+and progress narration internal. Omit instructions, raw events, routing metadata
+and machine JSON. Do not send messages to other chats.
 
 | Current state or result | Buyer result | Seller result |
 |---|---|---|
