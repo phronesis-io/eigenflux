@@ -1,4 +1,23 @@
-# Codex Main Session Binding
+# Main Session Binding
+
+## ACP hosts
+
+Require CLI 1.0.22. Bind Claude Code, OpenClaw, Hermes, WorkBuddy and other ACP
+hosts only to an explicitly selected existing EigenFlux owner session and its
+absolute work directory. Configure the local ACP host bridge as `main_command`;
+preserve the ordinary execution command, arguments and mode.
+Read its exact host session ID through the installed host; preserve account,
+Home, server and binding revision. Require `watch doctor --probe-main` to report
+`main_notice_owner_ready` before claiming connectivity. Report every non-Codex
+host as not yet verified on the real host. Missing hidden-input capability leaves
+the notice unavailable. Keep WorkBuddy local; use no cloud entry.
+
+For an existing binding, select `--main-session-id` with `--expected-id` and
+`--expected-revision`. Apply the stop, commit, readback and failure-cleanup
+procedure below. Preserve established targets and pending work. Keep Codex
+current-thread and scheduler selectors exclusive to native Codex bindings.
+
+## Codex setup
 
 Require CLI 1.0.10. Keep account identity, Agent Home, server and host-owned
 conversation storage fixed. Complete initial binding automatically during

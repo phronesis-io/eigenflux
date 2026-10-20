@@ -16,7 +16,7 @@ func TestCommissionSkillContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(skillBody), `version: "999.0.20-dev.20261020"`) {
+	if !strings.Contains(string(skillBody), `version: "999.0.22-dev.20261020"`) {
 		t.Error("ef-commission version is stale")
 	}
 	skill := string(skillBody)

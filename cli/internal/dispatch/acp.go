@@ -25,23 +25,23 @@ type acpRead struct {
 	err     error
 }
 type acpClient struct {
-	ctx       context.Context
-	stdin     io.WriteCloser
-	incoming  chan acpRead
-	stop      chan struct{}
-	writeMu   sync.Mutex
-	nextID    int
-	sessionID string
-	text      strings.Builder
+	ctx            context.Context
+	stdin          io.WriteCloser
+	incoming       chan acpRead
+	stop           chan struct{}
+	writeMu        sync.Mutex
+	nextID         int
+	sessionID      string
+	text           strings.Builder
+	backgroundOnly bool
 }
 
 func (r Runner) runACP(ctx context.Context, req Request) (Result, error) {
-	return r.runACPWithOptions(ctx, req, false)
+	return r.withACP(ctx, func(c *acpClient) (Result, error) { return r.runACPSession(c, req) })
 }
 
-// strictMain is reserved for separately verified main-conversation transports.
-// Ordinary dispatch retains its existing per-conversation session behavior.
-func (r Runner) runACPWithOptions(ctx context.Context, req Request, strictMain bool) (Result, error) {
+// withACP owns only the explicitly bound stdio bridge, never its host session.
+func (r Runner) withACP(ctx context.Context, use func(*acpClient) (Result, error)) (Result, error) {
 	cmd, err := r.command(r.Binding.Args)
 	if err != nil {
 		return Result{}, err
@@ -72,6 +72,10 @@ func (r Runner) runACPWithOptions(ctx context.Context, req Request, strictMain b
 		guard.close()
 	}()
 	go c.read(stdout)
+	return use(c)
+}
+
+func (r Runner) runACPSession(c *acpClient, req Request) (Result, error) {
 	raw, err := c.call("initialize", map[string]any{"protocolVersion": 1, "clientCapabilities": map[string]any{}, "clientInfo": map[string]string{"name": "eigenflux", "version": "1"}}, false)
 	if err != nil {
 		return Result{}, err
@@ -85,26 +89,12 @@ func (r Runner) runACPWithOptions(ctx context.Context, req Request, strictMain b
 	if json.Unmarshal(raw, &init) != nil || init.ProtocolVersion != 1 {
 		return Result{}, errors.New("acp_protocol_version_mismatch")
 	}
-	if strictMain && (req.SessionID == "" || !init.AgentCapabilities.LoadSession) {
-		return Result{}, ErrMainNoticeUnsupported
-	}
 	params := map[string]any{"cwd": r.Binding.WorkDir, "mcpServers": []any{}}
 	if req.SessionID != "" && init.AgentCapabilities.LoadSession {
 		c.sessionID = req.SessionID
 		params["sessionId"] = req.SessionID
 		if raw, err = c.call("session/load", params, false); err != nil {
 			return Result{}, err
-		}
-		if strictMain {
-			var loaded struct {
-				SessionID *string `json:"sessionId"`
-			}
-			// ACP load responses may omit sessionId. The original request and
-			// subsequent update IDs still pin the target; an explicit reply ID
-			// may never replace it.
-			if string(raw) == "null" || json.Unmarshal(raw, &loaded) != nil || loaded.SessionID != nil && *loaded.SessionID != req.SessionID {
-				return Result{}, ErrMainSessionMismatch
-			}
 		}
 	} else {
 		raw, err = c.call("session/new", params, false)
@@ -126,7 +116,7 @@ func (r Runner) runACPWithOptions(ctx context.Context, req Request, strictMain b
 			defer close(done)
 			c.writeMu.Lock()
 			defer c.writeMu.Unlock()
-			_ = json.NewEncoder(stdin).Encode(map[string]any{"jsonrpc": "2.0", "method": "session/cancel", "params": map[string]string{"sessionId": c.sessionID}})
+			_ = json.NewEncoder(c.stdin).Encode(map[string]any{"jsonrpc": "2.0", "method": "session/cancel", "params": map[string]string{"sessionId": c.sessionID}})
 		}()
 		select {
 		case <-done:
@@ -184,6 +174,9 @@ func (c *acpClient) read(reader io.Reader) {
 	deliver(acpRead{err: err})
 }
 func (c *acpClient) write(value any) error {
+	if err := c.ctx.Err(); err != nil {
+		return err
+	}
 	done := make(chan error, 1)
 	go func() { c.writeMu.Lock(); defer c.writeMu.Unlock(); done <- json.NewEncoder(c.stdin).Encode(value) }()
 	select {
@@ -197,6 +190,9 @@ func (c *acpClient) write(value any) error {
 	}
 }
 func (c *acpClient) call(method string, params any, collect bool) (json.RawMessage, error) {
+	if err := c.ctx.Err(); err != nil {
+		return nil, err
+	}
 	c.nextID++
 	id := c.nextID
 	if err := c.write(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
@@ -213,6 +209,10 @@ func (c *acpClient) call(method string, params any, collect bool) (json.RawMessa
 			msg := value.message
 			if msg.Method != "" {
 				if len(msg.ID) > 0 && string(msg.ID) != "null" {
+					if c.backgroundOnly {
+						_ = c.write(map[string]any{"jsonrpc": "2.0", "id": msg.ID, "error": map[string]any{"code": -32601, "message": "Unsupported background request"}})
+						return nil, ErrNeedsUser
+					}
 					if msg.Method == "session/request_permission" {
 						if err := c.write(map[string]any{"jsonrpc": "2.0", "id": msg.ID, "result": map[string]any{"outcome": map[string]string{"outcome": "cancelled"}}}); err != nil {
 							return nil, err

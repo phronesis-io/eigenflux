@@ -47,7 +47,7 @@ func mainNoticeCapabilityForPlatform(host, platform string) MainNoticeCapability
 		}
 		return MainNoticeCapabilityInfo{Protocol: "codex_turn", Status: status, Experimental: true}
 	}
-	return MainNoticeCapabilityInfo{Protocol: "acp", Status: "untested"}
+	return MainNoticeCapabilityInfo{Protocol: "acp", Status: "acp_extension_required", Experimental: true}
 }
 
 // This reports completed real-host acceptance, not implementation availability.
@@ -60,11 +60,20 @@ func MainNoticeHostImplemented(host string) bool {
 }
 
 func mainNoticeHostImplementedOn(host, platform string) bool {
-	return host == "codex" && (platform == "darwin" || platform == "windows")
+	if host == "codex" {
+		return platform == "darwin" || platform == "windows"
+	}
+	return host != ""
 }
 
 func MainNoticeBindingEnabled(binding Binding) bool {
-	return MainNoticeHostImplemented(binding.Host) && binding.Mode == "native" && binding.MainSessionID != "" && filepath.IsAbs(binding.Env["CODEX_HOME"])
+	if binding.Host == "codex" {
+		return MainNoticeHostImplemented(binding.Host) && binding.Mode == "native" && binding.MainSessionID != "" && filepath.IsAbs(binding.Env["CODEX_HOME"])
+	}
+	// This enables capability negotiation only. A standard ACP process remains
+	// unavailable until its existing owner advertises the hidden-main extension.
+	return binding.Host != "" && validACPMainID(binding.MainSessionID) && filepath.IsAbs(binding.WorkDir) &&
+		(len(binding.MainCommand) != 0 || binding.Mode == "acp" && len(binding.Command) != 0)
 }
 
 // Run never creates a conversation or falls back to visible user input. The
@@ -96,10 +105,14 @@ func (r MainNoticeRunner) Run(ctx context.Context, prompt string) (Result, error
 	if t.Host == "codex" {
 		return r.runCodex(ctx, prompt)
 	}
-	if t.Binding.Mode != "acp" {
+	if t.Binding.Mode != "acp" && len(t.Binding.MainCommand) == 0 {
 		return Result{}, ErrMainNoticeUnsupported
 	}
-	return (Runner{Binding: t.Binding}).runACPWithOptions(ctx, Request{Prompt: prompt, SessionID: t.SessionID}, true)
+	if t.Binding.MainSessionID != t.SessionID || !MainNoticeBindingEnabled(t.Binding) {
+		return Result{}, ErrMainSessionMismatch
+	}
+	runner := Runner{Binding: acpMainBinding(t.Binding)}
+	return runner.withACP(ctx, func(c *acpClient) (Result, error) { return runner.runACPMainNotice(c, prompt) })
 }
 
 type mainNoticeRPC struct {

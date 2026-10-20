@@ -210,7 +210,7 @@ var watchStatusCmd = &cobra.Command{
 		if !sameBindingIdentity(expected, b) {
 			state = "identity_changed"
 		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"status": state, "agent_id": b.AgentID, "host": b.Host, "mode": b.Mode, "events": b.Events, "binding_revision": b.Revision, "main_session_id": b.MainSessionID, "main_notice": dispatch.MainNoticeCapability(b.Host), "main_notice_enabled": dispatch.MainNoticeBindingEnabled(b), "workdir": b.WorkDir, "jobs": jobs, "business_verified": false, "commission_subscription": commissionSubscription(b)})
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"status": state, "agent_id": b.AgentID, "host": b.Host, "mode": b.Mode, "events": b.Events, "binding_revision": b.Revision, "main_session_id": b.MainSessionID, "main_notice": dispatch.MainNoticeCapability(b.Host), "main_notice_enabled": dispatch.MainNoticeBindingEnabled(b), "main_notice_requires_owner_extension": b.Host != "codex" && dispatch.MainNoticeBindingEnabled(b), "main_notice_host_verified": dispatch.MainNoticeHostVerified(b.Host), "workdir": b.WorkDir, "jobs": jobs, "business_verified": false, "commission_subscription": commissionSubscription(b)})
 	},
 }
 
@@ -234,7 +234,7 @@ var watchDoctorCmd = &cobra.Command{
 		if _, err = localHeartbeatSkillsAt(b.SkillsDir, b.Host); err != nil {
 			return err
 		}
-		result := map[string]any{"status": "configuration_ready", "host": b.Host, "mode": b.Mode, "protocol_checked": false, "main_notice": dispatch.MainNoticeCapability(b.Host), "main_notice_enabled": dispatch.MainNoticeBindingEnabled(b), "business_verified": false, "commission_subscription": commissionSubscription(b), "events": b.Events, "workbuddy_local_identity": "unverified"}
+		result := map[string]any{"status": "configuration_ready", "host": b.Host, "mode": b.Mode, "protocol_checked": false, "main_notice": dispatch.MainNoticeCapability(b.Host), "main_notice_enabled": dispatch.MainNoticeBindingEnabled(b), "main_notice_requires_owner_extension": b.Host != "codex" && dispatch.MainNoticeBindingEnabled(b), "main_notice_host_verified": dispatch.MainNoticeHostVerified(b.Host), "business_verified": false, "commission_subscription": commissionSubscription(b), "events": b.Events, "workbuddy_local_identity": "unverified"}
 		probeMain, _ := cmd.Flags().GetBool("probe-main")
 		if probeMain {
 			probe := dispatch.ProbeMainNotice(cmd.Context(), dispatch.MainNoticeTarget{Host: b.Host, SessionID: b.MainSessionID, Binding: b})
@@ -327,7 +327,7 @@ func init() {
 	watchReconcileCmd.Flags().Bool("verified", false, "confirm you inspected Agent execution and the business outcome")
 	watchReconcileCmd.Flags().String("outcome", "", "verified outcome: PM replied/no_reply; optional event completed/failed (confirmed incomplete, explicit retry allowed)")
 	watchReconcileCmd.Flags().String("reply-id", "", "confirmed server message ID; required for replied")
-	watchBindCmd.Flags().String("main-session-id", "", "exact existing Codex thread UUID")
+	watchBindCmd.Flags().String("main-session-id", "", "exact existing owner session ID (Codex UUID or ACP bridge session)")
 	watchBindCmd.Flags().Bool("current-session", false, "explicitly bind the calling Codex thread from CODEX_THREAD_ID")
 	watchBindCmd.Flags().String("codex-home", "", "absolute Codex state directory; pins the host store without copying context")
 	watchBindCmd.Flags().String("expected-id", "", "previous main session ID; pass an empty value for initial binding")

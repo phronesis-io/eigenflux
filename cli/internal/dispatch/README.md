@@ -17,6 +17,7 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 | [watch_commission_intake.go](../../cmd/watch_commission_intake.go), [watch_commission_materials.go](../../cmd/watch_commission_materials.go) | Seller inspection, fixed identity/order/Skill, verified downloads, atomic paid-work enqueue |
 | [watch_commission_clarification.go](../../cmd/watch_commission_clarification.go), [commission_clarification.go](commission_clarification.go) | Order-scoped seller questions, durable buyer answer lane, strict result and input receipt validation |
 | [main_notice.go](main_notice.go), [main_notice_codex.go](main_notice_codex.go), [codex_owner_ipc.go](codex_owner_ipc.go), [codex_owner_ipc_windows.go](codex_owner_ipc_windows.go), [main_notice_probe.go](main_notice_probe.go) | Exact main target, Desktop owner IPC, read-only completion receipts and connectivity probe |
+| [main_notice_acp.go](main_notice_acp.go), [ACP bridge contract](../../../docs/dev/acp-main-conversation.md) | Negotiated existing-owner hidden input, exact opaque ACP target and correlated final result; no ordinary prompt/load/cancel fallback |
 | [watch_commission_fulfillment.go](../../cmd/watch_commission_fulfillment.go), [watch_commission_artifacts.go](../../cmd/watch_commission_artifacts.go), [commission_fulfillment.go](commission_fulfillment.go) | Separate paid local work, strict decision/evidence, retained outputs and recovery |
 | [watch_dispatch.go](../../cmd/watch_dispatch.go) | `enableDispatch`, `pollPM`, `dispatchLoop`, `dispatchJob`, `dispatchPrompt`, `sendDispatchReply` |
 | [binding.go](binding.go), [types.go](types.go) | Binding validation, atomic writes, `ParseDecision` |
@@ -30,6 +31,16 @@ CLI owns routing, execution state and delivery; synchronized Skills own Agent de
 | [capability registry](../../../api/consolev2/capability_registry.go) | Command discovery |
 
 ## PM flow and invariants
+
+CLI 1.0.22 accepts explicit ACP `main_session_id` and optional `main_command`
+for the separate main-notice lane. The bridge override uses a copied binding
+and clears ordinary args; seller checks, fulfillment and PMs keep their original
+execution entry. Native Codex alone routes PMs through its bound main queue; ACP PMs retain
+their per-conversation sessions. Do not route an ACP main ID into Codex execution.
+`MainNoticeBindingEnabled` admits ACP negotiation, not host acceptance. Initialize
+must advertise the EigenFlux hidden-main extension, then exact inspect and notify
+receipts must agree. The probe never sends business data or starts a model turn.
+See the bridge contract for methods and the host-specific acceptance boundary.
 
 1. Bind canonical Home/server/endpoint/Agent/principal/scope/revision from the current account; configuration cannot replace identity. `watch --dispatch` acquires the Home/server lock and validates signed Skills. Plain `watch` only emits events.
 2. Only bindings owning PM open its WS and HTTP consumers; other bindings leave PM to the companion. WS and minute-spaced HTTP polls enter `deliverPM`; emitted `pm_push.data` adds locally assigned `transport` (`socket` / `http_poll`) and UTC `received_at`, including empty polls. These fields describe reception, not successful execution or first intake; journal deduplication remains unchanged. Each poll pass fetches at most 32 pages, one message each. Validate credentials and persist intake under the credential lock. Advance the socket cursor only after delivery succeeds; journal failure stops reception.

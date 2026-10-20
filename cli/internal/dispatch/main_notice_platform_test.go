@@ -14,9 +14,9 @@ func TestMainNoticePlatformAvailabilitySeparatesImplementationFromAcceptance(t *
 		{"codex", "darwin", "verified_macos", "codex_turn", true},
 		{"codex", "windows", "implemented_untested", "codex_turn", true},
 		{"codex", "linux", "unsupported_platform", "codex_turn", false},
-		{"hermes", "windows", "untested", "acp", false},
-		{"claude-code", "darwin", "untested", "acp", false},
-		{"unknown", "windows", "untested", "acp", false},
+		{"hermes", "windows", "acp_extension_required", "acp", true},
+		{"claude-code", "darwin", "acp_extension_required", "acp", true},
+		{"unknown", "windows", "acp_extension_required", "acp", true},
 	} {
 		capability := mainNoticeCapabilityForPlatform(tc.host, tc.platform)
 		if capability.Status != tc.status || capability.Protocol != tc.protocol || mainNoticeHostImplementedOn(tc.host, tc.platform) != tc.implemented {

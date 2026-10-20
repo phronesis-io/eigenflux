@@ -15,6 +15,8 @@ Write a binding JSON file using these fields:
 | `host` | Native: `codex`, `claude-code`, `openclaw`, `hermes`; custom label for ACP/command |
 | `command` | Executable + fixed prefix arguments as an array; prefer an absolute executable path |
 | `args` | Additional argument array, before native adapter arguments |
+| `main_session_id` | Exact existing main-owner session ID; Codex requires its UUID and pinned `CODEX_HOME` |
+| `main_command` | Optional complete ACP bridge argv for main notices only; retain the ordinary execution `command`/`mode` for PM decisions, input checks and fulfillment |
 | `workdir` | Existing absolute workspace path |
 | `skills_dir` | Signed compatible Skills directory containing the dispatch rule |
 | `env` | Host environment; `EIGENFLUX_*` keys forbidden; Windows keys ignore case and must be unique |
@@ -151,7 +153,7 @@ For each OS/host, record version, account, workspace, message/session IDs and re
 
 Server fetch marks messages read before local persistence: crashes/write failures in that window can lose jobs. Exactly-once/lossless delivery is not guaranteed.
 
-WorkBuddy local identity is unverified; no native adapter or cloud API integration. CodeBuddy's embedded CLI is not proof of WorkBuddy identity access. Task delegation is TODO. Fixture tests and cross-compilation do not verify live models, native Windows behavior or Computer Use; two ACP fixtures are not two verified real hosts.
+WorkBuddy local owner access remains unverified; no native hidden-main bridge or cloud API integration. Its explicit ACP main binding can negotiate the hidden-main extension, but ordinary CodeBuddy ACP or Channels do not grant it. Task delegation is TODO. Fixture tests and cross-compilation do not verify live models, native Windows behavior or Computer Use.
 
 ## Reception diagnostics and prompt cost
 
@@ -197,8 +199,16 @@ resumed or replaced. Signed rules enter application context and event metadata
 remains untrusted; input is empty and only the final result appears in the main
 conversation. CLI 1.0.21 implements the Windows Desktop local named pipe and
 enables exact native Codex test bindings. Status remains implemented_untested;
-real Windows acceptance is pending. Other ACP main-session bindings/hidden-input
-adapters remain incomplete and disabled despite the generic session/load skeleton.
+real Windows acceptance is pending. CLI 1.0.22 adds explicit ACP main targets and
+the negotiated [hidden-main bridge](acp-main-conversation.md). Preserve ordinary
+execution and configure its result-only bridge in `main_command`; a main-only
+bridge cannot replace a fresh-session execution adapter. Claude Code/OpenClaw
+need their updated local plugins; Hermes uses `watch acp-bridge --host hermes`
+with explicit `--owner-url`, `--main-session-id`, `--workdir` and optional
+`--token-file`. These three are experimental and untested with real hosts.
+WorkBuddy has generic binding/negotiation only; its native hidden-owner entry
+remains unavailable. Missing capability sends no business prompt. Neither
+standard ACP session/load nor Channels is a hidden-main fallback.
 
 watch doctor --probe-main only discovers the exact owner. Its owner_ready result
 is connectivity, not idle status or business completion. watch status separates

@@ -2,12 +2,10 @@ package dispatch
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 )
 
@@ -31,67 +29,13 @@ func noticeFixtureTarget(t *testing.T, host, scenario string) MainNoticeTarget {
 	}}
 }
 
-// This peer is never a real Agent. It validates every admitted method and writes
-// markers before replying, so failures prove that no alternative turn was sent.
+// Negative tests bind this child only to detect an unexpected process launch.
 func TestMainNoticeFixture(t *testing.T) {
-	scenario := os.Getenv("EF_MAIN_NOTICE_FIXTURE")
-	if scenario == "" {
+	if os.Getenv("EF_MAIN_NOTICE_FIXTURE") == "" {
 		return
 	}
-
-	f, err := os.OpenFile(os.Getenv("EF_MAIN_NOTICE_MARKER"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-	if err != nil {
-		os.Exit(82)
-	}
-	defer f.Close()
-	decoder, encoder := json.NewDecoder(os.Stdin), json.NewEncoder(os.Stdout)
-	for {
-		var msg struct {
-			ID     json.RawMessage `json:"id"`
-			Method string          `json:"method"`
-			Params json.RawMessage `json:"params"`
-		}
-		if decoder.Decode(&msg) != nil {
-			return
-		}
-		_, _ = f.WriteString(msg.Method + "\n")
-		response := func(value any) { _ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID, "result": value}) }
-
-		switch msg.Method {
-		case "initialize":
-			response(map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]bool{"loadSession": scenario != "acp-no-load"}})
-
-		case "session/load":
-			var params struct {
-				SessionID string `json:"sessionId"`
-			}
-			if json.Unmarshal(msg.Params, &params) != nil || params.SessionID != noticeSession {
-				os.Exit(86)
-			}
-			session := noticeSession
-			if scenario == "acp-wrong-load" {
-				session = "other"
-			}
-			if scenario == "acp-missing-load-id" {
-				response(map[string]any{})
-			} else {
-				response(map[string]string{"sessionId": session})
-			}
-		case "session/prompt":
-			var params struct {
-				SessionID string `json:"sessionId"`
-			}
-			if json.Unmarshal(msg.Params, &params) != nil || params.SessionID != noticeSession {
-				os.Exit(87)
-			}
-			_ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"sessionId": noticeSession, "update": map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]string{"type": "text", "text": "result"}}}})
-			response(map[string]string{"stopReason": "end_turn"})
-		default:
-			// In particular, never permit session/new, thread/start, resume, fork,
-			// queue, daemon setup or a retry after a writer error.
-			os.Exit(88)
-		}
-	}
+	_ = os.WriteFile(os.Getenv("EF_MAIN_NOTICE_MARKER"), []byte("unexpected_process_start\n"), 0600)
+	os.Exit(88)
 }
 
 func TestMainNoticeHiddenInputGateDoesNotStartProcess(t *testing.T) {
@@ -110,7 +54,7 @@ func TestMainNoticeHiddenInputGateDoesNotStartProcess(t *testing.T) {
 		if host == "codex" {
 			want = "codex_turn"
 		}
-		wantStatus := "untested"
+		wantStatus := "acp_extension_required"
 		if host == "codex" {
 			wantStatus = "unsupported_platform"
 			if runtime.GOOS == "darwin" {
@@ -123,29 +67,6 @@ func TestMainNoticeHiddenInputGateDoesNotStartProcess(t *testing.T) {
 		if capability.Protocol != want || capability.Status != wantStatus {
 			t.Fatalf("capability %#v", capability)
 		}
-	}
-}
-
-func TestMainNoticeACPRequiresExactLoadedSession(t *testing.T) {
-	for _, scenario := range []string{"acp-success", "acp-no-load", "acp-wrong-load", "acp-missing-load-id"} {
-		t.Run(scenario, func(t *testing.T) {
-			target := noticeFixtureTarget(t, "hermes", scenario)
-			result, err := (MainNoticeRunner{Target: target}).Run(context.Background(), noticePrompt)
-			if scenario == "acp-success" || scenario == "acp-missing-load-id" {
-				if err != nil || result.Text != "result" || result.SessionID != noticeSession {
-					t.Fatalf("result %#v error %v", result, err)
-				}
-			} else if err == nil || result != (Result{}) {
-				t.Fatalf("failure returned result %#v error %v", result, err)
-			}
-			calls, err := os.ReadFile(target.Binding.Env["EF_MAIN_NOTICE_MARKER"])
-			if err != nil {
-				t.Fatal(err)
-			}
-			if strings.Contains(string(calls), "session/new") || scenario != "acp-success" && scenario != "acp-missing-load-id" && strings.Contains(string(calls), "session/prompt") {
-				t.Fatalf("unexpected calls: %s", calls)
-			}
-		})
 	}
 }
 

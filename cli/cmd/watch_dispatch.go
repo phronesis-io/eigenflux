@@ -243,7 +243,7 @@ func (w *accountWatch) dispatchJob(parent context.Context, job dispatch.Job) err
 	session := ""
 	if job.Message != nil {
 		session = w.journal.Session(job.Message.Conversation)
-		if w.binding.MainSessionID != "" {
+		if w.binding.Host == "codex" && w.binding.Mode == "native" && w.binding.MainSessionID != "" {
 			session = w.binding.MainSessionID
 		}
 	}
@@ -270,7 +270,7 @@ func (w *accountWatch) dispatchJob(parent context.Context, job dispatch.Job) err
 		}
 		return w.finishDispatch(job, status, code, result.SessionID, "")
 	}
-	if job.Kind == "pm_push" && w.binding.MainSessionID != "" && result.SessionID != session {
+	if job.Kind == "pm_push" && w.binding.Host == "codex" && w.binding.Mode == "native" && w.binding.MainSessionID != "" && result.SessionID != session {
 		return w.finishDispatch(job, "unknown", "main_session_mismatch", result.SessionID, "")
 	}
 	if err = w.dispatchIdentityOK(); err != nil {

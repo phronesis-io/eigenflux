@@ -11,10 +11,26 @@ It uses the existing Desktop owner IPC, not app-server proxy or a new writer.
 The earlier proxy-only probe did not test this route. CLI 1.0.21 implements the
 Windows Desktop named-pipe transport and enables exact native Codex test bindings.
 Windows status is implemented_untested; host_verified stays false until real
-Windows acceptance. Claude Code, OpenClaw, WorkBuddy, Hermes and other ACP main
-conversation bindings/hidden-input adapters remain incomplete and disabled,
-although the generic ACP session/load skeleton exists. Inspection reuse and host
-ownership remain unchanged.
+Windows acceptance. CLI 1.0.22 adds explicit ACP owner bindings and negotiated
+hidden-input notices. Use a separate `main_command` bridge so seller checks,
+fulfillment and PM decisions keep their existing execution adapter. Inspection
+reuse and account ownership remain unchanged.
+
+| Host | Main-owner entry | Acceptance |
+|---|---|---|
+| Claude Code | Updated ClaudeEigenFlux local `asyncRewake` hooks and ACP bridge; exact session/cwd, Stop final-result receipt | Implemented; real-host tests pending |
+| OpenClaw | Updated ClawEigenFlux gateway/ACP bridge; existing durable session and SDK work admission; OpenClaw 2026.9.4+ | Implemented; real-host tests pending |
+| Hermes | CLI `watch acp-bridge --host hermes`; existing loopback TUI owner, hidden submit and persisted-turn receipt, audited desktop contract 8 | Implemented; real-host tests pending |
+| WorkBuddy | Explicit ACP main binding and capability negotiation | Native hidden-owner bridge unavailable; standard ACP/Channels do not satisfy it |
+| Other ACP hosts | Existing-owner bridge advertising the EigenFlux extension | Host-dependent; untested |
+
+The host bridges are separate from the CLI binary where a local plugin is
+required. Installing only the CLI does not activate those hooks or gateway
+methods. WorkBuddy uses no official cloud entry. See
+[the extension contract](acp-main-conversation.md) and each plugin's logic MD.
+Hermes contract 8 is a protocol gate, not proof of an exact installed build.
+An idle check can race with user input; a submitted or queued host turn may
+finish after timeout. Uncertain calls are never replayed or retargeted.
 
 Desktop 26.1013.40934 / Codex 0.163.0-alpha.10.2 accepted empty input plus hidden
 application/untrusted context. The real Go runner completed in 3.614 seconds,
@@ -52,7 +68,8 @@ promise that arbitrary Agent side effects can be rolled back after a timeout.
 
 Reuse only an exact EigenFlux-owned bound target sourced from explicit binding or
 verified host scheduler ownership, with Home/server/Agent/principal isolation.
-Do not find a thread by title. Codex uses native turn, ACP uses strict session/load.
+Do not find a thread by title. Codex uses native turn; ACP uses the negotiated
+existing-owner inspect/notify extension and never ordinary session/load/prompt.
 Separate implemented test admission from real-host acceptance. Windows Codex may
 run its exact binding while visibly marked untested; every call still verifies
 owner hidden-input capability and exact thread/turn receipts. Independent ACP

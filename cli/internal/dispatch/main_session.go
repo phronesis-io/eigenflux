@@ -20,6 +20,12 @@ func (b Binding) ValidateMainSession() error {
 	if b.MainSessionID == "" {
 		return nil
 	}
+	if b.Host != "codex" && (b.Mode == "acp" || len(b.MainCommand) != 0) {
+		if !validACPMainID(b.MainSessionID) {
+			return errors.New("main_session_id must be an exact nonempty ACP owner session ID")
+		}
+		return nil
+	}
 	_, err := b.mainSessionPath()
 	return err
 }

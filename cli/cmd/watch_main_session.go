@@ -191,6 +191,12 @@ func selectMainSession(cmd *cobra.Command, b *dispatch.Binding) (mainSessionTarg
 	if selected != 1 {
 		return target, errors.New("specify exactly one main session selector: explicit ID, current session, or scheduler input")
 	}
+	if b.Host != "codex" || b.Mode != "native" {
+		if current || hasSchedulerInput(cmd) || cmd.Flags().Changed("codex-home") {
+			return target, errors.New("ACP main sessions require an explicit owner session ID; Codex selectors do not apply")
+		}
+		return mainSessionTarget{SessionID: id}, nil
+	}
 	if current {
 		id = os.Getenv("CODEX_THREAD_ID")
 		if id == "" {

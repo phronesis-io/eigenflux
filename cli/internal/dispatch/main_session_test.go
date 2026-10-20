@@ -82,6 +82,26 @@ func TestMainSessionReplacementChecksPreviousBinding(t *testing.T) {
 	}
 }
 
+func TestACPMainBindingUsesOpaqueExplicitOwnerID(t *testing.T) {
+	for _, host := range []string{"claude-code", "openclaw", "hermes", "workbuddy", "third-party"} {
+		b := validTestBinding(t)
+		b.Host, b.Mode, b.MainSessionID = host, "acp", "agent:explicit-eigenflux:main"
+		if err := b.Validate(); err != nil {
+			t.Fatalf("%s: %v", host, err)
+		}
+		updated, err := SetMainSession(b, b.Revision, b.MainSessionID, "new-explicit-owner-id")
+		if err != nil || updated.Revision != b.Revision || updated.MainSessionID != "new-explicit-owner-id" {
+			t.Fatalf("%s: %+v %v", host, updated, err)
+		}
+		for _, invalid := range []string{"--last", " main", "main\n", "\x00", strings.Repeat("x", 4097)} {
+			b.MainSessionID = invalid
+			if b.ValidateMainSession() == nil {
+				t.Fatalf("%s accepted invalid owner ID %q", host, invalid)
+			}
+		}
+	}
+}
+
 func TestMainSessionRunnerNeverFallsBack(t *testing.T) {
 	b := mainSessionFixture(t)
 	r := Runner{Binding: b}

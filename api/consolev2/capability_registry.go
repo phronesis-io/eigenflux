@@ -239,6 +239,7 @@ func capabilitySeeds() []capabilitySeed {
 		capability("watch.bind", "eigenflux watch bind", "runtime", "write", "绑定本地智能体", "Bind a local Agent"),
 		capability("watch.status", "eigenflux watch status", "runtime", "read", "查看执行状态", "Read dispatch status"),
 		capability("watch.doctor", "eigenflux watch doctor", "runtime", "read", "检查本地绑定", "Check local binding"),
+		capability("watch.acp_bridge", "eigenflux watch acp-bridge", "runtime", "write", "连接已有本地主对话的隐藏通知桥", "Bridge hidden notices to an existing local main conversation"),
 		capability("watch.retry", "eigenflux watch retry", "runtime", "write", "重试已确认失败的任务", "Retry an eligible dispatch job"),
 		capability("watch.reconcile", "eigenflux watch reconcile", "runtime", "write", "记录核实后的执行结果", "Reconcile a verified dispatch outcome"),
 		capability("notification.setup", "eigenflux notify setup", "local", "write", "启用系统通知", "Enable desktop notifications"),
@@ -285,6 +286,9 @@ func capabilitySeeds() []capabilitySeed {
 		}
 		if seed.id == "watch.start" {
 			seed.minCLI = "1.0.11"
+		}
+		if seed.id == "watch.acp_bridge" {
+			seed.minCLI = "1.0.22"
 		}
 		if seed.id == "notify.log" {
 			seed.minCLI = "1.0.9"

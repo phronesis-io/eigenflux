@@ -131,7 +131,7 @@ func (b *Binding) Validate() error {
 	default:
 		return errors.New("mode must be native, acp, or command")
 	}
-	for _, v := range append(append([]string{}, b.Command...), b.Args...) {
+	for _, v := range append(append(append([]string{}, b.Command...), b.Args...), b.MainCommand...) {
 		if strings.ContainsRune(v, 0) {
 			return errors.New("NUL in command argv")
 		}
@@ -157,6 +157,24 @@ func (b *Binding) Validate() error {
 		return errors.New("bind a native executable or explicit node/python interpreter and script argv, not a shell shim")
 	}
 	b.Command[0] = bin
+	if len(b.MainCommand) != 0 {
+		if b.Host == "codex" {
+			return errors.New("Codex main notices require native owner IPC, not main_command")
+		}
+		mainBin, err := exec.LookPath(b.MainCommand[0])
+		if err != nil {
+			return errors.New("main bridge executable not found; bind an absolute executable path")
+		}
+		mainBin, err = filepath.Abs(mainBin)
+		if err != nil {
+			return err
+		}
+		switch strings.ToLower(filepath.Ext(mainBin)) {
+		case ".cmd", ".bat", ".ps1":
+			return errors.New("bind a native main bridge executable or explicit interpreter and script argv, not a shell shim")
+		}
+		b.MainCommand[0] = mainBin
+	}
 	if len(b.Events) == 0 {
 		b.Events = []string{"pm_push"}
 	}

@@ -62,7 +62,7 @@ func TestMainNoticeProbeUnavailableOrInvalid(t *testing.T) {
 		}
 	}
 	target.Host = "other"
-	if probe := ProbeMainNotice(context.Background(), target); probe.Code != "main_notice_host_unverified" || probe.Enabled {
+	if probe := ProbeMainNotice(context.Background(), target); probe.Code != "main_notice_target_invalid" || probe.Enabled {
 		t.Fatalf("unsupported host: %+v", probe)
 	}
 	if _, err := os.Stat(target.Binding.Env["EF_MAIN_NOTICE_MARKER"]); !os.IsNotExist(err) {

@@ -10,7 +10,7 @@ description: |
   and onboarding. Use ef-broadcast for network publishing and ef-onboarding for first connection.
 metadata:
   author: "Phronesis AI"
-  version: "0.3.16"
+  version: "0.3.17"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux msg --help", "eigenflux relation --help", "eigenflux stream --help"]
@@ -24,7 +24,7 @@ Prerequisite: complete first-time authentication and onboarding through the
 `ef-onboarding` Skill. Use `ef-profile` for later credential and Profile maintenance.
 Apply `ef-profile/references/runtime-model.md` before Agent-issued CLI calls.
 
-For Codex dispatch setup, upgrades reporting `main_session_binding`, and
+For main-conversation setup, upgrades reporting `main_session_binding`, and
 owner-directed main-conversation switching, apply `references/main-session.md`.
 
 ## CLI Dispatch Cycle
@@ -45,6 +45,11 @@ entries for other local Agents. Verify the installed host separately on macOS
 and Windows. Treat WorkBuddy local identity as unverified. Tell the user when
 their host is unsupported or unverified; report configuration support separately
 from a verified private-message reply.
+
+Require CLI 1.0.22 for ACP main-conversation binding. Bind the exact existing
+owner session through `references/main-session.md`. Require the negotiated
+hidden-main extension before submitting a notice. Keep ACP private-message
+decisions in their existing per-conversation execution sessions.
 
 ## Heartbeat Cycle
 

@@ -15,6 +15,7 @@ func TestWatchMainSessionRoutingAndReceipt(t *testing.T) {
 		t.Run("result-"+actual, func(t *testing.T) {
 			f := newDispatchWatchFixture(t, "")
 			w := f.watch
+			w.binding.Host, w.binding.Mode = "codex", "native"
 			w.binding.MainSessionID = "bound-main"
 			if err := dispatch.WriteJSON(dispatch.BindingPath(w.home, w.server.Name), w.binding); err != nil {
 				t.Fatal(err)
