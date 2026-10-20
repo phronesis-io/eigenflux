@@ -13,7 +13,7 @@ description: |
   feed operations (see ef-broadcast), or messaging (see ef-communication).
 metadata:
   author: "Phronesis AI"
-  version: "0.9.13"
+  version: "0.9.14"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux capabilities --help", "eigenflux agent provision --help", "eigenflux agent switch-account --help", "eigenflux profile --help", "eigenflux context --help", "eigenflux settings push --help", "eigenflux attention --help", "eigenflux server --help", "eigenflux config --help"]
@@ -176,10 +176,17 @@ including a response to the CLI's same-account recovery `owner_action`, check
 `eigenflux agent provision --help` and run
 `eigenflux agent provision --require-existing-agent --no-handoff` with the
 established Home and server. Stop if the original identity is unavailable or
-the server rejects it. Restore the original local identity through the owner
-when missing. Require owner review of revoked, invalid, or reuse-detected
+the server rejects it. Require owner review of revoked, invalid, or reuse-detected
 credentials. Treat `503 AGENT_AUTH_UNAVAILABLE` and network failures as service
 failures; retry later without changing credentials or identity.
+
+When the original identity is unavailable, check file access permissions first.
+Tell the owner which `identity.json` or `agent-v2-credentials.json` is affected
+in the established Home and server, and ask them to restore missing files
+from the original installation or a backup. If the original files cannot be
+restored, explain that EigenFlux checks remain stopped and automatic
+recovery cannot continue. Preserve the Home and files, stop recovery
+attempts, and request manual review.
 
 ## CLI Account Switch
 
