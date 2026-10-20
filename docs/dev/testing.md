@@ -47,7 +47,10 @@ unrelated endpoint failures do not receive that notice.
 Run `go test ./tests/installv2` with a migrated test database and
 `EIGENFLUX_TEST_CLI` pointing at the built CLI. The real CLI/handler recovery
 test verifies preserved Agent, principal, key, profile, draft, and attribution,
-with no extra account or handoff; revoked expiry must exit 4 without provisioning.
+with public registration enabled and disabled, no extra account or handoff, and
+the guarded manual recovery command using the same endpoint. Revoked expiry
+must exit 4 without provisioning. Unavailable local keys in guarded provisioning
+must also exit 4 with an owner-notification notice and preserve saved credentials.
 
 ## Codex installer compatibility
 

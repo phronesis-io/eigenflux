@@ -458,3 +458,56 @@ func TestAgentRefreshPostgresStaleReplayRevokesFamily(t *testing.T) {
 		t.Fatalf("stale replay left %d active sessions", active)
 	}
 }
+
+func TestAgentRefreshPostgresExpiredSuccessorClassification(t *testing.T) {
+	for _, tc := range []struct {
+		name, mutation, rotation, challengeCode, refreshCode string
+	}{
+		{"same terminal rotation", "", "rotation-request-first", "REFRESH_EXPIRED", "REFRESH_EXPIRED"},
+		{"different rotation", "", "rotation-request-other", "REFRESH_REUSE_DETECTED", "REFRESH_REUSE_DETECTED"},
+		{"revoked successor", "UPDATE agent_credential_sessions SET revoked_at=1 WHERE session_id=2", "rotation-request-first", "REFRESH_INVALID", "REFRESH_REUSE_DETECTED"},
+		{"rotated successor", "UPDATE agent_credential_sessions SET replaced_by_session_id=3 WHERE session_id=2", "rotation-request-first", "REFRESH_INVALID", "REFRESH_REUSE_DETECTED"},
+		{"different successor principal", "UPDATE agent_credential_sessions SET principal_id=8 WHERE session_id=2", "rotation-request-first", "REFRESH_INVALID", "REFRESH_REUSE_DETECTED"},
+		{"different successor family", "UPDATE agent_credential_sessions SET family_id='other-family' WHERE session_id=2", "rotation-request-first", "REFRESH_INVALID", "REFRESH_REUSE_DETECTED"},
+		{"different rotation proof", "UPDATE agent_credential_sessions SET rotation_request_hash='other-hash' WHERE session_id=2", "rotation-request-first", "REFRESH_INVALID", "REFRESH_REUSE_DETECTED"},
+		{"revoked principal", "UPDATE agent_principals SET revoked_at=1", "rotation-request-first", "REFRESH_INVALID", "REFRESH_INVALID"},
+		{"inactive identity", "UPDATE agents SET identity_state='deleted'", "rotation-request-first", "REFRESH_INVALID", "REFRESH_INVALID"},
+	} {
+		for _, stage := range []string{"challenge", "refresh"} {
+			t.Run(tc.name+"/"+stage, func(t *testing.T) {
+				f := newRefreshPostgresFixture(t)
+				f.rotate(t, f.token, "rotation-request-first")
+				// Obtain a new nonce after the first successful proof consumed its
+				// nonce, then move both deadlines past their offline window.
+				req := f.request(t, f.token, "rotation-request-first")
+				f.exec(t, `UPDATE agent_credential_sessions SET absolute_expires_at=0`)
+				if tc.mutation != "" {
+					f.exec(t, tc.mutation)
+				}
+				path, expected := "/api/v2/agent-sessions/refresh-challenges", tc.challengeCode
+				var body interface{} = refreshChallengeRequest{RefreshToken: f.token, RotationRequestID: tc.rotation}
+				if stage == "refresh" {
+					path, expected = "/api/v2/agent-sessions/refresh", tc.refreshCode
+					body = signedRefreshRequest(t, f.privateKey, f.token, tc.rotation, req.Nonce)
+				}
+				status, payload, _ := performJSON(t, f.h, http.MethodPost, path, body)
+				if status != 401 || responseErrorCode(t, payload) != expected {
+					t.Fatalf("expired successor=%d %#v, want %s", status, payload, expected)
+				}
+				var count int64
+				if err := f.db.Raw(`SELECT count(*) FROM agent_credential_sessions`).Scan(&count).Error; err != nil || count != 2 {
+					t.Fatalf("expired replay created a credential: count=%d err=%v", count, err)
+				}
+				if expected == "REFRESH_EXPIRED" {
+					var active, extended int64
+					if err := f.db.Raw(`SELECT count(*) FROM agent_credential_sessions WHERE revoked_at IS NULL`).Scan(&active).Error; err != nil || active != 1 {
+						t.Fatalf("expiry revoked the terminal successor: active=%d err=%v", active, err)
+					}
+					if err := f.db.Raw(`SELECT count(*) FROM agent_credential_sessions WHERE absolute_expires_at<>0`).Scan(&extended).Error; err != nil || extended != 0 {
+						t.Fatalf("expired replay extended a deadline: extended=%d err=%v", extended, err)
+					}
+				}
+			})
+		}
+	}
+}

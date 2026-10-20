@@ -359,6 +359,7 @@ func (s *Service) requireSameOrigin() app.HandlerFunc {
 // Console V2 feature flag, so disabled deployments retain the exact V1 surface.
 func (s *Service) Register(h *server.Hertz) {
 	h.POST("/api/v2/bootstrap-grants", s.issueBootstrapGrant)
+	h.POST("/api/v2/agent-identities/recovery-challenges", s.issueExistingIdentityRecoveryChallenge)
 	if s.enablePublicRegistration {
 		h.POST("/api/v2/agent-identities/registration-challenges", s.issuePublicRegistrationChallenge)
 	}

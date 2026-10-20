@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,6 +20,7 @@ import (
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -94,13 +97,13 @@ func TestExpiredV2RefreshRecoversSameAccountAndRetriesRequest(t *testing.T) {
 					}
 				case "/api/v2/agent-sessions/refresh":
 					writeV2RecoveryError(w, 401, "REFRESH_EXPIRED")
-				case "/api/v2/agent-identities/registration-challenges":
+				case "/api/v2/agent-identities/recovery-challenges":
 					registrations.Add(1)
 					var request map[string]string
 					if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 						t.Error(err)
 					}
-					if request["public_key"] != base64.RawURLEncoding.EncodeToString(publicKey) {
+					if request["public_key"] != base64.RawURLEncoding.EncodeToString(publicKey) || request["expected_agent_id"] != "existing-agent" {
 						t.Error("recovery changed installation key")
 					}
 					writeV2RecoveryData(w, map[string]string{"bootstrap_grant": "recovery-grant", "nonce": "registration-nonce"})
@@ -197,7 +200,7 @@ func TestV2RecoveryRejectsIdentityAndIncompleteResponsesWithoutSaving(t *testing
 				switch r.URL.Path {
 				case "/api/v2/agent-sessions/refresh-challenges":
 					writeV2RecoveryError(w, 401, "REFRESH_EXPIRED")
-				case "/api/v2/agent-identities/registration-challenges":
+				case "/api/v2/agent-identities/recovery-challenges":
 					writeV2RecoveryData(w, map[string]string{"bootstrap_grant": "grant", "nonce": "nonce"})
 				case "/api/v2/agent-identities/provision":
 					provisions.Add(1)
@@ -250,25 +253,74 @@ func TestV2RefreshMissingIdentityDoesNotCreateKey(t *testing.T) {
 	}
 }
 
-func TestExistingAgentProvisionDoesNotCreateMissingIdentity(t *testing.T) {
-	var calls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
-		w.WriteHeader(500)
-	}))
-	defer server.Close()
-	name, _ := setupV2CredentialRecovery(t, server.URL, false)
-	command := &cobra.Command{}
-	command.Flags().Bool("require-existing-agent", true, "")
-	command.Flags().Bool("no-handoff", true, "")
-	if err := agentV2ProvisionCmd.RunE(command, nil); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("same-account provision missing-key error = %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(config.HomeDir(), "servers", name, "identity.json")); !os.IsNotExist(err) {
-		t.Fatalf("same-account provision created an identity: %v", err)
-	}
-	if calls.Load() != 0 {
-		t.Fatal("same-account provision sent a request without its original identity")
+func TestExistingAgentProvisionRequiresNotificationForUnavailableIdentity(t *testing.T) {
+	for _, kind := range []string{"missing", "invalid", "symlink"} {
+		t.Run(kind, func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				w.WriteHeader(500)
+			}))
+			defer server.Close()
+			name, _ := setupV2CredentialRecovery(t, server.URL, false)
+			dir := filepath.Join(config.HomeDir(), "servers", name)
+			identityPath := filepath.Join(dir, "identity.json")
+			credentialPath := filepath.Join(dir, "agent-v2-credentials.json")
+			before, err := os.ReadFile(credentialPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			invalid := []byte(`{"key_type":"ed25519-v1","private_key":"invalid"}`)
+			switch kind {
+			case "invalid":
+				err = os.WriteFile(identityPath, invalid, 0600)
+			case "symlink":
+				target := filepath.Join(t.TempDir(), "original-identity.json")
+				if err = os.WriteFile(target, invalid, 0600); err == nil {
+					err = os.Symlink(target, identityPath)
+					if err != nil {
+						t.Skipf("symlink unavailable: %v", err)
+					}
+				}
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			command := &cobra.Command{}
+			command.Flags().Bool("require-existing-agent", true, "")
+			command.Flags().Bool("no-handoff", true, "")
+			err = agentV2ProvisionCmd.RunE(command, nil)
+			if !isV2CredentialError(err) || !isV2IdentityUnavailable(err) || (kind == "missing" && !errors.Is(err, os.ErrNotExist)) {
+				t.Fatalf("same-account provision lost original identity failure: %v", err)
+			}
+			var stderr bytes.Buffer
+			if exit := reportCommandFailure(&stderr, err); exit != output.ExitAuthRequired ||
+				!strings.Contains(stderr.String(), `"schema_version":"eigenflux_auth_required.v1"`) ||
+				!strings.Contains(stderr.String(), `"notification_required":true`) {
+				t.Fatalf("unavailable identity did not require notification: exit=%d stderr=%s", exit, &stderr)
+			}
+			if calls.Load() != 0 {
+				t.Fatal("same-account provision sent a request without its original identity")
+			}
+			after, readErr := os.ReadFile(credentialPath)
+			if readErr != nil || !bytes.Equal(before, after) {
+				t.Fatalf("identity failure changed saved credentials: %v", readErr)
+			}
+			identity, statErr := os.Lstat(identityPath)
+			if kind == "missing" {
+				if !os.IsNotExist(statErr) {
+					t.Fatalf("same-account provision created an identity: %v", statErr)
+				}
+			} else {
+				if statErr != nil || (kind == "symlink" && identity.Mode()&os.ModeSymlink == 0) {
+					t.Fatalf("identity path was replaced: %v", statErr)
+				}
+				data, readErr := os.ReadFile(identityPath)
+				if readErr != nil || !bytes.Equal(data, invalid) {
+					t.Fatalf("identity file was modified: %v", readErr)
+				}
+			}
+		})
 	}
 }
 
@@ -279,7 +331,7 @@ func TestConcurrentExpiredV2RefreshRecoversOnlyOnce(t *testing.T) {
 		case "/api/v2/agent-sessions/refresh-challenges":
 			challengeCalls.Add(1)
 			writeV2RecoveryError(w, 401, "REFRESH_EXPIRED")
-		case "/api/v2/agent-identities/registration-challenges":
+		case "/api/v2/agent-identities/recovery-challenges":
 			writeV2RecoveryData(w, map[string]string{"bootstrap_grant": "grant", "nonce": "nonce"})
 		case "/api/v2/agent-identities/provision":
 			provisionCalls.Add(1)
@@ -332,7 +384,7 @@ func TestV2CredentialRecoveryPreservesOperationalErrors(t *testing.T) {
 				switch r.URL.Path {
 				case "/api/v2/agent-sessions/refresh-challenges":
 					writeV2RecoveryError(w, 401, "REFRESH_EXPIRED")
-				case "/api/v2/agent-identities/registration-challenges":
+				case "/api/v2/agent-identities/recovery-challenges":
 					if phase == "registration" {
 						writeV2RecoveryError(w, 503, "AGENT_AUTH_UNAVAILABLE")
 					} else {

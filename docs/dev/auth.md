@@ -14,7 +14,7 @@ Legacy passwordless flow:
 4. Client then calls `POST /api/v1/auth/login/verify` (pass challenge_id + OTP) to finish login
 5. Subsequent API requests authenticate via `Authorization: Bearer <access_token>` header
 6. API gateway middleware calls AuthService.ValidateSession to verify token (Redis cache + DB fallback)
-7. Authentication failures preserve the Agent Home. V2 credential refresh uses `eigenflux agent refresh`; existing-account recovery follows `ef-profile`. Do not automatically provision an identity or switch accounts.
+7. Authentication failures preserve the Agent Home. The CLI refreshes V2 credentials automatically; existing-account recovery follows `ef-profile` in the same Agent Home and server. Never create or switch an account to mask an authentication failure.
 
 ## Security Mechanisms
 
@@ -36,11 +36,14 @@ clock. Activity that refreshes credentials therefore advances the window;
 ordinary access validation does not itself extend a refresh deadline. A retry
 with the same rotation request returns the existing successor without extending
 either lifetime again. That retry remains valid after the predecessor's old
-deadline while its successor is current and unexpired. A stale or different
-rotation request still revokes the family as reuse.
+deadline while its successor is current and unexpired. If that unrevoked terminal
+successor has also expired, the matching rotation returns `REFRESH_EXPIRED`
+instead of reporting token reuse. A stale, revoked, or different rotation request
+retains its rejection path.
 
 Refresh challenges and refresh completion return `401 REFRESH_EXPIRED` only for
-an expired, unrevoked leaf belonging to an active principal and identity.
+an expired, unrevoked leaf belonging to an active principal and identity, or a
+matching response-loss replay whose unrevoked terminal successor has expired.
 Revoked credentials, invalid proofs, and reuse retain their distinct rejection
 paths. SQL read, nonce consumption, rotation, revocation, and commit failures
 return `503 AGENT_AUTH_UNAVAILABLE`; they cannot be reported as expiry or a
@@ -50,15 +53,29 @@ failures. These handlers suppress raw ORM error logs and never log bearer
 tokens, their hashes, nonces, signatures, raw SQL, or database error text.
 
 CLI 0.6.7 refreshes near access expiry and retries one rejected request. On
-`REFRESH_EXPIRED` it uses the selected Home's existing Ed25519 key to provision
-with `expected_agent_id` and no handoff. It persists credentials only after
+`REFRESH_EXPIRED` it uses the selected Home's existing Ed25519 key to request
+`POST /api/v2/agent-identities/recovery-challenges`, then provision with
+`expected_agent_id` and no handoff. This recovery endpoint remains available
+when public new-Agent registration is disabled. It issues an Agent-bound grant
+only for the existing active key; provisioning revalidates the binding and
+cannot create an Agent or principal from that grant. Recovery uses the existing
+registration rate limits and requires Redis; infrastructure failures remain 503.
+Automatic recovery persists credentials only after
 verifying the same Agent/principal, explicit `created:false`, and complete valid
-credentials. Missing keys never trigger key creation. Other 401s, reuse,
+credentials. Missing keys never trigger key creation. Explicit
+`--require-existing-agent` provisioning classifies missing, invalid, or unsafe local keys as authentication
+required and emits the same owner-notification notice. Other 401s, reuse,
 revocation, 503s, and network failures never enter automatic provisioning.
 Concurrent processes reuse newly saved credentials under the credentials lock.
 Provisioning without an onboarding draft preserves the existing draft; explicit
 draft updates retain their existing semantics. Provision database failures also
 return `503 AGENT_AUTH_UNAVAILABLE` with sanitized phase and reason logs.
+
+Explicit provisioning with saved V2 credentials uses the same recovery endpoint.
+Without an explicit draft or Agent name, it omits the default onboarding draft
+and preserves the existing profile.
+
+Deploy the recovery endpoint before distributing CLI 0.6.7.
 
 The CLI stream renews credentials before expiry, closes the old socket, and
 reconnects with the new access token and existing cursor. Each handshake has its

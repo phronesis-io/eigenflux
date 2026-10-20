@@ -256,14 +256,29 @@ func requestV2Provision(v2 v2Poster, request provisionV2Request, privateKey ed25
 }
 
 func requestAutomaticRegistrationChallenge(v2 v2Poster, publicKey ed25519.PublicKey) (string, string, error) {
+	return requestAgentIdentityChallenge(v2, publicKey, "registration", "")
+}
+
+func requestExistingAgentRecoveryChallenge(v2 v2Poster, publicKey ed25519.PublicKey, expectedAgentID string) (string, string, error) {
+	if expectedAgentID == "" {
+		return "", "", unavailableV2Identity(fmt.Errorf("cannot recover without the existing Agent ID"))
+	}
+	return requestAgentIdentityChallenge(v2, publicKey, "recovery", expectedAgentID)
+}
+
+func requestAgentIdentityChallenge(v2 v2Poster, publicKey ed25519.PublicKey, kind, expectedAgentID string) (string, string, error) {
 	requestNonce, err := newBrowserNonce()
 	if err != nil {
 		return "", "", err
 	}
-	response, err := v2.Post("/agent-identities/registration-challenges", map[string]interface{}{
+	request := map[string]interface{}{
 		"public_key":      base64.RawURLEncoding.EncodeToString(publicKey),
-		"idempotency_key": "registration-" + requestNonce,
-	})
+		"idempotency_key": kind + "-" + requestNonce,
+	}
+	if expectedAgentID != "" {
+		request["expected_agent_id"] = expectedAgentID
+	}
+	response, err := v2.Post("/agent-identities/"+kind+"-challenges", request)
 	if err != nil {
 		return "", "", err
 	}
@@ -272,7 +287,7 @@ func requestAutomaticRegistrationChallenge(v2 v2Poster, publicKey ed25519.Public
 		Nonce          string `json:"nonce"`
 	}
 	if json.Unmarshal(response.Data, &challenge) != nil || challenge.BootstrapGrant == "" || challenge.Nonce == "" {
-		return "", "", fmt.Errorf("invalid automatic Agent registration challenge")
+		return "", "", fmt.Errorf("invalid Agent %s challenge", kind)
 	}
 	return challenge.BootstrapGrant, challenge.Nonce, nil
 }
@@ -397,6 +412,9 @@ var agentV2ProvisionCmd = &cobra.Command{
 		var privateKey ed25519.PrivateKey
 		if requireExistingAgent {
 			publicKey, privateKey, err = auth.LoadIdentity(server.Name)
+			if err != nil {
+				return unavailableV2Identity(err)
+			}
 		} else {
 			publicKey, privateKey, _, err = auth.LoadOrCreateIdentity(server.Name)
 		}
@@ -437,6 +455,10 @@ var agentV2ProvisionCmd = &cobra.Command{
 		if requireExistingAgent && !preserveExistingIdentity {
 			return fmt.Errorf("cannot prove an existing Agent identity in the selected stable Agent Home")
 		}
+		if preserveExistingIdentity && !cmd.Flags().Changed("draft-json") &&
+			!cmd.Flags().Changed("draft-file") && !cmd.Flags().Changed("agent-name") {
+			draft, fieldProvenance = nil, nil
+		}
 		ref, _ := cmd.Flags().GetString("ref")
 		var installRef *auth.InstallRef
 		if ref != "" {
@@ -453,7 +475,7 @@ var agentV2ProvisionCmd = &cobra.Command{
 		}
 		if grant == "" {
 			if hasV2 {
-				grant, nonce, err = requestAutomaticRegistrationChallenge(v2, publicKey)
+				grant, nonce, err = requestExistingAgentRecoveryChallenge(v2, publicKey, expectedAgentID)
 			} else if legacyCredentials != nil && legacyCredentials.AccessToken != "" {
 				legacy := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v1", legacyCredentials.AccessToken, version, meta)
 				var challengeAgentID string

@@ -27,7 +27,7 @@ func newProvisionFailureFixture(t *testing.T) (*refreshPostgresFixture, *Service
 		`ALTER TABLE agent_principals ADD COLUMN key_type TEXT DEFAULT 'ed25519-v1'`,
 		`ALTER TABLE agent_onboarding_v2 ADD COLUMN current_step SMALLINT DEFAULT 2`,
 		`ALTER TABLE agents ADD COLUMN short_id TEXT DEFAULT 'AbCdE', ADD COLUMN agent_name TEXT DEFAULT 'Fixture', ADD COLUMN agent_name_en TEXT DEFAULT ''`,
-		`CREATE TEMP TABLE agent_bootstrap_grants (jti_hash TEXT PRIMARY KEY, key_fingerprint TEXT, status TEXT, expires_at BIGINT, subject_agent_id BIGINT, consumed_at BIGINT, consumed_by_agent_id BIGINT)`,
+		`CREATE TEMP TABLE agent_bootstrap_grants (jti_hash TEXT PRIMARY KEY, key_fingerprint TEXT, status TEXT, expires_at BIGINT, subject_agent_id BIGINT, consumed_at BIGINT, consumed_by_agent_id BIGINT, audience TEXT, channel TEXT, policy TEXT, entitlement_hash TEXT UNIQUE, request_id TEXT, created_at BIGINT)`,
 		`CREATE TEMP TABLE agent_settings (agent_id BIGINT PRIMARY KEY)`,
 	} {
 		f.exec(t, query)

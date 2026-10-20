@@ -155,7 +155,7 @@ jobs:
       - name: Verify Console V2 PostgreSQL flow and races
         run: go test -count=1 ./api/consolev2 -run 'Test(ConsoleV2ProvisionHandoffAndOnboardingFlow|HistoricalRecovery.*|Postgres.*|RuntimeObservationPostgresHTTP)'
       - name: Verify V2 renewal, recovery failures, and sanitized auth logs
-        run: go test -count=1 ./api/consolev2 -run '^Test(AgentRefreshPostgres|AgentAuthorizationPostgres|RefreshDatabaseFailure|ProvisionDatabaseFailures|ProvisionInvalidProofConsumption|ProvisionReceiptConflict|ConsoleAuth)'
+        run: go test -count=1 ./api/consolev2 -run '^Test(AgentRefreshPostgres|AgentAuthorizationPostgres|ExistingIdentityRecoveryPostgres|RefreshDatabaseFailure|ProvisionDatabaseFailures|ProvisionInvalidProofConsumption|ProvisionReceiptConflict|ConsoleAuth)'
       - name: Verify isolated OTP retry and concurrent consumption
         env:
           AUTH_RETRY_PG_DSN: postgres://postgres:postgres@127.0.0.1:5432/eigenflux?sslmode=disable

@@ -56,9 +56,9 @@ func isExpiredV2Refresh(err error) bool {
 }
 
 // recoverExpiredV2Credentials runs under the credential lock and uses only the
-// selected Home's existing key. The expected ID prevents public registration.
+// selected Home's existing key and an Agent-bound recovery grant.
 func recoverExpiredV2Credentials(serverName string, v2 v2Poster, previous *auth.V2Credentials, publicKey ed25519.PublicKey, privateKey ed25519.PrivateKey) (*auth.V2Credentials, error) {
-	grant, nonce, err := requestAutomaticRegistrationChallenge(v2, publicKey)
+	grant, nonce, err := requestExistingAgentRecoveryChallenge(v2, publicKey, previous.AgentID)
 	if err != nil {
 		return nil, fmt.Errorf("same-account Agent authentication failed: %w", err)
 	}

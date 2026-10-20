@@ -100,14 +100,22 @@ func (s *Service) issueBootstrapGrant(_ context.Context, c *app.RequestContext) 
 }
 
 func (s *Service) issueBootstrapGrantRecord(req issueGrantRequest, publicKey ed25519.PublicKey) (bootstrapGrantResult, error) {
+	return s.issueBootstrapGrantRecordWithDB(s.db, req, publicKey)
+}
+
+func (s *Service) issueBootstrapGrantRecordWithDB(db *gorm.DB, req issueGrantRequest, publicKey ed25519.PublicKey) (bootstrapGrantResult, error) {
+	grantSecret := s.bootstrapSecret
+	if req.Channel == existingIdentityRecoveryChannel {
+		grantSecret = s.otpPepper
+	}
 	keyFingerprint := fingerprint(publicKey)
-	entitlementHash := keyedHash(s.bootstrapSecret, req.EntitlementID)
+	entitlementHash := keyedHash(grantSecret, req.EntitlementID)
 	requestID := req.IdempotencyKey
 	receiptSeed := entitlementHash + "\x00" + requestID + "\x00" + keyFingerprint
-	grant := "efbg_" + keyedHash(s.bootstrapSecret, "grant\x00"+receiptSeed)
-	nonce := "efn_" + keyedHash(s.bootstrapSecret, "nonce\x00"+receiptSeed)
+	grant := "efbg_" + keyedHash(grantSecret, "grant\x00"+receiptSeed)
+	nonce := "efn_" + keyedHash(grantSecret, "nonce\x00"+receiptSeed)
 	var expiresAt int64
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err := db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, entitlementHash).Error; err != nil {
 			return err
 		}
@@ -390,16 +398,20 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 			RotationRequestHash string         `gorm:"column:rotation_request_hash"`
 			Scopes              pq.StringArray `gorm:"column:scopes;type:text[]"`
 			PrincipalStatus     string         `gorm:"column:principal_status"`
+			PrincipalRevokedAt  *int64         `gorm:"column:principal_revoked_at"`
+			IdentityState       string         `gorm:"column:identity_state"`
 			OnboardingState     string         `gorm:"column:onboarding_state"`
 			CurrentStep         int16          `gorm:"column:current_step"`
 		}
 		if err := tx.Raw(`SELECT p.agent_id, cs.principal_id, cs.expires_at, cs.absolute_expires_at,
 			cs.revoked_at, cs.rotation_request_hash, cs.scopes, p.status AS principal_status,
+			p.revoked_at AS principal_revoked_at, a.identity_state,
 			COALESCE(o.state, 'in_progress') AS onboarding_state, COALESCE(o.current_step, 2) AS current_step
 			FROM agent_principals p JOIN agent_credential_sessions cs ON cs.principal_id = p.principal_id
+			JOIN agents a ON a.agent_id = p.agent_id
 			LEFT JOIN agent_onboarding_v2 o ON o.agent_id = p.agent_id
 			WHERE p.key_type = 'ed25519-v1' AND p.key_fingerprint = ?
-			  AND cs.rotation_request_id = ? FOR UPDATE OF cs`, keyFingerprint,
+			  AND cs.rotation_request_id = ? FOR UPDATE OF cs, p`, keyFingerprint,
 			"provision:"+req.IdempotencyKey).Scan(&receipt).Error; err != nil {
 			reason = "receipt_lookup_failed"
 			return err
@@ -409,7 +421,7 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 				reason = "receipt_conflict"
 				return errConflict
 			}
-			if receipt.RevokedAt != nil || receipt.AbsoluteExpiresAt <= now ||
+			if receipt.RevokedAt != nil || receipt.AbsoluteExpiresAt <= now || receipt.PrincipalRevokedAt != nil || receipt.IdentityState != "active" ||
 				(receipt.PrincipalStatus != "limited" && receipt.PrincipalStatus != "active") {
 				reason = "receipt_invalid"
 				return errUnauthorized
@@ -434,14 +446,20 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 			Status       string `gorm:"column:status"`
 			ExpiresAt    int64  `gorm:"column:expires_at"`
 			SubjectAgent *int64 `gorm:"column:subject_agent_id"`
+			Channel      string `gorm:"column:channel"`
 		}
-		if err := tx.Raw(`SELECT key_fingerprint, status, expires_at, subject_agent_id
+		if err := tx.Raw(`SELECT key_fingerprint, status, expires_at, subject_agent_id, channel
 			FROM agent_bootstrap_grants WHERE jti_hash = ? FOR UPDATE`, hashString(req.BootstrapGrant)).Scan(&grant).Error; err != nil {
 			reason = "bootstrap_grant_lookup_failed"
 			return err
 		}
 		if grant.Fingerprint == "" || grant.Fingerprint != keyFingerprint || grant.Status != "issued" || grant.ExpiresAt < now {
 			reason = "bootstrap_grant_invalid"
+			return errUnauthorized
+		}
+		if grant.Channel == existingIdentityRecoveryChannel &&
+			(expectedAgentID == 0 || grant.SubjectAgent == nil || *grant.SubjectAgent != expectedAgentID) {
+			reason = "agent_binding_mismatch"
 			return errUnauthorized
 		}
 		var nonceCount int64
@@ -460,18 +478,22 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 			PrincipalID     int64  `gorm:"column:principal_id"`
 			AgentID         int64  `gorm:"column:agent_id"`
 			Status          string `gorm:"column:status"`
+			RevokedAt       *int64 `gorm:"column:revoked_at"`
+			IdentityState   string `gorm:"column:identity_state"`
 			OnboardingState string `gorm:"column:onboarding_state"`
 			CurrentStep     int16  `gorm:"column:current_step"`
 		}
-		if err := tx.Raw(`SELECT p.principal_id, p.agent_id, p.status,
+		if err := tx.Raw(`SELECT p.principal_id, p.agent_id, p.status, p.revoked_at, a.identity_state,
 			COALESCE(o.state, 'in_progress') AS onboarding_state, COALESCE(o.current_step, 2) AS current_step
-			FROM agent_principals p LEFT JOIN agent_onboarding_v2 o ON o.agent_id = p.agent_id
-			WHERE p.key_type = 'ed25519-v1' AND p.key_fingerprint = ?`, keyFingerprint).Scan(&existing).Error; err != nil {
+			FROM agent_principals p JOIN agents a ON a.agent_id = p.agent_id
+			LEFT JOIN agent_onboarding_v2 o ON o.agent_id = p.agent_id
+			WHERE p.key_type = 'ed25519-v1' AND p.key_fingerprint = ? FOR UPDATE OF p`, keyFingerprint).Scan(&existing).Error; err != nil {
 			reason = "principal_lookup_failed"
 			return err
 		}
 		if existing.PrincipalID != 0 {
-			if existing.Status == "revoked" || existing.Status == "suspended" {
+			if existing.RevokedAt != nil || existing.IdentityState != "active" ||
+				(existing.Status != "active" && existing.Status != "limited") {
 				reason = "principal_inactive"
 				return errUnauthorized
 			}
@@ -491,6 +513,9 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 					return err
 				}
 			}
+		} else if grant.Channel == existingIdentityRecoveryChannel {
+			reason = "existing_identity_required"
+			return errUnauthorized
 		} else if grant.SubjectAgent != nil {
 			if expectedAgentID != 0 && *grant.SubjectAgent != expectedAgentID {
 				reason = "agent_binding_mismatch"
@@ -825,6 +850,11 @@ func (s *Service) createRefreshChallenge(ctx context.Context, c *app.RequestCont
 		RevokedAt          *int64  `gorm:"column:revoked_at"`
 		ReplacedBySession  *int64  `gorm:"column:replaced_by_session_id"`
 		SuccessorRequest   *string `gorm:"column:successor_request_id"`
+		SuccessorHash      *string `gorm:"column:successor_request_hash"`
+		SuccessorID        int64   `gorm:"column:successor_id"`
+		SuccessorPrincipal int64   `gorm:"column:successor_principal_id"`
+		SuccessorFamily    string  `gorm:"column:successor_family_id"`
+		SuccessorReplaced  *int64  `gorm:"column:successor_replaced_by_session_id"`
 		SuccessorExpiresAt int64   `gorm:"column:successor_expires_at"`
 		SuccessorRevokedAt *int64  `gorm:"column:successor_revoked_at"`
 		IdentityState      string  `gorm:"column:identity_state"`
@@ -833,6 +863,9 @@ func (s *Service) createRefreshChallenge(ctx context.Context, c *app.RequestCont
 		cs.family_id, p.key_fingerprint, p.status AS principal_status, p.revoked_at AS principal_revoked_at,
 		cs.absolute_expires_at, cs.revoked_at, cs.replaced_by_session_id,
 		next.rotation_request_id AS successor_request_id, next.absolute_expires_at AS successor_expires_at,
+		next.rotation_request_hash AS successor_request_hash, next.session_id AS successor_id,
+		next.principal_id AS successor_principal_id, next.family_id AS successor_family_id,
+		next.replaced_by_session_id AS successor_replaced_by_session_id,
 		next.revoked_at AS successor_revoked_at, a.identity_state
 		FROM agent_credential_sessions cs
 		JOIN agent_principals p ON p.principal_id = cs.principal_id
@@ -873,14 +906,18 @@ func (s *Service) createRefreshChallenge(ctx context.Context, c *app.RequestCont
 		return
 	}
 	if row.AbsoluteExpiresAt <= now {
-		// A lost successful rotation can be recovered using its still-valid successor.
-		// Replaying it must not create another session or extend either deadline.
 		if row.ReplacedBySession == nil {
 			failure.expired()
 			return
 		}
-		if row.SuccessorRevokedAt != nil || row.SuccessorExpiresAt <= now {
+		if row.SuccessorID == 0 || row.SuccessorRevokedAt != nil || row.SuccessorReplaced != nil ||
+			row.SuccessorPrincipal != row.PrincipalID || row.SuccessorFamily != row.FamilyID ||
+			row.SuccessorHash == nil || *row.SuccessorHash != s.refreshRotationHash(req.RefreshToken, row.KeyFingerprint, req.RotationRequestID) {
 			failure.invalid("successor_unavailable")
+			return
+		}
+		if row.SuccessorExpiresAt <= now {
+			failure.expired()
 			return
 		}
 	}
@@ -918,6 +955,12 @@ type refreshProofPayload struct {
 	Nonce             string `json:"nonce"`
 	PublicKey         string `json:"public_key"`
 	IssuedAt          int64  `json:"issued_at"`
+}
+
+func (s *Service) refreshRotationHash(refreshToken, keyFingerprint, rotationRequestID string) string {
+	return keyedHash(s.otpPepper, strings.Join([]string{
+		"refresh-request", hashString(refreshToken), keyFingerprint, rotationRequestID,
+	}, "\x00"))
 }
 
 func refreshTranscript(req refreshAgentSessionRequest) ([]byte, error) {
@@ -960,9 +1003,7 @@ func (s *Service) refreshAgentSession(ctx context.Context, c *app.RequestContext
 		failure.invalid("signature_invalid")
 		return
 	}
-	rotationHash := keyedHash(s.otpPepper, strings.Join([]string{
-		"refresh-request", hashString(req.RefreshToken), fingerprint(publicKey), req.RotationRequestID,
-	}, "\x00"))
+	rotationHash := s.refreshRotationHash(req.RefreshToken, fingerprint(publicKey), req.RotationRequestID)
 	newAccessToken := "efv2a_" + keyedHash(s.otpPepper, "refresh-access\x00"+rotationHash)
 	newRefreshToken := "efv2r_" + keyedHash(s.otpPepper, "refresh-token\x00"+rotationHash)
 
@@ -1038,17 +1079,19 @@ func (s *Service) refreshAgentSession(ctx context.Context, c *app.RequestContext
 				ExpiresAt           int64          `gorm:"column:expires_at"`
 				AbsoluteExpiresAt   int64          `gorm:"column:absolute_expires_at"`
 				RevokedAt           *int64         `gorm:"column:revoked_at"`
+				ReplacedBySessionID *int64         `gorm:"column:replaced_by_session_id"`
 				RotationRequestID   *string        `gorm:"column:rotation_request_id"`
 				RotationRequestHash *string        `gorm:"column:rotation_request_hash"`
 			}
 			if err := tx.Raw(`SELECT session_id, principal_id, family_id, scopes, expires_at,
-				absolute_expires_at, revoked_at, rotation_request_id, rotation_request_hash
+				absolute_expires_at, revoked_at, replaced_by_session_id, rotation_request_id, rotation_request_hash
 				FROM agent_credential_sessions WHERE session_id = ? FOR UPDATE`, *old.ReplacedBySessionID).
 				Scan(&successor).Error; err != nil {
 				reason = "successor_lookup_failed"
 				return err
 			}
-			if successor.SessionID != 0 && successor.RevokedAt == nil && successor.AbsoluteExpiresAt > now &&
+			if successor.SessionID != 0 && successor.RevokedAt == nil && successor.ReplacedBySessionID == nil &&
+				successor.PrincipalID == old.PrincipalID && successor.FamilyID == old.FamilyID &&
 				successor.RotationRequestID != nil && *successor.RotationRequestID == req.RotationRequestID &&
 				successor.RotationRequestHash != nil && *successor.RotationRequestHash == rotationHash {
 				nonceUse := tx.Exec(`UPDATE agent_signature_nonces SET consumed_at = ?
@@ -1061,6 +1104,9 @@ func (s *Service) refreshAgentSession(ctx context.Context, c *app.RequestContext
 				if nonceUse.RowsAffected != 1 {
 					reason = "nonce_invalid"
 					return errUnauthorized
+				}
+				if successor.AbsoluteExpiresAt <= now {
+					return errRefreshExpired
 				}
 				agentID, principalID, newSessionID, familyID = old.AgentID, successor.PrincipalID, successor.SessionID, successor.FamilyID
 				expiresAt, scopes = successor.ExpiresAt, pq.StringArray(principalScopesForOnboarding(old.OnboardingState))

@@ -30,8 +30,8 @@ import (
 	"eigenflux_server/pkg/config"
 )
 
-// Exercise the real CLI's automatic recovery against the production V2
-// handlers. Every credential and identity file belongs to a temporary Home.
+// Exercise automatic and explicit CLI recovery with public registration on and
+// off. Every credential and identity file belongs to a temporary Home.
 func TestCLIExpiredV2CredentialsRecoverSameAccount(t *testing.T) {
 	binary := os.Getenv("EIGENFLUX_TEST_CLI")
 	if binary == "" {
@@ -46,17 +46,30 @@ func TestCLIExpiredV2CredentialsRecoverSameAccount(t *testing.T) {
 			t.Fatal("CLI recovery tests require a loopback PostgreSQL host")
 		}
 	}
+	for _, publicRegistration := range []bool{true, false} {
+		t.Run(map[bool]string{true: "public_registration_enabled", false: "public_registration_disabled"}[publicRegistration], func(t *testing.T) {
+			testCLIExpiredV2CredentialsRecoverSameAccount(t, binary, publicRegistration)
+		})
+	}
+}
+
+func testCLIExpiredV2CredentialsRecoverSameAccount(t *testing.T, binary string, publicRegistration bool) {
+	t.Helper()
 	h := newHarness(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	endpoint := "http://" + listener.Addr().String()
+	bootstrapSecret := "installv2-test-broker"
+	if !publicRegistration {
+		bootstrapSecret = ""
+	}
 	svc, err := consolev2.NewService(h.db, h.ids, &config.Config{
-		ConsoleV2BootstrapSecret: "installv2-test-broker",
+		ConsoleV2BootstrapSecret: bootstrapSecret,
 		ConsoleV2OTPPepper:       "installv2-test-otp-pepper",
 		ConsoleV2PublicURL:       testOrigin,
-		EnablePublicRegistration: true,
+		EnablePublicRegistration: publicRegistration,
 		ConsoleV2Registration:    config.RegLimit{WindowSec: 60, IPLimit: 100, SubnetLimit: 100, KeyLimit: 10, GlobalLimit: 100},
 	})
 	if err != nil {
@@ -68,11 +81,13 @@ func TestCLIExpiredV2CredentialsRecoverSameAccount(t *testing.T) {
 	t.Cleanup(func() { _ = redisClient.Close() })
 	svc.SetRedisClient(redisClient)
 	live := server.New(server.WithListener(listener), server.WithTransport(standard.NewTransporter))
-	var registrationCalls, provisionCalls, capabilityCalls, handoffCalls atomic.Int32
+	var registrationCalls, recoveryCalls, provisionCalls, capabilityCalls, handoffCalls atomic.Int32
 	live.Use(func(ctx context.Context, c *app.RequestContext) {
 		switch string(c.Path()) {
 		case "/api/v2/agent-identities/registration-challenges":
 			registrationCalls.Add(1)
+		case "/api/v2/agent-identities/recovery-challenges":
+			recoveryCalls.Add(1)
 		case "/api/v2/agent-identities/provision":
 			provisionCalls.Add(1)
 		case "/api/v2/agent-capabilities":
@@ -197,6 +212,7 @@ func TestCLIExpiredV2CredentialsRecoverSameAccount(t *testing.T) {
 			sessionsBefore := count(t, `SELECT count(*) FROM agent_credential_sessions WHERE principal_id=?`, principalID)
 			handoffsBefore := count(t, `SELECT count(*) FROM console_v2_handoffs WHERE principal_id=?`, principalID)
 			registrationCalls.Store(0)
+			recoveryCalls.Store(0)
 			provisionCalls.Store(0)
 			capabilityCalls.Store(0)
 			handoffCalls.Store(0)
@@ -221,7 +237,7 @@ func TestCLIExpiredV2CredentialsRecoverSameAccount(t *testing.T) {
 				if notice.SchemaVersion != "eigenflux_auth_required.v1" || !notice.NotificationRequired || !notice.ChecksBlocked || notice.Home != home || notice.Server != "eigenflux" || notice.Code != "REFRESH_INVALID" {
 					t.Fatalf("incorrect revoked-session notice: %+v", notice)
 				}
-				if registrationCalls.Load() != 0 || provisionCalls.Load() != 0 || capabilityCalls.Load() != 0 {
+				if registrationCalls.Load() != 0 || recoveryCalls.Load() != 0 || provisionCalls.Load() != 0 || capabilityCalls.Load() != 0 {
 					t.Fatal("revoked session attempted automatic recovery or protected operation")
 				}
 				if count(t, `SELECT count(*) FROM agent_credential_sessions WHERE principal_id=?`, principalID) != sessionsBefore {
@@ -242,8 +258,8 @@ func TestCLIExpiredV2CredentialsRecoverSameAccount(t *testing.T) {
 				if err := json.Unmarshal(stdout, &registry); err != nil || registry.SchemaVersion != 1 || len(registry.Operations) == 0 {
 					t.Fatal("recovered CLI did not receive protected capability registry")
 				}
-				if registrationCalls.Load() != 1 || provisionCalls.Load() != 1 || capabilityCalls.Load() != 1 {
-					t.Fatalf("unexpected recovery calls: registration=%d provision=%d capabilities=%d", registrationCalls.Load(), provisionCalls.Load(), capabilityCalls.Load())
+				if registrationCalls.Load() != 0 || recoveryCalls.Load() != 1 || provisionCalls.Load() != 1 || capabilityCalls.Load() != 1 {
+					t.Fatalf("unexpected recovery calls: registration=%d recovery=%d provision=%d capabilities=%d", registrationCalls.Load(), recoveryCalls.Load(), provisionCalls.Load(), capabilityCalls.Load())
 				}
 				var after map[string]any
 				afterRaw, readErr := os.ReadFile(credentialPath)
@@ -262,6 +278,28 @@ func TestCLIExpiredV2CredentialsRecoverSameAccount(t *testing.T) {
 				}
 				if lifetime != int64(30*24*time.Hour/time.Millisecond) {
 					t.Fatalf("recovered session lifetime=%d", lifetime)
+				}
+				if !reflect.DeepEqual(originalAgent, h.agent(t, agentID)) || !reflect.DeepEqual(originalProfile, profile(t, agentID)) {
+					t.Fatal("automatic recovery changed profile, account binding, or acquisition")
+				}
+				reconnected := runSuccess(t, home, "agent", "provision", "--require-existing-agent", "--no-handoff")
+				if reconnected["agent_id"] != agentID || reconnected["created"] != false {
+					t.Fatalf("explicit reconnect changed the Agent identity: %#v", reconnected)
+				}
+				reconnectedRaw, readErr := os.ReadFile(credentialPath)
+				var reconnectedCredentials map[string]any
+				if readErr != nil || json.Unmarshal(reconnectedRaw, &reconnectedCredentials) != nil ||
+					reconnectedCredentials["agent_id"] != agentID || reconnectedCredentials["principal_id"] != principalID ||
+					reconnectedCredentials["access_token"] == nil || reconnectedCredentials["access_token"] == "" ||
+					reconnectedCredentials["refresh_token"] == nil || reconnectedCredentials["refresh_token"] == "" ||
+					reconnectedCredentials["access_token"] == after["access_token"] || reconnectedCredentials["refresh_token"] == after["refresh_token"] {
+					t.Fatal("explicit reconnect did not replace credentials on the existing Agent and principal")
+				}
+				if registrationCalls.Load() != 0 || recoveryCalls.Load() != 2 || provisionCalls.Load() != 2 || capabilityCalls.Load() != 1 {
+					t.Fatalf("explicit reconnect did not use only the recovery flow: registration=%d recovery=%d provision=%d capabilities=%d", registrationCalls.Load(), recoveryCalls.Load(), provisionCalls.Load(), capabilityCalls.Load())
+				}
+				if count(t, `SELECT count(*) FROM agent_credential_sessions WHERE principal_id=?`, principalID) != sessionsBefore+2 {
+					t.Fatal("explicit reconnect did not create exactly one additional same-principal session")
 				}
 			}
 			keyAfter, err := os.ReadFile(identityPath)
