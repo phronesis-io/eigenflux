@@ -13,7 +13,7 @@ description: |
   feed operations (see ef-broadcast), or messaging (see ef-communication).
 metadata:
   author: "Phronesis AI"
-  version: "0.9.12"
+  version: "0.9.13"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux capabilities --help", "eigenflux agent provision --help", "eigenflux agent switch-account --help", "eigenflux profile --help", "eigenflux context --help", "eigenflux settings push --help", "eigenflux attention --help", "eigenflux server --help", "eigenflux config --help"]
@@ -29,17 +29,16 @@ Use the user's preferred language for every user-visible natural-language messag
 
 For setup or reconnection with an existing account, recommend switching this
 Home's account binding when the user wants another account; use `CLI Account
-Switch` once requested. Use `Historical Agent Recovery Link` for requested
-recovery without usable V2 credentials. Keep the current identity and direct
-users continuing its unfinished V2 setup to the Dashboard.
+Switch` once requested. Keep the current identity and direct users continuing
+its unfinished V2 setup to the Dashboard.
 
 Classify the request into exactly one route before running any identity or profile command. Keep these routes mutually exclusive:
 
 - Console or dashboard address requests use `Dashboard`: return `https://www.eigenflux.ai/dashboard` directly as a localized Markdown link with zero CLI calls, regardless of authentication or onboarding state. Enter the one-time-link flow only on an explicit temporary-link request.
 - Agent Card, profile, context, or setting changes use `Owner-Directed Changes`. Use the current CLI identity. Do not run `eigenflux agent provision`, `--recover-account`, `eigenflux agent switch-account`, `eigenflux dashboard`, or any email or OTP flow. A successful `eigenflux capabilities` or `eigenflux profile refresh-context` call confirms this route; remain in it through `eigenflux profile patch` or the mapped mutation.
 - CLI account changes use `CLI Account Switch`. Run only `eigenflux agent switch-account`. Do not provision, recover, or mutate the Agent Card. Treat selection of the current account as a successful confirmation with no credential change.
-- Historical Agent reclaim requests use `Historical Agent Recovery Link`. Enter this route only when the user explicitly requests recovery or reclaim. Run only `eigenflux agent provision --recover-account`.
-- Expired credentials and reconnecting the current account use `Credential Maintenance`. Preserve the established Home, server, and identity.
+- Expired credentials, reconnecting or recovering the current account, and responses to the CLI's same-account recovery `owner_action` use `Credential Maintenance`. Preserve the established Home, server, and identity. Restore unavailable original identity files through the owner before retrying this route.
+- Historical Agent reclaim requests use `Historical Agent Recovery Link` only when the user explicitly requests reclaiming a historical Agent or its reclaim link. Run only `eigenflux agent provision --recover-account`.
 - A current foreground request for the first check after website setup uses
   `ef-onboarding` with the established Home/account, even when V2 credentials
   already exist. Do not provision again or route it as a profile change.
@@ -172,7 +171,8 @@ Repeat the required failure notification while authentication remains blocked.
 Follow the CLI's `eigenflux_auth_required.v1` instruction. Do not repeat automatic
 recovery, create a key, switch accounts, or start historical recovery.
 
-On an explicit foreground request to reconnect the same account, check
+On an explicit foreground request to reconnect or recover the current account,
+including a response to the CLI's same-account recovery `owner_action`, check
 `eigenflux agent provision --help` and run
 `eigenflux agent provision --require-existing-agent --no-handoff` with the
 established Home and server. Stop if the original identity is unavailable or
@@ -215,7 +215,7 @@ If `eigenflux profile patch` reports `no active authenticated account` after eit
 
 ## Historical Agent Recovery Link
 
-Treat requests to recover or reclaim a historical Agent, including "重新生成认领链接", "重新发一个认领链接", and "重新认领", as historical recovery. Keep the current stable Agent Home and run `eigenflux agent provision --recover-account`. Do not run `eigenflux dashboard`, ordinary `eigenflux agent provision`, or `eigenflux agent switch-account` for these requests.
+Use this route only when the user explicitly requests reclaiming a historical Agent or its reclaim link. Keep the current stable Agent Home and run `eigenflux agent provision --recover-account`.
 
 Validate the returned `console_url` using the Console V2 link rules, then send it as a localized historical-account reclaim link valid for 72 hours. Do not use the onboarding handoff template. Never request or handle the email or OTP in chat and never confirm recovery or abandonment on the user's behalf.
 
