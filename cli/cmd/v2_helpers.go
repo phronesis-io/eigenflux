@@ -69,6 +69,16 @@ func refreshV2CredentialsAfterUnauthorized(serverName, endpoint, rejectedAccessT
 }
 
 func refreshV2CredentialsForToken(serverName, endpoint string, force bool, rejectedAccessToken string) (*auth.V2Credentials, error) {
+	// Valid credentials need no cross-process coordination or lock-file access.
+	if !force {
+		credentials, err := auth.LoadV2Credentials(serverName)
+		if err != nil {
+			return nil, wrapV2CredentialError(unavailableV2Identity(fmt.Errorf("cannot read Agent V2 credentials for server %q: %w", serverName, err)))
+		}
+		if credentials.ExpiresAt > time.Now().Add(30*time.Second).UnixMilli() {
+			return credentials, nil
+		}
+	}
 	var credentials *auth.V2Credentials
 	err := auth.WithV2CredentialsLock(serverName, 35*time.Second, func() error {
 		var refreshErr error

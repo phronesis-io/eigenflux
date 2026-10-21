@@ -30,8 +30,8 @@ func TestV2CredentialsLockReleasesAfterWindowsReaderCloses(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-closed
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("released lock remains: %v", err)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("released lock file missing: %v", err)
 	}
 	if err := WithV2CredentialsLock("review", time.Second, func() error { return nil }); err != nil {
 		t.Fatalf("next refresh blocked: %v", err)

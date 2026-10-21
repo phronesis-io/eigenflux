@@ -101,6 +101,10 @@ associated Skills/capability logic. Update its affected sections in the same
 change; missing documentation makes the change incomplete. Update the operator
 guide and synchronized Skills when their respective behavior changes.
 
+## Locking
+
+Avoid adding locks by default, especially implementations that delete lock files: Agent host permissions may prevent deletion and block lock release. When a file lock is necessary, use an OS-backed lock, retain the file after release, and set a bounded wait.
+
 ## Code Cleanup
 
 - Never comment out old code — delete it completely
