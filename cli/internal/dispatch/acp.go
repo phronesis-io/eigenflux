@@ -66,9 +66,22 @@ func (r Runner) withACP(ctx context.Context, use func(*acpClient) (Result, error
 	defer func() {
 		close(c.stop)
 		stdin.Close()
-		guard.kill()
+		if r.Binding.Host == "workbuddy" {
+			// The host owns its worker outside this process tree. Let the bridge
+			// close that exact runtime before forcibly stopping an unresponsive bridge.
+			done := make(chan struct{})
+			go func() { _ = cmd.Wait(); close(done) }()
+			select {
+			case <-done:
+			case <-time.After(6 * time.Second):
+				guard.kill()
+				<-done
+			}
+		} else {
+			guard.kill()
+			_ = cmd.Wait()
+		}
 		stdout.Close()
-		_ = cmd.Wait()
 		guard.close()
 	}()
 	go c.read(stdout)
@@ -224,23 +237,40 @@ func (c *acpClient) call(method string, params any, collect bool) (json.RawMessa
 					}
 				} else if collect && msg.Method == "session/update" {
 					var p struct {
-						SessionID string `json:"sessionId"`
-						Update    struct {
-							SessionUpdate string `json:"sessionUpdate"`
-							Content       struct {
-								Type string `json:"type"`
-								Text string `json:"text"`
-							} `json:"content"`
-						} `json:"update"`
+						SessionID string          `json:"sessionId"`
+						Update    json.RawMessage `json:"update"`
 					}
 					if json.Unmarshal(msg.Params, &p) != nil {
 						return nil, errors.New("acp_invalid_update")
 					}
-					if p.SessionID == c.sessionID && p.Update.SessionUpdate == "agent_message_chunk" && p.Update.Content.Type == "text" {
-						if c.text.Len()+len(p.Update.Content.Text) > maxRunnerOutput {
+					if p.SessionID != c.sessionID {
+						continue
+					}
+					var kind struct {
+						SessionUpdate string `json:"sessionUpdate"`
+					}
+					if json.Unmarshal(p.Update, &kind) != nil {
+						return nil, errors.New("acp_invalid_update")
+					}
+					// Tool updates legitimately have array content. Decode text only for
+					// assistant chunks, rather than imposing their shape on every event.
+					if kind.SessionUpdate != "agent_message_chunk" {
+						continue
+					}
+					var chunk struct {
+						Content struct {
+							Type string `json:"type"`
+							Text string `json:"text"`
+						} `json:"content"`
+					}
+					if json.Unmarshal(p.Update, &chunk) != nil {
+						return nil, errors.New("acp_invalid_update")
+					}
+					if chunk.Content.Type == "text" {
+						if c.text.Len()+len(chunk.Content.Text) > maxRunnerOutput {
 							return nil, errOutputLimit
 						}
-						c.text.WriteString(p.Update.Content.Text)
+						c.text.WriteString(chunk.Content.Text)
 					}
 				}
 				continue

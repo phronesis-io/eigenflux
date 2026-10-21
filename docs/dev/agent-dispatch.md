@@ -256,3 +256,27 @@ binding, probe it, then verify one controlled main result without a prompt bubbl
 busy-thread rejection and real buyer payment/confirmation notices. Do not repeat
 an uncertain turn or select a different conversation. This change does not run
 that acceptance or install/restart the local package.
+
+## WorkBuddy host execution bridge (experimental macOS)
+
+Bind ordinary execution as `mode: acp`, `host: workbuddy`, with command argv
+`["/absolute/path/to/eigenflux", "watch", "workbuddy-acp"]`. Keep the account's
+Home, server, signed Skills and WorkDir pinned through the existing binding.
+The CLI discovers the unique same-user native Sidecar and asks it to start a
+fresh isolated worker with WorkBuddy's native child bootstrap and product config.
+It does not copy Desktop credentials, start a standalone unauthenticated CLI,
+or use a cloud assistant API. WorkBuddy must already be running and logged in.
+`--allow-tool` supplies explicit host tool rules; no automatic approval is added.
+Unknown or denied tool permission remains `needs_user` through the ACP runner.
+
+This entry is for seller inspection, paid fulfillment and other ordinary runner
+work. It does not advertise the hidden-main extension or establish original
+Desktop conversation delivery. WorkBuddy main notices remain unavailable without
+a separately verified owner bridge. Windows is unsupported by this entry.
+
+For real WorkBuddy model acceptance against isolated order APIs, build the CLI
+and run `EIGENFLUX_WORKBUDDY_SMOKE=1 EIGENFLUX_WORKBUDDY_SMOKE_CLI=/absolute/path/to/built/eigenflux go test ./cmd -run '^TestCommissionWorkBuddyHostLocalFulfillment$' -count=1 -v -timeout=8m`
+from `cli/`. The smoke explicitly allows filesystem/shell tools in its disposable
+workspace, verifies automatic acceptance, exact output bytes and confirmed
+upload/delivery, and simulates the paid transition. It never pays or changes a
+live order. Real transaction and Desktop UI acceptance remain separate checks.

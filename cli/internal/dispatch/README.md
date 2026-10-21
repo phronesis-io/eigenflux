@@ -514,3 +514,37 @@ Desktop login. Keep main-owner hidden reminders separate from isolated seller
 execution. Publish performs the real trial before its publish mutation and never
 enables subscriptions. Unit fixture Homes override inherited global Home flags
 and restore them afterwards; fixtures must not write into a real account.
+
+## WorkBuddy host-backed execution
+
+`watch_workbuddy_acp.go` and `internal/workbuddy/README.md` provide an opt-in
+standard ACP entry for ordinary runner work. The host Sidecar starts a fresh
+isolated worker with its native credential bootstrap; the bridge preserves the
+runner's pinned EigenFlux Home/server/Skills environment. Inputs carry native
+isMeta metadata. Permission requests still return to the existing ACP client;
+only explicitly configured host tool rules can avoid those requests.
+
+No `ai.eigenflux.mainConversation` capability is advertised: persistence and
+hidden metadata do not prove original Desktop UI delivery. Existing main-notice
+negotiation stays fail-closed. WorkBuddy needs a running authenticated Desktop
+host; missing/ambiguous Sidecars, occupied targets, invalid endpoints and
+uncertain execution are not retried or redirected. Cleanup targets only the
+runtime created by this bridge with an exact runtime ID.
+
+`TestCommissionWorkBuddyHostLocalFulfillment` reuses the existing isolated order
+flow with a real WorkBuddy model. Require completed ready intake and
+commission_delivery_confirmed, including exact contracted artifact bytes.
+Payment is simulated by the fixture; it is not a live transaction test.
+
+The ACP reader decodes assistant text only after checking the update kind;
+standard tool updates may carry array content. WorkBuddy teardown gives its
+bridge up to six seconds after stdin EOF to close the owned Sidecar runtime
+before killing an unresponsive bridge process. Other hosts retain their
+existing teardown behavior.
+
+On macOS with WorkBuddy 5.8.3, the real-model isolated-order smoke passed:
+ready inspection/automatic acceptance in 7.656s, local artifact generation and
+confirmed upload/delivery in 15.678s. The 11-byte output was alpha/beta with LF
+terminators and SHA-256 e49c81e2d2f84e259d40e2fb8192f3bcd198b355184845d76d8f58807d0d78ee.
+These are fixture-service results, not evidence of a paid production order or
+Desktop main-conversation refresh.

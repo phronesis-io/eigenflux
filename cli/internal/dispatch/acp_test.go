@@ -35,6 +35,10 @@ func fakeACP(scenario string) {
 			Error  json.RawMessage `json:"error"`
 		}
 		if decoder.Decode(&m) != nil {
+			if scenario == "acp-cleanup" {
+				time.Sleep(25 * time.Millisecond)
+				_ = os.WriteFile(os.Getenv("EF_CLEANUP_MARKER"), []byte("closed owned runtime"), 0600)
+			}
 			return
 		}
 		response := func(result any) { send(map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": result}) }
@@ -87,6 +91,9 @@ func fakeACP(scenario string) {
 					os.Exit(4)
 				}
 			}
+			if scenario == "acp-tool-array" {
+				send(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"sessionId": session, "update": map[string]any{"sessionUpdate": "tool_call_update", "content": []any{map[string]any{"type": "content", "content": map[string]string{"type": "text", "text": "tool output"}}}}}})
+			}
 			update("different-session", "agent_message_chunk", "WRONG SESSION")
 			update(session, "agent_thought_chunk", "PRIVATE THOUGHT")
 			update(session, "tool_call", "TOOL LOG")
@@ -125,7 +132,7 @@ func fakeACPScript() {
 	scan.Scan()
 }
 func TestACPCurrentTurnAndIndependentPeers(t *testing.T) {
-	for _, scenario := range []string{"acp-success", "acp-no-load", "acp-unknown", "acp-script"} {
+	for _, scenario := range []string{"acp-success", "acp-no-load", "acp-unknown", "acp-script", "acp-tool-array"} {
 		t.Run(scenario, func(t *testing.T) {
 			b := fixtureBinding(t, "acp", scenario)
 			result, err := (Runner{Binding: b}).Run(context.Background(), Request{Prompt: "prompt", SessionID: "old-session"})
@@ -199,5 +206,18 @@ func TestACPPermissionReplyIsCancelled(t *testing.T) {
 	outcome, ok := result["outcome"].(map[string]any)
 	if !ok || outcome["outcome"] != "cancelled" {
 		t.Fatalf("permission was not cancelled %#v", response)
+	}
+}
+
+func TestWorkBuddyACPAllowsOwnedRuntimeCleanup(t *testing.T) {
+	b := fixtureBinding(t, "acp", "acp-cleanup")
+	b.Host = "workbuddy"
+	marker := t.TempDir() + "/cleanup"
+	b.Env["EF_CLEANUP_MARKER"] = marker
+	if _, err := (Runner{Binding: b}).Run(context.Background(), Request{Prompt: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if body, err := os.ReadFile(marker); err != nil || string(body) != "closed owned runtime" {
+		t.Fatalf("bridge killed before cleanup: %q %v", body, err)
 	}
 }

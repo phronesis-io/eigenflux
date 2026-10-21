@@ -22,6 +22,32 @@ func TestCommissionNativeCodexLocalFulfillment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	runCommissionHostLocalFulfillment(t, "codex", func(binding *dispatch.Binding) {
+		binding.Mode, binding.Host = "native", "codex"
+		binding.Command = []string{executable}
+		binding.Args = []string{"--sandbox", "workspace-write", "--ask-for-approval", "never"}
+	})
+}
+
+// Real WorkBuddy model and filesystem tools; every order API and identity is an
+// isolated fixture. This never creates, pays, accepts or delivers a live order.
+func TestCommissionWorkBuddyHostLocalFulfillment(t *testing.T) {
+	if os.Getenv("EIGENFLUX_WORKBUDDY_SMOKE") != "1" {
+		t.Skip("set EIGENFLUX_WORKBUDDY_SMOKE=1 for real WorkBuddy model usage")
+	}
+	executable := os.Getenv("EIGENFLUX_WORKBUDDY_SMOKE_CLI")
+	if !filepath.IsAbs(executable) {
+		t.Fatal("EIGENFLUX_WORKBUDDY_SMOKE_CLI must select the built CLI by absolute path")
+	}
+	runCommissionHostLocalFulfillment(t, "WorkBuddy", func(binding *dispatch.Binding) {
+		binding.Mode, binding.Host = "acp", "workbuddy"
+		binding.Command = []string{executable, "watch", "workbuddy-acp", "--allow-tool", "Read", "--allow-tool", "Write", "--allow-tool", "Edit", "--allow-tool", "Bash"}
+		binding.Args = nil
+	})
+}
+
+func runCommissionHostLocalFulfillment(t *testing.T, host string, configure func(*dispatch.Binding)) {
+	t.Helper()
 	order := paidCommissionTestOrder()
 	order.State, order.Version = "awaiting_seller", 1
 	order.BuyerInput = "Write exactly two lines: alpha and beta, in that order, each followed by a newline."
@@ -29,9 +55,7 @@ func TestCommissionNativeCodexLocalFulfillment(t *testing.T) {
 	defer server.Close()
 	w := newCommissionWatch(t, server.URL, "commission_order")
 	installCommissionIntakeRules(t, w)
-	w.binding.Mode, w.binding.Host = "native", "codex"
-	w.binding.Command = []string{executable}
-	w.binding.Args = []string{"--sandbox", "workspace-write", "--ask-for-approval", "never"}
+	configure(w.binding)
 	w.binding.TimeoutSeconds = 180
 	if err := dispatch.WriteJSON(dispatch.BindingPath(w.home, w.server.Name), *w.binding); err != nil {
 		t.Fatal(err)
@@ -40,7 +64,14 @@ func TestCommissionNativeCodexLocalFulfillment(t *testing.T) {
 	if output, err := initialize.CombinedOutput(); err != nil {
 		t.Fatalf("isolated Git workspace: %v %s", err, output)
 	}
-	w.runAgent = (dispatch.Runner{Binding: *w.binding}).Run
+	runner := dispatch.Runner{Binding: *w.binding}
+	w.runAgent = func(ctx context.Context, request dispatch.Request) (dispatch.Result, error) {
+		result, err := runner.Run(ctx, request)
+		if err != nil {
+			t.Logf("%s runner %s: %v", host, request.Kind, err)
+		}
+		return result, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
 	started := time.Now()
@@ -54,10 +85,10 @@ func TestCommissionNativeCodexLocalFulfillment(t *testing.T) {
 			checked = job
 		}
 	}
-	if checked.CommissionResult == nil || checked.CommissionResult.Outcome != "ready" {
+	if checked.Status != "completed" || checked.CommissionResult == nil || checked.CommissionResult.Outcome != "ready" {
 		t.Fatalf("real intake did not pass: status=%s code=%s", checked.Status, checked.Code)
 	}
-	t.Logf("real Codex intake: %.3fs; session=%s", time.Since(started).Seconds(), checked.SessionID)
+	t.Logf("real %s intake: %.3fs; session=%s", host, time.Since(started).Seconds(), checked.SessionID)
 	order.State, order.Version = "in_progress", 3
 	paid := claimCommissionIntakeVersion(t, w, 3)
 	if err := w.dispatchCommissionIntake(ctx, paid); err != nil {
@@ -77,7 +108,7 @@ func TestCommissionNativeCodexLocalFulfillment(t *testing.T) {
 			completed = job
 		}
 	}
-	if completed.CommissionFulfillment == nil || completed.CommissionFulfillment.Decision.Outcome != "artifacts_ready" {
+	if completed.Status != "completed" || completed.Code != "commission_delivery_confirmed" || completed.CommissionFulfillment == nil || completed.CommissionFulfillment.Decision.Outcome != "artifacts_ready" {
 		t.Fatalf("real work did not produce verified artifacts: status=%s code=%s directory=%s", completed.Status, completed.Code, completed.CommissionDirectory)
 	}
 	evidence := completed.CommissionFulfillment
@@ -92,5 +123,5 @@ func TestCommissionNativeCodexLocalFulfillment(t *testing.T) {
 	if string(body) != "alpha\nbeta\n" {
 		t.Fatalf("wrong real artifact bytes: %q", strings.TrimSpace(string(body)))
 	}
-	t.Logf("real Codex fulfillment: %.3fs; session=%s; output=%s; bytes=%d; sha256=%s; status=%s", time.Since(started).Seconds(), completed.SessionID, artifact.LogicalPath, artifact.ByteSize, artifact.SHA256, completed.Status)
+	t.Logf("real %s fulfillment: %.3fs; session=%s; output=%s; bytes=%d; sha256=%s; status=%s", host, time.Since(started).Seconds(), completed.SessionID, artifact.LogicalPath, artifact.ByteSize, artifact.SHA256, completed.Status)
 }
