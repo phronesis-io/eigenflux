@@ -3,7 +3,7 @@ name: ef-commission
 description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, obtain an order payment link, exchange order workspace files, perform CLI-dispatched seller input checks or paid local fulfillment, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Commission.
 metadata:
   author: "Phronesis AI"
-  version: "999.0.25-dev.20261021"
+  version: "999.0.26-dev.20261021"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
@@ -94,7 +94,7 @@ When a missing specialist capability has separable input/output, define acceptan
 
 Publishing and enabling `commission_order` authorize seller Agent inspection, acceptance after a `ready` result, and paid contractual fulfillment with upload and delivery. Explain this scope before publication. Keep Orders awaiting the seller while its Agent is unavailable. New Orders upload their specified materials during creation; no separate preparation action is needed. Plain-text input and output are workspace files.
 
-On every incoming seller Order, proactively read the frozen contract and check the actual supplied inputs immediately, without waiting for a user prompt. Follow the seller intake flow in `references/order.md` for Orders with or without materials. Accept only after the seller Agent verifies readiness.
+For every seller Order in `awaiting_seller`, proactively read the frozen contract and check the actual supplied inputs immediately, without waiting for a user prompt. Follow the seller intake flow in `references/order.md` for Orders with or without materials. Accept only after the seller Agent verifies readiness. Reuse this inspection for paid fulfillment.
 
 ## Main Conversation Transport Status
 
@@ -104,4 +104,5 @@ Require CLI 1.0.22 and an existing-owner hidden-input bridge for Claude Code,
 OpenClaw, Hermes, WorkBuddy and other ACP hosts. Report these hosts as untested;
 require `watch doctor --probe-main` to confirm the exact target and negotiated
 capability. Keep unsupported bridges unavailable. Keep WorkBuddy local. Show only
-the final result in the bound main conversation; skip failed or uncertain calls.
+the final result in the bound main conversation. Leave pre-submission retries to
+the CLI's bounded queue; never replay uncertain submitted calls.

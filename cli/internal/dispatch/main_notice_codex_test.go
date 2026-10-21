@@ -320,6 +320,10 @@ func TestMainNoticeCodexDesktopOwnerReceipts(t *testing.T) {
 			if starts != wantStarts {
 				t.Fatalf("owner turn replayed or admitted before validation: got %d want %d", starts, wantStarts)
 			}
+			wantRetry := scenario == "active" || scenario == "baseline-busy"
+			if MainNoticeCanRetry(err) != wantRetry {
+				t.Fatalf("unsafe retry classification: starts=%d err=%v want retry=%v", starts, err, wantRetry)
+			}
 			readerCalls, readErr := os.ReadFile(target.Binding.Env["EF_MAIN_NOTICE_MARKER"])
 			if scenario == "unsupported" || scenario == "missing-capability" {
 				if !errors.Is(readErr, os.ErrNotExist) {

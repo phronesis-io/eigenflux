@@ -226,6 +226,10 @@ func TestHiddenACPMainRejectsUnprovenCapabilitiesTargetsAndReceipts(t *testing.T
 			if scenario == "busy" && !errors.Is(err, ErrMainNoticeBusy) {
 				t.Fatalf("busy target was not identified: %v", err)
 			}
+			wantRetry := scenario == "busy" || scenario == "inspect-error" || scenario == "inspect-unknown-state"
+			if MainNoticeCanRetry(err) != wantRetry {
+				t.Fatalf("unsafe retry classification: %v, want retry=%v", err, wantRetry)
+			}
 			want := []string{"initialize", "_eigenflux/main/inspect", "_eigenflux/main/notify"}[:count]
 			if calls := hiddenACPFixtureMethods(t, target); !reflect.DeepEqual(calls, want) {
 				t.Fatalf("failed notification retried or fell back: %q", calls)
@@ -243,6 +247,9 @@ func TestHiddenACPMainTimeoutDoesNotCancelOrResend(t *testing.T) {
 			result, err := (MainNoticeRunner{Target: target}).Run(ctx, hiddenACPFixturePrompt)
 			if err == nil || result != (Result{}) {
 				t.Fatalf("timeout returned a result: %#v %v", result, err)
+			}
+			if MainNoticeCanRetry(err) != (scenario == "inspect-timeout") {
+				t.Fatalf("timeout admission classification: %v", err)
 			}
 			want := []string{"initialize", "_eigenflux/main/inspect"}
 			if scenario == "notify-timeout" {

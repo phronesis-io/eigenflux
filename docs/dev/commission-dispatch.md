@@ -22,6 +22,8 @@ The 180-second local ceiling starts after queue claim and includes preparation. 
 
 ## Implemented paid local fulfillment
 
+Interactive and background paid fulfillment reuse the seller's order-entry input inspection. Keep frozen Skill binding, input manifest integrity and delivery checks; do not repeat input readiness assessment after payment.
+
 A separate serial worker rechecks `in_progress`, identity, version, frozen Skill and verified materials before executing. It creates a private output directory inside WorkDir and persists that path before invoking the host. The model generates every contractual artifact and reports self-check evidence. CLI checks actual regular files, paths, SHA-256 and size; it retains outputs and partial work. Order changes and identity switches cancel execution through independent monitors. New intake and PM work do not wait for local fulfillment.
 
 A structured `artifacts_ready` result means local generation only and remains `needs_user` for submission authorization. It neither uploads nor delivers. Scope-specific external operations, paid subcontracting and payments remain separate. Triggering is notification-driven; it does not scan historical orders. Deduplication uses retained order-scoped journal records, not a permanent execution ledger.

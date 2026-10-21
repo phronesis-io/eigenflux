@@ -388,7 +388,8 @@ activates its busy checks. The existing owner retains settings and starts the
 turn. Already-busy rejection is verified; the host's inject_items -> turn/start
 sequence is not an atomic idle-only transaction. Do not claim concurrent user
 input can never race it. The local worker remains serial and does not interrupt
-or automatically retry. No raw prompt is printed or sent as a user message.
+an active turn. Pre-submission failures may enter the bounded notice retry queue;
+an uncertain submitted turn is never replayed. No raw prompt is printed or sent as a user message.
 
 A separate short-lived app-server --stdio child only initializes and reads the
 exact thread/turn history. It never resumes or starts a turn. Confirm a new
@@ -409,9 +410,17 @@ main_notice_queue.go persists one notice per notification ID before ACK, separat
 from seller execution and desktop delivery. Explicit main-notice capacity overflow
 skips only that notice; business intake, desktop enqueue and ACK continue. Other
 persistence errors retain the existing fail-closed behavior. Signed main-notice.md pins the exact
-Home/server read prefix. Guard identity before/during/after execution. Failure is
-local skipped/unconfirmed with no alternative target or Order mutation. Restarted
-running entries become skipped and are not replayed; retention is bounded.
+Home/server read prefix. Guard identity before/during/after execution. With OS
+notification permission confirmed enabled, proven pre-submission failures get up
+to five total attempts, with 1/2/5/10-minute delays after failure. Persist Attempts
+and NextAttemptAt under the same scoped notification ID. Repeated enqueue and
+restarts preserve pending schedules; success stops retries. Retry-time permission
+checks use Check only, never Setup or Show. Revalidate Order version/state and
+recipient before retrying; discard changed Orders and resolved local requests.
+MainNoticeCanRetry marks only busy or pre-write transport/preparation failures;
+post-write errors and missing receipts remain skipped/unconfirmed. Unsupported
+targets never enter retries. No alternative target or Order mutation is allowed.
+Restarted running entries become skipped and are not replayed; retention is bounded.
 Notifications-only mode never invokes an Agent. Internal input coordination remains
 silent and does not enter this lane.
 

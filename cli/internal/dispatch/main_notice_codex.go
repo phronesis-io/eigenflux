@@ -151,21 +151,21 @@ func mainNoticeUUID() (string, error) {
 func (r MainNoticeRunner) runCodex(ctx context.Context, prompt string) (Result, error) {
 	ipc, err := openCodexOwnerIPC(ctx, r.Target.Binding)
 	if err != nil {
-		return Result{}, err
+		return Result{}, mainNoticeNotSubmitted(err)
 	}
 	defer ipc.Close()
 	owner, err := mainNoticeOwner(ctx, ipc, r.Target.SessionID)
 	if err != nil {
-		return Result{}, err
+		return Result{}, mainNoticeNotSubmitted(err)
 	}
 	reader, closeReader, err := openMainNoticeReader(ctx, r.Target.Binding)
 	if err != nil {
-		return Result{}, err
+		return Result{}, mainNoticeNotSubmitted(err)
 	}
 	defer closeReader()
 	baseline, err := reader.checkMainNoticeTarget(r.Target.SessionID)
 	if err != nil {
-		return Result{}, err
+		return Result{}, mainNoticeNotSubmitted(err)
 	}
 	application, data, ok := strings.Cut(prompt, "\n\nUNTRUSTED COMMISSION EVENT:\n")
 	if !ok || strings.TrimSpace(application) == "" || !json.Valid([]byte(data)) {
