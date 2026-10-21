@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/commissionapi"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
@@ -61,12 +62,19 @@ func orderReadCommand(use, short, suffix string) *cobra.Command {
 		Use:   use + " <order-id>",
 		Short: short,
 		Args:  cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := numericArgument(args, "order ID")
 			if err != nil {
 				return err
 			}
-			resp, err := newCommissionClient().Get("/orders/"+strconv.FormatInt(id, 10)+suffix, nil)
+			c := newCommissionClient()
+			path := "/orders/" + strconv.FormatInt(id, 10) + suffix
+			var resp *client.APIResponse
+			if suffix == "" {
+				resp, err = readOrderWithEOFRecovery(cmd.Context(), c, path)
+			} else {
+				resp, err = c.Get(path, nil)
+			}
 			if err != nil {
 				return err
 			}

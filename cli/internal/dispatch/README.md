@@ -3,6 +3,13 @@
 Read before changing dispatch logic. Update affected sections in the same change.
 CLI owns routing, execution state and delivery; synchronized Skills own Agent decisions.
 
+Order-detail verification via `order get` retries only interrupted reads ending in
+`io.EOF` or `io.ErrUnexpectedEOF`, with at most three attempts and cancellable
+100/200 ms delays. The command context also cancels the in-flight request.
+HTTP/business errors and malformed responses are not retried. Review reads,
+transfers, mutations and Agent calls do not use this recovery path; see
+[`order_read.go`](../../cmd/order_read.go).
+
 ## Code map
 
 | File | Entry points / responsibility |
