@@ -86,13 +86,18 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	return result, err
 }
 
-// WorkBuddy sometimes decorates a complete JSON result with one Markdown fence.
+// WorkBuddy may prepend progress text to one final fenced JSON result.
 // Preserve its exact object bytes for the downstream strict business decoder.
 func unwrapWorkBuddyJSONFence(text string) string {
 	trimmed := strings.TrimSpace(text)
-	body, ok := strings.CutPrefix(trimmed, "```json\n")
+	start := strings.Index(trimmed, "```")
+	if start < 0 || strings.ContainsAny(trimmed[:start], "{[") {
+		return text
+	}
+	final := trimmed[start:]
+	body, ok := strings.CutPrefix(final, "```json\n")
 	if !ok {
-		body, ok = strings.CutPrefix(trimmed, "```\n")
+		body, ok = strings.CutPrefix(final, "```\n")
 	}
 	if !ok {
 		return text

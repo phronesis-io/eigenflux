@@ -14,7 +14,10 @@ func TestWorkBuddyJSONFenceBoundary(t *testing.T) {
 		{"plain fence", "```\n" + object + "\n```", object},
 		{"outer whitespace", " \n```json\n" + object + "\n```\n", object},
 		{"raw object", object, object},
-		{"leading prose", "result:\n```json\n{}\n```", ""},
+		{"progress prefix", "正在检查。\n自检通过。\n```json\n{}\n```", "{}"},
+		{"earlier object", "{}\n```json\n{}\n```", ""},
+		{"earlier array", "[]\n```json\n{}\n```", ""},
+		{"earlier fence", "```text\nprogress\n```\n```json\n{}\n```", ""},
 		{"trailing prose", "```json\n{}\n```\ndone", ""},
 		{"multiple blocks", "```json\n{}\n```\n```json\n{}\n```", ""},
 		{"second object", "```json\n{} {}\n```", ""},
@@ -40,20 +43,22 @@ func TestWorkBuddyACPFenceKeepsStrictBusinessValidation(t *testing.T) {
 	valid := validCommissionResult("request", "ready")
 	raw, _ := json.Marshal(valid)
 	for _, tt := range []struct {
-		name, host, body string
-		valid            bool
+		name, host, body, prefix string
+		valid                    bool
 	}{
-		{"workbuddy", "workbuddy", string(raw), true},
-		{"other ACP", "hermes", string(raw), false},
-		{"duplicate field", "workbuddy", strings.TrimSuffix(string(raw), "}") + `,"outcome":"ready"}`, false},
-		{"unknown field", "workbuddy", strings.TrimSuffix(string(raw), "}") + `,"accept":true}`, false},
-		{"wrong request", "workbuddy", strings.Replace(string(raw), `"request"`, `"different"`, 1), false},
-		{"wrong version", "workbuddy", strings.Replace(string(raw), `"order_version":4`, `"order_version":5`, 1), false},
+		{"workbuddy", "workbuddy", string(raw), "", true},
+		{"workbuddy progress", "workbuddy", string(raw), "正在读取材料。\n自检通过。\n", true},
+		{"earlier decision", "workbuddy", string(raw), "{}\n", false},
+		{"other ACP", "hermes", string(raw), "", false},
+		{"duplicate field", "workbuddy", strings.TrimSuffix(string(raw), "}") + `,"outcome":"ready"}`, "", false},
+		{"unknown field", "workbuddy", strings.TrimSuffix(string(raw), "}") + `,"accept":true}`, "", false},
+		{"wrong request", "workbuddy", strings.Replace(string(raw), `"request"`, `"different"`, 1), "", false},
+		{"wrong version", "workbuddy", strings.Replace(string(raw), `"order_version":4`, `"order_version":5`, 1), "", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			b := fixtureBinding(t, "acp", "acp-json-result")
 			b.Host = tt.host
-			b.Env["EF_ACP_RESULT"] = "```json\n" + tt.body + "\n```"
+			b.Env["EF_ACP_RESULT"] = tt.prefix + "```json\n" + tt.body + "\n```"
 			result, err := (Runner{Binding: b}).Run(context.Background(), Request{Prompt: "inspect"})
 			if err != nil {
 				t.Fatal(err)

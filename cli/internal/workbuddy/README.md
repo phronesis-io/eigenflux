@@ -12,4 +12,4 @@ Cleanup uses the exact runtimeId of this instance. If the startup reply is lost,
 
 Update this file whenever bridge logic changes.
 
-The dispatch runner removes a single whole-result Markdown JSON fence for successful WorkBuddy ACP results only. Its enclosed value must be a valid JSON object; prose, multiple blocks and trailing values remain invalid. Exact object bytes continue through strict business field, duplicate-key and identity validation. No model call is repeated.
+The dispatch runner removes progress text and one final Markdown JSON fence for successful WorkBuddy ACP results only. The prefix must contain no earlier fence or JSON object/array start. The enclosed value must be a valid JSON object; multiple blocks, trailing prose and extra values remain invalid. Exact object bytes continue through strict business field, duplicate-key and identity validation. No model call is repeated.
