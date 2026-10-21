@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -39,6 +41,12 @@ func setCommissionInputFlags(t *testing.T, command *cobra.Command, fulfillmentSk
 
 func TestCommissionCreateAndUpdateSendFulfillmentSkill(t *testing.T) {
 	tempHome(t)
+	// Missing local notification setup must warn without blocking draft creation.
+	t.Setenv("HOME", t.TempDir())
+	var warning bytes.Buffer
+	previousErr := commissionCreateCmd.ErrOrStderr()
+	commissionCreateCmd.SetErr(&warning)
+	t.Cleanup(func() { commissionCreateCmd.SetErr(previousErr) })
 	cfg, err := config.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -77,6 +85,9 @@ func TestCommissionCreateAndUpdateSendFulfillmentSkill(t *testing.T) {
 	setCommissionInputFlags(t, commissionCreateCmd, "repository-security-review")
 	if err := commissionCreateCmd.RunE(commissionCreateCmd, nil); err != nil {
 		t.Fatal(err)
+	}
+	if runtime.GOOS == "darwin" && !strings.Contains(warning.String(), "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
+		t.Fatalf("missing notification setup warning did not include settings link: %s", warning.String())
 	}
 	setCommissionInputFlags(t, commissionUpdateCmd, "repository-security-review-v2")
 	if err := commissionUpdateCmd.Flags().Set("expected-version", "3"); err != nil {

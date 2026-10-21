@@ -351,6 +351,10 @@ digests. Draft, identity, binding and Skill changes prevent publishing. Preserve
 trial files and local evidence under `.eigenflux-publish-trial-*`; report the path
 on stderr. Every publish repeats the trial. An unconfirmed run requires inspection
 before retry; no automatic trial replay or reusable readiness flag exists.
+For confirmed failures, the interactive Agent repairs authorized local execution
+or Skill defects and starts a fresh trial. The trial Agent may repair generation
+errors within its existing timeout. Neither path changes contract terms, grants
+permissions, replays unknown work or bypasses the artifact gate.
 
 This is a CLI gate. Direct Commission API publishing remains independently
 available; server-enforced attestation is outside this change. A successful sample
@@ -483,11 +487,11 @@ cmd/watch_commission_material_notice.go and api/tradebff/ORDER_INPUTS.md.
 
 ## Publisher notification permission and buyer confirmation
 
-Before publication approval, Skills run notify status --publish-preflight --format
-json on the seller's computer and show any warning with its settings link and
+Before creation and again before publication approval, Skills run notify status
+--publish-preflight --format json on the seller's computer and show any warning with its settings link and
 manual path. The independent read-only Check returns ready, permission_denied,
 permission_required or unknown; it does not register, prompt, show or upload
-telemetry. The publish command retains bilingual stderr guidance as a fallback.
+telemetry. The create and publish commands retain bilingual stderr guidance as a fallback.
 Preserve existing approval; permission warnings do not add a publication gate or
 claim that clicking the settings link enabled notifications.
 

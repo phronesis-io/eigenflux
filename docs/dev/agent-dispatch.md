@@ -225,10 +225,13 @@ confirmation reminders retain their existing behavior.
 
 ### CLI 1.0.19 business fixes
 
-Use matched CLI/Skills 1.0.19 or newer. Before publishing, run notify status
+Use matched CLI/Skills 1.0.19 or newer. Before creating and again before publishing, run notify status
 --publish-preflight --format json separately and display its warning/settings
-link before using existing approval or requesting it. Publish keeps stderr
-guidance as fallback; this adds no mandatory permission gate.
+link before using existing approval or requesting it. Create and publish keep stderr
+guidance as fallback; this adds no mandatory permission gate. For confirmed trial
+failures, the Agent repairs authorized local execution or Skill defects and reruns
+the full trial. Unknown executions and uncertain publication responses require
+inspection before retry; contract terms and host security remain unchanged.
 
 Buyer clarification reads verified uploaded Order inputs, including request.txt,
 through a buyer-only manifest/grant boundary. CLI 1.0.20 escalates unresolved

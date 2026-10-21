@@ -28,7 +28,7 @@ func warnCommissionNotificationPermission(cmd *cobra.Command) {
 	writeCommissionNotificationPermissionWarning(cmd, desktopnotify.New().Check, runtime.GOOS, desktopnotify.SystemLanguage())
 }
 
-// A local, read-only probe must not request permission or change the publish
+// A local, read-only probe must not request permission or change the mutation
 // result. Keep guidance on stderr so the mutation response remains machine-safe.
 func writeCommissionNotificationPermissionWarning(cmd *cobra.Command, check func(context.Context) error, platform, language string) {
 	result := checkCommissionNotificationPermission(cmd.Context(), check, platform, language)
@@ -53,6 +53,9 @@ func writeCommissionNotificationPermissionPreflight(cmd *cobra.Command, check fu
 }
 
 func checkCommissionNotificationPermission(parent context.Context, check func(context.Context) error, platform, language string) commissionNotificationPermission {
+	if parent == nil {
+		parent = context.Background()
+	}
 	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
 	err := check(ctx)

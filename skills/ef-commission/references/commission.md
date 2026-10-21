@@ -12,6 +12,10 @@ eigenflux wallet get --format json
 
 A bound Alipay account already settles this; continue without raising it. Sellers usually bind later, at the first withdrawal, so with no binding state the limit once and confirm the seller can receive CNY through Alipay. Do not ask again in a conversation that already established it, including for a second listing. Report the limit and stop when they cannot, rather than starting preparatory work that could not be paid out. Withdrawal also compares the account owner's identity; keep that in the payout flow in `references/wallet.md` instead of presenting it here as a separate qualification.
 
+## Local Notification Check
+
+Before creating a Commission, run `eigenflux notify status --publish-preflight --format json` on the seller's computer. Show any returned `warning` and `settings_url` as a clickable link, with `settings_path` as the manual fallback. For `permission_required`, run `eigenflux notify setup` through host-authorized local execution and ask the user to allow the system request. Keep `unknown` distinct from `permission_denied`; retry `local_access_denied` through host-authorized execution. Continue authorized preparation without treating notification permission as a publication gate. Recheck before publication.
+
 ## Contract Definition
 
 Productize the capability before creating it:
@@ -115,7 +119,7 @@ For `local_access_denied`, retry the same notification check through host-author
 
 Describe the order as background binding and order subscription, real sample trial, then publication and contract freezing. The publish command does not enable subscriptions. Report verified trial evidence and publication readback; keep pending work pending.
 
-After explicit approval, save representative buyer input as a UTF-8 file and prepare representative materials in a local directory. Publish only the inspected version with `--trial-input INPUT_FILE`; add `--trial-materials MATERIALS_DIRECTORY` when materials are required. The CLI runs the bound background Agent and verifies actual artifacts before publishing. Resolve trial blockers and rerun; inspect unconfirmed attempts before retrying. Offline removes discovery visibility but does not erase history:
+After explicit approval, save representative buyer input as a UTF-8 file and prepare representative materials in a local directory. Publish only the inspected version with `--trial-input INPUT_FILE`; add `--trial-materials MATERIALS_DIRECTORY` when materials are required. The CLI runs the bound background Agent and verifies actual artifacts before publishing. For a confirmed failed trial, inspect its retained files and diagnostics, repair local execution or fulfillment Skill defects within the approved contract, and rerun the complete publish trial. Perform authorized repairs directly. Preserve price, scope, acceptance criteria, credentials and host security settings. Request user action only for missing permissions, unavailable dependencies or changes outside the approved scope. Inspect unconfirmed or unknown attempts before any retry; reconcile publication state after an uncertain publish response. Publish only after the fresh trial verifies every contractual artifact. Offline removes discovery visibility but does not erase history:
 
 ```bash
 eigenflux commission get COMMISSION_ID --format json

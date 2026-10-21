@@ -16,8 +16,9 @@ func TestCommissionPublishPermissionPreflightContract(t *testing.T) {
 	check := strings.Index(text, "eigenflux notify status --publish-preflight --format json")
 	approval := strings.Index(text, "After explicit approval")
 	publish := strings.Index(text, "eigenflux commission publish COMMISSION_ID")
-	if check < 0 || approval <= check || publish <= check {
-		t.Fatal("independent notification check must precede publish approval and execution")
+	create := strings.Index(text, "eigenflux commission create")
+	if check < 0 || create <= check || approval <= check || publish <= check {
+		t.Fatal("independent notification check must precede creation, publish approval and execution")
 	}
 	for _, required := range []string{"on the seller's computer", "`warning`", "`settings_url`", "`settings_path`", "`unknown` distinct from `permission_denied`", "Preserve existing publish approval", "publish stderr guidance as a fallback"} {
 		if !strings.Contains(text, required) {

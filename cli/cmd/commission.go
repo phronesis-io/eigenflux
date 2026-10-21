@@ -94,6 +94,7 @@ content or a fulfillment skill.`,
 		if err != nil {
 			return err
 		}
+		warnCommissionNotificationPermission(cmd)
 		key, _ := cmd.Flags().GetString("idempotency-key")
 		resp, err := postMutation(newCommissionClient(), "/commissions", "commission.create", key, map[string]any{"input": input})
 		if err != nil {

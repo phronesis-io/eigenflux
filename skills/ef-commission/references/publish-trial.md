@@ -10,6 +10,8 @@ actual regular files within `output_directory`, using safe relative paths. Inspe
 their bytes and verify every acceptance condition. Return `artifacts_ready` only
 when the complete contractual deliverable exists and passes these checks.
 
+Repair locally recoverable generation errors within this invocation and rerun every acceptance check within the supplied timeout. Preserve the contract and supplied Skill; return the unresolved blocker when repair requires changed terms, new permissions or unavailable dependencies.
+
 Return `needs_input` for inadequate materials, `needs_user` for missing tools,
 permissions or unresolved terms, and `failed` for execution errors. Keep credentials
 private. Stop before external side effects, payment, order creation, publishing,
