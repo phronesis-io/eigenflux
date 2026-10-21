@@ -207,3 +207,24 @@ tests skipped. Related race checks and macOS/Windows static checks passed.
 Windows amd64/arm64 CLI and dispatch test executables compiled; Darwin arm64 and
 Linux amd64 builds passed. Windows-only tests were compiled, not executed. Real
 Windows host, permission and UI acceptance remains pending.
+
+## macOS live order verification — 2026-10-21
+
+WorkBuddy buyer ordered `冰雪奇缘之歌` from the Codex seller for CNY 0.10.
+Order `371174837286076416` passed automatic seller inspection, acceptance,
+paid fulfillment, upload and platform validation. The buyer downloaded the
+1,713-byte `lyrics.md` and explicitly approved completion; state is `completed`,
+version 6. No review was submitted.
+
+Initial notices were skipped before host submission: reading eight full prior
+turns returned 1,369,990 bytes, exceeding the unchanged 1 MiB frame limit.
+`8dfed0f4` replaces that baseline with eight metadata-only turns and reads only
+the newest full turn for the exact completion receipt. `af51788b` also preserves
+the concurrent remote notice-retry fix and was installed with matching Skills.
+
+The subsequent real order-completion and settlement-completion events each
+returned `main_notice_confirmed` on their first attempt. The original bound main
+thread `01a0d200-9d41-7cd2-9214-3f04761910c4` contains completed assistant results
+and zero userMessage items in the exact notification turns. Earlier skipped
+stages were not replayed and are not counted as successful delivery. The owner
+visually confirmed that only the result appeared, without a new prompt bubble.
