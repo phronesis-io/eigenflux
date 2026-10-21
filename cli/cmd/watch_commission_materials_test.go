@@ -93,7 +93,7 @@ func TestPrepareCommissionMaterialsUsesInputSnapshotsAndOmitsCredentials(t *test
 		t.Fatalf("prepare: %+v %v", files, err)
 	}
 	file := files[0]
-	if filepath.Dir(file.Path) != directory || filepath.Ext(file.Path) != ".txt" || file.LogicalPath != "inputs/request.txt" || file.ByteSize != 14 {
+	if filepath.Dir(filepath.Dir(file.Path)) != directory || filepath.Ext(file.Path) != ".txt" || file.LogicalPath != "inputs/request.txt" || file.ByteSize != 14 {
 		t.Fatalf("unsafe or incorrect local path: %+v", file)
 	}
 	contents, err := os.ReadFile(file.Path)
@@ -336,5 +336,129 @@ func TestPrepareCommissionMaterialsDistinguishesRouteAndFileMissing(t *testing.T
 				t.Fatalf("404 classification: got %v want %v", err, want)
 			}
 		})
+	}
+}
+
+func TestPrepareCommissionMaterialsRetriesOnlyUnavailableReads(t *testing.T) {
+	for _, scenario := range []string{"eof", "503", "invalid", "exhausted", "cancel-backoff"} {
+		t.Run(scenario, func(t *testing.T) {
+			var reads atomic.Int32
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/v2/console/trade/orders/901" {
+					t.Errorf("unexpected %s", r.URL.Path)
+					return
+				}
+				n := reads.Add(1)
+				if scenario == "invalid" {
+					materialTestResponse(w, map[string]any{})
+					return
+				}
+				if scenario == "cancel-backoff" {
+					time.AfterFunc(20*time.Millisecond, cancel)
+					http.Error(w, "unavailable", 503)
+					return
+				}
+				if scenario == "exhausted" || n == 1 {
+					if scenario == "eof" {
+						conn, _, err := w.(http.Hijacker).Hijack()
+						if err == nil {
+							conn.Close()
+						}
+						return
+					}
+					http.Error(w, "unavailable", 503)
+					return
+				}
+				materialTestResponse(w, materialTestDetail([]map[string]any{}))
+			}))
+			defer server.Close()
+			watch := materialTestWatch(t, server.URL)
+			directory := t.TempDir()
+			files, err := watch.prepareCommissionMaterials(ctx, materialTestOrder(), directory)
+			expected := int32(2)
+			switch scenario {
+			case "invalid":
+				expected = 1
+				if !errors.Is(err, errCommissionMaterialsInvalid) {
+					t.Fatalf("invalid: %v", err)
+				}
+			case "exhausted":
+				expected = 3
+				if !errors.Is(err, errCommissionMaterialsUnavailable) {
+					t.Fatalf("exhausted: %v", err)
+				}
+			case "cancel-backoff":
+				expected = 1
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("cancel: %v", err)
+				}
+			default:
+				if err != nil || len(files) != 0 {
+					t.Fatalf("retry did not recover: %v %v", files, err)
+				}
+			}
+			if reads.Load() != expected {
+				t.Fatalf("reads=%d want %d", reads.Load(), expected)
+			}
+			if err != nil {
+				entries, _ := os.ReadDir(directory)
+				if len(entries) != 0 {
+					t.Fatalf("failed attempt retained files: %v", entries)
+				}
+			}
+		})
+	}
+}
+
+func TestPrepareCommissionMaterialsRetryClearsPartialAttemptOnly(t *testing.T) {
+	directory := t.TempDir()
+	sentinel := filepath.Join(directory, "keep.txt")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var manifests atomic.Int32
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/console/trade/orders/901":
+			manifests.Add(1)
+			first, second := materialTestEntry(), materialTestEntry()
+			second["logical_path"] = "inputs/second.txt"
+			second["snapshot_id"] = "9007199254740996"
+			materialTestResponse(w, materialTestDetail([]map[string]any{first, second}))
+		case "/api/v1/orders/901/snapshots/9007199254740995/download":
+			materialTestResponse(w, map[string]any{"grant": commissionapi.TransferGrant{Method: "GET", URL: server.URL + "/blob"}})
+		case "/api/v1/orders/901/snapshots/9007199254740996/download":
+			if manifests.Load() == 1 {
+				http.Error(w, "unavailable", 503)
+				return
+			}
+			materialTestResponse(w, map[string]any{"grant": commissionapi.TransferGrant{Method: "GET", URL: server.URL + "/blob"}})
+		case "/blob":
+			_, _ = io.WriteString(w, "input contents")
+		default:
+			t.Errorf("unexpected %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	watch := materialTestWatch(t, server.URL)
+	files, err := watch.prepareCommissionMaterials(context.Background(), materialTestOrder(), directory)
+	if err != nil || len(files) != 2 || manifests.Load() != 2 {
+		t.Fatalf("partial retry: files=%v reads=%d err=%v", files, manifests.Load(), err)
+	}
+	entries, _ := os.ReadDir(directory)
+	if len(entries) != 2 {
+		t.Fatalf("attempt leftovers: %v", entries)
+	}
+	if content, err := os.ReadFile(sentinel); err != nil || string(content) != "keep" {
+		t.Fatalf("caller file changed: %q %v", content, err)
+	}
+	for _, file := range files {
+		content, err := os.ReadFile(file.Path)
+		if err != nil || string(content) != "input contents" {
+			t.Fatalf("bad retry artifact: %q %v", content, err)
+		}
 	}
 }

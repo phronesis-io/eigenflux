@@ -566,3 +566,5 @@ confirmed upload/delivery in 15.678s. The 11-byte output was alpha/beta with LF
 terminators and SHA-256 e49c81e2d2f84e259d40e2fb8192f3bcd198b355184845d76d8f58807d0d78ee.
 These are fixture-service results, not evidence of a paid production order or
 Desktop main-conversation refresh.
+
+Commission material preparation retries unavailable read-only manifest/grant/download attempts at most three times, with cancellable 100/200 ms backoff and a separate private subdirectory per attempt. Failed attempts remove only their own directory; successful files remain under caller-owned cleanup. Invalid, missing or oversized material results and cancellation do not retry. This does not repeat Agent calls or transactional writes.

@@ -54,8 +54,51 @@ type commissionMaterialEntry struct {
 
 // prepareCommissionMaterials admits only the pinned seller's input manifest and
 // verifies downloaded bytes before exposing local paths to the Agent. The caller
-// owns directory cleanup, including any earlier files when a later transfer fails.
+// owns successful directory cleanup. Unavailable reads retry at most three times
+// in separate owned subdirectories; invalid materials and cancellation never retry.
 func (w *accountWatch) prepareCommissionMaterials(ctx context.Context, order commissionIntakeOrder, directory string) ([]commissionLocalFile, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	parent, err := filepath.Abs(directory)
+	if err != nil {
+		return nil, errCommissionMaterialsUnavailable
+	}
+	info, err := os.Lstat(parent)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return nil, errCommissionMaterialsUnavailable
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		attemptDir, err := os.MkdirTemp(parent, "materials-")
+		if err != nil {
+			return nil, errCommissionMaterialsUnavailable
+		}
+		files, err := w.prepareCommissionMaterialsOnce(ctx, order, attemptDir)
+		if err == nil {
+			return files, nil
+		}
+		_ = os.RemoveAll(attemptDir)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if !errors.Is(err, errCommissionMaterialsUnavailable) || attempt == 2 {
+			return nil, err
+		}
+		timer := time.NewTimer(time.Duration(attempt+1) * 100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return nil, errCommissionMaterialsUnavailable
+}
+
+func (w *accountWatch) prepareCommissionMaterialsOnce(ctx context.Context, order commissionIntakeOrder, directory string) ([]commissionLocalFile, error) {
 	api, err := w.commissionAPI(ctx)
 	if err != nil {
 		return nil, err
