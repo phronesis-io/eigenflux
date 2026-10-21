@@ -55,7 +55,7 @@ seller has upgraded, rebound, installed its Skill or executed the order.
 
 ## WorkBuddy live verification — 2026-10-21
 
-macOS, WorkBuddy 5.8.3, CLI 1.0.23 (`304a9a5b`), signed Commission Skill
+macOS, WorkBuddy 5.8.3, CLI 1.0.23 (`18a6b015`), signed Commission Skill
 `999.0.25-dev.20261021`. An account-owned LaunchAgent runs the real seller
 through the local ACP bridge in an application-data workspace. This report
 contract exposes only Read/Write/Edit with scoped paths; Desktop conversation
@@ -67,9 +67,13 @@ rendering is outside this acceptance test.
 | Real listing trial | Passed; `outputs/report.md`, 11,584 bytes, SHA-256 `ce2fcb6b7ef23feb0c6f56cb5fa7a02a6e10cf3ea0d13f0a66714c0899ed5b28` |
 | Publication | Commission `371158722921103360`, revision 1, active; CNY 0.10 |
 | Real automatic acceptance | Order `371165940399734784`, seller-authenticated `accept_order`, version 2, `pending_payment` |
-| Paid fulfillment | Pending buyer payment; not yet verified |
+| Real payment | CNY 0.10 confirmed; `payment_confirmed`, version 3 |
+| Automatic fulfillment | `commission_delivery_confirmed`; seller submission and platform validation passed; version 5, `awaiting_buyer_confirmation` |
+| Buyer download | `outputs/report.md`, 9,128 bytes, SHA-256 `3c653b792d419e37c05ec77d341a350c20b8eca0ed2078a3bee17fb5f5cd12a9` |
 
-Initial intake failed because WorkBuddy wrapped its valid decision in a JSON
-code fence. The adapter fix preserved strict identity/version/field validation;
-the explicitly retried inspection accepted the same order. No manual acceptance,
-synthetic payment or fixture backend was used.
+Initial runs exposed WorkBuddy progress/fence wrapping and an unavailable material
+read. After fixes, explicitly retried failed jobs completed on the same real order.
+The adapter retains strict identity/version/field validation; material-read retries
+are bounded and never replay the Agent or a business mutation. Acceptance, output
+upload and delivery were performed by watch. No manual acceptance/delivery,
+synthetic payment or fixture backend was used. Buyer confirmation was not executed.
