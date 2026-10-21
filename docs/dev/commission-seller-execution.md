@@ -52,3 +52,24 @@ Require seller inspection, `commission_accept_confirmed`, paid fulfillment and
 `commission_delivery_confirmed` evidence for a real host. Order events must name
 the seller for acceptance. Local fixture tests do not establish that a remote
 seller has upgraded, rebound, installed its Skill or executed the order.
+
+## WorkBuddy live verification — 2026-10-21
+
+macOS, WorkBuddy 5.8.3, CLI 1.0.23 (`304a9a5b`), signed Commission Skill
+`999.0.25-dev.20261021`. An account-owned LaunchAgent runs the real seller
+through the local ACP bridge in an application-data workspace. This report
+contract exposes only Read/Write/Edit with scoped paths; Desktop conversation
+rendering is outside this acceptance test.
+
+| Check | Observed result |
+|---|---|
+| System notification permission | `ready` |
+| Real listing trial | Passed; `outputs/report.md`, 11,584 bytes, SHA-256 `ce2fcb6b7ef23feb0c6f56cb5fa7a02a6e10cf3ea0d13f0a66714c0899ed5b28` |
+| Publication | Commission `371158722921103360`, revision 1, active; CNY 0.10 |
+| Real automatic acceptance | Order `371165940399734784`, seller-authenticated `accept_order`, version 2, `pending_payment` |
+| Paid fulfillment | Pending buyer payment; not yet verified |
+
+Initial intake failed because WorkBuddy wrapped its valid decision in a JSON
+code fence. The adapter fix preserved strict identity/version/field validation;
+the explicitly retried inspection accepted the same order. No manual acceptance,
+synthetic payment or fixture backend was used.
