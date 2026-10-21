@@ -251,9 +251,13 @@ EOF recovery only to read-only `order get`. Full cmd regression passes.
 
 After proving the validating turn failed before any tools or final result, an
 operator backed up the account queue and requeued only that notice under the
-account lock. The real worker skipped attempt 2 as `main_notice_order_changed`: 
+account lock. The real worker skipped attempt 2 as `main_notice_order_changed`:
 Order version 5 had superseded version 4. No stale state was displayed, no
 fulfillment was replayed, and no notice receipt was manually marked delivered.
 This test does not establish five-stage success or automatic recovery from
 model-capacity failures. Both local watches use CLI 1.0.23 build `a28a93a3` with
 paired signed Skills. Visual confirmation for this retest is recorded separately.
+
+Settlement event `371193138393382912` also completed in native turn
+`01a15d4b-515e-78a0-8a0c-9f3f1a4de743`, with zero user messages. Its final
+result explicitly leaves wallet posting and withdrawal unverified.
