@@ -101,6 +101,10 @@ func TestBuyerDesktopMaterialReminderRechecksAfterTitleLookup(t *testing.T) {
 	order.Contract = json.RawMessage(`{"title":"Report","fulfillment_skill":"input-review","requires_materials":false}`)
 	reads := 0
 	server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/orders/901" {
+			materialTestResponse(out, map[string]any{})
+			return
+		}
 		reads++
 		if reads == 2 {
 			order.Version++

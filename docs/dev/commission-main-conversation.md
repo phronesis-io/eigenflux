@@ -228,3 +228,32 @@ thread `01a0d200-9d41-7cd2-9214-3f04761910c4` contains completed assistant resul
 and zero userMessage items in the exact notification turns. Earlier skipped
 stages were not replayed and are not counted as successful delivery. The owner
 visually confirmed that only the result appeared, without a new prompt bubble.
+
+## Five-stage live retest — 2026-10-21
+
+Order `371188292982407168`: WorkBuddy buyer, Codex seller, CNY 0.10;
+main thread `01a0d200-9d41-7cd2-9214-3f04761910c4`. Automatic intake,
+acceptance and paid fulfillment completed. Buyer inspected `lyrics.md`: theme,
+keywords, lyrics and singing notes present; actual singing was not tested.
+Buyer completion was authorized, state `completed`, version 6; no review sent.
+
+| Stage | Notification | Native turn | Result |
+|---|---|---|---|
+| Accepted / pending payment | 371188573937860609 | 01a15d3a-242f-7fa0-83ba-cdd7e75227a3 | Completed, verified business result, zero user messages |
+| Paid / in progress | 371190282529538049 | 01a15d40-5875-70b3-be1d-e49d9b6bb6ff | Completed, verified business result, zero user messages |
+| Submitted / validating | 371190554949582849 | 01a15d41-60be-7733-bb15-21c27e8ee369 | Failed: selected model at capacity, no items or tools; not passed |
+| Awaiting buyer confirmation | 371190555633254401 | 01a15d41-8d10-70c1-aef5-86ce73a3505a | Completed, verified business result, zero user messages |
+| Completed | 371193138183667713 | 01a15d4a-be19-7c42-887c-36dfb8c34d5c | Completed, verified business result, zero user messages |
+
+The initial awaiting-seller notice reached the thread but reported a failed
+Order read; it is not a successful business notification. `a28a93a3` adds bounded
+EOF recovery only to read-only `order get`. Full cmd regression passes.
+
+After proving the validating turn failed before any tools or final result, an
+operator backed up the account queue and requeued only that notice under the
+account lock. The real worker skipped attempt 2 as `main_notice_order_changed`: 
+Order version 5 had superseded version 4. No stale state was displayed, no
+fulfillment was replayed, and no notice receipt was manually marked delivered.
+This test does not establish five-stage success or automatic recovery from
+model-capacity failures. Both local watches use CLI 1.0.23 build `a28a93a3` with
+paired signed Skills. Visual confirmation for this retest is recorded separately.
