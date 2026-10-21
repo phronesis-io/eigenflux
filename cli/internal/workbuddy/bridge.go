@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -27,10 +28,13 @@ import (
 
 const maxFrame = 4 << 20
 
+var toolNamePattern = regexp.MustCompile(`^[A-Z][A-Za-z0-9_]*$`)
+
 // Config selects a local installation. It never supplies model credentials.
 type Config struct {
 	ConfigDir, ControlSocket, CLIPath, Node string
 	AllowedTools                            []string
+	Tools                                   []string
 }
 type frame struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -273,6 +277,11 @@ func resolve(c Config) (Config, error) {
 	if !filepath.IsAbs(c.Node) {
 		return c, errors.New("workbuddy_invalid_node")
 	}
+	for _, name := range c.Tools {
+		if !toolNamePattern.MatchString(name) {
+			return c, errors.New("workbuddy_invalid_tool_name")
+		}
+	}
 	for _, v := range c.AllowedTools {
 		if v == "" || strings.HasPrefix(v, "-") || strings.ContainsAny(v, "\r\n\x00") {
 			return c, errors.New("workbuddy_invalid_tools")
@@ -333,6 +342,9 @@ func (b *bridge) start(ctx context.Context, cwd string) error {
 		}
 	}
 	args := []string{b.cfg.CLIPath, "--serve", "--session-id", sid, "--permission-mode", "default"}
+	if len(b.cfg.Tools) > 0 {
+		args = append(args, "--tools", strings.Join(b.cfg.Tools, ","))
+	}
 	if len(b.cfg.AllowedTools) > 0 {
 		args = append(args, "--allowedTools")
 		args = append(args, b.cfg.AllowedTools...)

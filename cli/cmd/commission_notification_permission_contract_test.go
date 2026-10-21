@@ -34,3 +34,16 @@ func TestCommissionPublishPermissionPreflightContract(t *testing.T) {
 		t.Fatal("existing notify status must retain its default behavior")
 	}
 }
+
+func TestCommissionWorkBuddyBackgroundSetupContract(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "skills", "ef-commission", "references", "commission.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, required := range []string{"With existing publication approval", "current Home/server", "watch workbuddy-acp --node ABSOLUTE_NODE", "application-data workspace", "account-owned user-level service", "watch --dispatch", "pending jobs", "host permission checks enabled", "OAuth credentials untouched", "independently of a main conversation or GUI refresh", "reject stale test bindings", "real publish trial"} {
+		if !strings.Contains(text, required) {
+			t.Errorf("background setup contract missing %q", required)
+		}
+	}
+}

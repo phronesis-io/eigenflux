@@ -519,6 +519,14 @@ execution. Publish performs the real trial before its publish mutation and never
 enables subscriptions. Unit fixture Homes override inherited global Home flags
 and restore them afterwards; fixtures must not write into a real account.
 
+With publication approval, the interactive Skill repairs missing current-account
+WorkBuddy execution setup: macOS ACP binding to the absolute native EigenFlux
+`watch workbuddy-acp --node` entry, `commission_order`, and an owned user-level
+`watch --dispatch` service. Use an application-data workspace; macOS launchd may
+lack access to Documents. Keep signed Skills, scoped tool permissions and pending
+jobs intact. Main-session binding is unnecessary. Only real trial artifacts prove
+readiness; configuration and process health alone do not.
+
 ## WorkBuddy host-backed execution
 
 `watch_workbuddy_acp.go` and `internal/workbuddy/README.md` provide an opt-in

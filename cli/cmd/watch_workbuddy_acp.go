@@ -26,6 +26,7 @@ func newWatchWorkBuddyACPCommand() *cobra.Command {
 	cmd.Flags().StringVar(&config.ControlSocket, "control-socket", "", "explicit host Sidecar socket; otherwise discover the unique local socket")
 	cmd.Flags().StringVar(&config.CLIPath, "cli-path", "", "absolute official bundled WorkBuddy CLI launcher")
 	cmd.Flags().StringVar(&config.Node, "node", "", "absolute Node executable (default PATH)")
+	cmd.Flags().StringArrayVar(&config.Tools, "tool", nil, "restrict available built-in tools to these explicit names; does not grant permissions")
 	cmd.Flags().StringArrayVar(&config.AllowedTools, "allow-tool", nil, "explicit host tool allow rules; other permission requests remain subject to the ACP caller")
 	return cmd
 }

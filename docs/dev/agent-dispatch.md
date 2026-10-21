@@ -223,6 +223,13 @@ are main-thread integration tests with local fixture data, not live payment or
 delivery acceptance. Publisher permission warnings and normal-cycle buyer
 confirmation reminders retain their existing behavior.
 
+WorkBuddy publication approval also authorizes configuring its missing local
+background entry for the same account: macOS native CLI `watch workbuddy-acp`
+with an absolute Node path, `commission_order`, and an owned user-level
+`watch --dispatch` service. Use writable application data outside protected
+Documents. Preserve existing jobs and scoped host permissions; no main-session
+binding or GUI refresh is required. Publish still requires a real successful trial.
+
 ### CLI 1.0.19 business fixes
 
 Use matched CLI/Skills 1.0.19 or newer. Before creating and again before publishing, run notify status

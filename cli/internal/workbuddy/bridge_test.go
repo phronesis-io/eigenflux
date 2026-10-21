@@ -102,7 +102,7 @@ func configFixture(t *testing.T, h *hostFixture) Config {
 	d := t.TempDir()
 	cli := filepath.Join(d, "cli")
 	os.WriteFile(cli, []byte("dummy"), 0600)
-	return Config{ConfigDir: d, ControlSocket: h.path, CLIPath: cli, Node: "/bin/true", AllowedTools: []string{"Read", "Bash"}}
+	return Config{ConfigDir: d, ControlSocket: h.path, CLIPath: cli, Node: "/bin/true", AllowedTools: []string{"Read", "Bash"}, Tools: []string{"Read", "Write", "Edit"}}
 }
 func testBridge(c Config, w *bytes.Buffer) *bridge {
 	return &bridge{cfg: c, out: w, pending: make(map[string]chan frame), client: &http.Client{Transport: &http.Transport{Proxy: nil}, CheckRedirect: func(*http.Request, []*http.Request) error { return fmt.Errorf("redirect disabled") }}}
@@ -170,7 +170,7 @@ func TestNativeWorkerUsesIsolatedIdentityAndHiddenPrompt(t *testing.T) {
 	}
 	args := h.created["args"].([]any)
 	joined := fmt.Sprint(args)
-	if !strings.Contains(joined, "--allowedTools Read Bash") || !strings.Contains(joined, "--permission-mode default") {
+	if !strings.Contains(joined, "--tools Read,Write,Edit") || !strings.Contains(joined, "--allowedTools Read Bash") || !strings.Contains(joined, "--permission-mode default") {
 		t.Fatalf("args: %s", joined)
 	}
 	env := h.created["env"].(map[string]any)
@@ -390,5 +390,18 @@ func TestStalledACPDisconnectCannotPreventRuntimeKill(t *testing.T) {
 	defer h.mu.Unlock()
 	if h.killed["expectedRuntimeId"] != "owned-runtime" {
 		t.Fatal("stalled disconnect prevented guarded kill")
+	}
+}
+
+func TestToolRestrictionRejectsRulesAndOptionInjection(t *testing.T) {
+	h := newHost(t, "http://127.0.0.1:1")
+	for _, name := range []string{"", "default", "--permission-mode", "Read,Write", "Bash(*)", "Read\nWrite"} {
+		t.Run(name, func(t *testing.T) {
+			c := configFixture(t, h)
+			c.Tools = []string{name}
+			if _, err := resolve(c); err == nil || err.Error() != "workbuddy_invalid_tool_name" {
+				t.Fatalf("invalid tool restriction accepted: %q: %v", name, err)
+			}
+		})
 	}
 }
