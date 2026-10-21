@@ -95,7 +95,7 @@ func (r Runner) inspectACPMain(c *acpClient) (acpMainInspection, error) {
 
 func (r Runner) runACPMainNotice(c *acpClient, prompt string) (Result, error) {
 	if _, err := r.inspectACPMain(c); err != nil {
-		return Result{}, err
+		return Result{}, mainNoticeNotSubmitted(err)
 	}
 	id, err := NewRevision()
 	if err != nil {

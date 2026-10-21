@@ -9,9 +9,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 var ErrMainNoticeQueueFull = errors.New("main_notice_queue_full")
+
+const MainNoticeMaxAttempts = 5
+
+var mainNoticeRetryDelays = [...]time.Duration{time.Minute, 2 * time.Minute, 5 * time.Minute, 10 * time.Minute}
 
 // MainNotice stores routing metadata only. Its lifecycle never changes an Order.
 type MainNotice struct {
@@ -27,6 +32,8 @@ type MainNotice struct {
 	JobStatus      string `json:"job_status,omitempty"`
 	JobCode        string `json:"job_code,omitempty"`
 	InputRequestID string `json:"input_request_id,omitempty"`
+	Attempts       int    `json:"attempts,omitempty"`
+	NextAttemptAt  int64  `json:"next_attempt_at,omitempty"`
 }
 type mainNoticeQueueState struct {
 	Scope    string       `json:"scope"`
@@ -80,6 +87,16 @@ func OpenMainNoticeQueue(binding Binding) (*MainNoticeQueue, error) {
 	return q, nil
 }
 func validMainNotice(item MainNotice) bool {
+	if item.Attempts < 0 || item.Attempts > MainNoticeMaxAttempts || item.NextAttemptAt < 0 || item.NextAttemptAt > 253402300799999 {
+		return false
+	}
+	if item.Status == "pending" {
+		if item.Attempts == MainNoticeMaxAttempts || (item.Attempts == 0) != (item.NextAttemptAt == 0) {
+			return false
+		}
+	} else if item.NextAttemptAt != 0 {
+		return false
+	}
 	if item.IsBuyerInputRequest() {
 		if !strings.HasPrefix(item.ID, "inputs:") || !executionReceiptPattern.MatchString(strings.TrimPrefix(item.ID, "inputs:")) || !executionReceiptPattern.MatchString(item.InputRequestID) || item.Role != "buyer" || item.State != "awaiting_seller" || item.JobID != "" || item.JobStatus != "" || item.JobCode != "" {
 			return false
@@ -130,6 +147,7 @@ func (q *MainNoticeQueue) Add(item MainNotice) error {
 	defer q.mu.Unlock()
 	item.Status = "pending"
 	item.Code = ""
+	item.Attempts, item.NextAttemptAt = 0, 0
 	if !validMainNotice(item) {
 		return errors.New("invalid_main_notice")
 	}
@@ -163,12 +181,18 @@ func appendMainNotice(entries []MainNotice, item MainNotice) ([]MainNotice, erro
 	return append(entries, item), nil
 }
 func (q *MainNoticeQueue) Next() (MainNotice, bool, error) {
+	return q.NextAt(time.Now())
+}
+
+func (q *MainNoticeQueue) NextAt(now time.Time) (MainNotice, bool, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	for i, item := range q.state.Entries {
-		if item.Status == "pending" {
+		if item.Status == "pending" && item.NextAttemptAt <= now.UnixMilli() {
 			entries := append([]MainNotice{}, q.state.Entries...)
 			item.Status = "running"
+			item.Attempts++
+			item.NextAttemptAt = 0
 			entries[i] = item
 			if err := q.save(entries); err != nil {
 				return MainNotice{}, false, err
@@ -179,15 +203,36 @@ func (q *MainNoticeQueue) Next() (MainNotice, bool, error) {
 	return MainNotice{}, false, nil
 }
 func (q *MainNoticeQueue) Finish(id, status, code string) error {
+	return q.FinishAt(id, status, code, time.Now())
+}
+
+func (q *MainNoticeQueue) FinishAt(id, status, code string, now time.Time) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if status != "delivered" && status != "skipped" {
+	if status != "delivered" && status != "skipped" && status != "retry_pending" {
 		return errors.New("invalid_main_notice_status")
 	}
 	entries := append([]MainNotice{}, q.state.Entries...)
 	for i, item := range entries {
 		if item.ID == id && item.Status == "running" {
+			if status == "retry_pending" {
+				if item.Attempts >= MainNoticeMaxAttempts {
+					status, code = "skipped", "main_notice_retry_exhausted"
+				} else {
+					// Legacy running records have no attempt counter.
+					attempts := item.Attempts
+					if attempts == 0 {
+						attempts = 1
+					}
+					entries[i].Attempts = attempts
+					entries[i].NextAttemptAt = now.Add(mainNoticeRetryDelays[attempts-1]).UnixMilli()
+					status = "pending"
+				}
+			}
 			entries[i].Status, entries[i].Code = status, code
+			if !validMainNotice(entries[i]) {
+				return errors.New("invalid_main_notice")
+			}
 			return q.save(entries)
 		}
 	}

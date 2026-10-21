@@ -60,9 +60,15 @@ owner_ready is reachability, not idle status or a completed business result.
 Main notices do not authorize payments, acceptance, receipt confirmation, refunds,
 cancellation or retries. Read current Order state rather than trusting event hints.
 Only model results appear in the main conversation; no instruction/event echo.
-An unavailable/failed/uncertain call is locally skipped, without another target or
-transport fallback. A started host turn cannot be retroactively undone; do not
-promise that arbitrary Agent side effects can be rolled back after a timeout.
+When OS notification permission is confirmed enabled, busy or failed calls proven
+not submitted get at most five total attempts. After failures, wait 1, 2, 5 and
+10 minutes. Persist attempts and due times under the original notification ID;
+successful delivery stops retries. Before retrying, recheck permission, identity
+and the current Order version/state; discard obsolete notices. Delayed entries
+do not block other due notices. Permission checks never request authorization.
+Unsupported bindings and uncertain submitted turns are skipped without another
+target or transport fallback. Running entries recovered after a crash remain
+uncertain and are not replayed. A started host turn cannot be retroactively undone.
 
 ## Main target and host acceptance
 

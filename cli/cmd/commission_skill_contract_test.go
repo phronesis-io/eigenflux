@@ -16,7 +16,7 @@ func TestCommissionSkillContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(skillBody), `version: "999.0.25-dev.20261021"`) {
+	if !strings.Contains(string(skillBody), `version: "999.0.26-dev.20261021"`) {
 		t.Error("ef-commission version is stale")
 	}
 	skill := string(skillBody)
@@ -103,6 +103,51 @@ func TestCommissionSkillContract(t *testing.T) {
 	} {
 		if !strings.Contains(wallet, required) {
 			t.Errorf("Wallet payout disclosure is missing %q", required)
+		}
+	}
+}
+
+func TestCommissionInteractiveFulfillmentReusesIntakeInspection(t *testing.T) {
+	body, err := os.ReadFile("../../skills/ef-commission/references/order.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	order := string(body)
+	intakeStart := strings.Index(order, "## Seller Intake and Acceptance")
+	fulfillmentStart := strings.Index(order, "## Seller Fulfillment Uses the Frozen Skill")
+	fulfillmentEnd := strings.Index(order, "## Versioned Mutations")
+	if intakeStart < 0 || fulfillmentStart <= intakeStart || fulfillmentEnd <= fulfillmentStart {
+		t.Fatal("seller intake and fulfillment sections are missing or reordered")
+	}
+	intake := order[intakeStart:fulfillmentStart]
+	for _, required := range []string{
+		"For seller Orders in `awaiting_seller`",
+		"inspect every declared input's actual format and contents",
+		"Return `ready` only after inspection",
+	} {
+		if !strings.Contains(intake, required) {
+			t.Errorf("order-entry inspection is missing %q", required)
+		}
+	}
+	fulfillment := order[fulfillmentStart:fulfillmentEnd]
+	for _, required := range []string{
+		"do not repeat its readiness assessment before paid fulfillment",
+		"frontmatter name exactly matches the frozen identifier",
+		"verify their size and SHA-256 against the sealed input manifest",
+		"Stop on unavailable or changed inputs",
+		"After verified payment reaches `in_progress`",
+		"validate the bytes and observable acceptance criteria",
+	} {
+		if !strings.Contains(fulfillment, required) {
+			t.Errorf("paid fulfillment contract is missing %q", required)
+		}
+	}
+	for _, obsolete := range []string{
+		"Before fulfillment, validate every structured buyer input",
+		"inspect their actual formats and contents",
+	} {
+		if strings.Contains(fulfillment, obsolete) {
+			t.Errorf("paid fulfillment repeats intake inspection: %q", obsolete)
 		}
 	}
 }

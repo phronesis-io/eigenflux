@@ -212,8 +212,11 @@ standard ACP session/load nor Channels is a hidden-main fallback.
 
 watch doctor --probe-main only discovers the exact owner. Its owner_ready result
 is connectivity, not idle status or business completion. watch status separates
-enabled from business_verified. Busy/failed/uncertain calls are not queued or
-replayed into another conversation. The controlled busy test passed, but Desktop
+enabled from business_verified. With OS notification permission enabled, busy and
+proven pre-submission failures use the same durable notification ID for at most
+five total attempts, with 1/2/5/10-minute delays. Pending schedules survive restart;
+success, revoked permission or a changed Order stops retries. Submitted uncertain
+calls are never replayed. No notice targets another conversation. The controlled busy test passed, but Desktop
 inject/start is not an atomic idle-only API. A started turn may finish after the
 caller times out; do not promise rollback.
 

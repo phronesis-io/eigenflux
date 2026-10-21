@@ -94,7 +94,13 @@ func (w *accountWatch) commissionMainNoticeLoop(ctx context.Context) error {
 			continue
 		}
 		status, code := w.dispatchCommissionMainNotice(ctx, item)
+		if status == "retry_pending" && item.Attempts >= dispatch.MainNoticeMaxAttempts {
+			status, code = "skipped", "main_notice_retry_exhausted"
+		}
 		err = queue.Finish(item.ID, status, code)
+		if err == nil {
+			err = w.emit("commission_main_notice_status", map[string]any{"notification_id": item.ID, "status": status, "code": code, "attempt": item.Attempts})
+		}
 		w.handoff.end()
 		if err != nil {
 			return err
@@ -138,13 +144,33 @@ func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item di
 	if w.commissionIdentityOK() != nil {
 		return "skipped", "identity_changed"
 	}
+	if item.Attempts > 1 {
+		if !w.mainNoticeRetryAllowed(ctx) {
+			return "skipped", "main_notice_retry_permission_unavailable"
+		}
+		if !item.IsLocalBlocker() && !item.IsBuyerInputRequest() {
+			var order commissionIntakeOrder
+			var err error
+			if item.Role == "buyer" {
+				order, err = w.readBuyerClarificationOrder(ctx, item.OrderID)
+			} else {
+				order, err = w.readCommissionOrder(ctx, item.OrderID)
+			}
+			if err != nil {
+				return w.retryCommissionMainNotice(ctx, "main_notice_order_unavailable")
+			}
+			if order.Version != item.Version || item.State != "" && order.State != item.State {
+				return "skipped", "main_notice_order_changed"
+			}
+		}
+	}
 	if item.IsLocalBlocker() {
 		if !w.localMainNoticeBlockerCurrent(item) {
 			return "skipped", "main_notice_blocker_resolved"
 		}
 		order, err := w.readCommissionOrder(ctx, item.OrderID)
 		if err != nil {
-			return "skipped", "main_notice_blocker_unavailable"
+			return w.retryCommissionMainNotice(ctx, "main_notice_blocker_unavailable")
 		}
 		if order.Version != item.Version || order.State != "awaiting_seller" && order.State != "in_progress" {
 			return "skipped", "main_notice_blocker_obsolete"
@@ -155,7 +181,7 @@ func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item di
 	}
 	prompt, err := w.commissionMainNoticePrompt(item)
 	if err != nil || w.runMainNotice == nil {
-		return "skipped", "main_notice_unavailable"
+		return w.retryCommissionMainNotice(ctx, "main_notice_unavailable")
 	}
 	callCtx, cancel := context.WithTimeout(ctx, 180*time.Second)
 	defer cancel()
@@ -199,7 +225,38 @@ func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item di
 	if runErr == nil && callCtx.Err() == nil && result.Text != "" && w.commissionIdentityOK() == nil && (!item.IsLocalBlocker() || w.localMainNoticeBlockerCurrent(item)) {
 		return "delivered", "main_notice_confirmed"
 	}
+	if dispatch.MainNoticeCanRetry(runErr) {
+		code := "main_notice_not_submitted"
+		if errors.Is(runErr, dispatch.ErrMainNoticeBusy) {
+			code = "main_notice_target_busy"
+		}
+		return w.retryCommissionMainNotice(ctx, code)
+	}
 	return "skipped", "main_notice_unconfirmed"
+}
+
+// Check reads OS permission only; retries never request permission or display UI.
+func (w *accountWatch) mainNoticeRetryAllowed(ctx context.Context) bool {
+	if w.desktop == nil || w.desktopDisabledReason != "" || ctx.Err() != nil || w.commissionIdentityOK() != nil {
+		return false
+	}
+	checker, ok := w.desktopProvider.(interface{ Check(context.Context) error })
+	if !ok {
+		return false
+	}
+	call, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	return checker.Check(call) == nil && ctx.Err() == nil && w.commissionIdentityOK() == nil
+}
+
+func (w *accountWatch) retryCommissionMainNotice(ctx context.Context, code string) (string, string) {
+	if w.commissionIdentityOK() != nil {
+		return "skipped", "identity_changed"
+	}
+	if w.mainNoticeRetryAllowed(ctx) {
+		return "retry_pending", code
+	}
+	return "skipped", "main_notice_retry_permission_unavailable"
 }
 
 func (w *accountWatch) localMainNoticeBlockerCurrent(item dispatch.MainNotice) bool {

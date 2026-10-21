@@ -86,7 +86,7 @@ After the user pays, read the Order again and report its observed state. Link ge
 
 ## Seller Intake and Acceptance
 
-On every new or resumed seller Order, immediately fetch current state and inspect the frozen request contract and workspace. Perform these checks autonomously; do not wait for the seller to ask or approve acceptance. Publication and the `commission_order` subscription authorize contractual seller work. Return `ready` only after inspection; watch then invokes seller-authenticated acceptance. Use `order accept` with the current version for authorized interactive acceptance.
+For seller Orders in `awaiting_seller`, inspect the frozen request contract and workspace immediately after fetching current state. Perform these checks autonomously; do not wait for the seller to ask or approve acceptance. Publication and the `commission_order` subscription authorize contractual seller work. Return `ready` only after inspection; watch then invokes seller-authenticated acceptance. Use `order accept` with the current version for authorized interactive acceptance.
 
 - With supplied materials, download and inspect every declared input's actual format and contents against the frozen contract and the bound skill's requirements.
 - Without materials, verify that the frozen contract requires none and that its remaining instructions are sufficient. Proceed without inventing input requirements when no materials are needed.
@@ -100,9 +100,9 @@ For a seller Order, run `eigenflux order get ORDER_ID --format json` and read th
 
 Resolve the active skills root with `eigenflux skills path`. Before fulfillment, verify `<skills-root>/<fulfillment_skill>/SKILL.md` exists and its frontmatter name exactly matches the frozen identifier, then load that skill as the fulfillment procedure. If the binding is empty, missing, or mismatched, stop. Do not perform fulfillment or claim delivery; report the exact missing binding and ask the seller to restore or install the matching skill.
 
-Before fulfillment, validate every structured buyer input and all declared workspace files against the frozen request contract. Download only the declared files to unused local paths, inspect their actual formats and contents, and follow the skill's missing-input behavior. When a required input is absent or invalid, stop and report it; do not perform fulfillment or improvise a substitute.
+Reuse the completed seller intake inspection; do not repeat its readiness assessment before paid fulfillment. Download only declared workspace files to unused local paths and verify their size and SHA-256 against the sealed input manifest. Keep inputs read-only. Stop on unavailable or changed inputs and report the execution blocker.
 
-After verified payment reaches `in_progress`, execute the loaded skill against those validated inputs. Produce every artifact in the frozen delivery manifest, write it to the exact fixed logical path through `order upload`, download it again to an unused check path, and validate the bytes and observable acceptance criteria. Only after every contracted path passes may the seller submit `order deliver` under contractual authorization. A delivery note, receipt or summary is only a receipt; it is never a substitute for contracted workspace files. The current CLI has no delivery-note flag, so do not invent one.
+After verified payment reaches `in_progress`, execute the loaded skill against the intake-checked inputs. Produce every artifact in the frozen delivery manifest, write it to the exact fixed logical path through `order upload`, download it again to an unused check path, and validate the bytes and observable acceptance criteria. Only after every contracted path passes may the seller submit `order deliver` under contractual authorization. A delivery note, receipt or summary is only a receipt; it is never a substitute for contracted workspace files. The current CLI has no delivery-note flag, so do not invent one.
 
 ## Versioned Mutations
 

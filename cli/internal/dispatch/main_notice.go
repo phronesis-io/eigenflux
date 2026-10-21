@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"path/filepath"
 	"runtime"
@@ -15,6 +16,20 @@ import (
 
 var ErrMainNoticeUnsupported = errors.New("main_notice_transport_unverified")
 var ErrMainNoticeBusy = errors.New("main_notice_target_busy")
+var ErrMainNoticeNotSubmitted = errors.New("main_notice_not_submitted")
+
+// Only failures before the first hidden-input write may be retried. A missing
+// receipt after that write does not prove the host did not execute the notice.
+func mainNoticeNotSubmitted(err error) error {
+	if err == nil || errors.Is(err, ErrMainNoticeUnsupported) || errors.Is(err, ErrMainSessionMismatch) || errors.Is(err, ErrNeedsUser) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", ErrMainNoticeNotSubmitted, err)
+}
+
+func MainNoticeCanRetry(err error) bool {
+	return errors.Is(err, ErrMainNoticeNotSubmitted) || errors.Is(err, ErrMainNoticeBusy)
+}
 
 // MainNoticeTarget carries the bound hidden-input adapter's admission decision.
 // Implementation availability and real-host acceptance are reported separately.
@@ -77,8 +92,8 @@ func MainNoticeBindingEnabled(binding Binding) bool {
 }
 
 // Run never creates a conversation or falls back to visible user input. The
-// caller must treat any error as no notification and must not replay a turn
-// whose admission or completion is uncertain.
+// caller may schedule a retry only for MainNoticeCanRetry errors and must not
+// replay a turn whose admission or completion is uncertain.
 func (r MainNoticeRunner) Run(ctx context.Context, prompt string) (Result, error) {
 	t := r.Target
 	if !t.HiddenInputEnabled {
@@ -112,7 +127,15 @@ func (r MainNoticeRunner) Run(ctx context.Context, prompt string) (Result, error
 		return Result{}, ErrMainSessionMismatch
 	}
 	runner := Runner{Binding: acpMainBinding(t.Binding)}
-	return runner.withACP(ctx, func(c *acpClient) (Result, error) { return runner.runACPMainNotice(c, prompt) })
+	connected := false
+	result, err := runner.withACP(ctx, func(c *acpClient) (Result, error) {
+		connected = true
+		return runner.runACPMainNotice(c, prompt)
+	})
+	if !connected {
+		err = mainNoticeNotSubmitted(err)
+	}
+	return result, err
 }
 
 type mainNoticeRPC struct {
