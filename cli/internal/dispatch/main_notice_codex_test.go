@@ -82,20 +82,36 @@ func TestMainNoticeCodexReaderFixture(t *testing.T) {
 				SortDirection string `json:"sortDirection"`
 				ItemsView     string `json:"itemsView"`
 			}
-			if json.Unmarshal(request.Params, &params) != nil || params.ThreadID != noticeSession || params.Limit != 8 || params.SortDirection != "desc" || params.ItemsView != "full" {
+			if json.Unmarshal(request.Params, &params) != nil || params.ThreadID != noticeSession || params.SortDirection != "desc" {
 				os.Exit(94)
 			}
 			_, started := os.Stat(os.Getenv("EF_CODEX_OWNER_STARTED"))
 			if errors.Is(started, os.ErrNotExist) {
+				if params.Limit != 8 || params.ItemsView != "notLoaded" {
+					os.Exit(97)
+				}
 				status := "completed"
 				if scenario == "baseline-busy" {
 					status = "inProgress"
 				}
-				reply(map[string]any{"data": []any{map[string]any{"id": noticeOldTurn, "status": status, "items": []any{map[string]string{"type": "agentMessage", "phase": "final_answer", "text": "old answer must never count"}}}}, "nextCursor": nil})
+				// Historical bodies may exceed the transport bound; notLoaded must
+				// exclude them before serialization, while keeping IDs and status.
+				historicalText := "old answer must never count"
+				if scenario == "large-history" {
+					historicalText = strings.Repeat("x", maxRunnerOutput+10)
+				}
+				oldItems := []any{map[string]string{"type": "agentMessage", "phase": "final_answer", "text": historicalText}}
+				if params.ItemsView == "notLoaded" {
+					oldItems = []any{}
+				}
+				reply(map[string]any{"data": []any{map[string]any{"id": noticeOldTurn, "status": status, "items": oldItems}}, "nextCursor": nil})
 				continue
 			}
 			if started != nil {
 				os.Exit(95)
+			}
+			if params.Limit != 1 || params.ItemsView != "full" {
+				os.Exit(98)
 			}
 			if scenario == "oversize" {
 				_, _ = os.Stdout.WriteString(strings.Repeat("x", maxRunnerOutput+10) + "\n")
@@ -284,7 +300,7 @@ func (f *noticeOwnerFixture) serve() error {
 }
 
 func TestMainNoticeCodexDesktopOwnerReceipts(t *testing.T) {
-	for _, scenario := range []string{"success", "not-loaded", "unsupported", "missing-capability", "wrong-thread", "active", "baseline-busy", "wrong-owner", "owner-error", "owner-busy", "owner-timeout", "stale-receipt", "wrong-completion", "failed", "interrupted", "turn-error", "no-final", "empty-final", "visible-user-message", "permission", "oversize", "timeout"} {
+	for _, scenario := range []string{"success", "large-history", "not-loaded", "unsupported", "missing-capability", "wrong-thread", "active", "baseline-busy", "wrong-owner", "owner-error", "owner-busy", "owner-timeout", "stale-receipt", "wrong-completion", "failed", "interrupted", "turn-error", "no-final", "empty-final", "visible-user-message", "permission", "oversize", "timeout"} {
 		t.Run(scenario, func(t *testing.T) {
 			target, fixture := newNoticeOwnerFixture(t, scenario)
 			// Existing native flags must never select a proxy, change a writer's
@@ -297,7 +313,7 @@ func TestMainNoticeCodexDesktopOwnerReceipts(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), deadline)
 			defer cancel()
 			result, err := (MainNoticeRunner{Target: target}).Run(ctx, noticeCodexPrompt)
-			if scenario == "success" || scenario == "not-loaded" {
+			if scenario == "success" || scenario == "large-history" || scenario == "not-loaded" {
 				if err != nil || result != (Result{Text: "result", SessionID: noticeSession, RunID: noticeNewTurn}) {
 					t.Fatalf("result %#v error %v", result, err)
 				}
@@ -393,7 +409,7 @@ func (*noticeReaderWriteBuffer) Close() error { return nil }
 // These receipt checks exercise the same implementation on every platform,
 // including platforms whose native Desktop transport remains disabled.
 func TestMainNoticeCodexReadbackRequiresExactCompletedHiddenTurn(t *testing.T) {
-	for _, scenario := range []string{"success", "old-id", "failed", "interrupted", "turn-error", "no-final", "commentary", "visible-user-message", "missing-data", "null-data"} {
+	for _, scenario := range []string{"success", "old-id", "failed", "interrupted", "turn-error", "no-final", "commentary", "visible-user-message", "missing-data", "null-data", "extra-turn"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 			defer cancel()
@@ -417,6 +433,9 @@ func TestMainNoticeCodexReadbackRequiresExactCompletedHiddenTurn(t *testing.T) {
 				turn["items"] = []any{map[string]string{"type": "userMessage", "text": "injected prompt"}, map[string]string{"type": "agentMessage", "phase": "final_answer", "text": "result"}}
 			}
 			page := map[string]any{"data": []any{turn}}
+			if scenario == "extra-turn" {
+				page["data"] = []any{turn, turn}
+			}
 			if scenario == "missing-data" {
 				delete(page, "data")
 			}
@@ -435,8 +454,14 @@ func TestMainNoticeCodexReadbackRequiresExactCompletedHiddenTurn(t *testing.T) {
 			}
 			var request struct {
 				Method string `json:"method"`
+				Params struct {
+					ThreadID      string `json:"threadId"`
+					Limit         int    `json:"limit"`
+					ItemsView     string `json:"itemsView"`
+					SortDirection string `json:"sortDirection"`
+				} `json:"params"`
 			}
-			if json.Unmarshal(writer.Bytes(), &request) != nil || request.Method != "thread/turns/list" {
+			if json.Unmarshal(writer.Bytes(), &request) != nil || request.Method != "thread/turns/list" || request.Params.ThreadID != noticeSession || request.Params.Limit != 1 || request.Params.ItemsView != "full" || request.Params.SortDirection != "desc" {
 				t.Fatalf("readback attempted another operation: %s", writer.Bytes())
 			}
 		})

@@ -391,7 +391,11 @@ input can never race it. The local worker remains serial and does not interrupt
 or automatically retry. No raw prompt is printed or sent as a user message.
 
 A separate short-lived app-server --stdio child only initializes and reads the
-exact thread/turn history. It never resumes or starts a turn. Confirm a new
+exact thread/turn history. Baseline reads the latest eight IDs/statuses with
+itemsView=notLoaded; completion reads only the latest one turn with itemsView=full.
+Keep the 1 MiB transport bound, excluding unrelated historical tool bodies. If the
+owner-returned turn is no longer newest, wait within the existing timeout without
+traversing history or replaying the event. It never resumes or starts a turn. Confirm a new
 owner-returned turn ID, completed status, its final_answer and no userMessage;
 old turns, commentary, admission alone or a visible input never count. Cancellation
 closes IPC and the owned reader, not the Desktop or its admitted turn.

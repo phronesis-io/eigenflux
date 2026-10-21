@@ -80,8 +80,8 @@ func mainNoticeOwner(ctx context.Context, ipc *codexOwnerIPC, session string) (s
 	return owner, nil
 }
 
-func (p *mainNoticeRPC) mainNoticeTurns(session string) ([]mainNoticeTurn, error) {
-	raw, err := p.call("thread/turns/list", map[string]any{"threadId": session, "limit": 8, "sortDirection": "desc", "itemsView": "full"})
+func (p *mainNoticeRPC) mainNoticeTurns(session string, limit int, itemsView string) ([]mainNoticeTurn, error) {
+	raw, err := p.call("thread/turns/list", map[string]any{"threadId": session, "limit": limit, "sortDirection": "desc", "itemsView": itemsView})
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func (p *mainNoticeRPC) mainNoticeTurns(session string) ([]mainNoticeTurn, error
 		Data []mainNoticeTurn `json:"data"`
 	}
 	var fields map[string]json.RawMessage
-	if json.Unmarshal(raw, &fields) != nil || len(fields["data"]) == 0 || string(fields["data"]) == "null" || json.Unmarshal(raw, &page) != nil || len(page.Data) > 8 {
+	if json.Unmarshal(raw, &fields) != nil || len(fields["data"]) == 0 || string(fields["data"]) == "null" || json.Unmarshal(raw, &page) != nil || len(page.Data) > limit {
 		return nil, errors.New("main_notice_receipts_invalid")
 	}
 	for _, turn := range page.Data {
@@ -124,7 +124,7 @@ func (p *mainNoticeRPC) checkMainNoticeTarget(session string) (map[string]bool, 
 	default:
 		return nil, errors.New("main_notice_target_unavailable")
 	}
-	turns, err := p.mainNoticeTurns(session)
+	turns, err := p.mainNoticeTurns(session, 8, "notLoaded")
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +210,9 @@ func (r MainNoticeRunner) runCodex(ctx context.Context, prompt string) (Result, 
 
 func (p *mainNoticeRPC) waitMainNoticeTurn(session, id string) (Result, error) {
 	for {
-		turns, err := p.mainNoticeTurns(session)
+		// Read only the newest receipt; unrelated historical turns can contain
+		// large tool bodies. A displaced target is never inferred or replayed.
+		turns, err := p.mainNoticeTurns(session, 1, "full")
 		if err != nil {
 			return Result{}, err
 		}
