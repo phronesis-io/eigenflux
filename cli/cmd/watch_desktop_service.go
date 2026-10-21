@@ -16,14 +16,14 @@ import (
 	"cli.eigenflux.ai/internal/desktopnotify"
 )
 
-const desktopBuyerNamePlaceholder = "{buyer_name}"
+const desktopAgentNamePlaceholder = "{recipient_agent_name}"
 
 var errDesktopServiceName = errors.New("service_name_unavailable")
 
 // Resolve only in the desktop delivery lane, outside intake and remote ACK.
 // The frozen order title is display data; it never selects an Agent or operation.
 func (w *accountWatch) resolveDesktopServiceName(ctx context.Context, message desktopnotify.Message) (desktopnotify.Message, error) {
-	if !strings.Contains(message.Title, desktopServiceNamePlaceholder) && !strings.Contains(message.Body, desktopServiceNamePlaceholder) && !strings.Contains(message.Title, desktopBuyerNamePlaceholder) {
+	if !strings.Contains(message.Title, desktopServiceNamePlaceholder) && !strings.Contains(message.Body, desktopServiceNamePlaceholder) && !strings.Contains(message.Title, desktopAgentNamePlaceholder) {
 		return message, nil
 	}
 	if desktopnotify.Validate(message) != nil {
@@ -70,24 +70,25 @@ func (w *accountWatch) resolveDesktopServiceName(ctx context.Context, message de
 	if name == "" {
 		return message, errDesktopServiceName
 	}
-	buyerName := ""
+	english := !strings.HasPrefix(message.Title, "「")
+	roleName := "买方"
 	if role == "seller" {
-		if strings.HasPrefix(message.Title, "「") {
-			message.Title = "买家「" + desktopBuyerNamePlaceholder + "」 · " + message.Title
-		} else {
-			message.Title = "Buyer “" + desktopBuyerNamePlaceholder + "” · " + message.Title
+		roleName = "卖方"
+	}
+	if english {
+		roleName = "Buyer"
+		if role == "seller" {
+			roleName = "Seller"
 		}
 	}
-	if strings.Contains(message.Title, desktopBuyerNamePlaceholder) {
-		if role != "seller" {
-			return message, errDesktopServiceName
-		}
-		buyerID := strconv.FormatInt(int64(data.Order.BuyerID), 10)
-		buyerName = "Agent " + buyerID
+	message.Title = "【" + roleName + " · " + desktopAgentNamePlaceholder + "】" + message.Title
+	agentName := "Agent " + w.identity.AgentID
+	{
+		agentID := w.identity.AgentID
 		// Public identity data is optional; a failed lookup must not suppress an order notice.
 		public := client.New(strings.TrimRight(w.server.Endpoint, "/")+"/api/v2", "", version, client.Meta{})
 		public.HTTPClient = &http.Client{Timeout: 3 * time.Second, Transport: watchTransport{ctx}}
-		if result, lookupErr := public.Get("/public/agents/by-id/"+buyerID+"/card", nil); lookupErr == nil && result.Code == 0 && len(result.Data) <= 256<<10 {
+		if result, lookupErr := public.Get("/public/agents/by-id/"+agentID+"/card", nil); lookupErr == nil && result.Code == 0 && len(result.Data) <= 256<<10 {
 			var profile struct {
 				Card struct {
 					Name          string `json:"agent_name"`
@@ -102,7 +103,7 @@ func (w *accountWatch) resolveDesktopServiceName(ctx context.Context, message de
 			}
 			if json.Unmarshal(result.Data, &profile) == nil {
 				candidates := []string{profile.Identity.DisplayName, profile.Card.DisplayName, profile.Card.Name}
-				if strings.HasPrefix(message.Title, "Buyer “") {
+				if english {
 					candidates = append([]string{profile.Identity.DisplayNameEN, profile.Card.DisplayNameEN, profile.Card.NameEN}, candidates...)
 				}
 				for _, candidate := range candidates {
@@ -111,7 +112,7 @@ func (w *accountWatch) resolveDesktopServiceName(ctx context.Context, message de
 						if len(runes) > 40 {
 							cleaned = string(runes[:39]) + "…"
 						}
-						buyerName = cleaned
+						agentName = cleaned
 						break
 					}
 				}
@@ -119,7 +120,7 @@ func (w *accountWatch) resolveDesktopServiceName(ctx context.Context, message de
 		}
 	}
 	// A single replacer never expands placeholder-like text within display names.
-	replace := strings.NewReplacer(desktopServiceNamePlaceholder, name, desktopBuyerNamePlaceholder, buyerName)
+	replace := strings.NewReplacer(desktopServiceNamePlaceholder, name, desktopAgentNamePlaceholder, agentName)
 	message.Title = replace.Replace(message.Title)
 	message.Body = replace.Replace(message.Body)
 	if desktopnotify.Validate(message) != nil {

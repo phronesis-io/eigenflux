@@ -582,3 +582,5 @@ These are fixture-service results, not evidence of a paid production order or
 Desktop main-conversation refresh.
 
 Commission material preparation retries unavailable read-only manifest/grant/download attempts at most three times, with cancellable 100/200 ms backoff and a separate private subdirectory per attempt. Failed attempts remove only their own directory; successful files remain under caller-owned cleanup. Invalid, missing or oversized material results and cancellation do not retry. This does not repeat Agent calls or transactional writes.
+
+Desktop order titles identify the recipient, not the counterparty: Chinese `【买方 · NAME】` / `【卖方 · NAME】`, English `【Buyer · NAME】` / `【Seller · NAME】`. Resolve NAME only for the pinned receiving Agent after validating order membership; use `Agent ID` on unavailable public identity. Keep account routing, role and event IDs unchanged.

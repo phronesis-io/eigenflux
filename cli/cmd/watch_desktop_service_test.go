@@ -71,9 +71,9 @@ func TestDesktopServiceNameUsesFrozenContractForBothRoles(t *testing.T) {
 			w := newDesktopServiceWatch(t, server.URL)
 			original := desktopServiceTestMessage(t, w, role)
 			message, err := w.resolveDesktopServiceName(context.Background(), original)
-			wantTitle := "Commission · Review " + desktopServiceNamePlaceholder
+			wantTitle := "【Buyer · Buyer Ming】Commission · Review " + desktopServiceNamePlaceholder
 			if role == "seller" {
-				wantTitle = "Buyer “Buyer Ming” · " + wantTitle
+				wantTitle = "【Seller · Buyer Ming】Commission · Review " + desktopServiceNamePlaceholder
 			}
 			if err != nil || message.Title != wantTitle || message.Body != "View Review "+desktopServiceNamePlaceholder {
 				t.Fatalf("frozen title expansion: %+v %v", message, err)
@@ -235,12 +235,12 @@ func TestDesktopServiceNameValidatesExpandedNotification(t *testing.T) {
 	}
 }
 
-func TestDesktopSellerBuyerIdentityFallbackAndLanguages(t *testing.T) {
+func TestDesktopRecipientIdentityFallbackAndLanguages(t *testing.T) {
 	for _, language := range []string{"zh", "en"} {
 		for _, name := range []string{"小明", "", "{service_name}\n\u202e小明"} {
 			t.Run(language+name, func(t *testing.T) {
 				server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
-					if r.URL.Path == "/api/v2/public/agents/by-id/41/card" {
+					if r.URL.Path == "/api/v2/public/agents/by-id/42/card" {
 						if r.Header.Get("Authorization") != "" {
 							t.Error("public lookup sent credentials")
 						}
@@ -260,11 +260,11 @@ func TestDesktopSellerBuyerIdentityFallbackAndLanguages(t *testing.T) {
 					}
 					expected := desktopServiceName(name)
 					if expected == "" {
-						expected = "Agent 41"
+						expected = "Agent 42"
 					}
-					prefix := "Buyer “" + expected + "” · "
+					prefix := "【Seller · " + expected + "】"
 					if language == "zh" {
-						prefix = "买家「" + expected + "」 · "
+						prefix = "【卖方 · " + expected + "】"
 					}
 					if !strings.HasPrefix(got.Title, prefix) {
 						t.Fatalf("%s: %s", key, got.Title)
@@ -272,6 +272,51 @@ func TestDesktopSellerBuyerIdentityFallbackAndLanguages(t *testing.T) {
 					if got.URL != message.URL || got.ID != message.ID {
 						t.Fatal("routing changed")
 					}
+				}
+			})
+		}
+	}
+}
+
+func TestDesktopAccountPrefixUsesReceiverForBothRoles(t *testing.T) {
+	for _, role := range []string{"buyer", "seller"} {
+		for _, language := range []string{"zh", "en"} {
+			t.Run(role+language, func(t *testing.T) {
+				server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
+					if strings.HasPrefix(r.URL.Path, "/api/v2/public/") {
+						if r.URL.Path != "/api/v2/public/agents/by-id/42/card" {
+							t.Errorf("looked up counterparty: %s", r.URL.Path)
+						}
+						materialTestResponse(out, map[string]any{"public_identity": map[string]string{"display_name": "当前账号", "display_name_en": "Current Agent"}})
+						return
+					}
+					buyer, seller := "42", "43"
+					if role == "seller" {
+						buyer, seller = "41", "42"
+					}
+					materialTestResponse(out, map[string]any{"order": map[string]any{"order_id": "901", "buyer_agent_id": buyer, "seller_agent_id": seller, "contract": map[string]string{"title": "报告"}}})
+				}))
+				defer server.Close()
+				w := newDesktopServiceWatch(t, server.URL)
+				m := desktopServiceTestMessage(t, w, role)
+				m.Title, m.Body = desktopCopyText(language, role, "awaiting_buyer_confirmation")
+				got, err := w.resolveDesktopServiceName(context.Background(), m)
+				if err != nil {
+					t.Fatal(err)
+				}
+				label, name := "买方", "当前账号"
+				if role == "seller" {
+					label = "卖方"
+				}
+				if language == "en" {
+					name = "Current Agent"
+					label = "Buyer"
+					if role == "seller" {
+						label = "Seller"
+					}
+				}
+				if !strings.HasPrefix(got.Title, "【"+label+" · "+name+"】") || got.ID != m.ID || got.URL != m.URL {
+					t.Fatalf("wrong receiver prefix or routing: %+v", got)
 				}
 			})
 		}
