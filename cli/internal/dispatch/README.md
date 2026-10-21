@@ -548,6 +548,12 @@ flow with a real WorkBuddy model. Require completed ready intake and
 commission_delivery_confirmed, including exact contracted artifact bytes.
 Payment is simulated by the fixture; it is not a live transaction test.
 
+Successful WorkBuddy ACP results may carry one whole-result `json` or unlabelled
+Markdown fence. Runner removes only that wrapper around a syntactically valid
+JSON object. Strict business fields, duplicate keys and request/version checks
+remain unchanged; prose, multiple blocks and trailing values stay invalid. Other
+hosts and transports retain their exact results. No execution is repeated.
+
 The ACP reader decodes assistant text only after checking the update kind;
 standard tool updates may carry array content. WorkBuddy teardown gives its
 bridge up to six seconds after stdin EOF to close the owned Sidecar runtime

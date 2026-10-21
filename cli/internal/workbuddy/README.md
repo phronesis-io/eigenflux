@@ -11,3 +11,5 @@ AllowedTools and EigenFlux environment variables come from caller configuration,
 Cleanup uses the exact runtimeId of this instance. If the startup reply is lost, cleanup spends at most three seconds recovering runtimeId through native session.reconnect for this instance's random session, within a five-second cleanup deadline. ACP disconnection has a separate 500 ms limit so it cannot consume the runtime-kill budget. Native pending-create cancellation lacks a nonce/CAS guard and is not used. A create still pending beyond recovery remains unknown; no unguarded kill is attempted. No pre-existing runtime is taken over or killed.
 
 Update this file whenever bridge logic changes.
+
+The dispatch runner removes a single whole-result Markdown JSON fence for successful WorkBuddy ACP results only. Its enclosed value must be a valid JSON object; prose, multiple blocks and trailing values remain invalid. Exact object bytes continue through strict business field, duplicate-key and identity validation. No model call is repeated.

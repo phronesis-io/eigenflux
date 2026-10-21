@@ -60,6 +60,10 @@ func fakeACP(scenario string) {
 			response(map[string]any{})
 		case "session/prompt":
 			switch scenario {
+			case "acp-json-result":
+				update(session, "agent_message_chunk", os.Getenv("EF_ACP_RESULT"))
+				response(map[string]string{"stopReason": "end_turn"})
+				continue
 			case "acp-timeout":
 				time.Sleep(20 * time.Second)
 				return

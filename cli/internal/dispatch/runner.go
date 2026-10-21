@@ -59,7 +59,11 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 		return r.runCodexQueue(ctx, req)
 	}
 	if r.Binding.Mode == "acp" {
-		return r.runACP(ctx, req)
+		result, err := r.runACP(ctx, req)
+		if err == nil && r.Binding.Host == "workbuddy" {
+			result.Text = unwrapWorkBuddyJSONFence(result.Text)
+		}
+		return result, err
 	}
 	args, stdin, err := r.arguments(req)
 	if err != nil {
@@ -80,6 +84,28 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 		err = errors.New("empty_agent_result")
 	}
 	return result, err
+}
+
+// WorkBuddy sometimes decorates a complete JSON result with one Markdown fence.
+// Preserve its exact object bytes for the downstream strict business decoder.
+func unwrapWorkBuddyJSONFence(text string) string {
+	trimmed := strings.TrimSpace(text)
+	body, ok := strings.CutPrefix(trimmed, "```json\n")
+	if !ok {
+		body, ok = strings.CutPrefix(trimmed, "```\n")
+	}
+	if !ok {
+		return text
+	}
+	body, ok = strings.CutSuffix(body, "\n```")
+	if !ok {
+		return text
+	}
+	object := strings.TrimSpace(body)
+	if len(object) < 2 || object[0] != '{' || object[len(object)-1] != '}' || !json.Valid([]byte(object)) {
+		return text
+	}
+	return body
 }
 
 func (r Runner) runProcess(ctx context.Context, args []string, stdin string) ([]byte, []byte, error) {
