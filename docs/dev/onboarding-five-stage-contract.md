@@ -32,6 +32,26 @@ never substitute a shell/interpreter prefix or change sandbox/network policy.
 
 ## Explicit handoffs and loading
 
+### Built-in browser handoff contract
+
+The baseline for this change is `6299f688`. Browser opening is production
+behavior owned by the Skill, not by CLI output or a test prompt.
+
+| Invariant / current source | Final owner | Boundary | Check | Intentional change |
+| --- | --- | --- | --- | --- |
+| Manual link only / connection.md | connection.md browser handoff | Available host tool receives the validated URL after all prerequisites | Host success, unavailable, denied, failed and queued walkthroughs | Open the built-in browser once when supported; keep a clickable link |
+| Home, server, ticket and nonce / connection.md and CLI provision | Same owners | CLI response to host tool; preserve the full URL without reconstruction | Existing provision/URL/access tests; non-default URL template test | None |
+| Consent and baseline / SKILL.md and connection.md | Same owners | Browser attempt follows required permissions and successful baseline | Existing onboarding contract tests; prerequisite failure walkthrough | None |
+| Idempotency / connection.md | connection.md browser handoff | Confirmed attempt receipt survives continuation | Resume walkthrough; no re-provision or baseline retry on browser failure | At most one automatic open per initial handoff |
+| Human email/settings confirmation / connection.md | Same owner | Browser UI to server-confirmed access | Existing runtime-access tests; manual incomplete/completed paths | None; opening never completes stage 4 or starts stage 5 |
+| Canonical bilingual output / messages.md | Same owner | Observed tool outcome selects a declared message fragment | Render both languages and profile paths with non-default ticket/nonce | Confirmed-open copy; manual fallback otherwise |
+
+Tests and synthetic URLs are test scaffolding only. No test URL, host override,
+installed-Skill overlay, or production release is required by this change.
+Static/template tests do not prove native browser behavior; test that boundary
+in a desktop host before promotion. Compare the base, this contract and the
+final diff for retained identity, permission, lifecycle and recovery rules.
+
 `SKILL.md` routes the current request and declares shared gates. Load
 `messages.md` for user responses; `host-setup.md` for consent, restart or scheduler
 work; `prefill.md` after the profile choice; `connection.md` for provision,

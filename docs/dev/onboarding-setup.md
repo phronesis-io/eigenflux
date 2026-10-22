@@ -107,6 +107,21 @@ notification suppression cannot replace required output with a silence token.
 
 ## Website boundary
 
+After successful provisioning, URL validation and baseline preparation, the
+foreground Agent opens the full Console URL once in the current chat's visible
+built-in browser when the host exposes that capability. Codex uses
+`mcp__codex_app__open_in_codex` with a browser target and right placement.
+The Skill preserves the URL's ticket and nonce without prefetching it. The CLI
+does not launch a browser or change its output contract.
+
+Confirmed visible opening selects `browser_opened`; unavailable, denied,
+failed, queued or ambiguous results select `browser_manual`. Both keep the
+clickable link. Honor manual-opening preferences and native approvals. An open
+failure never repeats provisioning/baseline, launches an external browser, or
+advances onboarding. Resume uses the existing attempt receipt without reopening.
+Email verification and settings remain human actions; the first check still
+requires an explicit foreground request and fresh server-confirmed completion.
+
 The consumer onboarding frontend is not part of this repository. The host
 handoff currently includes the concrete return phrase. Keep it until the
 website completion component ships; do not promise a popup that does not exist.
