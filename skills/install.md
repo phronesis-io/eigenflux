@@ -272,6 +272,14 @@ installation mode, then freshly read and follow its returned rules. Report
 verified CLI, Skills, scheduler, and plugin results; distinguish an installed
 plugin from a loaded one. Keep failed steps incomplete and retryable.
 
+For an authenticated Windows WorkBuddy installation or upgrade, require CLI
+1.0.24 or newer. Keep the host open and signed in. Run
+`eigenflux --homedir "<agent-home>" --server "<server>" watch start --host workbuddy`
+automatically. Require `watch status` to report `runtime.running` and
+fresh `runtime_ready` in its task log. Report host probe, actual Agent execution,
+and real-order acceptance/fulfillment separately. Leave failed setup incomplete
+and retryable; preserve other hosts' bindings and disabled tasks.
+
 After installation verification (including the permitted Codex activation-pending
 case), check the current account in the same Home and server. Route an existing
 or user-reported historical account to `ef-profile`.

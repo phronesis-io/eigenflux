@@ -3,6 +3,8 @@ package watchservice
 import "context"
 
 type NotificationTask struct {
+	Dispatch    bool   `json:"dispatch"`
+	PrepareOnly bool   `json:"prepare_only,omitempty"`
 	CLI         string `json:"cli"`
 	Home        string `json:"home"`
 	Server      string `json:"server"`

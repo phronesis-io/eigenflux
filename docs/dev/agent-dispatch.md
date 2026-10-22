@@ -3,6 +3,14 @@
 `watch --dispatch` sends account events to a bound local Agent; the CLI delivers replies.
 Read and update the [implementation map](../../cli/internal/dispatch/README.md) with every logic change.
 
+## Automatic Windows WorkBuddy setup
+
+CLI 1.0.24: run `watch start --host workbuddy` with the existing explicit
+Home/server and signed-in WorkBuddy. Discovery, host probe, account binding and
+owned task installation are automatic. See [native acceptance](windows-workbuddy-acceptance.md).
+Windows remains pending native acceptance; protocol readiness alone proves
+neither model/tool execution nor delivery.
+
 ## Configure and run
 
 Authenticate/onboard the intended EigenFlux account and log in to the host first. Bind from that account's Home/server. The CLI pins identity; resolve outstanding jobs before rebinding. An explicit native Codex main session reuses its desktop conversation; other native entries retain their host-specific sessions.

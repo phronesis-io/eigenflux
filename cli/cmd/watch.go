@@ -163,6 +163,8 @@ func (w *accountWatch) run(parent context.Context, out io.Writer) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	w.handoff = newWatchHandoff()
+	live := newWatchLiveRecorder(w)
+	defer live.stop()
 	events := make(chan watchEvent, 64)
 	failures := make(chan error, 1)
 	terminal := make(chan error, 1)
@@ -215,6 +217,7 @@ func (w *accountWatch) run(parent context.Context, out io.Writer) error {
 		defer close(writerDone)
 		enc := json.NewEncoder(out)
 		for event := range events {
+			live.event(event.Type, event.Data)
 			if err := enc.Encode(event); err != nil {
 				fail(err)
 				return
@@ -225,9 +228,9 @@ func (w *accountWatch) run(parent context.Context, out io.Writer) error {
 		return err
 	}
 	var workers sync.WaitGroup
-	runners := []func(context.Context) error{w.pmLoop, w.controlLoop, w.runtimeLoop, w.checkLoop, w.maintenanceLoop, w.pmFallbackLoop, w.commissionFallbackLoop, w.desktopLoop, w.notificationPermissionLoop}
+	runners := []func(context.Context) error{live.pulse, w.pmLoop, w.controlLoop, w.runtimeLoop, w.checkLoop, w.maintenanceLoop, w.pmFallbackLoop, w.commissionFallbackLoop, w.desktopLoop, w.notificationPermissionLoop}
 	if w.notificationsOnly {
-		runners = []func(context.Context) error{w.checkLoop, w.maintenanceLoop, w.commissionFallbackLoop, w.desktopLoop, w.notificationPermissionLoop}
+		runners = []func(context.Context) error{live.pulse, w.checkLoop, w.maintenanceLoop, w.commissionFallbackLoop, w.desktopLoop, w.notificationPermissionLoop}
 	}
 	if w.journal != nil {
 		runners = append(runners, w.dispatchLoop, w.commissionDispatchLoop, w.commissionClarificationLoop, w.commissionFulfillmentLoop, w.commissionExecutionReportLoop, w.commissionMainNoticeLoop)

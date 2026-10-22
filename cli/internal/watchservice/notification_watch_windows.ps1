@@ -53,5 +53,23 @@ $log = [string]$request.log
 if ((Test-Path -LiteralPath $log) -and (Get-Item -LiteralPath $log).Length -gt 4MB) {
     Move-Item -LiteralPath $log -Destination ($log + '.previous') -Force
 }
-& ([string]$request.cli) --homedir ([string]$request.home) --server ([string]$request.server) watch --notifications-only --format json >> $log 2>&1
-exit $LASTEXITCODE
+# A bounded host supervisor restarts failed children without waiting for logon.
+# Clear only routing overrides above; keep the pinned identity for every restart.
+$watchArgs = @('--homedir', [string]$request.home, '--server', [string]$request.server, 'watch')
+if ($request.dispatch) { $watchArgs += '--dispatch' } else { $watchArgs += '--notifications-only' }
+$watchArgs += @('--format', 'json')
+for ($attempt = 0; $attempt -lt 4; $attempt++) {
+    $ErrorActionPreference = 'Continue'
+    [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+    try {
+        & ([string]$request.cli) @watchArgs 2>&1 | ForEach-Object {
+            [IO.File]::AppendAllText($log, ([string]$_ + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+        }
+        $exitCode = $LASTEXITCODE
+    } catch { $exitCode = 127 }
+    $ErrorActionPreference = 'Stop'
+    [IO.File]::AppendAllText($log, ((@{type='watch_process_exit';data=@{exit_code=$exitCode;attempt=$attempt;dispatch=[bool]$request.dispatch};time=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json -Compress -Depth 4) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+    if ($exitCode -eq 0 -or $exitCode -eq 78) { exit $exitCode }
+    if ($attempt -lt 3) { Start-Sleep -Seconds 15 }
+}
+exit $exitCode

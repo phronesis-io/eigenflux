@@ -53,3 +53,35 @@ being restarted is unsupported; use the foreground installer/operator session.
 Tests simulate launchctl and use an in-memory Windows scheduler. Native
 acceptance must check loaded, unloaded, immediate-exit and wrapper/source failure
 cases on each OS. Never operate on real account tasks in automated tests.
+
+## Windows WorkBuddy automatic setup (CLI 1.0.24)
+
+`watch start --host workbuddy` probes the signed-in host before changing its
+account binding. It creates no model prompt during discovery. Signed Skills
+are mandatory. The current user's same-scope enabled notification task is
+stopped, then an account lock and credential lock fence the binding update.
+Other hosts, identities, disabled/foreign tasks and active Agent work are
+preserved. An identical live WorkBuddy binding is reused; rebinding a live
+owner is refused so setup cannot interrupt paid work. Pending jobs retain the binding revision. A failed scheduler start
+leaves a retryable binding; rerun the same command.
+
+The same owned `EigenFlux-Notifications-<scope>` task runs `watch --dispatch`
+after migration; no competing notification task is created. Request JSON pins
+CLI/Home/server/Agent/principal and dispatch mode. Each worker rediscovers the
+Sidecar pipe UUID. Running task launchers are reused only when identical;
+otherwise the owned Job Object is stopped before rewriting. Idle-only and
+battery restrictions are disabled, with immediate and logon starts. The wrapper
+restarts a nonzero child up to three times at 15-second intervals, logs each
+exit code as UTF-8 JSON, then exits for scheduler failure recovery. Exit 0 or
+identity-terminal code 78 is not retried by the wrapper. Scheduler retries
+remain bounded. Administrative task stops intentionally stop the wrapper/job.
+
+Windows host-pipe, process-failure recovery and real-order acceptance still
+require native acceptance; cross-compilation and mock tests do not establish it.
+
+`watch status` preserves top-level configuration status and adds `runtime`.
+Inspect `runtime.running` and `runtime.ready` for live state: every five seconds
+the owner writes a scoped pulse, accepted only while fresh within 15 seconds
+and its account lock is held. Identity, endpoint or binding revision changes
+invalidate the old pulse. `runtime.agent_call_verified` records model completion
+evidence in this process, not host initialization or an order delivery receipt.

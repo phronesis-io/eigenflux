@@ -15,7 +15,7 @@ import (
 func newWatchWorkBuddyACPCommand() *cobra.Command {
 	var config workbuddy.Config
 	cmd := &cobra.Command{
-		Use: "workbuddy-acp", Hidden: true, Short: "Serve ACP through the local WorkBuddy host (experimental macOS)", Args: cobra.NoArgs,
+		Use: "workbuddy-acp", Hidden: true, Short: "Serve ACP through the local WorkBuddy host (macOS/Windows; Windows acceptance pending)", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()

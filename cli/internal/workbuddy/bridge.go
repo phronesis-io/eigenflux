@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -16,11 +15,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -59,9 +56,9 @@ type bridge struct {
 	pendingSession                                            string
 }
 
-// Serve supports macOS only. It creates isolated sessions, not Desktop conversations.
+// Serve creates isolated host-owned sessions, not Desktop conversations.
 func Serve(ctx context.Context, r io.Reader, w io.Writer, cfg Config) error {
-	if runtime.GOOS != "darwin" {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
 		return errors.New("workbuddy_host_unsupported_platform")
 	}
 	return serve(ctx, r, w, cfg)
@@ -236,31 +233,16 @@ func resolve(c Config) (Config, error) {
 		return c, errors.New("workbuddy_config_unavailable")
 	}
 	if c.ControlSocket == "" {
-		u := sha1.Sum([]byte(strconv.Itoa(os.Getuid())))
-		d := sha1.Sum([]byte(c.ConfigDir))
-		base := filepath.Join(os.TempDir(), "wb-"+hex.EncodeToString(u[:])[:6], hex.EncodeToString(d[:])[:12])
-		paths, _ := filepath.Glob(filepath.Join(base, "sidecar-*.sock"))
-		var live []string
-		for _, p := range paths {
-			if socketOwner(p) == nil {
-				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-				_, e := sidecar(ctx, p, "session.list", map[string]any{})
-				cancel()
-				if e == nil {
-					live = append(live, p)
-				}
-			}
+		c.ControlSocket, err = discoverControl(c.ConfigDir)
+		if err != nil {
+			return c, err
 		}
-		if len(live) != 1 {
-			return c, errors.New("workbuddy_unique_host_unavailable")
-		}
-		c.ControlSocket = live[0]
 	}
 	if socketOwner(c.ControlSocket) != nil {
 		return c, errors.New("workbuddy_untrusted_socket")
 	}
 	if c.CLIPath == "" {
-		c.CLIPath = "/Applications/WorkBuddy.app/Contents/Resources/app.asar.unpacked/cli/bin/codebuddy"
+		c.CLIPath = discoverCLI()
 	}
 	if !filepath.IsAbs(c.CLIPath) {
 		return c, errors.New("workbuddy_invalid_cli")
@@ -269,7 +251,7 @@ func resolve(c Config) (Config, error) {
 		return c, errors.New("workbuddy_cli_unavailable")
 	}
 	if c.Node == "" {
-		c.Node, err = exec.LookPath("node")
+		c.Node, err = discoverNode(c.ConfigDir)
 		if err != nil {
 			return c, errors.New("workbuddy_node_unavailable")
 		}
@@ -290,7 +272,7 @@ func resolve(c Config) (Config, error) {
 	return c, nil
 }
 func sidecar(ctx context.Context, path, method string, params any) (json.RawMessage, error) {
-	c, err := (&net.Dialer{}).DialContext(ctx, "unix", path)
+	c, err := dialControl(ctx, path)
 	if err != nil {
 		return nil, errors.New("workbuddy_host_unavailable")
 	}
@@ -339,6 +321,13 @@ func (b *bridge) start(ctx context.Context, cwd string) error {
 	for _, k := range []string{"EIGENFLUX_HOME", "EIGENFLUX_SERVER", "EIGENFLUX_SKILLS_DIR", "EIGENFLUX_CDN_URL"} {
 		if v, ok := os.LookupEnv(k); ok {
 			env[k] = v
+		}
+	}
+	if runtime.GOOS == "windows" {
+		for _, k := range []string{"SystemRoot", "WINDIR", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "COMSPEC", "PATHEXT", "ProgramFiles", "ProgramFiles(x86)"} {
+			if v := os.Getenv(k); v != "" {
+				env[k] = v
+			}
 		}
 	}
 	args := []string{b.cfg.CLIPath, "--serve", "--session-id", sid, "--permission-mode", "default"}
@@ -547,4 +536,22 @@ func (b *bridge) cleanup() {
 		cancelDisconnect()
 	}
 	_, _ = sidecar(ctx, b.cfg.ControlSocket, "session.kill", map[string]string{"sessionId": b.session, "expectedRuntimeId": b.runtimeID})
+}
+
+// Discover resolves the existing local host without reading model credentials.
+func Discover(cfg Config) (Config, error) { return resolve(cfg) }
+
+// Probe creates and removes one isolated host runtime without calling the model.
+func Probe(ctx context.Context, cfg Config, cwd string) error {
+	cfg, err := resolve(cfg)
+	if err != nil {
+		return err
+	}
+	cwd, err = canonicalDir(cwd)
+	if err != nil {
+		return err
+	}
+	b := &bridge{cfg: cfg, out: io.Discard, pending: make(map[string]chan frame), client: &http.Client{Transport: &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext}, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("redirect_disabled") }}}
+	defer b.cleanup()
+	return b.start(ctx, cwd)
 }

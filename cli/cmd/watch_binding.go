@@ -192,7 +192,7 @@ var watchStatusCmd = &cobra.Command{
 				if !sameBindingIdentity(owner, expected) {
 					state = "identity_changed"
 				}
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"status": state, "mode": "notifications_only", "agent_id": owner.AgentID, "events": []string{"commission_order"}, "execution_enabled": false, "runtime_verified": false})
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"status": state, "mode": "notifications_only", "agent_id": owner.AgentID, "events": []string{"commission_order"}, "execution_enabled": false, "runtime_verified": false, "runtime": readWatchLiveStatus(expected, true, time.Now())})
 			}
 			if !os.IsNotExist(ownerErr) {
 				return ownerErr
@@ -210,7 +210,9 @@ var watchStatusCmd = &cobra.Command{
 		if !sameBindingIdentity(expected, b) {
 			state = "identity_changed"
 		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"status": state, "agent_id": b.AgentID, "host": b.Host, "mode": b.Mode, "events": b.Events, "binding_revision": b.Revision, "main_session_id": b.MainSessionID, "main_notice": dispatch.MainNoticeCapability(b.Host), "main_notice_enabled": dispatch.MainNoticeBindingEnabled(b), "main_notice_requires_owner_extension": b.Host != "codex" && dispatch.MainNoticeBindingEnabled(b), "main_notice_host_verified": dispatch.MainNoticeHostVerified(b.Host), "workdir": b.WorkDir, "jobs": jobs, "business_verified": false, "commission_subscription": commissionSubscription(b)})
+		expected.Revision = b.Revision
+		expected.Revision = b.Revision
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"status": state, "agent_id": b.AgentID, "host": b.Host, "mode": b.Mode, "events": b.Events, "binding_revision": b.Revision, "main_session_id": b.MainSessionID, "main_notice": dispatch.MainNoticeCapability(b.Host), "main_notice_enabled": dispatch.MainNoticeBindingEnabled(b), "main_notice_requires_owner_extension": b.Host != "codex" && dispatch.MainNoticeBindingEnabled(b), "main_notice_host_verified": dispatch.MainNoticeHostVerified(b.Host), "workdir": b.WorkDir, "jobs": jobs, "business_verified": false, "commission_subscription": commissionSubscription(b), "runtime": readWatchLiveStatus(expected, false, time.Now())})
 	},
 }
 

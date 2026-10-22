@@ -28,11 +28,31 @@ try {
         if ($existing.Definition.RegistrationInfo.Description -ne $description -or $taskSID -ne $sid -or $principal.LogonType -ne 3 -or $principal.RunLevel -ne 0) { throw 'different task owner' }
         $failureCode = 'task_disabled'
         if (-not $existing.Enabled) { throw 'preserve disabled task' }
-        # Repeated installation must not kill an active consumer or duplicate it.
-        if ($existing.State -eq 4) {
+        # Reuse only an identical launcher. Upgrades replace this owned task,
+        # not unrelated host tasks, and wait for the old Job Object to close.
+        $sameLauncher = $false
+        if (-not $request.prepare_only -and (Test-Path -LiteralPath $request.request_file) -and (Test-Path -LiteralPath $request.wrapper)) {
+            $old = Get-Content -LiteralPath $request.request_file -Raw -Encoding UTF8 | ConvertFrom-Json
+            $sameLauncher = ($old.cli -eq $request.cli -and $old.agent_id -eq $request.agent_id -and $old.principal_id -eq $request.principal_id -and $old.home -eq $request.home -and $old.server -eq $request.server -and [bool]$old.dispatch -eq [bool]$request.dispatch -and (Get-Content -LiteralPath $request.wrapper -Raw -Encoding UTF8) -eq $payload.wrapper_content)
+        }
+        if ($existing.State -eq 4 -and $sameLauncher) {
             Write-StartResult @{status='process_started'}
             exit 0
         }
+        if ($existing.State -eq 4) {
+            $failureCode = 'stop_failed'
+            $existing.Stop(0)
+            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            while ($existing.GetInstances(0).Count -gt 0) {
+                if ([DateTime]::UtcNow -ge $deadline) { throw 'stop timeout' }
+                Start-Sleep -Milliseconds 200
+            }
+            Start-Sleep -Seconds 1
+        }
+    }
+    if ($request.prepare_only) {
+        Write-StartResult @{status='task_stopped'}
+        exit 0
     }
     $failureCode = 'launcher_write'
     $utf8 = [Text.UTF8Encoding]::new($false)
@@ -49,6 +69,9 @@ try {
     $definition.Settings.DisallowStartIfOnBatteries = $false
     $definition.Settings.StopIfGoingOnBatteries = $false
     $definition.Settings.ExecutionTimeLimit = 'PT0S'
+    $definition.Settings.RunOnlyIfIdle = $false
+    $definition.Settings.IdleSettings.StopOnIdleEnd = $false
+    $definition.Settings.StartWhenAvailable = $true
     $definition.Settings.MultipleInstances = 2
     $definition.Settings.RestartInterval = 'PT1M'
     $definition.Settings.RestartCount = 3
@@ -62,17 +85,24 @@ try {
     $task = $folder.RegisterTaskDefinition($name, $definition, 6, $sid, $null, 3, $null)
     $failureCode = 'start_failed'
     $instance = $task.Run($null)
-    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    if ([object]::ReferenceEquals($null, $instance)) { throw 'no instance' }
+    $deadline = [DateTime]::UtcNow.AddSeconds(20)
+    $stableSince = $null
     do {
         Start-Sleep -Milliseconds 500
-        $instance.Refresh()
-        if ($instance.State -eq 4) {
-            Start-Sleep -Seconds 3
-            $instance.Refresh()
-            if ($instance.State -ne 4) { throw 'process exited' }
-            Write-StartResult @{status='process_started'}
-            exit 0
+        try { $instance.Refresh() } catch {
+            if ($null -eq $stableSince -and $_.Exception.GetBaseException().HResult -eq -2147216629) { continue }
+            throw
         }
+        if ($instance.State -eq 4) {
+            if ($null -eq $stableSince) { $stableSince = [DateTime]::UtcNow }
+            if (([DateTime]::UtcNow - $stableSince).TotalSeconds -ge 3) {
+                Write-StartResult @{status='process_started'}
+                exit 0
+            }
+        } elseif ($instance.State -eq 2) {
+            $stableSince = $null
+        } else { throw 'process exited' }
     } while ([DateTime]::UtcNow -lt $deadline)
     throw 'start timeout'
 } catch {

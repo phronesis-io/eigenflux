@@ -1,3 +1,5 @@
+//go:build !windows
+
 package workbuddy
 
 import (
@@ -403,5 +405,42 @@ func TestToolRestrictionRejectsRulesAndOptionInjection(t *testing.T) {
 				t.Fatalf("invalid tool restriction accepted: %q: %v", name, err)
 			}
 		})
+	}
+}
+
+func TestProbeInitializesAndCleansRuntimeWithoutModelInput(t *testing.T) {
+	var methods []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "DELETE" {
+			w.WriteHeader(204)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/connect") {
+			json.NewEncoder(w).Encode(map[string]string{"connectionId": "probe", "sessionToken": "probe-token"})
+			return
+		}
+		var f frame
+		if json.NewDecoder(r.Body).Decode(&f) != nil {
+			t.Error("invalid frame")
+			return
+		}
+		methods = append(methods, f.Method)
+		json.NewEncoder(w).Encode(frame{JSONRPC: "2.0", ID: f.ID, Result: raw(map[string]any{})})
+	}))
+	defer server.Close()
+	h := newHost(t, server.URL+"/api/v1/acp")
+	cfg := configFixture(t, h)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := Probe(ctx, cfg, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(methods, ",") != "initialize,session/load" {
+		t.Fatalf("unexpected ACP calls: %v", methods)
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.killed["sessionId"] == nil || h.killed["expectedRuntimeId"] == nil {
+		t.Fatalf("runtime not cleaned: %v", h.killed)
 	}
 }

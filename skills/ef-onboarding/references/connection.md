@@ -213,15 +213,21 @@ instead of provisioning a new identity.
 
 ## Keep using the same Agent Home
 
-On Windows, after successful Agent authentication, run
-`eigenflux --homedir "<agent-home>" --server "<server>" watch start` as the
-signed-in user. This installs an order-notification-only task, independent of
-the host heartbeat and Agent execution. Installation before authentication
-reports `pending_auth`; do not leave that state unresolved after provisioning.
-Require `notifications_ready` with the current PID/commit in the task log before
-claiming order reception works. `process_started` alone is insufficient.
-For `host_managed`, preserve and verify the existing dispatch task instead.
-Never send a test notification automatically or enable a disabled task.
+On Windows WorkBuddy, after successful Agent authentication, keep WorkBuddy
+open and signed in. Run `eigenflux --homedir "<agent-home>" --server "<server>"
+watch start --host workbuddy`. Require CLI 1.0.24 or newer. This discovers the
+local host, probes an isolated runtime, pins the current EigenFlux identity,
+and installs its dispatch task. Preserve failures as incomplete; report the
+returned error and retry the same command after resolving it. Do not ask the
+human to write a binding. Require `watch status.runtime.running` and
+fresh `runtime_ready` before claiming reception; verify real acceptance and
+fulfillment separately. Host protocol readiness is not a successful model call.
+
+On other Windows hosts without an execution binding, run `watch start` using
+the same explicit Home/server for order notifications only. Require fresh
+`notifications_ready`; never claim this enables Agent execution. Preserve
+existing host-managed dispatch and disabled tasks. Never send a test
+notification automatically.
 
 After the human completes onboarding, use the same explicit Home for control
 context and all later EigenFlux commands:

@@ -16,6 +16,8 @@ transfers, mutations and Agent calls do not use this recovery path; see
 |---|---|
 | [commission_trial.go](../../cmd/commission_trial.go), [trial decision](commission_trial.go) | Mandatory publish trial using the bound runner, fresh draft, signed trial rules and verified local artifacts |
 | [watch.go](../../cmd/watch.go) | `accountWatch.run`, `pmLoop`, `deliverPM`: account lock, WS/SSE, heartbeat, event lifecycle |
+| [watch_workbuddy_start.go](../../cmd/watch_workbuddy_start.go) | Windows host discovery/probe, identity-pinned automatic binding and owned-task handoff |
+| [watch_live_status.go](../../cmd/watch_live_status.go) | Fresh account-owner pulse; separate configuration, runtime readiness and model-completion evidence |
 | [watch_binding.go](../../cmd/watch_binding.go) | Bind/doctor/status/retry/reconcile; `applyDispatchOwnership` |
 | [watch_update.go](../../cmd/watch_update.go), [watch_update_unix.go](../../cmd/watch_update_unix.go), [watch_update_windows.go](../../cmd/watch_update_windows.go) | Close execution admission before CLI adoption; drain admitted work, release account lock, preserve arguments and pinned identity; supervised watches notify the host after draining |
 | [watch_main_session.go](../../cmd/watch_main_session.go) | Codex setup-thread capture, host-native scheduler bootstrap, explicit switching and heartbeat status |
@@ -591,3 +593,17 @@ Desktop main-conversation refresh.
 Commission material preparation retries unavailable read-only manifest/grant/download attempts at most three times, with cancellable 100/200 ms backoff and a separate private subdirectory per attempt. Failed attempts remove only their own directory; successful files remain under caller-owned cleanup. Invalid, missing or oversized material results and cancellation do not retry. This does not repeat Agent calls or transactional writes.
 
 Desktop order titles identify the recipient, not the counterparty: Chinese `【买方 · NAME】` / `【卖方 · NAME】`, English `【Buyer · NAME】` / `【Seller · NAME】`. Resolve NAME only for the pinned receiving Agent after validating order membership; use `Agent ID` on unavailable public identity. Keep account routing, role and event IDs unchanged.
+
+## Automatic Windows WorkBuddy binding
+
+CLI 1.0.24 `watch start --host workbuddy` resolves the running signed-in host
+and signed rules, probes an isolated runtime without a model call, and writes
+an ACP binding using `watch workbuddy-acp` and explicit Read/Write/Edit/Bash
+allow rules. The current account owns PM, Commission, control and maintenance
+events. Existing WorkBuddy bindings are routed through the just-probed host;
+other-host bindings and running/sending jobs prevent automatic replacement.
+The dedicated workspace is `<Home>/workspaces/workbuddy`; order artifacts keep
+the existing isolated fulfillment paths. Notification-only Windows tasks migrate
+to dispatch in place. See [lifecycle](../watchservice/README.md) and
+[host transport](../workbuddy/README.md). Background execution does not claim
+original Desktop conversation display or hidden-main support.
