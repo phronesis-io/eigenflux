@@ -169,6 +169,7 @@ func run() error {
 		}
 		if parts[0] == "windows" {
 			instructions += "Windows: run .\\Run-Test.ps1 notify setup and .\\Run-Test.ps1 notify status. Setup registers silently; Windows has no Allow permission dialog. Registered/pending_first_notification means the setting is unknown until the first real message. Read local observations with .\\Run-Test.ps1 notify log. Only explicitly run notify test --url https://www.eigenflux.ai if you want a visible test notification. If disabled, check Settings > System > Notifications. OS submission does not prove banner visibility.\n"
+			instructions += "Windows WorkBuddy: keep the signed-in Desktop host open. To reuse an authenticated account, pass its exact --homedir and --server to BOTH Run-Test.ps1 skills sync and Run-Test.ps1 watch start --host workbuddy. This discovers the host, pins the binding, and migrates the owned notification task automatically; do not hand-write binding JSON or edit the task. Keep this complete package in a permanent path. Check watch status runtime.running/runtime.ready and verify a real approved order separately. Windows native acceptance is pending.\n"
 			instructions += "After updating the existing watch task/wrapper to this complete package, run .\\Run-Test.ps1 watch restart --scheduled-task <exact-existing-task-path> from a separate foreground session. The task must run as the current interactive user without elevation.\n"
 		}
 		instructions += "Restart reports process_started with runtime_verified:false. Confirm a fresh runtime_ready in watch logs, notification status, and an actual message separately. Building or syncing Skills alone never restarts a background task.\n"
@@ -190,7 +191,7 @@ func run() error {
 	fmt.Printf("Built %s\nZIP: %s.zip\n", binary, *out)
 	if *testBundle && parts[0] == "windows" {
 		fmt.Println("PowerShell: .\\Run-Test.ps1 version; .\\Run-Test.ps1 skills sync; .\\Run-Test.ps1 heartbeat plan")
-		fmt.Println("After updating the existing background task's package path: .\\Run-Test.ps1 watch restart --scheduled-task <exact-existing-task-path>. Check a fresh runtime_ready in watch logs.")
+		fmt.Println("WorkBuddy: with the same explicit --homedir/--server, run .\\Run-Test.ps1 skills sync, then .\\Run-Test.ps1 watch start --host workbuddy; no manual binding or task edit. Other hosts: after updating the existing background task's package path: .\\Run-Test.ps1 watch restart --scheduled-task <exact-existing-task-path>. Check a fresh runtime_ready in watch logs.")
 	}
 	if parts[0] == "darwin" {
 		fmt.Println("macOS: from the output directory, run ./eigenflux notify setup, then ./eigenflux notify status. Keep EigenFlux Notifications.app beside the CLI. After updating the existing wrapper's package path, run ./eigenflux watch restart --launch-agent <absolute-plist-path> from a separate foreground session.")
