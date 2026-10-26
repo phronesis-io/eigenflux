@@ -103,7 +103,7 @@ func readJournal(b Binding) (journalState, bool, error) {
 				return journalState{}, false, errors.New("invalid_journal_commission_readiness")
 			}
 		}
-		if job.Kind != "commission_fulfillment" && (job.CommissionFulfillment != nil || job.CommissionDirectory != "") {
+		if job.Kind != "commission_fulfillment" && (job.CommissionFulfillment != nil || job.CommissionCheckpoint != nil || job.CommissionDirectory != "") {
 			return journalState{}, false, errors.New("invalid_journal_commission_fulfillment")
 		}
 		switch job.Kind {
@@ -672,6 +672,12 @@ func cloneJob(job Job) Job {
 			result.Artifacts = append([]CommissionVerifiedArtifact{}, result.Artifacts...)
 		}
 		job.CommissionFulfillment = &result
+	}
+	if job.CommissionCheckpoint != nil {
+		result := *job.CommissionCheckpoint
+		result.Decision.Artifacts = append([]CommissionArtifact{}, result.Decision.Artifacts...)
+		result.Artifacts = append([]CommissionVerifiedArtifact{}, result.Artifacts...)
+		job.CommissionCheckpoint = &result
 	}
 	return job
 }

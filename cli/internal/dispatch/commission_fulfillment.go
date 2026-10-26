@@ -7,6 +7,7 @@ import (
 	"errors"
 	"path"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -215,7 +216,7 @@ func (j *Journal) SetCommissionFulfillmentDirectory(id, directory string) error 
 		if job.ID != id {
 			continue
 		}
-		if job.Kind != "commission_fulfillment" || job.Status != "running" || (job.CommissionDirectory != "" && job.Code != "operator_retry") {
+		if job.Kind != "commission_fulfillment" || job.Status != "running" || job.CommissionCheckpoint != nil || (job.CommissionDirectory != "" && job.Code != "operator_retry") {
 			return errors.New("commission_fulfillment_directory_not_preparable")
 		}
 		job.CommissionDirectory = directory
@@ -227,6 +228,30 @@ func (j *Journal) SetCommissionFulfillmentDirectory(id, directory string) error 
 
 func (j *Journal) CompleteCommissionFulfillment(id string, result CommissionFulfillmentResult, sessionID string) error {
 	return j.saveCommissionFulfillment(id, result, sessionID, false)
+}
+
+// SaveCommissionCheckpoint retains verified artifacts before local revalidation.
+// It proves no upload: BeginCommissionDelivery removes it before remote writes.
+func (j *Journal) SaveCommissionCheckpoint(id string, result CommissionFulfillmentResult, sessionID string) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	next := cloneJournal(j.state)
+	for i := range next.Jobs {
+		job := &next.Jobs[i]
+		if job.ID != id {
+			continue
+		}
+		if job.Kind != "commission_fulfillment" || job.Status != "running" || job.Code != "commission_fulfillment_prepared" || job.CommissionFulfillment != nil || job.CommissionCheckpoint != nil || result.Decision.Outcome != "artifacts_ready" {
+			return errors.New("commission_checkpoint_requires_verified_prepared_job")
+		}
+		if err := validateCommissionFulfillmentResult(*job, result); err != nil {
+			return err
+		}
+		job.CommissionCheckpoint = &result
+		job.SessionID = sessionID
+		return j.save(next)
+	}
+	return errors.New("job_not_found")
 }
 
 // BeginCommissionDelivery persists exact artifact evidence before any upload.
@@ -246,13 +271,17 @@ func (j *Journal) saveCommissionFulfillment(id string, result CommissionFulfillm
 		if job.ID != id {
 			continue
 		}
-		if job.Kind != "commission_fulfillment" || job.Status != "running" || job.Code != "commission_fulfillment_prepared" {
+		if job.Kind != "commission_fulfillment" || job.Status != "running" || (job.Code != "commission_fulfillment_prepared" && !(sending && job.Code == "operator_retry" && job.CommissionCheckpoint != nil)) {
 			return errors.New("commission_fulfillment_requires_prepared_job")
 		}
 		if err := validateCommissionFulfillmentResult(*job, result); err != nil {
 			return err
 		}
+		if sending && job.CommissionCheckpoint != nil && !reflect.DeepEqual(*job.CommissionCheckpoint, result) {
+			return errors.New("commission_checkpoint_changed")
+		}
 		job.CommissionFulfillment = &result
+		job.CommissionCheckpoint = nil
 		job.Status = commissionFulfillmentStatus(result.Decision.Outcome)
 		job.Code = "commission_fulfillment_" + result.Decision.Outcome
 		if sending {
@@ -310,6 +339,11 @@ func validCommissionFulfillmentJob(job Job, binding Binding) bool {
 	}
 	if job.Code == "commission_fulfillment_prepared" && job.CommissionDirectory == "" {
 		return false
+	}
+	if checkpoint := job.CommissionCheckpoint; checkpoint != nil {
+		if checkpoint.Decision.Outcome != "artifacts_ready" || job.CommissionFulfillment != nil || job.Status == "sending" || validateCommissionFulfillmentResult(job, *checkpoint) != nil {
+			return false
+		}
 	}
 	if result := job.CommissionFulfillment; result != nil {
 		if validateCommissionFulfillmentResult(job, *result) != nil {

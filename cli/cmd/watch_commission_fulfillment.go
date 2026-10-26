@@ -44,11 +44,8 @@ func (w *accountWatch) commissionFulfillmentLoop(ctx context.Context) error {
 }
 
 func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job dispatch.Job) error {
-	if err := w.commissionIdentityOK(); err != nil {
-		if saveErr := w.finishDispatch(job, "failed", "identity_changed", "", ""); saveErr != nil {
-			return saveErr
-		}
-		return err
+	if err := w.commissionFulfillmentIdentityOK(parent); err != nil {
+		return w.failCommissionLocalCheck(job, err, "")
 	}
 	var queued dispatch.CommissionFulfillmentJob
 	if json.Unmarshal(job.Data, &queued) != nil || queued.OrderID == "" || queued.OrderVersion <= 0 || queued.IntakeResult.Outcome != "ready" || queued.IntakeResult.OrderID != queued.OrderID || queued.IntakeResult.OrderVersion > queued.OrderVersion {
@@ -79,13 +76,16 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 	guardCtx, guardCancel := context.WithCancel(ctx)
 	go w.guardCommissionFulfillment(guardCtx, cancel, order, guardDone)
 	defer func() { guardCancel(); <-guardDone }()
-	directory, err := os.MkdirTemp(w.binding.WorkDir, ".eigenflux-fulfillment-"+queued.OrderID+"-")
-	if err != nil {
-		return w.finishDispatch(job, "needs_user", "commission_output_directory_unavailable", "", "")
-	}
-	if err := w.journal.SetCommissionFulfillmentDirectory(job.ID, directory); err != nil {
-		_ = os.Remove(directory) // Still empty; no Agent has received it.
-		return err
+	directory := job.CommissionDirectory
+	if job.CommissionCheckpoint == nil {
+		directory, err = os.MkdirTemp(w.binding.WorkDir, ".eigenflux-fulfillment-"+queued.OrderID+"-")
+		if err != nil {
+			return w.finishDispatch(job, "needs_user", "commission_output_directory_unavailable", "", "")
+		}
+		if err := w.journal.SetCommissionFulfillmentDirectory(job.ID, directory); err != nil {
+			_ = os.Remove(directory) // Still empty; no Agent has received it.
+			return err
+		}
 	}
 	prompt, required, files, cleanup, err := w.commissionAgentPrompt(ctx, job, order, map[string]any{"output_directory": directory, "intake_result": queued.IntakeResult})
 	if err != nil {
@@ -112,11 +112,14 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 	if err != nil || !sameCommissionIntakeOrder(order, before) || ctx.Err() != nil {
 		return w.finishDispatch(job, "failed", "commission_fulfillment_cancelled_before_execution", "", "")
 	}
-	if err := w.commissionIdentityOK(); err != nil {
-		if saveErr := w.finishDispatch(job, "failed", "identity_changed", "", ""); saveErr != nil {
-			return saveErr
-		}
-		return err
+	if err := w.commissionFulfillmentIdentityOK(ctx); err != nil {
+		return w.failCommissionLocalCheck(job, err, job.SessionID)
+	}
+	if job.CommissionCheckpoint != nil {
+		// Reuse only exact persisted verified bytes, never another model run.
+		guardCancel()
+		<-guardDone
+		return w.deliverCommissionArtifacts(ctx, job, order, *job.CommissionCheckpoint, job.SessionID)
 	}
 	result, runErr := w.runAgent(ctx, dispatch.Request{ID: job.ID, Kind: job.Kind, Prompt: prompt})
 	if runErr != nil {
@@ -134,28 +137,27 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 	if err != nil {
 		return w.finishDispatch(job, "failed", "commission_fulfillment_artifacts_invalid", result.SessionID, "")
 	}
-	if err := w.commissionIdentityOK(); err != nil {
-		if saveErr := w.finishDispatch(job, "failed", "identity_changed", result.SessionID, ""); saveErr != nil {
-			return saveErr
+	saved := dispatch.CommissionFulfillmentResult{Decision: decision, OutputDirectory: directory, Artifacts: artifacts}
+	if decision.Outcome == "artifacts_ready" {
+		if err := w.journal.SaveCommissionCheckpoint(job.ID, saved, result.SessionID); err != nil {
+			return err
 		}
-		return err
+	}
+	if err := w.commissionFulfillmentIdentityOK(ctx); err != nil {
+		return w.failCommissionLocalCheck(job, err, result.SessionID)
 	}
 	current, err := w.readCommissionOrder(ctx, queued.OrderID)
 	if err != nil || !sameCommissionIntakeOrder(order, current) || ctx.Err() != nil {
 		return w.finishDispatch(job, "failed", "commission_fulfillment_order_changed", result.SessionID, "")
 	}
-	saved := dispatch.CommissionFulfillmentResult{Decision: decision, OutputDirectory: directory, Artifacts: artifacts}
 	if decision.Outcome == "artifacts_ready" {
 		guardCancel()
 		<-guardDone
 		return w.deliverCommissionArtifacts(ctx, job, order, saved, result.SessionID)
 	}
 	return auth.WithV2CredentialsLockContext(ctx, w.server.Name, 35*time.Second, func() error {
-		if err := w.commissionIdentityOK(); err != nil {
-			if saveErr := w.finishDispatch(job, "failed", "identity_changed", result.SessionID, ""); saveErr != nil {
-				return saveErr
-			}
-			return err
+		if err := w.commissionFulfillmentIdentityOK(ctx); err != nil {
+			return w.failCommissionLocalCheck(job, err, result.SessionID)
 		}
 		if err := w.journal.CompleteCommissionFulfillment(job.ID, saved, result.SessionID); err != nil {
 			return err
@@ -177,7 +179,7 @@ func (w *accountWatch) guardCommissionFulfillment(ctx context.Context, cancel co
 			case <-ctx.Done():
 				return
 			case <-tick.C:
-				if w.commissionIdentityOK() != nil {
+				if w.commissionFulfillmentIdentityOK(ctx) != nil {
 					cancel()
 					return
 				}

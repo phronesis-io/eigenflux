@@ -486,3 +486,100 @@ func TestCommissionFulfillmentReadRejectsMissingEvidenceFields(t *testing.T) {
 		}
 	}
 }
+
+func TestCommissionCheckpointPersistsAndRetainsExplicitRetry(t *testing.T) {
+	j, job, result := preparedFulfillment(t)
+	if err := j.SaveCommissionCheckpoint(job.ID, result, "generated-once"); err != nil {
+		t.Fatal(err)
+	}
+	result.Artifacts[0].SHA256 = "caller changed"
+	copy := j.Snapshot()
+	for i := range copy {
+		if copy[i].CommissionCheckpoint != nil {
+			copy[i].CommissionCheckpoint.Decision.Artifacts[0].RelativePath = "snapshot changed"
+		}
+	}
+	if err := j.Update(job.ID, "failed", "commission_local_state_missing", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	j = mustJournal(t, j.binding)
+	if err := j.Retry(job.ID); err != nil {
+		t.Fatal(err)
+	}
+	job = claimFulfillment(t, j)
+	if job.CommissionCheckpoint == nil || job.CommissionCheckpoint.Artifacts[0].SHA256 != strings.Repeat("a", 64) || job.CommissionCheckpoint.Decision.Artifacts[0].RelativePath != "report.md" || job.SessionID != "generated-once" {
+		t.Fatalf("retry lost immutable evidence: %+v", job)
+	}
+	if err := j.SetCommissionFulfillmentDirectory(job.ID, t.TempDir()); err == nil {
+		t.Fatal("checkpoint directory was replaced")
+	}
+	result = *job.CommissionCheckpoint
+	result.Artifacts = append([]CommissionVerifiedArtifact{}, result.Artifacts...)
+	result.Artifacts[0].SHA256 = strings.Repeat("b", 64)
+	if err := j.BeginCommissionDelivery(job.ID, result, "generated-once"); err == nil {
+		t.Fatal("checkpoint digest replaced before delivery")
+	}
+	if err := j.BeginCommissionDelivery(job.ID, *job.CommissionCheckpoint, "generated-once"); err != nil {
+		t.Fatal(err)
+	}
+	for _, stored := range j.Snapshot() {
+		if stored.ID == job.ID && (stored.Status != "sending" || stored.CommissionCheckpoint != nil || stored.CommissionFulfillment == nil) {
+			t.Fatal("remote mutation boundary did not retire checkpoint")
+		}
+	}
+	j = mustJournal(t, j.binding)
+	if err := j.Retry(job.ID); err == nil {
+		t.Fatal("interrupted upload became safe-to-retry")
+	}
+}
+
+func TestCommissionCheckpointPersistenceFailureRollsBack(t *testing.T) {
+	j, job, result := preparedFulfillment(t)
+	before := cloneJournal(j.state)
+	j.path = filepath.Join(t.TempDir(), "blocked", "journal.json")
+	if err := os.WriteFile(filepath.Dir(j.path), []byte("blocked"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.SaveCommissionCheckpoint(job.ID, result, "generated-once"); err == nil || !reflect.DeepEqual(before, j.state) {
+		t.Fatal("failed checkpoint persistence changed memory")
+	}
+	rows, err := ReadJournalStatus(j.binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stored := range rows {
+		if stored.ID == job.ID && stored.CommissionCheckpoint != nil {
+			t.Fatal("failed checkpoint persistence changed disk")
+		}
+	}
+}
+
+func TestCommissionCheckpointReadRejectsCorruption(t *testing.T) {
+	for name, change := range map[string]func(*Job){
+		"wrong order":            func(job *Job) { job.CommissionCheckpoint.Decision.OrderID = "42" },
+		"wrong version":          func(job *Job) { job.CommissionCheckpoint.Decision.OrderVersion++ },
+		"bad digest":             func(job *Job) { job.CommissionCheckpoint.Artifacts[0].SHA256 = "bad" },
+		"directory":              func(job *Job) { job.CommissionCheckpoint.OutputDirectory = "other" },
+		"unknown source":         func(job *Job) { job.CommissionCheckpoint.Decision.Outcome = "failed" },
+		"upload already sending": func(job *Job) { job.Status = "sending" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			j, job, result := preparedFulfillment(t)
+			if err := j.SaveCommissionCheckpoint(job.ID, result, "generated-once"); err != nil {
+				t.Fatal(err)
+			}
+			corrupt := cloneJournal(j.state)
+			for i := range corrupt.Jobs {
+				if corrupt.Jobs[i].ID == job.ID {
+					change(&corrupt.Jobs[i])
+				}
+			}
+			if err := WriteJSON(j.path, corrupt); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ReadJournalStatus(j.binding); err == nil {
+				t.Fatal("corrupt checkpoint was admitted")
+			}
+		})
+	}
+}

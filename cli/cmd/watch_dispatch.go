@@ -136,7 +136,7 @@ func (w *accountWatch) dispatchIdentityOK() error {
 	}
 	b, err := dispatch.ReadBinding(w.home, w.server.Name)
 	if err != nil {
-		return errWatchConfiguration
+		return err
 	}
 	if b.Revision != w.binding.Revision || b.MainSessionID != w.binding.MainSessionID || b.Env["CODEX_HOME"] != w.binding.Env["CODEX_HOME"] || !sameBindingIdentity(b, *w.binding) {
 		return errWatchConfiguration

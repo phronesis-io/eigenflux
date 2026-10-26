@@ -42,6 +42,15 @@ seller intake job. It does not change the order, recreate a notification, clear
 ACKs or start watch. Existing fulfillment or uncertain/running jobs require the
 existing job reconciliation flow rather than another order recovery.
 
+Paid fulfillment saves a verified pre-upload checkpoint before final local
+identity/configuration checks. Stop watch and explicitly retry that failed job
+to reuse its files without another Agent invocation. Recovery rechecks the seller,
+paid Order version, original inputs, signed rules and retained file hashes. A
+changed account, configuration, Order or file blocks continuation. Starting the
+upload retires the checkpoint; uncertain remote writes still require reconciliation.
+Older failures with no checkpoint require inspection of existing outputs and
+remote state before operator-authorized delivery; do not recreate evidence by guessing.
+
 The independent Commission `order-notification-relay` must be running. The
 catalogue relay is a different process. Preserve the existing delivery activation
 watermark; restarting a missing relay must not reset it or replay excluded history.
@@ -77,3 +86,16 @@ The adapter retains strict identity/version/field validation; material-read retr
 are bounded and never replay the Agent or a business mutation. Acceptance, output
 upload and delivery were performed by watch. No manual acceptance/delivery,
 synthetic payment or fixture backend was used. Buyer confirmation was not executed.
+
+## Codex operator recovery — 2026-10-26
+
+Order `373063543815143424` had generated and verified `lyrics.md` before a final
+local check failed. The old runner recorded `identity_changed` without preserving
+the underlying category. The current account matched its binding at inspection.
+The owner authorized recovery of the existing 1,784-byte file, SHA-256
+`1feba5d6afe20907c72203354e9a4f587d40998122bf3b3539ab2e1e2fa7e532`.
+The operator checked the missing remote path, uploaded the file, downloaded and
+matched its bytes, then submitted delivery with fixed idempotency keys. Platform
+validation passed: version 5, `awaiting_buyer_confirmation`, no current execution
+issue. This was operator recovery, not acceptance of automatic checkpoint recovery.
+Buyer confirmation was not performed.

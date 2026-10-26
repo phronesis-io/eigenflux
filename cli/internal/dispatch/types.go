@@ -60,6 +60,7 @@ type Job struct {
 	CommissionResult      *CommissionIntakeDecision    `json:"commission_result,omitempty"`
 	CommissionReadiness   *CommissionReadiness         `json:"commission_readiness,omitempty"`
 	CommissionFulfillment *CommissionFulfillmentResult `json:"commission_fulfillment,omitempty"`
+	CommissionCheckpoint  *CommissionFulfillmentResult `json:"commission_checkpoint,omitempty"`
 	CommissionDirectory   string                       `json:"commission_directory,omitempty"`
 	CommissionExecution   *CommissionExecutionContext  `json:"commission_execution,omitempty"`
 }

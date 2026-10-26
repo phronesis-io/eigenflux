@@ -112,6 +112,13 @@ eigenflux watch reconcile JOB_ID --outcome failed --verified
 
 Reconciliation records the operator's conclusion, including PMs already handled manually. Explicit profile retry bypasses its prior claim cooldown; ordinary scheduled reviews keep that cooldown. `unknown` is never automatically resent. Optional events without completion evidence remain `needs_user`; inspect before retry. Reconcile as `failed` only after confirming work did not complete; retry stays explicit. Legacy `accepted` records are unverified.
 
+Paid fulfillment with a retained pre-upload `CommissionCheckpoint` resumes its
+verified files on explicit job retry without calling the Agent again. Stop watch
+first. Recovery rechecks identity, configuration, the paid Order version, input
+fingerprint, signed rules and output hashes. Altered files and changed Orders do
+not resume. A missing checkpoint uses the original regeneration flow; uncertain
+uploads or submissions require reconciliation instead of checkpoint replay.
+
 ## Build isolated test packages
 
 Use `codex/heartbeat-autoupdate`, the Go version in `cli/go.mod`, and a fresh output directory. Packages contain paired verification keys and signed Skills; keep them separate from production installs. Run CLI and Agent as the same ordinary user.
