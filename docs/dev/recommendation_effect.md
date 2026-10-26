@@ -316,7 +316,8 @@ Daily distinct `delivered_agents` is not an additive metric across dates or
 values for distinct-participant reporting. Grafana shows daily Agent minimum
 and maximum instead of a multi-day sum. Ratios use summed numerators over
 summed denominators; a rate whose own summed denominator is below 200 remains
-blank, and its raw numerator and denominator stay visible. The overview/cohort table use only final days;
+blank. Trend tooltips and the overview keep raw numerators and denominators;
+the cohort table shows each rate's denominator. The overview/cohort table use only final days;
 trends mark non-final dates and preserve missing-day gaps.
 
 **Backfill and rollback.** Use explicit dates, normally no more than the last

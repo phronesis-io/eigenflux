@@ -273,7 +273,8 @@ Mirror the recommendation-effect page.
 
 Rates are summed numerators over summed denominators; an empty denominator is
 blank, never zero. Each rate is blank when its own summed denominator is below
-200; hovering and the cohort table show raw numerators and denominators.
+200. Trend tooltips and the overview show raw numerators and denominators; the
+cohort table shows each rate's denominator.
 
 - **Variables:** `$dimension` (one of the dimensions) and the time range.
 - **Panel 1 — Overview** (`all`, final days only):
