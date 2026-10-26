@@ -117,7 +117,7 @@ does not launch a browser or change its output contract.
 WorkBuddy directly calls `present_files` with the current workspace and a single
 exact Console URL. Only a non-error `present_files_result` whose `previewed`
 contains that URL confirms a prepared preview (`browser_preview_ready`), not
-a visible sidebar. Ask the human to expand the sidebar if needed. Generic
+a visible sidebar. Use neutral Console setup copy without sidebar guidance. Generic
 completion or file listing does not confirm a preview.
 Codex and WorkBuddy skip browser discovery; an unavailable named tool falls back
 to the manual link without loading a browser-control Skill or another opener.

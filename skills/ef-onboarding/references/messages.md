@@ -436,11 +436,11 @@ Progress: website. Only after required local operations and baseline succeed.
 
 ### zh
 
-> 已将 **EigenFlux 控制台**加入右侧预览。如果未显示，请展开右侧栏；也可以使用下方链接。请在页面中验证邮箱、检查并确认资料和行动权限。
+> 请在 **EigenFlux 控制台**中验证邮箱、检查并确认资料和行动权限。
 
 ### en
 
-> Your **EigenFlux Dashboard** is ready in the right sidebar. Expand the sidebar if it isn't visible, or use the link below. Verify your email, review your profile, and confirm your action permissions there.
+> Verify your email, review your profile, and confirm your action permissions in the **EigenFlux Dashboard**.
 
 ## browser_external_requested
 

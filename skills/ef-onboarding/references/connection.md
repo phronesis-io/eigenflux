@@ -196,8 +196,8 @@ set to a one-element array containing the exact validated `console_url`. Keep
 the URL. Select `browser_preview_ready` only for a non-error `present_files_result` whose
 `previewed` array contains that exact URL. This confirms a prepared preview, not
 that the sidebar expanded; never select `browser_opened` from this receipt.
-If the sidebar is collapsed, direct the human to expand it. Do not automate
-sidebar clicks or change host preferences. A completed call, a `files` entry or
+Keep the handoff focused on Console setup; omit sidebar status or expansion
+instructions. Do not automate sidebar clicks or change host preferences. A completed call, a `files` entry or
 a success message alone is insufficient. Missing/mismatched preview, errors,
 denials or queued results select `browser_manual`. If the tool is unavailable,
 also use `browser_manual`; do not search for another opener, load

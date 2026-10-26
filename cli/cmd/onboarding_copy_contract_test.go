@@ -233,7 +233,7 @@ func TestWorkBuddyDirectPreviewContract(t *testing.T) {
 		"Keep\n`cwd` separate from the Agent Home", "non-error `present_files_result`",
 		"`previewed` array contains that exact URL", "success message alone is insufficient",
 		"Select `browser_preview_ready`", "never select `browser_opened` from this receipt",
-		"direct the human to expand it",
+		"omit sidebar status or expansion",
 		"queued results select `browser_manual`", "If the tool is unavailable",
 		"do not search for another opener, load\n`workbuddy-browser-use`",
 	} {
