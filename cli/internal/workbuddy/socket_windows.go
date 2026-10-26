@@ -27,9 +27,9 @@ var pipeUUID = regexp.MustCompile(`^[a-f0-9]{8}$`)
 func discoverControl(configDir string) (string, error) {
 	d := sha1.Sum([]byte(configDir))
 	scope := hex.EncodeToString(d[:])[:12]
-	data, err := os.ReadFile(filepath.Join(windowsHostTempDir(), "wb", scope, "sidecar.pid"))
+	data, err := readWindowsSidecarPID(filepath.Join(windowsHostTempDir(), "wb", scope, "sidecar.pid"), runningWorkBuddyPaths)
 	if err != nil {
-		return "", errors.New("workbuddy_host_not_running")
+		return "", err
 	}
 	var pid struct {
 		ControlPipeUUID string `json:"controlPipeUuid"`
@@ -45,24 +45,61 @@ func discoverControl(configDir string) (string, error) {
 	}
 	return path, nil
 }
+
+// A running Desktop does not imply its lazily started Sidecar is available.
+// Do not bootstrap an independently authenticated worker or use a WBIPC ticket
+// as a substitute for the host-owned Sidecar control endpoint.
+func readWindowsSidecarPID(path string, running func() ([]string, error)) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err == nil {
+		return data, nil
+	}
+	if !os.IsNotExist(err) {
+		return nil, errors.New("workbuddy_host_pid_unreadable: cannot read the Sidecar discovery file; existing task and binding unchanged")
+	}
+	paths, err := running()
+	if err != nil {
+		return nil, errors.New("workbuddy_host_status_unknown: Sidecar discovery file is absent and Desktop process discovery failed; existing task and binding unchanged")
+	}
+	if len(paths) == 0 {
+		return nil, errors.New("workbuddy_host_not_running: open and sign in to WorkBuddy, then retry; existing task and binding unchanged")
+	}
+	return nil, errors.New("workbuddy_sidecar_not_ready: WorkBuddy Desktop is running but its host-owned Sidecar has not started; open a local conversation in WorkBuddy to initialize its runtime, then retry watch start --host workbuddy; existing task and binding unchanged")
+}
 func socketOwner(path string) error {
 	if !strings.HasPrefix(path, `\\.\pipe\workbuddy-`) || strings.ContainsAny(path, "\r\n\x00") || strings.Contains(path[9:], `\`) {
 		return errors.New("workbuddy_untrusted_socket")
 	}
 	return nil
 }
-func discoverCLI() string {
+func runningWorkBuddyPaths() ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", `$paths = @(Get-Process -Name WorkBuddy -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path -Unique); $bytes = [Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject $paths -Compress)); $stream = [Console]::OpenStandardOutput(); $stream.Write($bytes,0,$bytes.Length); $stream.Flush()`)
-	out, _ := cmd.Output()
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, errors.New("WorkBuddy process discovery failed")
+	}
 	var processPaths []string
 	if json.Unmarshal(out, &processPaths) != nil {
 		var path string
 		if json.Unmarshal(out, &path) == nil && path != "" {
 			processPaths = []string{path}
+		} else {
+			return nil, errors.New("invalid WorkBuddy process discovery response")
 		}
 	}
+	var paths []string
+	for _, path := range processPaths {
+		if filepath.IsAbs(path) && strings.EqualFold(filepath.Base(path), "WorkBuddy.exe") {
+			paths = append(paths, path)
+		}
+	}
+	return paths, nil
+}
+
+func discoverCLI() string {
+	processPaths, _ := runningWorkBuddyPaths()
 	var installs []string
 	for _, exe := range processPaths {
 		if filepath.IsAbs(exe) && strings.EqualFold(filepath.Base(exe), "WorkBuddy.exe") {

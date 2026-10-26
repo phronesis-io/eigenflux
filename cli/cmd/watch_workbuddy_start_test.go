@@ -17,7 +17,7 @@ import (
 )
 
 func TestWorkBuddyAutomaticSetup(t *testing.T) {
-	for _, scenario := range []string{"success", "probe_failed", "foreign_task", "other_binding", "identity_changed", "restart_failed", "existing_workbuddy"} {
+	for _, scenario := range []string{"success", "sidecar_not_ready", "probe_failed", "foreign_task", "other_binding", "identity_changed", "restart_failed", "existing_workbuddy"} {
 		t.Run(scenario, func(t *testing.T) {
 			w := newCommissionWatch(t, "https://example.test", "commission_order")
 			existing := *w.binding
@@ -39,11 +39,14 @@ func TestWorkBuddyAutomaticSetup(t *testing.T) {
 				rules: func() (string, error) { return t.TempDir(), nil },
 				discover: func(workbuddy.Config) (workbuddy.Config, error) {
 					calls = append(calls, "discover")
+					if scenario == "sidecar_not_ready" {
+						return workbuddy.Config{}, errors.New("workbuddy_sidecar_not_ready")
+					}
 					return workbuddy.Config{ConfigDir: t.TempDir(), CLIPath: filepath.Join(t.TempDir(), "codebuddy"), Node: os.Args[0]}, nil
 				},
 				probe: func(_ context.Context, c workbuddy.Config, dir string) error {
 					calls = append(calls, "probe")
-					if len(c.AllowedTools) != 4 {
+					if strings.Join(c.AllowedTools, ",") != strings.Join(workbuddy.DefaultAllowedTools(), ",") {
 						t.Fatal("missing explicit tools")
 					}
 					if scenario == "probe_failed" {
@@ -90,6 +93,9 @@ func TestWorkBuddyAutomaticSetup(t *testing.T) {
 			}
 			if scenario == "other_binding" && len(calls) > 0 {
 				t.Fatal("took over another host")
+			}
+			if scenario == "sidecar_not_ready" && strings.Join(calls, ",") != "discover" {
+				t.Fatalf("cold Sidecar changed service or ran probe: %v", calls)
 			}
 		})
 	}

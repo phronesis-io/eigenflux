@@ -25,7 +25,7 @@ func workBuddyBinding(expected dispatch.Binding, cli, workdir, rules string, cfg
 	b.Command = []string{cli, "watch", "workbuddy-acp", "--config-dir", cfg.ConfigDir, "--cli-path", cfg.CLIPath, "--node", cfg.Node}
 	// Discover the current Sidecar again on each worker invocation: its pipe UUID
 	// changes after a host restart. Never persist a stale control-pipe endpoint.
-	for _, tool := range []string{"Read", "Write", "Edit", "Bash"} {
+	for _, tool := range workbuddy.DefaultAllowedTools() {
 		b.Command = append(b.Command, "--allow-tool", tool)
 	}
 	b.TimeoutSeconds = 600
@@ -109,7 +109,7 @@ func setupWorkBuddyWatch(cmd *cobra.Command, deps workBuddySetupDeps) error {
 	if err = os.MkdirAll(workdir, 0700); err != nil {
 		return err
 	}
-	cfg.AllowedTools = []string{"Read", "Write", "Edit", "Bash"}
+	cfg.AllowedTools = workbuddy.DefaultAllowedTools()
 	probeCtx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
 	err = deps.probe(probeCtx, cfg, workdir)
 	cancel()

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cli.eigenflux.ai/internal/dispatch"
+	"cli.eigenflux.ai/internal/workbuddy"
 )
 
 // Explicit opt-in: uses the operator's authenticated Codex and can consume model
@@ -41,7 +42,10 @@ func TestCommissionWorkBuddyHostLocalFulfillment(t *testing.T) {
 	}
 	runCommissionHostLocalFulfillment(t, "WorkBuddy", func(binding *dispatch.Binding) {
 		binding.Mode, binding.Host = "acp", "workbuddy"
-		binding.Command = []string{executable, "watch", "workbuddy-acp", "--allow-tool", "Read", "--allow-tool", "Write", "--allow-tool", "Edit", "--allow-tool", "Bash"}
+		binding.Command = []string{executable, "watch", "workbuddy-acp"}
+		for _, tool := range workbuddy.DefaultAllowedTools() {
+			binding.Command = append(binding.Command, "--allow-tool", tool)
+		}
 		binding.Args = nil
 	})
 }

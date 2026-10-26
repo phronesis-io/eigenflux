@@ -1,5 +1,18 @@
 # WorkBuddy local bridge
 
+Automatic Windows setup explicitly allows the native `PowerShell` tool alongside
+Read, Write, Edit and Bash. On machines without Git Bash, WorkBuddy executes shell
+work through PowerShell; the Bash allow rule does not cover it. The bridge still
+uses `--permission-mode default` and forwards every remaining permission request.
+
+Windows discovery distinguishes a closed Desktop (`workbuddy_host_not_running`)
+from a running Desktop whose lazy Sidecar is absent (`workbuddy_sidecar_not_ready`).
+For the latter, open a local conversation in WorkBuddy to initialize its runtime and retry setup. A discovery
+file read failure and a failed process query have separate errors. These failures
+preserve the existing task and binding; no WBIPC ticket, independent ACP login,
+or synthetic PID file is used to bootstrap the worker. Automatic cold-start
+bootstrap is unavailable until the host exposes a supported startup mechanism.
+
 macOS and Windows standard ACP bridge. It asks the existing WorkBuddy Sidecar to create an isolated random session using native credential bootstrap. It never reads login credentials. Windows discovers the running host from `%TEMP%/wb/<sha1(configDir)[:12]>/sidecar.pid` and connects to its scoped named pipe. Its server must have the current Windows user SID and logon session. The host must already be running and logged in; no standalone ACP fallback or credential extraction is used. Windows runtime behavior awaits real-machine verification.
 
 Supported methods: initialize, session/new, session/prompt, session/cancel. Input is forced to isMeta. Observed notifications/sessionUpdate messages become standard session/update notifications. Existing Desktop conversation binding and live GUI updates are unsupported; mainConversation and loadSession capabilities are not advertised. Failures do not retry prompts, replay work, or select another transport.

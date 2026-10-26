@@ -7,6 +7,10 @@ test bundle through `cli/cmd/devbuild`; preserve the same Agent Home and server.
 1. Keep WorkBuddy open and signed in. Run `eigenflux version`; record version,
    commit, executable path and Home. Synchronize the bundle's signed Skills.
 2. Run `eigenflux --homedir "<existing-home>" --server eigenflux watch start --host workbuddy`.
+   A running Desktop with no lazy Sidecar reports `workbuddy_sidecar_not_ready`.
+   Open a local conversation in WorkBuddy to initialize its runtime, then retry. Record this prerequisite;
+   it is not automatic cold-start support. Unreadable discovery metadata and
+   failed Desktop process discovery have distinct errors and do not modify the task.
    No binding JSON or manual executable configuration is needed. Require
    `host_protocol_verified:true`, `mode:dispatch`; these do not prove a model call.
 3. Run `watch doctor` and `watch status` using the same Home/server. Require

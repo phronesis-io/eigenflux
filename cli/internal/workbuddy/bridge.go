@@ -27,6 +27,19 @@ const maxFrame = 4 << 20
 
 var toolNamePattern = regexp.MustCompile(`^[A-Z][A-Za-z0-9_]*$`)
 
+// DefaultAllowedTools includes the native Windows shell. WorkBuddy uses the
+// distinct PowerShell tool when Git Bash is unavailable; allowing Bash alone
+// does not authorize that tool. Keep the host's default permission mode.
+func DefaultAllowedTools() []string { return defaultAllowedTools(runtime.GOOS) }
+
+func defaultAllowedTools(platform string) []string {
+	tools := []string{"Read", "Write", "Edit", "Bash"}
+	if platform == "windows" {
+		tools = append(tools, "PowerShell")
+	}
+	return tools
+}
+
 // Config selects a local installation. It never supplies model credentials.
 type Config struct {
 	ConfigDir, ControlSocket, CLIPath, Node string

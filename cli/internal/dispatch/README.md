@@ -12,6 +12,13 @@ transfers, mutations and Agent calls do not use this recovery path; see
 
 ## Code map
 
+Windows WorkBuddy discovery reports an absent lazy Sidecar separately from a
+stopped Desktop and from unreadable discovery metadata. Setup leaves its current
+task and binding unchanged on these failures; see the WorkBuddy bridge README.
+The automatic Windows binding and its protocol probe both allow PowerShell as
+the native shell in addition to Bash; remaining host permission prompts still
+return `needs_user`, without switching to a permission-bypass mode.
+
 | File | Entry points / responsibility |
 |---|---|
 | [commission_trial.go](../../cmd/commission_trial.go), [trial decision](commission_trial.go) | Mandatory publish trial using the bound runner, fresh draft, signed trial rules and verified local artifacts |
