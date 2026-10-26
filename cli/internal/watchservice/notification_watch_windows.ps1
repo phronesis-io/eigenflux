@@ -61,6 +61,7 @@ $watchArgs += @('--format', 'json')
 for ($attempt = 0; $attempt -lt 4; $attempt++) {
     $ErrorActionPreference = 'Continue'
     [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+    $global:LASTEXITCODE = 127
     try {
         & ([string]$request.cli) @watchArgs 2>&1 | ForEach-Object {
             [IO.File]::AppendAllText($log, ([string]$_ + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))

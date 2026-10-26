@@ -33,3 +33,18 @@ test bundle through `cli/cmd/devbuild`; preserve the same Agent Home and server.
 Failures: stop at the failed stage; report the exact redacted CLI/host error,
 status and task log. Never fall back to an independently logged-in ACP process,
 create another EigenFlux account/Home or fabricate successful verification.
+
+## Review follow-up (CLI 1.0.25)
+
+Notification-to-dispatch migration reconciles previously ACKed seller orders
+once per binding revision. Transient lookup failures emit migration-pending
+status and retry once a minute without stopping reception. Existing jobs are
+not automatically replayed. A historical paid order without pre-acceptance
+material-check evidence remains blocked rather than fabricating that evidence.
+
+An already-running execution watch is reused only for an identical binding.
+When changing CLI/Skills package paths, a safe maintenance stop is still
+required before rerunning automatic setup; do not force-stop active paid work
+or report the refused upgrade as complete. A notification-only task can still
+migrate automatically. Exit 78 is not retried inside the wrapper but may cause
+bounded outer scheduler retries. Native Windows acceptance remains pending.

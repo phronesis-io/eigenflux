@@ -73,7 +73,8 @@ otherwise the owned Job Object is stopped before rewriting. Idle-only and
 battery restrictions are disabled, with immediate and logon starts. The wrapper
 restarts a nonzero child up to three times at 15-second intervals, logs each
 exit code as UTF-8 JSON, then exits for scheduler failure recovery. Exit 0 or
-identity-terminal code 78 is not retried by the wrapper. Scheduler retries
+identity-terminal code 78 is not retried by the wrapper, but its nonzero exit
+can still trigger the bounded scheduler failure retries. Scheduler retries
 remain bounded. Administrative task stops intentionally stop the wrapper/job.
 
 Windows host-pipe, process-failure recovery and real-order acceptance still
@@ -85,3 +86,10 @@ the owner writes a scoped pulse, accepted only while fresh within 15 seconds
 and its account lock is held. Identity, endpoint or binding revision changes
 invalidate the old pulse. `runtime.agent_call_verified` records model completion
 evidence in this process, not host initialization or an order delivery receipt.
+
+An already-running execution owner is never forcibly stopped for a cross-path
+package upgrade: without a cooperative drain acknowledgement, an idle journal
+snapshot cannot rule out a new paid task starting before Task Scheduler Stop.
+An identical binding remains idempotent. Cross-path upgrades must first use the
+existing lifecycle procedure at a safe maintenance point; the setup error must
+not be reported as a completed upgrade.

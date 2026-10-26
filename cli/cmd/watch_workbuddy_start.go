@@ -137,7 +137,7 @@ func setupWorkBuddyWatch(cmd *cobra.Command, deps workBuddySetupDeps) error {
 			if live.Running && slices.Equal(old.Command, b.Command) && slices.Equal(old.Events, b.Events) && old.WorkDir == b.WorkDir && old.SkillsDir == b.SkillsDir && len(old.Args) == 0 && len(old.Env) == 0 {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"status": "already_running", "mode": "dispatch", "host": "workbuddy", "agent_id": expected.AgentID, "host_protocol_verified": true, "runtime": live, "business_verified": false})
 			}
-			return errors.New("existing WorkBuddy watch owns this account; preserve its active work and retry automatic setup after it stops")
+			return errors.New("existing WorkBuddy watch is running from another configuration; preserve paid work, stop the owned task at a safe maintenance point, then rerun watch start --host workbuddy (upgrade not applied)")
 		}
 		ownerRelease = release
 	}

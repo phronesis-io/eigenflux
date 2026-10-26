@@ -9,6 +9,12 @@ import (
 // RecoverCommission queues authoritative order inspection without inventing a
 // server notification or acknowledging the notification inbox.
 func (j *Journal) RecoverCommission(orderID string, version int64) (string, error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.recoverCommissionLocked(orderID, version, "operator_recovery", "operator_retry")
+}
+
+func (j *Journal) recoverCommissionLocked(orderID string, version int64, source, code string) (string, error) {
 	if !j.binding.Handles("commission_order") {
 		return "", errors.New("commission_event_not_subscribed")
 	}
@@ -16,8 +22,6 @@ func (j *Journal) RecoverCommission(orderID string, version int64) (string, erro
 		return "", errors.New("invalid_commission_order")
 	}
 	id := commissionJournalID(j.binding, commissionNotificationKey{OrderID: orderID, OrderVersion: strconv.FormatInt(version, 10), RecipientRole: "seller"})
-	j.mu.Lock()
-	defer j.mu.Unlock()
 	for _, job := range j.state.Jobs {
 		if job.Kind == "commission_order" && (job.Status == "unknown" || job.Status == "running" || job.Status == "sending") {
 			existing, err := parseCommissionIntakeData(job.Data, j.binding.AgentID)
@@ -32,10 +36,10 @@ func (j *Journal) RecoverCommission(orderID string, version int64) (string, erro
 			return id, nil
 		}
 	}
-	raw, _ := json.Marshal(map[string]any{"source": "operator_recovery", "payload": map[string]any{"order_id": orderID, "order_version": version, "recipient_role": "seller"}})
+	raw, _ := json.Marshal(map[string]any{"source": source, "payload": map[string]any{"order_id": orderID, "order_version": version, "recipient_role": "seller"}})
 	next := cloneJournal(j.state)
 	job := j.newHint(id, "commission_order", raw)
-	job.Code = "operator_retry"
+	job.Code = code
 	next.Jobs = append(next.Jobs, job)
 	if err := j.save(next); err != nil {
 		return "", err
@@ -53,7 +57,7 @@ func parseCommissionIntakeData(raw json.RawMessage, agentID string) (commissionN
 			Role    string `json:"recipient_role"`
 		} `json:"payload"`
 	}
-	if json.Unmarshal(raw, &recovery) == nil && recovery.Source == "operator_recovery" {
+	if json.Unmarshal(raw, &recovery) == nil && (recovery.Source == "operator_recovery" || recovery.Source == "notification_migration") {
 		if n, err := strconv.ParseInt(recovery.Payload.OrderID, 10, 64); err != nil || n <= 0 || recovery.Payload.Version <= 0 || recovery.Payload.Role != "seller" {
 			return commissionNotificationKey{}, errors.New("invalid_commission_recovery")
 		}

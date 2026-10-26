@@ -607,3 +607,21 @@ the existing isolated fulfillment paths. Notification-only Windows tasks migrate
 to dispatch in place. See [lifecycle](../watchservice/README.md) and
 [host transport](../workbuddy/README.md). Background execution does not claim
 original Desktop conversation display or hidden-main support.
+
+### Windows notification-to-execution order reconciliation
+
+[watch_workbuddy_migration.go](../../cmd/watch_workbuddy_migration.go) runs a
+one-time seller-order reconciliation when a WorkBuddy execution binding has
+same-identity notification-only ownership history. A different historical
+owner is ignored; the current execution binding remains authoritative. It rechecks authoritative
+awaiting_seller/in_progress orders, and atomically records only previously
+unrecorded work. Identity is checked before queueing; known pending, failed,
+unknown or finished work is not replayed. Transient failures stay pending and
+retry once a minute without preventing the watch from receiving events. A
+binding-revision marker is written only after a complete scan.
+
+Existing pre-acceptance material evidence remains mandatory for paid work.
+Historical paid orders without it stay blocked with
+`commission_intake_evidence_missing`; reconciliation never invents evidence or
+reintroduces a model inspection before fulfillment. Interrupted/known jobs
+continue to require explicit recovery.
