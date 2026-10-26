@@ -136,7 +136,12 @@ func TestCommissionCustomSkillFallback(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if strings.Contains(prompt, "Fallback skill marker") != (scenario == "fallback") {
+				wantRoot := w.binding.SkillsDir
+				if scenario == "fallback" {
+					wantRoot = root
+				}
+				assertCommissionSkillReadScope(t, prompt, filepath.Join(wantRoot, "input-review"))
+				if strings.Contains(prompt.Prompt, "Fallback skill marker") != (scenario == "fallback") {
 					t.Fatal("wrong skill source selected")
 				}
 			})
@@ -186,6 +191,7 @@ func TestCommissionAwaitingSellerAcceptedOnlyAfterReadyAgent(t *testing.T) {
 			installCommissionIntakeRules(t, w)
 			job := claimCommissionIntake(t, w)
 			w.runAgent = func(_ context.Context, request dispatch.Request) (dispatch.Result, error) {
+				assertCommissionSkillReadScope(t, request, filepath.Join(w.binding.SkillsDir, "input-review"))
 				ran = true
 				raw, _ := json.Marshal(dispatch.CommissionIntakeDecision{Version: 1, RequestID: request.ID, OrderID: "901", OrderVersion: 3, Outcome: outcome, Summary: "Inspected actual input", InspectedFiles: []string{}})
 				return dispatch.Result{Text: string(raw)}, nil
@@ -386,5 +392,17 @@ func TestCommissionInspectedFilesMustMatchVerifiedInputs(t *testing.T) {
 	}
 	if !validCommissionInspectedFiles(dispatch.CommissionIntakeDecision{Outcome: "ready", InspectedFiles: []string{}}, nil, false) {
 		t.Fatal("valid no-file contract rejected")
+	}
+}
+
+func assertCommissionSkillReadScope(t *testing.T, request dispatch.Request, expected string) {
+	t.Helper()
+	if len(request.ReadOnlySkillDirs) != 1 {
+		t.Fatalf("missing single frozen contract Skill read scope: %+v", request.ReadOnlySkillDirs)
+	}
+	actualInfo, actualErr := os.Stat(request.ReadOnlySkillDirs[0])
+	expectedInfo, expectedErr := os.Stat(expected)
+	if actualErr != nil || expectedErr != nil || !os.SameFile(actualInfo, expectedInfo) {
+		t.Fatalf("request read scope does not identify resolved Skill: actual=%s expected=%s errors=%v/%v", request.ReadOnlySkillDirs[0], expected, actualErr, expectedErr)
 	}
 }

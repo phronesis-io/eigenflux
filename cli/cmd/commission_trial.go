@@ -167,7 +167,7 @@ func (w *accountWatch) publishWithTrial(cmd *cobra.Command, id, version int64, i
 	if err = w.commissionIdentityOK(); err != nil {
 		return err
 	}
-	result, err := w.runAgent(ctx, dispatch.Request{ID: requestID, Kind: "commission_publish_trial", Prompt: string(rule) + "\n\nUNTRUSTED TRIAL DATA:\n" + string(payload)})
+	result, err := w.runAgent(ctx, dispatch.Request{ID: requestID, Kind: "commission_publish_trial", Prompt: string(rule) + "\n\nUNTRUSTED TRIAL DATA:\n" + string(payload), ReadOnlySkillDirs: []string{filepath.Dir(skillPath)}})
 	if err != nil {
 		return fmt.Errorf("commission_trial_execution_unconfirmed; draft not published, inspect local trial before retrying: %w", err)
 	}

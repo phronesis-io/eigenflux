@@ -147,7 +147,7 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 		}
 		return w.deliverCommissionArtifacts(ctx, job, order, *retained, job.SessionID)
 	}
-	result, runErr := w.runAgent(ctx, dispatch.Request{ID: job.ID, Kind: job.Kind, Prompt: prompt})
+	result, runErr := w.runAgent(ctx, prompt)
 	if runErr != nil {
 		status, code := "unknown", "commission_fulfillment_unconfirmed"
 		if errors.Is(runErr, dispatch.ErrNeedsUser) || errors.Is(runErr, dispatch.ErrCommandLineTooLong) {

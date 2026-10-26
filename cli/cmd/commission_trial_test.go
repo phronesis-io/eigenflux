@@ -69,6 +69,7 @@ func TestCommissionPublishTrialGatesMutation(t *testing.T) {
 			w := newCommissionWatch(t, server.URL, "commission_order")
 			installCommissionIntakeRules(t, w)
 			w.runAgent = func(ctx context.Context, req dispatch.Request) (dispatch.Result, error) {
+				assertCommissionSkillReadScope(t, req, filepath.Join(w.binding.SkillsDir, "input-review"))
 				ran = true
 				if req.Kind != "commission_publish_trial" || req.SessionID != "" {
 					t.Error("wrong runner lane/session")

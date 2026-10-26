@@ -610,6 +610,20 @@ Commission material preparation retries unavailable read-only manifest/grant/dow
 
 Desktop order titles identify the recipient, not the counterparty: Chinese `【买方 · NAME】` / `【卖方 · NAME】`, English `【Buyer · NAME】` / `【Seller · NAME】`. Resolve NAME only for the pinned receiving Agent after validating order membership; use `Agent ID` on unavailable public identity. Keep account routing, role and event IDs unchanged.
 
+## WorkBuddy fulfillment Skill reads
+
+[workbuddy_skill_access.go](workbuddy_skill_access.go) validates and constructs
+the scoped rule; intake and trial preparation supply the trusted Skill path.
+
+CLI 1.0.28 attaches the resolved fulfillment Skill directory as trusted request
+metadata for Commission intake, paid fulfillment and publication trials. Only
+the current CLI's own `watch workbuddy-acp` entry receives a per-call read-only
+rule for that direct child of the bound Skills directory. Reject symlinks,
+traversal and rule metacharacters. Never derive permissions from prompt text.
+Keep existing tool limits, binding revision and queued jobs unchanged. Custom
+ACP entries receive no injected arguments; other paths still require permission.
+Windows rule encoding is implemented; native acceptance remains unverified.
+
 ## Automatic Windows WorkBuddy binding
 
 CLI 1.0.24 `watch start --host workbuddy` resolves the running signed-in host

@@ -209,6 +209,9 @@ type Request struct {
 	Kind      string
 	Prompt    string
 	SessionID string
+	// ReadOnlySkillDirs comes from the CLI's resolved frozen contract, never
+	// from prompt text or a model result. Only the built-in WorkBuddy bridge uses it.
+	ReadOnlySkillDirs []string
 }
 
 type Result struct {

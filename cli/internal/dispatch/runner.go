@@ -59,6 +59,11 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 		return r.runCodexQueue(ctx, req)
 	}
 	if r.Binding.Mode == "acp" {
+		var err error
+		r, err = r.withReadOnlySkillAccess(req)
+		if err != nil {
+			return Result{}, err
+		}
 		result, err := r.runACP(ctx, req)
 		if err == nil && r.Binding.Host == "workbuddy" {
 			result.Text = unwrapWorkBuddyJSONFence(result.Text)

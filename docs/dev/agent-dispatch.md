@@ -127,6 +127,14 @@ reuse verified files on explicit job retry. Legacy uncertain work without delive
 retry metadata requires operator reconciliation; loose files do not establish a
 checkpoint or authorize automatic replay.
 
+WorkBuddy Commission runs through the current CLI-managed ACP bridge grant
+read-only access to the frozen contract's validated Skill directory. Existing
+workspace permissions stay unchanged. Keep the bridge executable paired with
+the running CLI; custom ACP commands keep their explicit permission policy.
+Denied access outside the bound Skill still stops work. Recover a previously
+blocked intake by job ID after stopping its owned watch; retain the binding
+revision, account and queue.
+
 ## Build isolated test packages
 
 Use `codex/heartbeat-autoupdate`, the Go version in `cli/go.mod`, and a fresh output directory. Packages contain paired verification keys and signed Skills; keep them separate from production installs. Run CLI and Agent as the same ordinary user.

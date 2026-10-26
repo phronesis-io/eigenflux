@@ -164,6 +164,7 @@ func TestCommissionPaidOrderReusesEarlierCheckAndRetainsDeliveryEvidence(t *test
 	var calls int
 	const body = "Contracted report: inputs inspected.\n"
 	w.runAgent = func(ctx context.Context, request dispatch.Request) (dispatch.Result, error) {
+		assertCommissionSkillReadScope(t, request, filepath.Join(w.binding.SkillsDir, "input-review"))
 		calls++
 		if request.SessionID != "" {
 			t.Fatal("fulfillment reused an unrelated session")
