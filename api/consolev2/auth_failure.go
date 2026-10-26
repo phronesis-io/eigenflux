@@ -22,10 +22,14 @@ type authenticationFailure struct {
 	stage                           string
 	agentID, principalID, sessionID int64
 	consoleSessionID                string
+	route                           string
 }
 
 func (f authenticationFailure) log(status int, code, reason string, err error) {
 	fields := []interface{}{"stage", f.stage, "reason", reason, "status", status, "code", code}
+	if f.route != "" {
+		fields = append(fields, "route", f.route)
+	}
 	if f.agentID != 0 {
 		fields = append(fields, "agent_id", f.agentID)
 	}
