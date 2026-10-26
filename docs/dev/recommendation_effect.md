@@ -270,19 +270,21 @@ These event counts must not be divided by delivery-day exposures as coverage.
 
 **Dimensions.** Each row has exactly one dimension: `all`, `runtime_name`,
 `runtime_mode`, `cli_version`, `model`, `skill_revision`,
-`heartbeat_contract_version` or `auto_comment`. Runtime product and model use
+`heartbeat_contract_version`, `auto_comment` or `feedback_contract_version`.
+Runtime product and model use
 trimmed lowercase values; CLI version is trimmed. Mode accepts only `plugin`
 and `skill`; everything else stays unknown. Revision strings retain their
 case. Auto-comment is true, false or unknown. Empty/missing values become
-unknown, including every dimension for a consumer without settings. All values
-are truncated to 64 characters to fit the aggregate contract, including long
-model reports. No deprecated runtime alias or inferred product identity is used.
+unknown for settings-based dimensions. Settings values are truncated to 64
+characters, including long model reports. The feedback-contract dimension uses
+the latest valid score in the observation window instead: `legacy` for an empty
+version, `none` without a score, and at most 32 characters. No deprecated runtime alias or inferred product identity is used.
 
 For each delivery day and dimension, values with fewer than five distinct
 recipients fold into `other`. Event-side rows use that same kept-value set;
 event-only values fold into `other` unless their value already qualifies.
 The `all` row is exempt and is always written, including on an empty day.
-The snapshot uses current settings at refresh time, normally 2–3 days after
+Settings-based cohorts use current settings at refresh time, normally 2–3 days after
 the event when the day finalizes. Backfills use settings at backfill time.
 Cohorts therefore do not establish historical client identity or a fixed
 longitudinal cohort. Named values and `other` can change across days.

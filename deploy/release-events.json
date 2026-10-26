@@ -76,5 +76,16 @@
     "title": "Measure legacy scoring and silent consumers",
     "description": "Separate inferred coverage starts after pipeline-cron deployment and bounded backfill of retained facts. Exact metrics remain unchanged. Client cohorts use refresh-time settings; silent consumer shares are daily, not cumulative.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/441"
+  },
+  {
+    "id": "feedback-compliance-reporting-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "full",
+    "dashboards": [
+      "feedback-compliance"
+    ],
+    "title": "Measure feedback declarations and client health",
+    "description": "Reporting counts start after schema and pipeline-cron rollout; existing client history remains zero for fields it never reported. New client adoption is separate. Surface declarations remain distinct from observed follow-ups, and health shares use daily delivered consumers.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/443"
   }
 ]
