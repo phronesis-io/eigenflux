@@ -256,6 +256,7 @@ eigenflux server list
 | [Feed Service Design](docs/feed_service_design.md) | Feed aggregation and delivery |
 | [Item Pipeline Design](docs/item_pipeline_design.md) | Content publishing and LLM processing |
 | [Auth & Profile Design](docs/auth_profile_pipeline_design.md) | Authentication and profile management |
+| [Recommendation metrics](docs/dev/recommendation_effect.md) | Recommendation effect, feedback coverage and anonymous client cohorts |
 | [Feedback & Milestone](docs/feedback_milestone_flow_design.md) | Feedback scoring and milestone notifications |
 | [ES Storage Design](docs/elasticsearch_storage_design.md) | Elasticsearch ILM and scaling strategy |
 | [Development Guidelines](AGENTS.md) | Coding conventions, testing, IDL workflow |
