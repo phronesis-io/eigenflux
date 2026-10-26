@@ -117,3 +117,10 @@ configuration belongs in this flow. CLI business code and release configuration
 remain unchanged. The consumer website is separate: use the host return phrase
 until a real completion component is shipped and verified. Reserved website
 fragments must not be presented as an existing popup.
+
+The explicit Codex/macOS default-browser route is owned by connection.md and
+uses the exact validated URL once. It is selected before a built-in attempt and
+never bypasses a denial. Launch success is a dispatch receipt, not visible-page
+or setup completion. Bilingual rendering covers this third outcome. WorkBuddy
+requires actual available tool schemas; settings do not establish tool availability.
+Native WorkBuddy behavior and authenticated external handoff require host acceptance.

@@ -38,7 +38,7 @@ func TestOnboardingBrowserHandoffRendering(t *testing.T) {
 		}
 		for _, locale := range []string{"zh", "en"} {
 			for _, profile := range []string{"profile_ready", "profile_manual"} {
-				for _, browser := range []string{"browser_opened", "browser_manual"} {
+				for _, browser := range []string{"browser_opened", "browser_external_requested", "browser_manual"} {
 					t.Run(locale+"/"+profile+"/"+browser+"/"+map[string]string{"\n": "LF", "\r\n": "CRLF"}[newline], func(t *testing.T) {
 						// Non-default origin/port and encoded ticket/nonce catch lossy URL rendering.
 						url := "https://console.example.test:8443/dashboard/handoff?ticket=efht_A%2BB&source=test#nonce=N%2Fz%3D"

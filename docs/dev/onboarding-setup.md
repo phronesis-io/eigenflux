@@ -114,6 +114,12 @@ built-in browser when the host exposes that capability. Codex uses
 The Skill preserves the URL's ticket and nonce without prefetching it. The CLI
 does not launch a browser or change its output contract.
 
+WorkBuddy uses its available visible-browser tools and installed browser-control
+Skill schema; clicked-link preferences alone do not establish automatic opening.
+An explicit default-browser request in local Codex/macOS may select the system
+opener before a built-in attempt. Successful dispatch selects
+`browser_external_requested`, without claiming that the page loaded.
+
 Confirmed visible opening selects `browser_opened`; unavailable, denied,
 failed, queued or ambiguous results select `browser_manual`. Both keep the
 clickable link. Honor manual-opening preferences and native approvals. An open

@@ -188,6 +188,25 @@ set to `browser`, `target.url` set to that exact URL, and `placement` set to
 do not start browser automation, inspect the form, enter email/OTP, or confirm
 settings on the human's behalf.
 
+In WorkBuddy, inspect the available browser tools and, when installed and enabled,
+read its `workbuddy-browser-use` Skill for the current tool schema. Use only the
+minimum navigation call targeting its visible built-in browser; a headless or
+extension-controlled browser is not equivalent. If unavailable, keep the manual
+link. Settings > General > Link opening controls clicked links; it does not prove
+an Agent-callable opener exists. Do not change global preferences or install or
+enable browser control just for onboarding.
+
+For an explicit system-default-browser request in local Codex on macOS, select
+that route before any built-in attempt. Use the normal command tool to invoke
+`/usr/bin/open` with the exact validated URL as one argument, respecting native
+approval. Prefer argument-array execution; for a shell command, use proper POSIX
+single-quote escaping, including embedded single quotes. Never interpolate an
+unquoted URL or use `eval`. Do not use this route from remote/container execution.
+A zero exit code selects `browser_external_requested`: dispatch is confirmed,
+not page loading or foreground activation. Other results use `browser_manual`.
+This is an explicit alternative, never a fallback after built-in failure or denial.
+Other OS external routes remain unsupported by this handoff.
+
 Use `browser_opened` only when the tool confirms the browser was opened visibly.
 An unavailable tool, error, denial, queued response or ambiguous result uses
 `browser_manual`. Respect host-native approvals; never widen permissions or

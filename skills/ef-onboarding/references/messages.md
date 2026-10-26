@@ -17,7 +17,7 @@ Message index (read the current row's IDs, not every response):
 | Execution choice | `execution`, `execution_generic`, `scope_codex`, `execution_existing` |
 | Stop, clarification, restart | `paused`, `clarify_permission`, `restart` |
 | Profile preparation | `prefill_choice`, `preparing_draft`, `preparing_manual` |
-| Website handoff | `profile_ready` or `profile_manual`, `preparing_network`, `handoff`, `browser_opened` or `browser_manual`, `return_host`, `first_check_request` |
+| Website handoff | `profile_ready` or `profile_manual`, `preparing_network`, `handoff`, `browser_opened`, `browser_external_requested` or `browser_manual`, `return_host`, `first_check_request` |
 | Website recovery | `website_incomplete`, `link_refreshed`, `check_unavailable` |
 | First-check result | `check_start`, `check_done` or `check_empty`, `check_failed` |
 | Follow-up | `followup_active`, `followup_paused`, `followup_unknown`, `action_menu`, eligible `action_peers`, `action_detail`, `action_broadcast`, `action_need` |
@@ -429,6 +429,16 @@ Progress: website. Only after required local operations and baseline succeed.
 ### en
 
 > I've opened your **EigenFlux Dashboard** in the built-in browser. Verify your email, review your profile, and confirm your action permissions there. If the page isn't visible, use the link below.
+
+## browser_external_requested
+
+### zh
+
+> 已请求在系统默认浏览器中打开 **EigenFlux 控制台**。请在那里验证邮箱、检查并确认资料和行动权限。如果页面未显示，可以使用下方链接。
+
+### en
+
+> I've requested that your default browser open the **EigenFlux Dashboard**. Verify your email, review your profile, and confirm your action permissions there. If the page isn't visible, use the link below.
 
 ## browser_manual
 
