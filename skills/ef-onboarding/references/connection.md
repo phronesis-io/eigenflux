@@ -175,12 +175,13 @@ is independently deployed and verified; currently use `return_host`.
 
 ### Built-in browser handoff
 
-For the initial foreground stage-4 handoff, inspect available tool declarations
-or supported tool discovery for a host-native tool that opens a supplied URL in
-the current chat's visible built-in browser. Select by actual capability, not
-the host name. When available, open the complete validated `console_url` once,
-preserving its scheme, host, path, query and fragment exactly; do not rebuild it
-or prefetch the one-time link. Honor an explicit user preference for manual opening.
+For the initial foreground stage-4 handoff, use the host route below. For Codex
+and WorkBuddy, call the named tool directly when its declaration is available;
+do not run a separate browser capability search. Only for other hosts, inspect
+available declarations or supported discovery for a tool that opens a URL in the
+current chat's visible built-in browser. Open the complete validated `console_url`
+once, preserving its scheme, host, path, query and fragment exactly; do not
+rebuild it or prefetch the one-time link. Honor a manual-opening preference.
 
 In Codex, use `mcp__codex_app__open_in_codex` when available, with `target.type`
 set to `browser`, `target.url` set to that exact URL, and `placement` set to
@@ -188,13 +189,17 @@ set to `browser`, `target.url` set to that exact URL, and `placement` set to
 do not start browser automation, inspect the form, enter email/OTP, or confirm
 settings on the human's behalf.
 
-In WorkBuddy, inspect the available browser tools and, when installed and enabled,
-read its `workbuddy-browser-use` Skill for the current tool schema. Use only the
-minimum navigation call targeting its visible built-in browser; a headless or
-extension-controlled browser is not equivalent. If unavailable, keep the manual
-link. Settings > General > Link opening controls clicked links; it does not prove
-an Agent-callable opener exists. Do not change global preferences or install or
-enable browser control just for onboarding.
+In WorkBuddy, call `present_files` directly with `cwd` set to the current task's
+workspace, `explanation` describing the human Console setup handoff, and `files`
+set to a one-element array containing the exact validated `console_url`. Keep
+`cwd` separate from the Agent Home; do not change identity or workspace to open
+the URL. Select `browser_opened` only for a non-error `present_files_result` whose
+`previewed` array contains that exact URL. A completed call, a `files` entry or
+a success message alone is insufficient. Missing/mismatched preview, errors,
+denials or queued results select `browser_manual`. If the tool is unavailable,
+also use `browser_manual`; do not search for another opener, load
+`workbuddy-browser-use`, or install/enable browser control. Leave the host's
+link-opening preferences unchanged.
 
 For an explicit system-default-browser request in local Codex on macOS, select
 that route before any built-in attempt. Use the normal command tool to invoke

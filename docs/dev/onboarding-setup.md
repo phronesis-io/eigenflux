@@ -114,8 +114,11 @@ built-in browser when the host exposes that capability. Codex uses
 The Skill preserves the URL's ticket and nonce without prefetching it. The CLI
 does not launch a browser or change its output contract.
 
-WorkBuddy uses its available visible-browser tools and installed browser-control
-Skill schema; clicked-link preferences alone do not establish automatic opening.
+WorkBuddy directly calls `present_files` with the current workspace and a single
+exact Console URL. Only a non-error `present_files_result` whose `previewed`
+contains that URL confirms opening; generic completion or file listing does not.
+Codex and WorkBuddy skip browser discovery; an unavailable named tool falls back
+to the manual link without loading a browser-control Skill or another opener.
 An explicit default-browser request in local Codex/macOS may select the system
 opener before a built-in attempt. Successful dispatch selects
 `browser_external_requested`, without claiming that the page loaded.

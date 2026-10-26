@@ -213,3 +213,30 @@ func TestOnboardingPrefillContextDiscovery(t *testing.T) {
 		t.Fatal("context discovery must preserve the common optional Prefill question")
 	}
 }
+
+// The routing implementation is a Skill; protect its host/receipt contract.
+// These assertions do not replace the native WorkBuddy acceptance test.
+func TestWorkBuddyDirectPreviewContract(t *testing.T) {
+	b, err := os.ReadFile("../../skills/ef-onboarding/references/connection.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+	start := strings.Index(text, "In WorkBuddy,")
+	if start < 0 {
+		t.Fatal("missing WorkBuddy route")
+	}
+	section := strings.SplitN(text[start:], "For an explicit system-default-browser", 2)[0]
+	for _, required := range []string{
+		"call `present_files` directly", "`cwd` set to the current task's",
+		"workspace", "`explanation`", "one-element array containing the exact validated `console_url`",
+		"Keep\n`cwd` separate from the Agent Home", "non-error `present_files_result`",
+		"`previewed` array contains that exact URL", "success message alone is insufficient",
+		"queued results select `browser_manual`", "If the tool is unavailable",
+		"do not search for another opener, load\n`workbuddy-browser-use`",
+	} {
+		if !strings.Contains(section, required) {
+			t.Errorf("missing host handoff contract: %s", required)
+		}
+	}
+}
