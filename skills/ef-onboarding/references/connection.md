@@ -177,7 +177,8 @@ is independently deployed and verified; currently use `return_host`.
 
 For the initial foreground stage-4 handoff, use the host route below. For Codex
 and WorkBuddy, call the named tool directly when its declaration is available;
-do not run a separate browser capability search. Only for other hosts, inspect
+do not run a preliminary browser capability search. WorkBuddy may use the
+bounded visibility check below after dispatch. For other hosts, inspect
 available declarations or supported discovery for a tool that opens a URL in the
 current chat's visible built-in browser. Open the complete validated `console_url`
 once, preserving its scheme, host, path, query and fragment exactly; do not
@@ -196,12 +197,23 @@ set to a one-element array containing the exact validated `console_url`. Keep
 the URL. Select `browser_preview_ready` only for a non-error `present_files_result` whose
 `previewed` array contains that exact URL. This confirms a prepared preview, not
 that the sidebar expanded; never select `browser_opened` from this receipt.
+Automatically make the right-side built-in browser visible for the human
+handoff; creating a hidden preview alone does not satisfy this objective.
+After a confirmed preview receipt, inspect already available host declarations
+for a tool that shows or focuses the existing preview in the current chat.
+If needed, perform at most one supported tool-discovery lookup and read the
+available host browser Skill only when relevant to that capability. Use a
+documented show/focus operation once, targeting the existing preview without
+navigating again. Select `browser_opened` only if it confirms visible display;
+otherwise retain `browser_preview_ready` and the Console link.
 Keep the handoff focused on Console setup; omit sidebar status or expansion
-instructions. Do not automate sidebar clicks or change host preferences. A completed call, a `files` entry or
+instructions. Do not ask the human to expand the sidebar. Do not automate UI
+clicks, use undocumented APIs, or change host preferences. A completed call, a `files` entry or
 a success message alone is insufficient. Missing/mismatched preview, errors,
 denials or queued results select `browser_manual`. If the tool is unavailable,
-also use `browser_manual`; do not search for another opener, load
-`workbuddy-browser-use`, or install/enable browser control. Leave the host's
+also use `browser_manual`. Never install/enable browser control or browser
+extensions for this handoff. A host Skill may describe external-browser
+automation; do not use that as a substitute for the built-in preview. Leave the host's
 link-opening preferences unchanged.
 
 For an explicit system-default-browser request in local Codex on macOS, select

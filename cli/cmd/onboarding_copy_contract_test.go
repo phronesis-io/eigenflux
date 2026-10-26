@@ -235,7 +235,10 @@ func TestWorkBuddyDirectPreviewContract(t *testing.T) {
 		"Select `browser_preview_ready`", "never select `browser_opened` from this receipt",
 		"omit sidebar status or expansion",
 		"queued results select `browser_manual`", "If the tool is unavailable",
-		"do not search for another opener, load\n`workbuddy-browser-use`",
+		"at most one supported tool-discovery lookup",
+		"targeting the existing preview without\nnavigating again",
+		"Do not ask the human to expand the sidebar",
+		"Never install/enable browser control",
 	} {
 		if !strings.Contains(section, required) {
 			t.Errorf("missing host handoff contract: %s", required)

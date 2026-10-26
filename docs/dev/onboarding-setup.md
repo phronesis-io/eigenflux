@@ -119,8 +119,12 @@ exact Console URL. Only a non-error `present_files_result` whose `previewed`
 contains that URL confirms a prepared preview (`browser_preview_ready`), not
 a visible sidebar. Use neutral Console setup copy without sidebar guidance. Generic
 completion or file listing does not confirm a preview.
-Codex and WorkBuddy skip browser discovery; an unavailable named tool falls back
-to the manual link without loading a browser-control Skill or another opener.
+Codex and WorkBuddy skip preliminary browser discovery. After a confirmed
+WorkBuddy preview receipt, make the existing right-side preview visible using
+a documented show/focus tool when available, with at most one tool-discovery
+lookup and a relevant available host Skill read. Do not navigate again, enable
+browser control, use external browsers, or ask the human to expand the sidebar.
+An unavailable named opener falls back to the manual link.
 An explicit default-browser request in local Codex/macOS may select the system
 opener before a built-in attempt. Successful dispatch selects
 `browser_external_requested`, without claiming that the page loaded.

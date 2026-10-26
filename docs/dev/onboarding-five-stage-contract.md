@@ -126,7 +126,10 @@ directly uses the declared `present_files` tool with the task workspace and the
 exact URL as its only file. Its non-error result must identify that URL in
 `previewed`; completion or an unrelated preview is insufficient. This selects
 `browser_preview_ready`, not `browser_opened`: the receipt does not prove that
-the sidebar expanded. The human can expand the existing sidebar without a retry. Missing tools
-and non-confirming results fall back without browser discovery. The instruction
-contract test protects these fields and the no-Browser-Use route.
+the sidebar expanded. After preview confirmation, a documented show/focus
+operation may reveal that existing pane, with at most one tool-discovery lookup
+and a relevant available host Skill read. No second navigation, browser-control
+activation, external browser or user expansion step is introduced. Missing
+openers and non-confirming results retain the link. The instruction contract
+test protects the exact URL and bounded visibility attempt.
 Native WorkBuddy behavior and authenticated external handoff require host acceptance.
