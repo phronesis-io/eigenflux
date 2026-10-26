@@ -165,6 +165,7 @@ func run() error {
 		}
 		instructions := "TEST ONLY. This CLI trusts only its paired local Skills/CDN. Do not install it over a production CLI. Run-Test.ps1 uses isolated state and does not change PATH. Private signing keys are not included.\n"
 		if parts[0] == "darwin" {
+			instructions += "macOS source upgrades: use cli/scripts/install-test-macos.sh with the existing --homedir and current --host. It installs the complete paired package and runs notify setup/status automatically; building or copying a standalone CLI is not an installation.\n"
 			instructions += "macOS: keep EigenFlux Notifications.app beside the real eigenflux executable. From this directory, run ./eigenflux notify setup, then ./eigenflux notify status. Building or syncing Skills alone does not request permission. macOS prompts only on first request; if denied, enable EigenFlux in System Settings > Notifications. After updating the existing wrapper to this complete package, run ./eigenflux watch restart --launch-agent <absolute-plist-path-in-your-Library/LaunchAgents>. Run from a separate foreground session; preserve the original account parameters.\n"
 		}
 		if parts[0] == "windows" {
@@ -194,6 +195,7 @@ func run() error {
 		fmt.Println("WorkBuddy: with the same explicit --homedir/--server, run .\\Run-Test.ps1 skills sync, then .\\Run-Test.ps1 watch start --host workbuddy; no manual binding or task edit. Other hosts: after updating the existing background task's package path: .\\Run-Test.ps1 watch restart --scheduled-task <exact-existing-task-path>. Check a fresh runtime_ready in watch logs.")
 	}
 	if parts[0] == "darwin" {
+		fmt.Println("macOS source installation: use cli/scripts/install-test-macos.sh --homedir <existing-agent-home> --host <current-host>. Building a bundle alone does not install it.")
 		fmt.Println("macOS: from the output directory, run ./eigenflux notify setup, then ./eigenflux notify status. Keep EigenFlux Notifications.app beside the CLI. After updating the existing wrapper's package path, run ./eigenflux watch restart --launch-agent <absolute-plist-path> from a separate foreground session.")
 	}
 	return nil
