@@ -17,12 +17,23 @@ const (
 	EventTypeFeedback = "feedback"
 )
 
+// Feedback is one accepted score report. Optional telemetry never creates a
+// follow-up event; ClientKey deduplicates durable score effects per Agent.
+type Feedback struct {
+	AgentID, ItemID                                            int64
+	Score                                                      int
+	ImpressionID, ClientKey, ImpressionSource, ContractVersion string
+	Surfaced                                                   *bool
+}
+
 type Event struct {
-	EventType    string
-	AgentID      int64
-	ItemID       int64
-	Score        int
-	ImpressionID string
+	EventType                                    string
+	AgentID                                      int64
+	ItemID                                       int64
+	Score                                        int
+	ImpressionID                                 string
+	ClientKey, ImpressionSource, ContractVersion string
+	Surfaced                                     *bool
 }
 
 var ErrNilPublisher = errors.New("item stats publisher is nil")
@@ -38,18 +49,26 @@ func PublishConsumed(ctx context.Context, agentID, itemID int64) (string, error)
 	})
 }
 
-func PublishFeedback(ctx context.Context, agentID, itemID int64, score int, impressionID string) (string, error) {
+func PublishFeedback(ctx context.Context, feedback Feedback) (string, error) {
 	if mq.RDB == nil {
 		return "", ErrNilPublisher
 	}
 	values := map[string]interface{}{
 		"event_type": EventTypeFeedback,
-		"agent_id":   strconv.FormatInt(agentID, 10),
-		"item_id":    strconv.FormatInt(itemID, 10),
-		"score":      strconv.Itoa(score),
+		"agent_id":   strconv.FormatInt(feedback.AgentID, 10),
+		"item_id":    strconv.FormatInt(feedback.ItemID, 10),
+		"score":      strconv.Itoa(feedback.Score),
 	}
-	if impressionID != "" {
-		values["impression_id"] = impressionID
+	for key, value := range map[string]string{
+		"impression_id": feedback.ImpressionID, "client_key": feedback.ClientKey,
+		"impression_source": feedback.ImpressionSource, "contract_version": feedback.ContractVersion,
+	} {
+		if value != "" {
+			values[key] = value
+		}
+	}
+	if feedback.Surfaced != nil {
+		values["surfaced"] = strconv.FormatBool(*feedback.Surfaced)
 	}
 	return mq.Publish(ctx, StreamName, values)
 }
@@ -99,6 +118,20 @@ func ParseEvent(values map[string]interface{}) (Event, error) {
 		event.Score = score
 		if impressionID, ok := values["impression_id"].(string); ok && impressionID != "" {
 			event.ImpressionID = impressionID
+		}
+		event.ClientKey, _ = values["client_key"].(string)
+		event.ImpressionSource, _ = values["impression_source"].(string)
+		event.ContractVersion, _ = values["contract_version"].(string)
+		if raw, present := values["surfaced"]; present {
+			value, ok := raw.(string)
+			if !ok {
+				return Event{}, fmt.Errorf("invalid surfaced")
+			}
+			surfaced, err := strconv.ParseBool(value)
+			if err != nil {
+				return Event{}, fmt.Errorf("invalid surfaced %q", value)
+			}
+			event.Surfaced = &surfaced
 		}
 		return event, nil
 	default:

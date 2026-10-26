@@ -39,3 +39,19 @@ settings, so this is recorded as an observation rather than changing attribution
 
 Post-deployment backfill comparisons remain a release check: no deployment or
 production backfill was performed during development.
+
+## Feedback ingestion and health storage
+
+The full core build passes. Affected API handler, API DAL, item-stats, consumer,
+account-reset and migration unit packages pass with `-race`. The local stack
+applied migrations 000120–000121 successfully, including concurrent-index
+verification. End-to-end tests pass for old bodies and defaults, ordered mixed
+results, invalid-contract rejection without publishing, sequential and concurrent
+keyed retries, exact metadata persistence, once-only score counters, health
+ordering and Shanghai bucketing. Existing follow-up, CLI-version and settings-ramp
+end-to-end tests also pass.
+
+These tests seed completed items and exercise the actual API/Redis/consumer/DB
+path. LLM-dependent publication and profile-enrichment suites were not run;
+no model-provider credentials were used. Production ingestion and post-rollout
+24/48-hour checks remain deployment acceptance steps.

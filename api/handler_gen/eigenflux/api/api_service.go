@@ -1177,7 +1177,7 @@ func itemdalSplit(raw string) []string {
 
 // BatchFeedback submits feedback scores for items
 // @Summary Submit batch feedback
-// @Description Submit score feedback (-1 to 2) for multiple items
+// @Description Submit score feedback (-1 to 2) for multiple items. A publish failure may follow partial acceptance; retries are idempotent only with a stable client_key per item report.
 // @Tags Item
 // @Accept json
 // @Produce json
@@ -1197,6 +1197,12 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 	}
 	logger.Ctx(ctx).Info("BatchFeedback", "agentID", agentID, "items", len(req.Items))
 
+	contract, valid := normalizeFeedbackContract(req.ContractVersion)
+	if !valid {
+		writeJSON(c, http.StatusBadRequest, 400, "invalid contract_version", nil)
+		return
+	}
+	results := make([]*apimodel.FeedbackItemResult, 0, len(req.Items))
 	processedCount := 0
 	usefulCount := 0
 	keptCount := 0
@@ -1207,6 +1213,9 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 	}
 	itemIDs := make([]int64, 0, len(req.Items))
 	for _, it := range req.Items {
+		if it == nil {
+			continue
+		}
 		if itemID, err := strconv.ParseInt(it.ItemID, 10, 64); err == nil {
 			itemIDs = append(itemIDs, itemID)
 		}
@@ -1220,26 +1229,19 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	for _, it := range req.Items {
-		itemID, err := strconv.ParseInt(it.ItemID, 10, 64)
-		if err != nil {
-			skippedReasons = append(skippedReasons, "invalid item_id "+it.ItemID)
+		feedback, reason := normalizeFeedbackItem(agentID, it, batchImpressionID, contract, authors)
+		result := &apimodel.FeedbackItemResult{Status: "accepted"}
+		if it != nil {
+			result.ItemID = it.ItemID
+		}
+		results = append(results, result)
+		if reason != "" {
+			result.Status = "rejected"
+			result.Reason = &reason
+			skippedReasons = append(skippedReasons, reason)
 			continue
 		}
-		if it.Score < -1 || it.Score > 2 {
-			skippedReasons = append(skippedReasons, "invalid score for item "+it.ItemID)
-			continue
-		}
-		if author, known := authors[itemID]; known && author == agentID {
-			skippedReasons = append(skippedReasons, "own item "+it.ItemID)
-			continue
-		}
-
-		impressionID := batchImpressionID
-		if it.ImpressionID != nil && strings.TrimSpace(*it.ImpressionID) != "" {
-			impressionID = strings.TrimSpace(*it.ImpressionID)
-		}
-
-		if _, err := itemstats.PublishFeedback(ctx, agentID, itemID, int(it.Score), impressionID); err != nil {
+		if _, err := itemstats.PublishFeedback(ctx, feedback); err != nil {
 			writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 			return
 		}
@@ -1253,6 +1255,7 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 	}
 
 	data := map[string]interface{}{
+		"results":         results,
 		"processed_count": processedCount,
 		"skipped_count":   len(skippedReasons),
 	}
@@ -3266,7 +3269,7 @@ func ConsoleHighlightFeedback(ctx context.Context, c *app.RequestContext) {
 		impressionID = *req.ImpressionID
 	}
 
-	if _, err := itemstats.PublishFeedback(ctx, agentID, itemID, score, impressionID); err != nil {
+	if _, err := itemstats.PublishFeedback(ctx, itemstats.Feedback{AgentID: agentID, ItemID: itemID, Score: score, ImpressionID: impressionID}); err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
 	}
@@ -3397,9 +3400,10 @@ func GetMySettings(ctx context.Context, c *app.RequestContext) {
 }
 
 type agentSettingsWriteRequest struct {
-	FeedDeliveryPreference *string `json:"feed_delivery_preference"`
-	Mode                   *string `json:"mode"`
-	Lang                   *string `json:"lang"`
+	FeedbackHealth         *consoledal.FeedbackHealthReport `json:"feedback_health"`
+	FeedDeliveryPreference *string                          `json:"feed_delivery_preference"`
+	Mode                   *string                          `json:"mode"`
+	Lang                   *string                          `json:"lang"`
 	// Legacy clients may still send these fields. They are accepted for wire
 	// compatibility but ignored; only the versioned context endpoint writes them.
 	RecurringPublish        *bool  `json:"recurring_publish"`
@@ -3449,6 +3453,10 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 		writeJSON(c, http.StatusBadRequest, 400, "lang must be zh or en", nil)
 		return
 	}
+	if !body.FeedbackHealth.Valid() {
+		writeJSON(c, http.StatusBadRequest, 400, "invalid feedback_health", nil)
+		return
+	}
 	body.discardLegacySecurityBoundary()
 	clientInfo := reqinfo.ClientFromContext(ctx)
 	mode := clientInfo.Mode
@@ -3472,6 +3480,9 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 		}
 		if observation.Outcome == "stale" {
 			return errors.New("runtime report superseded")
+		}
+		if err := consoledal.ReportFeedbackHealth(tx, agentID, requestStartedAt, clientInfo.CLIVer, body.FeedbackHealth); err != nil {
+			return err
 		}
 		return consoledal.UpdateAgentReportedSettings(tx, agentID, body.FeedDeliveryPreference, nil, body.Lang, body.FeedPollInterval, body.FeedPollIntervalUserSet, body.OfficialPMOptout)
 	}); err != nil {

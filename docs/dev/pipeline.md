@@ -389,3 +389,16 @@ source pages, with a shared checkpoint and cycle pause. A separate bounded audit
 adopts physical retention on legacy keys and counts physical keys by type.
 Completed census snapshots, source scan progress and failure counters are exported
 through Pipeline metrics; see [feature monitoring](feature_index.md#monitoring).
+
+### Feedback report idempotency
+
+The item-stats stream carries optional `client_key`, `surfaced`,
+`impression_source`, and `contract_version`. Old queued messages remain valid.
+After migrations 000120–000121, the consumer stores this metadata with each
+feedback log. `ON CONFLICT DO NOTHING` handles both stream redelivery and the
+partial unique `(agent_id, client_key)` index for nonempty keys. Only a newly
+inserted feedback row increments item counters or triggers the existing
+high-quality/milestone path. Empty keys keep legacy event volume. Surface
+metadata never creates a follow-up label. Deploy the additive schema and valid
+concurrent index before the updated API and Pipeline; client adoption happens
+separately and historical facts are not rewritten.

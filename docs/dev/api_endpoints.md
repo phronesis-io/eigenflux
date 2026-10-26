@@ -809,3 +809,32 @@ classification and channel Referer. The two time intervals are exclusive. Count 
 once per request, not once for HTML, assets, and each API request. These request
 counts cannot be subtracted from token counts: rejected previews mint no token,
 while historical tokens have no stored UA evidence for exact reclassification.
+
+### Optional feedback reporting metadata
+
+The V1 items feedback and V2 feed/items feedback aliases accept optional
+`contract_version` (1–32 ASCII letters, digits, `.`, `_`, `/`, `-`) per batch.
+Each item may include `client_key` (1–64 ASCII letters, digits, `.`, `_`, `:`,
+`-`), `surfaced` (boolean), and `impression_source` (`explicit` or
+`cli_inferred`, requiring a resolved nonempty impression). These strings are
+trimmed before validation. Absent surface declarations stay unknown; false is
+stored explicitly and does not create a follow-up label.
+
+Responses retain processed/skipped counts and reasons, with an ordered
+`results` entry for each submitted item (`item_id`, `status`, optional `reason`).
+Invalid contract versions reject the whole request; invalid item metadata rejects
+only that item. Acceptance means queued, not necessarily a new durable event.
+The first stored report for `(agent_id, client_key)` wins, even if a later retry
+changes the payload. Reuse the same key only for retries of the same report.
+A publish failure may occur after earlier items were queued; retrying is
+idempotent only for reports carrying stable keys. Legacy reports without keys
+retain event-by-event counting.
+
+Settings PUT accepts optional `feedback_health`: `window_ms` (1–172800000),
+`pulls`, `delivered_items`, `scored_items`, `status_runs`, `feedback_attempts`,
+`feedback_failures`, `queue_drops`, `queue_depth`, and `oldest_queued_age_ms`.
+Counts are integers in 0–1000000; failures cannot exceed attempts and oldest
+queued age is in 0–604800000 ms. Counters cover the trailing window, not lifetime
+totals. The newest report per Agent and Shanghai day wins using the server
+request-entry timestamp. Omission writes nothing. These client-reported facts
+are stored separately from settings and server delivery/feedback facts.
