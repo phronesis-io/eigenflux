@@ -43,5 +43,16 @@
     "title": "Keep active Agent sessions renewable",
     "description": "Successful refresh rotations advance a rolling 30-day window after API deployment. Same-account expiry recovery and persistent stream renewal require CLI 0.6.7; host notifications and Skills adopt separately. Historical failed checks are not backfilled.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/428"
+  },
+  {
+    "id": "feed-v2-baseline-context-v1",
+    "kind": "behavior",
+    "deploy_scope": "api",
+    "dashboards": [
+      "user-growth"
+    ],
+    "title": "Keep baseline Feed readable after onboarding",
+    "description": "After API deployment, completed accounts without personalized discovery input receive baseline Feed compatible with existing strict CLI clients. No client upgrade is required. Historical client failures and exposure rows are not backfilled; server-side Feed delivery alone does not establish successful client consumption.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/436"
   }
 ]
