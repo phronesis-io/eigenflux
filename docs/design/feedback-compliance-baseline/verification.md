@@ -8,10 +8,12 @@
   with an explicit loopback `recommendation_metrics_*` PostgreSQL database.
 - The same affected packages and `./migrations` pass without a metrics DSN;
   PostgreSQL fixture cases skip explicitly in that mode.
-- Ten native compliance cases plus the shared classification contract cover
+- Eleven native compliance cases plus the shared classification contract cover
   exact counts, all seven reconciliation identities, every additive count's
   conservation, anonymity thresholds, timing boundaries, final-score ordering,
-  PM initiation, writers and schema constraints.
+  PM initiation, writers, schema constraints and a 4,000-Agent plan-shape guard
+  (fewer than one million discarded rows; the previous aggregation discarded
+  256 million and took 28 seconds at 5,000 Agents on production-shaped indexes).
 - Live local E2E: `TestPushFeedEvents`, `TestRuntimeCLIVersionReported` and
   `TestSettingsRampUserSetSemantics`.
 - A rolled-back local transaction created `grafana_ro_v2` before applying the

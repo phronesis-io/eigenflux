@@ -242,8 +242,11 @@ A batch is one Feed response page (its impression and consumer). Mature batches
 partition into fully scored, partially scored and unscored batches. At least
 five scored exposures make a batch a degenerate candidate; equal final scores
 make it degenerate. Positive means a final score of 1 or 2. A positive batch
-without any exact surface in the 48-hour window establishes a lower bound on
-surface under-reporting. Surfaced but unscored and surfaced but nonpositive
+without any exact surface in the 48-hour window is ambiguous: the Agent either
+chose not to present it (delivery preference, calibration or routing) or did not
+report the surface. It is neither a lower nor an upper bound on under-reporting;
+it also misses partial omissions inside batches that reported some surface.
+Surfaced but unscored and surfaced but nonpositive
 exposures have separate counters. A surface or follow-up before delivery, at
 48 hours, or on an ambiguous key never contributes to exposure outcomes.
 
@@ -252,7 +255,9 @@ a broadcast conversation initiated by the consumer, linked to the item, whose
 first consumer message is inside the exposure's 48-hour window. The other
 participant's message in that window counts as an author reply. Later consumer
 messages cannot turn an older conversation into a new Agent PM. These counts
-cannot distinguish automatic comments from owner-requested PMs.
+cannot distinguish automatic comments from owner-requested PMs. Agent PM is
+matched by consumer, item and window rather than impression, so one PM counts
+for every mature exposure of that item to that consumer whose window contains it.
 
 **Event-day population.** Valid scores and surfaces use Shanghai event day and
 include search, legacy and unattributed events, matching the recommendation
@@ -310,8 +315,8 @@ For every dimension, each count summed across values must equal the all row.
 Daily distinct `delivered_agents` is not an additive metric across dates or
 values for distinct-participant reporting. Grafana shows daily Agent minimum
 and maximum instead of a multi-day sum. Ratios use summed numerators over
-summed denominators; empty denominators and row groups with fewer than 200
-mature exposures remain blank. The overview/cohort table use only final days;
+summed denominators; a rate whose own summed denominator is below 200 remains
+blank, and its raw numerator and denominator stay visible. The overview/cohort table use only final days;
 trends mark non-final dates and preserve missing-day gaps.
 
 **Backfill and rollback.** Use explicit dates, normally no more than the last
@@ -333,7 +338,12 @@ The PostgreSQL compliance tests cover exact numbers for all coverage windows,
 batch splits, final scores, surface consistency, PM origins and first messages,
 ambiguity, cohort thresholds, conservation, all seven reconciliation identities,
 Shanghai boundaries, strict maturity, idempotency, stale writers, rollback,
-advisory locking, disappearing cohorts and pending-day selection. Validate
+advisory locking, disappearing cohorts and pending-day selection. Fixture
+indexes mirror production fact-table indexes. A 4,000-Agent day asserts the
+refresh plan discards fewer than one million rows in total: per-Agent partial
+counts are stacked and summed instead of joined, and exposure lookups are fenced
+on the impression index, because aggregate row estimates otherwise produce
+quadratic nested loops or full 48-hour window scans. Validate
 production capacity separately: on the busiest retained day, the read-replica
 `EXPLAIN ANALYZE` must stay under 10 seconds without fact-table sequential scans;
 fixture timings are not evidence of production capacity.

@@ -3,6 +3,7 @@ package recommendationmetrics
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -517,6 +518,72 @@ func TestPostgresComplianceHalfOpenWindows(t *testing.T) {
 	if got["scored_1h_exposures"] != 1 || got["scored_24h_exposures"] != 2 || got["scored_48h_exposures"] != 3 {
 		t.Fatal(got)
 	}
+}
+
+func complianceDiscardedRows(t *testing.T, c *sql.DB) float64 {
+	t.Helper()
+	tx, err := c.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	var raw []byte
+	if err := tx.QueryRow("EXPLAIN (ANALYZE, FORMAT JSON) "+complianceDaySQL, complianceDay, complianceCutoff.UnixMilli()).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var plans []struct{ Plan map[string]any }
+	if err := json.Unmarshal(raw, &plans); err != nil || len(plans) != 1 {
+		t.Fatal(err, len(plans))
+	}
+	var walk func(map[string]any) float64
+	walk = func(node map[string]any) float64 {
+		loops, _ := node["Actual Loops"].(float64)
+		filtered, _ := node["Rows Removed by Filter"].(float64)
+		joinFiltered, _ := node["Rows Removed by Join Filter"].(float64)
+		total := (filtered + joinFiltered) * loops
+		children, _ := node["Plans"].([]any)
+		for _, child := range children {
+			total += walk(child.(map[string]any))
+		}
+		return total
+	}
+	return walk(plans[0].Plan)
+}
+
+func TestPostgresComplianceManyAgentsDay(t *testing.T) {
+	c := complianceDB(t)
+	served := complianceServed.UnixMilli()
+	complianceExec(t, c, `
+	 INSERT INTO agents SELECT n,'many'||n||'@example.invalid',false FROM generate_series(1000,4999) n;
+	 INSERT INTO agent_settings(agent_id,runtime_name,mode,cli_version,model,skill_revision,heartbeat_contract_version,auto_comment)
+	 SELECT n,'runtime-'||n%9,CASE WHEN n%2=0 THEN 'plugin' ELSE 'skill' END,'0.6.'||n%11,'model-'||n%7,'rev-'||n%13,'v'||n%3,n%2=0
+	 FROM generate_series(1000,4999) n;`)
+	// Each Agent receives two five-item pages; whole pages are scored or unscored.
+	complianceExec(t, c, `INSERT INTO replay_logs SELECT 10000+n,1000+n%4000,10+n/4000,'many-'||n%4000||'-'||n/20000,$1::bigint+n,
+	 true,'broadcast','need_search_v1',2,'recommendation',0,'{"search":{"context":{"input_origin":"agent_context"}}}'
+	 FROM generate_series(0,39999) n`, served)
+	complianceExec(t, c, `
+	 INSERT INTO feedback_logs(agent_id,item_id,impression_id,feedback_at,score)
+	 SELECT agent_id,item_id,impression_id,served_at+1000,id%4-1 FROM replay_logs WHERE id%5<>0;
+	 INSERT INTO followup_labels SELECT agent_id,item_id,impression_id,served_at+2000,'surface' FROM replay_logs WHERE id%10=0;
+	 ANALYZE agents; ANALYZE agent_settings; ANALYZE replay_logs; ANALYZE feedback_logs; ANALYZE followup_labels;`)
+	// Discarded rows depend on plan shape, not machine speed. Quadratic joins of
+	// per-Agent aggregates or time-window scans in exposure lookups discard
+	// hundreds of millions of rows at this size.
+	discarded := complianceDiscardedRows(t, c)
+	t.Logf("refresh plan discarded %.0f rows", discarded)
+	if discarded > 1_000_000 {
+		t.Fatalf("refresh plan discarded %.0f rows", discarded)
+	}
+	started := time.Now()
+	refreshCompliance(t, c)
+	t.Logf("4,000 Agents / 40,000 deliveries refreshed in %s", time.Since(started))
+	got := complianceCounts(t, c, "all", "all")
+	if got["delivered_agents"] != 4000 || got["delivered_exposures"] != 40000 || got["mature_exposures"] != 40000 ||
+		got["scored_48h_exposures"] != 32000 || got["surfaced_exposures"] != 4000 || got["mature_batches"] != 8000 {
+		t.Fatal(got)
+	}
+	assertComplianceConservation(t, c)
 }
 
 func TestPostgresComplianceEventOnlyDayAndSchema(t *testing.T) {

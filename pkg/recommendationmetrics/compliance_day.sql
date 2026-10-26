@@ -89,16 +89,23 @@ WITH bounds AS NOT MATERIALIZED (
       SELECT bool_or(f.feedback_at<m.served_at+3600000) AS scored_1h,
         bool_or(f.feedback_at<m.served_at+86400000) AS scored_24h,
         (array_agg(f.score ORDER BY f.feedback_at DESC,f.id DESC))[1] AS final_score
-      FROM feedback_logs f
-      WHERE f.impression_id=m.impression_id AND f.agent_id=m.agent_id AND f.item_id=m.item_id
+      FROM (
+        -- Fence the impression lookup; the ordered aggregate otherwise favors
+        -- time-ordered indexes that scan every event in the 48-hour window.
+        SELECT f.id,f.agent_id,f.item_id,f.feedback_at,f.score FROM feedback_logs f
+        WHERE f.impression_id=m.impression_id OFFSET 0
+      ) f
+      WHERE f.agent_id=m.agent_id AND f.item_id=m.item_id
         AND f.feedback_at>=m.served_at AND f.feedback_at<m.served_at+172800000
         AND f.score IN (-1,0,1,2)
     ) s CROSS JOIN LATERAL (
       SELECT bool_or(f.kind='surface') AS surfaced,
         bool_or(f.kind IN ('question','discussion','task')) AS followed_up
-      FROM followup_labels f
-      WHERE f.impression_id=m.impression_id AND f.impression_id<>''
-        AND f.agent_id=m.agent_id AND f.item_id=m.item_id
+      FROM (
+        SELECT f.agent_id,f.item_id,f.reported_at,f.kind FROM followup_labels f
+        WHERE f.impression_id=m.impression_id AND f.impression_id<>'' OFFSET 0
+      ) f
+      WHERE f.agent_id=m.agent_id AND f.item_id=m.item_id
         AND f.reported_at>=m.served_at AND f.reported_at<m.served_at+172800000
     ) f CROSS JOIN LATERAL (
       SELECT bool_or(msg.first_consumer_at>=m.served_at AND msg.first_consumer_at<m.served_at+172800000) AS agent_pm,
@@ -177,50 +184,109 @@ WITH bounds AS NOT MATERIALIZED (
       count(*) FILTER (WHERE f.impression_id<>'') AS surface_events_with_impression,
       count(*) FILTER (WHERE m.matches=1 AND m.served_at<=f.reported_at) AS surface_events_exact
     FROM followups f LEFT JOIN exact_matches m USING(agent_id,item_id,impression_id) WHERE f.kind='surface' GROUP BY agent_id
-), active_agents AS (
-    SELECT agent_id FROM delivery_counts
-    UNION SELECT agent_id FROM exposure_counts
-    UNION SELECT agent_id FROM batch_counts
-    UNION SELECT agent_id FROM feedback_counts
-    UNION SELECT agent_id FROM surface_counts
+), agent_parts AS (
+    -- Stack per-Agent partial counts instead of joining them. Aggregate row
+    -- estimates are poor, and joined CTEs become quadratic nested loops.
+    SELECT agent_id,1 AS delivered_agents,delivered_exposures,identifiable_exposures,
+      0 AS mature_exposures,0 AS scored_1h_exposures,0 AS scored_24h_exposures,0 AS scored_48h_exposures,
+      0 AS mature_batches,0 AS fully_scored_batches,0 AS partially_scored_batches,0 AS unscored_batches,
+      0 AS degenerate_candidate_batches,0 AS degenerate_batches,
+      0 AS surfaced_exposures,0 AS surfaced_unscored_exposures,0 AS surfaced_nonpositive_exposures,
+      0 AS positive_exposures,0 AS positive_surfaced_exposures,0 AS positive_batches,0 AS positive_batches_without_surface,
+      0 AS followup_exposures,0 AS followup_agent_pm_exposures,0 AS agent_pm_exposures,0 AS author_replied_exposures,
+      0 AS feedback_events,0 AS feedback_events_with_impression,0 AS feedback_events_exact,
+      0 AS surface_events,0 AS surface_events_with_impression,0 AS surface_events_exact
+    FROM delivery_counts
+    UNION ALL
+    SELECT agent_id,0,0,0,
+      mature_exposures,scored_1h_exposures,scored_24h_exposures,scored_48h_exposures,
+      0,0,0,0,0,0,
+      surfaced_exposures,surfaced_unscored_exposures,surfaced_nonpositive_exposures,
+      positive_exposures,positive_surfaced_exposures,0,0,
+      followup_exposures,followup_agent_pm_exposures,agent_pm_exposures,author_replied_exposures,
+      0,0,0,0,0,0
+    FROM exposure_counts
+    UNION ALL
+    SELECT agent_id,0,0,0,0,0,0,0,
+      mature_batches,fully_scored_batches,partially_scored_batches,unscored_batches,
+      degenerate_candidate_batches,degenerate_batches,
+      0,0,0,0,0,positive_batches,positive_batches_without_surface,
+      0,0,0,0,0,0,0,0,0,0
+    FROM batch_counts
+    UNION ALL
+    SELECT agent_id,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      feedback_events,feedback_events_with_impression,feedback_events_exact,0,0,0
+    FROM feedback_counts
+    UNION ALL
+    SELECT agent_id,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+      surface_events,surface_events_with_impression,surface_events_exact
+    FROM surface_counts
+), agent_totals AS MATERIALIZED (
+    SELECT agent_id,
+      sum(delivered_agents) AS delivered_agents,
+      sum(delivered_exposures) AS delivered_exposures,
+      sum(identifiable_exposures) AS identifiable_exposures,
+      sum(mature_exposures) AS mature_exposures,
+      sum(scored_1h_exposures) AS scored_1h_exposures,
+      sum(scored_24h_exposures) AS scored_24h_exposures,
+      sum(scored_48h_exposures) AS scored_48h_exposures,
+      sum(mature_batches) AS mature_batches,
+      sum(fully_scored_batches) AS fully_scored_batches,
+      sum(partially_scored_batches) AS partially_scored_batches,
+      sum(unscored_batches) AS unscored_batches,
+      sum(degenerate_candidate_batches) AS degenerate_candidate_batches,
+      sum(degenerate_batches) AS degenerate_batches,
+      sum(surfaced_exposures) AS surfaced_exposures,
+      sum(surfaced_unscored_exposures) AS surfaced_unscored_exposures,
+      sum(surfaced_nonpositive_exposures) AS surfaced_nonpositive_exposures,
+      sum(positive_exposures) AS positive_exposures,
+      sum(positive_surfaced_exposures) AS positive_surfaced_exposures,
+      sum(positive_batches) AS positive_batches,
+      sum(positive_batches_without_surface) AS positive_batches_without_surface,
+      sum(followup_exposures) AS followup_exposures,
+      sum(followup_agent_pm_exposures) AS followup_agent_pm_exposures,
+      sum(agent_pm_exposures) AS agent_pm_exposures,
+      sum(author_replied_exposures) AS author_replied_exposures,
+      sum(feedback_events) AS feedback_events,
+      sum(feedback_events_with_impression) AS feedback_events_with_impression,
+      sum(feedback_events_exact) AS feedback_events_exact,
+      sum(surface_events) AS surface_events,
+      sum(surface_events_with_impression) AS surface_events_with_impression,
+      sum(surface_events_exact) AS surface_events_exact
+    FROM agent_parts GROUP BY agent_id
 ), folded_counts AS (
     SELECT c.dimension,CASE WHEN c.dimension='all' OR k.value IS NOT NULL THEN c.value ELSE 'other' END AS value,
-      sum(COALESCE(d.delivered_exposures,0)) AS delivered_exposures,
-      count(d.agent_id) AS delivered_agents,
-      sum(COALESCE(d.identifiable_exposures,0)) AS identifiable_exposures,
-      sum(COALESCE(e.mature_exposures,0)) AS mature_exposures,
-      sum(COALESCE(e.scored_1h_exposures,0)) AS scored_1h_exposures,
-      sum(COALESCE(e.scored_24h_exposures,0)) AS scored_24h_exposures,
-      sum(COALESCE(e.scored_48h_exposures,0)) AS scored_48h_exposures,
-      sum(COALESCE(b.mature_batches,0)) AS mature_batches,
-      sum(COALESCE(b.fully_scored_batches,0)) AS fully_scored_batches,
-      sum(COALESCE(b.partially_scored_batches,0)) AS partially_scored_batches,
-      sum(COALESCE(b.unscored_batches,0)) AS unscored_batches,
-      sum(COALESCE(b.degenerate_candidate_batches,0)) AS degenerate_candidate_batches,
-      sum(COALESCE(b.degenerate_batches,0)) AS degenerate_batches,
-      sum(COALESCE(e.surfaced_exposures,0)) AS surfaced_exposures,
-      sum(COALESCE(e.surfaced_unscored_exposures,0)) AS surfaced_unscored_exposures,
-      sum(COALESCE(e.surfaced_nonpositive_exposures,0)) AS surfaced_nonpositive_exposures,
-      sum(COALESCE(e.positive_exposures,0)) AS positive_exposures,
-      sum(COALESCE(e.positive_surfaced_exposures,0)) AS positive_surfaced_exposures,
-      sum(COALESCE(b.positive_batches,0)) AS positive_batches,
-      sum(COALESCE(b.positive_batches_without_surface,0)) AS positive_batches_without_surface,
-      sum(COALESCE(e.followup_exposures,0)) AS followup_exposures,
-      sum(COALESCE(e.followup_agent_pm_exposures,0)) AS followup_agent_pm_exposures,
-      sum(COALESCE(e.agent_pm_exposures,0)) AS agent_pm_exposures,
-      sum(COALESCE(e.author_replied_exposures,0)) AS author_replied_exposures,
-      sum(COALESCE(f.feedback_events,0)) AS feedback_events,
-      sum(COALESCE(f.feedback_events_with_impression,0)) AS feedback_events_with_impression,
-      sum(COALESCE(f.feedback_events_exact,0)) AS feedback_events_exact,
-      sum(COALESCE(s.surface_events,0)) AS surface_events,
-      sum(COALESCE(s.surface_events_with_impression,0)) AS surface_events_with_impression,
-      sum(COALESCE(s.surface_events_exact,0)) AS surface_events_exact
-    FROM active_agents a JOIN cohorts c USING(agent_id)
-    LEFT JOIN delivery_counts d USING(agent_id)
-    LEFT JOIN exposure_counts e USING(agent_id)
-    LEFT JOIN batch_counts b USING(agent_id)
-    LEFT JOIN feedback_counts f USING(agent_id)
-    LEFT JOIN surface_counts s USING(agent_id)
+      sum(t.delivered_agents) AS delivered_agents,
+      sum(t.delivered_exposures) AS delivered_exposures,
+      sum(t.identifiable_exposures) AS identifiable_exposures,
+      sum(t.mature_exposures) AS mature_exposures,
+      sum(t.scored_1h_exposures) AS scored_1h_exposures,
+      sum(t.scored_24h_exposures) AS scored_24h_exposures,
+      sum(t.scored_48h_exposures) AS scored_48h_exposures,
+      sum(t.mature_batches) AS mature_batches,
+      sum(t.fully_scored_batches) AS fully_scored_batches,
+      sum(t.partially_scored_batches) AS partially_scored_batches,
+      sum(t.unscored_batches) AS unscored_batches,
+      sum(t.degenerate_candidate_batches) AS degenerate_candidate_batches,
+      sum(t.degenerate_batches) AS degenerate_batches,
+      sum(t.surfaced_exposures) AS surfaced_exposures,
+      sum(t.surfaced_unscored_exposures) AS surfaced_unscored_exposures,
+      sum(t.surfaced_nonpositive_exposures) AS surfaced_nonpositive_exposures,
+      sum(t.positive_exposures) AS positive_exposures,
+      sum(t.positive_surfaced_exposures) AS positive_surfaced_exposures,
+      sum(t.positive_batches) AS positive_batches,
+      sum(t.positive_batches_without_surface) AS positive_batches_without_surface,
+      sum(t.followup_exposures) AS followup_exposures,
+      sum(t.followup_agent_pm_exposures) AS followup_agent_pm_exposures,
+      sum(t.agent_pm_exposures) AS agent_pm_exposures,
+      sum(t.author_replied_exposures) AS author_replied_exposures,
+      sum(t.feedback_events) AS feedback_events,
+      sum(t.feedback_events_with_impression) AS feedback_events_with_impression,
+      sum(t.feedback_events_exact) AS feedback_events_exact,
+      sum(t.surface_events) AS surface_events,
+      sum(t.surface_events_with_impression) AS surface_events_with_impression,
+      sum(t.surface_events_exact) AS surface_events_exact
+    FROM agent_totals t JOIN cohorts c USING(agent_id)
     LEFT JOIN kept_values k USING(dimension,value)
     GROUP BY c.dimension,CASE WHEN c.dimension='all' OR k.value IS NOT NULL THEN c.value ELSE 'other' END
 ), row_keys AS (

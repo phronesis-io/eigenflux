@@ -42,7 +42,7 @@ All metrics share these definitions.
 | Batch | One `impression_id`, i.e. one Feed response page. Batch metrics use mature exposures only |
 | Surface | An exact `followup_labels` row with `kind='surface'` within the exposure's 48 h window |
 | Follow-up | An exact `followup_labels` row with `kind IN ('question','discussion','task')` within the 48 h window |
-| Agent PM | A conversation with `origin_type='broadcast' AND origin_id = item_id AND initiator_id = consumer`, whose first message from the consumer has `created_at` within the 48 h window. It cannot distinguish an auto-comment from an owner-requested message |
+| Agent PM | A conversation with `origin_type='broadcast' AND origin_id = item_id AND initiator_id = consumer`, whose first message from the consumer has `created_at` within the 48 h window. It cannot distinguish an auto-comment from an owner-requested message. It is not impression-attributed, so one PM counts for every mature exposure of the item to that consumer whose window contains it |
 | Author reply | A message in an Agent PM conversation sent by the other participant within the 48 h window |
 | Time basis | Exposure metrics are bucketed by Shanghai delivery day. Event-side metrics are bucketed by Shanghai event day. Both live in the same row |
 | Final day | Same rule as recommendation effect: a day is final once its snapshot cutoff reaches Shanghai midnight at `day + 3`. Maturity metrics of non-final days are incomplete |
@@ -109,7 +109,7 @@ Table `feedback_compliance_daily`:
 | `positive_exposures` | Final score `>= 1` |
 | `positive_surfaced_exposures` | Final score `>= 1` and surfaced |
 | `positive_batches` | Batches with at least one final score `>= 1` |
-| `positive_batches_without_surface` | Positive batches with no surface on any exposure (lower bound of surface under-reporting) |
+| `positive_batches_without_surface` | Positive batches with no surface on any exposure. Ambiguous between deliberate non-presentation and an unreported surface; neither a lower nor an upper bound on under-reporting |
 | **Follow-up and PM** | |
 | `followup_exposures` | Mature exposures with a follow-up |
 | `followup_agent_pm_exposures` | Of those, exposures that also have an Agent PM |
@@ -272,8 +272,8 @@ Mirror the recommendation-effect page.
 | Release annotations | `release_annotations.annotation_queries`, as existing pages |
 
 Rates are summed numerators over summed denominators; an empty denominator is
-blank, never zero. Rates are blank when a row group has fewer than 200 mature
-exposures; hovering shows raw counts.
+blank, never zero. Each rate is blank when its own summed denominator is below
+200; hovering and the cohort table show raw numerators and denominators.
 
 - **Variables:** `$dimension` (one of the dimensions) and the time range.
 - **Panel 1 — Overview** (`all`, final days only):
@@ -281,7 +281,7 @@ exposures; hovering shows raw counts.
   - identifiable rate = `identifiable_exposures / delivered_exposures`
   - unscored batch share = `unscored_batches / mature_batches`
   - partially scored batch share = `partially_scored_batches / mature_batches`
-  - surface under-report lower bound = `positive_batches_without_surface / positive_batches`
+  - surface ambiguity = `positive_batches_without_surface / positive_batches`
   - surfaced-unscored share = `surfaced_unscored_exposures / surfaced_exposures`
   - degenerate batch share = `degenerate_batches / degenerate_candidate_batches`
   - Agent-PM-explained follow-up share = `followup_agent_pm_exposures / followup_exposures`
@@ -329,7 +329,7 @@ Deployment order: migration → pipeline-cron (with the release annotation) →
 | High unscored batch share and high surfaced-unscored share | Pulls were processed but scores never arrived | Step 3 first (durable queue, idempotency key, flush on every CLI invocation) |
 | High unscored batch share, low surfaced-unscored share | Pulls were never processed (not run or not read) | Fix scheduling and heartbeat execution; step 3 has limited effect |
 | High partially scored batch share | Truncation or partial processing | Step 4 (cycle completion check) |
-| High surface under-report lower bound | "Not surfaced" versus "not reported" ambiguity is material | Step 2 first (`surfaced` on each score) |
+| High surface ambiguity | "Not surfaced" versus "not reported" ambiguity is material | Step 2 first (`surfaced` on each score) |
 | 1 h coverage far below 48 h | Reporting lag | Step 3 (flush on every invocation) |
 | Loss concentrated in specific CLI versions, hosts or models | Cohort-specific defect | Targeted fix or upgrade push instead of a global change |
 | High Agent-PM-explained follow-up share | Follow-ups are mostly Agent actions | Separate actors in later label set work |

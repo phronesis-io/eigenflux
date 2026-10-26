@@ -63,11 +63,12 @@ func fixtureDB(t *testing.T) *sql.DB {
 	 initiator_id bigint,origin_type text,origin_id bigint);
 	 CREATE TABLE private_messages(msg_id bigint PRIMARY KEY,conv_id bigint,sender_id bigint,created_at bigint);
 	 CREATE INDEX idx_replay_logs_impression ON replay_logs(impression_id);
-	 CREATE INDEX idx_replay_logs_served ON replay_logs(served_at);
+	 CREATE INDEX idx_replay_logs_agent_served ON replay_logs(agent_id,served_at);
 	 CREATE INDEX idx_feedback_logs_impression_id ON feedback_logs(impression_id);
-	 CREATE INDEX idx_feedback_logs_time ON feedback_logs(feedback_at);
+	 CREATE INDEX idx_feedback_logs_agent_feedback_at ON feedback_logs(agent_id,feedback_at);
+	 CREATE INDEX idx_feedback_logs_item_feedback_at ON feedback_logs(item_id,feedback_at);
 	 CREATE INDEX idx_followup_labels_impression ON followup_labels(impression_id) WHERE impression_id<>'';
-	 CREATE INDEX idx_followup_labels_time ON followup_labels(reported_at);
+	 CREATE INDEX idx_followup_labels_agent_item ON followup_labels(agent_id,item_id,reported_at);
 	 CREATE INDEX idx_conv_origin_id ON conversations(origin_id) WHERE origin_id>0;
 	 CREATE INDEX idx_pm_conv_msg ON private_messages(conv_id,msg_id DESC);
 	 INSERT INTO agents VALUES (1,'consumer@example.invalid',false),(2,'second@example.invalid',false),
