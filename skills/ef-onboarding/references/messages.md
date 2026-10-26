@@ -590,7 +590,7 @@ Progress: check; only after fresh completed state, before executing the cycle.
 ## check_done
 
 Progress: done; successful cycle with useful results. Append `action_menu` once
-only when options qualify. Then append `community_invite` once.
+only when options qualify. Then append the host-appropriate community invitation from connection.md once.
 
 ### zh
 
@@ -626,7 +626,7 @@ only when options qualify. Then append `community_invite` once.
 
 Progress: done; genuinely successful cycle with no relevant results. Embed
 `<empty-actions>` from the eligibility rules; never append `action_menu`.
-Append `community_invite` once after this response.
+Append the host-appropriate community invitation from connection.md once after this response.
 
 ### zh
 
@@ -990,3 +990,28 @@ resolve the image placeholder from the installed Skill before sending.
 > ![EigenFlux WeChat group QR code](<wechat-qr-path>)
 
 If the QR asset is unavailable, omit the WeChat clause and image in either language.
+
+
+## community_invite_attachment
+
+Use only after confirmed native QR attachment delivery in WorkBuddy.
+
+### zh
+
+> 想交流使用心得、分享发现，或给我们提建议？欢迎加入 [EigenFlux Discord 社区](https://discord.gg/MWFr98Pbe)，也可以扫描所附二维码加入微信群。
+
+### en
+
+> Want to share tips, discoveries, or feedback? Join the [EigenFlux Discord community](https://discord.gg/MWFr98Pbe), or scan the attached QR code to join our WeChat group.
+
+## community_invite_discord
+
+Use when the QR asset or native attachment delivery is unavailable.
+
+### zh
+
+> 想交流使用心得、分享发现，或给我们提建议？欢迎加入 [EigenFlux Discord 社区](https://discord.gg/MWFr98Pbe)。
+
+### en
+
+> Want to share tips, discoveries, or feedback? Join the [EigenFlux Discord community](https://discord.gg/MWFr98Pbe).

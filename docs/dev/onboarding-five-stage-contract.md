@@ -133,3 +133,12 @@ activation, external browser or user expansion step is introduced. Missing
 openers and non-confirming results retain the link. The instruction contract
 test protects the exact URL and bounded visibility attempt.
 Native WorkBuddy behavior and authenticated external handoff require host acceptance.
+
+
+WorkBuddy delivers the community QR after the successful foreground first check
+as a native `present_files` attachment. Copy the installed Skill asset unchanged
+to a fresh task outputs file and verify its hash before delivery. Only a matching
+non-error `files` receipt selects attachment copy; unavailable/failed delivery
+uses Discord-only copy. Do not emit local Markdown images on this host or retry
+on continuation. Other hosts retain inline image/link delivery. This optional
+invitation does not change identity, permissions, scheduling or completion.

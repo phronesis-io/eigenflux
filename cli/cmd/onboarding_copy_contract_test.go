@@ -180,8 +180,8 @@ func TestOnboardingCommunityInvitation(t *testing.T) {
 		}
 	}
 	messages := read("references/messages.md")
-	if strings.Count(messages, "https://discord.gg/MWFr98Pbe") != 2 {
-		t.Error("expected bilingual community links")
+	if strings.Count(messages, "https://discord.gg/MWFr98Pbe") != 6 {
+		t.Error("expected bilingual inline, attachment and Discord-only community links")
 	}
 	if !strings.HasPrefix(read("assets/wechat-group-qr.png"), "\x89PNG\r\n\x1a\n") {
 		t.Error("missing bundled PNG")
@@ -242,6 +242,45 @@ func TestWorkBuddyDirectPreviewContract(t *testing.T) {
 	} {
 		if !strings.Contains(section, required) {
 			t.Errorf("missing host handoff contract: %s", required)
+		}
+	}
+}
+
+func TestWorkBuddyCommunityAttachmentContract(t *testing.T) {
+	b, err := os.ReadFile("../../skills/ef-onboarding/references/connection.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	section := strings.SplitN(string(b), "In WorkBuddy, deliver the QR", 2)
+	if len(section) != 2 {
+		t.Fatal("missing native QR delivery route")
+	}
+	for _, phrase := range []string{"fresh file", "`outputs/`", "do not overwrite", "SHA-256", "`present_files` once", "that exact path in `files`", "do not add a raw local Markdown image or file link", "`community_invite_discord`", "without retrying or blocking onboarding", "For other hosts, use `community_invite`"} {
+		if !strings.Contains(section[1], phrase) {
+			t.Errorf("missing QR contract: %s", phrase)
+		}
+	}
+	b, err = os.ReadFile("../../skills/ef-onboarding/references/messages.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"community_invite_attachment", "community_invite_discord"} {
+		match := regexp.MustCompile(`(?s)\n## ` + id + `\n(.*?)(?:\n## |$)`).FindStringSubmatch(string(b))
+		if match == nil {
+			t.Fatalf("missing %s", id)
+		}
+		for _, locale := range []string{"zh", "en"} {
+			parts := strings.SplitN(match[1], "### "+locale+"\n", 2)
+			if len(parts) != 2 {
+				t.Fatalf("missing %s/%s", id, locale)
+			}
+			body := strings.SplitN(parts[1], "\n### ", 2)[0]
+			if !strings.Contains(body, "https://discord.gg/MWFr98Pbe") || strings.Contains(body, "![") || strings.Contains(body, "<wechat-qr-path>") {
+				t.Errorf("invalid native/fallback copy %s/%s", id, locale)
+			}
+			if id == "community_invite_discord" && (strings.Contains(body, "微信") || strings.Contains(body, "WeChat")) {
+				t.Errorf("failed delivery must not promise QR: %s", locale)
+			}
 		}
 	}
 }
