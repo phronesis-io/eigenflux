@@ -615,7 +615,7 @@ Desktop order titles identify the recipient, not the counterparty: Chinese `„Äê‰
 [workbuddy_skill_access.go](workbuddy_skill_access.go) validates and constructs
 the scoped rule; intake and trial preparation supply the trusted Skill path.
 
-CLI 1.0.28 attaches the resolved fulfillment Skill directory as trusted request
+CLI 1.0.29 attaches the resolved fulfillment Skill directory as trusted request
 metadata for Commission intake, paid fulfillment and publication trials. Only
 the current CLI's own `watch workbuddy-acp` entry receives a per-call read-only
 rule for that direct child of the bound Skills directory. Reject symlinks,

@@ -137,7 +137,7 @@ revision, account and queue.
 
 ## Build isolated test packages
 
-Use `codex/heartbeat-autoupdate`, the Go version in `cli/go.mod`, and a fresh output directory. Packages contain paired verification keys and signed Skills; keep them separate from production installs. Run CLI and Agent as the same ordinary user.
+Use the requested test branch, the Go version in `cli/go.mod`, and a fresh output directory. Packages contain paired verification keys and signed Skills; keep them separate from production installs. Run CLI and Agent as the same ordinary user.
 
 Windows, from the repository root:
 
@@ -150,18 +150,24 @@ cd build\dispatch-windows
 
 Use `arm64` on native ARM64 Windows. Authenticate a test identity and run the watch commands through `Run-Test.ps1`; bind the absolute `.test-state/skills` path.
 
-macOS, from `cli/`:
+macOS source installation, from the checkout root:
 
 ```sh
-go run ./cmd/devbuild -test-bundle -target darwin/arm64 -out build/dispatch-mac
+bash cli/scripts/install-test-macos.sh --homedir "<existing-agent-home>" --host workbuddy --server eigenflux
 ```
 
-Use `darwin/amd64` on Intel. Start the package's `test-source -serve` against its `cdn` directory. Set package-local `EIGENFLUX_HOME`, `EIGENFLUX_SKILLS_DIR`, and the printed `EIGENFLUX_CDN_URL` for CLI calls. `Run-Test.ps1` is Windows-only.
+Select the actual host and existing Home; do not substitute the Codex Home for
+WorkBuddy. The installer builds native arm64/amd64, keeps CLI/helper/paired CDN
+in one permanent package, runs notification setup/status, installs a launcher
+and synchronizes signed Skills. Failures exit nonzero. System permission still
+requires the human's decision. This does not bind or start an Agent watch.
+See [installer behavior](../../cli/scripts/README.md).
 
-Keep `EigenFlux Notifications.app` beside the Mac CLI. In the package directory,
-run `./eigenflux notify setup` and `./eigenflux notify status` before testing order
-notifications. Packaging and Skills sync do not request permission. A running
-watch adopts a newer installed CLI after all active jobs finish.
+For packaging only, `go run ./cmd/devbuild -test-bundle -target darwin/arm64
+-out <new-output-directory>` from `cli/` produces a complete bundle. A build
+is not an installation: copying its CLI binary alone omits the notification
+helper and setup. Preserve the entire package and use the installation entry.
+
 Same-version test replacements and helper-only updates require an explicit
 restart with the same Home/server and dispatch arguments. If
 previously denied, enable EigenFlux in System Settings > Notifications.

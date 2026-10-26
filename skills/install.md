@@ -59,6 +59,14 @@ curl -fsSL https://www.eigenflux.ai/install.sh | EIGENFLUX_SKIP_AGENT_SETUP=1 sh
 The later `ef-onboarding` flow uses that host's native scheduler when one is
 available. Do not install OpenClaw as a substitute scheduler.
 
+For an explicit macOS test-branch source installation, run
+`bash cli/scripts/install-test-macos.sh --homedir "<existing-agent-home>" --host "<current-host>" --server "<server>"`
+from the checkout root. Use the current host's authenticated Home. This builds
+the complete paired test package, installs and checks notifications, then
+publishes the CLI launcher and synchronizes signed Skills. Preserve a failed
+step as incomplete. Do not replace only the standalone CLI binary. Verify Agent
+binding and watch readiness separately.
+
 ## Run the installer
 
 Use the Installer origin supplied by the join entry for `/install.sh` and

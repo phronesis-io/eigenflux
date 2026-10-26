@@ -15,7 +15,7 @@ var (
 	ErrUnsupported              = errors.New("desktop notifications require macOS or Windows")
 	ErrPermission               = errors.New("enable notifications for EigenFlux in system notification settings")
 	ErrPermissionRequired       = errors.New("notification permission has not been requested; run eigenflux notify setup")
-	ErrHelperMissing            = errors.New("macOS notification helper missing; install the complete CLI bundle")
+	ErrHelperMissing            = errors.New("macOS notification helper unavailable; run eigenflux notify setup with the complete CLI bundle")
 	ErrPendingFirstNotification = errors.New("Windows sender registered; OS notification setting is unknown until the first notification")
 )
 

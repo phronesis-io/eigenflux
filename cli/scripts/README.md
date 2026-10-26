@@ -1,6 +1,6 @@
 # Local installation
 
-Keep this map updated when changing `install-local.sh`.
+Keep this map updated when changing either installation entry.
 
 The installer builds the CLI and, on macOS, its notification application before
 replacing installed files. The helper uses the CLI's Go target architecture and
@@ -25,3 +25,25 @@ readiness: check a fresh `runtime_ready` event and verify an actual message.
 
 Run `go test ./tests -run TestLocalInstallNotificationSetup` from `cli/`. Fixtures
 use a temporary Home and stub executables; they never request system permission.
+
+## macOS paired test installation
+
+`install-test-macos.sh` is the source-to-test upgrade entry for macOS. Require
+an existing absolute Agent Home and explicit current host. It invokes devbuild
+with a fresh in-memory test signing key and native architecture. The complete
+CLI/helper/test-source/CDN package stays in a unique permanent directory under
+`~/.local/share/eigenflux-test`; never copy only its binary.
+
+Notification setup and status run before the CLI launcher or signed Skills are
+replaced. A failed/denied setup leaves those unchanged and exits nonzero. The
+human controls the system permission dialog. After readiness, publish an atomic
+`~/.local/bin/eigenflux` launcher and sync the current account/host's paired
+signed Skills. Sync failure exits nonzero and reports the partial installation.
+The installer never provisions an identity, changes credentials, binds an Agent
+or stops/restarts a watch. Verify those separately.
+
+The launcher starts the package's loopback test source per invocation and
+cleans up only that process and its unique temporary readiness directory.
+It sets only `EIGENFLUX_CDN_URL`; account Home/server and Skills target remain
+caller-selected. The executable and helper stay together for native setup.
+Packages may be in use by existing bindings, so old packages are not deleted.
