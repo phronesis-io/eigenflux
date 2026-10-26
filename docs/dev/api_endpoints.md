@@ -689,8 +689,14 @@ the current Skills, or empty stdout when no work is available. Adapters supply
 bounded memory/session context and deliver the task. Successful writes and
 explicit `profile refresh-complete` record completion; task delivery does not.
 
-Baseline Feed uses `static/feed_baseline_contract.md`; completed Feed uses
-`static/feed_contract.md`. Both are generated from the central Skills. A CLI
+Baseline Feed uses `static/feed_baseline_contract.md`; intent-aligned Feed uses
+`static/feed_contract.md`. Discovery can return baseline Feed after onboarding
+completes when no personalized context is available. Every baseline response
+has a null `context_revision`, `context_delivery=none`, no control-context
+snapshot or intent matches, and no exposure context revision. The owner's
+onboarding state and active control context remain unchanged. Intent-aligned
+responses retain full or unchanged delivery of the active context revision.
+Both contracts are generated from the central Skills. A CLI
 without a server contract reads the corresponding current synchronized Skill
 and reports missing rules instead of using a compiled business-policy copy.
 

@@ -114,17 +114,21 @@ func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 			mode = "baseline"
 		}
 	}
+	contextRevision := onboarding.ContextRevision
+	if mode == "baseline" {
+		contextRevision = nil
+	}
 	payloads, cardUpdates, encodeErr := s.buildFeedPayloads(agentIDValue, mode,
-		onboarding.ContextRevision, feedResp.Items, req.KnownCardVersions)
+		contextRevision, feedResp.Items, req.KnownCardVersions)
 	if encodeErr != nil {
 		fail(c, http.StatusInternalServerError, "FEED_READ_FAILED", "could not encode Feed response", nil)
 		return
 	}
 
 	contextDelivery := "none"
-	if onboarding.ContextRevision != nil {
+	if contextRevision != nil {
 		contextDelivery = "full"
-		if req.ContextRevisionApplied != nil && *req.ContextRevisionApplied == *onboarding.ContextRevision {
+		if req.ContextRevisionApplied != nil && *req.ContextRevisionApplied == *contextRevision {
 			contextDelivery = "unchanged"
 		}
 	}
@@ -144,7 +148,7 @@ func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 	}
 	if err := s.db.Transaction(func(tx *gorm.DB) error {
 		if len(payloads) > 0 {
-			if err := persistFeedExposures(tx, agentIDValue, payloads, onboarding.ContextRevision, now); err != nil {
+			if err := persistFeedExposures(tx, agentIDValue, payloads, contextRevision, now); err != nil {
 				return err
 			}
 		}
@@ -155,10 +159,10 @@ func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 	}
 
 	var controlContext interface{}
-	if onboarding.ContextRevision != nil && contextDelivery == "full" {
+	if contextRevision != nil && contextDelivery == "full" {
 		var raw string
 		if err := s.db.Raw(`SELECT compiled_context::text FROM agent_context_revisions
-			WHERE agent_id = ? AND revision = ?`, agentIDValue, *onboarding.ContextRevision).Scan(&raw).Error; err != nil || json.Unmarshal([]byte(raw), &controlContext) != nil {
+			WHERE agent_id = ? AND revision = ?`, agentIDValue, *contextRevision).Scan(&raw).Error; err != nil || json.Unmarshal([]byte(raw), &controlContext) != nil {
 			fail(c, http.StatusInternalServerError, "FEED_CONTEXT_READ_FAILED", "could not read control context", nil)
 			return
 		}
@@ -173,7 +177,7 @@ func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 		"schema_version": "feed.v2", "impression_id": feedResp.ImpressionId,
 		"personalization": map[string]interface{}{
 			"mode": mode, "onboarding_state": onboarding.State,
-			"context_revision": onboarding.ContextRevision, "context_delivery": contextDelivery,
+			"context_revision": contextRevision, "context_delivery": contextDelivery,
 		},
 		"control_context_snapshot": controlContext,
 		"agent_card_updates":       cardUpdates,
