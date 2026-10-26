@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -31,6 +32,7 @@ func commissionFulfillmentServer(t *testing.T, current func() commissionIntakeOr
 	t.Helper()
 	var delivered atomic.Bool
 	var uploadedDigest atomic.Value
+	var uploadedBytes atomic.Value
 	return httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			if len(delivery) > 0 && delivery[0] {
@@ -54,6 +56,7 @@ func commissionFulfillmentServer(t *testing.T, current func() commissionIntakeOr
 					data, _ := io.ReadAll(r.Body)
 					digest := sha256.Sum256(data)
 					uploadedDigest.Store(hex.EncodeToString(digest[:]))
+					uploadedBytes.Store(data)
 					out.WriteHeader(http.StatusOK)
 				case "/api/v1/orders/901/uploads/confirm":
 					materialTestResponse(out, map[string]any{})
@@ -81,6 +84,18 @@ func commissionFulfillmentServer(t *testing.T, current func() commissionIntakeOr
 			order.State, order.Version = "awaiting_buyer_confirmation", order.Version+1
 		}
 		switch r.URL.Path {
+		case "/api/v1/orders/901/snapshots/" + strconv.FormatInt(int64(order.SnapshotID), 10) + "/download":
+			if uploadedBytes.Load() == nil {
+				http.NotFound(out, r)
+				return
+			}
+			materialTestResponse(out, map[string]any{"grant": map[string]any{"url": "http://" + r.Host + "/download-output", "method": "GET"}})
+		case "/download-output":
+			if r.Header.Get("Authorization") != "" {
+				t.Error("credentials leaked to download storage")
+			}
+			body, _ := uploadedBytes.Load().([]byte)
+			out.Write(body)
 		case "/api/v1/orders/901":
 			materialTestResponse(out, map[string]any{"order": order})
 		case "/api/v2/console/trade/orders/901":

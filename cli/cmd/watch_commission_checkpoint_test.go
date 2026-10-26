@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -62,15 +63,12 @@ func TestCommissionVerifiedCheckpointResumesWithoutAgent(t *testing.T) {
 					stopped = candidate
 				}
 			}
-			if stopped.Status != "failed" || stopped.Code != "commission_local_state_missing" || stopped.CommissionCheckpoint == nil || stopped.CommissionFulfillment != nil {
+			if stopped.Status != "pending" || stopped.Code != "commission_delivery_retry_pending" || stopped.CommissionDelivery == nil || stopped.CommissionDelivery.LastCode != "commission_local_state_missing" || stopped.CommissionCheckpoint == nil || stopped.CommissionFulfillment != nil {
 				t.Fatalf("verified pre-upload evidence lost or mislabeled: %+v", stopped)
 			}
-			if err := w.journal.Retry(job.ID); err != nil {
-				t.Fatal(err)
-			}
-			job, ok, err := w.journal.NextKind("commission_fulfillment")
-			if err != nil || !ok || job.CommissionCheckpoint == nil {
-				t.Fatal("retry did not preserve checkpoint", err)
+			job = dueCommissionDelivery(t, w, job.ID)
+			if job.CommissionCheckpoint == nil {
+				t.Fatal("retry did not preserve checkpoint")
 			}
 			switch scenario {
 			case "changed_bytes":
@@ -138,6 +136,7 @@ func TestCommissionLocalCheckClassification(t *testing.T) {
 	}{
 		{errWatchIdentity, "identity_changed"},
 		{errWatchConfiguration, "configuration_changed"},
+		{fmt.Errorf("prepare API: %w", auth.ErrV2CredentialsLockTimeout), "commission_credential_lock_unavailable"},
 		{context.Canceled, "commission_local_check_cancelled"},
 		{context.DeadlineExceeded, "commission_local_check_cancelled"},
 		{&os.PathError{Op: "read", Path: "private", Err: os.ErrPermission}, "commission_local_permission_denied"},

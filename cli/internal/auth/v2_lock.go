@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,10 @@ import (
 
 	"cli.eigenflux.ai/internal/config"
 )
+
+// ErrV2CredentialsLockTimeout marks local lock contention without conflating it
+// with account changes, permission failures or the caller's cancellation.
+var ErrV2CredentialsLockTimeout = errors.New("timed out waiting for Agent V2 credential refresh lock")
 
 // WithV2CredentialsLock serializes refresh rotation across CLI processes for
 // one server. The callback must reload credentials after acquiring the lock.
@@ -46,7 +51,7 @@ func WithV2CredentialsLockContext(ctx context.Context, serverName string, wait t
 		}
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
-			return fmt.Errorf("timed out waiting for Agent V2 credential refresh lock %q", path)
+			return fmt.Errorf("%w %q", ErrV2CredentialsLockTimeout, path)
 		}
 		timer := time.NewTimer(min(100*time.Millisecond, remaining))
 		select {

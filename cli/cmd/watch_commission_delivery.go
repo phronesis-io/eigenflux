@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -15,19 +14,31 @@ import (
 	"cli.eigenflux.ai/internal/dispatch"
 )
 
-// The subscribed seller has authorized contractual fulfillment. Persist before
-// the first remote mutation and never automatically replay uncertain delivery.
+// Persist exact evidence before every remote mutation. A scheduled retry keeps
+// its original directory, artifact manifest and idempotency keys.
 func (w *accountWatch) deliverCommissionArtifacts(ctx context.Context, job dispatch.Job, order commissionIntakeOrder, result dispatch.CommissionFulfillmentResult, session string) error {
 	files, cleanup, err := freezeCommissionArtifacts(result)
 	if err != nil {
 		return w.finishDispatch(job, "failed", "commission_fulfillment_artifacts_invalid", session, "")
 	}
 	defer cleanup()
+	job = w.commissionDeliveryJob(job)
+	if job.CommissionDelivery == nil {
+		if job.CommissionCheckpoint == nil {
+			if err := w.journal.SaveCommissionCheckpoint(job.ID, result, session); err != nil {
+				return err
+			}
+		}
+		if err := w.journal.InitializeCommissionDelivery(job.ID, strconv.FormatInt(int64(order.BuyerID), 10), strconv.FormatInt(int64(order.SellerID), 10), strconv.FormatInt(int64(order.SnapshotID), 10)); err != nil {
+			return err
+		}
+		job = w.commissionDeliveryJob(job)
+	}
 	api, err := w.commissionAPI(ctx)
 	if err != nil {
 		return w.failCommissionLocalCheck(job, err, session)
 	}
-	id := strconv.FormatInt(int64(order.OrderID), 10)
+	id := result.Decision.OrderID
 	entered := false
 	err = auth.WithV2CredentialsLockContext(ctx, w.server.Name, 35*time.Second, func() error {
 		entered = true
@@ -39,25 +50,35 @@ func (w *accountWatch) deliverCommissionArtifacts(ctx context.Context, job dispa
 			return w.failCommissionLocalCheck(job, err, session)
 		}
 		api.Token, api.OnUnauthorized = credentials.AccessToken, nil
-		readOrder := func() (commissionIntakeOrder, error) {
-			response, err := api.Get("/orders/"+id, nil)
-			var data struct {
-				Order commissionIntakeOrder `json:"order"`
-			}
-			if err != nil {
-				return data.Order, err
-			}
-			if response.Code != 0 || json.Unmarshal(response.Data, &data) != nil {
-				return data.Order, errors.New("commission_delivery_order_unavailable")
-			}
-			return data.Order, nil
-		}
-		before, err := readOrder()
+		before, err := readCommissionDeliveryOrder(api, id)
 		if err != nil {
-			return w.finishDispatch(job, "failed", "commission_order_unavailable", session, "")
+			return w.failCommissionDelivery(job, err, "commission_order_unavailable", session)
 		}
-		if !sameCommissionIntakeOrder(order, before) {
-			return w.finishDispatch(job, "failed", "commission_fulfillment_order_changed", session, "")
+		if !commissionDeliveryParties(before, job.CommissionDelivery) {
+			return w.failCommissionDelivery(job, errCommissionDeliveryRejected, "commission_fulfillment_order_changed", session)
+		}
+		if commissionDeliveryAdvanced(before, result.Decision.OrderVersion) {
+			return w.confirmCommissionRemoteDelivery(ctx, api, job, before, result, session)
+		}
+		if !sameCommissionIntakeOrder(order, before) || before.State != "in_progress" || before.Version != result.Decision.OrderVersion || strconv.FormatInt(int64(before.SnapshotID), 10) != job.CommissionDelivery.SnapshotID {
+			return w.failCommissionDelivery(job, errCommissionDeliveryRejected, "commission_fulfillment_order_changed", session)
+		}
+		uploaded := map[string]bool{}
+		if job.CommissionDelivery.Attempts > 1 || job.CommissionFulfillment != nil {
+			uploaded, err = w.verifyCommissionRemoteArtifacts(ctx, api, before, result, true)
+			if err != nil {
+				return w.failCommissionDelivery(job, err, "commission_delivery_verification_unavailable", session)
+			}
+			current, err := readCommissionDeliveryOrder(api, id)
+			if err != nil {
+				return w.failCommissionDelivery(job, err, "commission_order_unavailable", session)
+			}
+			if !sameCommissionIntakeOrder(before, current) {
+				if commissionDeliveryParties(current, job.CommissionDelivery) && commissionDeliveryAdvanced(current, result.Decision.OrderVersion) {
+					return w.confirmCommissionRemoteDelivery(ctx, api, job, current, result, session)
+				}
+				return w.failCommissionDelivery(job, errCommissionDeliveryRejected, "commission_fulfillment_order_changed", session)
+			}
 		}
 		if err := w.commissionFulfillmentIdentityOK(ctx); err != nil {
 			return w.failCommissionLocalCheck(job, err, session)
@@ -65,37 +86,45 @@ func (w *accountWatch) deliverCommissionArtifacts(ctx context.Context, job dispa
 		if err := w.journal.BeginCommissionDelivery(job.ID, result, session); err != nil {
 			return err
 		}
-		uncertain := func() error { return w.finishDispatch(job, "unknown", "commission_delivery_unconfirmed", session, "") }
+		job = w.commissionDeliveryJob(job)
 		base := "/orders/" + id
-		// A pre-upload checkpoint keeps its directory and stable write keys.
-		// Reconciled uncertain uploads still regenerate in a fresh directory.
 		key := childMutationKey("watch-delivery-"+job.ID, result.OutputDirectory)
 		for _, file := range files {
-			if ctx.Err() != nil || w.commissionIdentityOK() != nil {
-				return uncertain()
+			if err := w.commissionFulfillmentIdentityOK(ctx); err != nil {
+				return w.failCommissionLocalCheck(job, err, session)
 			}
-			if err := uploadMaterial(ctx, api, base, key, file); err != nil {
-				return uncertain()
+			if uploaded[file.LogicalPath] {
+				continue
+			}
+			if err := uploadCommissionDeliveryFile(ctx, api, base, key, file); err != nil {
+				return w.failCommissionDelivery(job, err, "commission_delivery_upload_unconfirmed", session)
 			}
 		}
-		before, err = readOrder()
-		if err != nil || !sameCommissionIntakeOrder(order, before) || ctx.Err() != nil || w.commissionIdentityOK() != nil {
-			return uncertain()
+		current, err := readCommissionDeliveryOrder(api, id)
+		if err != nil {
+			return w.failCommissionDelivery(job, err, "commission_order_unavailable", session)
 		}
-		response, err := api.PostWithHeaders(base+"/deliver", map[string]any{"expected_version": order.Version, "output_files": files}, map[string]string{idempotencyHeader: childMutationKey(key, "deliver")})
-		if err != nil || response.Code != 0 {
-			return uncertain()
+		if commissionDeliveryParties(current, job.CommissionDelivery) && commissionDeliveryAdvanced(current, result.Decision.OrderVersion) {
+			return w.confirmCommissionRemoteDelivery(ctx, api, job, current, result, session)
 		}
-		confirmed, err := readOrder()
-		if err != nil || confirmed.OrderID != order.OrderID || confirmed.SellerID != order.SellerID || confirmed.BuyerID != order.BuyerID || confirmed.Version <= order.Version {
-			return uncertain()
+		if !sameCommissionIntakeOrder(order, current) {
+			return w.failCommissionDelivery(job, errCommissionDeliveryRejected, "commission_fulfillment_order_changed", session)
 		}
-		switch confirmed.State {
-		case "validating", "awaiting_buyer_confirmation", "completed":
-			return w.finishDispatch(job, "completed", "commission_delivery_confirmed", session, "")
-		default:
-			return uncertain()
+		if err := w.commissionFulfillmentIdentityOK(ctx); err != nil {
+			return w.failCommissionLocalCheck(job, err, session)
 		}
+		response, err := api.PostWithHeaders(base+"/deliver", map[string]any{"expected_version": result.Decision.OrderVersion, "output_files": files}, map[string]string{idempotencyHeader: childMutationKey(key, "deliver")})
+		if err != nil {
+			return w.failCommissionDelivery(job, err, "commission_delivery_unconfirmed", session)
+		}
+		if response.Code != 0 {
+			return w.failCommissionDelivery(job, errCommissionDeliveryRejected, "commission_delivery_rejected", session)
+		}
+		confirmed, err := readCommissionDeliveryOrder(api, id)
+		if err != nil {
+			return w.failCommissionDelivery(job, err, "commission_delivery_unconfirmed", session)
+		}
+		return w.confirmCommissionRemoteDelivery(ctx, api, job, confirmed, result, session)
 	})
 	if err != nil && !entered {
 		return w.failCommissionLocalCheck(job, err, session)

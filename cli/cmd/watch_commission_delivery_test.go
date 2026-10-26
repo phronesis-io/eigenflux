@@ -13,20 +13,20 @@ import (
 	"cli.eigenflux.ai/internal/dispatch"
 )
 
-func TestCommissionDeliveryUncertainUploadRetainsEvidence(t *testing.T) {
+func TestCommissionDeliveryTemporaryUploadRetainsEvidence(t *testing.T) {
 	order := paidCommissionTestOrder()
-	var uploads int
 	var keys []string
 	server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/orders/901":
 			materialTestResponse(out, map[string]any{"order": order})
+		case "/api/v2/console/trade/orders/901":
+			materialTestResponse(out, map[string]any{"order_id": "901", "role": "seller", "version": order.Version, "state": order.State, "counterparty": map[string]string{"agent_id": "41"}, "files": map[string]any{"input": []any{}}})
 		case "/api/v1/orders/901/uploads":
-			uploads++
 			keys = append(keys, r.Header.Get(idempotencyHeader))
-			http.Error(out, "uncertain", http.StatusServiceUnavailable)
+			http.Error(out, "temporary", http.StatusServiceUnavailable)
 		default:
-			t.Errorf("unexpected write after uncertainty: %s", r.URL.Path)
+			http.NotFound(out, r)
 		}
 	}))
 	defer server.Close()
@@ -49,48 +49,19 @@ func TestCommissionDeliveryUncertainUploadRetainsEvidence(t *testing.T) {
 	if err := w.deliverCommissionArtifacts(context.Background(), job, order, result, "session"); err != nil {
 		t.Fatal(err)
 	}
-	got, err := dispatch.ReadJournalStatus(*w.binding)
-	if err != nil {
+	stored := w.commissionDeliveryJob(job)
+	if stored.Status != "pending" || stored.CommissionFulfillment == nil || stored.CommissionDelivery == nil || stored.CommissionDelivery.Attempts != 1 {
+		t.Fatalf("delivery evidence/schedule lost: %+v", stored)
+	}
+	if _, ok, err := w.journal.NextKind("commission_fulfillment"); ok || err != nil {
+		t.Fatal("future retry claimed immediately", err)
+	}
+	job = dueCommissionDelivery(t, w, job.ID)
+	if err := w.dispatchCommissionFulfillment(context.Background(), job); err != nil {
 		t.Fatal(err)
 	}
-	for _, record := range got {
-		if record.ID == job.ID && (record.Status != "unknown" || record.CommissionFulfillment == nil) {
-			t.Fatalf("uncertain upload lost: %+v", record)
-		}
-	}
-	if uploads != 1 {
-		t.Fatalf("unexpected retry count %d", uploads)
-	}
-	if err := w.journal.Retry(job.ID); err == nil {
-		t.Fatal("uncertain upload can retry without reconciliation")
-	}
-	if err := w.journal.Reconcile(job.ID, "failed", ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := w.journal.Retry(job.ID); err != nil {
-		t.Fatal(err)
-	}
-	job, ok, err := w.journal.NextKind("commission_fulfillment")
-	if err != nil || !ok {
-		t.Fatal("explicit retry not queued", err)
-	}
-	newDir := t.TempDir()
-	if err := w.journal.SetCommissionFulfillmentDirectory(job.ID, newDir); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(newDir, "report.txt"), []byte("regenerated report"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	result.OutputDirectory = newDir
-	result.Artifacts, err = validateCommissionArtifacts(newDir, decision)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := w.deliverCommissionArtifacts(context.Background(), job, order, result, "retry-session"); err != nil {
-		t.Fatal(err)
-	}
-	if len(keys) != 2 || keys[0] == keys[1] {
-		t.Fatalf("regenerated output reused expired upload grant: %v", keys)
+	if len(keys) != 2 || keys[0] != keys[1] {
+		t.Fatalf("retry changed original upload key: %v", keys)
 	}
 }
 

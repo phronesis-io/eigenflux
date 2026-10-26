@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/dispatch"
 )
 
@@ -33,6 +34,8 @@ func commissionLocalCheckCode(err error) string {
 		return "identity_changed"
 	case errors.Is(err, errWatchConfiguration):
 		return "configuration_changed"
+	case errors.Is(err, auth.ErrV2CredentialsLockTimeout):
+		return "commission_credential_lock_unavailable"
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return "commission_local_check_cancelled"
 	case errors.Is(err, os.ErrPermission):
@@ -48,6 +51,11 @@ func commissionLocalCheckCode(err error) string {
 }
 
 func (w *accountWatch) failCommissionLocalCheck(job dispatch.Job, err error, session string) error {
+	if !isWatchTerminal(err) && !errors.Is(err, os.ErrPermission) && commissionLocalCheckCode(err) != "commission_local_check_unavailable" {
+		if scheduled, saveErr := w.scheduleCommissionDelivery(job, commissionLocalCheckCode(err), session); scheduled || saveErr != nil {
+			return saveErr
+		}
+	}
 	if saveErr := w.finishDispatch(job, "failed", commissionLocalCheckCode(err), session, ""); saveErr != nil {
 		return saveErr
 	}

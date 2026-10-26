@@ -241,6 +241,9 @@ func downloadCommissionMaterial(ctx context.Context, base *http.Client, grant co
 		return local, commissionMaterialRequestError(ctx, err)
 	}
 	defer response.Body.Close()
+	if response.StatusCode >= 500 || response.StatusCode == http.StatusTooManyRequests || response.StatusCode == http.StatusRequestTimeout {
+		return local, errCommissionMaterialsUnavailable
+	}
 	if response.StatusCode == http.StatusNotFound || response.StatusCode == http.StatusGone {
 		return local, errCommissionMaterialsMissing
 	}

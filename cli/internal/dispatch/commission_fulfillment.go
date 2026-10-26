@@ -232,7 +232,7 @@ func (j *Journal) CompleteCommissionFulfillment(id string, result CommissionFulf
 
 // SaveCommissionCheckpoint retains verified artifacts before local revalidation.
 // It proves no upload: BeginCommissionDelivery removes it before remote writes.
-func (j *Journal) SaveCommissionCheckpoint(id string, result CommissionFulfillmentResult, sessionID string) error {
+func (j *Journal) SaveCommissionCheckpoint(id string, result CommissionFulfillmentResult, sessionID string, delivery ...CommissionDeliveryRetry) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	next := cloneJournal(j.state)
@@ -249,6 +249,16 @@ func (j *Journal) SaveCommissionCheckpoint(id string, result CommissionFulfillme
 		}
 		job.CommissionCheckpoint = &result
 		job.SessionID = sessionID
+		if len(delivery) > 1 {
+			return errors.New("invalid_commission_delivery_retry")
+		}
+		if len(delivery) == 1 {
+			retry := delivery[0]
+			job.CommissionDelivery = &retry
+			if retry.Attempts != 1 || retry.NextAttemptAt != 0 || !validCommissionDelivery(*job) {
+				return errors.New("invalid_commission_delivery_retry")
+			}
+		}
 		return j.save(next)
 	}
 	return errors.New("job_not_found")
@@ -271,11 +281,15 @@ func (j *Journal) saveCommissionFulfillment(id string, result CommissionFulfillm
 		if job.ID != id {
 			continue
 		}
-		if job.Kind != "commission_fulfillment" || job.Status != "running" || (job.Code != "commission_fulfillment_prepared" && !(sending && job.Code == "operator_retry" && job.CommissionCheckpoint != nil)) {
+		resuming := sending && job.CommissionDelivery != nil && validCommissionDelivery(*job) && job.Code == "commission_delivery_retry_pending"
+		if job.Kind != "commission_fulfillment" || job.Status != "running" || (job.Code != "commission_fulfillment_prepared" && !(sending && job.Code == "operator_retry" && job.CommissionCheckpoint != nil) && !resuming) {
 			return errors.New("commission_fulfillment_requires_prepared_job")
 		}
 		if err := validateCommissionFulfillmentResult(*job, result); err != nil {
 			return err
+		}
+		if resuming && job.CommissionFulfillment != nil && !reflect.DeepEqual(*job.CommissionFulfillment, result) {
+			return errors.New("commission_delivery_evidence_changed")
 		}
 		if sending && job.CommissionCheckpoint != nil && !reflect.DeepEqual(*job.CommissionCheckpoint, result) {
 			return errors.New("commission_checkpoint_changed")
@@ -353,6 +367,14 @@ func validCommissionFulfillmentJob(job Job, binding Binding) bool {
 			return job.Status == "completed" || job.Status == "failed"
 		}
 		if result.Decision.Outcome == "artifacts_ready" {
+			if job.CommissionDelivery != nil && validCommissionDelivery(job) {
+				switch job.Status {
+				case "pending", "running":
+					return job.Code == "commission_delivery_retry_pending"
+				case "failed", "needs_user", "unknown":
+					return job.Code != ""
+				}
+			}
 			switch job.Code {
 			case "commission_delivery_sending":
 				return job.Status == "sending"

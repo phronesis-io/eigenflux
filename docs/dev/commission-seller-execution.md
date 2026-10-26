@@ -20,8 +20,9 @@ user-reporting work remain unchanged.
    checks contractual files, freezes their bytes, records the sending state,
    uploads them, submits delivery and reads back the authoritative result.
 5. `commission_delivery_confirmed` means delivery submission was verified. It
-   does not mean buyer confirmation or seller settlement. Uncertain mutations
-   remain `unknown` and require reconciliation before retry.
+   does not mean buyer confirmation or seller settlement. Verified delivery work
+   has bounded idempotent retries; uncertain Agent execution still requires
+   reconciliation.
 
 Binding `commission_order` authorizes this contract-scoped seller workflow.
 Additional spending, unrelated uploads and external actions remain outside it.
@@ -42,14 +43,25 @@ seller intake job. It does not change the order, recreate a notification, clear
 ACKs or start watch. Existing fulfillment or uncertain/running jobs require the
 existing job reconciliation flow rather than another order recovery.
 
-Paid fulfillment saves a verified pre-upload checkpoint before final local
-identity/configuration checks. Stop watch and explicitly retry that failed job
-to reuse its files without another Agent invocation. Recovery rechecks the seller,
-paid Order version, original inputs, signed rules and retained file hashes. A
-changed account, configuration, Order or file blocks continuation. Starting the
-upload retires the checkpoint; uncertain remote writes still require reconciliation.
-Older failures with no checkpoint require inspection of existing outputs and
-remote state before operator-authorized delivery; do not recreate evidence by guessing.
+Paid fulfillment retains verified artifacts before final local checks. CLI
+1.0.27 automatically retries recoverable delivery failures at most five times
+in total, including the first attempt, with 1/2/5/10-minute delays. The journal
+preserves the schedule and attempt count across restarts; other orders continue.
+No retry invokes the Agent again or chooses a new output directory or write key.
+
+Each attempt rechecks the seller, configuration, original paid Order version,
+inputs, signed rules and retained file hashes. Uncertain writes first require
+order readback and bounded download/hash verification of remote outputs. Already
+delivered matching files finish the job without another delivery. Otherwise only
+unchanged work may resume using the original upload/confirm keys and delivery
+body. Identity/configuration changes, altered inputs/outputs, conflicting remote
+files, permission denial and cancelled/refunded Orders stop retries. Expired
+upload grants never trigger a new-key upload.
+
+After five attempts, retain the evidence for inspection. Stop watch before explicit
+job retry or reconciliation. Legacy uncertain work without retry metadata remains
+operator-only. Older failures without a checkpoint require inspection of existing
+outputs and remote state; do not reconstruct evidence from loose files.
 
 The independent Commission `order-notification-relay` must be running. The
 catalogue relay is a different process. Preserve the existing delivery activation

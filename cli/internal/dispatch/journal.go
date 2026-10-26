@@ -92,6 +92,9 @@ func readJournal(b Binding) (journalState, bool, error) {
 			return journalState{}, false, errors.New("invalid_journal_job")
 		}
 		seen[job.ID] = true
+		if !validCommissionDelivery(job) {
+			return journalState{}, false, errors.New("invalid_journal_commission_delivery")
+		}
 		if !validCommissionExecutionContext(job) {
 			return journalState{}, false, errors.New("invalid_journal_commission_execution")
 		}
@@ -168,6 +171,10 @@ func OpenJournal(b Binding) (*Journal, error) {
 	j := &Journal{binding: b, path: journalPath(b), state: s, wake: make(chan struct{}, 1)}
 	changed := !exists
 	for i := range s.Jobs {
+		if recoverCommissionDelivery(&s.Jobs[i], time.Now()) {
+			changed = true
+			continue
+		}
 		if s.Jobs[i].Status == "running" || s.Jobs[i].Status == "sending" {
 			s.Jobs[i].Status = "unknown"
 			s.Jobs[i].Code = "interrupted_execution"
@@ -425,6 +432,9 @@ func (j *Journal) next(kind string) (Job, bool, error) {
 		if job.Status == "running" || job.Status == "sending" {
 			return Job{}, false, nil
 		}
+		if job.CommissionDelivery != nil && job.CommissionDelivery.NextAttemptAt > time.Now().UnixMilli() {
+			continue
+		}
 		if job.Status == "pending" && (index < 0 || (job.Kind == "pm_push" && j.state.Jobs[index].Kind != "pm_push")) {
 			index = i
 		}
@@ -434,6 +444,10 @@ func (j *Journal) next(kind string) (Job, bool, error) {
 	}
 	next := cloneJournal(j.state)
 	next.Jobs[index].Status = "running"
+	if retry := next.Jobs[index].CommissionDelivery; retry != nil && retry.NextAttemptAt > 0 {
+		retry.Attempts++
+		retry.NextAttemptAt = 0
+	}
 	if err := j.save(next); err != nil {
 		return Job{}, false, err
 	}
@@ -647,6 +661,10 @@ func cloneJob(job Job) Job {
 		value.Result.InspectedFiles = append([]string{}, value.Result.InspectedFiles...)
 		job.CommissionReadiness = &value
 	}
+	if job.CommissionDelivery != nil {
+		value := *job.CommissionDelivery
+		job.CommissionDelivery = &value
+	}
 	if job.CommissionExecution != nil {
 		value := *job.CommissionExecution
 		job.CommissionExecution = &value
@@ -742,6 +760,18 @@ func (j *Journal) Retry(id string) error {
 		}
 		if job.Status != "failed" && job.Status != "needs_user" {
 			return errors.New("job_not_safe_to_retry")
+		}
+		if retry := job.CommissionDelivery; retry != nil {
+			if retry.Attempts >= CommissionDeliveryMaxAttempts {
+				return errors.New("commission_delivery_retry_limit_reached")
+			}
+			job.Status, job.Code = "pending", "commission_delivery_retry_pending"
+			retry.NextAttemptAt = time.Now().UnixMilli()
+			if err := j.save(next); err != nil {
+				return err
+			}
+			j.signal()
+			return nil
 		}
 		job.Status = "pending"
 		job.Code = "operator_retry"

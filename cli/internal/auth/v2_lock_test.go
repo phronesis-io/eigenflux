@@ -76,7 +76,7 @@ func TestV2CredentialsLockProcessExit(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	err := WithV2CredentialsLock("review", 50*time.Millisecond, func() error { t.Fatal("entered held lock"); return nil })
-	if err == nil || !strings.Contains(err.Error(), "timed out") {
+	if !errors.Is(err, ErrV2CredentialsLockTimeout) || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("expected timeout: %v", err)
 	}
 	if err := child.Process.Kill(); err != nil {

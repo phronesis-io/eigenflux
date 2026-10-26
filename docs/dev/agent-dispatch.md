@@ -110,14 +110,22 @@ eigenflux watch reconcile JOB_ID --outcome completed --verified
 eigenflux watch reconcile JOB_ID --outcome failed --verified
 ```
 
-Reconciliation records the operator's conclusion, including PMs already handled manually. Explicit profile retry bypasses its prior claim cooldown; ordinary scheduled reviews keep that cooldown. `unknown` is never automatically resent. Optional events without completion evidence remain `needs_user`; inspect before retry. Reconcile as `failed` only after confirming work did not complete; retry stays explicit. Legacy `accepted` records are unverified.
+Reconciliation records the operator's conclusion, including PMs already handled manually. Explicit profile retry bypasses its prior claim cooldown; ordinary scheduled reviews keep that cooldown. Legacy `unknown` work is never automatically resent; verified fulfillment delivery retries follow the bounded recovery below. Optional events without completion evidence remain `needs_user`; inspect before retry. Reconcile as `failed` only after confirming work did not complete; retry stays explicit. Legacy `accepted` records are unverified.
 
-Paid fulfillment with a retained pre-upload `CommissionCheckpoint` resumes its
-verified files on explicit job retry without calling the Agent again. Stop watch
-first. Recovery rechecks identity, configuration, the paid Order version, input
-fingerprint, signed rules and output hashes. Altered files and changed Orders do
-not resume. A missing checkpoint uses the original regeneration flow; uncertain
-uploads or submissions require reconciliation instead of checkpoint replay.
+CLI 1.0.27 retries recoverable delivery failures at most five times in total,
+including the first attempt, after 1/2/5/10 minutes. A durable delivery record keeps
+the original artifacts, attempt count, due time, keys and delivery body. Retries
+never rerun the Agent. Waiting jobs do not block other orders. Uncertain writes
+first require order readback and bounded download/hash verification; matching
+completed delivery finishes without another submission. Only unchanged work may
+resume under the same keys. Identity/configuration/input/output changes, conflicting
+remote outputs, denied permissions and cancelled/refunded Orders stop retries.
+Expired upload grants never cause a fresh-key upload.
+
+Stop watch before explicit recovery after exhaustion. Pre-upload checkpoints can
+reuse verified files on explicit job retry. Legacy uncertain work without delivery
+retry metadata requires operator reconciliation; loose files do not establish a
+checkpoint or authorize automatic replay.
 
 ## Build isolated test packages
 
@@ -189,7 +197,7 @@ retry; upgrading does not infer or replay historical work. Reports and OS
 submission receipts do not prove that a user saw a notification. PM processing
 does not produce desktop notifications.
 
-The explicit `commission_order` subscription enables durable notification intake and a separate seller input-check worker. It reads the frozen contract and bound Skill, verifies downloaded inputs, invokes a fresh Agent session and saves a strict `commission_result` in `watch status`. Files are capped at 128 / 64 MiB; preparation and execution have a local 180-second ceiling after queue claim. Paid `ready` results atomically queue a separate local fulfillment worker. It saves output paths before execution, verifies real files and retains them with hashes and self-check evidence in `commission_fulfillment`. Awaiting-seller `ready` invokes seller-authenticated acceptance; unavailable Agents leave orders waiting. Paid `artifacts_ready` persists evidence before fixed-key uploads and delivery, then reads back the order before confirming submission. Uncertain mutations retain evidence as `unknown`; reconcile before retry. Buyer confirmation remains separate. Local readiness or artifacts alone are not delivery receipts.
+The explicit `commission_order` subscription enables durable notification intake and a separate seller input-check worker. It reads the frozen contract and bound Skill, verifies downloaded inputs, invokes a fresh Agent session and saves a strict `commission_result` in `watch status`. Files are capped at 128 / 64 MiB; preparation and execution have a local 180-second ceiling after queue claim. Paid `ready` results atomically queue a separate local fulfillment worker. It saves output paths before execution, verifies real files and retains them with hashes and self-check evidence in `commission_fulfillment`. Awaiting-seller `ready` invokes seller-authenticated acceptance; unavailable Agents leave orders waiting. Paid `artifacts_ready` persists evidence before fixed-key uploads and delivery, then reads back the order before confirming submission. Recoverable deliveries retain evidence and follow the bounded idempotent retry schedule; legacy uncertain mutations require reconciliation. Buyer confirmation remains separate. Local readiness or artifacts alone are not delivery receipts.
 
 PM + Commission subscriptions share the Socket. A Commission-only subscription uses an initial HTTP request and 60-second reconciliation, because the current server Socket always consumes PM. The same account's ordinary stream skips Commission notification draining while watch owns it. Stop and inspect unresolved jobs before rebinding. The implementation and pending business decisions are in [Commission dispatch](commission-dispatch.md).
 
