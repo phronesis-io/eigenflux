@@ -116,7 +116,9 @@ does not launch a browser or change its output contract.
 
 WorkBuddy directly calls `present_files` with the current workspace and a single
 exact Console URL. Only a non-error `present_files_result` whose `previewed`
-contains that URL confirms opening; generic completion or file listing does not.
+contains that URL confirms a prepared preview (`browser_preview_ready`), not
+a visible sidebar. Ask the human to expand the sidebar if needed. Generic
+completion or file listing does not confirm a preview.
 Codex and WorkBuddy skip browser discovery; an unavailable named tool falls back
 to the manual link without loading a browser-control Skill or another opener.
 An explicit default-browser request in local Codex/macOS may select the system
@@ -124,7 +126,7 @@ opener before a built-in attempt. Successful dispatch selects
 `browser_external_requested`, without claiming that the page loaded.
 
 Confirmed visible opening selects `browser_opened`; unavailable, denied,
-failed, queued or ambiguous results select `browser_manual`. Both keep the
+failed, queued or ambiguous results select `browser_manual`. All outcomes keep the
 clickable link. Honor manual-opening preferences and native approvals. An open
 failure never repeats provisioning/baseline, launches an external browser, or
 advances onboarding. Resume uses the existing attempt receipt without reopening.

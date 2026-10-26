@@ -193,8 +193,11 @@ In WorkBuddy, call `present_files` directly with `cwd` set to the current task's
 workspace, `explanation` describing the human Console setup handoff, and `files`
 set to a one-element array containing the exact validated `console_url`. Keep
 `cwd` separate from the Agent Home; do not change identity or workspace to open
-the URL. Select `browser_opened` only for a non-error `present_files_result` whose
-`previewed` array contains that exact URL. A completed call, a `files` entry or
+the URL. Select `browser_preview_ready` only for a non-error `present_files_result` whose
+`previewed` array contains that exact URL. This confirms a prepared preview, not
+that the sidebar expanded; never select `browser_opened` from this receipt.
+If the sidebar is collapsed, direct the human to expand it. Do not automate
+sidebar clicks or change host preferences. A completed call, a `files` entry or
 a success message alone is insufficient. Missing/mismatched preview, errors,
 denials or queued results select `browser_manual`. If the tool is unavailable,
 also use `browser_manual`; do not search for another opener, load

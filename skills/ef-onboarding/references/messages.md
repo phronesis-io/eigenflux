@@ -17,7 +17,7 @@ Message index (read the current row's IDs, not every response):
 | Execution choice | `execution`, `execution_generic`, `scope_codex`, `execution_existing` |
 | Stop, clarification, restart | `paused`, `clarify_permission`, `restart` |
 | Profile preparation | `prefill_choice`, `preparing_draft`, `preparing_manual` |
-| Website handoff | `profile_ready` or `profile_manual`, `preparing_network`, `handoff`, `browser_opened`, `browser_external_requested` or `browser_manual`, `return_host`, `first_check_request` |
+| Website handoff | `profile_ready` or `profile_manual`, `preparing_network`, `handoff`, `browser_opened`, `browser_preview_ready`, `browser_external_requested` or `browser_manual`, `return_host`, `first_check_request` |
 | Website recovery | `website_incomplete`, `link_refreshed`, `check_unavailable` |
 | First-check result | `check_start`, `check_done` or `check_empty`, `check_failed` |
 | Follow-up | `followup_active`, `followup_paused`, `followup_unknown`, `action_menu`, eligible `action_peers`, `action_detail`, `action_broadcast`, `action_need` |
@@ -36,7 +36,9 @@ until the website completion UI ships, then `return_website`. `<console-url>`
 is the complete validated URL. `<followup>` is `followup_active`, `followup_paused`, or `followup_unknown` from
 actual known scheduler state; never reactivate a task to use a success message.
 `<browser-instruction>` is `browser_opened` only after confirmed visible opening;
-otherwise use `browser_manual`, as specified in connection.md.
+use `browser_preview_ready` for a confirmed WorkBuddy preview receipt and
+`browser_external_requested` for confirmed explicit external dispatch. Otherwise
+use `browser_manual`, as specified in connection.md.
 `<results>` is a concise actual result summary; `<empty-actions>` is the inline
 empty-result suggestion block defined below;
 `<current-permission>` identifies only the currently pending permission;
@@ -429,6 +431,16 @@ Progress: website. Only after required local operations and baseline succeed.
 ### en
 
 > I've opened your **EigenFlux Dashboard** in the built-in browser. Verify your email, review your profile, and confirm your action permissions there. If the page isn't visible, use the link below.
+
+## browser_preview_ready
+
+### zh
+
+> 已将 **EigenFlux 控制台**加入右侧预览。如果未显示，请展开右侧栏；也可以使用下方链接。请在页面中验证邮箱、检查并确认资料和行动权限。
+
+### en
+
+> Your **EigenFlux Dashboard** is ready in the right sidebar. Expand the sidebar if it isn't visible, or use the link below. Verify your email, review your profile, and confirm your action permissions there.
 
 ## browser_external_requested
 

@@ -38,7 +38,7 @@ func TestOnboardingBrowserHandoffRendering(t *testing.T) {
 		}
 		for _, locale := range []string{"zh", "en"} {
 			for _, profile := range []string{"profile_ready", "profile_manual"} {
-				for _, browser := range []string{"browser_opened", "browser_external_requested", "browser_manual"} {
+				for _, browser := range []string{"browser_opened", "browser_preview_ready", "browser_external_requested", "browser_manual"} {
 					t.Run(locale+"/"+profile+"/"+browser+"/"+map[string]string{"\n": "LF", "\r\n": "CRLF"}[newline], func(t *testing.T) {
 						// Non-default origin/port and encoded ticket/nonce catch lossy URL rendering.
 						url := "https://console.example.test:8443/dashboard/handoff?ticket=efht_A%2BB&source=test#nonce=N%2Fz%3D"
@@ -232,6 +232,8 @@ func TestWorkBuddyDirectPreviewContract(t *testing.T) {
 		"workspace", "`explanation`", "one-element array containing the exact validated `console_url`",
 		"Keep\n`cwd` separate from the Agent Home", "non-error `present_files_result`",
 		"`previewed` array contains that exact URL", "success message alone is insufficient",
+		"Select `browser_preview_ready`", "never select `browser_opened` from this receipt",
+		"direct the human to expand it",
 		"queued results select `browser_manual`", "If the tool is unavailable",
 		"do not search for another opener, load\n`workbuddy-browser-use`",
 	} {

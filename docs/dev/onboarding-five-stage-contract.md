@@ -121,10 +121,12 @@ fragments must not be presented as an existing popup.
 The explicit Codex/macOS default-browser route is owned by connection.md and
 uses the exact validated URL once. It is selected before a built-in attempt and
 never bypasses a denial. Launch success is a dispatch receipt, not visible-page
-or setup completion. Bilingual rendering covers this third outcome. WorkBuddy
+or setup completion. Bilingual rendering covers each outcome. WorkBuddy
 directly uses the declared `present_files` tool with the task workspace and the
 exact URL as its only file. Its non-error result must identify that URL in
-`previewed`; completion or an unrelated preview is insufficient. Missing tools
+`previewed`; completion or an unrelated preview is insufficient. This selects
+`browser_preview_ready`, not `browser_opened`: the receipt does not prove that
+the sidebar expanded. The human can expand the existing sidebar without a retry. Missing tools
 and non-confirming results fall back without browser discovery. The instruction
 contract test protects these fields and the no-Browser-Use route.
 Native WorkBuddy behavior and authenticated external handoff require host acceptance.
