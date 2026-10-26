@@ -45,6 +45,17 @@
     "pr": "https://github.com/phronesis-io/eigenflux/pull/428"
   },
   {
+    "id": "business-access-rejection-reasons-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "api",
+    "dashboards": [
+      "card-refresh"
+    ],
+    "title": "Classify business access rejections",
+    "description": "Sanitized business access rejection reasons start after API deployment; historical failures are not backfilled. Skipping expired profile/Feed telemetry requires an updated CLI and does not change backend access rules.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/437"
+  },
+  {
     "id": "feed-v2-baseline-context-v1",
     "kind": "behavior",
     "deploy_scope": "api",

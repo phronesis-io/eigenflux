@@ -60,6 +60,15 @@ does not modify saved identity files or disclose their contents, that legacy
 failures omit V2-specific actions, and that credential 503/429 failures retain
 their non-login classification without an owner recovery action.
 
+## Business access logging and cached telemetry
+
+Run `go test ./api/consolev2 ./api/middleware` for rejection reason, route-template,
+trace retention, and credential/error redaction coverage. The PostgreSQL Agent
+authorization contracts above verify the unchanged access predicates against
+native array/NULL types. In `cli/`, `go test ./cmd -run TestProfileFunnel`
+checks that expired cached access causes no HTTP or authentication request and
+leaves credentials unchanged, while usable V1/V2 access still reports events.
+
 ## Codex installer compatibility
 
 Run `python3 -m unittest discover -s tests/cli_release -p 'test_codex_install.py'`
