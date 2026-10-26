@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,63 @@ import (
 	"cli.eigenflux.ai/internal/feedevent"
 	"cli.eigenflux.ai/internal/output"
 )
+
+func TestFeedV2CompletedBaselinePreservesAppliedContext(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		revision interface{}
+		snapshot interface{}
+		wantErr  bool
+	}{
+		{"baseline fallback", nil, nil, false},
+		{"reject formal revision", 1, nil, true},
+		{"reject formal snapshot", nil, map[string]interface{}{"context_revision": 1}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			heartbeats := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/api/v2/agent-context":
+					_, _ = w.Write([]byte(`{"code":0,"data":{"context_revision":1,"control_context":{"context_revision":1,"intent_actions":[]}}}`))
+				case "/api/v2/runtime/heartbeat":
+					heartbeats++
+					var body map[string]interface{}
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["applied_context_revision"] != float64(1) {
+						t.Errorf("baseline fallback reset the runtime revision: %#v err=%v", body, err)
+					}
+					_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+				case "/api/v2/feed":
+					var body map[string]interface{}
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["context_revision_applied"] != float64(1) {
+						t.Errorf("Feed did not report its applied context: %#v err=%v", body, err)
+					}
+					_ = json.NewEncoder(w).Encode(map[string]interface{}{"code": 0, "data": map[string]interface{}{
+						"schema_version": "feed.v2", "control_context_snapshot": tc.snapshot,
+						"personalization": map[string]interface{}{"mode": "baseline", "onboarding_state": "completed", "context_revision": tc.revision, "context_delivery": "none"},
+						"items":           []interface{}{},
+					}})
+				default:
+					t.Errorf("unexpected request: %s", r.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+			_, serverName := runtimeTestConfig(t, server.URL, true)
+			oldFormat := formatFlag
+			formatFlag = "json"
+			t.Cleanup(func() { formatFlag = oldFormat })
+			err := pollFeedV2(feedPollCmd, serverName, "20")
+			if (err != nil) != tc.wantErr || (tc.wantErr && !strings.Contains(err.Error(), "baseline Feed V2 must not contain formal control context")) {
+				t.Fatalf("poll error=%v wantErr=%t", err, tc.wantErr)
+			}
+			cached, err := controlcontext.Load(serverName, "agent-1")
+			if err != nil || cached.Revision != 1 || heartbeats != 1 {
+				t.Fatalf("baseline fallback changed applied context: cache=%+v heartbeats=%d err=%v", cached, heartbeats, err)
+			}
+		})
+	}
+}
 
 func TestFeedV2PollSupportsFeedbackAndBehaviorWithoutIDTranslation(t *testing.T) {
 	const itemID = "9007199254740993"

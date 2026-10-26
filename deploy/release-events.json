@@ -54,5 +54,16 @@
     "title": "Classify business access rejections",
     "description": "Sanitized business access rejection reasons start after API deployment; historical failures are not backfilled. Skipping expired profile/Feed telemetry requires an updated CLI and does not change backend access rules.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/437"
+  },
+  {
+    "id": "feed-v2-baseline-context-v1",
+    "kind": "behavior",
+    "deploy_scope": "api",
+    "dashboards": [
+      "user-growth"
+    ],
+    "title": "Keep baseline Feed readable after onboarding",
+    "description": "After API deployment, completed accounts without personalized discovery input receive baseline Feed compatible with existing strict CLI clients. No client upgrade is required. Historical client failures and exposure rows are not backfilled; server-side Feed delivery alone does not establish successful client consumption.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/436"
   }
 ]
