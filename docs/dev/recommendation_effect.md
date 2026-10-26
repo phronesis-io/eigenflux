@@ -348,3 +348,17 @@ quadratic nested loops or full 48-hour window scans. Validate
 production capacity separately: on the busiest retained day, the read-replica
 `EXPLAIN ANALYZE` must stay under 10 seconds without fact-table sequential scans;
 fixture timings are not evidence of production capacity.
+
+### Inferred coverage and silent consumers
+
+Compliance additionally counts impressionless scores with exactly one delivered
+broadcast candidate for the same Agent and item in `(feedback_at - 48h,
+feedback_at]`. Search remains included on the event side. Inferred coverage
+requires a mature, non-search, unambiguous exposure with no exact score; exact
+coverage takes precedence. Inference never modifies facts or recommendation-effect
+metrics. `unscored_batches_with_inferred` is a subset of exact-unscored batches.
+
+`silent_agents` counts consumers delivered non-search content on Shanghai day D
+with no valid score of any kind in `[D, min(D+3, cutoff))`. Daily Agent counts must
+not be summed across days. The four new counts are backfilled from retained facts
+with migration 000119 and the normal compliance refresh.
