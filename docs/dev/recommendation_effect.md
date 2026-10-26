@@ -264,7 +264,8 @@ include search, legacy and unattributed events, matching the recommendation
 page. Counters distinguish all events, events with nonempty impression IDs,
 and unique exact matches at or after delivery. Event-side exact attribution
 has no 48-hour cap. It includes impressions the CLI inferred from its latest
-cached exposure; explicit and inferred impressions cannot yet be separated.
+cached exposure. Newly reported `impression_source` separates explicit and
+CLI-inferred IDs; historical events without this metadata remain unknown.
 These event counts must not be divided by delivery-day exposures as coverage.
 
 **Dimensions.** Each row has exactly one dimension: `all`, `runtime_name`,
@@ -345,7 +346,7 @@ refresh plan discards fewer than one million rows in total: per-Agent partial
 counts are stacked and summed instead of joined, and exposure lookups are fenced
 on the impression index, because aggregate row estimates otherwise produce
 quadratic nested loops or full 48-hour window scans. Validate
-production capacity separately: on the busiest retained day, the read-replica
+production capacity separately: on the busiest retained day, a bounded read-only production
 `EXPLAIN ANALYZE` must stay under 10 seconds without fact-table sequential scans;
 fixture timings are not evidence of production capacity.
 
@@ -362,3 +363,22 @@ metrics. `unscored_batches_with_inferred` is a subset of exact-unscored batches.
 with no valid score of any kind in `[D, min(D+3, cutoff))`. Daily Agent counts must
 not be summed across days. The four new counts are backfilled from retained facts
 with migration 000119 and the normal compliance refresh.
+
+### Feedback reporting and client health
+
+Migration 000122 adds keyed-event and CLI-inferred exact-event counts, separate
+from server-inferred impressionless events. Mature exposure declarations use
+the final valid exact score, ordered by feedback time and event ID. A later
+absent declaration stays unknown. Agreement compares a known declaration with
+the actual 48-hour surface follow-up flag; declarations never manufacture labels.
+
+Health counts use only reports for the delivery day from delivered consumers.
+Silent consumers with reports and with attempts separate missing scoring from
+client-reported attempts and failures. Health attempts, failures and queue drops
+are sums of trailing-window reports, not counts of server feedback events.
+
+The `feedback_contract_version` cohort uses the latest valid score in
+`[D, min(D+3, cutoff))`: empty versions are `legacy`, no score is `none`, and
+values with fewer than five delivered consumers fold into `other`. All other
+cohorts keep their existing refresh-time settings definitions. The additive
+reporting columns remain zero for historical clients without these fields.
