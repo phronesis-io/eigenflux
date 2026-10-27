@@ -121,7 +121,7 @@ func TestMainSessionRunnerVerifiesNativeReceipt(t *testing.T) {
 		b := mainSessionFixture(t)
 		b.Command = append(b.Command, "-test.run=^TestRunnerFixture$", "--")
 		b.Env["EF_RUNNER_FIXTURE"] = scenario
-		result, err := (Runner{Binding: b}).Run(context.Background(), Request{Kind: "pm_push", SessionID: mainTestID, Prompt: "test"})
+		result, err := (Runner{Binding: b}).runCodexQueue(context.Background(), Request{Kind: "pm_push", SessionID: mainTestID, Prompt: "test"})
 		if scenario == "codex-main" {
 			if err != nil || result.SessionID != mainTestID {
 				t.Fatalf("%+v %v", result, err)

@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -79,7 +81,7 @@ func TestCommissionVerifiedCheckpointResumesWithoutAgent(t *testing.T) {
 				err = os.Rename(job.CommissionDirectory, job.CommissionDirectory+"-moved")
 				if err == nil {
 					err = os.Symlink(job.CommissionDirectory+"-moved", job.CommissionDirectory)
-					if errors.Is(err, os.ErrPermission) {
+					if errors.Is(err, os.ErrPermission) || runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(1314)) {
 						t.Skip("symlink creation is unavailable for this test user")
 					}
 				}

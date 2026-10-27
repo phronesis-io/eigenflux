@@ -144,7 +144,7 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		var out []byte
 		var err error
 		if runtime.GOOS == "windows" {
-			command := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-File", reporterWrapper, bin, "--homedir", home, "--scope", "all", "--apply", "--host-cleanup-confirmed")
+			command := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", reporterWrapper, bin, "--homedir", home, "--scope", "all", "--apply", "--host-cleanup-confirmed")
 			command.Env = append(os.Environ(), "HOME="+filepath.Dir(bin), "USERPROFILE="+filepath.Dir(bin), "EIGENFLUX_HOME="+home)
 			out, err = command.CombinedOutput()
 		} else {
@@ -248,7 +248,7 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		var command *exec.Cmd
 		if runtime.GOOS == "windows" {
 			root := os.Getenv("SystemRoot")
-			command = exec.Command(filepath.Join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-File", bin+".uninstall.ps1", bin, "--homedir", home, "--attempt", start.Attempt, "--scope", "all", "--apply", "--host-cleanup-confirmed", "--source", "agent")
+			command = exec.Command(filepath.Join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", bin+".uninstall.ps1", bin, "--homedir", home, "--attempt", start.Attempt, "--scope", "all", "--apply", "--host-cleanup-confirmed", "--source", "agent")
 		} else {
 			command = exec.Command("sh", bin+".uninstall.sh", bin, "--homedir", home, "--attempt", start.Attempt, "--scope", "all", "--apply", "--host-cleanup-confirmed", "--source", "agent")
 		}

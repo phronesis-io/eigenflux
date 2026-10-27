@@ -81,7 +81,7 @@ func TestCodexQueueRequiresCompletedMatchingTurn(t *testing.T) {
 			b.Env["EF_RUNNER_FIXTURE"] = scenario
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
-			got, err := (Runner{Binding: b}).Run(ctx, Request{ID: "request", Kind: "pm_push", SessionID: mainTestID, Prompt: "untrusted $(command)\n--argument"})
+			got, err := (Runner{Binding: b}).runCodexQueue(ctx, Request{ID: "request", Kind: "pm_push", SessionID: mainTestID, Prompt: "untrusted $(command)\n--argument"})
 			if scenario == "codex-main" {
 				if err != nil || got.SessionID != mainTestID || got.RunID != "own-turn" || got.Text != "decision" {
 					t.Fatalf("missing matched receipt: %+v %v", got, err)
@@ -112,7 +112,7 @@ func TestCodexQueueCancellation(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		_, err := (Runner{Binding: b}).Run(ctx, Request{Kind: "pm_push", SessionID: mainTestID, Prompt: "probe"})
+		_, err := (Runner{Binding: b}).runCodexQueue(ctx, Request{Kind: "pm_push", SessionID: mainTestID, Prompt: "probe"})
 		done <- err
 	}()
 	cancel()
@@ -166,7 +166,7 @@ func TestCodexQueueReadsSplitAppendsAfterExistingPartialRecord(t *testing.T) {
 	}
 	done := make(chan outcome, 1)
 	go func() {
-		result, err := (Runner{Binding: b}).Run(ctx, Request{Kind: "pm_push", SessionID: mainTestID, Prompt: "probe"})
+		result, err := (Runner{Binding: b}).runCodexQueue(ctx, Request{Kind: "pm_push", SessionID: mainTestID, Prompt: "probe"})
 		done <- outcome{result, err}
 	}()
 	for {
@@ -204,7 +204,7 @@ func TestCodexMainQueueLocal(t *testing.T) {
 	}
 	b := Binding{Mode: "native", Host: "codex", MainSessionID: id, Command: []string{exe}, Args: []string{"--sandbox", "workspace-write", "--ask-for-approval", "never"}, WorkDir: t.TempDir(), Home: t.TempDir(), Server: "test", TimeoutSeconds: 90, Env: map[string]string{"CODEX_HOME": home}}
 	decision := `{"version":1,"request_id":"ef-queue-runner-smoke-20261014","action":"no_reply","reply_text":""}`
-	prompt := "EigenFlux queue adapter smoke test. Do not use tools, send messages, or change files/settings. Return exactly this JSON: " + decision
+	prompt := "EigenFlux main adapter smoke test. Do not use tools, send messages, or change files/settings. Return exactly this JSON: " + decision + codexPMDataMarker + `{"request_id":"ef-queue-runner-smoke-20261014"}`
 	got, err := (Runner{Binding: b}).Run(context.Background(), Request{ID: "ef-queue-runner-smoke-20261014", Kind: "pm_push", SessionID: id, Prompt: prompt})
 	if err != nil || got.SessionID != id || got.RunID == "" {
 		t.Fatalf("live host receipt: %+v %v", got, err)

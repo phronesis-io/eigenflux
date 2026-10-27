@@ -265,6 +265,9 @@ func (w *accountWatch) dispatchJob(parent context.Context, job dispatch.Job) err
 		if errors.Is(runErr, dispatch.ErrNeedsUser) {
 			status, code = "needs_user", "agent_permission_required"
 		}
+		if errors.Is(runErr, dispatch.ErrMainNoticeUnsupported) {
+			status, code = "needs_user", "main_hidden_input_unavailable"
+		}
 		if errors.Is(runErr, dispatch.ErrCommandLineTooLong) {
 			status, code = "needs_user", "windows_command_line_too_long"
 		}

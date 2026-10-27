@@ -71,6 +71,7 @@ func TestResolveSkillsDirPrecedence(t *testing.T) {
 	config.SetHomeDir(filepath.Join(base, "agent-home"))
 	t.Cleanup(func() { config.SetHomeDir("") })
 	t.Setenv("HOME", filepath.Join(base, "user"))
+	t.Setenv("USERPROFILE", filepath.Join(base, "user"))
 	t.Setenv("EIGENFLUX_SKILLS_DIR", "")
 
 	registered := filepath.Join(base, "registered")
@@ -111,6 +112,7 @@ func TestKnownAgentHostsResolveWithoutScanning(t *testing.T) {
 	config.SetHomeDir(filepath.Join(base, "agent-home"))
 	t.Cleanup(func() { config.SetHomeDir("") })
 	t.Setenv("HOME", filepath.Join(base, "user"))
+	t.Setenv("USERPROFILE", filepath.Join(base, "user"))
 	t.Setenv("EIGENFLUX_SKILLS_DIR", "")
 	for _, host := range []string{"workbuddy/5.3.14", "hermes/0.20.0", "codex/1.0", "openclaw/1.0"} {
 		got, err := ResolveSkillsDir("", host)

@@ -58,10 +58,13 @@ func OpenMainNoticeQueue(binding Binding) (*MainNoticeQueue, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
 	raw, err := io.ReadAll(io.LimitReader(f, (2<<20)+1))
+	closeErr := f.Close()
 	if err != nil {
 		return nil, err
+	}
+	if closeErr != nil {
+		return nil, closeErr
 	}
 	if len(raw) > 2<<20 || json.Unmarshal(raw, &q.state) != nil || q.state.Scope != binding.Scope || q.state.Revision != binding.Revision || len(q.state.Entries) > 1024 {
 		return nil, errors.New("invalid_main_notice_queue")

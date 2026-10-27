@@ -149,11 +149,24 @@ func mainNoticeUUID() (string, error) {
 }
 
 func (r MainNoticeRunner) runCodex(ctx context.Context, prompt string) (Result, error) {
+	application, data, ok := strings.Cut(prompt, "\n\nUNTRUSTED COMMISSION EVENT:\n")
+	if !ok || strings.TrimSpace(application) == "" || !json.Valid([]byte(data)) {
+		return Result{}, errors.New("invalid_main_notice_envelope")
+	}
+	return r.runCodexEnvelope(ctx, application, data, false)
+}
+
+// Both lanes use the Desktop owner. Only PM decisions may finish silently.
+func (r MainNoticeRunner) runCodexEnvelope(ctx context.Context, application, data string, allowSilent bool) (Result, error) {
 	ipc, err := openCodexOwnerIPC(ctx, r.Target.Binding)
 	if err != nil {
 		return Result{}, mainNoticeNotSubmitted(err)
 	}
 	defer ipc.Close()
+	return r.runCodexEnvelopeOnIPC(ctx, ipc, application, data, allowSilent)
+}
+
+func (r MainNoticeRunner) runCodexEnvelopeOnIPC(ctx context.Context, ipc *codexOwnerIPC, application, data string, allowSilent bool) (Result, error) {
 	owner, err := mainNoticeOwner(ctx, ipc, r.Target.SessionID)
 	if err != nil {
 		return Result{}, mainNoticeNotSubmitted(err)
@@ -166,10 +179,6 @@ func (r MainNoticeRunner) runCodex(ctx context.Context, prompt string) (Result, 
 	baseline, err := reader.checkMainNoticeTarget(r.Target.SessionID)
 	if err != nil {
 		return Result{}, mainNoticeNotSubmitted(err)
-	}
-	application, data, ok := strings.Cut(prompt, "\n\nUNTRUSTED COMMISSION EVENT:\n")
-	if !ok || strings.TrimSpace(application) == "" || !json.Valid([]byte(data)) {
-		return Result{}, errors.New("invalid_main_notice_envelope")
 	}
 	id, err := mainNoticeUUID()
 	if err != nil {
@@ -205,10 +214,14 @@ func (r MainNoticeRunner) runCodex(ctx context.Context, prompt string) (Result, 
 	if handledBy != owner || json.Unmarshal(raw, &response) != nil || response.Result.Turn.ID == "" || baseline[response.Result.Turn.ID] || response.Result.Turn.Status != "inProgress" && response.Result.Turn.Status != "completed" {
 		return Result{}, errors.New("main_notice_turn_unconfirmed")
 	}
-	return reader.waitMainNoticeTurn(r.Target.SessionID, response.Result.Turn.ID)
+	return reader.waitCodexHiddenTurn(r.Target.SessionID, response.Result.Turn.ID, allowSilent)
 }
 
 func (p *mainNoticeRPC) waitMainNoticeTurn(session, id string) (Result, error) {
+	return p.waitCodexHiddenTurn(session, id, false)
+}
+
+func (p *mainNoticeRPC) waitCodexHiddenTurn(session, id string, allowSilent bool) (Result, error) {
 	for {
 		// Read only the newest receipt; unrelated historical turns can contain
 		// large tool bodies. A displaced target is never inferred or replayed.
@@ -228,6 +241,9 @@ func (p *mainNoticeRPC) waitMainNoticeTurn(session, id string) (Result, error) {
 			if turn.Status != "completed" {
 				continue
 			}
+			if allowSilent && turn.Items == nil {
+				return Result{}, errors.New("codex_pm_items_unconfirmed")
+			}
 			text := ""
 			for _, item := range turn.Items {
 				if item.Type == "userMessage" {
@@ -236,8 +252,11 @@ func (p *mainNoticeRPC) waitMainNoticeTurn(session, id string) (Result, error) {
 				if item.Type == "agentMessage" && item.Phase == "final_answer" {
 					text = item.Text
 				}
+				if allowSilent && item.Type == "agentMessage" && item.Phase != "final_answer" && strings.TrimSpace(item.Text) != "" {
+					return Result{}, errors.New("codex_pm_unexpected_commentary")
+				}
 			}
-			if strings.TrimSpace(text) == "" {
+			if strings.TrimSpace(text) == "" && !allowSilent {
 				return Result{}, errors.New("main_notice_completion_unconfirmed")
 			}
 			return Result{Text: text, SessionID: session, RunID: id}, nil

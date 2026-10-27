@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -66,6 +67,21 @@ func TestWatchDispatchCodexQueueReceiptAndSend(t *testing.T) {
 			}
 			if err := w.enableDispatch(); err != nil {
 				t.Fatal(err)
+			}
+			if runtime.GOOS == "windows" {
+				// Queue is the Unix adapter. Exercise the common decision/send
+				// checks without ever contacting the installed Windows Desktop.
+				w.runAgent = func(_ context.Context, req dispatch.Request) (dispatch.Result, error) {
+					if scenario == "admitted-only" {
+						return dispatch.Result{}, context.DeadlineExceeded
+					}
+					id := req.ID
+					if scenario == "wrong-request" {
+						id = "someone-else"
+					}
+					decision, _ := json.Marshal(dispatch.Decision{Version: 1, RequestID: id, Action: "reply", ReplyText: "A safe response"})
+					return dispatch.Result{SessionID: req.SessionID, RunID: "queue-turn", Text: string(decision)}, nil
+				}
 			}
 			decisionSeen := false
 			w.emit = func(kind string, data interface{}) error {

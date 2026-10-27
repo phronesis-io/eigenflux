@@ -325,6 +325,13 @@ func recoverInterrupted(real string) error {
 	old := strings.TrimSpace(string(data))
 	parent := filepath.Dir(real)
 	// Preserve the journal and rollback slot if any recovery step fails.
+	if info, statErr := os.Lstat(real); statErr == nil {
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("skills sync: recovery target is not a directory: %s", real)
+		}
+	} else if !os.IsNotExist(statErr) {
+		return statErr
+	}
 	if !dirExists(real) && old != "" {
 		if !dirExists(old) {
 			return fmt.Errorf("skills sync: rollback directory is missing: %s", old)

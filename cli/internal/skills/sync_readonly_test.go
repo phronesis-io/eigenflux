@@ -312,6 +312,9 @@ func TestRecoverInterruptedFailurePreservesRollback(t *testing.T) {
 	if !dirExists(old) || !fileExists(real+journalSuffix) {
 		t.Fatal("failed rollback destroyed recovery state")
 	}
+	if data, err := os.ReadFile(real); err != nil || string(data) != "obstruction" {
+		t.Fatalf("failed rollback replaced the obstructing file: %q %v", data, err)
+	}
 }
 
 func TestSyncRepairsMissingSkillAndProvisionalInstall(t *testing.T) {

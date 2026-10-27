@@ -56,6 +56,9 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 	if boundMain {
+		if runtime.GOOS == "windows" {
+			return r.runCodexHiddenPM(ctx, req)
+		}
 		return r.runCodexQueue(ctx, req)
 	}
 	if r.Binding.Mode == "acp" {

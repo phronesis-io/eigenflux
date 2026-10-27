@@ -40,7 +40,7 @@ return `needs_user`, without switching to a permission-bypass mode.
 | [binding.go](binding.go), [types.go](types.go) | Binding validation, atomic writes, `ParseDecision` |
 | [journal.go](journal.go) | `AddMessages`, `AddHint`, `AddCommissionNotification`, `Next` / `NextKind`, `Update`: persistence, deduplication, sessions, recovery |
 | [desktop.go](desktop.go), [desktop queue](../desktopqueue/README.md) | `CommissionBlockers`: validated routing metadata for unresolved local work; desktop delivery remains separate from execution |
-| [runner.go](runner.go), [acp.go](acp.go) | `Runner.Run`, `RunCommand`, `runACP`: host execution and result parsing |
+| [runner.go](runner.go), [acp.go](acp.go), [codex_hidden_pm.go](codex_hidden_pm.go) | `Runner.Run`, `RunCommand`, `runACP`: host execution, Windows hidden main-session PM decisions and result parsing |
 | [process_unix.go](process_unix.go), [process_windows.go](process_windows.go) | Process-group / Windows Job Object cancellation |
 | [replace_unix.go](replace_unix.go), [replace_windows.go](replace_windows.go) | Atomic file replacement |
 | [heartbeat.go](../../cmd/heartbeat.go) | Companion stages and `--watch-managed` launcher |
@@ -323,7 +323,20 @@ and binding revision. `dispatch_status` includes the returned session ID and
 existing decision/send receipt. A returned session mismatch is `unknown` and is
 never sent or automatically retried. Missing metadata yields `needs_user`.
 
-Native Codex PM jobs with an explicit main session use `codex queue --thread`
+On Windows, native Codex PM jobs with an explicit main session use the existing
+Desktop-owner hidden-input IPC lane, never `queue --message`. The input array
+is empty; application rules and untrusted PM data remain separate. An idle-only
+preflight waits while the owner is busy. No visible-input fallback, second
+writer, or automatic replay after an uncertain owner write is allowed.
+The invocation-scoped transport contract permits an empty final for `no_reply`;
+only an exact, newly admitted, completed, error-free turn with an explicit items
+array and no user message or commentary can yield this silent decision. The CLI
+converts it to the ordinary request-correlated JSON before decision validation.
+`reply` and `needs_user` retain the JSON contract; Commission notices still
+require a nonempty final. Native Windows UI acceptance is distinct from fixture
+coverage. See `codex_hidden_pm*.go` and the named-pipe regression tests.
+
+On other platforms, native Codex PM jobs with an explicit main session use `codex queue --thread`
 against the pinned Codex store. The host serializes the queued turn with desktop
 and heartbeat work; the CLI never acquires another writer through exec/resume.
 Queue admission is not a decision receipt. Observe only newly appended host

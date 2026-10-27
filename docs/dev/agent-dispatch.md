@@ -51,6 +51,15 @@ eigenflux watch --dispatch
 
 ## Codex main conversation
 
+Windows native PM dispatch uses the existing Desktop owner's hidden-input
+transport rather than visible `codex queue --message`. It preserves the pinned
+main thread and separates application rules from untrusted message data. Busy
+owners wait before submission; uncertain submissions are never replayed. A
+completed empty turn means `no_reply` only in this PM lane, so it needs no visible
+acknowledgement or JSON output. Other decisions retain strict JSON validation.
+Commission notices retain their nonempty-result requirement. Unsupported hidden
+transport fails without falling back to a visible user message.
+
 CLI 1.0.5 binds a new native Codex PM dispatcher to a verified heartbeat target
 and pins the host's absolute Codex store. Submit the host's complete scheduler
 inventory with the new configuration, or provide an explicit `main_session_id`.

@@ -25,6 +25,15 @@ Tests live beside the packages they exercise and in the service integration suit
 
 ## Local Agent dispatch
 
+Windows regressions close queue readers before atomic replacement and preserve
+Skills rollback journals when the recovery target is a file or symlink. Tests
+isolate both `HOME` and `USERPROFILE`; isolated PowerShell uninstall fixtures
+use process-local `-ExecutionPolicy Bypass`, without changing machine policy.
+Feed contract assertions account for the renderer's documented trimming.
+`TestCodexHiddenPMWindowsOwnerAndSilentReceipt` exercises an isolated named pipe
+and read-only child reader, including empty completed turns and rejection of
+visible input, commentary, missing items, failed turns and permission requests.
+
 From `cli/`, run `go test ./...` and
 `go test -race ./internal/dispatch ./cmd -run 'Test.*(Dispatch|Binding|Decision|Journal|Runner|ACP|Watch)'`.
 The dispatch tests use isolated Homes, signed Skills fixtures, local WebSocket

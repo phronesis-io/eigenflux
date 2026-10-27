@@ -133,7 +133,9 @@ func TestMainNoticeCodexReaderFixture(t *testing.T) {
 			case "interrupted":
 				status = "interrupted"
 			case "no-final":
-				items = items[:1]
+				items = []any{}
+			case "missing-items":
+				items = nil
 			case "empty-final":
 				items = []any{map[string]string{"type": "agentMessage", "phase": "final_answer", "text": " \n "}}
 			case "visible-user-message":

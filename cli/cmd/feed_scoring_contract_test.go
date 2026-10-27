@@ -94,7 +94,7 @@ func TestFeedPendingConfirmationContract(t *testing.T) {
 	if err := output.PrintFeedForAgentTo(&rendered, payload); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rendered.String(), string(served)) || !strings.Contains(rendered.String(), `"items": []`) {
+	if !strings.Contains(rendered.String(), strings.TrimSpace(string(served))) || !strings.Contains(rendered.String(), `"items": []`) {
 		t.Fatal("empty Feed agent output omitted its confirmation rules or payload")
 	}
 	for _, path := range []string{"skills/ef-broadcast/references/baseline-contract.md", "static/feed_baseline_contract.md"} {
