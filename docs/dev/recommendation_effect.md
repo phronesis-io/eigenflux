@@ -264,24 +264,27 @@ include search, legacy and unattributed events, matching the recommendation
 page. Counters distinguish all events, events with nonempty impression IDs,
 and unique exact matches at or after delivery. Event-side exact attribution
 has no 48-hour cap. It includes impressions the CLI inferred from its latest
-cached exposure; explicit and inferred impressions cannot yet be separated.
+cached exposure. Newly reported `impression_source` separates explicit and
+CLI-inferred IDs; historical events without this metadata remain unknown.
 These event counts must not be divided by delivery-day exposures as coverage.
 
 **Dimensions.** Each row has exactly one dimension: `all`, `runtime_name`,
 `runtime_mode`, `cli_version`, `model`, `skill_revision`,
-`heartbeat_contract_version` or `auto_comment`. Runtime product and model use
+`heartbeat_contract_version`, `auto_comment` or `feedback_contract_version`.
+Runtime product and model use
 trimmed lowercase values; CLI version is trimmed. Mode accepts only `plugin`
 and `skill`; everything else stays unknown. Revision strings retain their
 case. Auto-comment is true, false or unknown. Empty/missing values become
-unknown, including every dimension for a consumer without settings. All values
-are truncated to 64 characters to fit the aggregate contract, including long
-model reports. No deprecated runtime alias or inferred product identity is used.
+unknown for settings-based dimensions. Settings values are truncated to 64
+characters, including long model reports. The feedback-contract dimension uses
+the latest valid score in the observation window instead: `legacy` for an empty
+version, `none` without a score, and at most 32 characters. No deprecated runtime alias or inferred product identity is used.
 
 For each delivery day and dimension, values with fewer than five distinct
 recipients fold into `other`. Event-side rows use that same kept-value set;
 event-only values fold into `other` unless their value already qualifies.
 The `all` row is exempt and is always written, including on an empty day.
-The snapshot uses current settings at refresh time, normally 2–3 days after
+Settings-based cohorts use current settings at refresh time, normally 2–3 days after
 the event when the day finalizes. Backfills use settings at backfill time.
 Cohorts therefore do not establish historical client identity or a fixed
 longitudinal cohort. Named values and `other` can change across days.
@@ -345,7 +348,7 @@ refresh plan discards fewer than one million rows in total: per-Agent partial
 counts are stacked and summed instead of joined, and exposure lookups are fenced
 on the impression index, because aggregate row estimates otherwise produce
 quadratic nested loops or full 48-hour window scans. Validate
-production capacity separately: on the busiest retained day, the read-replica
+production capacity separately: on the busiest retained day, a bounded read-only production
 `EXPLAIN ANALYZE` must stay under 10 seconds without fact-table sequential scans;
 fixture timings are not evidence of production capacity.
 
@@ -372,3 +375,24 @@ before any dashboard reads the new columns:
 ```bash
 ./build/recommendation_effect_backfill --compliance --days=<every stored day>
 ```
+
+### Feedback reporting and client health
+
+Migration 000122 adds keyed-event and CLI-inferred exact-event counts, separate
+from server-inferred impressionless events. Mature exposure declarations use
+the final valid exact score, ordered by feedback time and event ID. A later
+absent declaration stays unknown. Agreement compares a known declaration with
+the actual 48-hour surface follow-up flag; declarations never manufacture labels.
+
+Health counts use only reports for the delivery day from delivered consumers.
+Silent consumers with reports and with attempts separate missing scoring from
+client-reported attempts and failures. Health attempts, failures and queue drops
+are sums of trailing-window reports, not counts of server feedback events.
+
+The `feedback_contract_version` cohort uses the latest valid score in
+`[D, min(D+3, cutoff))`: empty versions are `legacy`, no score is `none`, and
+values with fewer than five delivered consumers fold into `other`. All other
+cohorts keep their existing refresh-time settings definitions. The additive
+reporting columns remain zero for historical clients without these fields.
+Final days stored before migration 000122 also have no `feedback_contract_version`
+rows; the same post-deployment backfill of every stored day adds them.

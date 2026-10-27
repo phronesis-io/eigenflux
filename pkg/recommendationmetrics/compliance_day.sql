@@ -112,11 +112,12 @@ WITH bounds AS NOT MATERIALIZED (
     FROM mature_keys m CROSS JOIN LATERAL (
       SELECT bool_or(f.feedback_at<m.served_at+3600000) AS scored_1h,
         bool_or(f.feedback_at<m.served_at+86400000) AS scored_24h,
-        (array_agg(f.score ORDER BY f.feedback_at DESC,f.id DESC))[1] AS final_score
+        (array_agg(f.score ORDER BY f.feedback_at DESC,f.id DESC))[1] AS final_score,
+        (array_agg(f.surfaced ORDER BY f.feedback_at DESC,f.id DESC))[1] AS declared_surfaced
       FROM (
         -- Fence the impression lookup; the ordered aggregate otherwise favors
         -- time-ordered indexes that scan every event in the 48-hour window.
-        SELECT f.id,f.agent_id,f.item_id,f.feedback_at,f.score FROM feedback_logs f
+        SELECT f.id,f.agent_id,f.item_id,f.feedback_at,f.score,f.surfaced FROM feedback_logs f
         WHERE f.impression_id=m.impression_id OFFSET 0
       ) f
       WHERE f.agent_id=m.agent_id AND f.item_id=m.item_id
@@ -157,6 +158,16 @@ WITH bounds AS NOT MATERIALIZED (
 ), cohorts AS MATERIALIZED (
     SELECT c.agent_id,v.dimension,v.value
     FROM consumers c LEFT JOIN agent_settings s USING(agent_id)
+    CROSS JOIN bounds b LEFT JOIN LATERAL (
+      -- Only active consumers need a contract observation. LIMIT fences the
+      -- Agent/time lookup and preserves the final event, including an empty version.
+      SELECT f.id,f.contract_version FROM feedback_logs f
+      WHERE f.agent_id=c.agent_id AND f.feedback_at>=b.lo
+        AND f.feedback_at<LEAST(b.hi+172800000,b.cutoff) AND f.score IN (-1,0,1,2)
+        AND (c.agent_id IN (SELECT agent_id FROM delivery_counts)
+          OR c.agent_id IN (SELECT agent_id FROM feedback))
+      ORDER BY f.feedback_at DESC,f.id DESC LIMIT 1
+    ) latest ON true
     CROSS JOIN LATERAL (VALUES
       ('all','all'),
       ('runtime_name',COALESCE(NULLIF(left(lower(btrim(s.runtime_name)),64),''),'unknown')),
@@ -165,7 +176,9 @@ WITH bounds AS NOT MATERIALIZED (
       ('model',COALESCE(NULLIF(left(lower(btrim(s.model)),64),''),'unknown')),
       ('skill_revision',COALESCE(NULLIF(left(s.skill_revision,64),''),'unknown')),
       ('heartbeat_contract_version',COALESCE(NULLIF(left(s.heartbeat_contract_version,64),''),'unknown')),
-      ('auto_comment',COALESCE(s.auto_comment::text,'unknown'))
+      ('auto_comment',COALESCE(s.auto_comment::text,'unknown')),
+      ('feedback_contract_version',CASE WHEN latest.id IS NULL THEN 'none'
+        ELSE COALESCE(NULLIF(left(latest.contract_version,32),''),'legacy') END)
     ) v(dimension,value)
 ), kept_values AS MATERIALIZED (
     SELECT c.dimension,c.value FROM cohorts c JOIN delivery_counts d USING(agent_id)
@@ -173,6 +186,9 @@ WITH bounds AS NOT MATERIALIZED (
 ), exposure_counts AS (
     SELECT agent_id,
       count(*) AS mature_exposures,
+      count(*) FILTER (WHERE declared_surfaced IS NOT NULL) AS surface_declared_known_exposures,
+      count(*) FILTER (WHERE declared_surfaced) AS surface_declared_exposures,
+      count(*) FILTER (WHERE declared_surfaced=COALESCE(surfaced,false)) AS surface_agreement_exposures,
       count(*) FILTER (WHERE scored_1h) AS scored_1h_exposures,
       count(*) FILTER (WHERE scored_24h) AS scored_24h_exposures,
       count(final_score) AS scored_48h_exposures,
@@ -202,6 +218,9 @@ WITH bounds AS NOT MATERIALIZED (
 ), feedback_counts AS (
     SELECT agent_id,
       count(*) AS feedback_events,
+      count(*) FILTER (WHERE f.client_key<>'') AS feedback_events_keyed,
+      count(*) FILTER (WHERE m.matches=1 AND m.served_at<=f.feedback_at
+        AND f.impression_source='cli_inferred') AS feedback_events_cli_inferred,
       count(*) FILTER (WHERE f.impression_id<>'') AS feedback_events_with_impression,
       count(*) FILTER (WHERE m.matches=1 AND m.served_at<=f.feedback_at) AS feedback_events_exact
     FROM feedback f LEFT JOIN exact_matches m USING(agent_id,item_id,impression_id) GROUP BY agent_id
@@ -223,6 +242,15 @@ WITH bounds AS NOT MATERIALIZED (
             AND f.impression_id<>'' AND f.score IN (-1,0,1,2) LIMIT 1
         ) f
       )
+), health AS MATERIALIZED (
+    SELECT h.* FROM agent_feedback_health_daily h WHERE h.day=$1::date
+), health_counts AS (
+    SELECT h.agent_id,1 AS health_reported_agents,
+      CASE WHEN h.agent_id IN (SELECT agent_id FROM silent_counts) THEN 1 ELSE 0 END AS silent_health_reported_agents,
+      CASE WHEN h.feedback_attempts>0 AND h.agent_id IN (SELECT agent_id FROM silent_counts) THEN 1 ELSE 0 END AS silent_attempting_agents,
+      h.feedback_attempts AS health_feedback_attempts,h.feedback_failures AS health_feedback_failures,
+      h.queue_drops AS health_queue_drops
+    FROM health h WHERE h.agent_id IN (SELECT agent_id FROM delivery_counts)
 ), agent_parts AS (
     -- Stack per-Agent partial counts instead of joining them. Aggregate row
     -- estimates are poor, and joined CTEs become quadratic nested loops.
@@ -235,7 +263,8 @@ WITH bounds AS NOT MATERIALIZED (
       0 AS followup_exposures,0 AS followup_agent_pm_exposures,0 AS agent_pm_exposures,0 AS author_replied_exposures,
       0 AS feedback_events,0 AS feedback_events_with_impression,0 AS feedback_events_exact,
       0 AS surface_events,0 AS surface_events_with_impression,0 AS surface_events_exact,
-      0 AS scored_48h_inferred_exposures,0 AS unscored_batches_with_inferred,0 AS feedback_events_inferred,0 AS silent_agents
+      0 AS scored_48h_inferred_exposures,0 AS unscored_batches_with_inferred,0 AS feedback_events_inferred,0 AS silent_agents,
+      0 AS feedback_events_keyed,0 AS feedback_events_cli_inferred,0 AS surface_declared_known_exposures,0 AS surface_declared_exposures,0 AS surface_agreement_exposures,0 AS health_reported_agents,0 AS silent_health_reported_agents,0 AS silent_attempting_agents,0 AS health_feedback_attempts,0 AS health_feedback_failures,0 AS health_queue_drops
     FROM delivery_counts
     UNION ALL
     SELECT agent_id,0,0,0,
@@ -245,7 +274,8 @@ WITH bounds AS NOT MATERIALIZED (
       positive_exposures,positive_surfaced_exposures,0,0,
       followup_exposures,followup_agent_pm_exposures,agent_pm_exposures,author_replied_exposures,
       0,0,0,0,0,0,
-      scored_48h_inferred_exposures,0,0,0
+      scored_48h_inferred_exposures,0,0,0,
+      0,0,surface_declared_known_exposures,surface_declared_exposures,surface_agreement_exposures,0,0,0,0,0,0
     FROM exposure_counts
     UNION ALL
     SELECT agent_id,0,0,0,0,0,0,0,
@@ -253,24 +283,32 @@ WITH bounds AS NOT MATERIALIZED (
       degenerate_candidate_batches,degenerate_batches,
       0,0,0,0,0,positive_batches,positive_batches_without_surface,
       0,0,0,0,0,0,0,0,0,0,
-      0,unscored_batches_with_inferred,0,0
+      0,unscored_batches_with_inferred,0,0,
+      0,0,0,0,0,0,0,0,0,0,0
     FROM batch_counts
     UNION ALL
     SELECT agent_id,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
       feedback_events,feedback_events_with_impression,feedback_events_exact,0,0,0,
-      0,0,0,0
+      0,0,0,0,
+      feedback_events_keyed,feedback_events_cli_inferred,0,0,0,0,0,0,0,0,0
     FROM feedback_counts
     UNION ALL
     SELECT agent_id,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
       surface_events,surface_events_with_impression,surface_events_exact,
-      0,0,0,0
+      0,0,0,0,
+      0,0,0,0,0,0,0,0,0,0,0
     FROM surface_counts
     UNION ALL
-    SELECT agent_id,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,feedback_events_inferred,0
+    SELECT agent_id,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,feedback_events_inferred,0,
+      0,0,0,0,0,0,0,0,0,0,0
     FROM inferred_event_counts
     UNION ALL
-    SELECT agent_id,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,silent_agents
+    SELECT agent_id,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,silent_agents,
+      0,0,0,0,0,0,0,0,0,0,0
     FROM silent_counts
+    UNION ALL
+    SELECT agent_id,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,health_reported_agents,silent_health_reported_agents,silent_attempting_agents,health_feedback_attempts,health_feedback_failures,health_queue_drops
+    FROM health_counts
 ), agent_totals AS MATERIALIZED (
     SELECT agent_id,
       sum(delivered_agents) AS delivered_agents,
@@ -306,7 +344,18 @@ WITH bounds AS NOT MATERIALIZED (
       sum(scored_48h_inferred_exposures) AS scored_48h_inferred_exposures,
       sum(unscored_batches_with_inferred) AS unscored_batches_with_inferred,
       sum(feedback_events_inferred) AS feedback_events_inferred,
-      sum(silent_agents) AS silent_agents
+      sum(silent_agents) AS silent_agents,
+      sum(feedback_events_keyed) AS feedback_events_keyed,
+      sum(feedback_events_cli_inferred) AS feedback_events_cli_inferred,
+      sum(surface_declared_known_exposures) AS surface_declared_known_exposures,
+      sum(surface_declared_exposures) AS surface_declared_exposures,
+      sum(surface_agreement_exposures) AS surface_agreement_exposures,
+      sum(health_reported_agents) AS health_reported_agents,
+      sum(silent_health_reported_agents) AS silent_health_reported_agents,
+      sum(silent_attempting_agents) AS silent_attempting_agents,
+      sum(health_feedback_attempts) AS health_feedback_attempts,
+      sum(health_feedback_failures) AS health_feedback_failures,
+      sum(health_queue_drops) AS health_queue_drops
     FROM agent_parts GROUP BY agent_id
 ), folded_counts AS (
     SELECT c.dimension,CASE WHEN c.dimension='all' OR k.value IS NOT NULL THEN c.value ELSE 'other' END AS value,
@@ -343,7 +392,18 @@ WITH bounds AS NOT MATERIALIZED (
       sum(t.scored_48h_inferred_exposures) AS scored_48h_inferred_exposures,
       sum(t.unscored_batches_with_inferred) AS unscored_batches_with_inferred,
       sum(t.feedback_events_inferred) AS feedback_events_inferred,
-      sum(t.silent_agents) AS silent_agents
+      sum(t.silent_agents) AS silent_agents,
+      sum(t.feedback_events_keyed) AS feedback_events_keyed,
+      sum(t.feedback_events_cli_inferred) AS feedback_events_cli_inferred,
+      sum(t.surface_declared_known_exposures) AS surface_declared_known_exposures,
+      sum(t.surface_declared_exposures) AS surface_declared_exposures,
+      sum(t.surface_agreement_exposures) AS surface_agreement_exposures,
+      sum(t.health_reported_agents) AS health_reported_agents,
+      sum(t.silent_health_reported_agents) AS silent_health_reported_agents,
+      sum(t.silent_attempting_agents) AS silent_attempting_agents,
+      sum(t.health_feedback_attempts) AS health_feedback_attempts,
+      sum(t.health_feedback_failures) AS health_feedback_failures,
+      sum(t.health_queue_drops) AS health_queue_drops
     FROM agent_totals t JOIN cohorts c USING(agent_id)
     LEFT JOIN kept_values k USING(dimension,value)
     GROUP BY c.dimension,CASE WHEN c.dimension='all' OR k.value IS NOT NULL THEN c.value ELSE 'other' END
@@ -385,7 +445,18 @@ INSERT INTO feedback_compliance_daily (
     scored_48h_inferred_exposures,
     unscored_batches_with_inferred,
     feedback_events_inferred,
-    silent_agents,snapshot_at,schema_version
+    silent_agents,
+    feedback_events_keyed,
+    feedback_events_cli_inferred,
+    surface_declared_known_exposures,
+    surface_declared_exposures,
+    surface_agreement_exposures,
+    health_reported_agents,
+    silent_health_reported_agents,
+    silent_attempting_agents,
+    health_feedback_attempts,
+    health_feedback_failures,
+    health_queue_drops,snapshot_at,schema_version
 )
 SELECT b.day,k.dimension,k.value,
     COALESCE(f.delivered_exposures,0),
@@ -421,5 +492,16 @@ SELECT b.day,k.dimension,k.value,
     COALESCE(f.scored_48h_inferred_exposures,0),
     COALESCE(f.unscored_batches_with_inferred,0),
     COALESCE(f.feedback_events_inferred,0),
-    COALESCE(f.silent_agents,0),to_timestamp(b.cutoff/1000.0),1
+    COALESCE(f.silent_agents,0),
+    COALESCE(f.feedback_events_keyed,0),
+    COALESCE(f.feedback_events_cli_inferred,0),
+    COALESCE(f.surface_declared_known_exposures,0),
+    COALESCE(f.surface_declared_exposures,0),
+    COALESCE(f.surface_agreement_exposures,0),
+    COALESCE(f.health_reported_agents,0),
+    COALESCE(f.silent_health_reported_agents,0),
+    COALESCE(f.silent_attempting_agents,0),
+    COALESCE(f.health_feedback_attempts,0),
+    COALESCE(f.health_feedback_failures,0),
+    COALESCE(f.health_queue_drops,0),to_timestamp(b.cutoff/1000.0),1
 FROM bounds b CROSS JOIN row_keys k LEFT JOIN folded_counts f USING(dimension,value);

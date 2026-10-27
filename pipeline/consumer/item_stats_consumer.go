@@ -139,12 +139,7 @@ func (c *ItemStatsConsumer) handleEventDefault(ctx context.Context, msgID string
 
 func (c *ItemStatsConsumer) persistFeedbackEvent(msgID string, event itemstats.Event) (bool, error) {
 	now := nowFeedbackLogMs()
-	entry := newFeedbackLog(msgID, feedbackEvent{
-		agentID:      event.AgentID,
-		itemID:       event.ItemID,
-		score:        event.Score,
-		impressionID: event.ImpressionID,
-	}, now)
+	entry := newFeedbackLog(msgID, event, now)
 
 	inserted := false
 	err := db.DB.Transaction(func(tx *gorm.DB) error {
