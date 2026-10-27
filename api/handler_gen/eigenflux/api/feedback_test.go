@@ -1,11 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 
 	apimodel "eigenflux_server/api/model/eigenflux/api"
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,6 +22,7 @@ func TestNormalizeFeedbackItem(t *testing.T) {
 		{"own", `{"item_id":"11","score":1}`, "", "own item 11"},
 		{"empty_key", `{"item_id":"10","score":0,"client_key":" "}`, "", "invalid client_key for item 10"},
 		{"invalid_key", `{"item_id":"10","score":0,"client_key":"a/b"}`, "", "invalid client_key for item 10"},
+		{"max_key", `{"item_id":"10","score":1,"client_key":"` + strings.Repeat("a", 64) + `","surfaced":true}`, "", ""},
 		{"long_key", `{"item_id":"10","score":0,"client_key":"` + strings.Repeat("a", 65) + `"}`, "", "invalid client_key for item 10"},
 		{"missing_impression", `{"item_id":"10","score":0,"impression_source":"explicit"}`, "", "invalid impression_source for item 10"},
 		{"invalid_source", `{"item_id":"10","score":0,"impression_source":"inferred"}`, "batch", "invalid impression_source for item 10"},
@@ -47,6 +51,10 @@ func TestNormalizeFeedbackItem(t *testing.T) {
 				require.Equal(t, "cli_inferred", got.ImpressionSource)
 			case "override":
 				require.Equal(t, "item", got.ImpressionID)
+			case "max_key":
+				require.Equal(t, strings.Repeat("a", 64), got.ClientKey)
+				require.NotNil(t, got.Surfaced)
+				require.True(t, *got.Surfaced)
 			}
 		})
 	}
@@ -66,4 +74,27 @@ func TestNormalizeFeedbackContract(t *testing.T) {
 			require.Equal(t, strings.TrimSpace(tc.value), value)
 		}
 	}
+}
+
+func TestCountFeedbackActivityCountsEachClientKeyOnce(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdb.Close() })
+	ctx := context.Background()
+	batch := []acceptedFeedback{{"", 2}, {"a", 2}, {"b", 1}, {"a", 0}, {"c", -1}}
+	count, useful, kept := countFeedbackActivity(ctx, rdb, 7, batch)
+	require.Equal(t, []int{4, 2, 3}, []int{count, useful, kept})
+	// A retry counts only its unkeyed items; another Agent's keys are separate.
+	count, useful, kept = countFeedbackActivity(ctx, rdb, 7, batch)
+	require.Equal(t, []int{1, 1, 1}, []int{count, useful, kept})
+	count, _, _ = countFeedbackActivity(ctx, rdb, 8, batch)
+	require.Equal(t, 4, count)
+	ttl := mr.TTL(feedbackActivityClaimKey(7, "a"))
+	require.Equal(t, feedbackActivityClaimTTL, ttl)
+	// Without a usable Redis every accepted item counts.
+	count, _, _ = countFeedbackActivity(ctx, nil, 7, batch)
+	require.Equal(t, 5, count)
+	mr.Close()
+	count, useful, kept = countFeedbackActivity(ctx, rdb, 7, batch)
+	require.Equal(t, []int{5, 2, 3}, []int{count, useful, kept})
 }

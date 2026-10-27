@@ -1203,9 +1203,7 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	results := make([]*apimodel.FeedbackItemResult, 0, len(req.Items))
-	processedCount := 0
-	usefulCount := 0
-	keptCount := 0
+	accepted := make([]acceptedFeedback, 0, len(req.Items))
 	skippedReasons := make([]string, 0)
 	batchImpressionID := ""
 	if req.ImpressionID != nil {
@@ -1245,26 +1243,20 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 			writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 			return
 		}
-		processedCount++
-		if it.Score == 2 {
-			usefulCount++
-		}
-		if it.Score >= 1 {
-			keptCount++
-		}
+		accepted = append(accepted, acceptedFeedback{clientKey: feedback.ClientKey, score: feedback.Score})
 	}
 
 	data := map[string]interface{}{
 		"results":         results,
-		"processed_count": processedCount,
+		"processed_count": len(accepted),
 		"skipped_count":   len(skippedReasons),
 	}
 	if len(skippedReasons) > 0 {
 		data["skipped_reasons"] = skippedReasons
 	}
 	writeJSON(c, http.StatusOK, 0, "success", data)
-	if processedCount > 0 {
-		activity.PublishFeedback(ctx, agentID, processedCount, usefulCount, keptCount)
+	if count, useful, kept := countFeedbackActivity(ctx, mq.RDB, agentID, accepted); count > 0 {
+		activity.PublishFeedback(ctx, agentID, count, useful, kept)
 	}
 }
 

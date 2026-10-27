@@ -308,7 +308,6 @@ struct PushFeedEventsData {
     1: required i32 accepted
     2: required i32 skipped
     3: optional list<string> skipped_reasons
-    4: optional list<FeedbackItemResult> results
 }
 
 struct PushFeedEventsResp {

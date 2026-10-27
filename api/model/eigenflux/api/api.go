@@ -10650,10 +10650,9 @@ func (p *PushFeedEventsReq) String() string {
 }
 
 type PushFeedEventsData struct {
-	Accepted       int32                 `thrift:"accepted,1,required" form:"accepted,required" json:"accepted,required" query:"accepted,required"`
-	Skipped        int32                 `thrift:"skipped,2,required" form:"skipped,required" json:"skipped,required" query:"skipped,required"`
-	SkippedReasons []string              `thrift:"skipped_reasons,3,optional,list<string>" form:"skipped_reasons" json:"skipped_reasons,omitempty" query:"skipped_reasons"`
-	Results        []*FeedbackItemResult `thrift:"results,4,optional,list<FeedbackItemResult>" form:"results" json:"results,omitempty" query:"results"`
+	Accepted       int32    `thrift:"accepted,1,required" form:"accepted,required" json:"accepted,required" query:"accepted,required"`
+	Skipped        int32    `thrift:"skipped,2,required" form:"skipped,required" json:"skipped,required" query:"skipped,required"`
+	SkippedReasons []string `thrift:"skipped_reasons,3,optional,list<string>" form:"skipped_reasons" json:"skipped_reasons,omitempty" query:"skipped_reasons"`
 }
 
 func NewPushFeedEventsData() *PushFeedEventsData {
@@ -10680,28 +10679,14 @@ func (p *PushFeedEventsData) GetSkippedReasons() (v []string) {
 	return p.SkippedReasons
 }
 
-var PushFeedEventsData_Results_DEFAULT []*FeedbackItemResult
-
-func (p *PushFeedEventsData) GetResults() (v []*FeedbackItemResult) {
-	if !p.IsSetResults() {
-		return PushFeedEventsData_Results_DEFAULT
-	}
-	return p.Results
-}
-
 var fieldIDToName_PushFeedEventsData = map[int16]string{
 	1: "accepted",
 	2: "skipped",
 	3: "skipped_reasons",
-	4: "results",
 }
 
 func (p *PushFeedEventsData) IsSetSkippedReasons() bool {
 	return p.SkippedReasons != nil
-}
-
-func (p *PushFeedEventsData) IsSetResults() bool {
-	return p.Results != nil
 }
 
 func (p *PushFeedEventsData) Read(iprot thrift.TProtocol) (err error) {
@@ -10746,14 +10731,6 @@ func (p *PushFeedEventsData) Read(iprot thrift.TProtocol) (err error) {
 		case 3:
 			if fieldTypeId == thrift.LIST {
 				if err = p.ReadField3(iprot); err != nil {
-					goto ReadFieldError
-				}
-			} else if err = iprot.Skip(fieldTypeId); err != nil {
-				goto SkipFieldError
-			}
-		case 4:
-			if fieldTypeId == thrift.LIST {
-				if err = p.ReadField4(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -10844,29 +10821,6 @@ func (p *PushFeedEventsData) ReadField3(iprot thrift.TProtocol) error {
 	p.SkippedReasons = _field
 	return nil
 }
-func (p *PushFeedEventsData) ReadField4(iprot thrift.TProtocol) error {
-	_, size, err := iprot.ReadListBegin()
-	if err != nil {
-		return err
-	}
-	_field := make([]*FeedbackItemResult, 0, size)
-	values := make([]FeedbackItemResult, size)
-	for i := 0; i < size; i++ {
-		_elem := &values[i]
-		_elem.InitDefault()
-
-		if err := _elem.Read(iprot); err != nil {
-			return err
-		}
-
-		_field = append(_field, _elem)
-	}
-	if err := iprot.ReadListEnd(); err != nil {
-		return err
-	}
-	p.Results = _field
-	return nil
-}
 
 func (p *PushFeedEventsData) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -10884,10 +10838,6 @@ func (p *PushFeedEventsData) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField3(oprot); err != nil {
 			fieldId = 3
-			goto WriteFieldError
-		}
-		if err = p.writeField4(oprot); err != nil {
-			fieldId = 4
 			goto WriteFieldError
 		}
 	}
@@ -10967,33 +10917,6 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
-}
-
-func (p *PushFeedEventsData) writeField4(oprot thrift.TProtocol) (err error) {
-	if p.IsSetResults() {
-		if err = oprot.WriteFieldBegin("results", thrift.LIST, 4); err != nil {
-			goto WriteFieldBeginError
-		}
-		if err := oprot.WriteListBegin(thrift.STRUCT, len(p.Results)); err != nil {
-			return err
-		}
-		for _, v := range p.Results {
-			if err := v.Write(oprot); err != nil {
-				return err
-			}
-		}
-		if err := oprot.WriteListEnd(); err != nil {
-			return err
-		}
-		if err = oprot.WriteFieldEnd(); err != nil {
-			goto WriteFieldEndError
-		}
-	}
-	return nil
-WriteFieldBeginError:
-	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
-WriteFieldEndError:
-	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
 }
 
 func (p *PushFeedEventsData) String() string {

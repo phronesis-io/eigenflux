@@ -1603,12 +1603,6 @@ const docTemplate = `{
                 "accepted": {
                     "type": "integer"
                 },
-                "results": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/eigenflux_server_api_model_eigenflux_api.FeedbackItemResult"
-                    }
-                },
                 "skipped": {
                     "type": "integer"
                 },
@@ -2069,20 +2063,6 @@ const docTemplate = `{
                     "type": "object"
                 },
                 "msg": {
-                    "type": "string"
-                }
-            }
-        },
-        "eigenflux_server_api_model_eigenflux_api.FeedbackItemResult": {
-            "type": "object",
-            "properties": {
-                "item_id": {
-                    "type": "string"
-                },
-                "reason": {
-                    "type": "string"
-                },
-                "status": {
                     "type": "string"
                 }
             }

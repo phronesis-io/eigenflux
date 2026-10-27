@@ -122,16 +122,12 @@ func ParseEvent(values map[string]interface{}) (Event, error) {
 		event.ClientKey, _ = values["client_key"].(string)
 		event.ImpressionSource, _ = values["impression_source"].(string)
 		event.ContractVersion, _ = values["contract_version"].(string)
-		if raw, present := values["surfaced"]; present {
-			value, ok := raw.(string)
-			if !ok {
-				return Event{}, fmt.Errorf("invalid surfaced")
+		// An unreadable optional declaration stays unknown; the consumer drops
+		// unparseable messages, which would discard a valid score.
+		if value, ok := values["surfaced"].(string); ok {
+			if surfaced, err := strconv.ParseBool(value); err == nil {
+				event.Surfaced = &surfaced
 			}
-			surfaced, err := strconv.ParseBool(value)
-			if err != nil {
-				return Event{}, fmt.Errorf("invalid surfaced %q", value)
-			}
-			event.Surfaced = &surfaced
 		}
 		return event, nil
 	default:

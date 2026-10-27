@@ -13,6 +13,7 @@ import (
 	"time"
 
 	apidal "eigenflux_server/api/dal"
+	"eigenflux_server/pkg/activity"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/tests/testutil"
@@ -77,6 +78,25 @@ func feedbackMetadataRequest(method, path, token string, body any) (map[string]a
 	return result, response.StatusCode, err
 }
 
+func waitForStreamDrained(t *testing.T, stream, group string) {
+	t.Helper()
+	redis := testutil.GetTestRedis()
+	info, err := redis.XInfoStream(context.Background(), stream).Result()
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		groups, e := redis.XInfoGroups(context.Background(), stream).Result()
+		if e != nil {
+			return false
+		}
+		for _, g := range groups {
+			if g.Name == group && g.Pending == 0 && g.LastDeliveredID == info.LastGeneratedID {
+				return true
+			}
+		}
+		return false
+	}, 10*time.Second, 50*time.Millisecond)
+}
+
 func TestFeedbackMetadataAndIdempotency(t *testing.T) {
 	token, agent, item, own := feedbackMetadataFixture(t)
 	request := func(body any) map[string]any {
@@ -130,24 +150,13 @@ func TestFeedbackMetadataAndIdempotency(t *testing.T) {
 	}
 	// Wait until all accepted stream messages have been handled, including duplicates.
 	redis := testutil.GetTestRedis()
-	info, err := redis.XInfoStream(context.Background(), itemstats.StreamName).Result()
-	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		groups, e := redis.XInfoGroups(context.Background(), itemstats.StreamName).Result()
-		if e != nil {
-			return false
-		}
-		for _, g := range groups {
-			if g.Name == itemstats.GroupName && g.Pending == 0 && g.LastDeliveredID == info.LastGeneratedID {
-				return true
-			}
-		}
-		return false
-	}, 10*time.Second, 50*time.Millisecond)
+	waitForStreamDrained(t, itemstats.StreamName, itemstats.GroupName)
 	var n int
 	require.NoError(t, testutil.TestDB.QueryRow(`SELECT count(*) FROM feedback_logs WHERE agent_id=$1 AND client_key='report-1'`, agent).Scan(&n))
 	require.Equal(t, 1, n)
-	require.NoError(t, testutil.TestDB.QueryRow(`SELECT client_key,impression_source,contract_version,surfaced FROM feedback_logs WHERE agent_id=$1 AND client_key='report-1'`, agent).Scan(&key, &source, &contract, &surfaced))
+	var impression string
+	require.NoError(t, testutil.TestDB.QueryRow(`SELECT client_key,impression_id,impression_source,contract_version,surfaced FROM feedback_logs WHERE agent_id=$1 AND client_key='report-1'`, agent).Scan(&key, &impression, &source, &contract, &surfaced))
+	require.Equal(t, "metadata-impression", impression)
 	require.Equal(t, "cli_inferred", source)
 	require.Equal(t, "feedback/v2", contract)
 	require.True(t, surfaced.Valid)
@@ -159,10 +168,21 @@ func TestFeedbackMetadataAndIdempotency(t *testing.T) {
 	mixed := request(map[string]any{"items": []any{map[string]any{"item_id": id, "score": 1, "client_key": "mixed"}, map[string]any{"item_id": strconv.FormatInt(own, 10), "score": 1}, map[string]any{"item_id": id, "score": 1, "client_key": "invalid/key"}}})
 	require.EqualValues(t, 1, mixed["processed_count"])
 	require.EqualValues(t, 2, mixed["skipped_count"])
-	results := mixed["results"].([]any)
-	require.Equal(t, "accepted", results[0].(map[string]any)["status"])
-	require.Equal(t, "own item "+strconv.FormatInt(own, 10), results[1].(map[string]any)["reason"])
-	require.Equal(t, "invalid client_key for item "+id, results[2].(map[string]any)["reason"])
+	require.Equal(t, []any{
+		map[string]any{"item_id": id, "status": "accepted"},
+		map[string]any{"item_id": strconv.FormatInt(own, 10), "status": "rejected", "reason": "own item " + strconv.FormatInt(own, 10)},
+		map[string]any{"item_id": id, "status": "rejected", "reason": "invalid client_key for item " + id},
+	}, mixed["results"])
+	// Agent activity counts the legacy report, the first keyed report and the
+	// mixed batch; the three keyed retries are queued but not counted again.
+	waitForStreamDrained(t, activity.StreamName, activity.GroupName)
+	var feedbackEvents int
+	require.Eventually(t, func() bool {
+		return testutil.TestDB.QueryRow(`SELECT count(*) FROM agent_activity_log WHERE agent_id=$1 AND event_type='feedback'`, agent).Scan(&feedbackEvents) == nil && feedbackEvents >= 3
+	}, 10*time.Second, 50*time.Millisecond)
+	waitForStreamDrained(t, activity.StreamName, activity.GroupName)
+	require.NoError(t, testutil.TestDB.QueryRow(`SELECT count(*) FROM agent_activity_log WHERE agent_id=$1 AND event_type='feedback'`, agent).Scan(&feedbackEvents))
+	require.Equal(t, 3, feedbackEvents)
 	before, err := redis.XLen(context.Background(), itemstats.StreamName).Result()
 	require.NoError(t, err)
 	body["contract_version"] = "invalid version"

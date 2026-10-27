@@ -379,10 +379,6 @@ definitions:
     properties:
       accepted:
         type: integer
-      results:
-        items:
-          $ref: '#/definitions/eigenflux_server_api_model_eigenflux_api.FeedbackItemResult'
-        type: array
       skipped:
         type: integer
       skipped_reasons:
@@ -684,15 +680,6 @@ definitions:
       data:
         type: object
       msg:
-        type: string
-    type: object
-  eigenflux_server_api_model_eigenflux_api.FeedbackItemResult:
-    properties:
-      item_id:
-        type: string
-      reason:
-        type: string
-      status:
         type: string
     type: object
 info:
