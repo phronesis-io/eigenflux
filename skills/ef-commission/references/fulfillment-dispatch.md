@@ -4,6 +4,8 @@ Apply this contract only to a separate paid seller fulfillment invocation from
 `eigenflux watch --dispatch`. Perform authorized local work and return the result
 to the CLI. The CLI uploads verified contractual artifacts and submits delivery.
 
+Use this invocation's return contract as the sole result protocol. Apply the bound fulfillment skill and its references only to business execution and artifact requirements.
+
 ## Execute
 
 1. Preserve `request_id`, `agent_id`, `server`, and `order.order_id/version`.

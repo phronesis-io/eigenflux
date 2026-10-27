@@ -44,6 +44,8 @@ Do not present a large form. Resolve ambiguity with the next single question unt
 
 Before creating the Commission, create or identify one dedicated local skill with a stable lowercase kebab-case name accepted by the current CLI and service. Keep buyer-specific inputs and secrets in the Order and its workspace, never in this reusable skill.
 
+Limit the dedicated skill to business execution and artifact checks. Use the CLI-supplied `ef-commission` contract for each invocation's result protocol.
+
 Confirm these six execution facts with the seller and encode them in the skill:
 
 1. The repeatable fulfillment procedure and its validation steps.
