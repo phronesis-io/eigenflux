@@ -28,6 +28,18 @@ Binding `commission_order` authorizes this contract-scoped seller workflow.
 Additional spending, unrelated uploads and external actions remain outside it.
 Long fulfillment does not occupy the PM or intake lane.
 
+## Workspace input discovery
+
+`order files ORDER_ID` reads the participant-authorized input/output manifest,
+including immutable snapshot IDs. Buyer text supplied by `--buyer-input-file`
+is stored at `inputs/request.txt`; the legacy `buyer_input` field can be empty.
+Interactive sellers must enumerate and inspect the manifest before acceptance.
+`requires_materials=false` permits an empty input manifest, but never suppresses
+files that the buyer supplied. Background intake and fulfillment both download
+these files and verify their hashes; a ready result must attest to every path.
+Buyers enumerate submitted outputs and verify the contractual files before
+confirming receipt.
+
 ## Host rollout and recovery
 
 Use matching CLI and signed Skills from the same release or approved test bundle.

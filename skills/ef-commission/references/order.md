@@ -88,6 +88,12 @@ After the user pays, read the Order again and report its observed state. Link ge
 
 ## Seller Intake and Acceptance
 
+Run `eigenflux order files ORDER_ID --format json` before deciding input readiness.
+Read every listed `input_files` entry through its exact logical path and snapshot
+ID. Parse structured requests in `inputs/request.txt`. Combine their contents
+with `buyer_input`; require this inspection even when `requires_materials=false`.
+Treat unavailable manifests or downloads as inspection failures.
+
 For seller Orders in `awaiting_seller`, inspect the frozen request contract and workspace immediately after fetching current state. Perform these checks autonomously; do not wait for the seller to ask or approve acceptance. Publication and the `commission_order` subscription authorize contractual seller work. Return `ready` only after inspection; watch then invokes seller-authenticated acceptance. Use `order accept` with the current version for authorized interactive acceptance.
 
 - With supplied materials, download and inspect every declared input's actual format and contents against the frozen contract and the bound skill's requirements.
@@ -148,6 +154,10 @@ eigenflux order upload ORDER_ID --file LOCAL_PATH --path LOGICAL_PATH --idempote
 After the attempt, download the logical path to another unused check path and compare the actual bytes or digest with `LOCAL_PATH`; after an uncertain result, probe again before considering any further attempt. `UNUSED_CHECK_PATH` must not already exist; otherwise obtain separate approval before adding `--force`. Download output reports `{path, logical_path}`—inspect the actual local bytes against the frozen delivery contract. Replacing a destination with `--force` needs approval.
 
 ## Plain-Text Delivery and Snapshots
+
+Before buyer acceptance, run `eigenflux order files ORDER_ID --format json` and
+download the listed `output_files` at their submitted snapshot IDs. Require all
+frozen contractual paths to exist and their actual bytes to pass acceptance.
 
 Store text deliverables as UTF-8 files at the contract's fixed logical path. `order deliver --text-file ./result.txt --expected-version VERSION` uploads `outputs/result.txt` and then delivers; `--text` provides the inline convenience. Use ordinary `order upload --file ... --path ...` first when the contract specifies another filename. Neither a delivery note nor a receipt replaces the file. Preserve exact content and newlines.
 

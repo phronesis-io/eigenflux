@@ -24,8 +24,11 @@ Leave all mutations and notifications to the CLI.
    each `local_files[].logical_path` for the inspection result.
 5. Use `ready` only after inspecting every `local_files` entry and passing every
    required check. When the frozen contract
-   requires no files, verify the remaining supplied instructions are sufficient;
-   keep `inspected_files` empty. Missing, unreadable, invalid, or insufficient
+   requires no files, still inspect every supplied file and include its logical
+   path in `inspected_files`. Keep `inspected_files` empty only when `local_files`
+   is empty. Read `inputs/request.txt` as the buyer request, including structured
+   JSON fields. Determine sufficiency from these contents and `order.buyer_input`
+   together. Missing, unreadable, invalid, or insufficient
    buyer inputs require `needs_input` with the concrete gap. Missing permissions,
    uncertain identity, or a missing/mismatched fulfillment skill require
    `needs_user`. Use `failed` when a tool or service error prevents inspection.
