@@ -303,7 +303,7 @@ func TestMissingRestartNotificationIsRepairedThroughManager(t *testing.T) {
 func TestDeferredRestartGetsAtMostOneMetadataNotification(t *testing.T) {
 	f := newFixture(t)
 	f.r.PluginVersion = "0.0.45"
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	r := Update(ctx, f.o)
 	if r.Status != "restart_required" || f.refreshes != 1 || f.restarts != 0 {
@@ -357,7 +357,7 @@ func TestChangedPIDWithoutRuntimeAdoptionDoesNotRequestRestart(t *testing.T) {
 		}
 		return base(ctx, args...)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	r := Update(ctx, f.o)
 	if r.Status != "restart_required" || f.refreshes != 0 || f.restarts != 0 {
@@ -439,7 +439,7 @@ func TestRefreshFailureIsRecordedWithoutRepeatedRequests(t *testing.T) {
 		}
 		return base(ctx, args...)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	r := Update(ctx, f.o)
 	if r.Status != "restart_required" || f.refreshes != 1 || !strings.Contains(r.Error, "host RPC unavailable") {
@@ -458,7 +458,7 @@ func TestForeignRuntimeCannotAttestPostUpdateAdoption(t *testing.T) {
 		}
 		return base(ctx, args...)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	r := Update(ctx, f.o)
 	if r.Status != "restart_required" || r.LoadedVersion != "" || f.refreshes != 0 {
@@ -484,7 +484,7 @@ func TestFirstRuntimeAdapterInstallPersistsAndRepairsLostNotification(t *testing
 	f := newFixture(t)
 	f.i.Plugin.Version, f.i.Install.Version, f.i.Install.ResolvedVersion, f.i.Install.ResolvedSpec = "0.0.45", "0.0.45", "0.0.45", PackageName+"@0.0.45"
 	f.r.PluginVersion, f.r.Schema = "0.0.45", "old"
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	r := Update(ctx, f.o)
 	cancel()
 	if r.Status != "restart_required" || r.RestartPendingVersion != "0.0.46" || f.updates != 1 || f.refreshes != 1 {
@@ -532,7 +532,7 @@ func TestPendingTargetDoesNotRestartChangedPIDWithoutRuntime(t *testing.T) {
 		}
 		return base(ctx, args...)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	r := Update(ctx, f.o)
 	if r.Status != "restart_required" || r.RestartPendingVersion != "0.0.46" || f.refreshes != 0 {

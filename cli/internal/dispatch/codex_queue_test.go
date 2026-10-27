@@ -203,13 +203,19 @@ func TestCodexMainQueueLocal(t *testing.T) {
 		t.Skip("explicit live Codex queue smoke test is not configured")
 	}
 	b := Binding{Mode: "native", Host: "codex", MainSessionID: id, Command: []string{exe}, Args: []string{"--sandbox", "workspace-write", "--ask-for-approval", "never"}, WorkDir: t.TempDir(), Home: t.TempDir(), Server: "test", TimeoutSeconds: 90, Env: map[string]string{"CODEX_HOME": home}}
-	decision := `{"version":1,"request_id":"ef-queue-runner-smoke-20261014","action":"no_reply","reply_text":""}`
-	prompt := "EigenFlux main adapter smoke test. Do not use tools, send messages, or change files/settings. Return exactly this JSON: " + decision + codexPMDataMarker + `{"request_id":"ef-queue-runner-smoke-20261014"}`
-	got, err := (Runner{Binding: b}).Run(context.Background(), Request{ID: "ef-queue-runner-smoke-20261014", Kind: "pm_push", SessionID: id, Prompt: prompt})
+	requestID, err := mainNoticeUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, _ := json.Marshal(Decision{Version: 1, RequestID: requestID, Action: "no_reply"})
+	data, _ := json.Marshal(map[string]string{"request_id": requestID})
+	prompt := "EigenFlux main adapter smoke test. Do not use tools, send messages, or change files/settings. Return exactly this JSON: " + string(decision) + codexPMDataMarker + string(data)
+	got, err := (Runner{Binding: b}).Run(context.Background(), Request{ID: requestID, Kind: "pm_push", SessionID: id, Prompt: prompt})
 	if err != nil || got.SessionID != id || got.RunID == "" {
 		t.Fatalf("live host receipt: %+v %v", got, err)
 	}
-	if _, err = ParseDecision(got.Text, "ef-queue-runner-smoke-20261014"); err != nil {
+	if _, err = ParseDecision(got.Text, requestID); err != nil {
 		t.Fatal(err)
 	}
+	t.Logf("completed main receipt: session=%s turn=%s request=%s", got.SessionID, got.RunID, requestID)
 }

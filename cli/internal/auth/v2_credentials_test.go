@@ -1,8 +1,11 @@
 package auth
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"syscall"
 	"testing"
 )
 
@@ -37,6 +40,9 @@ func TestHasV2CredentialsDistinguishesMissingRegularAndSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(target, path); err != nil {
+		if errors.Is(err, os.ErrPermission) || runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(1314)) {
+			t.Skipf("symlink fixture unavailable: %v", err)
+		}
 		t.Fatal(err)
 	}
 	if has, err = HasV2Credentials("default"); err == nil || has {

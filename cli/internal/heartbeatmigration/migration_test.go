@@ -2,20 +2,29 @@ package heartbeatmigration
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
 
+var migrationTestHome = func() string {
+	home, err := filepath.Abs("/stable/.eigenflux")
+	if err != nil {
+		panic(err)
+	}
+	return home
+}()
+
 func inventory() Inventory {
 	return Inventory{Complete: true, Tasks: []Task{
 		{ID: "other", Name: "EigenFlux", Prompt: "unrelated", Owner: "other", Schedule: "daily", Status: "ACTIVE"},
-		{ID: "owned", Name: "old name", Prompt: "old static heartbeat", Owner: "eigenflux", Purpose: "heartbeat", Home: "/stable/.eigenflux", Server: "eigenflux", Schedule: "every 17 minutes", Status: "PAUSED", ThreadID: "original-thread", Metadata: map[string]interface{}{"notify": false}},
+		{ID: "owned", Name: "old name", Prompt: "old static heartbeat", Owner: "eigenflux", Purpose: "heartbeat", Home: migrationTestHome, Server: "eigenflux", Schedule: "every 17 minutes", Status: "PAUSED", ThreadID: "original-thread", Metadata: map[string]interface{}{"notify": false}},
 	}}
 }
 
 func TestPromptOnlyMigrationPreservesPausedIdentityAndCadence(t *testing.T) {
 	in := inventory()
-	p, err := Build(in, "/stable/.eigenflux", "eigenflux", "dynamic launcher")
+	p, err := Build(in, migrationTestHome, "eigenflux", "dynamic launcher")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +39,7 @@ func TestPromptOnlyMigrationPreservesPausedIdentityAndCadence(t *testing.T) {
 	if err := Verify(p, want); err != nil {
 		t.Fatal(err)
 	}
-	again, err := Build(want, "/stable/.eigenflux", "eigenflux", "dynamic launcher")
+	again, err := Build(want, migrationTestHome, "eigenflux", "dynamic launcher")
 	if err != nil || again.Status != "current" {
 		t.Fatalf("second run not idempotent: %+v %v", again, err)
 	}
@@ -54,7 +63,7 @@ func TestMigrationRejectsAmbiguityAndIncompleteInventory(t *testing.T) {
 			case "same-id":
 				in.Tasks[1].ID = in.Tasks[0].ID
 			}
-			if _, err := Build(in, "/stable/.eigenflux", "eigenflux", "launcher"); err == nil {
+			if _, err := Build(in, migrationTestHome, "eigenflux", "launcher"); err == nil {
 				t.Fatal("ambiguous inventory accepted")
 			}
 		})
@@ -62,7 +71,7 @@ func TestMigrationRejectsAmbiguityAndIncompleteInventory(t *testing.T) {
 }
 
 func TestMigrationReadbackRejectsCollateralChanges(t *testing.T) {
-	p, err := Build(inventory(), "/stable/.eigenflux", "eigenflux", "launcher")
+	p, err := Build(inventory(), migrationTestHome, "eigenflux", "launcher")
 	if err != nil {
 		t.Fatal(err)
 	}
