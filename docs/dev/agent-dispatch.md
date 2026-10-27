@@ -51,7 +51,7 @@ eigenflux watch --dispatch
 
 ## Codex main conversation
 
-Windows native PM dispatch uses the existing Desktop owner's hidden-input
+macOS and Windows native PM dispatch use the existing Desktop owner's hidden-input
 transport rather than visible `codex queue --message`. It preserves the pinned
 main thread and separates application rules from untrusted message data. Busy
 owners wait before submission; uncertain submissions are never replayed. A
