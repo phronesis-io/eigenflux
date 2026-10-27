@@ -9,8 +9,10 @@ import (
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
+	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/feedevent"
 	"cli.eigenflux.ai/internal/output"
 	"cli.eigenflux.ai/internal/profilestate"
 
@@ -211,6 +213,24 @@ func SyncSettings(cfg *config.Config) error {
 		kvProfileRefreshAt: true, kvProfileRefreshCheckedAt: true, kvProfileRefreshPromptedAt: true,
 	}
 	changed := false
+	// Rollout settings belong to the selected server/account, never a global
+	// preference. A server that omits the capability disables any stale hold.
+	for _, key := range []string{"feed_backlog_mode", "feedback_health_backlog_supported"} {
+		value := "off"
+		if key == "feedback_health_backlog_supported" {
+			value = "false"
+		}
+		if key == "feed_backlog_mode" && remote[key] == "hold" {
+			value = "hold"
+		}
+		if key == "feedback_health_backlog_supported" && remote[key] == true {
+			value = "true"
+		}
+		if err := cfg.SetServerKV(activeServerName(), key, value); err != nil {
+			return err
+		}
+		skip[key] = true
+	}
 	for k, v := range remote {
 		if skip[k] || strings.HasPrefix(k, "_") {
 			continue
@@ -308,7 +328,8 @@ func reportRuntimeSettings(cfg *config.Config, mode, model, runtimeName, runtime
 		result.Missing = append(result.Missing, "authenticated_account")
 		return result, nil
 	}
-	if meta.Host == "" && meta.Mode == "" && meta.Model == "" {
+	health := reportedFeedbackHealth(cfg, serverName)
+	if meta.Host == "" && meta.Mode == "" && meta.Model == "" && len(health) == 0 {
 		result.Status = "missing"
 		return result, nil
 	}
@@ -326,6 +347,10 @@ func reportRuntimeSettings(cfg *config.Config, mode, model, runtimeName, runtime
 	}
 	clientSnapshot := strings.Join([]string{version, strings.TrimRight(server.Endpoint, "/") + apiFamily, meta.PluginVersion}, "\x1f")
 	snapshot := reportedSettingsSnapshot(agentID, meta.Mode, "", meta.Model, meta.Host)
+	if len(health) > 0 {
+		encoded, _ := json.Marshal(health)
+		snapshot += "\x1f" + string(encoded)
+	}
 	lastSnapshot, lastClient, reportedAt := state.ReportedSnapshot, state.ReportedClient, state.ReportedAtMillis
 	ago := time.Now().UnixMilli() - reportedAt
 	if !force && snapshot == lastSnapshot && clientSnapshot == lastClient && reportedAt > 0 && ago >= 0 && ago < settingsReportInterval.Milliseconds() {
@@ -336,6 +361,9 @@ func reportRuntimeSettings(cfg *config.Config, mode, model, runtimeName, runtime
 	// Runtime observations must not write cached shared settings before SyncSettings
 	// reconciles remote changes. Preferences remain on the existing sync path.
 	body := map[string]interface{}{}
+	if len(health) > 0 {
+		body["feedback_health"] = health
+	}
 	if meta.Mode != "" {
 		body["mode"] = meta.Mode
 	}
@@ -545,4 +573,37 @@ func init() {
 	settingsCmd.AddCommand(settingsPushCmd)
 	settingsCmd.AddCommand(settingsSyncCmd)
 	rootCmd.AddCommand(settingsCmd)
+}
+
+func reportedFeedbackHealth(cfg *config.Config, server string) map[string]int64 {
+	now := time.Now().UnixMilli()
+	state, err := feedReportStore(server).Read()
+	if err != nil {
+		return nil
+	}
+	counts := state.HealthCounts(now)
+	depth, age := feedevent.NewQueue(cache.ServerDataDir(server) + "/events").Stats(now)
+	counts["queue_depth"] = int64(depth)
+	counts["oldest_queued_age_ms"] = age
+	supported, _, _ := cfg.GetServerOnlyKV(server, "feedback_health_backlog_supported")
+	if supported != "true" {
+		delete(counts, "backlog_holds")
+		delete(counts, "backlog_releases")
+	}
+	nonzero := false
+	for k, v := range counts {
+		if v > 0 {
+			nonzero = true
+		}
+		if k == "oldest_queued_age_ms" {
+			counts[k] = min(v, 604800000)
+		} else {
+			counts[k] = min(v, 1000000)
+		}
+	}
+	if !nonzero {
+		return nil
+	}
+	counts["window_ms"] = feedevent.HealthWindowMs
+	return counts
 }

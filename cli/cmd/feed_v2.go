@@ -165,6 +165,9 @@ func pollFeedV2(cmd *cobra.Command, serverName, limit string) error {
 	if err != nil {
 		return err
 	}
+	if held, err := tryHeldFeed(cmd, clientV2, serverName, credentials.AgentID, appliedRevision); held || err != nil {
+		return err
+	}
 	request := map[string]interface{}{"limit": parsedLimit}
 	if appliedRevision > 0 {
 		request["context_revision_applied"] = appliedRevision
@@ -185,6 +188,9 @@ func pollFeedV2(cmd *cobra.Command, serverName, limit string) error {
 	if err := renderFeedV2(cmd, payload); err != nil {
 		return err
 	}
+	if err := recordFeedPull(serverName, response.Data); err != nil {
+		return err
+	}
 	cache.SaveFeedResponse(serverName, response.Data)
 	cache.Cleanup(serverName, "broadcasts")
 	return nil
@@ -198,6 +204,9 @@ func renderFeedV2(cmd *cobra.Command, payload json.RawMessage) error {
 	var feed map[string]interface{}
 	if json.Unmarshal(payload, &feed) != nil || feed["schema_version"] != "feed.v2" {
 		return fmt.Errorf("invalid Feed V2 payload")
+	}
+	if backlog, ok := feed["backlog"].(map[string]interface{}); ok && backlog["held"] == true {
+		fmt.Fprintf(cmd.OutOrStdout(), "BACKLOG: %.0f items from earlier pulls are not scored yet. No new Feed was requested. Score them; present only items not marked already_surfaced.\n", backlog["pending_items"])
 	}
 	trusted, _ := json.Marshal(feed["control_context_snapshot"])
 	contract, err := output.ResolveFeedContract(payload)

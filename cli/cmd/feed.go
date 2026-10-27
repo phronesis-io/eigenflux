@@ -217,39 +217,7 @@ an earlier search or feed response. Uncached items remain unattributed.
 
 Examples:
   eigenflux feed feedback --items '[{"item_id":"123","score":1},{"item_id":"124","score":2}]'`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		itemsJSON, _ := cmd.Flags().GetString("items")
-		if itemsJSON == "" {
-			return fmt.Errorf("--items is required (JSON array of {item_id, score})")
-		}
-		var items []map[string]interface{}
-		if err := json.Unmarshal([]byte(itemsJSON), &items); err != nil {
-			return fmt.Errorf("invalid --items JSON: %w", err)
-		}
-		server, broadcastsDir, _ := eventDirs()
-		ledger := feedevent.NewLedger(broadcastsDir, server)
-		now := time.Now().UnixMilli()
-		for _, it := range items {
-			if strings.TrimSpace(coerceString(it["impression_id"])) != "" {
-				continue
-			}
-			entry, status := ledger.Lookup(coerceString(it["item_id"]), now)
-			if status == feedevent.StatusHit && entry.ImpressionID != "" {
-				it["impression_id"] = entry.ImpressionID
-			}
-		}
-		c := newClient()
-		resp, err := c.Post("/items/feedback", map[string]interface{}{"items": items})
-		if err != nil {
-			return err
-		}
-		if resp.Code != 0 {
-			return fmt.Errorf("%s", resp.Msg)
-		}
-		output.PrintMessage("Feedback submitted for %d items", len(items))
-		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
-		return nil
-	},
+	RunE: submitDurableFeedback,
 }
 
 var feedDeleteCmd = &cobra.Command{
@@ -437,49 +405,42 @@ func coerceString(v interface{}) string {
 	}
 }
 
-// pushEvents POSTs a batch of already-built events to the backend. Shared by
-// `feed event record` (opportunistic flush) and `feed event flush`. Unlike the
-// explicit `push` command, it RETURNS auth/network errors instead of Die-ing —
-// so an unauthenticated opportunistic flush leaves events queued and never kills
-// the record command.
-func pushEvents(events []map[string]interface{}) error {
+// authenticatedFeedClient resolves foreground credentials before creating any
+// account-scoped reports. Background retries use saved credentials separately.
+func authenticatedFeedClient(server string) (*client.Client, error) {
 	cfg, err := config.Load()
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+		return nil, fmt.Errorf("load config: %w", err)
 	}
-	srv, err := cfg.GetActive(serverFlag)
+	srv, err := cfg.GetActive(server)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var c *client.Client
 	hasV2, err := auth.HasV2Credentials(srv.Name)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if hasV2 {
 		c, _, err = newV2ClientForServer(srv.Name, true)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	} else {
 		creds, err := auth.LoadCredentials(srv.Name)
 		if err != nil {
-			return fmt.Errorf("not logged in to server %q", srv.Name)
+			return nil, fmt.Errorf("not logged in to server %q", srv.Name)
 		}
 		if creds.IsExpired() {
-			return fmt.Errorf("token expired for server %q", srv.Name)
+			return nil, fmt.Errorf("token expired for server %q", srv.Name)
 		}
 		baseURL := strings.TrimRight(srv.Endpoint, "/") + "/api/v1"
 		c = client.New(baseURL, creds.AccessToken, version, clientMetaForServer(srv))
 	}
-	resp, err := c.Post("/items/events", map[string]interface{}{"events": events})
-	if err != nil {
-		return err
+	if settingsAgentID(srv.Name) == "" {
+		return nil, fmt.Errorf("authenticated Agent ID is unavailable for server %q", srv.Name)
 	}
-	if resp.Code != 0 {
-		return fmt.Errorf("%s", resp.Msg)
-	}
-	return nil
+	return c, nil
 }
 
 // eventDirs resolves the per-server broadcast-cache and event-queue directories.
@@ -572,7 +533,16 @@ Examples:
 				return err
 			}
 			// Opportunistic flush — best-effort; leftovers ride the next flush.
-			_, _, _ = q.Flush(now, pushEvents)
+			if kind == "surface" {
+				if err := feedReportStore(server).Update(now, func(r *feedevent.Reports) {
+					for _, event := range events {
+						r.RecordSurface(event, now)
+					}
+				}); err != nil {
+					return err
+				}
+			}
+			_, _, _ = flushFeedQueue(server, nil)
 		}
 
 		output.PrintData(map[string]interface{}{"ok": true, "accepted": len(toBuild), "results": results}, resolveFormat())
@@ -587,9 +557,14 @@ var feedEventFlushCmd = &cobra.Command{
 No internal retry — the caller (a resident plugin loop / automation task / cron)
 owns the cadence: re-run while remaining > 0 with its own back-off.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		_, _, eventsDir := eventDirs()
-		q := feedevent.NewQueue(eventsDir)
-		flushed, remaining, ferr := q.Flush(time.Now().UnixMilli(), pushEvents)
+		server, _, _ := eventDirs()
+		foreground, ferr := authenticatedFeedClient(server)
+		flushed, remaining := 0, 0
+		if ferr == nil {
+			flushed, remaining, ferr = flushFeedQueueWithClient(server, foreground, nil)
+		} else {
+			remaining, _ = feedevent.NewQueue(filepath.Join(cache.ServerDataDir(server), "events")).Stats(time.Now().UnixMilli())
+		}
 		output.PrintData(map[string]interface{}{
 			"flushed":   flushed,
 			"remaining": remaining,

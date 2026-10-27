@@ -1,7 +1,7 @@
 # Heartbeat Execution
 
 Apply this contract to every stage of a scheduled or explicitly requested foreground cycle, including delegated
-Communication and profile work. Require CLI 0.6.7 or newer.
+Communication and profile work. Require CLI 0.7.0 or newer.
 
 Legacy persisted launchers and plugin process environments remain valid as
 specified in `ef-onboarding/references/host-setup.md#persist-exactly-one-recurring-trigger`. The direct-command
@@ -40,6 +40,10 @@ Process only complete, visible items; do not invent missing IDs or feedback.
 Continue independent safe stages and mark the cycle incomplete if the full
 result remains unavailable. An incomplete check is not an empty successful
 check. Full output paging and caching are outside this contract.
+
+## Feed completion
+
+Before leaving the Feed stage, run `<cli_prefix> feed status`. Score every item it lists, then continue. Use the exact prefix and original impression IDs. Repeat the check for additional pending items; keep failures internal and continue safe stages. Baseline Feed remains read-only and has no scoring completion step.
 
 ## Host output takes precedence
 
