@@ -177,6 +177,7 @@ func capabilitySeeds() []capabilitySeed {
 		capability("order.review.read", "eigenflux order get-review", "order", "read", "查看订单评价", "View an Order review"),
 		capability("order.workspace.upload", "eigenflux order upload", "order", "write", "上传订单工作区文件", "Upload an Order workspace file"),
 		capability("order.workspace.download", "eigenflux order download", "order", "read", "下载订单工作区文件", "Download an Order workspace file"),
+		capability("order.workspace.files", "eigenflux order files", "order", "read", "查看订单输入与交付文件清单", "List Order input and delivery files"),
 		capability("wallet.read", "eigenflux wallet get", "wallet", "read", "查看钱包状态", "View Wallet state"),
 		capability("wallet.balance.read", "eigenflux wallet balance", "wallet", "read", "查看钱包余额", "View Wallet balances"),
 		capability("wallet.binding.update", "eigenflux wallet bind", "wallet", "write", "绑定付款授权", "Bind payment authorization"),

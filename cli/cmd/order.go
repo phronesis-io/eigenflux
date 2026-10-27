@@ -84,6 +84,7 @@ func orderReadCommand(use, short, suffix string) *cobra.Command {
 }
 
 var orderGetCmd = orderReadCommand("get", "Get an order and its event history", "")
+var orderFilesCmd = orderReadCommand("files", "List sealed buyer inputs and submitted seller outputs with snapshot IDs", "/files")
 var orderGetReviewCmd = orderReadCommand("get-review", "Get an order review", "/review")
 
 func orderLifecycleCommand(operation string) *cobra.Command {
@@ -287,7 +288,7 @@ func init() {
 	orderDownloadCmd.Flags().String("output", "", "local destination path")
 	orderDownloadCmd.Flags().Int64("snapshot-id", 0, "snapshot ID (current workspace when omitted)")
 	orderDownloadCmd.Flags().Bool("force", false, "replace an existing destination")
-	orderCmd.AddCommand(orderCreateCmd, orderListCmd, orderGetCmd, orderSubmitMaterialsCmd,
+	orderCmd.AddCommand(orderCreateCmd, orderListCmd, orderGetCmd, orderFilesCmd, orderSubmitMaterialsCmd,
 		orderCancelCmd, orderAcceptCmd, orderRejectCmd, orderDeliverCmd, orderCompleteCmd,
 		orderReviewCmd, orderGetReviewCmd, orderUploadCmd, orderDownloadCmd)
 	rootCmd.AddCommand(orderCmd)
