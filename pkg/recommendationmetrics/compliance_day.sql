@@ -83,8 +83,32 @@ WITH bounds AS NOT MATERIALIZED (
     SELECT m.* FROM exact_matches m, bounds b
     WHERE m.matches=1 AND m.basis <> 'search' AND m.served_at >= b.lo
       AND m.served_at < b.hi AND m.served_at+172800000 <= b.cutoff
+), legacy_scores AS MATERIALIZED (
+    SELECT c.agent_id,f.*,f.feedback_at<LEAST(b.hi,b.cutoff) AS on_day
+    FROM consumers c CROSS JOIN bounds b CROSS JOIN LATERAL (
+      SELECT f.id,f.item_id,f.feedback_at FROM feedback_logs f
+      WHERE f.agent_id=c.agent_id AND f.feedback_at>=b.lo
+        AND f.feedback_at<LEAST(b.hi+172800000,b.cutoff)
+        AND f.impression_id='' AND f.score IN (-1,0,1,2) OFFSET 0
+    ) f
+), inferred AS MATERIALIZED (
+    SELECT s.*,x.impression_id FROM legacy_scores s CROSS JOIN LATERAL (
+      SELECT count(*) AS n,min(r.impression_id) AS impression_id
+      FROM (
+        -- Bound the candidate lookup by identity and time before aggregation.
+        SELECT r.agent_id,r.impression_id,r.delivered,r.source_kind FROM replay_logs r
+        WHERE r.item_id=s.item_id AND r.agent_id=s.agent_id
+          AND r.served_at>s.feedback_at-172800000
+          AND r.served_at<=s.feedback_at OFFSET 0
+      ) r WHERE r.agent_id=s.agent_id AND r.delivered IS TRUE
+        AND r.source_kind='broadcast' AND r.impression_id<>''
+    ) x WHERE x.n=1
+), inferred_exposures AS MATERIALIZED (
+    SELECT DISTINCT i.agent_id,i.item_id,i.impression_id FROM inferred i
+    JOIN mature_keys m USING(agent_id,item_id,impression_id)
 ), outcomes AS MATERIALIZED (
-    SELECT m.agent_id,m.impression_id,s.*,f.*,p.*
+    SELECT m.agent_id,m.impression_id,s.*,f.*,p.*,(m.agent_id,m.item_id,m.impression_id) IN
+      (SELECT agent_id,item_id,impression_id FROM inferred_exposures) AS inferred
     FROM mature_keys m CROSS JOIN LATERAL (
       SELECT bool_or(f.feedback_at<m.served_at+3600000) AS scored_1h,
         bool_or(f.feedback_at<m.served_at+86400000) AS scored_24h,
@@ -127,7 +151,8 @@ WITH bounds AS NOT MATERIALIZED (
 ), batches AS (
     SELECT agent_id,impression_id,count(*) AS exposures,count(final_score) AS scored,
       min(final_score)=max(final_score) AS degenerate,
-      bool_or(final_score>=1) AS positive,bool_or(surfaced) AS surfaced
+      bool_or(final_score>=1) AS positive,bool_or(surfaced) AS surfaced,
+      bool_or(final_score IS NULL AND inferred) AS any_inferred
     FROM outcomes GROUP BY agent_id,impression_id
 ), cohorts AS MATERIALIZED (
     SELECT c.agent_id,v.dimension,v.value
@@ -151,6 +176,7 @@ WITH bounds AS NOT MATERIALIZED (
       count(*) FILTER (WHERE scored_1h) AS scored_1h_exposures,
       count(*) FILTER (WHERE scored_24h) AS scored_24h_exposures,
       count(final_score) AS scored_48h_exposures,
+      count(*) FILTER (WHERE final_score IS NULL AND inferred) AS scored_48h_inferred_exposures,
       count(*) FILTER (WHERE surfaced) AS surfaced_exposures,
       count(*) FILTER (WHERE surfaced AND final_score IS NULL) AS surfaced_unscored_exposures,
       count(*) FILTER (WHERE surfaced AND final_score<=0) AS surfaced_nonpositive_exposures,
@@ -167,6 +193,7 @@ WITH bounds AS NOT MATERIALIZED (
       count(*) FILTER (WHERE scored=exposures) AS fully_scored_batches,
       count(*) FILTER (WHERE scored>0 AND scored<exposures) AS partially_scored_batches,
       count(*) FILTER (WHERE scored=0) AS unscored_batches,
+      count(*) FILTER (WHERE scored=0 AND any_inferred) AS unscored_batches_with_inferred,
       count(*) FILTER (WHERE scored>=5) AS degenerate_candidate_batches,
       count(*) FILTER (WHERE scored>=5 AND degenerate) AS degenerate_batches,
       count(*) FILTER (WHERE positive) AS positive_batches,
@@ -184,6 +211,18 @@ WITH bounds AS NOT MATERIALIZED (
       count(*) FILTER (WHERE f.impression_id<>'') AS surface_events_with_impression,
       count(*) FILTER (WHERE m.matches=1 AND m.served_at<=f.reported_at) AS surface_events_exact
     FROM followups f LEFT JOIN exact_matches m USING(agent_id,item_id,impression_id) WHERE f.kind='surface' GROUP BY agent_id
+), inferred_event_counts AS (
+    SELECT agent_id,count(*) AS feedback_events_inferred FROM inferred WHERE on_day GROUP BY agent_id
+), silent_counts AS MATERIALIZED (
+    SELECT d.agent_id,1 AS silent_agents FROM delivery_counts d CROSS JOIN bounds b
+    WHERE NOT EXISTS (SELECT 1 FROM legacy_scores s WHERE s.agent_id=d.agent_id)
+      AND NOT EXISTS (
+        SELECT 1 FROM LATERAL (
+          SELECT 1 FROM feedback_logs f WHERE f.agent_id=d.agent_id
+            AND f.feedback_at>=b.lo AND f.feedback_at<LEAST(b.hi+172800000,b.cutoff)
+            AND f.impression_id<>'' AND f.score IN (-1,0,1,2) LIMIT 1
+        ) f
+      )
 ), agent_parts AS (
     -- Stack per-Agent partial counts instead of joining them. Aggregate row
     -- estimates are poor, and joined CTEs become quadratic nested loops.
@@ -195,7 +234,8 @@ WITH bounds AS NOT MATERIALIZED (
       0 AS positive_exposures,0 AS positive_surfaced_exposures,0 AS positive_batches,0 AS positive_batches_without_surface,
       0 AS followup_exposures,0 AS followup_agent_pm_exposures,0 AS agent_pm_exposures,0 AS author_replied_exposures,
       0 AS feedback_events,0 AS feedback_events_with_impression,0 AS feedback_events_exact,
-      0 AS surface_events,0 AS surface_events_with_impression,0 AS surface_events_exact
+      0 AS surface_events,0 AS surface_events_with_impression,0 AS surface_events_exact,
+      0 AS scored_48h_inferred_exposures,0 AS unscored_batches_with_inferred,0 AS feedback_events_inferred,0 AS silent_agents
     FROM delivery_counts
     UNION ALL
     SELECT agent_id,0,0,0,
@@ -204,23 +244,33 @@ WITH bounds AS NOT MATERIALIZED (
       surfaced_exposures,surfaced_unscored_exposures,surfaced_nonpositive_exposures,
       positive_exposures,positive_surfaced_exposures,0,0,
       followup_exposures,followup_agent_pm_exposures,agent_pm_exposures,author_replied_exposures,
-      0,0,0,0,0,0
+      0,0,0,0,0,0,
+      scored_48h_inferred_exposures,0,0,0
     FROM exposure_counts
     UNION ALL
     SELECT agent_id,0,0,0,0,0,0,0,
       mature_batches,fully_scored_batches,partially_scored_batches,unscored_batches,
       degenerate_candidate_batches,degenerate_batches,
       0,0,0,0,0,positive_batches,positive_batches_without_surface,
-      0,0,0,0,0,0,0,0,0,0
+      0,0,0,0,0,0,0,0,0,0,
+      0,unscored_batches_with_inferred,0,0
     FROM batch_counts
     UNION ALL
     SELECT agent_id,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-      feedback_events,feedback_events_with_impression,feedback_events_exact,0,0,0
+      feedback_events,feedback_events_with_impression,feedback_events_exact,0,0,0,
+      0,0,0,0
     FROM feedback_counts
     UNION ALL
     SELECT agent_id,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-      surface_events,surface_events_with_impression,surface_events_exact
+      surface_events,surface_events_with_impression,surface_events_exact,
+      0,0,0,0
     FROM surface_counts
+    UNION ALL
+    SELECT agent_id,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,feedback_events_inferred,0
+    FROM inferred_event_counts
+    UNION ALL
+    SELECT agent_id,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,silent_agents
+    FROM silent_counts
 ), agent_totals AS MATERIALIZED (
     SELECT agent_id,
       sum(delivered_agents) AS delivered_agents,
@@ -252,7 +302,11 @@ WITH bounds AS NOT MATERIALIZED (
       sum(feedback_events_exact) AS feedback_events_exact,
       sum(surface_events) AS surface_events,
       sum(surface_events_with_impression) AS surface_events_with_impression,
-      sum(surface_events_exact) AS surface_events_exact
+      sum(surface_events_exact) AS surface_events_exact,
+      sum(scored_48h_inferred_exposures) AS scored_48h_inferred_exposures,
+      sum(unscored_batches_with_inferred) AS unscored_batches_with_inferred,
+      sum(feedback_events_inferred) AS feedback_events_inferred,
+      sum(silent_agents) AS silent_agents
     FROM agent_parts GROUP BY agent_id
 ), folded_counts AS (
     SELECT c.dimension,CASE WHEN c.dimension='all' OR k.value IS NOT NULL THEN c.value ELSE 'other' END AS value,
@@ -285,7 +339,11 @@ WITH bounds AS NOT MATERIALIZED (
       sum(t.feedback_events_exact) AS feedback_events_exact,
       sum(t.surface_events) AS surface_events,
       sum(t.surface_events_with_impression) AS surface_events_with_impression,
-      sum(t.surface_events_exact) AS surface_events_exact
+      sum(t.surface_events_exact) AS surface_events_exact,
+      sum(t.scored_48h_inferred_exposures) AS scored_48h_inferred_exposures,
+      sum(t.unscored_batches_with_inferred) AS unscored_batches_with_inferred,
+      sum(t.feedback_events_inferred) AS feedback_events_inferred,
+      sum(t.silent_agents) AS silent_agents
     FROM agent_totals t JOIN cohorts c USING(agent_id)
     LEFT JOIN kept_values k USING(dimension,value)
     GROUP BY c.dimension,CASE WHEN c.dimension='all' OR k.value IS NOT NULL THEN c.value ELSE 'other' END
@@ -323,7 +381,11 @@ INSERT INTO feedback_compliance_daily (
     feedback_events_exact,
     surface_events,
     surface_events_with_impression,
-    surface_events_exact,snapshot_at,schema_version
+    surface_events_exact,
+    scored_48h_inferred_exposures,
+    unscored_batches_with_inferred,
+    feedback_events_inferred,
+    silent_agents,snapshot_at,schema_version
 )
 SELECT b.day,k.dimension,k.value,
     COALESCE(f.delivered_exposures,0),
@@ -355,5 +417,9 @@ SELECT b.day,k.dimension,k.value,
     COALESCE(f.feedback_events_exact,0),
     COALESCE(f.surface_events,0),
     COALESCE(f.surface_events_with_impression,0),
-    COALESCE(f.surface_events_exact,0),to_timestamp(b.cutoff/1000.0),1
+    COALESCE(f.surface_events_exact,0),
+    COALESCE(f.scored_48h_inferred_exposures,0),
+    COALESCE(f.unscored_batches_with_inferred,0),
+    COALESCE(f.feedback_events_inferred,0),
+    COALESCE(f.silent_agents,0),to_timestamp(b.cutoff/1000.0),1
 FROM bounds b CROSS JOIN row_keys k LEFT JOIN folded_counts f USING(dimension,value);

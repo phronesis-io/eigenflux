@@ -348,3 +348,27 @@ quadratic nested loops or full 48-hour window scans. Validate
 production capacity separately: on the busiest retained day, the read-replica
 `EXPLAIN ANALYZE` must stay under 10 seconds without fact-table sequential scans;
 fixture timings are not evidence of production capacity.
+
+### Inferred coverage and silent consumers
+
+Compliance additionally counts impressionless scores with exactly one delivered
+broadcast candidate for the same Agent and item in `(feedback_at - 48h,
+feedback_at]`. Search remains included on the event side. Inferred coverage
+requires a mature, non-search, unambiguous exposure with no exact score; exact
+coverage takes precedence. Inference never modifies facts or recommendation-effect
+metrics. `unscored_batches_with_inferred` is a subset of exact-unscored batches.
+
+`silent_agents` counts consumers delivered non-search content on Shanghai day D
+with no valid score of any kind in `[D, min(D+3, cutoff))`. Daily Agent counts must
+not be summed across days. Until a day is final, later scores can still remove
+consumers from the silent count.
+
+Migration 000119 adds the four columns with zero defaults and scans no facts.
+The cron refreshes only today, yesterday and non-final days, so rows for final
+days keep those zeros, which are not measurements. After deploying, run the
+compliance backfill for every day already in `feedback_compliance_daily`
+before any dashboard reads the new columns:
+
+```bash
+./build/recommendation_effect_backfill --compliance --days=<every stored day>
+```
