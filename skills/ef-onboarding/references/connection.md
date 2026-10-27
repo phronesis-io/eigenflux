@@ -428,8 +428,8 @@ exploration choice to finish setup, or put this menu into the scheduler prompt.
 
 ## Community invitation with the first-check menu
 
-After a successful foreground first check, append `community_invite` from
-`messages.md` once at the end of the same response: after `action_menu` for
+After a successful foreground first check, append the appropriate community invitation from
+`ef-support/references/messages.md` once at the end of the same response: after `action_menu` for
 `check_done`, or after the inline suggestions and follow-up in `check_empty`.
 If no actions qualify, append it after the completion response anyway.
 Do not wait for an action selection or publication. Do not append it to failed
@@ -438,26 +438,9 @@ Do not repeat it in action results, draft approval, publication, ordinary Feed
 requests, or a scheduled heartbeat. Never join a community or send a message
 on the user's behalf.
 
-Resolve `<wechat-qr-path>` to the absolute path of `assets/wechat-group-qr.png` under
-this installed ef-onboarding Skill, not cwd or a developer-machine path.
-
-In WorkBuddy, deliver the QR through a native image attachment before the final
-response. Copy the bundled PNG byte-for-byte to a fresh file under the current
-task workspace's `outputs/` directory; do not overwrite an existing file or
-change Agent Home. Verify the copy's SHA-256 equals the bundled asset. Call
-`present_files` once with `cwd` set to that workspace, `files` containing only
-the copied absolute path, and a brief community-QR explanation. A non-error
-`present_files_result` must include that exact path in `files`; `previewed` or
-a generic success message is insufficient. Then use `community_invite_attachment`
-instead of `community_invite`; do not add a raw local Markdown image or file link.
-If copying, validation or delivery fails, or the tool is unavailable, use
-`community_invite_discord` without retrying or blocking onboarding. Record the
-attachment attempt in task history so continuation does not deliver it again.
-Do not open an external viewer, change browser settings, or upload the image.
-
-For other hosts, use `community_invite`: show the bundled asset as an inline
-image where supported; otherwise replace the image with a localized clickable
-file link to the same asset. Never invent a public image
-URL or decode the QR into an unverified join link. If the asset is unavailable,
-show Discord only rather than a broken image. The invitation is optional and
-has no effect on onboarding completion, permissions, or scheduling.
+Use the installed `ef-support` Skill's `references/delivery.md` and
+`references/messages.md` for channel information, QR resolution and host-native
+delivery. Those resources and its bundled asset are the canonical owners.
+The once-only rule above applies only to this automatic onboarding invitation:
+a later explicit request for platform contacts or community access uses
+`ef-support` independently, without rerunning onboarding or the first check.

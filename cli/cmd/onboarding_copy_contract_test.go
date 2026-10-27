@@ -174,16 +174,16 @@ func TestOnboardingCommunityInvitation(t *testing.T) {
 		return string(b)
 	}
 	connection := read("references/connection.md")
-	for _, phrase := range []string{"after `action_menu`", "`check_empty`", "Do not wait for an action selection", "Do not repeat it in action results", "original task history", "scheduled heartbeat", "Never join a community", "absolute path", "show Discord only"} {
+	for _, phrase := range []string{"after `action_menu`", "`check_empty`", "Do not wait for an action selection", "Do not repeat it in action results", "original task history", "scheduled heartbeat", "Never join a community", "`ef-support`", "later explicit request"} {
 		if !strings.Contains(connection, phrase) {
 			t.Errorf("missing community boundary: %s", phrase)
 		}
 	}
-	messages := read("references/messages.md")
+	messages := read("../ef-support/references/messages.md")
 	if strings.Count(messages, "https://discord.gg/MWFr98Pbe") != 6 {
 		t.Error("expected bilingual inline, attachment and Discord-only community links")
 	}
-	if !strings.HasPrefix(read("assets/wechat-group-qr.png"), "\x89PNG\r\n\x1a\n") {
+	if !strings.HasPrefix(read("../ef-support/assets/wechat-group-qr.png"), "\x89PNG\r\n\x1a\n") {
 		t.Error("missing bundled PNG")
 	}
 }
@@ -247,7 +247,7 @@ func TestWorkBuddyDirectPreviewContract(t *testing.T) {
 }
 
 func TestWorkBuddyCommunityAttachmentContract(t *testing.T) {
-	b, err := os.ReadFile("../../skills/ef-onboarding/references/connection.md")
+	b, err := os.ReadFile("../../skills/ef-support/references/delivery.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +260,7 @@ func TestWorkBuddyCommunityAttachmentContract(t *testing.T) {
 			t.Errorf("missing QR contract: %s", phrase)
 		}
 	}
-	b, err = os.ReadFile("../../skills/ef-onboarding/references/messages.md")
+	b, err = os.ReadFile("../../skills/ef-support/references/messages.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,5 +282,33 @@ func TestWorkBuddyCommunityAttachmentContract(t *testing.T) {
 				t.Errorf("failed delivery must not promise QR: %s", locale)
 			}
 		}
+	}
+}
+
+func TestPlatformSupportRouting(t *testing.T) {
+	read := func(path string) string {
+		t.Helper()
+		b, err := os.ReadFile("../../skills/" + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	support := read("ef-support/SKILL.md")
+	for _, phrase := range []string{"怎么联系平台", "反馈问题", "微信群", "regardless", "No CLI calls", "new request is not suppressed", "Do not send messages", "unless the user asks for a specific one"} {
+		if !strings.Contains(support, phrase) {
+			t.Errorf("missing support routing boundary: %s", phrase)
+		}
+	}
+	for _, entry := range []string{"ef-onboarding/SKILL.md", "ef-profile/SKILL.md"} {
+		if !strings.Contains(read(entry), "`ef-support`") {
+			t.Errorf("missing support route: %s", entry)
+		}
+	}
+	if strings.Contains(read("ef-onboarding/references/messages.md"), "https://discord.gg/") {
+		t.Error("onboarding must not duplicate the canonical support channel")
+	}
+	if _, err := os.Stat("../../skills/ef-onboarding/assets/wechat-group-qr.png"); !os.IsNotExist(err) {
+		t.Error("QR asset must have a single support owner")
 	}
 }

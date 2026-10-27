@@ -215,3 +215,12 @@ and call present_files with that path. Select community_invite_attachment only
 with a matching files receipt; failure uses community_invite_discord. Do not
 render local-path Markdown images in WorkBuddy. Other hosts keep the original
 inline/link invitation. Preserve the once-only successful foreground check gate.
+
+
+Platform support channels are owned by the discoverable `ef-support` Skill,
+including the Discord URL, QR asset, localized invitation copy and host delivery.
+Onboarding delegates presentation while retaining its once-only automatic timing.
+Explicit support/contact/community requests work before, during and after setup,
+and may repeat delivery without an account command or first-check rerun.
+`ef-profile` delegates platform-contact questions and support referrals to this
+Skill. Contact information does not authorize any account mutation or message.

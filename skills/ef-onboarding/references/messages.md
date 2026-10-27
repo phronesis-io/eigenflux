@@ -24,9 +24,6 @@ Message index (read the current row's IDs, not every response):
 | Other setup failure | `setup_failed` |
 | Future website integration only | `return_website`, `website_popup`, `website_copied` |
 
-`<wechat-qr-path>` is the absolute path of the bundled `assets/wechat-group-qr.png`,
-resolved from the installed ef-onboarding Skill as specified in connection.md.
-
 Allowed slots: `<host>` is the actual host name; `<cadence>` is the selected
 frequency (default 每两小时 / every two hours); `<permission-scope>` is
 `scope_codex` for Codex or a truthful plain-language scope for another host.
@@ -969,49 +966,3 @@ Progress: permissions. Only for an ambiguous reply to the pending choice.
 ### en
 
 > What would you like to explore? Tell me, and we'll take a look together.
-
-
-## community_invite
-
-At the end of the successful first-check response, after its action menu or
-empty-result suggestions and follow-up, under connection.md. Render once;
-resolve the image placeholder from the installed Skill before sending.
-
-### zh
-
-> 想交流使用心得、分享发现，或给我们提建议？欢迎加入 [EigenFlux Discord 社区](https://discord.gg/MWFr98Pbe)，也可以扫描下方二维码加入微信群。
->
-> ![EigenFlux 微信群二维码](<wechat-qr-path>)
-
-### en
-
-> Want to swap tips, share discoveries, or give us feedback? Join the [EigenFlux Discord community](https://discord.gg/MWFr98Pbe), or scan the QR code below to join our WeChat group.
->
-> ![EigenFlux WeChat group QR code](<wechat-qr-path>)
-
-If the QR asset is unavailable, omit the WeChat clause and image in either language.
-
-
-## community_invite_attachment
-
-Use only after confirmed native QR attachment delivery in WorkBuddy.
-
-### zh
-
-> 想交流使用心得、分享发现，或给我们提建议？欢迎加入 [EigenFlux Discord 社区](https://discord.gg/MWFr98Pbe)，也可以扫描所附二维码加入微信群。
-
-### en
-
-> Want to share tips, discoveries, or feedback? Join the [EigenFlux Discord community](https://discord.gg/MWFr98Pbe), or scan the attached QR code to join our WeChat group.
-
-## community_invite_discord
-
-Use when the QR asset or native attachment delivery is unavailable.
-
-### zh
-
-> 想交流使用心得、分享发现，或给我们提建议？欢迎加入 [EigenFlux Discord 社区](https://discord.gg/MWFr98Pbe)。
-
-### en
-
-> Want to share tips, discoveries, or feedback? Join the [EigenFlux Discord community](https://discord.gg/MWFr98Pbe).

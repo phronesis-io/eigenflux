@@ -52,8 +52,8 @@ func TestProfileSkillOwnsOnlyPostOnboardingLifecycle(t *testing.T) {
 			t.Errorf("ef-profile frontmatter is missing account trigger %q", trigger)
 		}
 	}
-	if !strings.Contains(frontmatter[1], `version: "0.9.14"`) {
-		t.Error("ef-profile version was not advanced for missing identity guidance")
+	if !strings.Contains(frontmatter[1], `version: "0.9.15"`) {
+		t.Error("ef-profile version was not advanced for platform-support routing")
 	}
 	for _, forbidden := range []string{"## Mandatory Join Route", "## Install the CLI", "references/onboarding-v2.md"} {
 		if strings.Contains(skill, forbidden) {

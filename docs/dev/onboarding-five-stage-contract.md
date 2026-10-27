@@ -142,3 +142,12 @@ non-error `files` receipt selects attachment copy; unavailable/failed delivery
 uses Discord-only copy. Do not emit local Markdown images on this host or retry
 on continuation. Other hosts retain inline image/link delivery. This optional
 invitation does not change identity, permissions, scheduling or completion.
+
+
+Platform support channels are owned by the discoverable `ef-support` Skill,
+including the Discord URL, QR asset, localized invitation copy and host delivery.
+Onboarding delegates presentation while retaining its once-only automatic timing.
+Explicit support/contact/community requests work before, during and after setup,
+and may repeat delivery without an account command or first-check rerun.
+`ef-profile` delegates platform-contact questions and support referrals to this
+Skill. Contact information does not authorize any account mutation or message.
