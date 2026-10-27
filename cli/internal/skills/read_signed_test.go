@@ -82,7 +82,15 @@ func TestReadSignedFileRejectsUnsignedMemberAndModifiedRelease(t *testing.T) {
 			case "stale":
 				err = os.WriteFile(filepath.Join(dir, StaleMarkerName), nil, 0600)
 			case "sync-lock":
-				err = os.WriteFile(filepath.Join(filepath.Dir(dir), lockFileName), []byte("sync"), 0600)
+				var held *Lock
+				var ok bool
+				held, ok, err = acquireLock(filepath.Dir(dir))
+				if err == nil && !ok {
+					t.Fatal("failed to hold sync lock")
+				}
+				if held != nil {
+					t.Cleanup(held.Release)
+				}
 			case "swap-marker":
 				err = os.WriteFile(dir+journalSuffix, []byte(dir+oldSuffix), 0600)
 			}
@@ -148,5 +156,21 @@ func TestReadSignedFileRejectsSignedSymlinkPaths(t *testing.T) {
 				t.Fatalf("signed %s symlink was followed: %q %v", name, data, err)
 			}
 		})
+	}
+}
+
+func TestReadSignedFileAcceptsRetainedReleasedLock(t *testing.T) {
+	dir := signedReadFixture(t)
+	held, ok, err := acquireLock(filepath.Dir(dir))
+	if err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	held.Release()
+	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), lockFileName)); err != nil {
+		t.Fatal(err)
+	}
+	data, err := ReadSignedFile(dir, "ef-commission", "references/dispatch.md", 4096)
+	if err != nil || string(data) != signedReadRule {
+		t.Fatalf("retained lock blocked rules: %q %v", data, err)
 	}
 }

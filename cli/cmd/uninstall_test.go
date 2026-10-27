@@ -3,16 +3,15 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/filelock"
 	"cli.eigenflux.ai/internal/skills"
 	watchstate "cli.eigenflux.ai/internal/watch"
 )
@@ -447,9 +446,11 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 			}
 		}
 		lock := filepath.Join(filepath.Dir(targets[1]), ".ef-skills.lock")
-		if err := os.WriteFile(lock, []byte(fmt.Sprintf("%d %d\n", os.Getpid(), time.Now().Unix())), 0600); err != nil {
-			t.Fatal(err)
+		heldLock, locked, err := filelock.TryAcquire(lock)
+		if err != nil || !locked {
+			t.Fatal(locked, err)
 		}
+		t.Cleanup(heldLock.Release)
 		args := []string{"uninstall", "--scope", "all", "--apply", "--all-homes", "--skills", "--host-cleanup-confirmed"}
 		out, err := invoke(args...)
 		if err == nil || !strings.Contains(string(out), "synchronization is active") {
@@ -461,9 +462,7 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		if _, err := os.Stat(bin); err != nil {
 			t.Fatal("partial failure removed executable", err)
 		}
-		if err := os.Remove(lock); err != nil {
-			t.Fatal(err)
-		}
+		heldLock.Release()
 		if out, err := invoke(args...); err != nil {
 			t.Fatalf("retry: %v %s", err, out)
 		}

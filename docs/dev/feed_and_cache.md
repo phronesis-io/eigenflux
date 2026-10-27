@@ -164,3 +164,11 @@ Concurrent Feed pulls share an Agent-scoped delivery lock. The V2 gateway
 returns `409 FEED_REQUEST_IN_PROGRESS` with `Retry-After: 1` for the Feed RPC's
 `409 request_in_progress`; transport/source failures still return 503. Legacy V1
 retains its HTTP-200 business-code envelope.
+
+## Local Feed event queue locking
+
+The CLI `internal/feedevent` queue uses `internal/filelock` for nonblocking OS
+ownership of `.queue.lock`. The pathname is retained; process exit releases the
+lock without deletion or a 300-second expiry. Enqueue and flush remain serialized
+and retain their existing queue-busy behavior. See the
+[locking implementation](../../cli/internal/filelock/README.md).

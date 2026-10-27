@@ -281,3 +281,16 @@ download job, separate from the identity tests.
 Non-Windows hosts skip this suite. This is download integration coverage, not
 full host onboarding or Smart App Control acceptance; see [CLI release
 integrity](cli-release.md).
+
+## Skills and Feed queue OS locks
+
+See [`cli/internal/filelock/README.md`](../../cli/internal/filelock/README.md)
+for the shared Mac/Windows implementation and upgrade boundary. Skills sync,
+bundle install/uninstall and Feed enqueue/flush retain their lock files; file
+presence no longer indicates an active owner. Signed Skill reads probe ownership
+without creating or modifying a lock. Run the filelock, skills and feedevent
+packages with `-race`; verify forced child termination permits immediate reuse,
+old marker contents do not block an idle target, active owners remain exclusive,
+and retained idle locks do not disable signed dispatch. Keep atomic Skills
+recovery and preservation tests. Stop old CLI writers before adopting OS locks;
+normal Skills directory cleanup may still require WorkBuddy authorization.

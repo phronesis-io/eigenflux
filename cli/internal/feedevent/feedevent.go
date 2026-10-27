@@ -23,9 +23,8 @@ const (
 	ledgerTTLMs   = 8 * 24 * 60 * 60 * 1000
 	shortTitleMax = 80
 
-	dirPerm         = 0o700
-	filePerm        = 0o600
-	staleLockSecond = 300
+	dirPerm  = 0o700
+	filePerm = 0o600
 )
 
 // Event is a backend event payload (already carrying its dedup_key). It is

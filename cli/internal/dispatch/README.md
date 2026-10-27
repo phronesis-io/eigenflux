@@ -168,6 +168,9 @@ model input inspection; pending payment waits and in_progress reuses retained
 evidence. Read-only preparation and execution share a local 180-second ceiling,
 excluding queue time; the host's shorter timeout still applies.
 
+Signed rule reads probe the actual Skills OS lock; retained idle `.ef-skills.lock`
+files do not indicate an active sync. See [retained locks](../filelock/README.md).
+
 Official dispatch rules must be signed manifest members, read through `skills.ReadSignedFile`; third-party fulfillment Skills remain explicitly bound local content. Fetch the authenticated V2 order-detail input manifest, then each immutable snapshot/path grant using pinned credentials. Check manifest role/version/buyer, SHA-256 and byte count before passing local files to the Agent. Inputs use their own snapshot IDs, not the current order snapshot. Bound downloads to 128 files / 64 MiB total; keep URLs and credentials out of prompts. The public endpoint requires the exact GET detail Caddy route.
 
 Use a fresh Agent session. Require matching request/order/version and `ready`, `needs_input`, `needs_user` or `failed`, a brief summary and inspected logical paths. `ready` must cover all supplied verified inputs; required materials cannot be empty. Recheck identity and unchanged order. For awaiting-seller `ready`, POST seller-authenticated acceptance with expected version and deterministic key; uncertainty becomes `unknown`, without automatic replay. Atomically store `commission_result`. Preserve the result when completed notification bodies are compacted. Preserve the actual pre-acceptance ready result and input fingerprint across acceptance/payment versions; explicit retry may recheck only before acceptance. Interruptions remain `unknown`; do not replay automatically. Clean up owned temporary downloads after the run. Results are local status data, not user-visible or buyer-visible receipts.

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
+
+	"cli.eigenflux.ai/internal/filelock"
 )
 
 // ReadSignedFile reads one file belonging to the installed signed release.
@@ -99,10 +101,11 @@ func ReadSignedFile(dir, skillName, relativePath string, maxBytes int64) ([]byte
 }
 
 func signedReadSyncIdle(real string) error {
-	if _, err := os.Lstat(filepath.Join(filepath.Dir(real), lockFileName)); !os.IsNotExist(err) {
-		if err != nil {
-			return err
-		}
+	idle, err := filelock.Idle(filepath.Join(filepath.Dir(real), lockFileName))
+	if err != nil {
+		return err
+	}
+	if !idle {
 		return fmt.Errorf("Skill synchronization is in progress")
 	}
 	return nil
