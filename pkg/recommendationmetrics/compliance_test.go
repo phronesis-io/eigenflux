@@ -19,7 +19,7 @@ var complianceCutoff = instant("2026-10-05T00:00:00+08:00")
 func complianceDB(t *testing.T) *sql.DB {
 	t.Helper()
 	c := fixtureDB(t)
-	for _, name := range []string{"000118_feedback_compliance_daily.sql", "000119_feedback_compliance_inferred.sql"} {
+	for _, name := range []string{"000118_feedback_compliance_daily.sql", "000119_feedback_compliance_inferred.sql", "000120_feedback_report_metadata.sql", "000122_feedback_compliance_reporting.sql"} {
 		b, err := os.ReadFile("../../migrations/" + name)
 		if err != nil {
 			t.Fatal(err)
@@ -600,7 +600,7 @@ func TestPostgresComplianceEventOnlyDayAndSchema(t *testing.T) {
 	assertComplianceConservation(t, c)
 	var rows, privateColumns int
 	var barrier bool
-	if err := c.QueryRow(`SELECT count(*) FROM feedback_compliance_daily`).Scan(&rows); err != nil || rows != 8 {
+	if err := c.QueryRow(`SELECT count(*) FROM feedback_compliance_daily`).Scan(&rows); err != nil || rows != 9 {
 		t.Fatal(rows, err)
 	}
 	if err := c.QueryRow(`SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema()
@@ -693,5 +693,140 @@ func TestPostgresComplianceSilentWindowAndInternal(t *testing.T) {
 			assertComplianceCounts(t, c, map[string]int64{"delivered_exposures": 2, "delivered_agents": 2, "identifiable_exposures": 2, "mature_exposures": 2, "mature_batches": 2, "unscored_batches": 2, "silent_agents": silent})
 			assertComplianceConservation(t, c)
 		})
+	}
+}
+
+func TestPostgresComplianceSurfaceDeclarations(t *testing.T) {
+	for _, tc := range []struct {
+		name                            string
+		declared                        any
+		reported, laterAbsent           bool
+		known, declaredCount, agreement int64
+	}{
+		{"agrees", true, true, false, 1, 1, 1}, {"disagrees", false, true, false, 1, 0, 0},
+		{"absent", nil, true, false, 0, 0, 0}, {"final_absent", true, true, true, 0, 0, 0},
+		{"unreported_false", false, false, false, 1, 0, 1}, {"unreported_true", true, false, false, 1, 1, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := complianceDB(t)
+			complianceDelivery(t, c, 1, 1, 10, "a", complianceServed)
+			complianceScore(t, c, 1, 10, "a", time.Minute, 0)
+			complianceExec(t, c, `UPDATE feedback_logs SET surfaced=$1`, tc.declared)
+			events := int64(1)
+			if tc.laterAbsent {
+				complianceScore(t, c, 1, 10, "a", time.Minute, 0)
+				events++
+			}
+			if tc.reported {
+				complianceFollowup(t, c, 1, 10, "a", "surface", time.Minute)
+			}
+			refreshCompliance(t, c)
+			want := map[string]int64{"delivered_exposures": 1, "delivered_agents": 1, "identifiable_exposures": 1, "mature_exposures": 1, "scored_1h_exposures": 1, "scored_24h_exposures": 1, "scored_48h_exposures": 1, "mature_batches": 1, "fully_scored_batches": 1, "feedback_events": events, "feedback_events_with_impression": events, "feedback_events_exact": events, "surface_declared_known_exposures": tc.known, "surface_declared_exposures": tc.declaredCount, "surface_agreement_exposures": tc.agreement}
+			if tc.reported {
+				for _, col := range []string{"surfaced_exposures", "surfaced_nonpositive_exposures", "surface_events", "surface_events_with_impression", "surface_events_exact"} {
+					want[col] = 1
+				}
+			}
+			assertComplianceCounts(t, c, want)
+			assertComplianceConservation(t, c)
+			assertComplianceReconciliation(t, c, complianceDay, complianceCutoff)
+		})
+	}
+}
+
+func TestPostgresComplianceReportEventMetadata(t *testing.T) {
+	c := complianceDB(t)
+	complianceDelivery(t, c, 1, 1, 10, "a", complianceServed)
+	for _, imp := range []string{"a", "", "unmatched"} {
+		complianceScore(t, c, 1, 10, imp, time.Minute, 0)
+	}
+	complianceExec(t, c, `UPDATE feedback_logs SET client_key='report-'||id, impression_source='cli_inferred'`)
+	refreshCompliance(t, c)
+	assertComplianceCounts(t, c, map[string]int64{"delivered_exposures": 1, "delivered_agents": 1, "identifiable_exposures": 1, "mature_exposures": 1, "scored_1h_exposures": 1, "scored_24h_exposures": 1, "scored_48h_exposures": 1, "mature_batches": 1, "fully_scored_batches": 1, "feedback_events": 3, "feedback_events_with_impression": 2, "feedback_events_exact": 1, "feedback_events_inferred": 1, "feedback_events_keyed": 3, "feedback_events_cli_inferred": 1})
+	assertComplianceConservation(t, c)
+}
+
+func complianceHealth(t *testing.T, c *sql.DB, agent int, day string, attempts, failures, drops int) {
+	t.Helper()
+	complianceExec(t, c, `INSERT INTO agent_feedback_health_daily(agent_id,day,reported_at,window_ms,pulls,delivered_items,scored_items,status_runs,feedback_attempts,feedback_failures,queue_drops,queue_depth,oldest_queued_age_ms)
+ VALUES($1,$2,0,3600000,1,1,0,1,$3,$4,$5,0,0)`, agent, day, attempts, failures, drops)
+}
+
+func TestPostgresComplianceHealth(t *testing.T) {
+	c := complianceDB(t)
+	for _, agent := range []int{1, 2} {
+		complianceDelivery(t, c, agent, agent, 10, fmt.Sprint(agent), complianceServed)
+	}
+	complianceHealth(t, c, 1, complianceDay, 3, 1, 2)
+	complianceHealth(t, c, 2, "2026-10-01", 5, 2, 3)
+	// A health-only consumer contributes no delivery-day counts.
+	complianceHealth(t, c, 4, complianceDay, 9, 3, 1)
+	refreshCompliance(t, c)
+	assertComplianceCounts(t, c, map[string]int64{"delivered_exposures": 2, "delivered_agents": 2, "identifiable_exposures": 2, "mature_exposures": 2, "mature_batches": 2, "unscored_batches": 2, "silent_agents": 2, "health_reported_agents": 1, "silent_health_reported_agents": 1, "silent_attempting_agents": 1, "health_feedback_attempts": 3, "health_feedback_failures": 1, "health_queue_drops": 2})
+	assertComplianceConservation(t, c)
+}
+
+func TestPostgresComplianceFeedbackContractCohorts(t *testing.T) {
+	c := complianceDB(t)
+	for agent := 100; agent < 116; agent++ {
+		complianceExec(t, c, `INSERT INTO agents VALUES($1,$2,false)`, agent, fmt.Sprintf("contract%d@example.invalid", agent))
+		complianceDelivery(t, c, agent, agent, 10, fmt.Sprint(agent), complianceServed)
+		if agent >= 105 && agent < 110 {
+			continue
+		}
+		version := ""
+		if agent >= 110 {
+			version = "v2"
+		}
+		if agent == 115 {
+			version = "v3"
+		}
+		complianceScore(t, c, agent, 10, fmt.Sprint(agent), time.Minute, 0)
+		complianceExec(t, c, `UPDATE feedback_logs SET contract_version=$1 WHERE agent_id=$2`, version, agent)
+		// Later invalid and out-of-window events cannot replace the cohort.
+		complianceScore(t, c, agent, 10, "ignore", 2*time.Minute, 99)
+		complianceScore(t, c, agent, 10, "ignore", 60*time.Hour, 0)
+		complianceExec(t, c, `UPDATE feedback_logs SET contract_version='ignored' WHERE agent_id=$1 AND impression_id='ignore'`, agent)
+	}
+	refreshCompliance(t, c)
+	for value, count := range map[string]int64{"legacy": 5, "none": 5, "v2": 5, "other": 1} {
+		got := complianceCounts(t, c, "feedback_contract_version", value)
+		if got["delivered_agents"] != count {
+			t.Fatal(value, got)
+		}
+	}
+	assertComplianceConservation(t, c)
+	assertComplianceCounts(t, c, map[string]int64{"delivered_exposures": 16, "delivered_agents": 16, "identifiable_exposures": 16, "mature_exposures": 16, "mature_batches": 16, "unscored_batches": 5, "silent_agents": 5, "fully_scored_batches": 11, "scored_1h_exposures": 11, "scored_24h_exposures": 11, "scored_48h_exposures": 11, "feedback_events": 11, "feedback_events_with_impression": 11, "feedback_events_exact": 11})
+}
+
+func TestPostgresComplianceReportingConstraintsAndRollback(t *testing.T) {
+	c := complianceDB(t)
+	refreshCompliance(t, c)
+	columns := []string{"feedback_events_keyed", "feedback_events_cli_inferred", "surface_declared_known_exposures", "surface_declared_exposures", "surface_agreement_exposures", "health_reported_agents", "silent_health_reported_agents", "silent_attempting_agents", "health_feedback_attempts", "health_feedback_failures", "health_queue_drops"}
+	for _, col := range columns {
+		if _, err := c.Exec(`UPDATE feedback_compliance_daily SET ` + col + `=-1`); err == nil {
+			t.Error("negative accepted", col)
+		}
+	}
+	for _, col := range columns {
+		if col == "health_feedback_attempts" || col == "health_queue_drops" {
+			continue
+		}
+		if _, err := c.Exec(`UPDATE feedback_compliance_daily SET ` + col + `=1`); err == nil {
+			t.Error("inconsistent count accepted", col)
+		}
+	}
+	for _, name := range []string{"000122_feedback_compliance_reporting.sql", "000119_feedback_compliance_inferred.sql"} {
+		migration, err := os.ReadFile("../../migrations/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, down, _ := strings.Cut(string(migration), "-- +goose Down")
+		complianceExec(t, c, down)
+	}
+	var n int
+	err := c.QueryRow(`SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='grafana_feedback_compliance_daily'`).Scan(&n)
+	if err != nil || n != 35 {
+		t.Fatal(n, err)
 	}
 }

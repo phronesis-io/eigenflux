@@ -16,6 +16,7 @@ import (
 	"eigenflux_server/pkg/activity"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/itemstats"
+	"eigenflux_server/pkg/recommendationmetrics"
 	"eigenflux_server/tests/testutil"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/postgres"
@@ -193,6 +194,10 @@ func TestFeedbackMetadataAndIdempotency(t *testing.T) {
 	after, err := redis.XLen(context.Background(), itemstats.StreamName).Result()
 	require.NoError(t, err)
 	require.Equal(t, before, after)
+	require.Eventually(t, func() bool {
+		var n int
+		return testutil.TestDB.QueryRow(`SELECT count(*) FROM feedback_logs WHERE agent_id=$1 AND client_key='mixed'`, agent).Scan(&n) == nil && n == 1
+	}, 10*time.Second, 50*time.Millisecond)
 }
 
 func TestFeedbackHealthReportE2E(t *testing.T) {
@@ -227,4 +232,52 @@ func TestFeedbackHealthReportE2E(t *testing.T) {
 	require.Equal(t, 200, status, result)
 	require.NoError(t, testutil.TestDB.QueryRow(`SELECT reported_at FROM agent_feedback_health_daily WHERE agent_id=$1`, agent).Scan(&n))
 	require.Equal(t, at, int64(n))
+}
+
+func TestFeedbackReportingComplianceE2E(t *testing.T) {
+	token, agent, item, _ := feedbackMetadataFixture(t)
+	silentToken, silent, _ := testutil.LoginAndGetToken(t, fmt.Sprintf("feedback-silent-%d@test.com", item))
+	now := time.Now()
+	day := now.In(time.FixedZone("CST", 8*3600)).Format("2006-01-02")
+	cutoff := now.Add(72 * time.Hour)
+	snapshot := func() map[string]int64 {
+		t.Helper()
+		require.NoError(t, recommendationmetrics.RefreshComplianceDay(context.Background(), testutil.TestDB, day, cutoff))
+		var raw []byte
+		require.NoError(t, testutil.TestDB.QueryRow(`SELECT to_jsonb(d)-ARRAY['day','dimension','value','snapshot_at','schema_version'] FROM feedback_compliance_daily d WHERE day=$1 AND dimension='all'`, day).Scan(&raw))
+		counts := map[string]int64{}
+		require.NoError(t, json.Unmarshal(raw, &counts))
+		return counts
+	}
+	before := snapshot()
+	t.Cleanup(func() {
+		testutil.TestDB.Exec(`DELETE FROM feedback_compliance_daily WHERE day=$1`, day)
+		testutil.TestDB.Exec(`DELETE FROM agent_feedback_health_daily WHERE agent_id=$1`, silent)
+	})
+	impression := fmt.Sprint("reporting-", item)
+	for i, id := range []int64{agent, silent} {
+		_, err := testutil.TestDB.Exec(`INSERT INTO replay_logs(id,agent_id,item_id,impression_id,served_at,created_at,delivered,source_kind,pipeline_version,sample_schema_version,request_mode,item_features)
+ VALUES($1,$2,$3,$4,$5,$5,true,'broadcast','need_search_v1',2,'recommendation','{"search":{"context":{"input_origin":"agent_context"}}}')`, item+int64(i), id, item, impression+strconv.Itoa(i), now.Add(-time.Second).UnixMilli())
+		require.NoError(t, err)
+	}
+	result, status, err := feedbackMetadataRequest("POST", "/api/v1/items/feedback", token, map[string]any{"contract_version": "feedback/v2", "items": []any{map[string]any{"item_id": strconv.FormatInt(item, 10), "score": 2, "client_key": "reporting-key", "surfaced": true, "impression_id": impression + "0", "impression_source": "cli_inferred"}}})
+	require.NoError(t, err)
+	require.Equal(t, 200, status, result)
+	result, status, err = feedbackMetadataRequest("POST", "/api/v1/items/events", token, map[string]any{"events": []any{map[string]any{"item_id": strconv.FormatInt(item, 10), "kind": "surface", "impression_id": impression + "0", "dedup_key": impression, "ts": now.UnixMilli()}}})
+	require.NoError(t, err)
+	require.Equal(t, 200, status, result)
+	for i, tok := range []string{token, silentToken} {
+		result, status, err = feedbackMetadataRequest("PUT", "/api/v1/agents/me/settings", tok, map[string]any{"feedback_health": map[string]any{"window_ms": 1000, "feedback_attempts": i + 2, "feedback_failures": 1, "queue_drops": i + 1}})
+		require.NoError(t, err)
+		require.Equal(t, 200, status, result)
+	}
+	require.Eventually(t, func() bool {
+		var scores, surfaces int
+		err := testutil.TestDB.QueryRow(`SELECT (SELECT count(*) FROM feedback_logs WHERE agent_id=$1 AND client_key='reporting-key'),(SELECT count(*) FROM followup_labels WHERE agent_id=$1 AND impression_id=$2)`, agent, impression+"0").Scan(&scores, &surfaces)
+		return err == nil && scores == 1 && surfaces == 1
+	}, 10*time.Second, 50*time.Millisecond)
+	after := snapshot()
+	for key, want := range map[string]int64{"feedback_events_keyed": 1, "feedback_events_cli_inferred": 1, "surface_declared_known_exposures": 1, "surface_declared_exposures": 1, "surface_agreement_exposures": 1, "health_reported_agents": 2, "silent_health_reported_agents": 1, "silent_attempting_agents": 1, "health_feedback_attempts": 5, "health_feedback_failures": 2, "health_queue_drops": 3} {
+		require.Equal(t, want, after[key]-before[key], key)
+	}
 }
