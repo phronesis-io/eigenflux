@@ -138,6 +138,12 @@ func TestMainNoticeCodexReaderFixture(t *testing.T) {
 				items = nil
 			case "empty-final":
 				items = []any{map[string]string{"type": "agentMessage", "phase": "final_answer", "text": " \n "}}
+			case "pm-content":
+				items = []any{map[string]string{"type": "agentMessage", "phase": "final_answer", "text": "收到测试消息"}}
+			case "pm-needs-user":
+				items = []any{map[string]string{"type": "agentMessage", "phase": "final_answer", "text": codexPMNeedsUserPrefix + "是否允许分享材料？"}}
+			case "pm-protocol":
+				items = []any{map[string]string{"type": "agentMessage", "phase": "final_answer", "text": `{"version":1,"request_id":"fixed-request","action":"reply","reply_text":"body"}`}}
 			case "visible-user-message":
 				items = append(items, map[string]any{"type": "userMessage", "content": []any{map[string]string{"type": "inputText", "text": noticeCodexPrompt}}})
 			}

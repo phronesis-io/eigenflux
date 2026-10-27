@@ -16,7 +16,7 @@ import (
 // Real named-pipe transport plus a read-only child reader; no Desktop, account,
 // network message, or model is contacted by this fixture.
 func TestCodexHiddenPMWindowsOwnerAndSilentReceipt(t *testing.T) {
-	for _, scenario := range []string{"empty-final", "no-final", "missing-items", "visible-user-message", "failed", "wrong-completion", "permission", "success"} {
+	for _, scenario := range []string{"empty-final", "no-final", "pm-content", "pm-needs-user", "pm-protocol", "missing-items", "visible-user-message", "failed", "wrong-completion", "permission", "success"} {
 		t.Run(scenario, func(t *testing.T) {
 			client, server := ownerIPCWindowsPair(t)
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -78,10 +78,19 @@ func TestCodexHiddenPMWindowsOwnerAndSilentReceipt(t *testing.T) {
 			got, err := (Runner{}).runCodexHiddenPMWith(ctx, req, func(ctx context.Context, rules, data string) (Result, error) {
 				return runner.runCodexEnvelopeOnIPC(ctx, newCodexOwnerIPC(client), rules, data, true)
 			})
-			if scenario == "empty-final" || scenario == "no-final" {
+			if scenario == "empty-final" || scenario == "no-final" || scenario == "pm-content" || scenario == "pm-needs-user" {
 				d, decodeErr := ParseDecision(got.Text, req.ID)
-				if err != nil || decodeErr != nil || d.Action != "no_reply" || got.SessionID != noticeSession || got.RunID != noticeNewTurn {
+				want := "no_reply"
+				if scenario == "pm-content" {
+					want = "reply"
+				} else if scenario == "pm-needs-user" {
+					want = "needs_user"
+				}
+				if err != nil || decodeErr != nil || d.Action != want || got.SessionID != noticeSession || got.RunID != noticeNewTurn {
 					t.Fatalf("silent receipt lost: %+v %v %v", got, err, decodeErr)
+				}
+				if scenario == "pm-content" && d.ReplyText != "收到测试消息" || scenario == "pm-needs-user" && d.ReplyText != "" {
+					t.Fatal("reply body changed or owner question reached delivery")
 				}
 			} else if err == nil {
 				t.Fatalf("unconfirmed/visible/permission result accepted: %+v", got)

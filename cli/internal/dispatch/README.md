@@ -328,12 +328,19 @@ Desktop-owner hidden-input IPC lane, never `queue --message`. The input array
 is empty; application rules and untrusted PM data remain separate. An idle-only
 preflight waits while the owner is busy. No visible-input fallback, second
 writer, or automatic replay after an uncertain owner write is allowed.
-The invocation-scoped transport contract permits an empty final for `no_reply`;
+The Windows invocation replaces only the synchronized Output Contract section
+with a content-only transport contract, preserving all authority and later rules.
+The final answer contains only the reply body for `reply`, is empty for `no_reply`,
+or starts with the owner-facing `EigenFlux 需要你确认：` explanation for `needs_user`.
+The CLI constructs the JSON decision and pins its request ID internally; neither
+protocol JSON nor request IDs are presentation output. A returned old JSON
+protocol envelope is rejected rather than forwarded to the peer. Owner questions
+never enter message delivery. The invocation permits an empty final for `no_reply`;
 only an exact, newly admitted, completed, error-free turn with an explicit items
 array and no user message or commentary can yield this silent decision. The CLI
 converts it to the ordinary request-correlated JSON before decision validation.
-`reply` and `needs_user` retain the JSON contract; Commission notices still
-require a nonempty final. Native Windows UI acceptance is distinct from fixture
+The downstream decision/send API retains its JSON contract; Commission notices
+still require a nonempty final. Native Windows UI acceptance is distinct from fixture
 coverage. See `codex_hidden_pm*.go` and the named-pipe regression tests.
 
 On other platforms, native Codex PM jobs with an explicit main session use `codex queue --thread`

@@ -56,7 +56,11 @@ transport rather than visible `codex queue --message`. It preserves the pinned
 main thread and separates application rules from untrusted message data. Busy
 owners wait before submission; uncertain submissions are never replayed. A
 completed empty turn means `no_reply` only in this PM lane, so it needs no visible
-acknowledgement or JSON output. Other decisions retain strict JSON validation.
+acknowledgement or JSON output. Reply turns display only their body. Owner-input
+requests display a natural-language explanation beginning with
+`EigenFlux 需要你确认：` and are never sent to the peer. The CLI constructs and
+strictly validates the request-correlated JSON internally. It rejects a model's
+old protocol envelope instead of sending it as message content.
 Commission notices retain their nonempty-result requirement. Unsupported hidden
 transport fails without falling back to a visible user message.
 
