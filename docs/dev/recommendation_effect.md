@@ -363,8 +363,18 @@ metrics. `unscored_batches_with_inferred` is a subset of exact-unscored batches.
 
 `silent_agents` counts consumers delivered non-search content on Shanghai day D
 with no valid score of any kind in `[D, min(D+3, cutoff))`. Daily Agent counts must
-not be summed across days. The four new counts are backfilled from retained facts
-with migration 000119 and the normal compliance refresh.
+not be summed across days. Until a day is final, later scores can still remove
+consumers from the silent count.
+
+Migration 000119 adds the four columns with zero defaults and scans no facts.
+The cron refreshes only today, yesterday and non-final days, so rows for final
+days keep those zeros, which are not measurements. After deploying, run the
+compliance backfill for every day already in `feedback_compliance_daily`
+before any dashboard reads the new columns:
+
+```bash
+./build/recommendation_effect_backfill --compliance --days=<every stored day>
+```
 
 ### Feedback reporting and client health
 
@@ -384,3 +394,5 @@ The `feedback_contract_version` cohort uses the latest valid score in
 values with fewer than five delivered consumers fold into `other`. All other
 cohorts keep their existing refresh-time settings definitions. The additive
 reporting columns remain zero for historical clients without these fields.
+Final days stored before migration 000122 also have no `feedback_contract_version`
+rows; the same post-deployment backfill of every stored day adds them.

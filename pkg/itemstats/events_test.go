@@ -2,11 +2,11 @@ package itemstats
 
 import (
 	"context"
+	"testing"
+
 	"eigenflux_server/pkg/mq"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
-	"testing"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -94,6 +94,10 @@ func TestFeedbackMetadataRoundTrip(t *testing.T) {
 			require.Equal(t, "false", messages[0].Values["surfaced"])
 		}
 	}
-	_, err := ParseEvent(map[string]interface{}{"event_type": "feedback", "agent_id": "1", "item_id": "2", "score": "0", "surfaced": "invalid"})
-	require.Error(t, err)
+	for _, raw := range []interface{}{"invalid", 1} {
+		event, err := ParseEvent(map[string]interface{}{"event_type": "feedback", "agent_id": "1", "item_id": "2", "score": "1", "surfaced": raw})
+		require.NoError(t, err)
+		assert.Equal(t, 1, event.Score)
+		assert.Nil(t, event.Surfaced)
+	}
 }

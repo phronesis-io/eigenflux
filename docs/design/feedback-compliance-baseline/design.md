@@ -313,9 +313,12 @@ cohort table shows each rate's denominator.
    timeouts.
 5. **Plausibility.** Exact 48 h coverage retains its audit meaning. Combined
    coverage adds uniquely inferred impressionless scores only for exposures
-   without an exact score. Legacy CLI cohorts have nonzero combined coverage;
-   current 0.6.x cohorts have less than 2% inferred score events. `runtime_mode`
-   retains `plugin`, `skill` and `unknown` rows.
+   without an exact score. Legacy CLI cohorts have nonzero combined coverage.
+   Impression-filling CLI cohorts have few inferred score events: on 2026-10-20,
+   `0.6.9` had 3%, and the other `0.6.x` cohorts had none. Cohorts use
+   refresh-time settings, so earlier events from Agents that upgraded later are
+   counted in the new version's cohort. `runtime_mode` retains `plugin`, `skill`
+   and `unknown` rows.
 6. **Privacy.** `grafana_ro_v2` can read the new view and no fact table. The
    view has no identifier column. No named value has fewer than 5 delivered
    Agents.
