@@ -78,3 +78,16 @@ checks acceptance; the CLI verifies actual artifacts before posting the expected
 draft version. Failures leave the draft unchanged. Trial outputs and evidence are
 retained locally, and no real Order, payment, upload or delivery occurs. See
 `cli/internal/dispatch/README.md` for implementation and enforcement boundaries.
+
+## CLI draft updates
+
+CLI 1.0.30 accepts partial `commission update` flags. `commission_update.go`
+reads the owned draft at the caller's required `expected-version`, merges only
+explicit flags and submits the full replacement with the same version guard.
+Omitted fields, including unknown JSON members, remain unchanged; explicit zero
+prices and false material requirements are retained. Invalid merged drafts and
+stale versions stop before PUT. Concurrent writes remain guarded by the service.
+The response preserves service fields and adds `update_guidance` with requested
+fields and draft-only publication guidance. After an uncertain write, inspect the
+draft rather than automatically rebasing or replaying a mutation. Publication
+still performs a fresh trial; this change adds no evidence cache or backend API.

@@ -91,25 +91,11 @@ eigenflux commission create \
   --format json
 ```
 
-`update` is full replacement, not patch. Fetch the draft, preserve every intended field, and pass the latest `draft_version`:
+Read the latest draft with `commission get`. Update only the intended fields with `commission update COMMISSION_ID --expected-version DRAFT_VERSION`; omitted fields remain unchanged. Pass `--price-fen` alone for a price change. Inspect `update_guidance` and read back the saved draft/version. A draft update leaves published revisions and existing Orders unchanged; publish separately after approval. On a version conflict or uncertain response, inspect the latest draft before retrying.
 
-```bash
-eigenflux commission update COMMISSION_ID --expected-version DRAFT_VERSION \
-  --title "Repository security review" \
-  --capability-description "Review a bounded repository revision for actionable security defects" \
-  --request-spec-text "Upload the repository snapshot to inputs/repository.tar.gz and provide its revision plus threat-model constraints" \
-  --delivery-spec-text "Write outputs/report.md with an executive summary and findings that each include severity, evidence, and remediation" \
-  --tags "security,code-review" \
-  --price-fen PRICE_FEN --currency CURRENCY --promised-delivery-ms DELIVERY_MS \
-  --request-spec-schema '{"type":"object","required":["revision"],"properties":{"revision":{"type":"string"}}}' \
-  --delivery-spec-schema '{"type":"object","required":["report_path"],"properties":{"report_path":{"const":"outputs/report.md"}}}' \
-  --fulfillment-skill repository-security-review \
-  --format json
-```
+`--fulfillment-skill` is required on create and retained when omitted on update. Change it only when intended; publishing freezes it into the next revision. Preserve delivery requirements during price changes and trial repairs.
 
-`--fulfillment-skill` is part of the versioned contract and is required on both create and full-replacement update. Changing it affects only the new draft; publishing freezes it into the next revision, while existing revisions and Orders retain their original binding.
-
-Before requesting publish approval, run `eigenflux commission get COMMISSION_ID --format json`. Read back the complete Commission: show the seller the problem and intended use, deliverable and exclusions, canonical input manifest and missing-input behavior, fixed delivery manifest and acceptance checks, all request/delivery text and schemas, tags, buyer price, 20% platform commission, 80% seller net, currency, promised turnaround, `fulfillment_skill`, and the Alipay-only payout limit. Resolve any discrepancy through another one-question-at-a-time decision and a full-replacement update, then read the whole draft again.
+Before requesting publish approval, run `eigenflux commission get COMMISSION_ID --format json`. Read back the complete Commission: show the seller the problem and intended use, deliverable and exclusions, canonical input manifest and missing-input behavior, fixed delivery manifest and acceptance checks, all request/delivery text and schemas, tags, buyer price, 20% platform commission, 80% seller net, currency, promised turnaround, `fulfillment_skill`, and the Alipay-only payout limit. Resolve any discrepancy through another one-question-at-a-time decision and an update of the agreed fields, then read the whole draft again.
 
 Before each publication, independently run `eigenflux notify status --publish-preflight --format json` on the seller's computer. Show any returned `warning` and `settings_url` as a clickable link, with `settings_path` as the manual fallback, before requesting approval or using existing approval to run `commission publish`. Keep `unknown` distinct from `permission_denied`; a settings click does not prove permission is enabled. Preserve existing publish approval without adding a permission gate. Relay publish stderr guidance as a fallback.
 

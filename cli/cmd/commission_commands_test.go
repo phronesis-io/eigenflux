@@ -63,6 +63,16 @@ func TestCommissionCreateAndUpdateSendFulfillmentSkill(t *testing.T) {
 	}
 	requests := make([]request, 0, 2)
 	commission := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			input, err := commissionInput(commissionCreateCmd)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"commission": map[string]any{"definition": map[string]any{"commission_id": "77"}, "draft_version": 3, "draft": input}}})
+			return
+		}
+
 		var body struct {
 			Input struct {
 				FulfillmentSkill string `json:"fulfillment_skill"`

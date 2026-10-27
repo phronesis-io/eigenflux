@@ -40,17 +40,33 @@ func commissionInput(cmd *cobra.Command) (commissionapi.CommissionInput, error) 
 	input.DeliverySpecSchema, _ = cmd.Flags().GetString("delivery-spec-schema")
 	input.FulfillmentSkill, _ = cmd.Flags().GetString("fulfillment-skill")
 	input.FulfillmentSkill = strings.TrimSpace(input.FulfillmentSkill)
+	return input, validateCommissionInput(input)
+}
+
+func validateCommissionInput(input commissionapi.CommissionInput) error {
 	if !fulfillmentSkillPattern.MatchString(input.FulfillmentSkill) {
-		return input, fmt.Errorf("fulfillment skill must be 1-64 lowercase ASCII letters, digits, or hyphens, starting with a letter or digit")
+		return fmt.Errorf("fulfillment skill must be 1-64 lowercase ASCII letters, digits, or hyphens, starting with a letter or digit")
 	}
-	if strings.TrimSpace(input.Title) == "" || strings.TrimSpace(input.CapabilityDescription) == "" ||
-		strings.TrimSpace(input.RequestSpecText) == "" || strings.TrimSpace(input.DeliverySpecText) == "" ||
-		len(input.Tags) == 0 || input.PriceFen < 0 || input.PromisedDeliveryMS <= 0 ||
-		strings.TrimSpace(input.Currency) == "" || strings.TrimSpace(input.RequestSpecSchema) == "" ||
-		strings.TrimSpace(input.DeliverySpecSchema) == "" {
-		return input, fmt.Errorf("title, capability description, request/delivery specs, tags, non-negative price, currency, positive promised delivery, and request/delivery schemas are required")
+	for _, field := range []struct{ name, value string }{
+		{"title", input.Title}, {"capability-description", input.CapabilityDescription},
+		{"request-spec-text", input.RequestSpecText}, {"delivery-spec-text", input.DeliverySpecText},
+		{"currency", input.Currency}, {"request-spec-schema", input.RequestSpecSchema},
+		{"delivery-spec-schema", input.DeliverySpecSchema},
+	} {
+		if strings.TrimSpace(field.value) == "" {
+			return fmt.Errorf("--%s must not be empty", field.name)
+		}
 	}
-	return input, nil
+	if len(input.Tags) == 0 {
+		return fmt.Errorf("--tags must contain at least one tag")
+	}
+	if input.PriceFen < 0 {
+		return fmt.Errorf("--price-fen must be non-negative")
+	}
+	if input.PromisedDeliveryMS <= 0 {
+		return fmt.Errorf("--promised-delivery-ms must be positive")
+	}
+	return nil
 }
 
 func addCommissionInputFlags(command *cobra.Command) {
@@ -142,30 +158,15 @@ var commissionGetCmd = &cobra.Command{
 
 var commissionUpdateCmd = &cobra.Command{
 	Use:   "update <commission-id>",
-	Short: "Update a commission draft",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		id, err := numericArgument(args, "commission ID")
-		if err != nil {
-			return err
-		}
-		input, err := commissionInput(cmd)
-		if err != nil {
-			return err
-		}
-		version, _ := cmd.Flags().GetInt64("expected-version")
-		if version <= 0 {
-			return fmt.Errorf("--expected-version must be positive")
-		}
-		body := map[string]any{"expected_draft_version": version, "input": input}
-		key, _ := cmd.Flags().GetString("idempotency-key")
-		path := "/commissions/" + strconv.FormatInt(id, 10) + "/draft"
-		resp, err := putMutation(newCommissionClient(), path, "commission.update."+strconv.FormatInt(id, 10), key, body)
-		if err != nil {
-			return err
-		}
-		return printResponse(resp)
-	},
+	Short: "Update selected fields of a commission draft",
+	Long: `Update only explicitly supplied fields; omitted fields retain their saved values.
+Read commission get first and pass its draft_version as --expected-version.
+The CLI reads that exact draft, merges your fields, and submits a version-checked
+replacement. Updating a draft does not publish it or alter existing Orders.
+Run commission publish separately after approval; every publish runs a fresh trial.
+After an uncertain response, inspect commission get before deciding whether to retry.`,
+	Args: cobra.ExactArgs(1),
+	RunE: updateCommissionDraft,
 }
 
 func commissionVersionMutation(operation, suffix string) *cobra.Command {
@@ -211,7 +212,10 @@ func commissionPublishCommand() *cobra.Command {
 Provide representative buyer text with --trial-input and sample files with
 --trial-materials when required. The bound Commission Agent must generate actual
 contractual artifacts and self-check them. A failed or unconfirmed trial leaves
-the draft unchanged. Each invocation runs a fresh trial.
+the draft unchanged. Each invocation runs a fresh trial, including price-only updates.
+The CLI writes evidence.json only after validating the model result and artifacts;
+its absence is not a request for the Agent to create that file. Inspect the actual
+trial error and retained files; preserve the approved delivery requirements.
 
 Publishing authorizes seller Agent inspection, acceptance, and paid contractual
 fulfillment for future Orders. Buyers pay through Alipay (CNY) only, and your
