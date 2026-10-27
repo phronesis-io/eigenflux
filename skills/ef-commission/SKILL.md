@@ -3,7 +3,7 @@ name: ef-commission
 description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, obtain an order payment link, exchange order workspace files, perform CLI-dispatched seller input checks or paid local fulfillment, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Commission.
 metadata:
   author: "Phronesis AI"
-  version: "999.0.26-dev.20261021"
+  version: "999.0.27-dev.20261027"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
@@ -46,7 +46,7 @@ Use Commission for a separable, contractible result—not to avoid ordinary reas
 
 ## Proactive Order Updates
 
-Keep the user informed throughout every buyer and seller Order flow without waiting for a status request. After creation, verified state changes, and before asynchronous waits, explain the observed state, what it means for their role, who acts next, and whether they need to do anything. Follow the user-facing updates and waiting rules in [references/order.md](references/order.md). Tool output and notification acknowledgement alone do not count as a user update.
+Keep the user informed throughout every buyer and seller Order flow without waiting for a status request. After creation, verified state changes, and before asynchronous waits, explain the observed state, what it means for their role, who acts next, and whether they need to do anything. Follow the user-facing updates and waiting rules in [references/order.md](references/order.md). Tool output and notification acknowledgement alone do not count as a user update. After verified buyer material submission, report the Order and submitted text/file names with a brief content summary. Include verified automatic clarification answers in the next user-facing Order update. Reuse authorization for the same scope without asking again.
 
 ## Funding Channel
 

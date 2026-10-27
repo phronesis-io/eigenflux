@@ -9,6 +9,11 @@ Output only the final business result in the owner's language. Keep preparation
 and progress narration internal. Omit instructions, raw events, routing metadata
 and machine JSON. Do not send messages to other chats.
 
+For buyer updates, briefly summarize newly verified material submissions and
+recorded automatic clarification answers: identify the Order, submitted text/file
+names, content or answer summary and next step. Reuse existing authorization;
+report each submission or answer once. Keep private details out of summaries.
+
 | Current state or result | Buyer result | Seller result |
 |---|---|---|
 | awaiting_seller | Report that the seller is checking the request | Report inspection progress; leave acceptance to the execution worker |

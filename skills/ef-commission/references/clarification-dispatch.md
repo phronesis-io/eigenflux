@@ -23,7 +23,7 @@ Return one UTF-8 JSON object with exactly these fields and no surrounding text:
 | input_request_id | Exact supplied input-request ID |
 | outcome | `answered` when supplied facts suffice; otherwise `waiting` |
 | answer | Factual answer, at most 8000 UTF-8 bytes; empty for `waiting` |
-| summary | Brief factual decision, at most 2000 UTF-8 bytes |
+| summary | Brief summary in the buyer’s language of the question, answer and supplied facts/materials used, at most 2000 UTF-8 bytes |
 
 Keep secrets and unrelated personal facts out of the answer. Cite the relevant
 supplied buyer text or uploaded material in the answer when clarifying an
