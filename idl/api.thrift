@@ -258,17 +258,28 @@ struct FeedbackItem {
     1: required string item_id (api.body="item_id")
     2: required i32 score (api.body="score")
     3: optional string impression_id (api.body="impression_id")
+    4: optional string client_key (api.body="client_key")
+    5: optional bool surfaced (api.body="surfaced")
+    6: optional string impression_source (api.body="impression_source")
 }
 
 struct BatchFeedbackReq {
     1: required list<FeedbackItem> items (api.body="items")
     2: optional string impression_id (api.body="impression_id")
+    3: optional string contract_version (api.body="contract_version")
+}
+
+struct FeedbackItemResult {
+    1: required string item_id
+    2: required string status
+    3: optional string reason
 }
 
 struct BatchFeedbackData {
     1: required i32 processed_count
     2: required i32 skipped_count
     3: optional list<string> skipped_reasons
+    4: optional list<FeedbackItemResult> results
 }
 
 struct BatchFeedbackResp {
