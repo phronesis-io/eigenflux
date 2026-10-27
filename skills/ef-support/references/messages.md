@@ -1,5 +1,9 @@
 # Community invitation copy
 
+These fragments are for the automatic onboarding invitation only. For explicit
+contact requests, compose a direct localized answer with the requested channels
+and the actual delivery outcome; do not use the invitation preamble.
+
 ## community_invite
 
 Use for an optional onboarding invitation. For an explicit support request,

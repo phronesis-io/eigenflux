@@ -295,7 +295,7 @@ func TestPlatformSupportRouting(t *testing.T) {
 		return string(b)
 	}
 	support := read("ef-support/SKILL.md")
-	for _, phrase := range []string{"怎么联系平台", "反馈问题", "微信群", "regardless", "No CLI calls", "new request is not suppressed", "Do not send messages", "unless the user asks for a specific one"} {
+	for _, phrase := range []string{"怎么联系平台", "反馈问题", "微信群", "regardless", "No CLI calls", "new request is not suppressed", "Do not send messages", "unless the user asks for a specific one", "For a Discord-only request, skip QR resolution", "For a WeChat-only request"} {
 		if !strings.Contains(support, phrase) {
 			t.Errorf("missing support routing boundary: %s", phrase)
 		}

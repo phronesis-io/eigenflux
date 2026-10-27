@@ -1,5 +1,11 @@
 # Community channel delivery
 
+Respect the caller's response mode and selected channels. A Discord-only request
+needs only the maintained link; skip this image flow. For an explicit contact
+request, answer directly using the confirmed delivery outcome, without an
+onboarding invitation preamble. The `community_invite*` fragments below apply
+only to the eligible automatic onboarding invitation.
+
 Resolve `<wechat-qr-path>` to the absolute path of `assets/wechat-group-qr.png` under
 this installed ef-support Skill, not cwd or a developer-machine path.
 
@@ -10,17 +16,24 @@ change Agent Home. Verify the copy's SHA-256 equals the bundled asset. Call
 `present_files` once with `cwd` set to that workspace, `files` containing only
 the copied absolute path, and a brief community-QR explanation. A non-error
 `present_files_result` must include that exact path in `files`; `previewed` or
-a generic success message is insufficient. Then use `community_invite_attachment`
-instead of `community_invite`; do not add a raw local Markdown image or file link.
+a generic success message is insufficient. For the automatic invitation, use
+`community_invite_attachment` instead of `community_invite`. For an explicit
+request, refer to the attached QR directly, including Discord only when requested
+or when the user asked for general contacts. In either mode, do not add a raw local Markdown image or file link.
 If copying, validation or delivery fails, or the tool is unavailable, use
-`community_invite_discord` without retrying or blocking onboarding. Record the
+`community_invite_discord` for the automatic invitation without retrying or blocking onboarding.
+For explicit requests, report unavailable QR delivery and offer Discord as an
+alternative; do not claim the QR was attached. Record the
 attachment attempt in task history so continuation does not deliver it again
 for the same request. A new explicit user request permits another delivery.
 Do not open an external viewer, change browser settings, or upload the image.
 
-For other hosts, use `community_invite`: show the bundled asset as an inline
+For other hosts, use `community_invite` for the automatic invitation only;
+for explicit requests, use direct contact wording. Show the bundled asset as an inline
 image where supported; otherwise replace the image with a localized clickable
 file link to the same asset. Never invent a public image
 URL or decode the QR into an unverified join link. If the asset is unavailable,
-show Discord only rather than a broken image. The invitation is optional and
+show Discord only for the automatic invitation rather than a broken image;
+for explicit requests, explain unavailable QR delivery and offer Discord as an
+alternative. The invitation is optional and
 has no effect on onboarding completion, permissions, or scheduling.
