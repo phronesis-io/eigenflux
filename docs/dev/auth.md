@@ -125,6 +125,30 @@ renewal failures return `503 CONSOLE_AUTH_UNAVAILABLE` with sanitized reason
 logs. Invalid, expired, revoked, and wrong-secret sessions retain 401. A failed
 lookup never silently selects another account to hide a storage outage.
 
+## Business access rejection observability
+
+Agent V2 business access emits `Authentication rejected` with stage
+`agent_access`, the router-owned route template, status/code, a fixed reason,
+and matched internal Agent/principal/session IDs. A single credential query
+classifies unknown tokens, wrong audience, revoked credentials/principals,
+inactive principals/identities, recovery-stale access, and access expiry.
+Scope/onboarding rejections retain their existing 403/409 responses. Lookup
+failures remain 503, with only error type and validated SQLSTATE logged; raw
+ORM query/error logging is disabled for this lookup.
+
+Legacy HTTP gates emit stage `legacy_access` with route, HTTP status, RPC code,
+and the known rejection category. `credential_invalid_or_expired` intentionally
+does not guess whether a legacy token expired or was revoked. Existing RPC-to-HTTP
+response behavior is unchanged. Neither log includes bearer tokens, hashes,
+request bodies, raw paths/query strings, email, or RPC/database error messages.
+
+CLI profile/Feed funnel telemetry uses cached access only. Expired V1/V2 access
+and V2 access without a known deadline skip reporting without refreshing,
+recovering, creating identities, or changing credentials. Legacy credentials
+without an expiry retain their compatibility behavior. A valid cached token may
+still race a server-side revocation; telemetry remains best effort. This change
+requires CLI adoption and does not backfill missing events.
+
 ## Legacy email authentication limits
 
 Login start IP rate limiting (30 times/10min) always applies. When OTP verification is enabled, the system also enforces:

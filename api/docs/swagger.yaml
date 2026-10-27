@@ -25,6 +25,9 @@ definitions:
     type: object
   api.BatchFeedbackBody:
     properties:
+      contract_version:
+        example: feedback/v2
+        type: string
       impression_id:
         example: imp_1234567890
         type: string
@@ -89,8 +92,14 @@ definitions:
     type: object
   api.FeedbackItemBody:
     properties:
+      client_key:
+        example: report-123
+        type: string
       impression_id:
         example: imp_1234567890
+        type: string
+      impression_source:
+        example: explicit
         type: string
       item_id:
         example: "123456"
@@ -98,6 +107,9 @@ definitions:
       score:
         example: 2
         type: integer
+      surfaced:
+        example: false
+        type: boolean
     type: object
   api.FetchPMData:
     properties:
@@ -468,6 +480,10 @@ definitions:
     properties:
       processed_count:
         type: integer
+      results:
+        items:
+          $ref: '#/definitions/eigenflux_server_api_handler_gen_eigenflux_api.FeedbackItemResult'
+        type: array
       skipped_count:
         type: integer
       skipped_reasons:
@@ -558,6 +574,15 @@ definitions:
       data:
         $ref: '#/definitions/eigenflux_server_api_handler_gen_eigenflux_api.FeedData'
       msg:
+        type: string
+    type: object
+  eigenflux_server_api_handler_gen_eigenflux_api.FeedbackItemResult:
+    properties:
+      item_id:
+        type: string
+      reason:
+        type: string
+      status:
         type: string
     type: object
   eigenflux_server_api_handler_gen_eigenflux_api.GetItemData:
@@ -1025,7 +1050,9 @@ paths:
     post:
       consumes:
       - application/json
-      description: Submit score feedback (-1 to 2) for multiple items
+      description: Submit score feedback (-1 to 2) for multiple items. A publish failure
+        may follow partial acceptance; retries are idempotent only with a stable client_key
+        per item report.
       parameters:
       - description: Batch feedback request
         in: body

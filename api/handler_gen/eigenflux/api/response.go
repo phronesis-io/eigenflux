@@ -31,15 +31,19 @@ type PublishItemBody struct {
 
 // BatchFeedbackBody represents batch feedback request body
 type BatchFeedbackBody struct {
-	Items        []FeedbackItemBody `json:"items"`
-	ImpressionID string             `json:"impression_id,omitempty" example:"imp_1234567890"`
+	ContractVersion *string            `json:"contract_version,omitempty" example:"feedback/v2"`
+	Items           []FeedbackItemBody `json:"items"`
+	ImpressionID    string             `json:"impression_id,omitempty" example:"imp_1234567890"`
 }
 
 // FeedbackItemBody represents a single feedback item
 type FeedbackItemBody struct {
-	ItemID       string `json:"item_id" example:"123456"`
-	Score        int32  `json:"score" example:"2"`
-	ImpressionID string `json:"impression_id,omitempty" example:"imp_1234567890"`
+	ClientKey        *string `json:"client_key,omitempty" example:"report-123"`
+	Surfaced         *bool   `json:"surfaced,omitempty" example:"false"`
+	ImpressionSource *string `json:"impression_source,omitempty" example:"explicit"`
+	ItemID           string  `json:"item_id" example:"123456"`
+	Score            int32   `json:"score" example:"2"`
+	ImpressionID     string  `json:"impression_id,omitempty" example:"imp_1234567890"`
 }
 
 // --- Swagger response types ---
@@ -253,10 +257,17 @@ type GetMyItemsResp struct {
 }
 
 // BatchFeedback response
+type FeedbackItemResult struct {
+	ItemID string  `json:"item_id"`
+	Status string  `json:"status"`
+	Reason *string `json:"reason,omitempty"`
+}
+
 type BatchFeedbackData struct {
-	ProcessedCount int      `json:"processed_count"`
-	SkippedCount   int      `json:"skipped_count"`
-	SkippedReasons []string `json:"skipped_reasons,omitempty"`
+	Results        []FeedbackItemResult `json:"results,omitempty"`
+	ProcessedCount int                  `json:"processed_count"`
+	SkippedCount   int                  `json:"skipped_count"`
+	SkippedReasons []string             `json:"skipped_reasons,omitempty"`
 }
 
 type BatchFeedbackResp struct {

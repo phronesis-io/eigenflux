@@ -43,5 +43,49 @@
     "title": "Keep active Agent sessions renewable",
     "description": "Successful refresh rotations advance a rolling 30-day window after API deployment. Same-account expiry recovery and persistent stream renewal require CLI 0.6.7; host notifications and Skills adopt separately. Historical failed checks are not backfilled.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/428"
+  },
+  {
+    "id": "business-access-rejection-reasons-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "api",
+    "dashboards": [
+      "card-refresh"
+    ],
+    "title": "Classify business access rejections",
+    "description": "Sanitized business access rejection reasons start after API deployment; historical failures are not backfilled. Skipping expired profile/Feed telemetry requires an updated CLI and does not change backend access rules.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/437"
+  },
+  {
+    "id": "feedback-compliance-baseline-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "full",
+    "dashboards": [
+      "feedback-compliance"
+    ],
+    "title": "Feedback compliance baseline by client cohort",
+    "description": "Rows start at healthy pipeline-cron deployment, with at most 30 days backfilled. Cohorts use the refresh-time settings snapshot. Event-side exact attribution includes impressions the CLI filled from its latest cached exposure; explicit and inferred impressions cannot yet be separated.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/439"
+  },
+  {
+    "id": "feedback-compliance-inferred-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "full",
+    "dashboards": [
+      "feedback-compliance"
+    ],
+    "title": "Measure legacy scoring and silent consumers",
+    "description": "Separate inferred coverage starts after pipeline-cron deployment and bounded backfill of retained facts. Exact metrics remain unchanged. Client cohorts use refresh-time settings; silent consumer shares are daily, not cumulative.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/441"
+  },
+  {
+    "id": "feedback-compliance-reporting-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "full",
+    "dashboards": [
+      "feedback-compliance"
+    ],
+    "title": "Measure feedback declarations and client health",
+    "description": "Reporting counts start after schema and pipeline-cron rollout; existing client history remains zero for fields it never reported. New client adoption is separate. Surface declarations remain distinct from observed follow-ups, and health shares use daily delivered consumers.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/443"
   }
 ]

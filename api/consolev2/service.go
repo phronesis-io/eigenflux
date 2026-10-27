@@ -605,12 +605,18 @@ func (s *Service) setCSRFCookie(c *app.RequestContext, value string, maxAge int)
 }
 
 type agentPrincipal struct {
-	SessionID       int64          `gorm:"column:session_id"`
-	AgentID         int64          `gorm:"column:agent_id"`
-	PrincipalID     int64          `gorm:"column:principal_id"`
-	Status          string         `gorm:"column:status"`
-	Scopes          pq.StringArray `gorm:"column:scopes;type:text[]"`
-	OnboardingState string         `gorm:"column:onboarding_state"`
+	SessionID             int64          `gorm:"column:session_id"`
+	AgentID               int64          `gorm:"column:agent_id"`
+	PrincipalID           int64          `gorm:"column:principal_id"`
+	Status                string         `gorm:"column:status"`
+	Scopes                pq.StringArray `gorm:"column:scopes;type:text[]"`
+	OnboardingState       string         `gorm:"column:onboarding_state"`
+	Audience              string         `gorm:"column:audience"`
+	ExpiresAt             int64          `gorm:"column:expires_at"`
+	RevokedAt             *int64         `gorm:"column:revoked_at"`
+	AccessRefreshRequired bool           `gorm:"column:access_refresh_required"`
+	PrincipalRevokedAt    *int64         `gorm:"column:principal_revoked_at"`
+	IdentityState         string         `gorm:"column:identity_state"`
 }
 
 func (s *Service) agentAuth(requiredScope string) app.HandlerFunc {
@@ -622,7 +628,13 @@ func (s *Service) agentAuthAny(requiredScopes ...string) app.HandlerFunc {
 		ctx = reqinfo.WithRequestStart(ctx)
 		requestStartedAt := reqinfo.RequestStartedAt(ctx)
 		header := string(c.GetHeader("Authorization"))
+		failure := authenticationFailure{ctx: ctx, stage: "agent_access", route: c.FullPath()}
 		if !strings.HasPrefix(header, "Bearer efv2a_") {
+			reason := "invalid_authorization_header"
+			if header == "" {
+				reason = "missing_authorization_header"
+			}
+			failure.log(http.StatusUnauthorized, "AGENT_AUTH_REQUIRED", reason, nil)
 			fail(c, http.StatusUnauthorized, "AGENT_AUTH_REQUIRED", "missing or invalid Agent V2 bearer token", nil)
 			c.Abort()
 			return
@@ -630,15 +642,14 @@ func (s *Service) agentAuthAny(requiredScopes ...string) app.HandlerFunc {
 		token := strings.TrimPrefix(header, "Bearer ")
 		var principal agentPrincipal
 		now := time.Now().UnixMilli()
-		err := s.db.Raw(`SELECT cs.session_id, p.agent_id, p.principal_id, p.status, cs.scopes, o.state AS onboarding_state
+		err := s.authenticationDB(ctx).Raw(`SELECT cs.session_id, p.agent_id, p.principal_id, p.status, cs.scopes, o.state AS onboarding_state,
+ cs.audience, cs.expires_at, cs.revoked_at, cs.access_refresh_required,
+ p.revoked_at AS principal_revoked_at, a.identity_state
 				FROM agent_credential_sessions cs
 				JOIN agent_principals p ON p.principal_id = cs.principal_id
 				JOIN agents a ON a.agent_id = p.agent_id
 				LEFT JOIN agent_onboarding_v2 o ON o.agent_id = p.agent_id
-				WHERE cs.access_token_hash = ? AND cs.audience = 'agent_v2'
-				  AND cs.revoked_at IS NULL AND cs.expires_at > ? AND cs.access_refresh_required = FALSE
-				  AND p.revoked_at IS NULL AND p.status IN ('limited','active')
-				  AND a.identity_state = 'active'`, hashString(token), now).
+				WHERE cs.access_token_hash = ?`, hashString(token)).
 			Scan(&principal).Error
 		hasRequiredScope := false
 		for _, requiredScope := range requiredScopes {
@@ -648,11 +659,14 @@ func (s *Service) agentAuthAny(requiredScopes ...string) app.HandlerFunc {
 			}
 		}
 		if err != nil {
+			failure.log(http.StatusServiceUnavailable, "AGENT_AUTH_UNAVAILABLE", "credential_lookup_failed", err)
 			fail(c, http.StatusServiceUnavailable, "AGENT_AUTH_UNAVAILABLE", "Agent V2 authentication is temporarily unavailable", nil)
 			c.Abort()
 			return
 		}
-		if principal.AgentID == 0 {
+		failure.agentID, failure.principalID, failure.sessionID = principal.AgentID, principal.PrincipalID, principal.SessionID
+		if reason := principal.accessRejectionReason(now); reason != "" {
+			failure.log(http.StatusUnauthorized, "AGENT_AUTH_INVALID", reason, nil)
 			fail(c, http.StatusUnauthorized, "AGENT_AUTH_INVALID", "Agent V2 token is invalid or expired", nil)
 			c.Abort()
 			return
@@ -660,8 +674,10 @@ func (s *Service) agentAuthAny(requiredScopes ...string) app.HandlerFunc {
 		if !hasRequiredScope {
 			details := map[string]interface{}{"required_scopes": requiredScopes, "onboarding_state": principal.OnboardingState}
 			if principal.OnboardingState != "completed" {
+				failure.log(http.StatusConflict, "ONBOARDING_REQUIRED", "onboarding_required", nil)
 				fail(c, http.StatusConflict, "ONBOARDING_REQUIRED", "this operation requires completed onboarding; read-only baseline Feed remains available", details)
 			} else {
+				failure.log(http.StatusForbidden, "AGENT_SCOPE_REQUIRED", "scope_missing", nil)
 				fail(c, http.StatusForbidden, "AGENT_SCOPE_REQUIRED", "Agent V2 session lacks the required scope", details)
 			}
 			c.Abort()
