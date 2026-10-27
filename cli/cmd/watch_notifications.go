@@ -97,7 +97,7 @@ func (w *accountWatch) notificationIdentityOK() error {
 
 func newWatchStartCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use: "start", Short: "Install and start this account's Windows watch",
+		Use: "start", Short: "Set up and start this account's watch on macOS or Windows",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			host, _ := cmd.Flags().GetString("host")
@@ -153,7 +153,8 @@ func newWatchStartCommand() *cobra.Command {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
 		},
 	}
-	cmd.Flags().String("host", "", "automatically discover and bind WorkBuddy on Windows")
+	cmd.Flags().String("host", "", "automatically discover and bind WorkBuddy on macOS or Windows")
+	cmd.Flags().String("launch-agent", "", "existing macOS account watch plist (otherwise discover a unique matching task)")
 	return cmd
 }
 

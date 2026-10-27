@@ -668,3 +668,7 @@ Historical paid orders without it stay blocked with
 `commission_intake_evidence_missing`; reconciliation never invents evidence or
 reintroduces a model inspection before fulfillment. Interrupted/known jobs
 continue to require explicit recovery.
+
+## PM reception diagnostics
+
+`watch status` and `watch doctor` expose `pm_reception` separately from process readiness and Commission subscription. `not_subscribed` with `binding_missing_pm_push` means the heartbeat retains Communication ownership; it is not a failed Agent execution. A PM subscription never grants automatic reply permission: fresh owner control context remains authoritative before execution and sending. WorkBuddy automatic setup includes PM reception. Startup migrates only the recognized original macOS Commission adapter described in `../watchservice/README.md`; custom event lists and automatic-reply opt-outs remain unchanged.

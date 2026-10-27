@@ -46,6 +46,10 @@ func (w *accountWatch) enableDispatch() error {
 	if err != nil {
 		return err
 	}
+	b, err = w.upgradeLegacyWorkBuddyPM(b)
+	if err != nil {
+		return err
+	}
 	w.binding, w.journal = &b, q
 	w.runAgent = (dispatch.Runner{Binding: b}).Run
 	// Enable only implemented exact-bound adapters. Capability/status separately

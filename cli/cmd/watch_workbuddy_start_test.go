@@ -79,7 +79,7 @@ func TestWorkBuddyAutomaticSetup(t *testing.T) {
 			}
 			b, readErr := dispatch.ReadBinding(w.home, w.server.Name)
 			if wantOK || scenario == "restart_failed" {
-				if readErr != nil || b.Host != "workbuddy" || b.Mode != "acp" || !b.Handles("commission_order") || !strings.Contains(strings.Join(b.Command, " "), "workbuddy-acp") {
+				if readErr != nil || b.Host != "workbuddy" || b.Mode != "acp" || !b.Handles("commission_order") || !b.Handles("pm_push") || !strings.Contains(strings.Join(b.Command, " "), "workbuddy-acp") {
 					t.Fatalf("binding=%+v err=%v", b, readErr)
 				}
 				if strings.Join(calls, ",") != "discover,probe,stop,start" {

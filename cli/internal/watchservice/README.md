@@ -2,6 +2,24 @@
 
 Update this map with every lifecycle change.
 
+macOS `watch start --host workbuddy` reuses an existing account-matching
+LaunchAgent, selected by `--launch-agent` or an unambiguous owned plist. It
+validates the direct watch command or restricted literal shell wrapper and
+preserves task definitions, disabled state, logs and environment. Setup refuses
+to stop an active process. An idle loaded task can be unloaded before rebinding;
+startup requires the same running PID for three seconds and does not establish
+runtime or business verification.
+
+At dispatch watch startup, the original macOS WorkBuddy Commission-only ACP
+binding (300-second timeout and explicit Read/Write/Edit tools) automatically
+adds `pm_push` after signed Communication rules and account identity are
+verified. The account owner lock and credential lock protect the update;
+concurrent binding edits abort it. Adapter command, journal revision, pending
+jobs and all owner settings remain unchanged. Custom and modern bindings are
+not migrated. In particular, `auto_reply_pm=false` remains false: subscription
+does not grant permission to send replies. The installed CLI must start again
+before this migration runs; updating code alone does not migrate a live process.
+
 `cmd/watch_notifications.go` exposes Windows `watch start`. `start_windows.go`
 and `start_windows.ps1` install an account-scoped, non-elevated interactive task
 named `EigenFlux-Notifications-<scope>`. Launcher JSON contains pinned identity
