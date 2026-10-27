@@ -844,10 +844,10 @@ request-entry timestamp. Omission writes nothing. These client-reported facts
 are stored separately from settings and server delivery/feedback facts.
 
 
-### CLI feedback completion and backlog
+### CLI feedback completion
 
 CLI 0.7.0 adds `feed status` and the `eigenflux_heartbeat.v2` completion step.
 The [client feedback contract](feedback_clients.md) defines local report state,
-durable retries, bounded heartbeat holds and settings-report capability gates.
+durable keyed retries and the `feedback_health` settings report.
 Baseline Feed remains read-only. The server's feedback wire schema is unchanged;
 `contract_version=feedback.v2` is a batch field and `surfaced` remains optional.

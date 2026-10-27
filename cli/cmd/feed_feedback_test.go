@@ -1,13 +1,12 @@
 package cmd
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -16,43 +15,9 @@ import (
 	"cli.eigenflux.ai/internal/feedevent"
 )
 
-func TestHoldFeedBacklogDecision(t *testing.T) {
-	pending := []feedevent.PendingItem{{AgeMs: 1000}}
-	for _, test := range []struct {
-		name, origin, action, mode string
-		baseline                   bool
-		age                        int64
-		holds                      int
-		empty, want                bool
-	}{
-		{name: "hold", origin: "heartbeat", mode: "hold", age: 1000, want: true},
-		{name: "refresh", origin: "heartbeat", action: "refresh", mode: "hold", age: 1000, want: true},
-		{name: "owner", origin: "owner", mode: "hold", age: 1000},
-		{name: "absent origin", mode: "hold", age: 1000},
-		{name: "more", origin: "heartbeat", action: "more", mode: "hold", age: 1000},
-		{name: "off", origin: "heartbeat", mode: "off", age: 1000},
-		{name: "baseline", origin: "heartbeat", mode: "hold", baseline: true, age: 1000},
-		{name: "fourth pull", origin: "heartbeat", mode: "hold", holds: 3, age: 1000},
-		{name: "six hours", origin: "heartbeat", mode: "hold", age: feedBacklogMaxAgeMs},
-		{name: "empty", origin: "heartbeat", mode: "hold", empty: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			items := pending
-			items[0].AgeMs = test.age
-			if test.empty {
-				items = nil
-			}
-			got := holdFeedBacklog(test.origin, test.action, test.mode, test.baseline, items, test.holds)
-			if got != test.want {
-				t.Fatal(got)
-			}
-		})
-	}
-}
-func TestBacklogPollNotificationAttributionAndStarvation(t *testing.T) {
-	feedCalls, noticeCalls := 0, 0
-	var feedback map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func feedPollTestServer(t *testing.T, feedCalls *int, feedback *map[string]any) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/api/v2/agent-context":
@@ -60,13 +25,10 @@ func TestBacklogPollNotificationAttributionAndStarvation(t *testing.T) {
 		case "/api/v2/runtime/heartbeat":
 			fmt.Fprint(w, `{"code":0,"data":{}}`)
 		case "/api/v2/feed":
-			feedCalls++
-			fmt.Fprintf(w, `{"code":0,"data":{"schema_version":"feed.v2","impression_id":"imp-%d","output_contract":"score before presenting","personalization":{"mode":"intent_aligned","context_revision":1},"items":[{"item_id":"9007199254740993","source_ref":{"type":"broadcast"},"preview":{"text":"Useful signal"}}]}}`, feedCalls)
-		case "/api/v2/notifications/pending":
-			noticeCalls++
-			fmt.Fprint(w, `{"code":0,"data":{"notifications":[{"notification_id":"notice"}]}}`)
+			*feedCalls++
+			fmt.Fprintf(w, `{"code":0,"data":{"schema_version":"feed.v2","impression_id":"imp-%d","output_contract":"score before presenting","personalization":{"mode":"intent_aligned","context_revision":1},"items":[{"item_id":"9007199254740993","source_ref":{"type":"broadcast"},"preview":{"text":"Useful signal"}}]}}`, *feedCalls)
 		case "/api/v2/items/feedback":
-			if err := json.NewDecoder(r.Body).Decode(&feedback); err != nil {
+			if err := json.NewDecoder(r.Body).Decode(feedback); err != nil {
 				t.Error(err)
 			}
 			fmt.Fprint(w, `{"code":0,"data":{"processed_count":1,"results":[{"item_id":"9007199254740993","status":"accepted"}]}}`)
@@ -75,58 +37,36 @@ func TestBacklogPollNotificationAttributionAndStarvation(t *testing.T) {
 			w.WriteHeader(404)
 		}
 	}))
-	defer srv.Close()
-	cfg, name := runtimeTestConfig(t, srv.URL, true)
-	if err := cfg.SetServerKV(name, "feed_backlog_mode", "hold"); err != nil {
+}
+
+func pollFeedForTest(t *testing.T, name string) {
+	t.Helper()
+	oldOrigin, oldFormat := originFlag, formatFlag
+	t.Cleanup(func() { originFlag = oldOrigin; formatFlag = oldFormat })
+	originFlag, formatFlag = "heartbeat", "json"
+	if _, err := captureHeartbeatStdout(t, func() error { return pollFeedV2(feedPollCmd, name, "20") }); err != nil {
 		t.Fatal(err)
 	}
-	oldOrigin, oldFormat := originFlag, formatFlag
-	t.Cleanup(func() { originFlag = oldOrigin; formatFlag = oldFormat; feedPollCmd.SetOut(nil) })
-	originFlag = "heartbeat"
-	formatFlag = "json"
-	poll := func() map[string]any {
-		t.Helper()
-		raw, err := captureHeartbeatStdout(t, func() error { return pollFeedV2(feedPollCmd, name, "20") })
-		if err != nil {
-			t.Fatal(err)
-		}
-		var value map[string]any
-		if err := json.Unmarshal([]byte(raw), &value); err != nil {
-			t.Fatal(raw, err)
-		}
-		return value
-	}
-	poll()
-	if feedCalls != 1 {
+}
+
+func TestScheduledPullAlwaysFetchesAndFeedbackClearsPending(t *testing.T) {
+	feedCalls := 0
+	var feedback map[string]any
+	srv := feedPollTestServer(t, &feedCalls, &feedback)
+	defer srv.Close()
+	_, name := runtimeTestConfig(t, srv.URL, true)
+	pollFeedForTest(t, name)
+	pollFeedForTest(t, name)
+	if feedCalls != 2 {
 		t.Fatal(feedCalls)
 	}
-	if err := feedReportStore(name).Update(time.Now().UnixMilli(), func(r *feedevent.Reports) {
-		r.RecordSurface(feedevent.Event{"item_id": "9007199254740993", "impression_id": "imp-1"}, time.Now().UnixMilli())
-	}); err != nil {
+	state, err := feedReportStore(name).Read()
+	if err != nil {
 		t.Fatal(err)
 	}
-	held := poll()
-	items := held["items"].([]any)
-	item := items[0].(map[string]any)
-	if feedCalls != 1 || noticeCalls != 1 || held["backlog"].(map[string]any)["held"] != true || item["impression_id"] != "imp-1" || item["already_surfaced"] != true || len(held["notifications"].([]any)) != 1 {
-		t.Fatal(held, feedCalls, noticeCalls)
-	}
-	raw, _ := json.Marshal(held)
-	formatFlag = "agent"
-	var rendered bytes.Buffer
-	feedPollCmd.SetOut(&rendered)
-	if err := renderFeedV2(feedPollCmd, raw); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(rendered.String(), "BACKLOG: 1 items") || !strings.Contains(rendered.String(), "score before presenting") {
-		t.Fatal(rendered.String())
-	}
-	formatFlag = "json"
-	poll()
-	poll()
-	poll()
-	if feedCalls != 2 || noticeCalls != 3 {
-		t.Fatal(feedCalls, noticeCalls)
+	pending := pendingFeed(name, state, time.Now().UnixMilli())
+	if len(pending) != 2 || pending[0].ImpressionID != "imp-1" || pending[1].ImpressionID != "imp-2" {
+		t.Fatal(pending)
 	}
 	previous, _ := feedFeedbackCmd.Flags().GetString("items")
 	defer feedFeedbackCmd.Flags().Set("items", previous)
@@ -138,27 +78,66 @@ func TestBacklogPollNotificationAttributionAndStarvation(t *testing.T) {
 	if sent["impression_id"] != "imp-1" || sent["impression_source"] != "explicit" || feedback["contract_version"] != "feedback.v2" || len(sent["client_key"].(string)) != 32 {
 		t.Fatal(feedback)
 	}
-	state, _ := feedReportStore(name).Read()
-	pending := pendingFeed(name, state, time.Now().UnixMilli())
+	state, _ = feedReportStore(name).Read()
+	pending = pendingFeed(name, state, time.Now().UnixMilli())
 	if len(pending) != 1 || pending[0].ImpressionID != "imp-2" {
 		t.Fatal(pending)
 	}
-	if err := cfg.SetServerKV(name, "feed_backlog_mode", "off"); err != nil {
+}
+
+// The ledger is diagnostic: an unreadable file must never block Feed or
+// feedback delivery, and the next write starts a fresh ledger.
+func TestCorruptReportLedgerNeverBlocksFeedOrFeedback(t *testing.T) {
+	feedCalls := 0
+	var feedback map[string]any
+	srv := feedPollTestServer(t, &feedCalls, &feedback)
+	defer srv.Close()
+	_, name := runtimeTestConfig(t, srv.URL, true)
+	dir := cache.ServerDataDir(name)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	poll()
-	if feedCalls != 3 {
+	ledger := filepath.Join(dir, "feed-reports.json")
+	if err := os.WriteFile(ledger, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pollFeedForTest(t, name)
+	if feedCalls != 1 {
 		t.Fatal(feedCalls)
 	}
+	quarantined, _ := filepath.Glob(ledger + ".corrupt-*")
+	if len(quarantined) != 1 {
+		t.Fatal(quarantined)
+	}
+	state, err := feedReportStore(name).Read()
+	if err != nil || len(pendingFeed(name, state, time.Now().UnixMilli())) != 1 {
+		t.Fatal(state, err)
+	}
+	if err := os.WriteFile(ledger, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	previous, _ := feedFeedbackCmd.Flags().GetString("items")
+	defer feedFeedbackCmd.Flags().Set("items", previous)
+	_ = feedFeedbackCmd.Flags().Set("items", `[{"item_id":"9007199254740993","impression_id":"imp-1","score":1}]`)
+	if err := submitDurableFeedback(feedFeedbackCmd, nil); err != nil {
+		t.Fatal(err)
+	}
+	if feedback == nil {
+		t.Fatal("feedback not delivered")
+	}
+	depth, _ := feedevent.NewQueue(filepath.Join(dir, "events")).Stats(time.Now().UnixMilli())
+	if depth != 0 {
+		t.Fatal(depth)
+	}
 }
+
 func TestFeedStatusBoundsAndFeedbackValidation(t *testing.T) {
 	items := make([]feedevent.PendingItem, 25)
 	for i := range items {
 		items[i] = feedevent.PendingItem{ItemID: fmt.Sprint(i), AgeMs: int64(100 - i)}
 	}
-	status := buildFeedStatus(items, 2)
-	raw, _ := json.Marshal(status)
-	if len(status.Items) != 20 || status.Pending != 25 || status.OldestAgeMs != 100 || !strings.Contains(string(raw), `"held_cycles":2`) {
+	status := buildFeedStatus(items)
+	if len(status.Items) != 20 || status.Pending != 25 || status.OldestAgeMs != 100 {
 		t.Fatal(status)
 	}
 	ledger := feedevent.NewLedger(t.TempDir(), "server")
@@ -207,16 +186,6 @@ func TestDurableFeedbackFailureNextInvocationAndHealth(t *testing.T) {
 	counts := reportedFeedbackHealth(cfg, name)
 	if counts["scored_items"] != 1 || counts["feedback_attempts"] != 2 || counts["feedback_failures"] != 1 || counts["window_ms"] != feedevent.HealthWindowMs {
 		t.Fatal(counts)
-	}
-	_ = feedReportStore(name).Count(time.Now().UnixMilli(), map[string]int64{"backlog_holds": 1, "backlog_releases": 1})
-	if _, ok := reportedFeedbackHealth(cfg, name)["backlog_holds"]; ok {
-		t.Fatal("unsupported health fields sent")
-	}
-	if err := cfg.SetServerKV(name, "feedback_health_backlog_supported", "true"); err != nil {
-		t.Fatal(err)
-	}
-	if reportedFeedbackHealth(cfg, name)["backlog_holds"] != 1 {
-		t.Fatal("advertised counters missing")
 	}
 }
 
@@ -380,5 +349,23 @@ func TestExpiredCredentialRefreshOutageKeepsFeedbackDurable(t *testing.T) {
 	}
 	if depth, _ := queue.Stats(time.Now().UnixMilli()); depth != 0 {
 		t.Fatal(depth)
+	}
+}
+
+func TestLifecycleCommandsDoNotFlushFeedQueue(t *testing.T) {
+	for _, args := range [][]string{{"uninstall"}, {"skills", "uninstall"}, {"uninstall-finalize"}, {"installation"}, {"migrate"}, {"version"}} {
+		cmd, _, err := rootCmd.Find(args)
+		if err != nil || cmd == rootCmd {
+			t.Fatalf("%v not found: %v", args, err)
+		}
+		if flushesFeedQueue(cmd) {
+			t.Errorf("%v flushes the Feed queue", args)
+		}
+	}
+	for _, args := range [][]string{{"feed", "poll"}, {"feed", "feedback"}, {"heartbeat", "plan"}, {"settings", "push"}} {
+		cmd, _, err := rootCmd.Find(args)
+		if err != nil || !flushesFeedQueue(cmd) {
+			t.Errorf("%v must flush the Feed queue: %v", args, err)
+		}
 	}
 }

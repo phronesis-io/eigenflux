@@ -3,35 +3,29 @@
 CLI 0.7.0 keeps `data/feed-reports.json` under the selected server's Agent Home.
 The scope includes the server endpoint and authenticated Agent. Reports are
 keyed by impression and item, retained for eight days, and written by atomic
-rename under an OS advisory lock. Lock files remain after release. Corrupt
-report or queue files are preserved and reported instead of being overwritten.
+rename under an OS advisory lock. Lock files remain after release.
+
+The report ledger is diagnostic. A busy, unreadable or unwritable ledger prints
+a warning on stderr and never fails `feed poll`, `feed feedback` or a queue
+flush. The next write moves an unreadable ledger aside as
+`feed-reports.json.corrupt-<unix-ms>` and starts a fresh one. A corrupt event
+queue is still preserved and reported, because it holds undelivered judgments.
+
+`feed poll` renders and caches each delivered V2 page before recording it in
+the ledger, so impression lookups and the completion check always see delivered
+pages. Scheduled pulls always fetch; the CLI never holds or replays a page.
 
 `feed status` lists up to 20 pending broadcast exposures from cached V2 Feed
 responses in the last 48 hours, their original impressions, ages and 80-character
 titles. Its totals include the entire pending set. Baseline and discovery/search
 pages are excluded. Queued, accepted, duplicate and rejected feedback all count
-as judged. Surface reports suppress repeat presentation across impressions.
+as judged. `already_surfaced` marks items whose surface was already reported,
+across impressions, so they are not presented again.
 
-## Scheduled pull holds
-
-A V2 `feed poll` can hold only with `--origin heartbeat`, refresh action, the
-server-scoped `feed_backlog_mode=hold` setting, completed context and a prior
-non-baseline pull. It returns pending items from their original cached pages,
-including per-item `impression_id` and `already_surfaced`, and copies the cached
-output contract. Current owner context is synchronized before any hold. Platform
-notifications are fetched through `/api/v2/notifications/pending`.
-
-The `backlog` object exposes `held`, `pending_items`, `oldest_pending_age_ms`,
-and `consecutive_holds`. Agent output adds a trusted `BACKLOG:` preamble. Held
-responses create no Feed request or new exposure and are not cached as new
-pulls. Three consecutive holds or a six-hour-old pending item force a new pull.
-Owner requests, absent origin, `--action more`, V1 and default `off` always fetch.
-A later `--origin owner` overrides the heartbeat prefix.
-
-`settings sync` stores `feed_backlog_mode` per server. An absent or unknown value
-resets it to `off`; it is never pushed back as a user setting. Existing polling
-interval preferences and user-set flags are unchanged. The cohort setting must
-be provided by the separate server rollout before holds can activate.
+`heartbeat plan` (contract `eigenflux_heartbeat.v2`) adds the completion step
+"Before leaving the Feed stage, run `<cli_prefix> feed status`. Score every
+item it lists, then continue." once onboarding is completed, and sets
+`feed_completion_check`.
 
 ## Feedback delivery
 
@@ -45,33 +39,34 @@ a new key. The wire request has batch `contract_version=feedback.v2` and per-ite
 Feedback is durably enqueued before sending, mixed with existing behavior events
 but routed to the correct API. Ordered per-item results update the report ledger;
 rejected items retain their reason in command output. Network failures preserve
-the queue and return a queued summary. Every normal CLI invocation attempts a
-bounded flush using the saved access token. Credential refresh remains with the
-foreground authenticated command. Queue entries expire after 72 hours.
+the queue and return a queued summary. A batch the server accepted leaves the
+queue even if the ledger cannot be updated. Queue entries expire after 72 hours.
+
+Every CLI invocation attempts a bounded flush using the saved access token,
+except installation lifecycle and local metadata commands (`uninstall`,
+`uninstall-finalize`, `installation`, `migrate`, `version`, `help`,
+`completion`), which never write into a Home they may remove or migrate.
+Credential refresh remains with the foreground authenticated command.
 
 The trailing 24-hour health report includes pulls, delivered/scored items, status
 runs, attempts/failures, queue drops and queue depth/age. Settings push includes
-nonzero `feedback_health` independently of runtime identity changes. The local
-backlog counters are sent only after settings advertise
-`feedback_health_backlog_supported=true`; otherwise they are omitted for server
-compatibility. No new server health columns or cohort rollout are enabled here.
+nonzero `feedback_health` independently of runtime identity changes. These are
+the fields the server already accepts; no new server health columns are needed.
 
 ## Skills and release boundary
 
-`ef-broadcast` requires CLI 0.7.0. It scores backlog items before presenting,
-respects `already_surfaced`, and runs `feed status` before leaving the Feed stage.
-The completion step is disabled for incomplete onboarding. The existing
-baseline no-scoring rule remains unchanged. Declaring `surfaced` during scoring
-and changing the meaning of score zero remain a later Skill revision.
+The CLI accepts and reports these fields without a Skill change. The matching
+`ef-broadcast` revision (completion step, owner `--origin owner`, minimum CLI
+0.7.0) ships separately and merges only after CLI 0.7.0 is published, because
+Skills are released automatically from `main` and the installer stops on a
+Skills minimum that the published CLI does not meet. Until then
+`SKILLS_MIN_CLI_VERSION` stays `0.6.7`.
 
-Publish the CLI before the compatible Skills bundle. The automatic Skills
-workflow runs after merge, so coordinate CLI publication before promoting this
-bundle to new installations. OpenClaw 0.0.48 and Claude Code 0.0.16 add plan and
-capacity gates, retain failed deliveries for one retry, and mark scheduled pulls
-only with a supported CLI. Codex requires no adapter change.
+OpenClaw 0.0.48 and Claude Code 0.0.16 add plan and capacity gates, retain failed
+deliveries for one retry, and mark scheduled pulls only with a supported CLI.
+Codex requires no adapter change.
 
 The server-delivered output contract and server capability catalog are unchanged.
-Completion and backlog instructions live in the CLI 0.7.0-gated Skill and the new
-CLI agent prompt. `feed status` is a local diagnostic and needs no server endpoint
-or capability publication. Foreground feedback and explicit queue flush resolve
-and refresh credentials; the bounded background retry uses saved credentials.
+`feed status` is a local diagnostic and needs no server endpoint or capability
+publication. Foreground feedback and explicit queue flush resolve and refresh
+credentials; the bounded background retry uses saved credentials.

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,12 +32,14 @@ type HealthEvent struct {
 	Counts map[string]int64 `json:"counts"`
 }
 type Reports struct {
-	Scope            string            `json:"scope"`
-	Entries          map[string]Report `json:"entries"`
-	LastBaseline     bool              `json:"last_baseline"`
-	ConsecutiveHolds int               `json:"consecutive_holds"`
-	Health           []HealthEvent     `json:"health,omitempty"`
+	Scope   string            `json:"scope"`
+	Entries map[string]Report `json:"entries"`
+	Health  []HealthEvent     `json:"health,omitempty"`
 }
+
+// ErrCorruptReports marks an unreadable ledger file.
+var ErrCorruptReports = errors.New("feedevent: corrupt report ledger")
+
 type ReportStore struct {
 	dir, scope string
 	wait       time.Duration
@@ -56,7 +59,7 @@ func (s *ReportStore) Read() (Reports, error) {
 		return state, err
 	}
 	if err := json.Unmarshal(data, &state); err != nil {
-		return state, err
+		return Reports{Scope: s.scope, Entries: map[string]Report{}}, fmt.Errorf("%w: %v", ErrCorruptReports, err)
 	}
 	if state.Scope != s.scope {
 		return Reports{Scope: s.scope, Entries: map[string]Report{}}, nil
@@ -73,6 +76,15 @@ func (s *ReportStore) Update(now int64, fn func(*Reports)) error {
 	}
 	defer l.release()
 	state, err := s.Read()
+	if errors.Is(err, ErrCorruptReports) {
+		// The ledger is rebuilt from later pulls and judgments. Keep the
+		// unreadable copy for diagnosis instead of overwriting it.
+		corrupt := filepath.Join(s.dir, fmt.Sprintf("feed-reports.json.corrupt-%d", now))
+		if renameErr := os.Rename(filepath.Join(s.dir, "feed-reports.json"), corrupt); renameErr != nil {
+			return err
+		}
+		err = nil
+	}
 	if err != nil {
 		return err
 	}
@@ -188,7 +200,6 @@ type PendingItem struct {
 	AgeMs           int64  `json:"age_ms"`
 	Title           string `json:"title"`
 	AlreadySurfaced bool   `json:"already_surfaced"`
-	Entry           Entry  `json:"-"`
 }
 
 func (l *Ledger) Pending(reports Reports, now int64) []PendingItem {
@@ -207,7 +218,7 @@ func (l *Ledger) Pending(reports Reports, now int64) []PendingItem {
 		if report.Baseline || report.Delivery == "queued" || report.Delivery == "accepted" || report.Delivery == "duplicate" || report.Delivery == "rejected" {
 			continue
 		}
-		pending = append(pending, PendingItem{ItemID: e.ItemID, ImpressionID: e.ImpressionID, AgeMs: now - e.ServedAt, Title: e.Title, AlreadySurfaced: surfaced[e.ItemID], Entry: e})
+		pending = append(pending, PendingItem{ItemID: e.ItemID, ImpressionID: e.ImpressionID, AgeMs: now - e.ServedAt, Title: e.Title, AlreadySurfaced: surfaced[e.ItemID]})
 	}
 	sort.Slice(pending, func(i, j int) bool {
 		if pending[i].AgeMs != pending[j].AgeMs {

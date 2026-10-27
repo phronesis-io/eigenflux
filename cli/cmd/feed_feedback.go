@@ -104,13 +104,11 @@ func submitDurableFeedback(cmd *cobra.Command, _ []string) error {
 	if err := q.Enqueue(items); err != nil {
 		return err
 	}
-	if err := feedReportStore(server).Update(now, func(r *feedevent.Reports) {
+	warnReportLedger(feedReportStore(server).Update(now, func(r *feedevent.Reports) {
 		for _, item := range items {
 			r.RecordFeedback(item, now, "queued")
 		}
-	}); err != nil {
-		return err
-	}
+	}))
 	var response json.RawMessage
 	foreground, err := authenticatedFeedClient(server)
 	remaining := len(items)
@@ -225,9 +223,7 @@ func flushFeedQueueWithClient(server string, foreground *client.Client, onFeedba
 			if group.feedback {
 				path, key = "/items/feedback", "items"
 				body["contract_version"] = feedevent.FeedbackContractVersion
-				if err := store.Count(now, map[string]int64{"feedback_attempts": int64(len(wire))}); err != nil {
-					return err
-				}
+				warnReportLedger(store.Count(now, map[string]int64{"feedback_attempts": int64(len(wire))}))
 			}
 			body[key] = wire
 			response, err := c.Post(path, body)
@@ -236,7 +232,7 @@ func flushFeedQueueWithClient(server string, foreground *client.Client, onFeedba
 			}
 			if err != nil {
 				if group.feedback {
-					_ = store.Count(now, map[string]int64{"feedback_failures": int64(len(wire))})
+					warnReportLedger(store.Count(now, map[string]int64{"feedback_failures": int64(len(wire))}))
 				}
 				return err
 			}
@@ -263,13 +259,13 @@ func flushFeedQueueWithClient(server string, foreground *client.Client, onFeedba
 						return fmt.Errorf("invalid feedback result")
 					}
 				}
-				if err := store.Update(now, func(r *feedevent.Reports) {
+				// The server has recorded the batch; a ledger failure must not keep it
+				// queued for resending.
+				warnReportLedger(store.Update(now, func(r *feedevent.Reports) {
 					for i, res := range result.Results {
 						r.RecordFeedback(group.items[i], now, res.Status)
 					}
-				}); err != nil {
-					return err
-				}
+				}))
 				if onFeedback != nil {
 					onFeedback(response.Data)
 					for _, res := range result.Results {
@@ -281,7 +277,10 @@ func flushFeedQueueWithClient(server string, foreground *client.Client, onFeedba
 			}
 		}
 		return nil
-	}, func(count int) error { return store.Count(now, map[string]int64{"queue_drops": int64(count)}) })
+	}, func(count int) error {
+		warnReportLedger(store.Count(now, map[string]int64{"queue_drops": int64(count)}))
+		return nil
+	})
 }
 
 func maybeFlushFeedQueue() {

@@ -213,24 +213,6 @@ func SyncSettings(cfg *config.Config) error {
 		kvProfileRefreshAt: true, kvProfileRefreshCheckedAt: true, kvProfileRefreshPromptedAt: true,
 	}
 	changed := false
-	// Rollout settings belong to the selected server/account, never a global
-	// preference. A server that omits the capability disables any stale hold.
-	for _, key := range []string{"feed_backlog_mode", "feedback_health_backlog_supported"} {
-		value := "off"
-		if key == "feedback_health_backlog_supported" {
-			value = "false"
-		}
-		if key == "feed_backlog_mode" && remote[key] == "hold" {
-			value = "hold"
-		}
-		if key == "feedback_health_backlog_supported" && remote[key] == true {
-			value = "true"
-		}
-		if err := cfg.SetServerKV(activeServerName(), key, value); err != nil {
-			return err
-		}
-		skip[key] = true
-	}
 	for k, v := range remote {
 		if skip[k] || strings.HasPrefix(k, "_") {
 			continue
@@ -585,11 +567,6 @@ func reportedFeedbackHealth(cfg *config.Config, server string) map[string]int64 
 	depth, age := feedevent.NewQueue(cache.ServerDataDir(server) + "/events").Stats(now)
 	counts["queue_depth"] = int64(depth)
 	counts["oldest_queued_age_ms"] = age
-	supported, _, _ := cfg.GetServerOnlyKV(server, "feedback_health_backlog_supported")
-	if supported != "true" {
-		delete(counts, "backlog_holds")
-		delete(counts, "backlog_releases")
-	}
 	nonzero := false
 	for k, v := range counts {
 		if v > 0 {

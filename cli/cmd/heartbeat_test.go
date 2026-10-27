@@ -296,3 +296,16 @@ func TestHeartbeatPlanAcceptsLegacyEnvironmentMode(t *testing.T) {
 		})
 	}
 }
+
+func TestHeartbeatPlanFeedCompletionStep(t *testing.T) {
+	prompt := renderHeartbeatPlanForAgent(heartbeatPlan{CLIPrefix: "test-prefix", FeedCompletionCheck: true})
+	if !strings.Contains(prompt, "Before leaving the Feed stage, run test-prefix feed status. Score every item it lists, then continue.") {
+		t.Fatal(prompt)
+	}
+	if strings.Contains(renderHeartbeatPlanForAgent(heartbeatPlan{CLIPrefix: "test-prefix"}), "feed status") {
+		t.Fatal("completion step rendered without completed onboarding")
+	}
+	if heartbeatContractVersion != "eigenflux_heartbeat.v2" {
+		t.Fatal(heartbeatContractVersion)
+	}
+}

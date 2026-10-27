@@ -9,8 +9,6 @@
 // instead of re-writing it per adapter.
 package feedevent
 
-import "encoding/json"
-
 const (
 	// QueueFileName is the on-disk queue under <data>/events/.
 	QueueFileName = "queue.json"
@@ -60,8 +58,6 @@ type Entry struct {
 	ServedAt     int64
 	Feed         bool
 	Baseline     bool
-	Item         json.RawMessage
-	Envelope     json.RawMessage
 	ImpressionID string
 	ServerID     string
 	Title        string

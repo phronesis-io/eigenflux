@@ -29,35 +29,11 @@ func TestFeedScoringFallbackContract(t *testing.T) {
 				t.Errorf("%s missing %q", path, required)
 			}
 		}
-		if path == "skills/ef-broadcast/references/feed.md" {
-			for _, required := range []string{"backlog.held", "already_surfaced", "Before leaving the Feed stage, run `<cli_prefix> feed status`. Score every item it lists, then continue."} {
-				if !strings.Contains(string(body), required) {
-					t.Errorf("%s missing %q", path, required)
-				}
-			}
-		}
 		if path == "skills/ef-broadcast/references/contract.md" {
 			contract = body
 		}
 		if path == "static/feed_contract.md" && string(body) != string(contract) {
 			t.Error("served contract differs from Skill")
 		}
-	}
-}
-
-func TestFeedOwnerOriginAndCompletionContract(t *testing.T) {
-	body, err := os.ReadFile("../../skills/ef-broadcast/SKILL.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(body), "When the owner asks to check or refresh the Feed outside a scheduled cycle, append `--origin owner`") {
-		t.Fatal("owner override missing")
-	}
-	prompt := renderHeartbeatPlanForAgent(heartbeatPlan{CLIPrefix: "test-prefix", FeedCompletionCheck: true})
-	if !strings.Contains(prompt, "Before leaving the Feed stage, run test-prefix feed status. Score every item it lists, then continue.") {
-		t.Fatal(prompt)
-	}
-	if heartbeatContractVersion != "eigenflux_heartbeat.v2" {
-		t.Fatal(heartbeatContractVersion)
 	}
 }

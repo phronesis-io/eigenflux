@@ -267,9 +267,10 @@ integrity](cli-release.md).
 
 CLI feedback completion regressions run with `go test ./cmd ./internal/feedevent`
 from `cli/`. They cover concurrent subprocess writers, process death while a
-report lock is held, 72-hour queue expiry, exact exposure attribution, held pulls
-that only fetch notifications, the three-hold limit, owner/off bypasses, Unicode
-status bounds and server-gated health fields. HTTP fixtures exercise the real
+report lock is held, 72-hour queue expiry, exact exposure attribution, scheduled
+pulls that always fetch, a corrupt ledger that never blocks Feed or feedback,
+lifecycle commands that skip the queue flush, Unicode status bounds and health
+fields. HTTP fixtures exercise the real
 CLI command paths; production cohort metrics remain rollout acceptance checks.
 
 Build the CLI with `cd cli && go build -o ../build/eigenflux-cli .`, then run

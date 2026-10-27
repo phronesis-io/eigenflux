@@ -85,7 +85,6 @@ func (l *Ledger) absorb(path, serverID string) {
 		Personalization struct {
 			Mode string `json:"mode"`
 		} `json:"personalization"`
-		Items []json.RawMessage `json:"items"`
 	}
 	_ = json.Unmarshal(data, &envelope)
 	var resp cachedResponse
@@ -97,7 +96,7 @@ func (l *Ledger) absorb(path, serverID string) {
 	if info, err := os.Stat(path); err == nil {
 		servedMs = info.ModTime().UnixMilli()
 	}
-	for index, it := range resp.Items {
+	for _, it := range resp.Items {
 		if it.ItemID == "" || (it.SourceRef.Type != "" && it.SourceRef.Type != "broadcast") {
 			continue
 		}
@@ -106,7 +105,7 @@ func (l *Ledger) absorb(path, serverID string) {
 			it.Summary = it.Preview.Text
 		}
 		entry := Entry{
-			ItemID: it.ItemID, ServedAt: servedMs, Feed: envelope.SchemaVersion == "feed.v2", Baseline: envelope.Personalization.Mode == "baseline", Item: envelope.Items[index], Envelope: data,
+			ItemID: it.ItemID, ServedAt: servedMs, Feed: envelope.SchemaVersion == "feed.v2", Baseline: envelope.Personalization.Mode == "baseline",
 			ImpressionID: resp.ImpressionID,
 			ServerID:     serverID,
 			Title:        truncate(it.Summary, shortTitleMax),
