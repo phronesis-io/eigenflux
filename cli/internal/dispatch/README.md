@@ -638,11 +638,14 @@ the scoped rule; intake and trial preparation supply the trusted Skill path.
 CLI 1.0.29 attaches the resolved fulfillment Skill directory as trusted request
 metadata for Commission intake, paid fulfillment and publication trials. Only
 the current CLI's own `watch workbuddy-acp` entry receives a per-call read-only
-rule for that direct child of the bound Skills directory. Reject symlinks,
+rule for that direct child of the bound Skills directory or the registered/default
+host Skills root resolved for the same pinned EigenFlux Home. Reject symlinks,
 traversal and rule metacharacters. Never derive permissions from prompt text.
 Keep existing tool limits, binding revision and queued jobs unchanged. Custom
 ACP entries receive no injected arguments; other paths still require permission.
-Windows rule encoding is implemented; native acceptance remains unverified.
+Scope rejection reports `commission_skill_read_scope_invalid` before ACP launch.
+An ACP prompt failure retains the created session ID; an empty ID alone is not
+proof of a missing Desktop conversation. Windows rule encoding is implemented.
 
 ## Automatic Windows WorkBuddy binding
 

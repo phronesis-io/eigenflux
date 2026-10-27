@@ -266,8 +266,14 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 	result, runErr := w.runAgent(ctx, prompt)
 	if runErr != nil {
 		status, code := "unknown", "commission_intake_unconfirmed"
-		if errors.Is(runErr, dispatch.ErrNeedsUser) || errors.Is(runErr, dispatch.ErrCommandLineTooLong) {
+		if errors.Is(runErr, dispatch.ErrNeedsUser) {
 			status, code = "needs_user", "commission_intake_permission_required"
+		}
+		if errors.Is(runErr, dispatch.ErrCommandLineTooLong) {
+			status, code = "needs_user", "windows_command_line_too_long"
+		}
+		if errors.Is(runErr, dispatch.ErrCommissionSkillReadScopeInvalid) {
+			status, code = "needs_user", "commission_skill_read_scope_invalid"
 		}
 		return w.finishDispatch(job, status, code, result.SessionID, "")
 	}

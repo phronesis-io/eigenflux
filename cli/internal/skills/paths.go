@@ -22,13 +22,26 @@ import (
 // autodetect > ~/.agents/skills. The registration is scoped to the resolved
 // EigenFlux Home and never inferred by scanning directories.
 func ResolveSkillsDir(into, host string) (string, error) {
+	return resolveSkillsDir(into, host, config.HomeDir())
+}
+
+// ResolveSkillsDirForHome uses the pinned account Home's registration rather
+// than a process-global account selection. It retains normal host precedence.
+func ResolveSkillsDirForHome(home, into, host string) (string, error) {
+	if !filepath.IsAbs(home) {
+		return "", fmt.Errorf("skills target requires an absolute EigenFlux Home")
+	}
+	return resolveSkillsDir(into, host, home)
+}
+
+func resolveSkillsDir(into, host, accountHome string) (string, error) {
 	if into != "" {
 		return into, nil
 	}
 	if d := os.Getenv("EIGENFLUX_SKILLS_DIR"); d != "" {
 		return d, nil
 	}
-	if target, err := ReadTargetRegistration(config.HomeDir()); err != nil {
+	if target, err := ReadTargetRegistration(accountHome); err != nil {
 		return "", err
 	} else if target != nil {
 		return target.Path, nil

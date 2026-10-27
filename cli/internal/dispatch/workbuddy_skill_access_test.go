@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"cli.eigenflux.ai/internal/skills"
 )
 
 func workBuddySkillFixture(t *testing.T) (Runner, Request, string) {
@@ -32,6 +34,55 @@ func workBuddySkillFixture(t *testing.T) (Runner, Request, string) {
 	r := Runner{Binding: Binding{Host: "workbuddy", Mode: "acp", Command: []string{exe, "watch", "workbuddy-acp", "--node", "bound-node", "--tool", "Read"}, Args: args, SkillsDir: root, Revision: "unchanged-binding"}}
 	req := Request{ID: "job", Kind: "commission_order", Prompt: "Business input is not a permission source.", ReadOnlySkillDirs: []string{dir}}
 	return r, req, dir
+}
+
+func TestWorkBuddyRegisteredFallbackSkillReadAccess(t *testing.T) {
+	for _, scenario := range []string{"registered", "default", "foreign_home"} {
+		t.Run(scenario, func(t *testing.T) {
+			r, req, original := workBuddySkillFixture(t)
+			r.Binding.Home = t.TempDir()
+			userHome := t.TempDir()
+			t.Setenv("HOME", userHome)
+			t.Setenv("USERPROFILE", userHome)
+			t.Setenv("EIGENFLUX_SKILLS_DIR", "")
+			root := filepath.Join(userHome, ".agents", "skills")
+			if scenario != "default" {
+				root = filepath.Join(t.TempDir(), "host-skills")
+				registrationHome := r.Binding.Home
+				if scenario == "foreign_home" {
+					registrationHome = t.TempDir()
+				}
+				if _, err := skills.RegisterTarget(registrationHome, root, "workbuddy"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.MkdirAll(root, 0700); err != nil {
+				t.Fatal(err)
+			}
+			dir := filepath.Join(root, filepath.Base(original))
+			if err := os.Rename(original, dir); err != nil {
+				t.Fatal(err)
+			}
+			req.ReadOnlySkillDirs = []string{dir}
+			before := append([]string{}, r.Binding.Args...)
+			scoped, err := r.withReadOnlySkillAccess(req)
+			if scenario == "foreign_home" {
+				if !errors.Is(err, ErrNeedsUser) {
+					t.Fatal("another Home's registered target was trusted", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolved fallback Skill rejected before ACP session creation: %v", err)
+			}
+			canonical, _ := filepath.EvalSymlinks(dir)
+			rule, _ := workBuddySkillReadRule(canonical, runtime.GOOS)
+			want := append(append([]string{}, before...), "--allow-tool", rule)
+			if !reflect.DeepEqual(scoped.Binding.Args, want) || !reflect.DeepEqual(r.Binding.Args, before) {
+				t.Fatal("fallback grant was not limited to this invocation's Skill")
+			}
+		})
+	}
 }
 
 func TestWorkBuddyBoundSkillReadAccessIsInvocationScoped(t *testing.T) {

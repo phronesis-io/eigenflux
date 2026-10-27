@@ -8,7 +8,11 @@ import (
 	"runtime"
 	"strings"
 	"unicode"
+
+	"cli.eigenflux.ai/internal/skills"
 )
+
+var ErrCommissionSkillReadScopeInvalid = errors.New("commission_skill_read_scope_invalid")
 
 // Grant only this invocation's resolved Skill to the current CLI's own bridge.
 // Explicit third-party ACP commands retain their existing permission contract.
@@ -37,7 +41,7 @@ func (r Runner) withReadOnlySkillAccess(req Request) (Runner, error) {
 	if err != nil || !os.SameFile(current, selected) {
 		return r, nil
 	}
-	invalid := errors.Join(ErrNeedsUser, errors.New("commission_skill_read_scope_invalid"))
+	invalid := errors.Join(ErrNeedsUser, ErrCommissionSkillReadScopeInvalid)
 	if len(req.ReadOnlySkillDirs) != 1 {
 		return r, invalid
 	}
@@ -50,6 +54,15 @@ func (r Runner) withReadOnlySkillAccess(req Request) (Runner, error) {
 	root := r.Binding.SkillsDir
 	if !safeWorkBuddySkillPath(root) || !safeWorkBuddySkillPath(dir) {
 		return r, invalid
+	}
+	if name, err := filepath.Rel(root, dir); err != nil || !literalCommissionSkillName(name) {
+		// The contract loader also resolves a host Skill outside the signed
+		// EigenFlux bundle. Admit that same account-scoped registered/default
+		// root, never an arbitrary parent supplied by a prompt or another Home.
+		root, err = skills.ResolveSkillsDirForHome(r.Binding.Home, "", r.Binding.Host)
+		if err != nil || !safeWorkBuddySkillPath(root) {
+			return r, invalid
+		}
 	}
 	for _, path := range []string{root, dir, filepath.Join(dir, "SKILL.md")} {
 		info, err := os.Lstat(path)

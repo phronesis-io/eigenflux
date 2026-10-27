@@ -343,3 +343,11 @@ from `cli/`. The smoke explicitly allows filesystem/shell tools in its disposabl
 workspace, verifies automatic acceptance, exact output bytes and confirmed
 upload/delivery, and simulates the paid transition. It never pays or changes a
 live order. Real transaction and Desktop UI acceptance remain separate checks.
+
+For WorkBuddy Commission failures, distinguish preflight from host startup.
+`commission_skill_read_scope_invalid` rejects a Skill read grant before ACP
+starts; the permitted fallback root is the same pinned Home's registered/default
+host Skills directory. A prompt failure after ACP session creation preserves its
+session ID. `acp_extension_required` describes unavailable original Desktop
+conversation notices; it does not mean isolated background ACP execution is
+unavailable. Do not replay a stale intake after its order advances to payment.

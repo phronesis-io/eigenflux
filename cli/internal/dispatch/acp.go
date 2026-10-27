@@ -135,16 +135,16 @@ func (r Runner) runACPSession(c *acpClient, req Request) (Result, error) {
 		case <-done:
 		case <-time.After(50 * time.Millisecond):
 		}
-		return Result{}, err
+		return Result{SessionID: c.sessionID}, err
 	}
 	var response struct {
 		StopReason string `json:"stopReason"`
 	}
 	if json.Unmarshal(raw, &response) != nil || response.StopReason != "end_turn" {
-		return Result{}, errors.New("acp_turn_incomplete")
+		return Result{SessionID: c.sessionID}, errors.New("acp_turn_incomplete")
 	}
 	if strings.TrimSpace(c.text.String()) == "" {
-		return Result{}, errors.New("empty_agent_result")
+		return Result{SessionID: c.sessionID}, errors.New("empty_agent_result")
 	}
 	return Result{Text: c.text.String(), SessionID: c.sessionID}, nil
 }

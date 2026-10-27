@@ -207,7 +207,7 @@ func TestCommissionAwaitingSellerAcceptedOnlyAfterReadyAgent(t *testing.T) {
 }
 
 func TestCommissionIntakeWorkerChecksAndPersistsActualDecision(t *testing.T) {
-	for _, scenario := range []string{"ready", "needs_input", "run_error", "permission", "wrong_files", "changed_order", "changed_identity", "wrong_seller", "missing_skill", "unsigned_rule", "invalid_result"} {
+	for _, scenario := range []string{"ready", "needs_input", "run_error", "permission", "skill_scope", "command_line", "wrong_files", "changed_order", "changed_identity", "wrong_seller", "missing_skill", "unsigned_rule", "invalid_result"} {
 		t.Run(scenario, func(t *testing.T) {
 			order := testCommissionOrder()
 			order.State = "awaiting_seller"
@@ -291,7 +291,13 @@ func TestCommissionIntakeWorkerChecksAndPersistsActualDecision(t *testing.T) {
 					return dispatch.Result{}, errors.New("host interrupted")
 				}
 				if scenario == "permission" {
-					return dispatch.Result{}, dispatch.ErrNeedsUser
+					return dispatch.Result{SessionID: "permission-session"}, dispatch.ErrNeedsUser
+				}
+				if scenario == "skill_scope" {
+					return dispatch.Result{}, errors.Join(dispatch.ErrNeedsUser, dispatch.ErrCommissionSkillReadScopeInvalid)
+				}
+				if scenario == "command_line" {
+					return dispatch.Result{}, errors.Join(dispatch.ErrNeedsUser, dispatch.ErrCommandLineTooLong)
 				}
 				if scenario == "invalid_result" {
 					return dispatch.Result{Text: "ready"}, nil
@@ -343,7 +349,19 @@ func TestCommissionIntakeWorkerChecksAndPersistsActualDecision(t *testing.T) {
 				if err != nil || len(reopened) != 1 || reopened[0].CommissionResult == nil {
 					t.Fatalf("result not persisted: %+v %v", reopened, err)
 				}
-			case "permission", "missing_skill":
+			case "permission":
+				if got.Status != "needs_user" || got.Code != "commission_intake_permission_required" || got.SessionID != "permission-session" {
+					t.Fatalf("permission session lost: %+v", got)
+				}
+			case "skill_scope", "command_line":
+				wantCode := "commission_skill_read_scope_invalid"
+				if scenario == "command_line" {
+					wantCode = "windows_command_line_too_long"
+				}
+				if got.Status != "needs_user" || got.Code != wantCode || got.SessionID != "" {
+					t.Fatalf("preflight failure misclassified: %+v", got)
+				}
+			case "missing_skill":
 				if got.Status != "needs_user" {
 					t.Fatalf("expected permission/skill blocker: %+v", got)
 				}

@@ -213,6 +213,16 @@ func TestACPPermissionReplyIsCancelled(t *testing.T) {
 	}
 }
 
+func TestACPPermissionFailureRetainsCreatedSession(t *testing.T) {
+	b := fixtureBinding(t, "acp", "acp-permission")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	got, err := (Runner{Binding: b}).Run(ctx, Request{Prompt: "local fixture only"})
+	if !errors.Is(err, ErrNeedsUser) || got.SessionID != "new-session" || got.Text != "" {
+		t.Fatalf("permission failure discarded the created session or leaked partial output: %+v %v", got, err)
+	}
+}
+
 func TestWorkBuddyACPAllowsOwnedRuntimeCleanup(t *testing.T) {
 	b := fixtureBinding(t, "acp", "acp-cleanup")
 	b.Host = "workbuddy"
