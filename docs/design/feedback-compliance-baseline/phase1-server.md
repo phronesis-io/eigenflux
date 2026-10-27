@@ -90,7 +90,7 @@ There is no read replica, so the check runs on the primary from `aliap` with
 
 After each eigenflux PR is deployed and its days are backfilled:
 
-- Before the backfill, export the `all` rows of the 30 days to be backfilled
+- Before the backfill, export the `all` rows of every stored day to be backfilled
   read-only, keeping only the pre-existing columns.
 - After the backfill, the same columns must be identical for every final day
   (`snapshot_at >= day + 3`). Cohort rows may differ, because cohort values
@@ -266,7 +266,9 @@ list) and the view-column privacy check.
   - The seven identities and conservation hold.
 - 10-08: under 10 s, with only the allowed sequential scans.
 - For `cli_version` values `<= 0.0.55`, `(scored_48h + scored_48h_inferred) / mature`
-  is above 0. For `0.6.x`, `scored_48h_inferred / mature` is below 2%.
+  is above 0. Impression-filling cohorts have few inferred events (on 10-20,
+  3% for `0.6.9` and none for other `0.6.x`); cohorts use refresh-time
+  settings, so earlier events of since-upgraded Agents land in newer cohorts.
 
 **After deployment.**
 
@@ -313,6 +315,9 @@ Not changed: other dashboards and the release-annotation scopes.
 
 - The regenerated JSON matches the generator.
 - `scripts/validate` passes with Python 3.14.
+- Dashboard tests build fixtures from `scripts/fixtures/feedback_compliance_daily.sql`,
+  a copy of the backend migrations' DDL, so every asserted state satisfies the
+  real CHECK constraints. O 2 extends the copy with migration 000122.
 - New PostgreSQL tests:
   - Combined coverage equals `(Σ exact + Σ inferred) / Σ mature` over final days.
   - The silent share for each day equals `silent_agents / delivered_agents` for
@@ -407,7 +412,8 @@ The same handler serves `/api/v1/items/feedback`, `/api/v2/feed/feedback` and
   only when non-nil.
 - `Event` gains the same fields. `ParseEvent` reads them when present. Messages
   without them, including those already queued during deployment, parse
-  exactly as today.
+  exactly as today. An unreadable `surfaced` value stays unknown: the consumer
+  drops unparseable messages, so failing the parse would discard a valid score.
 
 **Consumer and DAL (`pipeline/consumer/feedback_log_dal.go`).**
 
@@ -424,6 +430,12 @@ The same handler serves `/api/v1/items/feedback`, `/api/v2/feed/feedback` and
   partial unique index.
 - The existing `!inserted` branch already skips `IncrementItemScore`, the
   high-quality counter and milestones. Do not change it.
+- Agent activity (`feedback` events and the all-time worth-reading count) is
+  published by the gateway before consumer deduplication. After queueing, the
+  gateway claims `feedback:activity:{agent_id}:{client_key}` in Redis
+  (`SETNX`, 96 h TTL, covering the CLI's 72 h queue) and counts a keyed item
+  only on its first claim. Scores are always queued; if Redis fails, every
+  accepted item counts, as unkeyed items always do.
 - The server does not synthesize `followup_labels` from `surfaced`
   ([followup-plan.md](followup-plan.md), S3).
 
@@ -693,10 +705,10 @@ The same files as O 1.
 
 | Step | Action | Rollback |
 |---|---|---|
-| 1 | Deploy PR 1. Export §3.3 baselines. Backfill 30 days with `./build/recommendation_effect_backfill --compliance --days=...`. Check §3.3 | Revert code; Down `000119` (view rebuild, columns dropped) |
+| 1 | Deploy PR 1. Export §3.3 baselines. Backfill every day already stored in `feedback_compliance_daily` with `./build/recommendation_effect_backfill --compliance --days=...`; final days are never refreshed automatically and otherwise keep zero inferred and silent counts. Check §3.3 | Revert code; Down `000119` (view rebuild, columns dropped) |
 | 2 | Merge O 1 | Revert dashboard |
 | 3 | Deploy PR 2. `000121` builds concurrently during deployment; confirm the index is valid | Revert API and consumer code; the additive columns, table and index stay, and old code ignores them |
-| 4 | Deploy PR 3, backfill 30 days, check §3.3 | Revert code; Down `000122` |
+| 4 | Deploy PR 3, backfill every stored day (adds the `feedback_contract_version` rows to final days), check §3.3 | Revert code; Down `000122` |
 | 5 | Merge O 2 | Revert dashboard |
 
 ## 10. Phase 1 acceptance summary
