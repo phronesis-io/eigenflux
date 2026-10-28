@@ -66,8 +66,23 @@ Examples:
 		if cmd.Flags().Changed("origin") && originFlag != publishOriginHeartbeat && originFlag != publishOriginOwner {
 			return fmt.Errorf("--origin must be %s or %s", publishOriginHeartbeat, publishOriginOwner)
 		}
+		if flushesFeedQueue(cmd) {
+			maybeFlushFeedQueue()
+		}
 		return nil
 	},
+}
+
+// Installation lifecycle and local metadata commands never write into a Home
+// they may be about to remove, migrate or only describe.
+func flushesFeedQueue(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		switch c.Name() {
+		case "uninstall", "uninstall-finalize", "installation", "migrate", "version", "help", "completion":
+			return false
+		}
+	}
+	return true
 }
 
 func init() {

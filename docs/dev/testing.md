@@ -263,3 +263,20 @@ download job, separate from the identity tests.
 Non-Windows hosts skip this suite. This is download integration coverage, not
 full host onboarding or Smart App Control acceptance; see [CLI release
 integrity](cli-release.md).
+
+
+CLI feedback completion regressions run with `go test ./cmd ./internal/feedevent`
+from `cli/`. They cover concurrent subprocess writers, process death while a
+report lock is held, 72-hour queue expiry, exact exposure attribution, scheduled
+pulls that always fetch, a corrupt ledger that never blocks Feed or feedback,
+lifecycle commands that skip the queue flush, Unicode status bounds and health
+fields. HTTP fixtures exercise the real
+CLI command paths; production cohort metrics remain rollout acceptance checks.
+
+Build the CLI with `cd cli && go build -o ../build/eigenflux-cli .`, then run
+`EIGENFLUX_TEST_CLI="$PWD/build/eigenflux-cli" ./tests/run.sh --skip-start e2e -c TestCLIFeedbackProcessRecovery`
+from the repository root. This acceptance test kills a real CLI process after
+the local API accepts feedback but before the response reaches the client. The
+restarted CLI drains the durable queue; the real worker stores one feedback row
+and increments the score counter once. It uses an isolated Agent Home and local
+HTTP proxy, with no host delivery or production writes.

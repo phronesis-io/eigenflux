@@ -80,6 +80,13 @@ func (l *Ledger) absorb(path, serverID string) {
 	if err != nil {
 		return
 	}
+	var envelope struct {
+		SchemaVersion   string `json:"schema_version"`
+		Personalization struct {
+			Mode string `json:"mode"`
+		} `json:"personalization"`
+	}
+	_ = json.Unmarshal(data, &envelope)
 	var resp cachedResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return
@@ -98,6 +105,7 @@ func (l *Ledger) absorb(path, serverID string) {
 			it.Summary = it.Preview.Text
 		}
 		entry := Entry{
+			ItemID: it.ItemID, ServedAt: servedMs, Feed: envelope.SchemaVersion == "feed.v2", Baseline: envelope.Personalization.Mode == "baseline",
 			ImpressionID: resp.ImpressionID,
 			ServerID:     serverID,
 			Title:        truncate(it.Summary, shortTitleMax),
@@ -106,8 +114,8 @@ func (l *Ledger) absorb(path, serverID string) {
 		if _, seen := l.entries[it.ItemID]; !seen {
 			l.entries[it.ItemID] = entry
 		}
-		if _, seen := l.exact[it.ItemID+":"+resp.ImpressionID]; !seen {
-			l.exact[it.ItemID+":"+resp.ImpressionID] = entry
+		if _, seen := l.exact[reportKey(resp.ImpressionID, it.ItemID)]; !seen {
+			l.exact[reportKey(resp.ImpressionID, it.ItemID)] = entry
 		}
 	}
 }
@@ -126,17 +134,18 @@ func (l *Ledger) Lookup(itemID string, nowMs int64) (Entry, Status) {
 
 func truncate(s string, max int) string {
 	s = strings.TrimSpace(s)
-	if len(s) <= max {
+	runes := []rune(s)
+	if len(runes) <= max {
 		return s
 	}
-	return s[:max]
+	return string(runes[:max])
 }
 
 func (l *Ledger) LookupImpression(itemID, impression string, nowMs int64) (Entry, Status) {
 	if impression == "" {
 		return l.Lookup(itemID, nowMs)
 	}
-	e, ok := l.exact[itemID+":"+impression]
+	e, ok := l.exact[reportKey(impression, itemID)]
 	if !ok {
 		return Entry{}, StatusMissing
 	}

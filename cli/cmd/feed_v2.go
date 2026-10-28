@@ -182,11 +182,14 @@ func pollFeedV2(cmd *cobra.Command, serverName, limit string) error {
 			return err
 		}
 	}
+	// The page is delivered once rendered: cache it before local bookkeeping so
+	// impression lookups and the completion check never miss a delivered page.
 	if err := renderFeedV2(cmd, payload); err != nil {
 		return err
 	}
 	cache.SaveFeedResponse(serverName, response.Data)
 	cache.Cleanup(serverName, "broadcasts")
+	warnReportLedger(recordFeedPull(serverName, response.Data))
 	return nil
 }
 
