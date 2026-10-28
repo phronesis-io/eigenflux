@@ -12,15 +12,26 @@ import (
 
 // Match crawler identities, not platform names: their in-app browsers are
 // real visits too. LarkUrl was observed minting tokens from Feishu previews.
-var previewUARe = regexp.MustCompile(`(?i)bot|crawl|spider|preview|slurp|headless|facebookexternalhit|facebookcatalog|embedly|vkshare|larkurl|google-inspectiontool|developers\.google\.com/\+/web/snippet`)
+// Match complete UA products, not substrings in app metadata or encoded blobs.
+var previewUARe = regexp.MustCompile(`(?i)(?:^|[ \t;(])((?:[a-z][a-z0-9._-]{0,62})?(?:bot|crawler|spider)(?:-[a-z0-9_-]+)?|crawl|preview|slurp|headless(?:chrome)?|facebookexternalhit|facebookcatalog|embedly|vkshare|larkurl|google-inspectiontool|bingpreview|googlewebpreview|skypeuripreview|qqurlpreview|wechatpreview)(?:/[a-z0-9._-]+)?(?:$|[ \t;)])`)
+var previewSnippetUARe = regexp.MustCompile(`(?i)(?:^|[ \t;(])\+?https?://developers\.google\.com/\+/web/snippet(?:$|[ \t;)])`)
 
 func isPreviewBot(userAgent string) bool {
-	if previewUARe.MatchString(userAgent) {
-		return true
+	return previewBotIdentity(userAgent) != ""
+}
+
+func previewBotIdentity(userAgent string) string {
+	if match := previewUARe.FindStringSubmatch(userAgent); match != nil {
+		return strings.ToLower(match[1])
 	}
-	// WhatsApp's unfurler identifies itself without a browser UA. Do not
-	// exclude browser UAs that merely carry the WhatsApp app marker.
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(userAgent)), "whatsapp/")
+	if previewSnippetUARe.MatchString(userAgent) {
+		return "google-snippet"
+	}
+	// WhatsApp's unfurler identifies itself without a browser UA.
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(userAgent)), "whatsapp/") {
+		return "whatsapp"
+	}
+	return ""
 }
 
 func isPreviewRequest(c *app.RequestContext) bool {
@@ -50,6 +61,7 @@ func previewReason(c *app.RequestContext) string {
 func logPreview(c *app.RequestContext, stage, ref, inviteCode string) {
 	event("install_preview_blocked", ref, "stage", stage,
 		"invite_code", inviteCode, "reason", previewReason(c),
+		"crawler_identity", previewBotIdentity(string(c.GetHeader("User-Agent"))),
 		"user_agent", trunc(string(c.GetHeader("User-Agent")), 512))
 }
 

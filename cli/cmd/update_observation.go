@@ -224,6 +224,9 @@ func flushMaintenanceBatch(scope maintenance.Scope, principal, endpoint string) 
 		if err != nil {
 			return err
 		}
+		if credentials.ExpiresAt <= time.Now().UnixMilli() {
+			return fmt.Errorf("maintenance upload awaits valid credentials")
+		}
 		c := client.New(strings.TrimRight(endpoint, "/")+"/api/v2", credentials.AccessToken, version, clientMetaForServerName(scope.Server))
 		c.HTTPClient = &http.Client{Timeout: 5 * time.Second}
 		_, err = c.Post("/maintenance/events:batch", map[string]interface{}{"events": events})

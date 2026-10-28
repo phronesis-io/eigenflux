@@ -433,3 +433,19 @@ func TestConsoleHomeQueryIndexesCoverRecentActivityAndFirstVoice(t *testing.T) {
 		}
 	}
 }
+
+func TestFeedbackClientKeyConcurrentIndex(t *testing.T) {
+	sql := migration(t, "000121_feedback_logs_client_key_index.sql")
+	for _, required := range []string{"-- +goose NO TRANSACTION", "SET lock_timeout = '5s'", "SET statement_timeout = '30min'", "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_feedback_logs_agent_client_key", "WHERE client_key <> ''", "i.indisvalid", "i.indisready", "i.indisunique", "access_method <> 'btree'", "key_count <> 2", "first_key <> 'agent_id'", "second_key <> 'client_key'", "pg_get_expr(i.indpred, i.indrelid)", "predicate IS DISTINCT FROM", "DROP INDEX CONCURRENTLY public.uq_feedback_logs_agent_client_key", "DROP INDEX CONCURRENTLY IF EXISTS uq_feedback_logs_agent_client_key"} {
+		if !strings.Contains(sql, required) {
+			t.Errorf("missing index contract %q", required)
+		}
+	}
+	preflight, err := os.ReadFile("../scripts/common/migration_preflight.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(preflight), `"uq_feedback_logs_agent_client_key"`) {
+		t.Fatal("index missing from preflight")
+	}
+}

@@ -17,9 +17,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const heartbeatContractVersion = "eigenflux_heartbeat.v1"
+const heartbeatContractVersion = "eigenflux_heartbeat.v3"
 
 type heartbeatPlan struct {
+	FeedCompletionCheck      bool                `json:"feed_completion_check"`
 	PluginMaintenance        pluginMaintenance   `json:"plugin_maintenance"`
 	CLIUpdate                selfupdate.Result   `json:"cli_update"`
 	AgentPrompt              string              `json:"agent_prompt"`
@@ -57,17 +58,20 @@ var heartbeatPlanCmd = &cobra.Command{
 	Use:   "plan",
 	Short: "Sync Skills and emit the current thin heartbeat plan",
 	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) (resultErr error) {
 		cfg, err := config.Load()
 		if err != nil {
 			return err
 		}
-		defer func() { _ = flushMaintenanceEvents(activeServerName()) }()
 		cliUpdate, restarted, updateErr := updateHeartbeatCLI(cmd, cfg, "")
 		if restarted || updateErr != nil {
 			return updateErr
 		}
-		runtimeReport, _ := reportRuntimeSettings(cfg, "", "", "", "", false)
+		defer func() {
+			if !restarted && !isV2CredentialError(resultErr) && !v2CredentialNeedsLogin(resultErr) && !isAgentAuthUnavailable(resultErr) {
+				_ = flushMaintenanceEvents(activeServerName())
+			}
+		}()
 		meta := clientMetaForServerName(activeServerName())
 		skillsScope, _ := maintenanceScope(activeServerName())
 		recordSkills := func(event maintenance.Event) { _ = recordMaintenanceEventAtScope(skillsScope, event) }
@@ -82,6 +86,8 @@ var heartbeatPlanCmd = &cobra.Command{
 			}
 		}()
 		var res *skills.SyncResult
+		// Recovery instructions arrive through the public Skills bundle, so its
+		// update must remain available while Agent authentication is blocked.
 		if automaticMaintenanceEnabled(cfg, autoSkillSyncKey) {
 			res, err = skills.Sync(skills.SyncOptions{
 				Host: meta.Host, IfStale: true, Quiet: true, CLIVersion: version, CDNBase: cdnBase(),
@@ -101,6 +107,10 @@ var heartbeatPlanCmd = &cobra.Command{
 				return fmt.Errorf("heartbeat needs CLI >= %s; automatic update %s: %s", res.RequiredCLIVersion, cliUpdate.Status, cliUpdate.Error)
 			}
 			err = nil
+		}
+		runtimeReport, reportErr := reportRuntimeSettings(cfg, "", "", "", "", false)
+		if isV2CredentialError(reportErr) || v2CredentialNeedsLogin(reportErr) || isAgentAuthUnavailable(reportErr) {
+			return reportErr
 		}
 		if err != nil || res == nil {
 			return fmt.Errorf("heartbeat plan: skills sync failed: %w", err)
@@ -162,7 +172,7 @@ var heartbeatPlanCmd = &cobra.Command{
 		pluginMaintenance := scheduleOpenClawUpdate(pluginMaintenanceForHost(meta.Host, meta.Mode, cfg))
 		plan := heartbeatPlan{
 			CLIUpdate: cliUpdate, PluginMaintenance: pluginMaintenance,
-			SchemaVersion: "eigenflux_heartbeat_plan.v1", HeartbeatContractVersion: heartbeatContractVersion,
+			SchemaVersion: "eigenflux_heartbeat_plan.v1", HeartbeatContractVersion: heartbeatContractVersion, FeedCompletionCheck: access.OnboardingState == "completed",
 			CLIVersion: version, SkillRevision: manifest.Revision, SkillsTarget: res.SkillsDir,
 			RuleSources: ruleSources, ExecutionOrder: heartbeatStages(access),
 			Access: access, WakeOnEmpty: heartbeatWakeOnEmpty(access, pluginMaintenance),
@@ -182,6 +192,9 @@ var heartbeatPlanCmd = &cobra.Command{
 		// a provisional local bundle can render a plan but cannot unlock V2.
 		if res.VerifiedManifest && access.OnboardingState == "completed" {
 			if err := pushHeartbeatCompatibility(cfg, heartbeatContractVersion, manifest.Revision); err != nil {
+				if isV2CredentialError(err) || v2CredentialNeedsLogin(err) || isAgentAuthUnavailable(err) {
+					return err
+				}
 				plan.CompatibilityError = err.Error()
 			} else {
 				plan.CompatibilityReported = true
@@ -253,6 +266,11 @@ func heartbeatStages(access runtimeAccess) []string {
 }
 
 func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
+	completion := ""
+	if plan.FeedCompletionCheck {
+		completion = "\nBefore leaving the Feed stage, run " + plan.CLIPrefix + " feed status. Score every item it lists, then continue."
+		completion += "\nAfter the Feed push, run " + plan.CLIPrefix + " feed status --after-push. Report surface only for listed items the owner was actually shown."
+	}
 	pluginInfo, _ := json.Marshal(plan.PluginMaintenance)
 	updateStatus := plan.CLIUpdate.Status
 	if plan.CLIUpdate.Error != "" {
@@ -283,7 +301,8 @@ MANDATORY FOR THIS CYCLE
 %s
 2. Apply runtime-model.md before subsequent CLI calls: resolve the current model and pass it through --runtime-model for each invocation. If unavailable, keep it unset and continue permitted Feed work.
 3. Start every EigenFlux CLI invocation with the exact CLI prefix printed above. Never run a bare eigenflux command and never infer Home from the working directory.
-4. Runtime access: %s. Execute the available stages in order: %s. Apply the current Skills to each stage. A Feed payload supplied by the host is this cycle's completed pull.
+4. Runtime access: %s. Execute the available stages in order: %s. Apply the current Skills to each stage. A Feed payload supplied by the host is this cycle's completed pull. feed next reads this cycle's saved page and is not a pull.
+%s
 5. Follow the current Skills for onboarding restrictions and recovery. Host harness output and notification requirements take precedence over Skill silence tokens and display conventions.
 
 SCHEDULER
@@ -292,12 +311,12 @@ Migration: %s
 Native task prompt: %s
 For new native tasks, the scheduler stores this fixed execution prompt. Store it verbatim, without additions. Reuse working existing triggers, including legacy EIGENFLUX_MODE launchers; use the current Skills to decide whether a repair is necessary. Verified plugin loops may supply mode through their existing process environment.
 `, plan.HeartbeatContractVersion, plan.CLIVersion, plan.SkillRevision, plan.SkillsTarget,
-		strings.Join(plan.Skills, ", "), plan.CLIPrefix, runtimeStatus, plan.CompatibilityReported, updateStatus, pluginInfo, "- "+strings.Join(plan.RuleSources, "\n- "), plan.Access.Mode, strings.Join(plan.ExecutionOrder, " → "),
+		strings.Join(plan.Skills, ", "), plan.CLIPrefix, runtimeStatus, plan.CompatibilityReported, updateStatus, pluginInfo, "- "+strings.Join(plan.RuleSources, "\n- "), plan.Access.Mode, strings.Join(plan.ExecutionOrder, " → "), completion,
 		plan.SchedulerLauncher, plan.SchedulerMigration, heartbeatSchedulerPrompt(plan.SchedulerLauncher)) + executorNotice
 }
 
 func heartbeatSchedulerPrompt(launcher string) string {
-	return "Run one EigenFlux heartbeat cycle. Execute directly: " + launcher + ". Freshly read its installed rule sources and follow its plan in this run. Use direct eigenflux CLI commands for every EigenFlux operation; do not wrap them in Python, another interpreter, env, shell scripts, pipelines, heredocs, or shell redirection. Use CLI flags for runtime metadata and JSON input. Follow the current host response schema and notification policy before Skill silence conventions. Even with no updates, return the complete required response (XML when prescribed), using the host no-notification decision for unchanged or non-actionable results, never an empty message or silence token. Routine cycle completion alone does not warrant notification. After context compaction, resume this cycle from confirmed tool results; do not resume historical onboarding or prefill drafts, repeat completed mutations, or poll Feed again to recover truncated output. Report an incomplete cycle through the host protocol when required results cannot be recovered."
+	return "Run one EigenFlux heartbeat cycle. Execute directly: " + launcher + ". Freshly read its installed rule sources and follow its plan in this run. Use direct eigenflux CLI commands for every EigenFlux operation; do not wrap them in Python, another interpreter, env, shell scripts, pipelines, heredocs, or shell redirection. Use CLI flags for runtime metadata and JSON input. Follow the current host response schema and notification policy before Skill silence conventions. Even with no updates, return the complete required response (XML when prescribed), using the host no-notification decision for unchanged or non-actionable results, never an empty message or silence token. Routine cycle completion alone does not warrant notification. Authentication failure stops this check and requires the host failure notification; use NOTIFY for Codex, state that EigenFlux checks are blocked, and provide the CLI recovery instruction. Do not suppress unresolved authentication failures as unchanged results or repeat an automatic recovery already attempted by the CLI. After context compaction, resume this cycle from confirmed tool results; do not resume historical onboarding or prefill drafts, repeat completed mutations, or poll Feed again to recover truncated output. Report an incomplete cycle through the host protocol when required results cannot be recovered."
 }
 
 func schedulerMigrationForRuntime(host, mode, launcher string) string {

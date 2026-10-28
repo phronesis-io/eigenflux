@@ -1,4 +1,4 @@
-// Package discoverylr scores frozen rule evidence for broadcast recommendations.
+// Package discoverylr scores frozen evidence for broadcast recommendations.
 package discoverylr
 
 import (
@@ -9,9 +9,49 @@ import (
 	"slices"
 )
 
+// Contract predicts an exact-impression follow-up from rule evidence.
 const Contract = "discovery_lr_v1"
 
+// RatingContract predicts a positive rating (score >= 1 among rated
+// deliveries) from rule evidence, item attributes, recall attribution and
+// Need/profile similarity.
+const RatingContract = "discovery_rating_lr_v1"
+
 var FeatureNames = []string{"lexical", "semantic", "freshness", "quality", "relevance", "rule_score", "semantic_missing", "origin_baseline", "origin_friend"}
+
+// RatingFeatureNames extends the rule inputs with bounded attributes; every
+// input is in [0,1]. The definitions are in docs/dev/discovery.md.
+var RatingFeatureNames = []string{
+	"f_lexical", "f_semantic", "f_fresh", "f_quality", "relevance", "value", "sem_missing", "o_baseline", "o_friend",
+	"o_need", "o_profile", "ct_info", "ct_demand", "ct_supply", "ct_alert", "is_pgc", "known_contact",
+	"ch_dense", "ch_friend", "ch_hot_recall", "ch_lexical", "ch_lexical_recent", "ch_new_recall", "ch_new_ugc_recall", "ch_swing_i2i",
+	"src_curated", "src_original", "src_forwarded", "ttl01",
+	"need_cos_ctx0", "need_cos_max0", "prof_cos0", "cos_best0", "has_need", "has_prof",
+	"need_cos_max_h35", "need_cos_max_h45", "prof_cos_h35", "prof_cos_h45", "n_needs01",
+}
+
+// RatingV2Contract adds the item's real-time rating counts from all Agents to
+// the RatingContract inputs.
+const RatingV2Contract = "discovery_rating_lr_v2"
+
+var RatingV2FeatureNames = append(append([]string(nil), RatingFeatureNames...), "it_n01", "it_pos_rate", "it_neg_rate")
+
+func featureNames(contract string) ([]string, bool) {
+	switch contract {
+	case Contract:
+		return FeatureNames, true
+	case RatingContract:
+		return RatingFeatureNames, true
+	case RatingV2Contract:
+		return RatingV2FeatureNames, true
+	}
+	return nil, false
+}
+
+// IsRating reports whether a contract predicts a positive rating.
+func IsRating(contract string) bool {
+	return contract == RatingContract || contract == RatingV2Contract
+}
 
 type Result struct {
 	ModelVersion string  `json:"model_version"`
@@ -35,7 +75,7 @@ type model struct {
 
 func finite(x float64) bool { return !math.IsNaN(x) && !math.IsInf(x, 0) }
 func (m *model) score(v []float64) (float64, bool) {
-	if len(v) != len(FeatureNames) {
+	if len(v) != len(m.FeatureNames) {
 		return 0, false
 	}
 	z := m.Intercept
@@ -55,7 +95,11 @@ func (m *model) score(v []float64) (float64, bool) {
 	return exp / (1 + exp), true
 }
 
-func load(path string) (*model, error) {
+func load(path, contract string) (*model, error) {
+	names, ok := featureNames(contract)
+	if !ok {
+		return nil, fmt.Errorf("unsupported discovery LR contract")
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, err
@@ -71,7 +115,7 @@ func load(path string) (*model, error) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return nil, err
 	}
-	if m.SchemaVersion != 1 || m.ModelType != "logistic_regression" || m.Contract != Contract || m.Version == "" || !m.PromotionPassed || !slices.Equal(m.FeatureNames, FeatureNames) || len(m.Coefficients) != len(FeatureNames) || !finite(m.Intercept) || len(m.SelfTests) < 2 {
+	if m.SchemaVersion != 1 || m.ModelType != "logistic_regression" || m.Contract != contract || m.Version == "" || !m.PromotionPassed || !slices.Equal(m.FeatureNames, names) || len(m.Coefficients) != len(names) || !finite(m.Intercept) || len(m.SelfTests) < 2 {
 		return nil, fmt.Errorf("invalid discovery LR contract or promotion state")
 	}
 	for _, c := range m.Coefficients {

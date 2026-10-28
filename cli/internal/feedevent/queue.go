@@ -23,16 +23,19 @@ func NewQueue(dir string) *Queue {
 	return &Queue{dir: dir, path: filepath.Join(dir, QueueFileName)}
 }
 
-func (q *Queue) loadUnlocked() []Event {
+func (q *Queue) loadUnlocked() ([]Event, error) {
 	data, err := os.ReadFile(q.path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var qf queueFile
 	if err := json.Unmarshal(data, &qf); err != nil {
-		return nil // corrupt queue == start fresh, never block
+		return nil, fmt.Errorf("read feedback queue: %w", err)
 	}
-	return qf.Events
+	return qf.Events, nil
 }
 
 // saveAtomic writes the queue with the temp-file+rename pattern (0600).
@@ -40,30 +43,7 @@ func (q *Queue) saveAtomic(events []Event) error {
 	if err := os.MkdirAll(q.dir, dirPerm); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(queueFile{Events: events}, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(q.dir, ".queue-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath)
-		return err
-	}
-	os.Chmod(tmpPath, filePerm)
-	if err := os.Rename(tmpPath, q.path); err != nil {
-		os.Remove(tmpPath)
-		return err
-	}
-	return nil
+	return writeAtomicJSON(q.dir, QueueFileName, queueFile{Events: events})
 }
 
 // Enqueue appends events and persists (locked).
@@ -79,7 +59,11 @@ func (q *Queue) Enqueue(events []Event) error {
 		return fmt.Errorf("feedevent: queue busy")
 	}
 	defer l.release()
-	all := append(q.loadUnlocked(), events...)
+	existing, err := q.loadUnlocked()
+	if err != nil {
+		return err
+	}
+	all := append(existing, events...)
 	return q.saveAtomic(all)
 }
 
@@ -88,6 +72,10 @@ func (q *Queue) Enqueue(events []Event) error {
 // counts. It does NOT retry/backoff — the caller owns the cadence. `push` is
 // injected so this package stays network-free.
 func (q *Queue) Flush(nowMs int64, push func([]Event) error) (flushed, remaining int, err error) {
+	return q.FlushWithDrops(nowMs, push, nil)
+}
+
+func (q *Queue) FlushWithDrops(nowMs int64, push func([]Event) error, dropped func(int) error) (flushed, remaining int, err error) {
 	if err := os.MkdirAll(q.dir, dirPerm); err != nil {
 		return 0, 0, err
 	}
@@ -97,8 +85,16 @@ func (q *Queue) Flush(nowMs int64, push func([]Event) error) (flushed, remaining
 	}
 	defer l.release()
 
-	events := q.loadUnlocked()
+	events, loadErr := q.loadUnlocked()
+	if loadErr != nil {
+		return 0, 0, loadErr
+	}
 	fresh := dropStale(events, nowMs)
+	if len(events) > len(fresh) && dropped != nil {
+		if err := dropped(len(events) - len(fresh)); err != nil {
+			return 0, len(events), err
+		}
+	}
 	collapsed := collapseByDedup(fresh)
 	if len(collapsed) == 0 {
 		if len(events) != len(collapsed) {
@@ -138,6 +134,10 @@ func collapseByDedup(events []Event) []Event {
 	out := make([]Event, 0, len(events))
 	for _, e := range events {
 		dk, _ := e["dedup_key"].(string)
+		if e["kind"] == "feedback" {
+			key, _ := e["client_key"].(string)
+			dk = "feedback:" + key
+		}
 		if dk != "" {
 			if seen[dk] {
 				continue
@@ -163,4 +163,19 @@ func asInt64(v any) int64 {
 	default:
 		return 0
 	}
+}
+
+// Stats returns gauges from the current queue without modifying it.
+func (q *Queue) Stats(now int64) (depth int, oldestAge int64) {
+	events, err := q.loadUnlocked()
+	if err != nil {
+		return 0, 0
+	}
+	for _, e := range collapseByDedup(dropStale(events, now)) {
+		depth++
+		if ts := asInt64(e["ts"]); ts > 0 {
+			oldestAge = max(oldestAge, now-ts)
+		}
+	}
+	return
 }

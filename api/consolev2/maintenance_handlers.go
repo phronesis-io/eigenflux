@@ -17,23 +17,24 @@ import (
 )
 
 type maintenanceEvent struct {
-	EventID        string `json:"event_id"`
-	EventAt        int64  `json:"event_at"`
-	AttemptID      string `json:"attempt_id"`
-	Component      string `json:"component"`
-	Trigger        string `json:"trigger"`
-	Phase          string `json:"phase"`
-	Result         string `json:"result"`
-	Host           string `json:"host,omitempty"`
-	Mode           string `json:"mode,omitempty"`
-	FromVersion    string `json:"from_version,omitempty"`
-	ToVersion      string `json:"to_version,omitempty"`
-	RunningVersion string `json:"running_version,omitempty"`
-	ErrorCode      string `json:"error_code,omitempty"`
-	DurationMS     int64  `json:"duration_ms,omitempty"`
-	Source         string `json:"source,omitempty"`
-	Platform       string `json:"platform,omitempty"`
-	ReasonCategory string `json:"reason_category,omitempty"`
+	Notification   *notificationMaintenanceData `json:"notification,omitempty"`
+	EventID        string                       `json:"event_id"`
+	EventAt        int64                        `json:"event_at"`
+	AttemptID      string                       `json:"attempt_id"`
+	Component      string                       `json:"component"`
+	Trigger        string                       `json:"trigger"`
+	Phase          string                       `json:"phase"`
+	Result         string                       `json:"result"`
+	Host           string                       `json:"host,omitempty"`
+	Mode           string                       `json:"mode,omitempty"`
+	FromVersion    string                       `json:"from_version,omitempty"`
+	ToVersion      string                       `json:"to_version,omitempty"`
+	RunningVersion string                       `json:"running_version,omitempty"`
+	ErrorCode      string                       `json:"error_code,omitempty"`
+	DurationMS     int64                        `json:"duration_ms,omitempty"`
+	Source         string                       `json:"source,omitempty"`
+	Platform       string                       `json:"platform,omitempty"`
+	ReasonCategory string                       `json:"reason_category,omitempty"`
 }
 
 var maintenanceID = regexp.MustCompile(`^[a-f0-9]{32,64}$`)
@@ -53,6 +54,12 @@ func validateMaintenanceEvent(e maintenanceEvent, now time.Time) error {
 	}
 	if e.EventAt < now.Add(-7*24*time.Hour).UnixMilli() || e.EventAt > now.Add(5*time.Minute).UnixMilli() {
 		return fmt.Errorf("maintenance event outside retention window")
+	}
+	if e.Phase == "notification" {
+		return validateNotificationMaintenance(e)
+	}
+	if e.Notification != nil {
+		return fmt.Errorf("notification metadata requires notification phase")
 	}
 	if e.Phase == "uninstall" {
 		if !maintenanceOneOf(e.Component, "cli", "skills", "plugin", "scheduler", "notifier") || e.Trigger != "manual" || !maintenanceOneOf(e.Result, "started", "removed", "partial", "failed", "blocked") {

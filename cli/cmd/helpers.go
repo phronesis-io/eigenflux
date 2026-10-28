@@ -38,16 +38,18 @@ func newClientForServerOptionalAuth(serverName string, requireAuth bool) *client
 	if requireAuth {
 		hasV2, v2Err := auth.HasV2Credentials(srv.Name)
 		if v2Err != nil {
-			output.Die(output.ExitAuthRequired, "inspect Agent V2 credentials for server %q: %v", srv.Name, v2Err)
+			exitCommandFailure(unavailableV2Identity(v2Err))
+			return nil
 		}
 		if hasV2 {
 			credentials, credentialErr := ensureV2Credentials(srv.Name, srv.Endpoint)
 			if credentialErr != nil {
-				output.Die(output.ExitAuthRequired, "Agent V2 authentication failed for server %q: %v", srv.Name, credentialErr)
+				exitCommandFailure(credentialErr)
+				return nil
 			}
 			result := client.New(strings.TrimRight(srv.Endpoint, "/")+"/api/v2", credentials.AccessToken, version, clientMetaForServer(srv))
 			result.OnUnauthorized = func() (string, error) {
-				refreshed, refreshErr := refreshV2Credentials(srv.Name, srv.Endpoint, true)
+				refreshed, refreshErr := refreshV2CredentialsAfterUnauthorized(srv.Name, srv.Endpoint, result.Token)
 				if refreshErr != nil {
 					return "", refreshErr
 				}
@@ -76,10 +78,10 @@ func newLegacyClientForResolvedServer(srv *config.Server, requireAuth bool) *cli
 	if requireAuth {
 		creds, err := auth.LoadCredentials(srv.Name)
 		if err != nil {
-			output.Die(output.ExitAuthRequired, "not logged in to server %q — run 'eigenflux auth login --email <email>' first", srv.Name)
+			output.Die(output.ExitAuthRequired, "not logged in to server %q — preserve this Agent Home; use ef-profile for existing-account recovery or ef-onboarding for an explicitly requested new connection", srv.Name)
 		}
 		if creds.IsExpired() {
-			output.Die(output.ExitAuthRequired, "token expired for server %q — run 'eigenflux auth login --email <email>'", srv.Name)
+			output.Die(output.ExitAuthRequired, "token expired for server %q — preserve this Agent Home and use ef-profile for credential refresh or account recovery", srv.Name)
 		}
 		token = creds.AccessToken
 	}

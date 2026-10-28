@@ -66,6 +66,9 @@ class ReleaseTests(unittest.TestCase):
         growth_event = dict(event(), dashboards=['user-growth'])
         f.write_text(json.dumps([growth_event]))
         self.assertEqual(r.load_manifest(f), [growth_event])
+        compliance_event = dict(event(), dashboards=['feedback-compliance'], deploy_scope='full')
+        f.write_text(json.dumps([compliance_event]))
+        self.assertEqual(r.load_manifest(f), [compliance_event])
         f.write_text(json.dumps([event(), event()]))
         with self.assertRaises(ValueError): r.load_manifest(f)
 

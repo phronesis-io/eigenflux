@@ -90,3 +90,57 @@ func TestFingerprintSeparatesTargetsAndSenders(t *testing.T) {
 		}
 	}
 }
+
+func TestRequestFingerprintDistinctMessagesAndRetries(t *testing.T) {
+	guard, _ := newTestGuard(t)
+	ctx := context.Background()
+	sends := int64(0)
+	for _, requestID := range []string{"pm-reply:100", "pm-reply:101", "pm-reply:100", "pm-reply:101"} {
+		key := RequestFingerprint(1, "conversation", 2, "收到", requestID)
+		lease, replay, err := guard.Acquire(ctx, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantID := int64(1)
+		if requestID == "pm-reply:101" {
+			wantID = 2
+		}
+		if replay != nil {
+			if replay.MsgID != wantID || replay.ConvID != 2 {
+				t.Fatalf("request %s reused another message's receipt: %+v", requestID, replay)
+			}
+			continue
+		}
+		sends++
+		if sends != wantID {
+			t.Fatalf("request %s was sent again", requestID)
+		}
+		if err := guard.Complete(ctx, lease, Result{MsgID: sends, ConvID: 2}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if sends != 2 {
+		t.Fatalf("distinct logical sends = %d, want 2", sends)
+	}
+}
+
+func TestRequestFingerprintScopeAndCompatibility(t *testing.T) {
+	base := RequestFingerprint(1, "conversation", 2, "same", "reply:100")
+	for _, other := range []string{
+		RequestFingerprint(2, "conversation", 2, "same", "reply:100"),
+		RequestFingerprint(1, "conversation", 3, "same", "reply:100"),
+		RequestFingerprint(1, "friend", 2, "same", "reply:100"),
+		RequestFingerprint(1, "conversation", 2, "same", "reply:101"),
+		Fingerprint(1, "conversation", 2, "same"),
+	} {
+		if base == other {
+			t.Fatal("different logical requests collided")
+		}
+	}
+	if base != RequestFingerprint(1, "conversation", 2, "changed retry text", "reply:100") {
+		t.Fatal("same request ID must retain its first result")
+	}
+	if RequestFingerprint(1, "conversation", 2, "same", "") != Fingerprint(1, "conversation", 2, "same") {
+		t.Fatal("legacy client content deduplication changed")
+	}
+}

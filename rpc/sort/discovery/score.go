@@ -140,6 +140,24 @@ func Merge(in []Candidate, kinds []Kind, mode Mode, limit int) []Candidate {
 			in[i].Document.Channels = sources[in[i].Document.Ref.Key()]
 		}
 	}
+	// Rating-scored candidates compete across contexts of equal priority by
+	// policy-adjusted probability. An injected candidate keeps its reserved
+	// place at the front of its context by taking that context's best score,
+	// which also keeps the order consistent with the policy order.
+	best := map[int64]float64{}
+	for _, c := range in {
+		if ratingRanked(c) {
+			if prior, ok := best[c.Context.ID]; !ok || c.FinalScore > prior {
+				best[c.Context.ID] = c.FinalScore
+			}
+		}
+	}
+	ratingKey := func(c Candidate) float64 {
+		if injected(c) {
+			return best[c.Context.ID]
+		}
+		return c.FinalScore
+	}
 	sort.SliceStable(in, func(i, j int) bool {
 		a, b := in[i], in[j]
 		if mode == Recommendation && (a.Context.CapturedNeed != nil) != (b.Context.CapturedNeed != nil) {
@@ -147,6 +165,21 @@ func Merge(in []Candidate, kinds []Kind, mode Mode, limit int) []Candidate {
 		}
 		if a.Context.Priority != b.Context.Priority {
 			return a.Context.Priority > b.Context.Priority
+		}
+		if mode == Recommendation && ratingRanked(a) && ratingRanked(b) {
+			if ka, kb := ratingKey(a), ratingKey(b); ka != kb {
+				return ka > kb
+			}
+		} else if mode == Recommendation && a.SemanticRank != nil && b.SemanticRank != nil {
+			// Similarity-scored candidates compete across contexts of equal
+			// priority, so one clause's or Need's weak candidates cannot displace
+			// another's strong ones. Within a context the policy order applies.
+			if a.SemanticTier != b.SemanticTier {
+				return a.SemanticTier > b.SemanticTier
+			}
+			if a.Context.ID != b.Context.ID && a.FinalScore != b.FinalScore {
+				return a.FinalScore > b.FinalScore
+			}
 		}
 		if mode == Recommendation && a.Context.UpdatedAt != b.Context.UpdatedAt {
 			return a.Context.UpdatedAt > b.Context.UpdatedAt

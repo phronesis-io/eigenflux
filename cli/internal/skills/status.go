@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -93,4 +94,15 @@ func FetchLatestVersion(cdnBase string, hc *http.Client) string {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
+}
+
+// ModifiedDiagnostic uses the same repair guidance in sync and doctor.
+func ModifiedDiagnostic(dir, name, localVersion, targetVersion string) SyncDiagnostic {
+	path := filepath.Join(dir, name)
+	return SyncDiagnostic{Path: path, Reason: "local content differs from the official manifest; update skipped to preserve local changes", LocalVersion: localVersion, TargetVersion: targetVersion,
+		Hint: fmt.Sprintf("Back up %q outside the Skills directory, review and move the modified directory out of the load path, then run eigenflux skills sync --into %s. Reapply only needed customizations and refresh the host's Skills context.", path, shellQuote(dir))}
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }

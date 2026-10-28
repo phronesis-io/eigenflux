@@ -47,6 +47,7 @@ func reportProfileFunnel(server string, event profileFunnelEvent) {
 		return
 	}
 	token, apiVersion := "", "/api/v1"
+	now := time.Now().UnixMilli()
 	hasV2, err := auth.HasV2Credentials(server)
 	if err != nil {
 		return
@@ -56,11 +57,17 @@ func reportProfileFunnel(server string, event profileFunnelEvent) {
 		if err != nil {
 			return
 		}
+		if credentials.ExpiresAt <= now {
+			return
+		}
 		token = credentials.AccessToken
 		apiVersion = "/api/v2"
 	} else {
 		credentials, err := auth.LoadCredentials(server)
 		if err != nil {
+			return
+		}
+		if credentials.ExpiresAt != 0 && credentials.ExpiresAt <= now {
 			return
 		}
 		token = credentials.AccessToken

@@ -19,14 +19,15 @@ import (
 
 const (
 	profileSemanticSalt    = "discovery-profile-semantic-v1:"
-	profileSemanticVersion = ":profile_semantic_v1"
+	profileSemanticVersion = ":profile_semantic_v2"
+	needSemanticVersion    = ":need_semantic_v1"
 	profileDenseKey        = "profile_dense"
 	profileDenseLimit      = 80
 	profileFreshKey        = "profile_fresh"
 	profileFreshLimit      = 40
 	profileFreshDays       = 30
-	maxProfileCosineIDs    = 5000
-	profileCosineTimeout   = 300 * time.Millisecond
+	maxCosineIDs           = 5000
+	cosineTimeout          = 300 * time.Millisecond
 	profileHistoryTimeout  = 300 * time.Millisecond
 	profileFreshnessWeight = 0.05
 	day                    = int64(24 * 60 * 60 * 1000)
@@ -39,7 +40,7 @@ type ProfileSemanticSources interface {
 	ProfileVector(context.Context, int64) ([]float32, error)
 	// ProfileCosine returns cosine(profile, item embedding) for broadcast IDs.
 	// Items without an embedding are omitted.
-	ProfileCosine(context.Context, []float32, []int64) (map[int64]float64, error)
+	Cosine(context.Context, []float32, []int64) (map[int64]float64, error)
 	// RecallProfile runs dense recall with the profile vector, excluding the
 	// Agent's verified consumed groups when that history is available. A
 	// positive since (epoch ms) restricts recall to content created after it.
@@ -62,9 +63,10 @@ func profileSemanticEnabled(owner int64, bps int) bool {
 	return bucketEnabled(profileSemanticSalt, owner, bps)
 }
 
-// profileMinCosine is the eligibility floor by content age. Calibrated on the
-// 2026-10-15/16 rated recommendations: below 0.30 the -1 ratings outnumber
-// positives; older content needs stronger similarity to stay above 2:1.
+// profileMinCosine is the cosine floor by content age at which a candidate
+// becomes eligible on similarity alone. Calibrated on rated recommendations:
+// below 0.30 the -1 ratings outnumber positives for Profile and Need vectors;
+// older content needs stronger similarity.
 func profileMinCosine(freshAt, now int64) float64 {
 	age := now - freshAt
 	switch {
@@ -77,23 +79,51 @@ func profileMinCosine(freshAt, now int64) float64 {
 	}
 }
 
-// profileScored reports whether a context's broadcast candidates use the
-// profile gate. Captured Needs keep their own relevance: an explicit Need may
-// differ from the standing profile. Baseline contexts have their own score.
-func profileScored(c Context) bool {
-	return c.CapturedNeed == nil && c.Origin != "baseline"
+// Semantic tiers order scored candidates across contexts of equal priority:
+// a candidate at its cosine floor, then a rule-eligible candidate below it,
+// then a rule-eligible candidate without an item embedding. Ranks stay
+// positive and banded by tier so multiplicative rerank boosts keep their
+// direction.
+const (
+	semanticTierMissing = iota
+	semanticTierBelowFloor
+	semanticTierAtFloor
+)
+
+func semanticNames(need bool) (string, string) {
+	if need {
+		return "need", needSemanticVersion
+	}
+	return "profile", profileSemanticVersion
 }
 
-// scoreProfile gates a candidate by profile cosine and returns its ordering
-// value. The rule score's value, relevance and contributions are retained so
-// replay samples keep the discovery LR feature contract.
-func scoreProfile(s Score, d Document, cos float64, rule Rule, now int64, bypass bool) (Score, float64) {
+// scoreSemantic scores a candidate by its cosine to the profile or captured
+// Need vector. Eligibility is additive: a candidate the rule score already
+// accepts stays eligible, and a candidate reaching the age-tiered cosine floor
+// becomes eligible (vector-only recall otherwise needs cosine near 0.7). The
+// rule score's value, relevance and contributions are retained so replay
+// samples keep the discovery LR feature contract.
+func scoreSemantic(s Score, d Document, cos float64, rule Rule, now int64, bypass, need bool) (Score, float64, int) {
 	floor := profileMinCosine(d.FreshAt, now)
-	s.Version += profileSemanticVersion
-	s.Features["profile_cosine"] = cos
-	s.Features["profile_min_cosine"] = floor
-	s.Eligible = bypass || cos >= floor
-	return s, cos + profileFreshnessWeight*decay(d.FreshAt, now, rule.HalfLifeMS)
+	name, version := semanticNames(need)
+	s.Version += version
+	s.Features[name+"_cosine"] = cos
+	s.Features[name+"_min_cosine"] = floor
+	if cos >= floor {
+		s.Eligible = true
+		return s, 2 + cos + profileFreshnessWeight*decay(d.FreshAt, now, rule.HalfLifeMS), semanticTierAtFloor
+	}
+	s.Eligible = s.Eligible || bypass
+	return s, 1 + (1+cos)/2*0.99, semanticTierBelowFloor
+}
+
+// scoreUnembedded keeps the rule decision for a candidate without an item
+// embedding and ranks it after every similarity-scored candidate.
+func scoreUnembedded(s Score, need bool) (Score, float64, int) {
+	name, version := semanticNames(need)
+	s.Version += version
+	s.Features[name+"_embedding_missing"] = 1
+	return s, math.Max(0, math.Min(1, s.Value)), semanticTierMissing
 }
 
 func (s *Source) ProfileVector(ctx context.Context, owner int64) ([]float32, error) {
@@ -127,13 +157,13 @@ func (s *Source) ProfileVector(ctx context.Context, owner int64) ([]float32, err
 	return v, nil
 }
 
-func (s *Source) ProfileCosine(ctx context.Context, vector []float32, ids []int64) (map[int64]float64, error) {
+func (s *Source) Cosine(ctx context.Context, vector []float32, ids []int64) (map[int64]float64, error) {
 	out := map[int64]float64{}
 	if len(ids) == 0 {
 		return out, nil
 	}
-	if len(ids) > maxProfileCosineIDs {
-		return nil, fmt.Errorf("profile cosine budget exceeded")
+	if len(ids) > maxCosineIDs {
+		return nil, fmt.Errorf("cosine budget exceeded")
 	}
 	if es.Client == nil {
 		return nil, fmt.Errorf("source index unavailable")
@@ -158,7 +188,7 @@ func (s *Source) ProfileCosine(ctx context.Context, vector []float32, ids []int6
 	}
 	defer resp.Body.Close()
 	if resp.IsError() {
-		return nil, fmt.Errorf("profile cosine read failed: %d", resp.StatusCode)
+		return nil, fmt.Errorf("cosine read failed: %d", resp.StatusCode)
 	}
 	var env struct {
 		TimedOut bool `json:"timed_out"`
@@ -178,7 +208,7 @@ func (s *Source) ProfileCosine(ctx context.Context, vector []float32, ids []int6
 		return nil, err
 	}
 	if env.TimedOut || env.Shards.Failed > 0 {
-		return nil, fmt.Errorf("incomplete profile cosine read")
+		return nil, fmt.Errorf("incomplete cosine read")
 	}
 	for _, h := range env.Hits.Hits {
 		cos := h.Score - 1

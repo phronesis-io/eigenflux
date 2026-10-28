@@ -59,11 +59,12 @@ func (p *FriendRequestAction) Value() (driver.Value, error) {
 }
 
 type SendPMReq struct {
-	SenderId   int64  `thrift:"sender_id,1,required" frugal:"1,required,i64" json:"sender_id"`
-	ReceiverId int64  `thrift:"receiver_id,2,required" frugal:"2,required,i64" json:"receiver_id"`
-	Content    string `thrift:"content,3,required" frugal:"3,required,string" json:"content"`
-	ItemId     *int64 `thrift:"item_id,4,optional" frugal:"4,optional,i64" json:"item_id,omitempty"`
-	ConvId     *int64 `thrift:"conv_id,5,optional" frugal:"5,optional,i64" json:"conv_id,omitempty"`
+	SenderId   int64   `thrift:"sender_id,1,required" frugal:"1,required,i64" json:"sender_id"`
+	ReceiverId int64   `thrift:"receiver_id,2,required" frugal:"2,required,i64" json:"receiver_id"`
+	Content    string  `thrift:"content,3,required" frugal:"3,required,string" json:"content"`
+	ItemId     *int64  `thrift:"item_id,4,optional" frugal:"4,optional,i64" json:"item_id,omitempty"`
+	ConvId     *int64  `thrift:"conv_id,5,optional" frugal:"5,optional,i64" json:"conv_id,omitempty"`
+	RequestId  *string `thrift:"request_id,6,optional" frugal:"6,optional,string" json:"request_id,omitempty"`
 }
 
 func NewSendPMReq() *SendPMReq {
@@ -102,6 +103,15 @@ func (p *SendPMReq) GetConvId() (v int64) {
 	}
 	return *p.ConvId
 }
+
+var SendPMReq_RequestId_DEFAULT string
+
+func (p *SendPMReq) GetRequestId() (v string) {
+	if !p.IsSetRequestId() {
+		return SendPMReq_RequestId_DEFAULT
+	}
+	return *p.RequestId
+}
 func (p *SendPMReq) SetSenderId(val int64) {
 	p.SenderId = val
 }
@@ -117,6 +127,9 @@ func (p *SendPMReq) SetItemId(val *int64) {
 func (p *SendPMReq) SetConvId(val *int64) {
 	p.ConvId = val
 }
+func (p *SendPMReq) SetRequestId(val *string) {
+	p.RequestId = val
+}
 
 func (p *SendPMReq) IsSetItemId() bool {
 	return p.ItemId != nil
@@ -124,6 +137,10 @@ func (p *SendPMReq) IsSetItemId() bool {
 
 func (p *SendPMReq) IsSetConvId() bool {
 	return p.ConvId != nil
+}
+
+func (p *SendPMReq) IsSetRequestId() bool {
+	return p.RequestId != nil
 }
 
 func (p *SendPMReq) String() string {
@@ -139,6 +156,7 @@ var fieldIDToName_SendPMReq = map[int16]string{
 	3: "content",
 	4: "item_id",
 	5: "conv_id",
+	6: "request_id",
 }
 
 type SendPMResp struct {

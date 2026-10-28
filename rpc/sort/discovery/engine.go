@@ -7,6 +7,7 @@ import (
 	"eigenflux_server/pkg/need"
 	"eigenflux_server/pkg/recallsource"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -30,12 +31,23 @@ type Sources interface {
 }
 type Engine struct {
 	// frozenContexts is set only by the offline replay entry point.
-	frozenContexts    []Context
-	Learned           LearnedRanker
+	frozenContexts []Context
+	Learned        LearnedRanker
+	// RatingLearned orders broadcast recommendations for Agents in the
+	// RatingLRBPS bucket; when it cannot score a request, the existing
+	// semantic, Learned or rule ordering applies.
+	RatingLearned LearnedRanker
+	RatingLRBPS   int
+	// RatingNext is the challenger for the RatingNextBPS bucket of
+	// rating-ranked Agents.
+	RatingNext        LearnedRanker
+	RatingNextBPS     int
+	PGCAuthors        PGCAuthors
 	FriendFeedEnabled bool
 	ConsumedRefillBPS int
-	// ProfileSemanticBPS selects Agents whose broadcast recommendations use
-	// profile-vector recall, gating and ordering.
+	// ProfileSemanticBPS selects Agents whose broadcast recommendations add
+	// profile-vector recall and use profile/Need similarity for eligibility
+	// and ordering.
 	ProfileSemanticBPS int
 	SourceLimits       []SourceLimit
 	Compiler           *Compiler
@@ -326,10 +338,18 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		} else {
 			profileVector = v
 		}
-		if treated && reason != "" {
+		usesProfile := false
+		for _, c := range contexts {
+			usesProfile = usesProfile || (c.CapturedNeed == nil && c.Origin != "baseline")
+		}
+		if treated && reason != "" && usesProfile {
 			x.PartialReasons = append(x.PartialReasons, reason)
 		}
 	}
+	_, supported := e.Sources.(ProfileSemanticSources)
+	// Need similarity uses the Need's own vector and does not depend on a
+	// profile vector; Profile similarity and recall do.
+	needOn := treated && supported
 	semanticOn := treated && len(profileVector) > 0
 	shadowOn := shadow && len(profileVector) > 0
 	type channelResult struct {
@@ -483,37 +503,65 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		states = make([]refillContext, len(contexts))
 		seenHeadGroups = map[int64]bool{}
 	}
-	// Request-local profile cosine by broadcast ID; NaN marks an item without an embedding.
-	profileCos := map[int64]float64{}
-	profileCosFailed := false
-	var profileMu sync.Mutex
-	fillProfileCosine := func(fillCtx context.Context, docs []Document) {
-		if !semanticOn && !shadowOn {
+	// Request-local cosine by vector (the profile, or one captured Need) and
+	// broadcast ID; NaN marks an item without an embedding.
+	semanticCos := map[string]map[int64]float64{}
+	semanticFailed := map[string]bool{}
+	var semanticMu sync.Mutex
+	vectorFor := func(c Context) (key string, vector []float32, need bool) {
+		switch {
+		case c.CapturedNeed != nil:
+			if needOn && len(c.Vector) > 0 {
+				return fmt.Sprintf("need:%d", c.ID), c.Vector, true
+			}
+		case c.Origin != "baseline" && (semanticOn || shadowOn):
+			return "profile", profileVector, false
+		}
+		return "", nil, false
+	}
+	semanticDegraded := false
+	fillCosine := func(fillCtx context.Context, c Context, docs []Document) {
+		key, vector, need := vectorFor(c)
+		if key == "" {
 			return
 		}
-		profileMu.Lock()
-		defer profileMu.Unlock()
-		if profileCosFailed {
+		semanticMu.Lock()
+		if semanticDegraded || semanticFailed[key] {
+			semanticMu.Unlock()
 			return
+		}
+		known := semanticCos[key]
+		if known == nil {
+			known = map[int64]float64{}
+			semanticCos[key] = known
 		}
 		missing, queued := []int64{}, map[int64]bool{}
 		for _, d := range docs {
-			if _, ok := profileCos[d.Ref.ID]; d.Ref.Type == Broadcast && !ok && !queued[d.Ref.ID] {
+			if _, ok := known[d.Ref.ID]; d.Ref.Type == Broadcast && !ok && !queued[d.Ref.ID] {
 				queued[d.Ref.ID] = true
 				missing = append(missing, d.Ref.ID)
 			}
 		}
+		semanticMu.Unlock()
 		if len(missing) == 0 {
 			return
 		}
-		readCtx, cancel := context.WithTimeout(fillCtx, profileCosineTimeout)
-		got, err := e.Sources.(ProfileSemanticSources).ProfileCosine(readCtx, profileVector, missing)
+		readCtx, cancel := context.WithTimeout(fillCtx, cosineTimeout)
+		got, err := e.Sources.(ProfileSemanticSources).Cosine(readCtx, vector, missing)
 		cancel()
+		semanticMu.Lock()
+		defer semanticMu.Unlock()
 		if err != nil {
-			// Candidates without profile evidence keep the ordinary rule score;
-			// the request does not retry the read for later contexts.
-			profileCosFailed = true
-			if semanticOn {
+			// Candidates without similarity evidence keep the ordinary rule score;
+			// the request does not retry the read, and a timeout stops every
+			// further similarity read in this request.
+			semanticFailed[key] = true
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				semanticDegraded = true
+			}
+			if need {
+				x.PartialReasons = append(x.PartialReasons, "need_semantic:cosine_unavailable")
+			} else if semanticOn {
 				x.PartialReasons = append(x.PartialReasons, "profile_semantic:cosine_unavailable")
 			}
 			return
@@ -523,14 +571,19 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			if !ok {
 				v = math.NaN()
 			}
-			profileCos[id] = v
+			known[id] = v
 		}
+	}
+	cosineOf := func(c Context, id int64) (float64, bool, bool) {
+		key, _, need := vectorFor(c)
+		semanticMu.Lock()
+		defer semanticMu.Unlock()
+		v, ok := semanticCos[key][id]
+		return v, ok && key != "", need
 	}
 	evaluate := func(evalCtx context.Context, c Context, merged map[string]Document, docs []Document) ([]Candidate, error) {
 		eligible := []Candidate{}
-		if profileScored(c) {
-			fillProfileCosine(evalCtx, docs)
-		}
+		fillCosine(evalCtx, c, docs)
 		fresh, err := e.Sources.Hydrate(evalCtx, owner, mode, docs)
 		if err != nil {
 			return nil, err
@@ -591,25 +644,19 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				score.Version += ":friend_feed_v1"
 			}
 			var rank *float64
-			if shadowOn && d.Ref.Type == Broadcast && profileScored(c) {
-				profileMu.Lock()
-				cos, ok := profileCos[d.Ref.ID]
-				profileMu.Unlock()
-				if ok && !math.IsNaN(cos) {
-					score.Features["profile_cosine"] = cos
-				}
-			}
-			if semanticOn && d.Ref.Type == Broadcast && profileScored(c) {
-				profileMu.Lock()
-				cos, ok := profileCos[d.Ref.ID]
-				profileMu.Unlock()
-				if ok && math.IsNaN(cos) && !friend {
-					metrics.DiscoveryRejected.WithLabelValues(string(d.Ref.Type), "profile_embedding_missing").Inc()
-					continue
-				}
-				if ok && !math.IsNaN(cos) {
-					var r float64
-					score, r = scoreProfile(score, d, cos, e.Rules[d.Ref.Type][mode], now, friend)
+			tier := 0
+			if cos, ok, need := cosineOf(c, d.Ref.ID); ok && d.Ref.Type == Broadcast {
+				var r float64
+				switch {
+				case shadowOn:
+					if !math.IsNaN(cos) {
+						score.Features["profile_cosine"] = cos
+					}
+				case math.IsNaN(cos):
+					score, r, tier = scoreUnembedded(score, need)
+					rank = &r
+				default:
+					score, r, tier = scoreSemantic(score, d, cos, e.Rules[d.Ref.Type][mode], now, friend, need)
 					rank = &r
 				}
 			}
@@ -618,7 +665,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				metrics.DiscoveryRejected.WithLabelValues(string(d.Ref.Type), "below_threshold").Inc()
 			}
 			if score.Eligible {
-				candidate := Candidate{FinalScore: score.Value, Context: c, Document: d, Score: score, ProfileRank: rank}
+				candidate := Candidate{FinalScore: score.Value, Context: c, Document: d, Score: score, SemanticRank: rank, SemanticTier: tier}
 				if rank != nil {
 					candidate.FinalScore = *rank
 				}
@@ -706,15 +753,38 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		}
 		pending = append(pending, pendingContext{c, merged, docs})
 	}
-	if semanticOn || shadowOn {
-		// One similarity read for every context's candidates.
+	if needOn || shadowOn {
+		// One similarity read per vector, all in parallel under one deadline:
+		// Profile and friend contexts share the profile vector.
+		var profileContext *Context
 		all := []Document{}
-		for _, p := range pending {
-			if profileScored(p.c) {
+		type read struct {
+			c    Context
+			docs []Document
+		}
+		reads := []read{}
+		for i, p := range pending {
+			if key, _, need := vectorFor(p.c); key != "" && !need {
+				profileContext = &pending[i].c
 				all = append(all, p.docs...)
+			} else if need {
+				reads = append(reads, read{p.c, p.docs})
 			}
 		}
-		fillProfileCosine(ctx, all)
+		if profileContext != nil {
+			reads = append(reads, read{*profileContext, all})
+		}
+		prefillCtx, cancel := context.WithTimeout(ctx, cosineTimeout)
+		var prefill sync.WaitGroup
+		for _, r := range reads {
+			prefill.Add(1)
+			go func(r read) {
+				defer prefill.Done()
+				fillCosine(prefillCtx, r.c, r.docs)
+			}(r)
+		}
+		prefill.Wait()
+		cancel()
 	}
 	for _, p := range pending {
 		eligible, err := evaluate(ctx, p.c, p.merged, p.docs)
@@ -726,12 +796,15 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	if !anySuccess && len(results) > 0 {
 		return x, Failure(503, "retrieval_unavailable")
 	}
+	rating := &ratingRequest{}
 	selectCandidates := func(in []Candidate) ([]Candidate, error) {
 		if len(in) == 0 {
 			return []Candidate{}, nil
 		}
 		in = append([]Candidate(nil), in...)
-		e.rankLearned(in, mode)
+		if !e.rankRating(ctx, owner, r.SourceKinds, contexts, in, mode, profileVector, rating) {
+			e.rankLearned(in, mode)
+		}
 		if e.Policies != nil {
 			var err error
 			in, err = e.Policies(ctx, in, mode, resultLimit)

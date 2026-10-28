@@ -171,7 +171,7 @@ func TestV2InstallAttribution(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { h.db.Callback().Raw().Remove(callback) })
-		h.json(t, http.MethodPost, "/api/v2/agent-identities/provision", signedBody(t, key, req), http.StatusInternalServerError)
+		h.json(t, http.MethodPost, "/api/v2/agent-identities/provision", signedBody(t, key, req), http.StatusServiceUnavailable)
 		if !failed.Load() {
 			t.Fatal("provision failed before the final credential insert; rollback was not exercised")
 		}

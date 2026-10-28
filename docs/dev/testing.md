@@ -23,6 +23,52 @@ Tests live beside the packages they exercise and in the service integration suit
 | `tests/installv2/` | Install ref through signed V2 provision, email binding, identity reuse, and transaction rollback | `go test -v ./tests/installv2/` |
 | `tests/replay/` | Offline replay service tests (sort simulation with custom params, inline profiles) | `go test -v ./tests/replay/` |
 
+## Agent V2 authentication regressions
+
+Use an isolated PostgreSQL database for `PG_DSN`. Run
+`go test ./api/consolev2 -run 'TestAgentRefreshPostgres|TestRefreshDatabaseFailureClassificationAndRedaction|TestAgentAuthorizationPostgres' -count=1`
+to exercise sliding refresh windows, idempotent response-loss recovery, expired
+versus revoked sessions, nonce/rotation/revocation SQL failures, commit failures,
+and sanitized rejection logs. These tests create synthetic temporary tables and
+must not point at production. Run the full package against a migrated test
+database to include the existing Console flows.
+
+In `cli/`, run `go test ./...` and
+`go test -race ./cmd ./internal/auth -run 'TestStream|TestV2|TestExpiredV2|TestHeartbeatStops|TestCommandFailure' -count=1`.
+The suites use temporary Agent Homes, local HTTP servers, and real local
+WebSocket connections. They cover same-key recovery without account creation,
+concurrent refresh reuse, repeated stream renewal with cursor preservation,
+single-attempt heartbeat failures, and host notification/exit classification.
+Heartbeat authentication-failure regressions use a signed local CDN and verify
+Skills synchronization before a single credential attempt. Feed/Runtime missing
+key tests verify that no replacement identity or authentication request is made.
+Temporary credential failures, including recovery rate limits, retain exit 2
+and the structured non-login notice;
+unrelated endpoint failures do not receive that notice.
+Run `go test ./tests/installv2` with a migrated test database and
+`EIGENFLUX_TEST_CLI` pointing at the built CLI. The real CLI/handler recovery
+test verifies preserved Agent, principal, key, profile, draft, and attribution,
+with public registration enabled and disabled, no extra account or handoff, and
+the guarded manual recovery command using the same endpoint. Revoked expiry
+must exit 4 without provisioning. Unavailable local keys in guarded provisioning
+must also exit 4 with an owner-notification notice and preserve saved credentials.
+Owner-action regressions verify separate instructions for inaccessible local
+identity files and rejected V2 sessions, including the current Home and server,
+an explicit owner reply, revocation confirmation, and preservation of the
+existing host instruction and exit code. They verify that notice generation
+does not modify saved identity files or disclose their contents, that legacy
+failures omit V2-specific actions, and that credential 503/429 failures retain
+their non-login classification without an owner recovery action.
+
+## Business access logging and cached telemetry
+
+Run `go test ./api/consolev2 ./api/middleware` for rejection reason, route-template,
+trace retention, and credential/error redaction coverage. The PostgreSQL Agent
+authorization contracts above verify the unchanged access predicates against
+native array/NULL types. In `cli/`, `go test ./cmd -run TestProfileFunnel`
+checks that expired cached access causes no HTTP or authentication request and
+leaves credentials unchanged, while usable V1/V2 access still reports events.
+
 ## Codex installer compatibility
 
 Run `python3 -m unittest discover -s tests/cli_release -p 'test_codex_install.py'`
@@ -58,6 +104,20 @@ go test -tags=deployed ./tests/deployed -count=1 -v -timeout=10m
 The runner requires explicit endpoints, binaries, private control tokens, and
 test OTP settings. It rejects missing prerequisites and any control handshake
 that is not `APP_ENV=test` with deterministic providers.
+
+## Legacy authentication fixtures
+
+Legacy login no longer creates identities. `LoginAndGetToken` and
+`RegisterAgent` seed a legacy identity and profile in the test database before
+performing real API login. Direct `LoginStart` and `LoginStartRaw` calls never
+seed data; login-policy and OTP tests must explicitly prepare existing identities
+with `EnsureLegacyTestAgent`. Unknown-email tests assert code `410` and no new
+Agent or OTP challenge.
+
+Run `go test ./tests/testutil -run TestEnsureLegacyTestAgentPostgres -count=1`
+with an explicit loopback `PG_DSN` to validate fixture creation and preservation
+of existing identity/profile fields. The test copies the migrated table schema
+into a disposable schema and removes it afterward.
 
 ## Running Tests
 
@@ -203,3 +263,34 @@ download job, separate from the identity tests.
 Non-Windows hosts skip this suite. This is download integration coverage, not
 full host onboarding or Smart App Control acceptance; see [CLI release
 integrity](cli-release.md).
+
+
+CLI feedback completion regressions run with `go test ./cmd ./internal/feedevent`
+from `cli/`. They cover concurrent subprocess writers, process death while a
+report lock is held, 72-hour queue expiry, exact exposure attribution, scheduled
+whole-page pulls that always fetch, opt-in saved batches, a corrupt ledger that never blocks Feed or feedback,
+lifecycle commands that skip the queue flush, Unicode status bounds and health
+fields. HTTP fixtures exercise the real
+CLI command paths; production cohort metrics remain rollout acceptance checks.
+
+Feed batching regressions also cover cache/lock failure fallback, old-ledger
+upgrade, concurrent process handouts, open-before-backlog order, 24-hour backlog
+expiry, owner checks that always fetch, re-hand limits, current control context,
+post-push surface reminders that the pre-push check never consumes, busy-ledger
+status output and local health-counter isolation. Run `go test -race ./cmd ./internal/feedevent
+./internal/cache` from `cli/`.
+
+With isolated migrated infrastructure and built services, run
+`DISCOVERY_E2E=1 EIGENFLUX_TEST_CLI="$PWD/build/cli/eigenflux-darwin-arm64"
+./tests/run.sh --skip-start discoverye2e -c TestFeedCLISavedBatchesKeepOneExposureSet`
+(select the binary for your platform). This suite starts its own application
+processes. It scores a batch, reads two saved batches, then polls locally and
+checks the real replay/feedback rows retain the single original impression.
+
+Build the CLI with `cd cli && go build -o ../build/eigenflux-cli .`, then run
+`EIGENFLUX_TEST_CLI="$PWD/build/eigenflux-cli" ./tests/run.sh --skip-start e2e -c TestCLIFeedbackProcessRecovery`
+from the repository root. This acceptance test kills a real CLI process after
+the local API accepts feedback but before the response reaches the client. The
+restarted CLI drains the durable queue; the real worker stores one feedback row
+and increments the score counter once. It uses an isolated Agent Home and local
+HTTP proxy, with no host delivery or production writes.

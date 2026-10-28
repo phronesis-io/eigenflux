@@ -27,8 +27,12 @@ func TestDiscoveryFeedbackAttribution(t *testing.T) {
 	}))
 	defer server.Close()
 	_, name := runtimeTestConfig(t, server.URL, true)
-	cache.SaveFeedResponse(name, json.RawMessage(`{"impression_id":"search-A","items":[{"item_id":"9007199254740993","source_ref":{"type":"broadcast","id":"9007199254740993"}},{"item_id":"77","source_ref":{"type":"broadcast","id":"77"}}]}`))
-	cache.SaveFeedResponse(name, json.RawMessage(`{"impression_id":"rec-B","items":[{"item_id":"9007199254740993","source_ref":{"type":"broadcast","id":"9007199254740993"}}]}`))
+	if err := cache.SaveFeedResponse(name, json.RawMessage(`{"impression_id":"search-A","items":[{"item_id":"9007199254740993","source_ref":{"type":"broadcast","id":"9007199254740993"}},{"item_id":"77","source_ref":{"type":"broadcast","id":"77"}}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.SaveFeedResponse(name, json.RawMessage(`{"impression_id":"rec-B","items":[{"item_id":"9007199254740993","source_ref":{"type":"broadcast","id":"9007199254740993"}}]}`)); err != nil {
+		t.Fatal(err)
+	}
 	ledger := feedevent.NewLedger(filepath.Join(cache.ServerDataDir(name), "broadcasts"), name)
 	if _, status := ledger.LookupImpression("77", "search-A", time.Now().UnixMilli()); status != feedevent.StatusHit {
 		t.Fatal("rapid discovery calls overwrote the earlier impression")

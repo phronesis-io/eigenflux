@@ -40,7 +40,8 @@ func Sync(opts SyncOptions) (result *SyncResult, err error) {
 	}
 	if ferr != nil {
 		if local.intact {
-			r := &SyncResult{SkillsDir: real, Source: "local", CLIVersion: local.manifest.CLIVersion, NoNetwork: true, Stale: local.stale}
+			r := keepLocal(real, local.manifest, "remote manifest unavailable: "+ferr.Error())
+			r.NoNetwork, r.Stale = true, local.stale
 			if opts.IfStale || opts.Quiet {
 				return r, nil
 			}
@@ -57,7 +58,9 @@ func Sync(opts SyncOptions) (result *SyncResult, err error) {
 				return nil, err
 			}
 			if local.intact {
-				return &SyncResult{SkillsDir: real, Source: "local", CLIVersion: local.manifest.CLIVersion, NoNetwork: true, Stale: local.stale}, nil
+				r := keepLocal(real, local.manifest, "remote manifest unavailable: "+ferr.Error())
+				r.NoNetwork, r.Stale = true, local.stale
+				return r, nil
 			}
 			if local.manifest == nil {
 				return bundleApply(opts, real, parent, nil, true)
@@ -134,9 +137,15 @@ func syncDecision(opts SyncOptions, real string, state *syncSnapshot, remote *Ma
 	}
 	if reason != "" {
 		if intact {
-			result := keepLocal(real, local, reason)
-			result.RequiredCLIVersion = requiredCLIVersion
-			return result, nil
+			res := keepLocal(real, local, reason)
+			res.Diagnostics[0].TargetRevision = remote.Revision
+			if strings.HasPrefix(reason, "skills need CLI") {
+				res.Diagnostics[0].Hint = fmt.Sprintf("Keep the existing Skills. Upgrade the CLI using https://cdn.eigenflux.ai/skills/latest/install.md, then retry eigenflux skills sync --into %s.", shellQuote(real))
+			} else {
+				res.Diagnostics[0].Hint = fmt.Sprintf("Keep the existing Skills and local manifest. Retry eigenflux skills sync --into %s after the publisher repairs the signed release; do not bypass rollback protection.", shellQuote(real))
+			}
+			res.RequiredCLIVersion = requiredCLIVersion
+			return res, nil
 		}
 		var result *SyncResult
 		if requiredCLIVersion != "" {
@@ -228,6 +237,15 @@ func applyStaged(opts SyncOptions, real, parent, newDir string, local, remote *M
 	res, err := swapInPlace(opts, parent, real, newDir, remote, source, removed, stale)
 	if err == nil && res != nil {
 		res.Preserved = preserved
+		for _, name := range preserved {
+			target := ""
+			for _, skill := range remote.Skills {
+				if skill.Name == name {
+					target = skill.DisplayVersion
+				}
+			}
+			res.Diagnostics = append(res.Diagnostics, ModifiedDiagnostic(real, name, readDisplayVersion(filepath.Join(real, name, "SKILL.md")), target))
+		}
 		if len(preserved) > 0 {
 			res.VerifiedManifest = false
 		}
@@ -507,8 +525,10 @@ func staleMarkerPresent(dir string) bool {
 }
 
 func keepLocal(real string, local *Manifest, reason string) *SyncResult {
-	fmt.Fprintf(os.Stderr, "skills sync: keeping local copy (%s)\n", reason)
-	return &SyncResult{SkillsDir: real, Source: "local", CLIVersion: local.CLIVersion}
+	return &SyncResult{SkillsDir: real, Source: "local", CLIVersion: local.CLIVersion,
+		Diagnostics: []SyncDiagnostic{{Path: real, Reason: reason, LocalRevision: local.Revision,
+			Hint: fmt.Sprintf("Keep the existing Skills and retry eigenflux skills sync --into %s after resolving the reported failure; do not delete the local manifest.", shellQuote(real))}},
+	}
 }
 
 // softFail preserves failures for callers even when quiet output is requested.

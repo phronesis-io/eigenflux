@@ -187,7 +187,7 @@ func capabilitySeeds() []capabilitySeed {
 			}
 		}
 		if seed.id == "cli.update" || strings.HasPrefix(seed.id, "heartbeat.maintenance_") || seed.id == "heartbeat.plugin_check" {
-			seed.minCLI = "0.6.6"
+			seed.minCLI = "0.7.2"
 		}
 		if strings.HasPrefix(seed.id, "need.capture.") {
 			seed.minCLI = "0.0.56"

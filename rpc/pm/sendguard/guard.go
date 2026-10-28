@@ -47,6 +47,16 @@ func Fingerprint(senderID int64, targetKind string, targetID int64, content stri
 	return keyPrefix + hex.EncodeToString(hash.Sum(nil))
 }
 
+// RequestFingerprint separates logical sends even when their text is identical.
+// An absent request ID preserves content deduplication for existing clients.
+func RequestFingerprint(senderID int64, targetKind string, targetID int64, content, requestID string) string {
+	if requestID == "" {
+		return Fingerprint(senderID, targetKind, targetID, content)
+	}
+	hash := sha256.Sum256([]byte(fmt.Sprintf("%d\n%s\n%d\n%s", senderID, targetKind, targetID, requestID)))
+	return "pm:send:request:v1:" + hex.EncodeToString(hash[:])
+}
+
 func (g *Guard) Acquire(ctx context.Context, key string) (*Lease, *Result, error) {
 	if g == nil || g.rdb == nil {
 		return nil, nil, errors.New("message send guard is unavailable")
