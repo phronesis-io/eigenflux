@@ -49,8 +49,7 @@ func feedBatchSize(cmd *cobra.Command) (int, error) {
 func batchCandidates(ledger *feedevent.Ledger, state feedevent.Reports, now int64) (open, backlog []feedevent.Entry) {
 	for _, e := range ledger.Entries() {
 		r := state.Exposure(e)
-		if !e.Feed || r.Baseline || r.ServedAt <= now-feedBacklogAge.Milliseconds() || r.ServedAt > now ||
-			(e.ItemExpiresAt > 0 && e.ItemExpiresAt <= now) {
+		if !e.Feed || r.Baseline || r.ServedAt <= now-feedBacklogAge.Milliseconds() || r.ServedAt > now {
 			continue
 		}
 		if r.HandedTime() == 0 {
@@ -74,8 +73,9 @@ func batchCandidates(ledger *feedevent.Ledger, state feedevent.Reports, now int6
 	return open, backlog
 }
 
-func shouldFetchFeedBatch(action string, state feedevent.Reports, open, backlog int, now int64) bool {
-	return action == "more" || open+backlog == 0 ||
+// Owner checks always fetch fresh content; saved work follows through feed next.
+func shouldFetchFeedBatch(action, origin string, state feedevent.Reports, open, backlog int, now int64) bool {
+	return action == "more" || origin == publishOriginOwner || open+backlog == 0 ||
 		(state.LocalPolls >= feedLocalPollLimit && now-state.LastFetchAt >= feedFetchInterval.Milliseconds())
 }
 
@@ -83,8 +83,7 @@ func expireFeedBacklog(ledger *feedevent.Ledger, state *feedevent.Reports, now i
 	var expired int64
 	for _, e := range ledger.Entries() {
 		r := state.Exposure(e)
-		if e.Feed && !r.Baseline && r.HandedTime() == 0 && r.BacklogExpiredAt == 0 &&
-			(r.ServedAt <= now-feedBacklogAge.Milliseconds() || e.ItemExpiresAt > 0 && e.ItemExpiresAt <= now) {
+		if e.Feed && !r.Baseline && r.HandedTime() == 0 && r.BacklogExpiredAt == 0 && r.ServedAt <= now-feedBacklogAge.Milliseconds() {
 			r.BacklogExpiredAt = now
 			state.Entries[r.ImpressionID+"\x00"+r.ItemID] = r
 			expired++
@@ -161,14 +160,13 @@ func makeFeedBatch(server string, payload json.RawMessage, selected []feedevent.
 
 // Select and persist under the existing report lock. Revalidate the invocation's
 // snapshot so a competing caller cannot turn newly handed items into its retries.
-func localFeedBatchPayload(server string, n int, poll bool) (json.RawMessage, *localFeedBatch, error) {
+func localFeedBatchPayload(server string, ledger *feedevent.Ledger, n int, poll bool) (json.RawMessage, *localFeedBatch, error) {
 	now := time.Now().UnixMilli()
 	store := feedReportStore(server)
 	before, err := store.Read()
 	if err != nil {
 		return nil, nil, err
 	}
-	ledger := feedLedger(server)
 	var payload json.RawMessage
 	var meta *localFeedBatch
 	var selectionErr error
@@ -195,7 +193,7 @@ func localFeedBatchPayload(server string, n int, poll bool) (json.RawMessage, *l
 			}
 			return
 		}
-		page, loadErr := feedevent.LoadPage(filepath.Join(cache.ServerDataDir(server), "broadcasts"), selected[0].ImpressionID)
+		page, loadErr := ledger.Page(selected[0].ImpressionID)
 		if loadErr != nil {
 			selectionErr = loadErr
 			return
@@ -290,7 +288,7 @@ var feedNextCmd = &cobra.Command{Use: "next", Short: "Read the next batch of a s
 	if _, err := auth.LoadV2Credentials(server); err != nil {
 		return err
 	}
-	payload, meta, err := localFeedBatchPayload(server, n, false)
+	payload, meta, err := localFeedBatchPayload(server, feedLedger(server), n, false)
 	if err != nil {
 		return err
 	}

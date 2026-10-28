@@ -17,15 +17,17 @@ V1 ignores batching; baseline pages are always whole and read-only.
 `feed poll --batch N` (1–20) saves a V2 page before printing its first N items.
 Later polls serve open items and backlog locally, oldest page and page position
 first, while still synchronizing control context, runtime heartbeat and settings.
-`--action more` always fetches. With work remaining, a new page is allowed after
-two consecutive local polls and at least 30 minutes since the last fetch, to
-bound notification delay. Otherwise the saved work is processed first.
+`--action more` and `--origin owner` always fetch; an owner check continues
+with saved work through `feed next`. With work remaining, a scheduled poll
+fetches a new page only after two consecutive local polls and at least 30
+minutes since the last fetch, to bound notification delay. Otherwise the saved
+work is processed first.
 
 `feed next --batch N` defaults to 5 and reads only local state, including skipping
 the background event flush. It selects up to N items from one page under the
 report lock. Open items (handed, unscored, unsurfaced, handed fewer than three
-times) precede never-handed backlog. Items older than 24 hours or past a supplied
-`expire_time` are excluded. Old ledger entries and whole pages count as handed
+times) precede never-handed backlog. Items served more than 24 hours ago are
+excluded. Old ledger entries and whole pages count as handed
 at `served_at`; upgrading does not turn old pages into backlog.
 
 Cache or ledger write failure prints the fetched whole page with a stderr
@@ -44,17 +46,21 @@ titles. Its totals include the entire pending set. Baseline and discovery/search
 pages and never-handed backlog are excluded. Backlog is counted separately.
 Queued, accepted, duplicate and rejected feedback all count
 as judged. `already_surfaced` marks items whose surface was already reported,
-across impressions, so they are not presented again.
+across impressions, so they are not presented again. It reads the ledger without
+taking its lock; a busy ledger only skips the `status_runs` counter.
 
-`feed status` also lists positive scores (1 or 2) from the last two hours that
-have no surface report. Each exposure is reminded once. Report surface only
-for items actually shown; scoring never declares surface.
+`feed status --after-push` lists only positive scores (1 or 2) from the last two
+hours that have no surface report. It records each listed exposure as reminded
+under the report lock, so each is listed once. With a busy ledger it still lists
+them without recording the reminder. The plain `feed status` never lists or
+consumes these reminders. Report surface only for items actually shown; scoring
+never declares surface.
 
 `heartbeat plan` (contract `eigenflux_heartbeat.v3`) adds the completion step
 "Before leaving the Feed stage, run `<cli_prefix> feed status`. Score every
 item it lists, then continue." once onboarding is completed, and sets
-`feed_completion_check`. After the push, it requires another `feed status` and
-surface reporting only for listed items the owner was actually shown.
+`feed_completion_check`. After the push, it requires `feed status --after-push`
+and surface reporting only for listed items the owner was actually shown.
 
 ## Feedback delivery
 
@@ -92,7 +98,7 @@ under `health`. These counters never enter the server's `feedback_health`.
 leaving the Feed stage it runs `feed status`, scores every listed item with its
 original impression and does not present items marked `already_surfaced`.
 Baseline Feed stays read-only. Owner-initiated Feed checks append
-`--origin owner` and drain saved batches. Scheduled cycles process the pulled
+`--origin owner`, which fetches a fresh page, and then drain saved batches. Scheduled cycles process the pulled
 batch of five and at most one additional batch. Combine recommendations into
 one push per cycle; never carry scored items into later pushes. Surface remains
 a separate report after delivery. Merge the Skill revision only after CLI

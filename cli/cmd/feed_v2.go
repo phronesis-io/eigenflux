@@ -178,10 +178,11 @@ func pollFeedV2(cmd *cobra.Command, serverName, limit string) error {
 		now := time.Now().UnixMilli()
 		state, readErr := feedReportStore(serverName).Read()
 		warnReportLedger(readErr)
-		open, backlog := batchCandidates(feedLedger(serverName), state, now)
+		ledger := feedLedger(serverName)
+		open, backlog := batchCandidates(ledger, state, now)
 		action, _ := cmd.Flags().GetString("action")
-		if readErr == nil && !shouldFetchFeedBatch(action, state, len(open), len(backlog), now) {
-			payload, meta, localErr := localFeedBatchPayload(serverName, batch, true)
+		if readErr == nil && !shouldFetchFeedBatch(action, originFlag, state, len(open), len(backlog), now) {
+			payload, meta, localErr := localFeedBatchPayload(serverName, ledger, batch, true)
 			warnReportLedger(localErr)
 			if localErr == nil && meta != nil {
 				return renderFeedV2Batch(cmd, payload, meta, false)

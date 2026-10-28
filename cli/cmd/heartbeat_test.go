@@ -308,7 +308,7 @@ func TestHeartbeatPlanFeedCompletionStep(t *testing.T) {
 	if heartbeatContractVersion != "eigenflux_heartbeat.v3" {
 		t.Fatal(heartbeatContractVersion)
 	}
-	for _, line := range []string{"After the Feed push, run test-prefix feed status once more. Report surface only for listed items the owner was actually shown.", "feed next reads this cycle's saved page and is not a pull."} {
+	for _, line := range []string{"After the Feed push, run test-prefix feed status --after-push. Report surface only for listed items the owner was actually shown.", "feed next reads this cycle's saved page and is not a pull."} {
 		if !strings.Contains(prompt, line) {
 			t.Fatal(prompt)
 		}
