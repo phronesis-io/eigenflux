@@ -24,8 +24,8 @@ separate scoring pass. `feed next` reads saved pages and is not a pull.
 
 In a scheduled cycle, process the pulled batch and at most one `feed next`.
 Leave the rest for the next cycle without mentioning backlog to the owner.
-For an owner check, append `--origin owner` and run `feed next` until it reports
-`open=0 backlog=0`. Collect recommendations from all batches in this cycle into
+For an owner check, append `--origin owner`: the pull always fetches a fresh
+page. Then run `feed next` until it reports `open=0 backlog=0`. Collect recommendations from all batches in this cycle into
 one push with one trailing block. Never carry a scored item into a later
 cycle's push. Never present an item marked `already_surfaced` again.
 
@@ -34,7 +34,7 @@ Baseline pages remain whole and read-only. V1 alone supports
 
 Checklist:
 
-- After the Feed push, record `feed event record --kind surface` only for items actually shown, preserving their original impressions. After the Feed push, run `<cli_prefix> feed status` once more. Report surface only for listed items the owner was actually shown. Scoring never declares surface.
+- After the Feed push, record `feed event record --kind surface` only for items actually shown, preserving their original impressions. After the Feed push, run `<cli_prefix> feed status --after-push`. Report surface only for listed items the owner was actually shown. Scoring never declares surface.
 
 - Before leaving the Feed stage, run `<cli_prefix> feed status`. Score every item it lists, then continue. Retrieve missing content with `feed get`; preserve the listed impression. Do not present items marked `already_surfaced`. Keep errors internal and continue safe stages when completion is blocked.
 

@@ -61,7 +61,7 @@ func TestFeedOwnerOriginAndCompletionContract(t *testing.T) {
 		if !strings.Contains(string(body), "Before leaving the Feed stage, run `<cli_prefix> feed status`. Score every item it lists, then continue.") {
 			t.Fatalf("%s missing the completion step", path)
 		}
-		for _, required := range []string{"feed poll --batch 5 --action refresh", "at most one", "feed next", "After the Feed push, run `<cli_prefix> feed status` once more. Report surface only for listed items the owner was actually shown."} {
+		for _, required := range []string{"feed poll --batch 5 --action refresh", "at most one", "feed next", "After the Feed push, run `<cli_prefix> feed status --after-push`. Report surface only for listed items the owner was actually shown."} {
 			if !strings.Contains(string(body), required) {
 				t.Errorf("%s missing %q", path, required)
 			}

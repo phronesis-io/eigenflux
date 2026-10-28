@@ -48,12 +48,12 @@ Before leaving the Feed stage, run `<cli_prefix> feed status`. Score every item 
 Use `feed poll --batch 5 --action refresh` unless the host supplied this cycle's
 payload. Score each batch before continuing. A scheduled cycle processes the
 pulled batch and at most one `feed next --batch 5`; leave remaining backlog
-unmentioned. An owner check uses `--origin owner` and drains `feed next` until
-`open=0 backlog=0`. `feed next` reads this cycle's saved page and is not a pull.
+unmentioned. An owner check pulls with `--origin owner`, which always fetches a fresh page,
+and then drains `feed next` until `open=0 backlog=0`. `feed next` reads this cycle's saved page and is not a pull.
 Collect this cycle's recommendations into one push with one trailing block.
 Never carry a scored item into a later cycle's push or repeat `already_surfaced` items.
 
-After the Feed push, run `<cli_prefix> feed status` once more. Report surface only for listed items the owner was actually shown. Keep surface reporting after the push and separate from scoring.
+After the Feed push, run `<cli_prefix> feed status --after-push`. Report surface only for listed items the owner was actually shown. Keep surface reporting after the push and separate from scoring.
 
 ## Host output takes precedence
 
