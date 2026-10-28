@@ -142,7 +142,7 @@ func TestFeedStatusBoundsAndFeedbackValidation(t *testing.T) {
 	}
 	ledger := feedevent.NewLedger(t.TempDir(), "server")
 	for _, raw := range []string{`[]`, `[{"item_id":"1","score":1.5}]`, `[{"item_id":"1","score":3}]`, `[{"item_id":"1","score":1,"surfaced":"true"}]`} {
-		if _, err := prepareFeedback(raw, ledger, "scope", time.Now().UnixMilli()); err == nil {
+		if _, err := prepareFeedback(raw, ledger, feedevent.Reports{}, "scope", time.Now().UnixMilli()); err == nil {
 			t.Fatal(raw)
 		}
 	}
@@ -208,7 +208,7 @@ func TestFeedbackReplayRestoresJudgmentAfterQueueOnlyWrite(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			events, err := prepareFeedback(`[{"item_id":"1","score":2}]`, feedevent.NewLedger(t.TempDir(), name), feedReportScope(name), now-50)
+			events, err := prepareFeedback(`[{"item_id":"1","score":2}]`, feedevent.NewLedger(t.TempDir(), name), feedevent.Reports{}, feedReportScope(name), now-50)
 			if err != nil {
 				t.Fatal(err)
 			}

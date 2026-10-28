@@ -44,9 +44,9 @@ func TestCapabilityRegistryMatchesFunctionalCLILeaves(t *testing.T) {
 	}
 	walk(rootCmd, nil)
 
-	// Local diagnostics do not require server capability publication. Keep this
+	// Local commands do not require server capability publication. Keep this
 	// explicit so adding a network command still requires a catalog contract.
-	localDiagnostics := map[string]bool{"eigenflux feed status": true}
+	localDiagnostics := map[string]bool{"eigenflux feed status": true, "eigenflux feed next": true}
 	for path := range localDiagnostics {
 		if !functional[path] {
 			t.Fatalf("stale local diagnostic: %s", path)

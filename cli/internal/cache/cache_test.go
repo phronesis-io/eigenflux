@@ -31,7 +31,9 @@ func TestSaveFeedResponse(t *testing.T) {
 	dir = setHomeDir(t, dir)
 
 	rawData := json.RawMessage(`{"items":[{"item_id":"1","summary":"test"}]}`)
-	SaveFeedResponse("testserver", rawData)
+	if err := SaveFeedResponse("testserver", rawData); err != nil {
+		t.Fatal(err)
+	}
 
 	today := time.Now().Format(dateFormat)
 	broadcastDir := filepath.Join(dir, "servers", "testserver", "data", "broadcasts", today)
@@ -55,6 +57,20 @@ func TestSaveFeedResponse(t *testing.T) {
 	}
 }
 
+func TestSaveFeedResponseReturnsWriteFailure(t *testing.T) {
+	t.Setenv("EIGENFLUX_HOME", t.TempDir())
+	dir := ServerDataDir("blocked")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "broadcasts"), []byte("blocked"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveFeedResponse("blocked", json.RawMessage(`{"items":[{"item_id":"1"}]}`)); err == nil {
+		t.Fatal("cache failure was hidden")
+	}
+}
+
 func TestSaveFeedResponse_SkipEmpty(t *testing.T) {
 	dir := t.TempDir()
 	dir = setHomeDir(t, dir)
@@ -65,7 +81,9 @@ func TestSaveFeedResponse_SkipEmpty(t *testing.T) {
 		`{}`,
 	}
 	for _, raw := range cases {
-		SaveFeedResponse("testserver", json.RawMessage(raw))
+		if err := SaveFeedResponse("testserver", json.RawMessage(raw)); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	broadcastDir := filepath.Join(dir, "servers", "testserver", "data", "broadcasts")

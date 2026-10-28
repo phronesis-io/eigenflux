@@ -27,37 +27,65 @@ func warnReportLedger(err error) {
 
 func recordFeedPull(server string, data json.RawMessage) error {
 	now := time.Now().UnixMilli()
+	var recordErr error
+	err := feedReportStore(server).Update(now, func(r *feedevent.Reports) { _, recordErr = recordFeedPage(r, data, now, 0) })
+	if err != nil {
+		return err
+	}
+	return recordErr
+}
+
+func recordFeedPage(r *feedevent.Reports, data json.RawMessage, now int64, batch int) ([]feedevent.Entry, error) {
 	var feed struct {
 		ImpressionID    string `json:"impression_id"`
 		Personalization struct {
-			Mode string `json:"mode"`
+			Mode            string `json:"mode"`
+			ContextRevision int64  `json:"context_revision"`
 		} `json:"personalization"`
 		Items []struct {
 			ItemID string `json:"item_id"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(data, &feed); err != nil {
-		return err
+		return nil, err
 	}
 	baseline := feed.Personalization.Mode == "baseline"
-	return feedReportStore(server).Update(now, func(r *feedevent.Reports) {
-		for _, item := range feed.Items {
-			key := feed.ImpressionID + "\x00" + item.ItemID
-			entry := r.Entries[key]
-			entry.ItemID = item.ItemID
-			entry.ImpressionID = feed.ImpressionID
+	selected := []feedevent.Entry{}
+	for position, item := range feed.Items {
+		key := feed.ImpressionID + "\x00" + item.ItemID
+		entry := r.Entries[key]
+		entry.ItemID = item.ItemID
+		entry.ImpressionID = feed.ImpressionID
+		if entry.ServedAt == 0 {
 			entry.ServedAt = now
-			entry.Baseline = baseline
-			r.Entries[key] = entry
+			unhanded := int64(0)
+			entry.HandedAt = &unhanded
 		}
-		r.Count(now, map[string]int64{"pulls": 1, "delivered_items": int64(len(feed.Items))})
-	})
+		entry.Baseline = baseline
+		entry.Position = position
+		entry.ContextRevision = feed.Personalization.ContextRevision
+		if batch == 0 || baseline || position < batch {
+			entry.Hand(now)
+			selected = append(selected, feedevent.Entry{ItemID: item.ItemID, ImpressionID: feed.ImpressionID, Position: position})
+		}
+		r.Entries[key] = entry
+	}
+	r.LastFetchAt, r.LocalPolls = now, 0
+	r.Count(now, map[string]int64{"pulls": 1, "delivered_items": int64(len(feed.Items))})
+	if batch > 0 && !baseline {
+		r.Count(now, map[string]int64{"batches_handed": 1})
+	}
+	return selected, nil
 }
 
 type feedStatus struct {
-	Items       []feedevent.PendingItem `json:"items"`
-	Pending     int                     `json:"pending"`
-	OldestAgeMs int64                   `json:"oldest_age_ms"`
+	Items             []feedevent.PendingItem `json:"items"`
+	Pending           int                     `json:"pending"`
+	OldestAgeMs       int64                   `json:"oldest_age_ms"`
+	Open              int                     `json:"open"`
+	Backlog           int                     `json:"backlog"`
+	SurfaceUnreported []feedevent.PendingItem `json:"surface_unreported"`
+	Health            map[string]int64        `json:"health"`
 }
 
 func buildFeedStatus(pending []feedevent.PendingItem) feedStatus {
@@ -78,17 +106,39 @@ var feedStatusCmd = &cobra.Command{Use: "status", Short: "List unscored Feed exp
 	}
 	now := time.Now().UnixMilli()
 	store := feedReportStore(server)
-	state, err := store.Read()
+	ledger := feedLedger(server)
+	var status feedStatus
+	err := store.Update(now, func(state *feedevent.Reports) {
+		expireFeedBacklog(ledger, state, now)
+		status = buildFeedStatus(ledger.Pending(*state, now))
+		open, backlog := batchCandidates(ledger, *state, now)
+		status.Open, status.Backlog = len(open), len(backlog)
+		status.SurfaceUnreported = []feedevent.PendingItem{}
+		for _, e := range ledger.ReportEntries(*state) {
+			r := state.Exposure(e)
+			if !e.Feed || r.Baseline || r.HandedTime() == 0 || r.ScoredAt <= now-feedSurfaceReminderWindow.Milliseconds() || r.ScoredAt > now ||
+				(r.Score != 1 && r.Score != 2) || state.Surfaced(e.ItemID) || r.SurfaceRemindedAt > 0 {
+				continue
+			}
+			status.SurfaceUnreported = append(status.SurfaceUnreported, feedevent.PendingItem{ItemID: e.ItemID, ImpressionID: e.ImpressionID, Title: e.Title, AgeMs: now - r.ScoredAt})
+			r.SurfaceRemindedAt = now
+			state.Entries[r.ImpressionID+"\x00"+r.ItemID] = r
+		}
+		state.Count(now, map[string]int64{"status_runs": 1, "surface_reminders": int64(len(status.SurfaceUnreported))})
+		status.Health = state.HealthCounts(now)
+	})
 	if err != nil {
 		return err
 	}
-	status := buildFeedStatus(pendingFeed(server, state, now))
-	warnReportLedger(store.Count(now, map[string]int64{"status_runs": 1}))
 	if resolveFormat() == "agent" {
 		for _, item := range status.Items {
 			fmt.Fprintf(cmd.OutOrStdout(), "item_id=%s impression_id=%s age_ms=%d already_surfaced=%t title=%q\n", item.ItemID, item.ImpressionID, item.AgeMs, item.AlreadySurfaced, item.Title)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "pending=%d oldest_age=%dms\n", status.Pending, status.OldestAgeMs)
+		fmt.Fprintf(cmd.OutOrStdout(), "pending=%d oldest_age=%dms open=%d backlog=%d\n", status.Pending, status.OldestAgeMs, status.Open, status.Backlog)
+		for _, item := range status.SurfaceUnreported {
+			fmt.Fprintf(cmd.OutOrStdout(), "surface_unreported item_id=%s impression_id=%s title=%q\n", item.ItemID, item.ImpressionID, item.Title)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "surface_unreported=%d (report only items actually shown)\n", len(status.SurfaceUnreported))
 	} else {
 		output.PrintData(status, resolveFormat())
 	}

@@ -2,10 +2,12 @@ package feedevent
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Ledger is an item_id -> Entry map built from the CLI's broadcast cache. It is
@@ -19,6 +21,7 @@ import (
 type Ledger struct {
 	entries map[string]Entry
 	exact   map[string]Entry
+	pages   map[string]string
 }
 
 // cachedResponse is the shape SaveFeedResponse persists (the API `data` object).
@@ -29,8 +32,9 @@ type cachedResponse struct {
 		SourceRef struct {
 			Type string `json:"type"`
 		} `json:"source_ref"`
-		Summary string `json:"summary"`
-		Preview struct {
+		Summary    string `json:"summary"`
+		ExpireTime string `json:"expire_time"`
+		Preview    struct {
 			Text string `json:"text"`
 		} `json:"preview"`
 	} `json:"items"`
@@ -40,7 +44,7 @@ type cachedResponse struct {
 // directory yields an empty (all-missing) ledger — callers treat that as
 // "unknown item", never an error.
 func NewLedger(broadcastsDir, serverID string) *Ledger {
-	l := &Ledger{entries: map[string]Entry{}, exact: map[string]Entry{}}
+	l := &Ledger{entries: map[string]Entry{}, exact: map[string]Entry{}, pages: map[string]string{}}
 	dateDirs, err := os.ReadDir(broadcastsDir)
 	if err != nil {
 		return l
@@ -83,7 +87,8 @@ func (l *Ledger) absorb(path, serverID string) {
 	var envelope struct {
 		SchemaVersion   string `json:"schema_version"`
 		Personalization struct {
-			Mode string `json:"mode"`
+			Mode            string `json:"mode"`
+			ContextRevision int64  `json:"context_revision"`
 		} `json:"personalization"`
 	}
 	_ = json.Unmarshal(data, &envelope)
@@ -96,7 +101,10 @@ func (l *Ledger) absorb(path, serverID string) {
 	if info, err := os.Stat(path); err == nil {
 		servedMs = info.ModTime().UnixMilli()
 	}
-	for _, it := range resp.Items {
+	if _, exists := l.pages[resp.ImpressionID]; !exists {
+		l.pages[resp.ImpressionID] = path
+	}
+	for position, it := range resp.Items {
 		if it.ItemID == "" || (it.SourceRef.Type != "" && it.SourceRef.Type != "broadcast") {
 			continue
 		}
@@ -106,10 +114,15 @@ func (l *Ledger) absorb(path, serverID string) {
 		}
 		entry := Entry{
 			ItemID: it.ItemID, ServedAt: servedMs, Feed: envelope.SchemaVersion == "feed.v2", Baseline: envelope.Personalization.Mode == "baseline",
-			ImpressionID: resp.ImpressionID,
-			ServerID:     serverID,
-			Title:        truncate(it.Summary, shortTitleMax),
-			ExpiresAt:    servedMs + ledgerTTLMs,
+			ImpressionID:    resp.ImpressionID,
+			ServerID:        serverID,
+			Title:           truncate(it.Summary, shortTitleMax),
+			ExpiresAt:       servedMs + ledgerTTLMs,
+			Position:        position,
+			ContextRevision: envelope.Personalization.ContextRevision,
+		}
+		if expires, err := time.Parse(time.RFC3339, it.ExpireTime); err == nil {
+			entry.ItemExpiresAt = expires.UnixMilli()
 		}
 		if _, seen := l.entries[it.ItemID]; !seen {
 			l.entries[it.ItemID] = entry
@@ -118,6 +131,49 @@ func (l *Ledger) absorb(path, serverID string) {
 			l.exact[reportKey(resp.ImpressionID, it.ItemID)] = entry
 		}
 	}
+}
+
+func (l *Ledger) Entries() []Entry {
+	entries := make([]Entry, 0, len(l.exact))
+	for _, entry := range l.exact {
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
+// Whole-page fallback remains scoreable even when its cache write failed.
+func (l *Ledger) ReportEntries(reports Reports) []Entry {
+	entries := l.Entries()
+	for key, r := range reports.Entries {
+		if _, cached := l.exact[key]; !cached && r.ServedAt > 0 {
+			entries = append(entries, Entry{ItemID: r.ItemID, ImpressionID: r.ImpressionID, ServedAt: r.ServedAt, Feed: true, Baseline: r.Baseline, Position: r.Position})
+		}
+	}
+	return entries
+}
+
+func LoadPage(broadcastsDir, impressionID string) (json.RawMessage, error) {
+	path := NewLedger(broadcastsDir, "").pages[impressionID]
+	if path == "" {
+		return nil, fmt.Errorf("cached Feed page %q is unavailable", impressionID)
+	}
+	return os.ReadFile(path)
+}
+
+func (l *Ledger) LookupHanded(itemID string, reports Reports, now int64) (Entry, Status) {
+	var latest Entry
+	var handedAt int64
+	for _, entry := range l.exact {
+		r := reports.Exposure(entry)
+		if entry.ItemID == itemID && entry.ExpiresAt >= now && r.HandedTime() > 0 &&
+			(r.HandedTime() > handedAt || r.HandedTime() == handedAt && entry.ServedAt > latest.ServedAt) {
+			latest, handedAt = entry, r.HandedTime()
+		}
+	}
+	if handedAt == 0 {
+		return Entry{}, StatusMissing
+	}
+	return latest, StatusHit
 }
 
 // Lookup returns the entry and whether the item is reportable at nowMs.

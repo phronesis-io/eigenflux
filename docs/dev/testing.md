@@ -268,10 +268,23 @@ integrity](cli-release.md).
 CLI feedback completion regressions run with `go test ./cmd ./internal/feedevent`
 from `cli/`. They cover concurrent subprocess writers, process death while a
 report lock is held, 72-hour queue expiry, exact exposure attribution, scheduled
-pulls that always fetch, a corrupt ledger that never blocks Feed or feedback,
+whole-page pulls that always fetch, opt-in saved batches, a corrupt ledger that never blocks Feed or feedback,
 lifecycle commands that skip the queue flush, Unicode status bounds and health
 fields. HTTP fixtures exercise the real
 CLI command paths; production cohort metrics remain rollout acceptance checks.
+
+Feed batching regressions also cover cache/lock failure fallback, old-ledger
+upgrade, concurrent process handouts, open-before-backlog order, expiry,
+re-hand limits, current control context, one-time surface reminders and local
+health-counter isolation. Run `go test -race ./cmd ./internal/feedevent
+./internal/cache` from `cli/`.
+
+With isolated migrated infrastructure and built services, run
+`DISCOVERY_E2E=1 EIGENFLUX_TEST_CLI="$PWD/build/cli/eigenflux-darwin-arm64"
+./tests/run.sh --skip-start discoverye2e -c TestFeedCLISavedBatchesKeepOneExposureSet`
+(select the binary for your platform). This suite starts its own application
+processes. It scores a batch, reads two saved batches, then polls locally and
+checks the real replay/feedback rows retain the single original impression.
 
 Build the CLI with `cd cli && go build -o ../build/eigenflux-cli .`, then run
 `EIGENFLUX_TEST_CLI="$PWD/build/eigenflux-cli" ./tests/run.sh --skip-start e2e -c TestCLIFeedbackProcessRecovery`

@@ -846,7 +846,8 @@ are stored separately from settings and server delivery/feedback facts.
 
 ### CLI feedback completion
 
-CLI 0.7.0 adds `feed status` and the `eigenflux_heartbeat.v2` completion step.
+CLI 0.7.1 adds opt-in `feed poll --batch N`, local `feed next`, and
+`eigenflux_heartbeat.v3` scoring and post-push surface checks through `feed status`.
 The [client feedback contract](feedback_clients.md) defines local report state,
 durable keyed retries and the `feedback_health` settings report.
 Baseline Feed remains read-only. The server's feedback wire schema is unchanged;

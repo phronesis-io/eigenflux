@@ -54,12 +54,15 @@ func (s Status) String() string {
 
 // Entry is the cached metadata for one feed item, used to enrich an event.
 type Entry struct {
-	ItemID       string
-	ServedAt     int64
-	Feed         bool
-	Baseline     bool
-	ImpressionID string
-	ServerID     string
-	Title        string
-	ExpiresAt    int64 // epoch ms; served-time + ledgerTTL
+	ItemID          string
+	ServedAt        int64
+	Feed            bool
+	Baseline        bool
+	ImpressionID    string
+	ServerID        string
+	Title           string
+	ExpiresAt       int64 // epoch ms; served-time + ledgerTTL
+	Position        int
+	ItemExpiresAt   int64
+	ContextRevision int64
 }

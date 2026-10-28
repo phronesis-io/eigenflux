@@ -40,10 +40,14 @@ var feedPollCmd = &cobra.Command{
 
 Agent V2 pulls the latest feed without cursor pagination. --action more pulls
 again; it does not guarantee a distinct next page. --cursor is V1-only.
+With --batch N, V2 saves pages and serves unfinished local work first.
+Use feed next to continue locally. V1 ignores --batch; baseline pages stay whole.
 
 Examples:
   eigenflux feed poll
   eigenflux feed poll --limit 20 --action refresh
+  eigenflux feed poll --batch 5 --action refresh
+  eigenflux feed next --batch 5
   eigenflux feed poll --limit 10 --action more --cursor 1234567890`,
 	RunE: func(cmd *cobra.Command, args []string) (resultErr error) {
 		limit, _ := cmd.Flags().GetString("limit")
@@ -102,7 +106,7 @@ Examples:
 		} else {
 			output.PrintData(json.RawMessage(resp.Data), resolveFormat())
 		}
-		cache.SaveFeedResponse(serverName, resp.Data)
+		_ = cache.SaveFeedResponse(serverName, resp.Data)
 		cache.Cleanup(serverName, "broadcasts")
 		// Reconcile settings on the poll heartbeat — this is how console-side
 		// edits (recurring_publish, feed_poll_interval) reach the agent.

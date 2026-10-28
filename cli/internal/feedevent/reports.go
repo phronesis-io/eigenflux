@@ -20,6 +20,12 @@ type Report struct {
 	ImpressionID      string `json:"impression_id"`
 	ItemID            string `json:"item_id"`
 	ServedAt          int64  `json:"served_at"`
+	HandedAt          *int64 `json:"handed_at,omitempty"`
+	HandCount         int    `json:"hand_count,omitempty"`
+	Position          int    `json:"position"`
+	ContextRevision   int64  `json:"context_revision,omitempty"`
+	SurfaceRemindedAt int64  `json:"surface_reminded_at,omitempty"`
+	BacklogExpiredAt  int64  `json:"backlog_expired_at,omitempty"`
 	ScoredAt          int64  `json:"scored_at,omitempty"`
 	Score             int    `json:"score,omitempty"`
 	ClientKey         string `json:"client_key,omitempty"`
@@ -32,9 +38,54 @@ type HealthEvent struct {
 	Counts map[string]int64 `json:"counts"`
 }
 type Reports struct {
-	Scope   string            `json:"scope"`
-	Entries map[string]Report `json:"entries"`
-	Health  []HealthEvent     `json:"health,omitempty"`
+	Scope       string            `json:"scope"`
+	Entries     map[string]Report `json:"entries"`
+	Health      []HealthEvent     `json:"health,omitempty"`
+	LastFetchAt int64             `json:"last_fetch_at,omitempty"`
+	LocalPolls  int               `json:"local_polls,omitempty"`
+}
+
+// A missing handed_at belongs to an older CLI or a whole-page delivery.
+func (r Report) HandedTime() int64 {
+	if r.HandedAt == nil {
+		return r.ServedAt
+	}
+	return *r.HandedAt
+}
+
+func (r Report) Hands() int {
+	if r.HandedTime() > 0 {
+		return max(1, r.HandCount)
+	}
+	return 0
+}
+
+func (r *Report) Hand(now int64) {
+	r.HandCount = r.Hands() + 1
+	r.HandedAt = &now
+}
+
+func (r Reports) Exposure(e Entry) Report {
+	report := r.Entries[reportKey(e.ImpressionID, e.ItemID)]
+	report.ItemID, report.ImpressionID = e.ItemID, e.ImpressionID
+	if report.ServedAt == 0 {
+		report.ServedAt = e.ServedAt
+	}
+	report.Baseline = report.Baseline || e.Baseline
+	report.Position = e.Position
+	if report.ContextRevision == 0 {
+		report.ContextRevision = e.ContextRevision
+	}
+	return report
+}
+
+func (r Reports) Surfaced(itemID string) bool {
+	for _, entry := range r.Entries {
+		if entry.ItemID == itemID && entry.SurfaceReportedAt > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // ErrCorruptReports marks an unreadable ledger file.
@@ -210,15 +261,15 @@ func (l *Ledger) Pending(reports Reports, now int64) []PendingItem {
 			surfaced[r.ItemID] = true
 		}
 	}
-	for key, e := range l.exact {
-		if !e.Feed || e.Baseline || e.ServedAt <= now-PendingWindowMs || e.ServedAt > now {
+	for _, e := range l.ReportEntries(reports) {
+		report := reports.Exposure(e)
+		if !e.Feed || e.Baseline || report.ServedAt <= now-PendingWindowMs || report.ServedAt > now {
 			continue
 		}
-		report := reports.Entries[key]
-		if report.Baseline || report.Delivery == "queued" || report.Delivery == "accepted" || report.Delivery == "duplicate" || report.Delivery == "rejected" {
+		if report.HandedTime() == 0 || report.Baseline || report.ScoredAt > 0 || report.Delivery == "queued" || report.Delivery == "accepted" || report.Delivery == "duplicate" || report.Delivery == "rejected" {
 			continue
 		}
-		pending = append(pending, PendingItem{ItemID: e.ItemID, ImpressionID: e.ImpressionID, AgeMs: now - e.ServedAt, Title: e.Title, AlreadySurfaced: surfaced[e.ItemID]})
+		pending = append(pending, PendingItem{ItemID: e.ItemID, ImpressionID: e.ImpressionID, AgeMs: now - report.ServedAt, Title: e.Title, AlreadySurfaced: surfaced[e.ItemID]})
 	}
 	sort.Slice(pending, func(i, j int) bool {
 		if pending[i].AgeMs != pending[j].AgeMs {
