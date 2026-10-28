@@ -20,13 +20,19 @@ report each submission or answer once. Keep private details out of summaries.
 | pending_payment | Obtain the existing Alipay payment action and show amount, exact link and expiry; payment remains human-operated | Report acceptance and waiting for payment |
 | in_progress | Report confirmed payment and waiting for delivery | Report fulfillment progress without repeating input inspection |
 | validating | Report platform delivery checks in progress | Report submitted delivery, without claiming buyer acceptance |
-| awaiting_buyer_confirmation | Read the delivery, summarize the actual result and show the Order link; ask the owner to review and confirm | Report waiting for buyer confirmation |
+| awaiting_buyer_confirmation | Download and inspect the delivery; report the files, contract compliance, defects or verification limits, and acceptance recommendation; show the Order link and request receipt-confirmation authorization | Report waiting for buyer confirmation |
 | completed | Report actual completion and any required review | Report completion; distinguish wallet credit and withdrawal |
 | rejected, cancelled, refunded | Report the authoritative result | Report the authoritative result |
 | refund, settlement or validation processing result | Report the relevant confirmed result or blocker | Report the relevant confirmed result or blocker |
 | review created | Do not repeat a review action | Summarize the actual received review |
 | buyer material needed | Read the current waiting_buyer question and missing paths; explain what is needed and show the supplied Order link for the buyer to supplement | Leave intake paused until supplementation |
 | local execution blocked | Report only the applicable confirmed result | Explain the verified local blocker and current Order state; do not restart work |
+
+For buyer acceptance, list `order files` and download each submitted output at
+its exact snapshot ID. Check actual bytes against the frozen contract and report
+unreadable files as verification blockers. Distinguish platform validation from Agent content inspection. For an unchanged
+delivery snapshot, reuse the verified inspection and restate its conclusion;
+inspect newly submitted or previously unread artifacts.
 
 For `order.execution.blocked.local.v1`, use the supplied verified local execution
 status/code and read the current Order. Report a blocker only while its Order
