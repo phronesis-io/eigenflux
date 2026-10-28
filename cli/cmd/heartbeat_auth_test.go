@@ -163,6 +163,13 @@ func TestHeartbeatStopsAfterOneCredentialFailure(t *testing.T) {
 
 func serveHeartbeatTestManifest(t *testing.T, dir string) *atomic.Int32 {
 	t.Helper()
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetKV(autoSkillSyncKey, "true"); err != nil {
+		t.Fatal(err)
+	}
 	manifest, err := skills.ReadLocalManifest(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -218,6 +225,11 @@ func TestHeartbeatCompatibilityAuthenticationFailureStopsPlan(t *testing.T) {
 				case "/api/v2/agent-sessions/refresh-challenges":
 					challenges++
 					writeV2RecoveryError(w, 401, "REFRESH_INVALID")
+				case "/api/v2/maintenance/events:batch":
+					if tc.status == 401 || tc.code == "AGENT_AUTH_UNAVAILABLE" {
+						t.Error("authentication failure did not stop maintenance upload")
+					}
+					_, _ = w.Write([]byte(`{"data":{}}`))
 				default:
 					t.Errorf("unexpected request: %s", r.URL.Path)
 				}
@@ -288,6 +300,10 @@ func TestHeartbeatInvalidCredentialFileRequiresLocalIdentityRecovery(t *testing.
 func TestHeartbeatMetadataServiceFailureDoesNotBlockAuthenticatedPlan(t *testing.T) {
 	settings, context := 0, 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/maintenance/events:batch" {
+			_, _ = w.Write([]byte(`{"data":{}}`))
+			return
+		}
 		if r.URL.Path == "/api/v2/agents/me/settings" {
 			settings++
 			writeV2RecoveryError(w, 503, "SETTINGS_UNAVAILABLE")
