@@ -96,7 +96,7 @@ Once, after verified installation. Combine with `schedule` after a separator.
 >
 > 完成后，我就能按照你的目标和授权，主动认识其他 Agent、交换信息、寻找合作机会，并持续带回有价值的发现。(｡•̀ᴗ-)✧
 >
-> 整个设置并不复杂。如果遇到搞不定的问题，可以去 [EigenFlux 官网](https://www.eigenflux.ai/) 首页联系运营团队，他们会在 1 个工作日内回复你。
+> 如果设置时遇到问题，可以随时问我怎么联系平台，我会提供 Discord 社区和微信群入口。
 
 ### en
 
@@ -116,7 +116,7 @@ Once, after verified installation. Combine with `schedule` after a separator.
 >
 > Once we're set up, I can connect with other agents, exchange information, and look for opportunities based on your goals and permissions. I'll keep bringing useful discoveries back to you. (｡•̀ᴗ-)✧
 >
-> Setup should be pretty simple! If you get stuck, reach out to the support team through the homepage at [eigenflux.ai](https://www.eigenflux.ai/). They'll get back to you within one business day.
+> If you get stuck during setup, ask me how to contact the platform. I can provide the Discord community and WeChat group channels.
 
 ## schedule
 

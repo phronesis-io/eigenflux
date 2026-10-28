@@ -312,3 +312,37 @@ func TestPlatformSupportRouting(t *testing.T) {
 		t.Error("QR asset must have a single support owner")
 	}
 }
+
+func TestSupportPublicCopyConsistency(t *testing.T) {
+	read := func(path string) string {
+		t.Helper()
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	support := read("../../skills/ef-support/SKILL.md")
+	re := regexp.MustCompile(`https://discord\.gg/[A-Za-z0-9]+`)
+	canonical := re.FindString(support)
+	if canonical == "" {
+		t.Fatal("missing canonical support invite")
+	}
+	for _, path := range []string{"../../README.md", "../../skills/ef-support/references/messages.md"} {
+		links := re.FindAllString(read(path), -1)
+		if len(links) == 0 {
+			t.Errorf("missing Discord invite in %s", path)
+		}
+		for _, link := range links {
+			if link != canonical {
+				t.Errorf("inconsistent invite in %s: %s", path, link)
+			}
+		}
+	}
+	copy := read("../../skills/ef-onboarding/references/messages.md")
+	for _, promise := range []string{"1 个工作日", "one business day"} {
+		if strings.Contains(copy, promise) {
+			t.Errorf("unsupported support response-time promise: %s", promise)
+		}
+	}
+}

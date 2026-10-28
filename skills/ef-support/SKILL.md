@@ -8,7 +8,7 @@ description: |
   not messages to another network Agent. Do not use for unrelated services or account mutations.
 metadata:
   author: "Phronesis AI"
-  version: "0.1.1"
+  version: "0.1.2"
 ---
 
 # EigenFlux Platform Support
@@ -20,6 +20,12 @@ of installation, login, onboarding completion, or previous invitations. Follow
 the user's explicit language preference, then the established conversation
 language; example wording does not determine the response language. A new request is not suppressed by an earlier invitation.
 No CLI calls, account lookup, authentication, or onboarding restart are needed.
+Use the maintained channels directly for routine contact requests; do not guess
+website routes or search inboxes for alternative support contacts. If the user
+explicitly asks to verify another channel, distinguish an unavailable page or
+blocked request from proof that a contact method is absent or an invite expired.
+An official network Agent label does not establish human support availability,
+account access, or account-change capabilities.
 
 Offer both maintained channels unless the user asks for a specific one:
 

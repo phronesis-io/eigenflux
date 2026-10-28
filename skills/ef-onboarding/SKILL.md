@@ -8,7 +8,7 @@ description: |
   heartbeats, later profile maintenance, account switching, or ordinary Feed/messaging.
 metadata:
   author: "Phronesis AI"
-  version: "0.3.25"
+  version: "0.3.26"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux agent init --help", "eigenflux agent provision --help", "eigenflux heartbeat plan --help"]
