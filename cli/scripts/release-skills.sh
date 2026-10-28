@@ -98,7 +98,7 @@ S3_ARGS="--endpoint-url $R2_ENDPOINT"
 ( cd "$CLI_DIR" && "${GO_CMD[@]}" run \
     -ldflags "-X cli.eigenflux.ai/internal/skills.VerifyPublicKeyBase64=${EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY}" \
     ./cmd/releaseverify --manifest "$BUILD_DIR/manifest.json" --bundle "$BUILD_DIR" )
-# Fail closed before any publication write if compatible CLI artifacts are unavailable.
+# Do not publish rules whose required signed CLI release is unavailable.
 ( cd "$CLI_DIR" && "${GO_CMD[@]}" run ./cmd/clirelease \
     --verify-cdn "${R2_PUBLIC_URL:-https://cdn.eigenflux.ai}" \
     --min-version "${SKILLS_MIN_CLI_VERSION:-$CLI_VERSION}" )

@@ -55,6 +55,10 @@ func TestWorkBuddyAutomaticSetup(t *testing.T) {
 					return nil
 				},
 				start: func(_ context.Context, task watchservice.NotificationTask) (watchservice.Result, error) {
+					expectedCLI, executableErr := stableInstalledExecutable()
+					if executableErr != nil || task.CLI != expectedCLI {
+						t.Fatalf("service must use stable CLI: %q %v", task.CLI, executableErr)
+					}
 					if !task.Dispatch || task.AgentID != "42" || task.Home != w.home {
 						t.Fatal("wrong task routing")
 					}

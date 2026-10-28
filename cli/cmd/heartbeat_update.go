@@ -1,47 +1,130 @@
 package cmd
 
 import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"syscall"
+	"time"
+
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/selfupdate"
 	"cli.eigenflux.ai/internal/skills"
-	"context"
-	"encoding/base64"
 	"github.com/spf13/cobra"
-	"os"
-	"os/exec"
-	"os/signal"
-	"strings"
-	"syscall"
-	"time"
 )
 
 const updateReexecEnv = "EIGENFLUX_UPDATE_REEXEC"
 const updateAttemptEnv = "EIGENFLUX_UPDATE_ATTEMPT"
+const updateIdentityEnv = "EIGENFLUX_UPDATE_IDENTITY"
+
+// The process handoff is pinned independently of optional maintenance receipts.
+type cliUpdateIdentity struct {
+	Scope       maintenance.Scope `json:"scope"`
+	PrincipalID string            `json:"principal_id"`
+	Endpoint    string            `json:"endpoint"`
+}
+
+func captureCLIUpdateIdentity(server string) (*cliUpdateIdentity, error) {
+	credentials, err := auth.LoadV2Credentials(server)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, err
+	}
+	target, err := cfg.GetActive(server)
+	if err != nil {
+		return nil, err
+	}
+	home, err := filepath.EvalSymlinks(config.HomeDir())
+	if err != nil {
+		return nil, err
+	}
+	return &cliUpdateIdentity{Scope: maintenance.Scope{Home: home, Server: target.Name, AgentID: credentials.AgentID}, PrincipalID: credentials.PrincipalID, Endpoint: target.Endpoint}, nil
+}
+
+func (identity *cliUpdateIdentity) verify() error {
+	if identity == nil {
+		return nil
+	}
+	if _, err := maintenanceIdentity(identity.Scope, identity.PrincipalID, identity.Endpoint); err != nil {
+		return fmt.Errorf("CLI update identity changed; rerun explicitly: %w", err)
+	}
+	return nil
+}
+
+func verifyCLIUpdateReexecIdentity() error {
+	encoded := os.Getenv(updateIdentityEnv)
+	if os.Getenv(updateReexecEnv) != "1" || encoded == "" {
+		return nil
+	}
+	var identity cliUpdateIdentity
+	if err := json.Unmarshal([]byte(encoded), &identity); err != nil || identity.Scope.Home == "" || identity.Scope.Server == "" || identity.Scope.AgentID == "" || identity.Endpoint == "" {
+		return fmt.Errorf("invalid CLI update identity handoff")
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	target, err := cfg.GetActive(serverFlag)
+	if err != nil || target.Name != identity.Scope.Server {
+		return fmt.Errorf("CLI update server changed; rerun explicitly")
+	}
+	return identity.verify()
+}
 
 func updateHeartbeatCLI(cmd *cobra.Command, cfg *config.Config, minimum string) (selfupdate.Result, bool, error) {
-	serverName := activeServerName()
-	observationScope, _ := maintenanceScope(serverName)
-	recordObservation := func(e maintenance.Event) { _ = recordMaintenanceEventAtScope(observationScope, e) }
-	meta := clientMetaForServerName(serverName)
-	if os.Getenv(updateReexecEnv) == "1" {
-		if scope, err := maintenanceScope(serverName); err == nil {
-			if previous, err := maintenance.LastAttempt(scope, "cli"); err == nil && previous.AttemptID == os.Getenv(updateAttemptEnv) && previous.ToVersion == version && previous.Result == "installed" {
-				e := maintenance.NewEvent(previous.AttemptID, "cli", previous.Trigger, "execute", "executed")
-				e.FromVersion = previous.FromVersion
-				e.ToVersion = version
-				e.RunningVersion = version
-				recordObservation(e)
-			}
+	result, restarted, _, err := runObservedCLIUpdate(cmd, cfg, minimum, false)
+	return result, restarted, err
+}
+
+func runObservedCLIUpdate(cmd *cobra.Command, cfg *config.Config, minimum string, manual bool) (selfupdate.Result, bool, *maintenanceRecorder, error) {
+	server := serverFlag
+	if cfg != nil {
+		if target, err := cfg.GetActive(server); err == nil {
+			server = target.Name
 		}
-		return selfupdate.Result{Status: "restarted", Version: version}, false, nil
 	}
-	if !heartbeatMaintenanceEnabled(meta.Mode, cfg, "auto_cli_update") {
-		return selfupdate.Result{Status: "skipped", Version: version}, false, nil
+	trigger := "auto"
+	if manual {
+		trigger = "manual"
+	}
+	if os.Getenv(updateReexecEnv) == "1" {
+		recorder := resumedCLIRecorder(server, trigger, cmd.ErrOrStderr())
+		return selfupdate.Result{Status: "restarted", Version: version}, false, recorder, nil
+	}
+	recorder := newMaintenanceRecorder(server, "cli", trigger, "", cmd.ErrOrStderr())
+	if !manual && (cfg == nil || !heartbeatMaintenanceEnabled(clientMetaForServerName(server).Mode, cfg, "auto_cli_update")) {
+		return selfupdate.Result{Status: "skipped", Version: version}, false, recorder, nil
+	}
+	identity, err := captureCLIUpdateIdentity(server)
+	if err != nil {
+		if !manual {
+			result := selfupdate.Result{Status: "failed", Version: version, Error: err.Error()}
+			recorder.Complete(result, version)
+			return result, false, recorder, nil
+		}
+		recorder.failure("update_identity_unavailable")
 	}
 	path, err := os.Executable()
 	if err != nil {
-		return selfupdate.Result{Status: "failed", Version: version, Error: err.Error()}, false, nil
+		result := selfupdate.Result{Status: "failed", Version: version, Error: err.Error()}
+		recorder.Complete(result, version)
+		return result, false, recorder, nil
 	}
 	key, _ := base64.StdEncoding.DecodeString(skills.VerifyPublicKeyBase64)
 	ctx := cmd.Context()
@@ -49,63 +132,45 @@ func updateHeartbeatCLI(cmd *cobra.Command, cfg *config.Config, minimum string) 
 		ctx = context.Background()
 	}
 	updateCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	started := time.Now()
-	observation := maintenanceEvent("cli", "check", "started")
-	observation.FromVersion = version
-	r := selfupdate.Check(updateCtx, selfupdate.Options{Home: config.HomeDir(), Executable: path, Version: version, Minimum: minimum, CDN: cdnBase(), Key: key, OnAttempt: func() { recordObservation(observation) }})
-	result := "no_update"
-	switch r.Status {
-	case "updated":
-		result = "installed"
-	case "failed":
-		result = "failed"
-	case "unconfigured":
-		result = "blocked"
-	}
-	phase := r.Phase
-	if phase == "" {
-		phase = "check"
-	}
-	trigger := "auto"
-	if phase == "adoption" {
-		trigger = "adoption"
-	}
-	e := maintenance.NewEvent(observation.AttemptID, "cli", trigger, phase, result)
-	e.FromVersion = version
-	e.ToVersion = r.Version
-	e.DurationMS = time.Since(started).Milliseconds()
-	if r.Error != "" {
-		e.ErrorCode = "update_failed"
-		if strings.Contains(r.Error, "permission") || strings.Contains(r.Error, "access is denied") || strings.Contains(r.Error, "existing binary retained") {
-			e.Result = "blocked"
-			e.ErrorCode = "installation_blocked"
-		}
-		if strings.Contains(r.Error, "previous binary restored") {
-			e.Result = "rolled_back"
-			e.ErrorCode = "probe_failed"
-		}
-	}
-	if r.Attempted || r.Status == "failed" || r.Status == "unconfigured" || r.Status == "updated" {
-		recordObservation(e)
-	}
-	// Check must finish synchronous rollback before restoring signal defaults.
-	updateErr := updateCtx.Err()
+	result := selfupdate.Check(updateCtx, selfupdate.Options{
+		CompletePackage: runtime.GOOS == "darwin" || runtime.GOOS == "windows",
+		Home:            config.HomeDir(), Executable: path, Version: version, Minimum: minimum,
+		CDN: cdnBase(), Key: key, CheckNow: manual, OnProgress: recorder.Progress(version),
+	})
+	recorder.Complete(result, version)
+	// Installation and synchronous rollback finish before restoring signal defaults.
+	cancelled := updateCtx.Err()
 	stop()
-	if updateErr != nil {
-		return r, false, updateErr
+	if cancelled != nil {
+		return result, false, recorder, cancelled
 	}
-	if r.Status != "updated" {
-		return r, false, nil
+	if err := identity.verify(); err != nil {
+		return result, false, recorder, err
 	}
-	// Run once with original arguments and inherited identity/runtime environment.
-	// Business failures are returned, never replayed with the previous binary.
-	child := exec.CommandContext(ctx, r.Executable, heartbeatReexecArgs(os.Args[1:], config.HomeDir(), serverName)...)
-	child.Env = append(heartbeatReexecEnvironment(os.Environ()), updateAttemptEnv+"="+observation.AttemptID)
+	if result.Status != "updated" {
+		return result, false, recorder, nil
+	}
+	recorder.Phase("execute", version, result.Version)
+	child := exec.CommandContext(ctx, result.Executable, heartbeatReexecArgs(os.Args[1:], config.HomeDir(), server)...)
+	child.Env = append(heartbeatReexecEnvironment(os.Environ()), updateAttemptEnv+"="+recorder.attempt, updateFromVersionEnv+"="+version)
+	if root, err := selfupdate.InstallationRoot(path); err == nil {
+		if _, err := selfupdate.ResolveInstallation(root, key); err == nil {
+			child.Env = selfupdate.InstallationEnvironment(child.Env, root)
+		}
+	}
+	if identity != nil {
+		encoded, _ := json.Marshal(identity)
+		child.Env = append(child.Env, updateIdentityEnv+"="+string(encoded))
+	}
+
 	child.Stdin, child.Stdout, child.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()
-	if err = runHeartbeatReexec(child); err != nil {
-		return r, true, &updatedCLIError{err}
+	if err := runHeartbeatReexec(child); err != nil {
+		if child.Process == nil {
+			recorder.Finish("execute", "failed", version, result.Version, "", "process_start_failed")
+		}
+		return result, true, recorder, &updatedCLIError{err}
 	}
-	return r, true, nil
+	return result, true, recorder, nil
 }
 
 // Handle termination only while the replacement CLI runs. SIGKILL cannot be
@@ -168,7 +233,7 @@ func heartbeatMaintenanceEnabled(mode string, cfg *config.Config, key string) bo
 func heartbeatReexecEnvironment(env []string) []string {
 	out := make([]string, 0, len(env)+2)
 	for _, v := range env {
-		if strings.HasPrefix(v, updateReexecEnv+"=") || strings.HasPrefix(v, updateAttemptEnv+"=") || strings.HasPrefix(v, "EIGENFLUX_HOME=") {
+		if strings.HasPrefix(v, updateReexecEnv+"=") || strings.HasPrefix(v, updateAttemptEnv+"=") || strings.HasPrefix(v, updateIdentityEnv+"=") || strings.HasPrefix(v, updateFromVersionEnv+"=") || strings.HasPrefix(v, "EIGENFLUX_HOME=") {
 			continue
 		}
 		out = append(out, v)

@@ -17,6 +17,7 @@ var ErrCommissionSkillReadScopeInvalid = errors.New("commission_skill_read_scope
 // Grant only this invocation's resolved Skill to the current CLI's own bridge.
 // Explicit third-party ACP commands retain their existing permission contract.
 func (r Runner) withReadOnlySkillAccess(req Request) (Runner, error) {
+	r = r.withCurrentWorkBuddyBridge()
 	if len(req.ReadOnlySkillDirs) == 0 || r.Binding.Host != "workbuddy" || r.Binding.Mode != "acp" {
 		return r, nil
 	}

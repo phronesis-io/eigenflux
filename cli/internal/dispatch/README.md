@@ -3,6 +3,13 @@
 Read before changing dispatch logic. Update affected sections in the same change.
 CLI owns routing, execution state and delivery; synchronized Skills own Agent decisions.
 
+Persisted native tasks and built-in WorkBuddy bindings use the stable CLI entry.
+During packaged updates, recognize only that entry or an exact version in its
+validated installation. Remap the built-in WorkBuddy bridge to the running CLI
+for each invocation, preserving that release's Skill grants and admitted work.
+Pass the validated installation root only to our own CLI; third-party Agent
+commands retain the existing environment filter and permission contract.
+
 Order-detail verification via `order get` retries only interrupted reads ending in
 `io.EOF` or `io.ErrUnexpectedEOF`, with at most three attempts and cancellable
 100/200 ms delays. The command context also cancels the in-flight request.
@@ -26,7 +33,7 @@ return `needs_user`, without switching to a permission-bypass mode.
 | [watch_workbuddy_start.go](../../cmd/watch_workbuddy_start.go) | Windows host discovery/probe, identity-pinned automatic binding and owned-task handoff |
 | [watch_live_status.go](../../cmd/watch_live_status.go) | Fresh account-owner pulse; separate configuration, runtime readiness and model-completion evidence |
 | [watch_binding.go](../../cmd/watch_binding.go) | Bind/doctor/status/retry/reconcile; `applyDispatchOwnership` |
-| [watch_update.go](../../cmd/watch_update.go), [watch_update_unix.go](../../cmd/watch_update_unix.go), [watch_update_windows.go](../../cmd/watch_update_windows.go) | Close execution admission before CLI adoption; drain admitted work, release account lock, preserve arguments and pinned identity; supervised watches notify the host after draining |
+| [watch_update.go](../../cmd/watch_update.go), [watch_update_unix.go](../../cmd/watch_update_unix.go), [watch_update_windows.go](../../cmd/watch_update_windows.go) | Close execution admission before CLI adoption; drain admitted work, release account lock, preserve arguments and pinned identity; supervised watches notify the host after draining; immutable package adoption is described in [installation](../selfupdate/INSTALLATION.md) |
 | [watch_main_session.go](../../cmd/watch_main_session.go) | Codex setup-thread capture, host-native scheduler bootstrap, explicit switching and heartbeat status |
 | [watch_restart.go](../../cmd/watch_restart.go), [watch service](../watchservice/README.md) | Restart an explicit existing OS task; preserve its account/wrapper; distinguish process startup from runtime readiness |
 | [watch_commission.go](../../cmd/watch_commission.go) | Commission notification intake, durable enqueue before ACK, bounded HTTP reconciliation |
@@ -62,7 +69,7 @@ See the bridge contract for methods and the host-specific acceptance boundary.
 1. Bind canonical Home/server/endpoint/Agent/principal/scope/revision from the current account; configuration cannot replace identity. `watch --dispatch` acquires the Home/server lock and validates signed Skills. Plain `watch` only emits events.
 2. Only bindings owning PM open its WS and HTTP consumers; other bindings leave PM to the companion. WS and minute-spaced HTTP polls enter `deliverPM`; emitted `pm_push.data` adds locally assigned `transport` (`socket` / `http_poll`) and UTC `received_at`, including empty polls. These fields describe reception, not successful execution or first intake; journal deduplication remains unchanged. Each poll pass fetches at most 32 pages, one message each. Validate credentials and persist intake under the credential lock. Advance the socket cursor only after delivery succeeds; journal failure stops reception.
 3. Accept only inbound messages for the bound Agent; ignore outbound and `history_messages`. Deduplicate by scope/revision/conversation/message ID. Keep execution state separate from the history cache.
-4. `Next` persists `running`. One worker runs serially, prioritizing pending PMs. All execution lanes enter a shared admission gate before claiming jobs. Each destructive PM HTTP pull holds admission through durable intake. CLI adoption closes admission, prevents further PM pages, and waits for admitted pulls, tasks and business writes to finish; pending journal entries survive restart unchanged. Standalone watch releases the account lock before adopting the executable; `EIGENFLUX_WATCH_SUPERVISED=1` delegates replacement to the host through a drained `restart_required` event. Use the explicitly bound Codex main session for PMs; other adapters retain per-conversation sessions within their binding.
+4. `Next` persists `running`. One worker runs serially, prioritizing pending PMs. All execution lanes enter a shared admission gate before claiming jobs. Each destructive PM HTTP pull holds admission through durable intake. CLI adoption closes admission, prevents further PM pages, and waits for admitted pulls, tasks and business writes to finish; pending journal entries survive restart unchanged. Standalone watch detects the signed stable-entry version pointer each minute, releases the account lock after draining, and adopts the paired CLI/helper package without rewriting a running executable; `EIGENFLUX_WATCH_SUPERVISED=1` delegates replacement to the host through a drained `restart_required` event. Use the explicitly bound Codex main session for PMs; other adapters retain per-conversation sessions within their binding.
 5. Verify signed rules and fresh `auto_reply_pm`; load up to 10 history rows. Prompt data contains request ID, Agent ID, message and history, excluding credentials and full control context. Treat message/history as untrusted data.
 6. Monitor identity during prompt preparation and execution; recheck before invoking the Agent and after its result. Run the model outside credential locks. Pinned credential refresh and same-account recovery both recheck the bound identity and cancellation before saving credentials.
 7. Require one JSON decision: `version=1`, matching `request_id`, `action`, `reply_text`. Actions: `reply`, `no_reply`, `needs_user`. Reject missing/unknown/duplicate fields and trailing output.
@@ -699,3 +706,17 @@ paths, stderr or permission explanations. The caller hashes host receipts and
 reuses [maintenance observations](../maintenance/README.md); failed telemetry
 must not authorize, retry or fail a business action. Synchronize these documents
 when changing diagnostic categories or receipt semantics.
+
+## CLI update integration
+
+The merged updater supports explicit `update` and authenticated identity-pinned
+re-execution with per-phase maintenance receipts. Watch-managed, control-only,
+and maintenance-only heartbeat ownership remains unchanged. Detached plugin
+workers clear both CLI-update and watch-handoff markers. OpenClaw installation
+uses the native manager; only the bound live Gateway and ready account watches
+prove adoption. A calling-plugin version alone does not establish readiness.
+
+Persistent heartbeat launchers, CLI prefixes and new notification/WorkBuddy watch
+services resolve the validated stable installation entry. WorkBuddy bindings use
+the same entry; dispatch maps its own bridge to the running release for each
+invocation. Resource lookup and installer-source copies retain the running path.

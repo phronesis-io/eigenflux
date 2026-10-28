@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Generate and verify checksums for the complete CLI release, after any signing."""
 import argparse
+import base64
+import binascii
 import hashlib
+import json
 from pathlib import Path
 import re
 import sys
@@ -12,6 +15,8 @@ BINARIES = tuple(
     f"eigenflux-{os}-{arch}" + (".exe" if os == "windows" else "")
     for os in ("linux", "darwin", "windows") for arch in ("amd64", "arm64")
 )
+PACKAGES = tuple(name + ".zip" for name in BINARIES)
+ARTIFACTS = BINARIES + PACKAGES
 
 
 def digest(stream):
@@ -23,7 +28,7 @@ def digest(stream):
 
 def checksums(build):
     result = {}
-    for name in BINARIES:
+    for name in ARTIFACTS:
         path = build / name
         if not path.is_file() or path.stat().st_size == 0:
             raise ValueError(f"missing or empty CLI binary: {path}")
@@ -61,14 +66,55 @@ def verify_public(build, base_url):
                 raise ValueError(f"published binary differs from build: {name}")
 
 
+def verify_release(build):
+    # The updater verifies Ed25519 authenticity; publication preflight ensures
+    # the signed manifest describes the complete, final (including signed) build.
+    version = (build / 'version.txt').read_text(encoding='ascii').strip()
+    if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version):
+        raise ValueError('invalid CLI release version')
+    expected = verify(build)
+    for filename in ('release.json', 'package-release.json'):
+        manifest = json.loads((build / filename).read_text(encoding='utf-8'))
+        packaged = filename == 'package-release.json'
+        if manifest.get('version') != version or set(manifest.get('artifacts', {})) != set(BINARIES):
+            raise ValueError('CLI release manifest version or platform set differs from build')
+        if (packaged and set(manifest.get('packages', {})) != set(PACKAGES)) or (not packaged and 'packages' in manifest):
+            raise ValueError('CLI package manifest differs from build or breaks legacy signature')
+        try:
+            signature = base64.b64decode(manifest.get('signature', ''), validate=True)
+        except (binascii.Error, TypeError, ValueError) as error:
+            raise ValueError('invalid CLI release signature encoding') from error
+        if len(signature) != 64:
+            raise ValueError('CLI release manifest is unsigned')
+        for name in (ARTIFACTS if packaged else BINARIES):
+            artifact = manifest['packages' if name.endswith('.zip') else 'artifacts'][name]
+            if artifact.get('sha256') != expected[name] or artifact.get('size') != (build / name).stat().st_size:
+                raise ValueError(f'CLI release manifest differs from final binary: {name}')
+
+
+def verify_release_public(build, base_url):
+    verify_release(build)
+    query = '?verify=' + uuid.uuid4().hex
+    for filename in ('release.json', 'package-release.json'):
+        with urlopen(base_url.rstrip('/') + '/' + filename + query, timeout=30) as response:
+            if response.read(1024 * 1024 + 1) != (build / filename).read_bytes():
+                raise ValueError('published CLI release manifest differs from build')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("generate", "verify", "list", "verify-public"))
+    parser.add_argument("command", choices=("generate", "verify", "list", "verify-public", "verify-release", "verify-release-public"))
     parser.add_argument("build", type=Path)
     parser.add_argument("--base-url")
     args = parser.parse_args()
     if args.command == "generate":
         generate(args.build)
+    elif args.command == "verify-release":
+        verify_release(args.build)
+    elif args.command == "verify-release-public":
+        if not args.base_url:
+            parser.error('verify-release-public requires --base-url')
+        verify_release_public(args.build, args.base_url)
     elif args.command == "verify-public":
         if not args.base_url:
             parser.error("verify-public requires --base-url")
@@ -76,7 +122,7 @@ def main():
     else:
         verify(args.build)
         if args.command == "list":
-            for name in BINARIES:
+            for name in ARTIFACTS:
                 print(name)
                 print(name + ".sha256")
 

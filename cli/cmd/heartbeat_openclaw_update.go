@@ -40,6 +40,7 @@ func openClawMaintenancePlanAt(p pluginMaintenance, server string, now time.Time
 		p.Status, p.Due, p.Error = saved.Status, false, saved.Error
 	}
 	p.Scope, p.LatestVersion, p.CheckedAt = saved.Scope, saved.LatestVersion, saved.CheckedAt
+	p.AttemptID = saved.AttemptID
 	p.RestartPendingVersion = saved.RestartPendingVersion
 	return p
 }
@@ -55,7 +56,7 @@ var launchOpenClawUpdate = func(p pluginMaintenance) error {
 		args = append(args, "--runtime-mode", mode)
 	}
 	child := exec.Command(path, args...)
-	child.Env = cleanWatchUpdateEnvironment(os.Environ())
+	child.Env = cleanPluginUpdateEnvironment(os.Environ())
 	child.Dir = p.Context
 	log, err := os.OpenFile(maintenancePath("plugin-openclaw-worker")+".log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
@@ -70,11 +71,11 @@ var launchOpenClawUpdate = func(p pluginMaintenance) error {
 	return child.Process.Release()
 }
 
-func cleanWatchUpdateEnvironment(env []string) []string {
+func cleanPluginUpdateEnvironment(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, value := range env {
 		skip := false
-		for _, key := range []string{updateReexecEnv, updateAttemptEnv, watchSupervisedEnv, watchAgentEnv, watchPrincipalEnv} {
+		for _, key := range []string{updateReexecEnv, updateAttemptEnv, updateIdentityEnv, updateFromVersionEnv, watchSupervisedEnv, watchAgentEnv, watchPrincipalEnv} {
 			if strings.HasPrefix(value, key+"=") {
 				skip = true
 				break
@@ -106,13 +107,20 @@ func scheduleOpenClawUpdate(p pluginMaintenance) pluginMaintenance {
 		return current
 	}
 	p.Status, p.Due, p.CheckedAt = "updating", false, time.Now()
+	recorder := newMaintenanceRecorder(activeServerName(), "plugin", "auto", "", os.Stderr)
+	p.AttemptID = recorder.attempt
+	recorder.Phase("check", "", "")
 	if err := saveMaintenance(path, p); err != nil {
 		p.Status, p.Error = "failed", err.Error()
+		recorder.Finish("check", "failed", "", "", "", "worker_state_failed")
+		recorder.Flush()
 		return p
 	}
 	if err := launchOpenClawUpdate(p); err != nil {
 		p.Status, p.Error = "failed", fmt.Sprintf("start plugin update worker: %v", err)
 		_ = saveMaintenance(path, p)
+		recorder.Finish("check", "failed", "", "", "", "worker_start_failed")
+		recorder.Flush()
 	}
 	return p
 }
@@ -134,8 +142,27 @@ func runOpenClawUpdate(ctx context.Context) (pluginMaintenance, error) {
 	if bin == "" {
 		bin = "openclaw"
 	}
-	pending := openClawMaintenancePlan(p).RestartPendingVersion
-	r := pluginupdate.Update(ctx, pluginupdate.Options{Server: activeServerName(), CLIVersion: version, RestartPendingVersion: pending, Run: func(ctx context.Context, args ...string) ([]byte, error) {
+	server := activeServerName()
+	recorder := newMaintenanceRecorder(server, "plugin", "auto", "", os.Stderr)
+	saved := openClawMaintenancePlan(p)
+	if recorder.authenticated && saved.AttemptID != "" {
+		if previous, err := maintenance.LastAttempt(recorder.scope, "plugin"); err == nil && previous.AttemptID == saved.AttemptID && previous.Phase == "check" && previous.Result == "started" {
+			recorder.attempt = saved.AttemptID
+		}
+	}
+	p.AttemptID = recorder.attempt
+	fromVersion := ""
+	recordProgress := func(progress pluginupdate.Progress) {
+		if progress.FromVersion != "" {
+			fromVersion = progress.FromVersion
+		}
+		if progress.Result == "started" {
+			recorder.Phase(progress.Phase, progress.FromVersion, progress.TargetVersion)
+		} else {
+			recorder.Finish(progress.Phase, progress.Result, progress.FromVersion, progress.TargetVersion, "", "")
+		}
+	}
+	r := pluginupdate.Update(ctx, pluginupdate.Options{OnProgress: recordProgress, Server: server, CLIVersion: version, RestartPendingVersion: saved.RestartPendingVersion, Run: func(ctx context.Context, args ...string) ([]byte, error) {
 		// Keep manager credentials in its own configuration; do not capture stderr in receipts.
 		cmd := exec.CommandContext(ctx, bin, args...)
 		return cmd.Output()
@@ -144,17 +171,19 @@ func runOpenClawUpdate(ctx context.Context) (pluginMaintenance, error) {
 	p.InstalledVersion, p.LatestVersion, p.LoadedVersion = r.InstalledVersion, r.LatestVersion, r.LoadedVersion
 	p.RestartPendingVersion = r.RestartPendingVersion
 	p.CheckedAt = time.Now()
-	if err := saveMaintenance(maintenancePath("plugin-openclaw-native"), p); err != nil {
-		return p, err
+	if fromVersion == "" {
+		fromVersion = r.InstalledVersion
 	}
-	e := maintenance.NewEvent(p.AttemptID, "plugin", "auto", "load", p.Status)
-	e.Host, e.Mode = p.Host, meta.Mode
-	e.ToVersion, e.RunningVersion = p.LatestVersion, p.LoadedVersion
-	if p.Error != "" {
-		e.ErrorCode = "host_maintenance_failed"
+	errorCode := ""
+	if p.Status == "failed" || p.Status == "blocked" {
+		errorCode = "host_maintenance_failed"
 	}
-	_ = recordMaintenanceEvent(activeServerName(), e)
-	_ = flushMaintenanceEvents(activeServerName())
+	recorder.Finish(r.Phase, p.Status, fromVersion, p.LatestVersion, p.LoadedVersion, errorCode)
+	saveErr := saveMaintenance(maintenancePath("plugin-openclaw-native"), p)
+	recorder.Flush()
+	if saveErr != nil {
+		return p, saveErr
+	}
 	return p, nil
 }
 

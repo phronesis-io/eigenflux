@@ -25,6 +25,12 @@ func TestAgentCapabilityRegistryIsBilingualAndStable(t *testing.T) {
 		}
 		seen[operation.OperationID] = true
 		byID[operation.OperationID] = operation
+		switch operation.OperationID {
+		case "cli.update", "heartbeat.maintenance_status", "heartbeat.plugin_check":
+			if operation.MinCLIVersion != "0.7.2" {
+				t.Fatalf("%s requires CLI 0.7.2, got %q", operation.OperationID, operation.MinCLIVersion)
+			}
+		}
 		for _, language := range []string{"zh-CN", "en"} {
 			text := operation.Localized[language]
 			if text.Label == "" || text.Description == "" {
@@ -39,6 +45,8 @@ func TestAgentCapabilityRegistryIsBilingualAndStable(t *testing.T) {
 		"commission.search", "order.create", "order.payment", "wallet.withdrawal.create",
 		"wallet.kyc.read", "wallet.kyc.start", "wallet.kyc.complete",
 		"wallet.kyc.authorize",
+		"cli.update", "heartbeat.maintenance_status", "heartbeat.plugin_check",
+		"watch.run", "heartbeat.migrate.plan", "heartbeat.migrate.verify", "heartbeat.maintenance_report",
 	} {
 		if !seen[required] {
 			t.Fatalf("registry missing %q", required)

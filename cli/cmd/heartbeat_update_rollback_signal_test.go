@@ -46,9 +46,14 @@ func TestHeartbeatInstalledProbeSignalRollback(t *testing.T) {
 	// Only the staged probe succeeds. The installed probe announces readiness
 	// and execs sleep so cancellation kills the probe without orphan descendants.
 	candidate := []byte("#!/bin/sh\ncase \"$0\" in */.eigenflux-update-*) echo 0.0.48;; *) : > \"$EF_ROLLBACK_PROBE_READY\"; exec sleep 30;; esac\n")
+	if runtime.GOOS == "darwin" {
+		// Complete updates probe the immutable staging directory before activation.
+		candidate = []byte("#!/bin/sh\n: > \"$EF_ROLLBACK_PROBE_READY\"\nexec sleep 30\n")
+	}
 	sum := sha256.Sum256(candidate)
 	name := "eigenflux-" + runtime.GOOS + "-" + runtime.GOARCH
 	release := selfupdate.Manifest{Version: "0.0.48", Artifacts: map[string]selfupdate.Artifact{name: {SHA256: hex.EncodeToString(sum[:]), Size: int64(len(candidate))}}}
+	artifactPath, artifactBytes := heartbeatUpdateArtifactFixture(t, buildDir, name, candidate, &release, key)
 	if err := selfupdate.Sign(&release, key); err != nil {
 		t.Fatal(err)
 	}
@@ -60,10 +65,10 @@ func TestHeartbeatInstalledProbeSignalRollback(t *testing.T) {
 			var unexpected atomic.Int32
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
-				case "/cli/latest/release.json":
+				case "/cli/latest/release.json", "/cli/latest/package-release.json":
 					_ = json.NewEncoder(w).Encode(release)
-				case "/cli/0.0.48/" + name:
-					_, _ = w.Write(candidate)
+				case "/cli/0.0.48/" + artifactPath:
+					_, _ = w.Write(artifactBytes)
 				default:
 					unexpected.Add(1)
 					http.NotFound(w, r)
@@ -114,8 +119,12 @@ func TestHeartbeatInstalledProbeSignalRollback(t *testing.T) {
 				}
 				time.Sleep(5 * time.Millisecond)
 			}
-			if installed, err := os.ReadFile(bin); err != nil || !bytes.Equal(installed, candidate) {
-				t.Fatalf("candidate not installed: %v", err)
+			wantDuringProbe := candidate
+			if runtime.GOOS == "darwin" {
+				wantDuringProbe = oldBytes
+			}
+			if installed, err := os.ReadFile(bin); err != nil || !bytes.Equal(installed, wantDuringProbe) {
+				t.Fatalf("unexpected stable entry during candidate probe: %v", err)
 			}
 			if err := child.Process.Signal(tc.signal); err != nil {
 				t.Fatal(err)
@@ -136,6 +145,15 @@ func TestHeartbeatInstalledProbeSignalRollback(t *testing.T) {
 			}
 			if _, err := os.Stat(bin + ".previous"); !os.IsNotExist(err) {
 				t.Fatalf("rollback did not consume backup: %v", err)
+			}
+			if runtime.GOOS == "darwin" {
+				if _, err := os.Stat(bin + ".current.json"); !os.IsNotExist(err) {
+					t.Fatalf("canceled package was activated: %v", err)
+				}
+				stages, err := filepath.Glob(filepath.Join(bin+".versions", ".stage-*"))
+				if err != nil || len(stages) != 0 {
+					t.Fatalf("package staging files remain: %v %v", stages, err)
+				}
 			}
 			staged, err := filepath.Glob(filepath.Join(dir, ".eigenflux-update-*"))
 			if err != nil || len(staged) != 0 {

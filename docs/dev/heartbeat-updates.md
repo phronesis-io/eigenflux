@@ -11,44 +11,74 @@ their existing timeout. No plugin implements a second updater or update policy.
 
 ## Binary updates
 
-Before resolving a heartbeat plan, the CLI checks `cli/latest/release.json` at
-most once per 24 hours. The manifest binds a stable semantic version to each
-platform artifact's SHA-256 and size, using domain-separated Ed25519 signatures
-and the public key compiled into the CLI. Downloads use immutable versioned
-paths. A newly observed Skills minimum bypasses the daily throttle once; an
-unresolved minimum retains compatible installed rules. Without a compatible
-local bundle, the cycle stops before executing rules it cannot support.
+Before resolving a heartbeat plan, the CLI checks a signed release at most once
+per 24 hours. macOS and Windows use `cli/latest/package-release.json`; Linux
+keeps `cli/latest/release.json` and the existing bare-binary replacement. The
+bare manifest retains its original schema/signature so older clients can update.
+Both manifests bind stable semantic versions and immutable artifact digests with
+the compiled Ed25519 key. A newly observed Skills minimum bypasses the throttle
+once; incompatible or untrusted rules never execute.
 
-The updater holds an OS lock beside the resolved executable, downloads into
-that directory, validates bytes and `version --short` under the same explicit
-stable Home, retains `.previous`,
-and replaces the executable. A failed installed-binary probe restores the
-backup. TERM/INT during the update cancels the probe, waits for rollback and
-stops the cycle before business work. A successful install re-runs the original arguments with the same
-resolved Home and environment. The new process reports its actual CLI version.
-Business errors from the new process are returned without replaying the task.
-During re-execution, termination signals are forwarded and the child is reaped;
-an unresponsive child is killed after a bounded grace period. Signal exits use
-the conventional `128 + signal` status; normal child exit codes are retained.
-The update state is binary-scoped so several Homes sharing an installation do
-not independently download the same version. It stores last attempt, minimum,
-highest accepted version and the most recent error.
+Complete packages contain the CLI and its paired macOS notification App;
+Windows embeds its notification script and icon in the CLI. The updater holds
+one OS lock beside the stable executable, validates package and CLI digests,
+archive paths, the macOS signature and an exact-version probe under the same
+explicit Home. It stages `<entry>.versions/<version>` without replacing running
+files, then atomically activates `<entry>.current.json`. Missing packages fail
+closed. Partial downloads, invalid signatures and failed probes retain the old
+pointer; no bare-binary fallback occurs. Existing version directories are
+immutable and verified before reuse. Keep old directories while their processes
+may still be running; automatic garbage collection is not part of this change.
 
-Updates require write permission to the installation directory. Network,
-signature, permission or replacement failures retain the previous executable
-and remain visible in `cli_update`. Platforms that lock running executables,
-including Windows configurations rejecting replacement, require an installer
-update outside the running process. No elevation or host restart is attempted.
-Development builds without a compiled trust key do not update themselves.
-Explicit `skill` and `plugin` modes share automatic binary and plugin maintenance.
-Unknown modes do not enable automatic maintenance. Plugin mode continues to
-skip native scheduler migration and never creates a second recurring trigger.
-An uncatchable process termination during replacement can interrupt rollback;
-the retained backup is not an automatic crash-recovery launcher.
+The stable entry forwards commands before parsing to the signed active CLI.
+TERM/INT cancels installation before business work. Successful updates re-run the
+original arguments with pinned Home, server, Agent, principal and endpoint;
+token rotation remains allowed. The child reports its actual version and PID.
+Business failures return directly without replaying the task or switching back
+to an older executor. Shared throttle/minimum/highest-version state prevents
+multiple Homes from independently downloading or downgrading one installation.
+
+Watch checks the active pointer each minute, closes admission, and drains already
+admitted PM pulls, tasks and business writes before adopting. Pending journal
+entries survive. Unix replaces the drained process with `exec`; Windows uses a
+fixed parent/child adoption loop, avoiding running EXE replacement and unbounded
+parent chains. Only the identity-pinned watch handoff may request a restart;
+ordinary commands never retry on that exit code. Supervised watches emit a
+drained `restart_required` for their host to adopt. They are not force-killed.
+
+The new watch's desktop setup updates the shared Mac helper at the existing path
+and bundle ID; Windows retains its AUMID and refreshes embedded assets. Existing
+notification permissions remain OS-owned. Staging never opens a permission dialog,
+changes quarantine or elevates privileges. Mac production packages require
+Developer ID signing and notarization; local development may use ad-hoc signing.
+
+Updates require write permission beside the stable entry and an initially
+installed package-aware CLI. An already-running older binary must receive one
+bootstrap upgrade; new code cannot change its update protocol retroactively.
+After a legacy bare update, a same-version CLI installs its paired complete
+package, bypassing the previous daily check once; failed checks then obey normal
+throttling. A manually replaced newer stable entry never forwards to an older
+active pointer.
+Development builds without a compiled trust key do not self-update. Explicit
+`skill` and `plugin` modes share automatic maintenance; unknown modes do not enable
+it. Plugin mode never creates a second recurring trigger. Linux keeps its existing
+`.previous` backup and installed-probe rollback; an uncatchable termination during
+bare replacement remains outside that rollback guarantee.
 
 `auto_cli_update=false` and `auto_plugin_update=false` disable their respective
 automatic operations. Per-server values override Home-level values. Skills
 sync continues using its existing configuration and compatibility checks.
+
+Run `eigenflux update --format json` to check immediately. This explicit command
+bypasses only the daily throttle and leaves update switches unchanged. Missing
+account credentials do not prevent a manual binary update. The replacement process
+reports its actual version, PID and Home. Update observations carry one attempt ID
+through check, download, verify, probe, install, adoption and execute; verified
+manifest targets and completed rollback remain separate evidence.
+
+Claude stream shutdown stops socket intake and gives an already-received packet
+three seconds to finish cache/output. A second signal or the deadline reports an
+incomplete drain; a forced kill remains outside this guarantee.
 
 ## Native scheduler migration
 
@@ -130,8 +160,8 @@ action for these managers. Preserve automatic-update switches in both paths.
 
 ## Release and validation
 
-The CLI build generates `release.json` only after all six platform binaries
-exist. Publishing uploads the versioned artifacts before the signed latest
+The CLI build generates a legacy `release.json` and a signed complete-package
+`package-release.json` after all six binaries and packages exist. Publishing uploads the versioned artifacts before the signed latest
 pointer, served with `Cache-Control: no-store`. Versioned objects accept only
 identical-byte retries; conditional writes prevent replacement during races.
 CLI and Skills workflows share one publication concurrency group. Skills
@@ -146,8 +176,8 @@ two real CLI executables, serves a signed release from localhost, and verifies
 normal and minimum-version-triggered updates, same-cycle version reporting,
 and unchanged Agent credentials. Scheduler tests cover repeated migrations,
 paused tasks, duplicate tasks, wrong identities and altered readbacks. Plugin
-tests reject unverified load claims. Live host-manager execution and Windows
-replacement need platform integration verification before claiming coverage.
+tests reject unverified load claims. Live host-manager execution and Windows native adoption need platform
+integration verification before claiming coverage.
 
 
 ## Bounded plan modes
@@ -179,9 +209,8 @@ WorkBuddy migration uses its native `automation_update` capability and readback,
 preserving ID, cadence, paused state and unrelated task fields.
 
 See [Maintenance observations](maintenance-observability.md) for phase semantics,
-identity-scoped offline retries, host receipts, and release queries. Windows
-running-file replacement remains an accurately reported blocked outcome when
-not supported; this release does not add an exit-after-replacement helper.
+identity-scoped offline retries, host receipts, and release queries. Windows complete-package adoption uses immutable version directories rather
+than replacing the running EXE; native host integration remains a separate check.
 
 
 When a plugin's watch supervisor is active, its ordinary Feed plan uses

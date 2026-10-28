@@ -18,9 +18,22 @@ import (
 	"time"
 )
 
+// Progress describes a started update phase. TargetVersion is populated only
+// after the release manifest signature has been verified.
+type Progress struct {
+	Phase, TargetVersion string
+}
+
 type Options struct {
+	// CompletePackage requires the signed CLI/helper package and immutable activation.
+	CompletePackage bool
+	// CheckNow bypasses only the daily throttle for an explicit owner request.
+	CheckNow bool
 	// OnAttempt runs after the shared lock and throttle admit a real release check.
-	OnAttempt                         func()
+	OnAttempt func()
+	// OnProgress observes phase starts synchronously and must return promptly.
+	// Observer panics are ignored so telemetry cannot interrupt replacement or rollback.
+	OnProgress                        func(Progress)
 	Home                              string
 	Executable, Version, Minimum, CDN string
 	Key                               ed25519.PublicKey
@@ -29,25 +42,36 @@ type Options struct {
 }
 
 type Result struct {
-	Phase      string `json:"phase,omitempty"`
-	Attempted  bool   `json:"attempted,omitempty"`
-	Status     string `json:"status"`
-	Version    string `json:"version"`
+	Phase     string `json:"phase,omitempty"`
+	Attempted bool   `json:"attempted,omitempty"`
+	Status    string `json:"status"`
+	Version   string `json:"version"`
+	// TargetVersion comes only from a verified manifest, including on failure.
+	TargetVersion string `json:"target_version,omitempty"`
+	// RolledBack means the previous binary was restored and directory-synced.
+	RolledBack bool   `json:"rolled_back,omitempty"`
 	Error      string `json:"error,omitempty"`
 	Executable string `json:"-"`
 }
 
 type state struct {
-	Attempt time.Time `json:"attempt"`
-	Minimum string    `json:"minimum,omitempty"`
-	Highest string    `json:"highest,omitempty"`
-	Error   string    `json:"error,omitempty"`
+	Attempt        time.Time `json:"attempt"`
+	Minimum        string    `json:"minimum,omitempty"`
+	Highest        string    `json:"highest,omitempty"`
+	Error          string    `json:"error,omitempty"`
+	PackageChecked bool      `json:"package_checked,omitempty"`
 }
 
 // Check retains the running executable on every pre-install failure. State and
 // locking are binary-scoped because several Agent Homes can share one install.
 func Check(ctx context.Context, o Options) (result Result) {
 	result = Result{Status: "skipped", Version: o.Version, Phase: "check"}
+	startPhase := func(phase string) {
+		result.Phase = phase
+		if o.OnProgress != nil {
+			observe(func() { o.OnProgress(Progress{Phase: phase, TargetVersion: result.TargetVersion}) })
+		}
+	}
 	if !ValidVersion(o.Version) {
 		return
 	}
@@ -62,6 +86,11 @@ func Check(ctx context.Context, o Options) (result Result) {
 		o.Client = &http.Client{Timeout: 30 * time.Second}
 	}
 	path, err := filepath.EvalSymlinks(o.Executable)
+	if err != nil {
+		result.Status, result.Error = "failed", err.Error()
+		return
+	}
+	path, err = InstallationRoot(path)
 	if err != nil {
 		result.Status, result.Error = "failed", err.Error()
 		return
@@ -82,24 +111,50 @@ func Check(ctx context.Context, o Options) (result Result) {
 		return
 	}
 	defer unlock(lock)
+	hasCurrentPackage := false
+	// Installed versions share one stable entry, lock and throttle across accounts.
+	// Never overwrite a version directory, including a child of a packaged install.
+	if _, err := os.Lstat(path + ".current.json"); !os.IsNotExist(err) {
+		o.CompletePackage = true
+		installed, err := ResolveInstallation(path, o.Key)
+		if err != nil {
+			result.Status, result.Error = "failed", err.Error()
+			return
+		}
+		if Compare(installed.Version, o.Version) > 0 {
+			startPhase("adoption")
+			result.Status, result.Version, result.TargetVersion, result.Executable = "updated", installed.Version, installed.Version, installed.Executable
+			return
+		}
+		hasCurrentPackage = installed.Version == o.Version
+	}
 	// A sibling heartbeat may have replaced the shared executable after this
 	// process started. Adopt it instead of downgrading it or waiting for the TTL.
-	if installed, e := executableVersion(ctx, path, o.Home); e == nil && ValidVersion(installed) && Compare(installed, o.Version) > 0 {
-		return Result{Status: "updated", Version: installed, Executable: path, Phase: "adoption"}
+	if !o.CompletePackage {
+		if installed, e := executableVersion(ctx, path, o.Home); e == nil && ValidVersion(installed) && Compare(installed, o.Version) > 0 {
+			startPhase("adoption")
+			result.Status, result.Version, result.Executable = "updated", installed, path
+			return
+		}
 	}
 	var s state
 	if b, e := os.ReadFile(path + ".update.json"); e == nil {
 		_ = json.Unmarshal(b, &s)
 	}
-	if o.Now.Before(s.Attempt.Add(24*time.Hour)) && !o.Now.Before(s.Attempt) && (o.Minimum == "" || o.Minimum == s.Minimum) {
+	bootstrap := o.CompletePackage && !hasCurrentPackage && !s.PackageChecked
+	if !o.CheckNow && !bootstrap && o.Now.Before(s.Attempt.Add(24*time.Hour)) && !o.Now.Before(s.Attempt) && (o.Minimum == "" || o.Minimum == s.Minimum) {
 		result.Status, result.Error = "deferred", s.Error
 		return
 	}
 	s.Attempt, s.Minimum = o.Now, o.Minimum
+	if o.CompletePackage {
+		s.PackageChecked = true
+	}
 	result.Attempted = true
 	if o.OnAttempt != nil {
-		o.OnAttempt()
+		observe(o.OnAttempt)
 	}
+	startPhase("check")
 	if err := saveState(path, s); err != nil {
 		result.Status, result.Error = "failed", err.Error()
 		return
@@ -110,13 +165,17 @@ func Check(ctx context.Context, o Options) (result Result) {
 			result.Error = strings.TrimSpace(result.Error + "; save update state: " + err.Error())
 		}
 	}()
-	phase := "check"
 	fail := func(err error) Result {
-		return Result{Status: "failed", Version: o.Version, Error: err.Error(), Phase: phase, Attempted: true}
+		result.Status, result.Error = "failed", err.Error()
+		return result
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	data, err := download(ctx, o.Client, strings.TrimRight(o.CDN, "/")+"/cli/latest/release.json", 1<<20, o.Version)
+	manifestName := "release.json"
+	if o.CompletePackage {
+		manifestName = "package-release.json"
+	}
+	data, err := download(ctx, o.Client, strings.TrimRight(o.CDN, "/")+"/cli/latest/"+manifestName, 1<<20, o.Version)
 	if err != nil {
 		return fail(err)
 	}
@@ -124,16 +183,35 @@ func Check(ctx context.Context, o Options) (result Result) {
 	if err != nil {
 		return fail(err)
 	}
+	result.TargetVersion = m.Version
 	if ValidVersion(s.Highest) && Compare(m.Version, s.Highest) < 0 {
 		return fail(fmt.Errorf("CLI release rollback rejected"))
 	}
 	s.Highest = m.Version
-	if Compare(m.Version, o.Version) <= 0 {
+	comparison := Compare(m.Version, o.Version)
+	if comparison < 0 || (comparison == 0 && (!o.CompletePackage || hasCurrentPackage)) {
 		result.Status = "current"
 		return
 	}
 	if o.Minimum != "" && (!ValidVersion(o.Minimum) || Compare(m.Version, o.Minimum) < 0) {
 		return fail(fmt.Errorf("published CLI does not satisfy Skills minimum %s", o.Minimum))
+	}
+	if o.CompletePackage {
+		packageOptions := o
+		packageOptions.OnProgress = func(p Progress) { startPhase(p.Phase) }
+		_, executable, err := StagePackage(ctx, packageOptions, *m, path)
+		if err != nil {
+			return fail(err)
+		}
+		if result.Phase != "install" {
+			startPhase("install")
+		}
+		if err := ActivateInstallation(path, m.Version, o.Key); err != nil {
+			return fail(fmt.Errorf("activate complete CLI package: %w", err))
+		}
+		startPhase("adoption")
+		result.Status, result.Version, result.Executable = "updated", m.Version, executable
+		return
 	}
 	name := "eigenflux-" + runtime.GOOS + "-" + runtime.GOARCH
 	if runtime.GOOS == "windows" {
@@ -143,12 +221,12 @@ func Check(ctx context.Context, o Options) (result Result) {
 	if !ok || a.Size <= 0 || a.Size > 128<<20 {
 		return fail(fmt.Errorf("missing or invalid CLI artifact for %s", name))
 	}
-	phase = "download"
+	startPhase("download")
 	bin, err := download(ctx, o.Client, strings.TrimRight(o.CDN, "/")+"/cli/"+m.Version+"/"+name, a.Size, o.Version)
 	if err != nil {
 		return fail(err)
 	}
-	phase = "verify"
+	startPhase("verify")
 	sum := sha256.Sum256(bin)
 	if int64(len(bin)) != a.Size || hex.EncodeToString(sum[:]) != a.SHA256 {
 		return fail(fmt.Errorf("CLI artifact checksum or size mismatch"))
@@ -172,11 +250,11 @@ func Check(ctx context.Context, o Options) (result Result) {
 	if err != nil {
 		return fail(err)
 	}
-	phase = "probe"
+	startPhase("probe")
 	if err = probe(ctx, tmpName, m.Version, o.Home); err != nil {
 		return fail(err)
 	}
-	phase = "install"
+	startPhase("install")
 	// A hard link keeps the old bytes available without a gap at the installed path.
 	backup := path + ".previous"
 	if err = os.Remove(backup); err != nil && !os.IsNotExist(err) {
@@ -193,7 +271,7 @@ func Check(ctx context.Context, o Options) (result Result) {
 	}
 	err = syncDirectory(filepath.Dir(path))
 	if err == nil {
-		phase = "probe"
+		startPhase("adoption")
 		err = probe(ctx, path, m.Version, o.Home)
 	}
 	if err != nil {
@@ -203,9 +281,16 @@ func Check(ctx context.Context, o Options) (result Result) {
 		if restoreErr := syncDirectory(filepath.Dir(path)); restoreErr != nil {
 			return fail(fmt.Errorf("previous CLI restored but directory sync failed: %w", restoreErr))
 		}
+		result.RolledBack = true
 		return fail(fmt.Errorf("CLI check failed; previous binary restored: %w", err))
 	}
-	return Result{Status: "updated", Version: m.Version, Executable: path, Phase: "install", Attempted: true}
+	result.Status, result.Version, result.Executable = "updated", m.Version, path
+	return
+}
+
+func observe(callback func()) {
+	defer func() { _ = recover() }()
+	callback()
 }
 
 func probe(ctx context.Context, path, version, home string) error {
@@ -225,7 +310,15 @@ func executableVersion(ctx context.Context, path, home string) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, path, "--homedir", home, "version", "--short").Output()
+	command := exec.CommandContext(ctx, path, "--homedir", home, "version", "--short")
+	// A staged executable is deliberately outside the active layout. Probing
+	// reports those exact bytes rather than forwarding through the old pointer.
+	for _, value := range os.Environ() {
+		if !strings.HasPrefix(value, InstallRootEnv+"=") && !strings.HasPrefix(value, InstallChildEnv+"=") && !strings.HasPrefix(value, installWatchLauncherEnv+"=") {
+			command.Env = append(command.Env, value)
+		}
+	}
+	out, err := command.Output()
 	if err != nil {
 		return "", fmt.Errorf("CLI health check: %w", err)
 	}

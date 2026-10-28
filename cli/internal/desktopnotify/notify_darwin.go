@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode"
 
+	"cli.eigenflux.ai/internal/selfupdate"
 	"golang.org/x/sys/unix"
 )
 
@@ -134,8 +135,19 @@ func installedHelper(ctx context.Context, install bool) (string, error) {
 	}
 	// The signed source bundle is retained verbatim. Never clear quarantine or
 	// modify Gatekeeper settings; downloaded production bundles need notarization.
-	if err := exec.CommandContext(ctx, "/usr/bin/codesign", "--verify", "--deep", "--strict", source).Run(); err != nil {
-		return "", fmt.Errorf("verify notification helper signature: %w", err)
+	if err := verifyHelperSignature(ctx, source); err != nil {
+		return "", err
+	}
+	keep, err := newerInstalledHelper(ctx, source, destination)
+	if err != nil {
+		return "", err
+	}
+	if keep {
+		digest, err := bundleDigest(destination)
+		if err != nil {
+			return "", err
+		}
+		return destination, recordBundleOwner(destination, digest)
 	}
 	want, err := bundleDigest(source)
 	if err != nil {
@@ -168,6 +180,60 @@ func installedHelper(ctx context.Context, install bool) (string, error) {
 		return "", err
 	}
 	return destination, recordBundleOwner(destination, want)
+}
+
+func verifyHelperSignature(ctx context.Context, app string) error {
+	if err := exec.CommandContext(ctx, "/usr/bin/codesign", "--verify", "--deep", "--strict", app).Run(); err != nil {
+		return fmt.Errorf("verify notification helper signature: %w", err)
+	}
+	return nil
+}
+
+// The installed bundle is shared by every account. This setup path must not
+// replace a newer signed helper, including from an unversioned source bundle.
+func newerInstalledHelper(ctx context.Context, source, destination string) (bool, error) {
+	installed, err := helperBundleVersion(ctx, destination)
+	if err != nil {
+		return false, err
+	}
+	if installed == "" {
+		return false, nil
+	}
+	incoming, err := helperBundleVersion(ctx, source)
+	if err != nil {
+		return false, err
+	}
+	if incoming != "" && selfupdate.Compare(installed, incoming) <= 0 {
+		return false, nil
+	}
+	if err := verifyHelperSignature(ctx, destination); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func helperBundleVersion(ctx context.Context, app string) (string, error) {
+	path := filepath.Join(app, "Contents", "Info.plist")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return "", nil
+	} else if err != nil {
+		return "", err
+	}
+	data, err := exec.CommandContext(ctx, "/usr/bin/plutil", "-convert", "json", "-o", "-", path).Output()
+	if err != nil {
+		return "", fmt.Errorf("read notification helper version: %w", err)
+	}
+	var fields map[string]interface{}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return "", err
+	}
+	version, _ := fields["CFBundleVersion"].(string)
+	// Legacy builds used CFBundleVersion=2 and a fixed short version. Neither
+	// that build counter nor the display version identifies a CLI release.
+	if !selfupdate.ValidVersion(version) {
+		return "", nil
+	}
+	return version, nil
 }
 
 func lockHelper(ctx context.Context, directory string, exclusive bool) (func(), error) {

@@ -150,7 +150,7 @@ func TestWatchHandoffClosesEveryLaneBeforeClaim(t *testing.T) {
 
 func TestWatchReexecPinsIdentityAndPreservesEnvironment(t *testing.T) {
 	identity := auth.V2Credentials{AgentID: "agent-1", PrincipalID: "principal-1"}
-	env := watchReexecEnvironment([]string{"PATH=/usr/bin", "CUSTOM=secret value", "EIGENFLUX_HOME=old", watchAgentEnv + "=old", watchPrincipalEnv + "=old", updateReexecEnv + "=1", updateAttemptEnv + "=old"}, "/stable home", identity)
+	env := watchReexecEnvironment([]string{"PATH=/usr/bin", "CUSTOM=secret value", "EIGENFLUX_HOME=old", watchAgentEnv + "=old", watchPrincipalEnv + "=old", updateReexecEnv + "=1", updateAttemptEnv + "=old", updateIdentityEnv + "=old", updateFromVersionEnv + "=old"}, "/stable home", identity)
 	want := []string{"PATH=/usr/bin", "CUSTOM=secret value", "EIGENFLUX_HOME=/stable home", watchAgentEnv + "=agent-1", watchPrincipalEnv + "=principal-1"}
 	if !reflect.DeepEqual(env, want) {
 		t.Fatal("lost inherited environment or retained stale identity")

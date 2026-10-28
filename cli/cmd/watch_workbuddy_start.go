@@ -98,7 +98,7 @@ func setupWorkBuddyWatch(cmd *cobra.Command, deps workBuddySetupDeps) error {
 	if err != nil {
 		return err
 	}
-	cli, err := os.Executable()
+	cli, err := stableInstalledExecutable()
 	if err != nil {
 		return err
 	}

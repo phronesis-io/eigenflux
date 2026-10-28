@@ -191,8 +191,48 @@ func TestMinimumBypassesDailyCheckOnce(t *testing.T) {
 	}
 }
 
+func TestCheckNowBypassesOnlyDailyThrottle(t *testing.T) {
+	for _, name := range []string{"valid", "signature", "checksum", "rollback"} {
+		t.Run(name, func(t *testing.T) {
+			o, m, bin, count := fixture(t)
+			saved := state{Attempt: o.Now, Highest: o.Version}
+			if name == "rollback" {
+				saved.Highest = "0.0.49"
+			}
+			if err := saveState(o.Executable, saved); err != nil {
+				t.Fatal(err)
+			}
+			if result := Check(context.Background(), o); result.Status != "deferred" || count.Load() != 0 {
+				t.Fatalf("automatic check bypassed daily throttle: %+v", result)
+			}
+			switch name {
+			case "signature":
+				m.Version = "0.0.49"
+			case "checksum":
+				*bin = []byte(strings.Repeat("x", len(*bin)))
+			}
+			o.CheckNow = true
+			result := Check(context.Background(), o)
+			want := "failed"
+			if name == "valid" {
+				want = "updated"
+			}
+			if result.Status != want || count.Load() == 0 {
+				t.Fatalf("manual check did not retain verification: %+v requests=%d", result, count.Load())
+			}
+			if name != "valid" {
+				bytes, err := os.ReadFile(o.Executable)
+				if err != nil || string(bytes) != string(script(o.Version)) {
+					t.Fatalf("failed manual update replaced executable: %v", err)
+				}
+			}
+		})
+	}
+}
+
 func TestConcurrentUpdaterAndSharedBinary(t *testing.T) {
 	o, _, _, count := fixture(t)
+	o.CheckNow = true
 	f, err := os.OpenFile(o.Executable+".update.lock", os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		t.Fatal(err)

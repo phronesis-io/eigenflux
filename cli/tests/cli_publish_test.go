@@ -2,6 +2,8 @@ package tests
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -200,14 +202,41 @@ func preparePublisherChecksums(t *testing.T, root string) {
 	if err := os.WriteFile(filepath.Join(root, "cli/scripts/cli-artifacts.py"), script, 0700); err != nil {
 		t.Fatal(err)
 	}
+	// Object-store tests isolate native signing; the real verifier has its own
+	// macOS build/signature smoke check and is mandatory in the publisher.
+	if err := os.WriteFile(filepath.Join(root, "cli/scripts/verify-macos-packages.sh"), []byte("#!/bin/bash\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	artifacts, packages := map[string]map[string]any{}, map[string]map[string]any{}
 	for _, platform := range []string{"linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64.exe", "windows-arm64.exe"} {
 		name := filepath.Join(root, "build/cli/eigenflux-"+platform)
 		content := []byte("fixture")
-		if err := os.WriteFile(name, content, 0600); err != nil {
+		for _, suffix := range []string{"", ".zip"} {
+			if err := os.WriteFile(name+suffix, content, 0600); err != nil {
+				t.Fatal(err)
+			}
+			checksum := fmt.Sprintf("%x\n", sha256.Sum256(content))
+			if err := os.WriteFile(name+suffix+".sha256", []byte(checksum), 0600); err != nil {
+				t.Fatal(err)
+			}
+			entry := map[string]any{"sha256": strings.TrimSpace(checksum), "size": len(content)}
+			if suffix == "" {
+				artifacts[filepath.Base(name)] = entry
+			} else {
+				packages[filepath.Base(name)+suffix] = entry
+			}
+		}
+	}
+	manifest := map[string]any{"version": "0.0.48", "artifacts": artifacts, "packages": packages, "signature": base64.StdEncoding.EncodeToString(make([]byte, 64))}
+	for _, filename := range []string{"package-release.json", "release.json"} {
+		if filename == "release.json" {
+			delete(manifest, "packages")
+		}
+		data, err := json.Marshal(manifest)
+		if err != nil {
 			t.Fatal(err)
 		}
-		checksum := fmt.Sprintf("%x\n", sha256.Sum256(content))
-		if err := os.WriteFile(name+".sha256", []byte(checksum), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(root, "build/cli", filename), data, 0600); err != nil {
 			t.Fatal(err)
 		}
 	}

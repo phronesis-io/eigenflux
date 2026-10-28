@@ -7,7 +7,7 @@ function ConvertTo-NativeArgument([string]$value) {
   # Windows argv quoting; reason text and paths remain argument data.
   return '"' + [regex]::Replace([regex]::Replace($value, '(\\*)"', '$1$1\"'), '(\\+)$', '$1$1') + '"'
 }
-function Invoke-EigenFluxJson([string]$binary, [string[]]$cliArgs) {
+function Invoke-EigenFluxJson([string]$binary, [string[]]$cliArgs, [switch]$TemporaryReporter) {
   $info = New-Object Diagnostics.ProcessStartInfo
   $info.FileName = $binary
   $info.Arguments = ($cliArgs | ForEach-Object { ConvertTo-NativeArgument $_ }) -join ' '
@@ -15,6 +15,11 @@ function Invoke-EigenFluxJson([string]$binary, [string[]]$cliArgs) {
   $info.CreateNoWindow = $true
   $info.RedirectStandardOutput = $true
   $info.StandardOutputEncoding = New-Object Text.UTF8Encoding($false)
+  if ($TemporaryReporter) {
+    foreach ($name in @('EIGENFLUX_INSTALL_ROOT', 'EIGENFLUX_INSTALL_CHILD', 'EIGENFLUX_INSTALL_WATCH_LAUNCHER')) {
+      $info.EnvironmentVariables.Remove($name)
+    }
+  }
   $process = New-Object Diagnostics.Process
   $process.StartInfo = $info
   try {
@@ -54,7 +59,7 @@ try {
   $reporter = Join-Path $temporary 'eigenflux.exe'
   Copy-Item -LiteralPath $resolved -Destination $reporter -ErrorAction Stop
   # The trusted copy reacquires installation/watch locks and checks file hashes.
-  $call = Invoke-EigenFluxJson $reporter @('--homedir', $result.receipt_home, 'uninstall-finalize', '--attempt', $result.attempt_id, '--remove-original', '--format', 'json')
+  $call = Invoke-EigenFluxJson $reporter @('--homedir', $result.receipt_home, 'uninstall-finalize', '--attempt', $result.attempt_id, '--remove-original', '--format', 'json') -TemporaryReporter
   if ($call.ExitCode -ne 0 -and -not $call.Output.Trim()) { throw 'Final uninstall observation failed; inspect remaining installation files.' }
   $final = $call.Output | ConvertFrom-Json
   $finalized = $true
@@ -68,7 +73,7 @@ try {
 } catch {
   # Observe retained original files as partial, never as a successful removal.
   if ($reporter -and (Test-Path -LiteralPath $reporter) -and -not $finalized) {
-    $call = Invoke-EigenFluxJson $reporter @('--homedir', $result.receipt_home, 'uninstall-finalize', '--attempt', $result.attempt_id, '--format', 'json')
+    $call = Invoke-EigenFluxJson $reporter @('--homedir', $result.receipt_home, 'uninstall-finalize', '--attempt', $result.attempt_id, '--format', 'json') -TemporaryReporter
     if ($call.ExitCode -eq 0) { $call.Output }
   }
   Write-Error 'Uninstall incomplete. Inspect remaining installation files.'

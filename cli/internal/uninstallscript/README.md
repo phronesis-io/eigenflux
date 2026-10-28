@@ -16,3 +16,8 @@ The Windows wrapper reports data removal only when the finalizer confirms it;
 older protocol-1 CLIs retain their existing data-preservation behavior.
 Partial finalization prints the actual local-data cleanup state and returns a
 nonzero exit code. Home cleanup can succeed while an abnormal wrapper remains.
+
+Only temporary Windows reporter subprocesses clear `EIGENFLUX_INSTALL_ROOT`,
+`EIGENFLUX_INSTALL_CHILD` and `EIGENFLUX_INSTALL_WATCH_LAUNCHER` from their child
+environment. Preserve the parent and original stable-entry command environment.
+The POSIX wrapper has no temporary reporter and retains the installation context.

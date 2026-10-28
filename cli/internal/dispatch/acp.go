@@ -42,6 +42,7 @@ func (r Runner) runACP(ctx context.Context, req Request) (Result, error) {
 
 // withACP owns only the explicitly bound stdio bridge, never its host session.
 func (r Runner) withACP(ctx context.Context, use func(*acpClient) (Result, error)) (Result, error) {
+	r = r.withCurrentWorkBuddyBridge()
 	cmd, err := r.command(r.Binding.Args)
 	if err != nil {
 		return Result{}, err

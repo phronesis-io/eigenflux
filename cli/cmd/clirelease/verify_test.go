@@ -47,6 +47,10 @@ func TestVerifyPublished(t *testing.T) {
 				t.Fatal(err)
 			}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/cli/latest/package-release.json" {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
 				if r.URL.Path == "/cli/latest/release.json" {
 					if mode == "manifest-error" {
 						w.WriteHeader(503)
@@ -83,6 +87,78 @@ func TestVerifyPublished(t *testing.T) {
 			wantOK := mode == "same" || mode == "newer"
 			if (err == nil) != wantOK {
 				t.Fatalf("verifyPublished = %v, want success %v", err, wantOK)
+			}
+		})
+	}
+}
+
+func TestVerifyPublishedCompletePackages(t *testing.T) {
+	public, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"valid", "missing", "corrupt", "unsigned-extension"} {
+		t.Run(mode, func(t *testing.T) {
+			binary, archive := []byte("bare CLI"), []byte("complete package")
+			checksum := func(body []byte) selfupdate.Artifact {
+				hash := sha256.Sum256(body)
+				return selfupdate.Artifact{SHA256: hex.EncodeToString(hash[:]), Size: int64(len(body))}
+			}
+			manifest := selfupdate.Manifest{Version: "1.0.9", Artifacts: map[string]selfupdate.Artifact{}, Packages: map[string]selfupdate.Artifact{}}
+			for _, platform := range []string{"linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64.exe", "windows-arm64.exe"} {
+				manifest.Artifacts["eigenflux-"+platform] = checksum(binary)
+				manifest.Packages["eigenflux-"+platform+".zip"] = checksum(archive)
+			}
+			if mode == "missing" {
+				delete(manifest.Packages, "eigenflux-darwin-arm64.zip")
+			}
+			if err := selfupdate.Sign(&manifest, key); err != nil {
+				t.Fatal(err)
+			}
+			if mode == "unsigned-extension" {
+				manifest.Packages["eigenflux-darwin-arm64.zip"] = checksum([]byte("untrusted"))
+			}
+			data, err := json.Marshal(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			legacy := manifest
+			legacy.Packages = nil
+			if err := selfupdate.Sign(&legacy, key); err != nil {
+				t.Fatal(err)
+			}
+			legacyData, err := json.Marshal(legacy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			packagesRead := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "package-release.json") {
+					_, _ = w.Write(data)
+					return
+				}
+				if strings.HasSuffix(r.URL.Path, "release.json") {
+					_, _ = w.Write(legacyData)
+					return
+				}
+				if strings.HasSuffix(r.URL.Path, ".zip") {
+					packagesRead++
+					if mode == "corrupt" {
+						_, _ = w.Write([]byte("bad package"))
+						return
+					}
+					_, _ = w.Write(archive)
+					return
+				}
+				_, _ = w.Write(binary)
+			}))
+			defer server.Close()
+			err = verifyPublished(server.URL, "1.0.0", public)
+			if (err == nil) != (mode == "valid") {
+				t.Fatalf("verification mode %s: %v", mode, err)
+			}
+			if mode == "valid" && packagesRead != 6 {
+				t.Fatalf("verified %d packages, want 6", packagesRead)
 			}
 		})
 	}

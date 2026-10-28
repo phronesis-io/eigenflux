@@ -157,7 +157,7 @@ func TestNativePendingAdoptionSurvivesWorkerRelaunch(t *testing.T) {
 }
 
 func TestPluginWorkerEnvironmentHasNoWatchHandoffMarkers(t *testing.T) {
-	env := cleanWatchUpdateEnvironment([]string{"PATH=/bin", "EIGENFLUX_HOME=/stable", updateReexecEnv + "=1", updateAttemptEnv + "=old", watchSupervisedEnv + "=1", watchAgentEnv + "=old", watchPrincipalEnv + "=old"})
+	env := cleanPluginUpdateEnvironment([]string{"PATH=/bin", "EIGENFLUX_HOME=/stable", updateReexecEnv + "=1", updateAttemptEnv + "=old", watchSupervisedEnv + "=1", watchAgentEnv + "=old", watchPrincipalEnv + "=old"})
 	if strings.Join(env, "|") != "PATH=/bin|EIGENFLUX_HOME=/stable" {
 		t.Fatalf("worker inherited stale handoff: %v", env)
 	}

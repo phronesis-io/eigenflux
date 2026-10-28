@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"cli.eigenflux.ai/internal/selfupdate"
 )
 
 //go:embed windows.ps1
@@ -23,6 +25,10 @@ func platformRequest(ctx context.Context, action string, message Message) error 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	executable, err = selfupdate.InstallationRoot(executable)
 	if err != nil {
 		return err
 	}

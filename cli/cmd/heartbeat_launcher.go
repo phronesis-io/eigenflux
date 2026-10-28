@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -13,7 +12,7 @@ import (
 )
 
 func nativeHeartbeatLauncher(home, server, mode, shellName string) (string, error) {
-	bin, err := os.Executable()
+	bin, err := stableInstalledExecutable()
 	if err != nil {
 		return "", err
 	}
@@ -21,7 +20,7 @@ func nativeHeartbeatLauncher(home, server, mode, shellName string) (string, erro
 }
 
 func nativeHeartbeatCLIPrefix(home, server, shellName string, mode ...string) (string, error) {
-	bin, err := os.Executable()
+	bin, err := stableInstalledExecutable()
 	if err != nil {
 		return "", err
 	}

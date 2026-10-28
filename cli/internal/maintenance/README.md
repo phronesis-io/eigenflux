@@ -23,3 +23,7 @@ describe permission observations; queue upload time must not refresh their age.
 
 Commission diagnostics reuse this queue and its upload acknowledgements. Keep
 [the stage contract](../../../docs/dev/commission-observability.md) synchronized.
+
+Updater observations use the same queue with an identity-pinned token and endpoint.
+Uploads do not refresh credentials or mutate business state. CLI update phase
+observers remain best effort; rollback finishes before cancellation returns.

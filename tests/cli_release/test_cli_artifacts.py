@@ -1,4 +1,6 @@
 """Exercise release preflight, upload failure and public verification in isolation."""
+import base64
+import json
 import functools
 import hashlib
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -30,15 +32,26 @@ class ArtifactTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.build = self.root / 'build/cli'
         self.build.mkdir(parents=True)
-        for name in artifacts.BINARIES:
+        for name in artifacts.ARTIFACTS:
             (self.build / name).write_bytes(('binary ' + name).encode())
         (self.build / 'version.txt').write_text('99.0.0\n')
-        (self.build / 'release.json').write_text('{}\n')
         artifacts.generate(self.build)
+        self.write_release()
+
+    def write_release(self):
+        manifest = {'version': '99.0.0',
+                    'signature': base64.b64encode(b'fixture-signature'.ljust(64, b'0')).decode(),
+                    'artifacts': {name: {'sha256': value, 'size': (self.build / name).stat().st_size}
+                                  for name, value in artifacts.verify(self.build).items() if name in artifacts.BINARIES},
+                    'packages': {name: {'sha256': value, 'size': (self.build / name).stat().st_size}
+                                 for name, value in artifacts.verify(self.build).items() if name in artifacts.PACKAGES}}
+        (self.build / 'package-release.json').write_text(json.dumps(manifest))
+        manifest.pop('packages')
+        (self.build / 'release.json').write_text(json.dumps(manifest))
 
     def test_checksums_describe_exact_bytes_for_all_six_platforms(self):
-        self.assertEqual(len(artifacts.verify(self.build)), 6)
-        for name in artifacts.BINARIES:
+        self.assertEqual(len(artifacts.verify(self.build)), 12)
+        for name in artifacts.ARTIFACTS:
             self.assertEqual((self.build / (name + '.sha256')).read_text(),
                              hashlib.sha256((self.build / name).read_bytes()).hexdigest() + '\n')
 
@@ -98,18 +111,62 @@ class ArtifactTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'published checksum'):
             artifacts.verify_public(self.build, url)
 
-    def publisher(self, fail_upload='', corrupt_public=False):
+    def publisher(self, fail_upload='', corrupt_public=False, race_mode='', get_failure=False):
         scripts = self.root / 'cli/scripts'
         scripts.mkdir(parents=True, exist_ok=True)
         for name in ('publish.sh', 'cli-artifacts.py'):
             shutil.copy(ROOT / 'cli/scripts' / name, scripts / name)
+        # Native signing/notarization is separately tested on macOS. Keep the
+        # object-store integration isolated from real Apple credentials.
+        (scripts / 'verify-macos-packages.sh').write_text('#!/bin/bash\nexit "${MACOS_VERIFY_EXIT:-0}"\n')
         (self.root / 'cli/.cli.config').write_text('CLI_VERSION=99.0.0\n')
         bindir = self.root / 'bin'
         bindir.mkdir(exist_ok=True)
         # Stub only the external object-store client; run the real publisher and
         # public verifier against an HTTP server serving the uploaded files.
         aws = bindir / 'aws'
-        aws.write_text("#!/usr/bin/env python3\nimport os, pathlib, shutil, sys\nargs = sys.argv[1:]\nif args[:2] == ['s3api', 'get-object']:\n    key = args[args.index('--key') + 1]\n    path = pathlib.Path(os.environ['PUBLIC_ROOT']) / key\n    if not path.exists():\n        print('An error occurred (NoSuchKey) when calling the GetObject operation: missing', file=sys.stderr)\n        sys.exit(1)\n    shutil.copyfile(path, args[args.index('--key') + 2])\n    sys.exit(0)\nif args[:2] == ['s3api', 'put-object']:\n    key = args[args.index('--key') + 1]\n    source, target = args[args.index('--body') + 1], 's3://bucket/' + key\nelse:\n    source, target = args[2:4]\nwith open(os.environ['UPLOAD_LOG'], 'a') as log:\n    log.write(target + '\\n')\nif os.environ.get('FAIL_UPLOAD') == target:\n    sys.exit(1)\npath = pathlib.Path(os.environ['PUBLIC_ROOT']) / target.removeprefix('s3://bucket/')\npath.parent.mkdir(parents=True, exist_ok=True)\nshutil.copyfile(source, path)\nif os.environ.get('CORRUPT_PUBLIC') == '1' and path.name.endswith('.sha256'):\n    path.write_text('0' * 64)\n")
+        aws.write_text('''#!/usr/bin/env python3
+import os, pathlib, shutil, sys
+args = sys.argv[1:]
+public = pathlib.Path(os.environ['PUBLIC_ROOT'])
+if args[:2] == ['s3api', 'get-object']:
+    key = args[args.index('--key') + 1]
+    path = public / key
+    dest = args[args.index('--key') + 2]
+    if os.environ.get('GET_FAILURE') == '1':
+        print('An error occurred (AccessDenied)', file=sys.stderr)
+        sys.exit(1)
+    if not path.exists():
+        print('An error occurred (NoSuchKey) when calling the GetObject operation: missing', file=sys.stderr)
+        sys.exit(1)
+    shutil.copyfile(path, dest)
+    sys.exit(0)
+if args[:2] == ['s3api', 'put-object']:
+    key = args[args.index('--key') + 1]
+    assert args[args.index('--if-none-match') + 1] == '*'
+    source = args[args.index('--body') + 1]
+    target = 's3://bucket/' + key
+else:
+    assert args[:2] == ['s3', 'cp']
+    source, target = args[2:4]
+with open(os.environ['UPLOAD_LOG'], 'a') as log:
+    log.write(target + '\\n')
+if os.environ.get('FAIL_UPLOAD') == target:
+    sys.exit(1)
+path = public / target.removeprefix('s3://bucket/')
+path.parent.mkdir(parents=True, exist_ok=True)
+if args[:2] == ['s3api', 'put-object']:
+    if os.environ.get('RACE_MODE'):
+        shutil.copyfile(source, path)
+        if os.environ['RACE_MODE'] == 'different':
+            path.write_bytes(b'conflicting concurrent release')
+        sys.exit(1)
+    if path.exists():
+        sys.exit(1)
+shutil.copyfile(source, path)
+if os.environ.get('CORRUPT_PUBLIC') == '1' and path.name.endswith('.sha256'):
+    path.write_text('0' * 64)
+''')
         aws.chmod(0o755)
         public = self.root / 'public'
         public.mkdir(exist_ok=True)
@@ -120,6 +177,7 @@ class ArtifactTests(unittest.TestCase):
                    R2_PUBLIC_URL=self.start_server(public), UPLOAD_LOG=str(log),
                    PUBLIC_ROOT=str(public), FAIL_UPLOAD=fail_upload,
                    CORRUPT_PUBLIC='1' if corrupt_public else '0',
+                   RACE_MODE=race_mode, GET_FAILURE='1' if get_failure else '0',
                    EIGENFLUX_PUBLISH_SKILLS_WITH_CLI='false')
         result = subprocess.run(['bash', str(scripts / 'publish.sh')], env=env,
                                 capture_output=True, text=True, timeout=30)
@@ -128,10 +186,11 @@ class ArtifactTests(unittest.TestCase):
     def test_publish_uploads_each_binary_and_checksum_before_version_pointer(self):
         result, calls = self.publisher()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(len(calls), 28)
-        self.assertEqual(calls[-2:], ['s3://bucket/cli/latest/version.txt',
-                                    's3://bucket/cli/latest/release.json'])
-        for name in artifacts.BINARIES:
+        self.assertEqual(len(calls), 54)
+        self.assertEqual(calls[-3:], ['s3://bucket/cli/latest/version.txt',
+                                    's3://bucket/cli/latest/release.json',
+                                    's3://bucket/cli/latest/package-release.json'])
+        for name in artifacts.ARTIFACTS:
             for channel in ('99.0.0', 'latest'):
                 for suffix in ('', '.sha256'):
                     self.assertIn(f's3://bucket/cli/{channel}/{name}{suffix}', calls)
@@ -139,6 +198,19 @@ class ArtifactTests(unittest.TestCase):
     def test_preflight_rejects_incomplete_build_before_any_upload(self):
         (self.build / (artifacts.BINARIES[-1] + '.sha256')).unlink()
         result, calls = self.publisher()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(calls, [])
+
+    def test_native_verification_is_required_before_any_upload(self):
+        previous = os.environ.get('MACOS_VERIFY_EXIT')
+        os.environ['MACOS_VERIFY_EXIT'] = '1'
+        try:
+            result, calls = self.publisher()
+        finally:
+            if previous is None:
+                os.environ.pop('MACOS_VERIFY_EXIT')
+            else:
+                os.environ['MACOS_VERIFY_EXIT'] = previous
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(calls, [])
 
@@ -156,12 +228,87 @@ class ArtifactTests(unittest.TestCase):
                 result, calls = self.publisher(fail_upload=failed)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(calls[-1], failed)
-                self.assertFalse(any(path.endswith('/latest/version.txt') or path.endswith('/latest/release.json') for path in calls))
+                self.assertNotIn('s3://bucket/cli/latest/version.txt', calls)
+                self.assertNotIn('s3://bucket/cli/latest/release.json', calls)
 
     def test_public_corruption_stops_without_advertising_release(self):
         result, calls = self.publisher(corrupt_public=True)
         self.assertNotEqual(result.returncode, 0)
-        self.assertFalse(any(path.endswith('/latest/version.txt') or path.endswith('/latest/release.json') for path in calls))
+        self.assertNotIn('s3://bucket/cli/latest/version.txt', calls)
+        self.assertNotIn('s3://bucket/cli/latest/release.json', calls)
+
+    def test_release_preflight_rejects_unsigned_mismatched_and_partial_manifest(self):
+        path = self.build / 'package-release.json'
+        original = json.loads(path.read_text())
+        for kind in ('missing', 'unsigned', 'wrong_version', 'wrong_size', 'wrong_hash', 'missing_platform', 'missing_package', 'wrong_package_hash'):
+            with self.subTest(kind=kind):
+                manifest = json.loads(json.dumps(original))
+                if kind == 'missing':
+                    path.unlink()
+                else:
+                    if kind == 'unsigned':
+                        manifest.pop('signature')
+                    elif kind == 'wrong_version':
+                        manifest['version'] = '98.0.0'
+                    elif kind == 'wrong_size':
+                        manifest['artifacts'][artifacts.BINARIES[0]]['size'] += 1
+                    elif kind == 'wrong_hash':
+                        manifest['artifacts'][artifacts.BINARIES[0]]['sha256'] = '0' * 64
+                    elif kind == 'missing_package':
+                        manifest['packages'].pop(artifacts.PACKAGES[-1])
+                    elif kind == 'wrong_package_hash':
+                        manifest['packages'][artifacts.PACKAGES[0]]['sha256'] = '0' * 64
+                    elif kind == 'missing_platform':
+                        manifest['artifacts'].pop(artifacts.BINARIES[-1])
+                    path.write_text(json.dumps(manifest))
+                result, calls = self.publisher()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(calls, [])
+                path.write_text(json.dumps(original))
+
+    def test_identical_release_retry_does_not_rewrite_immutable_version(self):
+        result, calls = self.publisher()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        (self.root / 'uploads').unlink()
+        result, calls = self.publisher()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(calls), 27)
+        self.assertTrue(all('/cli/latest/' in path for path in calls))
+
+    def test_conflicting_partial_release_stops_before_any_write(self):
+        target = self.root / 'public/cli/99.0.0/release.json'
+        target.parent.mkdir(parents=True)
+        target.write_text('conflicting signed manifest')
+        result, calls = self.publisher()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(calls, [])
+
+    def test_store_failure_is_not_treated_as_a_missing_object(self):
+        result, calls = self.publisher(get_failure=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(calls, [])
+
+    def test_concurrent_immutable_creation_accepts_only_identical_bytes(self):
+        for race in ('different', 'same'):
+            with self.subTest(race=race):
+                shutil.rmtree(self.root / 'public', ignore_errors=True)
+                (self.root / 'uploads').unlink(missing_ok=True)
+                result, calls = self.publisher(race_mode=race)
+                if race == 'same':
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(calls[-1], 's3://bucket/cli/latest/package-release.json')
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(any('/cli/latest/' in path for path in calls))
+
+    def test_public_manifest_verification_rejects_stale_signed_release(self):
+        public = self.root / 'manifest-public'
+        shutil.copytree(self.build, public)
+        url = self.start_server(public)
+        artifacts.verify_release_public(self.build, url)
+        (public / 'release.json').write_text('stale signed release')
+        with self.assertRaisesRegex(ValueError, 'manifest differs'):
+            artifacts.verify_release_public(self.build, url)
 
 
 if __name__ == '__main__':

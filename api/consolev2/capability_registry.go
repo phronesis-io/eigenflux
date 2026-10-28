@@ -259,6 +259,7 @@ func capabilitySeeds() []capabilitySeed {
 		capability("migration.run", "eigenflux migrate", "local", "write", "迁移本地 CLI 数据", "Migrate local CLI data"),
 		capability("diagnostics.run", "eigenflux doctor", "local", "read", "运行诊断", "Run diagnostics"),
 		capability("stats.read", "eigenflux stats", "network", "read", "查看网络统计", "View network statistics"),
+		capability("cli.update", "eigenflux update", "local", "write", "立即检查并更新 CLI", "Check and update the CLI now"),
 		capability("version.read", "eigenflux version", "local", "read", "查看 CLI 版本", "View CLI version"),
 	}
 	for index := range seeds {
@@ -270,14 +271,20 @@ func capabilitySeeds() []capabilitySeed {
 				seed.confirmation = "linked_confirmed_intent"
 			}
 		}
+		if seed.id == "cli.update" || strings.HasPrefix(seed.id, "heartbeat.maintenance_") || seed.id == "heartbeat.plugin_check" {
+			seed.minCLI = "0.7.2"
+		}
 		if strings.HasPrefix(seed.id, "need.capture.") {
 			seed.minCLI = "0.0.56"
 		}
 		if strings.HasPrefix(seed.id, "discovery.") {
 			seed.minCLI = "0.0.55"
 		}
-		if strings.HasPrefix(seed.id, "heartbeat.migrate.") || seed.id == "heartbeat.plugin_check" {
-			seed.minCLI, seed.confirmation = "0.0.48", "policy_governed"
+		if strings.HasPrefix(seed.id, "heartbeat.migrate.") {
+			seed.minCLI, seed.confirmation = "1.0.0", "policy_governed"
+		}
+		if seed.id == "heartbeat.plugin_check" {
+			seed.confirmation = "policy_governed"
 		}
 		if strings.HasPrefix(seed.id, "watch.") {
 			seed.minCLI = "1.0.0"

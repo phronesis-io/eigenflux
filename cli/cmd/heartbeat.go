@@ -65,7 +65,7 @@ var heartbeatPlanCmd = &cobra.Command{
 	Use:   "plan",
 	Short: "Sync Skills and emit the current thin heartbeat plan",
 	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) (resultErr error) {
 		maintenanceOnly, _ := cmd.Flags().GetBool("maintenance-only")
 		controlOnly, _ := cmd.Flags().GetBool("control-only")
 		watchManaged, _ := cmd.Flags().GetBool("watch-managed")
@@ -95,13 +95,13 @@ var heartbeatPlanCmd = &cobra.Command{
 		cliUpdate := selfupdate.Result{Status: "skipped", Version: version}
 		var restarted bool
 		var updateErr error
-		flushMaintenance := false
+		flushMaintenance := !controlOnly
 		if !controlOnly {
 			if maintenanceOnly {
 				markMaintenanceAttempt(activeServerName())
 			}
 			defer func() {
-				if flushMaintenance {
+				if flushMaintenance && !restarted && !isV2CredentialError(resultErr) && !v2CredentialNeedsLogin(resultErr) && !isAgentAuthUnavailable(resultErr) {
 					_ = flushMaintenanceEvents(activeServerName())
 				}
 			}()
@@ -115,6 +115,14 @@ var heartbeatPlanCmd = &cobra.Command{
 		skillsScope, _ := maintenanceScope(activeServerName())
 		recordSkills := func(e maintenance.Event) { _ = recordMaintenanceEventAtScope(skillsScope, e) }
 		skillsAttempt := maintenance.NewID()
+		skillsFinished := controlOnly
+		defer func() {
+			if !skillsFinished {
+				event := maintenance.NewEvent(skillsAttempt, "skills", "auto", "install", "failed")
+				event.ErrorCode = "skills_plan_failed"
+				recordSkills(event)
+			}
+		}()
 		if !controlOnly {
 			recordSkills(maintenance.NewEvent(skillsAttempt, "skills", "auto", "check", "started"))
 		}
@@ -130,6 +138,7 @@ var heartbeatPlanCmd = &cobra.Command{
 		if !controlOnly && res != nil && res.RequiredCLIVersion != "" {
 			cliUpdate, restarted, updateErr = updateHeartbeatCLI(cmd, cfg, res.RequiredCLIVersion)
 			if restarted || updateErr != nil {
+				skillsFinished = restarted
 				return updateErr
 			}
 			if !compatibleLocalHeartbeatRules(res.SkillsDir, version) {
@@ -146,9 +155,6 @@ var heartbeatPlanCmd = &cobra.Command{
 			}
 		}
 		if err != nil || res == nil {
-			if !controlOnly {
-				recordSkills(maintenance.NewEvent(skillsAttempt, "skills", "auto", "install", "failed"))
-			}
 			return fmt.Errorf("heartbeat plan: skills sync failed: %w", err)
 		}
 		manifest, err := skills.ReadLocalManifest(res.SkillsDir)
@@ -189,6 +195,24 @@ var heartbeatPlanCmd = &cobra.Command{
 			}
 		}
 
+		var skillsReadReceipt *maintenance.Event
+		if !controlOnly {
+			e := maintenance.NewEvent(skillsAttempt, "skills", "auto", "install", "installed")
+			e.ToVersion = manifest.Revision
+			if res.Source == "local" {
+				e.Result = "no_update"
+			}
+			if _, validationErr := localHeartbeatSkills(meta.Host); validationErr != nil {
+				e.Result = "blocked"
+				e.ErrorCode = "local_verification_failed"
+			} else {
+				receipt := maintenance.NewEvent(skillsAttempt, "skills", "auto", "read", "rules_read")
+				receipt.ToVersion = manifest.Revision
+				skillsReadReceipt = &receipt
+			}
+			recordSkills(e)
+			skillsFinished = true
+		}
 		access, err := runtimeAccessForServer(activeServerName())
 		if err != nil {
 			return err
@@ -218,6 +242,7 @@ var heartbeatPlanCmd = &cobra.Command{
 		plan := heartbeatPlan{
 			FeedCompletionCheck: access.OnboardingState == "completed" && !controlOnly && !maintenanceOnly,
 			PlanMode:            planMode,
+			SkillsReadReceipt:   skillsReadReceipt,
 			WatchManaged:        watchManaged,
 			PluginMaintenance:   pluginMaintenance,
 			CLIUpdate:           cliUpdate,
@@ -274,22 +299,6 @@ var heartbeatPlanCmd = &cobra.Command{
 			}
 		}
 
-		if !controlOnly {
-			e := maintenance.NewEvent(skillsAttempt, "skills", "auto", "install", "installed")
-			e.ToVersion = manifest.Revision
-			if res.Source == "local" {
-				e.Result = "no_update"
-			}
-			if _, validationErr := localHeartbeatSkills(meta.Host); validationErr != nil {
-				e.Result = "blocked"
-				e.ErrorCode = "local_verification_failed"
-			} else {
-				receipt := maintenance.NewEvent(skillsAttempt, "skills", "auto", "read", "rules_read")
-				receipt.ToVersion = manifest.Revision
-				plan.SkillsReadReceipt = &receipt
-			}
-			recordSkills(e)
-		}
 		for _, entry := range manifest.Skills {
 			plan.Skills = append(plan.Skills, entry.Name)
 		}
@@ -380,6 +389,10 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 		completion = "\nBefore leaving the Feed stage, run " + plan.CLIPrefix + " feed status. Score every item it lists, then continue."
 		completion += "\nAfter the Feed push, run " + plan.CLIPrefix + " feed status --after-push. Report surface only for listed items the owner was actually shown."
 	}
+	executorNotice := ""
+	if plan.PluginMaintenance.Executor == "cli" {
+		executorNotice = "\nOpenClaw plugin maintenance is executed by the independent CLI worker. Do not run plugin discovery, installation, restart, or plugin-check from this Agent turn. Cached maintenance results are historical observations.\n"
+	}
 	runtimeStatus := plan.RuntimeReport.Status
 	if len(plan.RuntimeReport.Missing) > 0 {
 		runtimeStatus += " (missing: " + strings.Join(plan.RuntimeReport.Missing, ", ") + ")"
@@ -412,7 +425,7 @@ Native task prompt: %s
 For new native tasks, the scheduler stores this fixed execution prompt. Store it verbatim, without additions. Reuse working existing triggers, including legacy EIGENFLUX_MODE launchers; use the current Skills to decide whether a repair is necessary. Verified plugin loops may supply mode through their existing process environment.
 `, plan.HeartbeatContractVersion, plan.CLIVersion, plan.SkillRevision, plan.SkillsTarget,
 		strings.Join(plan.Skills, ", "), plan.CLIPrefix, runtimeStatus, plan.CompatibilityReported, updateStatus, pluginInfo, "- "+strings.Join(plan.RuleSources, "\n- "), plan.Access.Mode, strings.Join(plan.ExecutionOrder, " → "), completion,
-		plan.SchedulerLauncher, plan.SchedulerMigration, heartbeatSchedulerPrompt(plan.SchedulerLauncher)) + receiptText
+		plan.SchedulerLauncher, plan.SchedulerMigration, heartbeatSchedulerPrompt(plan.SchedulerLauncher)) + receiptText + executorNotice
 }
 
 func heartbeatSchedulerPrompt(launcher string) string {

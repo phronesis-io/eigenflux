@@ -69,9 +69,10 @@ notification permission once; denial must be changed in System Settings.
 `cli/scripts/install-local.sh` builds and installs the matching helper before
 running `notify setup`; setup failure is reported as an incomplete install.
 `devbuild` only packages files: run `./eigenflux notify setup` from the complete
-package directory, then `./eigenflux notify status`. CLI/Skills updates alone
-do not request permission or restart an existing watch. Bare-binary CDN updates
-do not distribute the helper; use the complete macOS package for helper updates.
+package directory, then `./eigenflux notify status`. Building or syncing Skills
+does not request permission. Package-aware CLI updates activate the paired App;
+watch adopts after draining and runs Setup at startup. Legacy bare-binary CDN
+updates do not distribute the helper and need one package-aware bootstrap.
 Keep `permission_required` distinct from `permission_denied`: the former needs
 setup, the latter needs System Settings. Receipt timeouts wrap
 `context.DeadlineExceeded` for callers to report a separate setup timeout.
@@ -82,6 +83,17 @@ across accounts and excludes reads during replacement. Upgrades request the
 owned helper to quit through its private JSON protocol, verify its PID has
 exited, replace the bundle, then launch the new code automatically. A helper
 that cannot acknowledge shutdown is not silently replaced.
+
+Complete packages stamp `CFBundleVersion` and `CFBundleShortVersionString` with
+the CLI release version. Shared installation compares only a valid stable
+semantic `CFBundleVersion`: preserve a signature-verified higher installed helper,
+including when an older source has no release version. Equal versions retain
+digest-based replacement. Legacy `CFBundleVersion=2`, missing versions and fixed
+short display versions do not establish a release version or prevent the first
+versioned upgrade. Verify source signatures before selection and installed
+signatures before retaining a newer helper; retain its actual ownership digest.
+This guard applies after CLI adoption; a still-running binary predating the guard
+retains its old installation logic and must adopt the updated CLI.
 
 The build script defaults to ad-hoc signing for locally built test packages.
 Production downloads require `EIGENFLUX_NOTIFIER_SIGN_IDENTITY` with a Developer
@@ -97,6 +109,8 @@ administrator access is required. Setup creates only the current user's
 `EigenFlux Notifications.lnk` Start-menu shortcut and
 `HKCU\Software\Classes\AppUserModelId\ai.eigenflux.notifications` registration.
 The shortcut contains EigenFlux's own AUMID and stub activator CLSID.
+Use the validated stable CLI entry as its target, so package switches keep the
+shortcut and ownership check independent of version-directory paths.
 
 `0x80070490` while reading the registered sender's setting means first-use
 state is absent. Setup and Check return `ErrPendingFirstNotification`; the CLI

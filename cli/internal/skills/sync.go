@@ -145,6 +145,7 @@ func syncDecision(opts SyncOptions, real string, state *syncSnapshot, remote *Ma
 			} else {
 				res.Diagnostics[0].Hint = fmt.Sprintf("Keep the existing Skills and local manifest. Retry eigenflux skills sync --into %s after the publisher repairs the signed release; do not bypass rollback protection.", shellQuote(real))
 			}
+			res.RequiredCLIVersion = requiredCLIVersion
 			return res, nil
 		}
 		var result *SyncResult

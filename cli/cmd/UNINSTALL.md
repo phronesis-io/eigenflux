@@ -12,6 +12,14 @@ Update this file whenever the uninstall contract changes.
 - `internal/uninstallscript`: embedded wrappers; keep byte-identical to `static/`.
 - `internal/desktopnotify/uninstall_*`: owned per-user notification cleanup.
 
+Versioned CLI children resolve the validated stable installation entry for
+registration and uninstall. Installer source copies and temporary Windows
+reporters keep the actual running executable path. Native heartbeat launchers,
+CLI prefixes and newly created watch services/bindings also use the stable entry.
+Existing owned version directories and activation pointers remain preserved by
+this uninstall implementation; their verified cross-platform cleanup needs a
+separate receipt contract. Never recursively remove an unverified versions tree.
+
 Registration writes `<executable>.uninstall.sh` or `.uninstall.ps1` and stores
 its SHA-256 in the installation record. Registered scripts are removed even when edited.
 Preview is immutable. `--begin` records intent without removal; the Skill carries
@@ -51,7 +59,9 @@ Temporary account selection uses `config.UseHomeDir` to restore the original
 flag/environment/default resolution after each observation or upload pass.
 
 On Windows the script copies the current CLI into a temporary directory after
-the original exits. Finalization reacquires install/update/watch locks, verifies
+the original exits. Only that copied reporter drops the three internal
+`EIGENFLUX_INSTALL_*` routing markers; the original entry keeps its installation
+context. Finalization reacquires install/update/watch locks, verifies
 receipt-owned file hashes, removes unchanged originals, observes absence, records
 the result, and cleans the copy. An intervening update or registration blocks
 deletion. Cleanup failures retain failure state for inspection. Abnormal wrappers

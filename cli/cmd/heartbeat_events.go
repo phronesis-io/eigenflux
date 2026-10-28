@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"net/http"
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
@@ -78,36 +77,23 @@ func flushMaintenanceEvents(server string) error {
 	if err := importNotificationObservations(scope); err != nil {
 		return err
 	}
-	return maintenance.Flush(scope, time.Now(), func(events []maintenance.Event) error {
-		c, _, err := newV2ClientForServer(server, true)
-		if err != nil {
-			return err
-		}
-		// Credential refresh follows the existing bounded V2 flow. Never send an old
-		// account's queue after refresh/account switching resolved another identity.
-		current, err := auth.LoadV2Credentials(server)
-		if err != nil {
-			return err
-		}
-		if current.AgentID != scope.AgentID {
-			return fmt.Errorf("maintenance identity changed")
-		}
-		c.HTTPClient = &http.Client{Timeout: 5 * time.Second}
-		originalRefresh := c.OnUnauthorized
-		c.OnUnauthorized = func() (string, error) {
-			token, err := originalRefresh()
-			if err != nil {
-				return "", err
-			}
-			after, err := auth.LoadV2Credentials(server)
-			if err != nil || after.AgentID != scope.AgentID {
-				return "", fmt.Errorf("maintenance identity changed during refresh")
-			}
-			return token, nil
-		}
-		_, err = c.Post("/maintenance/events:batch", map[string]interface{}{"events": events})
+	return flushMaintenanceEventsAtScope(scope)
+}
+
+func flushMaintenanceEventsAtScope(scope maintenance.Scope) error {
+	credentials, err := auth.LoadV2Credentials(scope.Server)
+	if err != nil || credentials.AgentID != scope.AgentID {
+		return fmt.Errorf("maintenance identity changed")
+	}
+	cfg, err := config.Load()
+	if err != nil {
 		return err
-	})
+	}
+	server, err := cfg.GetActive(scope.Server)
+	if err != nil {
+		return err
+	}
+	return flushMaintenanceForIdentity(scope, credentials.PrincipalID, server.Endpoint)
 }
 
 func maintenanceEvent(component, phase, result string) maintenance.Event {

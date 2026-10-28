@@ -3,18 +3,24 @@ package consolev2
 import "testing"
 
 func TestHeartbeatMaintenanceCapabilitiesStayLocal(t *testing.T) {
-	want := map[string]bool{"heartbeat.migrate.plan": false, "heartbeat.migrate.verify": false, "heartbeat.plugin_check": false}
+	minimums := map[string]string{
+		"heartbeat.migrate.plan":   "1.0.0",
+		"heartbeat.migrate.verify": "1.0.0",
+		"heartbeat.plugin_check":   "0.7.2",
+	}
+	found := map[string]bool{}
 	for _, s := range capabilitySeeds() {
-		if _, ok := want[s.id]; !ok {
+		minimum, ok := minimums[s.id]
+		if !ok {
 			continue
 		}
-		want[s.id] = true
-		if s.minCLI != "0.0.48" || s.category != "local" || s.availability != "always" || s.confirmation != "policy_governed" || s.requiresConsoleHandoff {
+		found[s.id] = true
+		if s.minCLI != minimum || s.category != "local" || s.availability != "always" || s.confirmation != "policy_governed" || s.requiresConsoleHandoff {
 			t.Fatalf("incorrect maintenance capability: %+v", s)
 		}
 	}
-	for id, found := range want {
-		if !found {
+	for id := range minimums {
+		if !found[id] {
 			t.Fatal("missing " + id)
 		}
 	}

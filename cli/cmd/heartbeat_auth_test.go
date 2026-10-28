@@ -228,6 +228,9 @@ func TestHeartbeatCompatibilityAuthenticationFailureStopsPlan(t *testing.T) {
 					challenges++
 					writeV2RecoveryError(w, 401, "REFRESH_INVALID")
 				case "/api/v2/maintenance/events:batch":
+					if tc.status == 401 || tc.code == "AGENT_AUTH_UNAVAILABLE" {
+						t.Error("authentication failure did not stop maintenance upload")
+					}
 					writeV2RecoveryData(w, map[string]any{})
 				default:
 					t.Errorf("unexpected request: %s", r.URL.Path)

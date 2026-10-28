@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -29,6 +30,7 @@ import (
 	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/profilestate"
 	"cli.eigenflux.ai/internal/selfupdate"
+	"cli.eigenflux.ai/internal/skills"
 	watchstate "cli.eigenflux.ai/internal/watch"
 	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
@@ -145,8 +147,22 @@ var watchCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		root, err := selfupdate.InstallationRoot(path)
+		if err != nil {
+			return err
+		}
+		key, _ := base64.StdEncoding.DecodeString(skills.VerifyPublicKeyBase64)
+		installation, installErr := selfupdate.ResolveInstallation(root, key)
+		if installErr == nil {
+			path = installation.Executable
+		} else if _, statErr := os.Lstat(root + ".current.json"); !os.IsNotExist(statErr) {
+			return installErr
+		}
 		args := heartbeatReexecArgs(os.Args[1:], home, server.Name)
 		env := watchReexecEnvironment(os.Environ(), home, w.identity)
+		if installation != nil {
+			env = selfupdate.InstallationEnvironment(env, root)
+		}
 		releaseLock()
 		cancel()
 		return reexecWatch(path, args, env)
@@ -655,6 +671,8 @@ func (w *accountWatch) checkLoop(ctx context.Context) error {
 	defer ticker.Stop()
 	lastProfile, lastMaintenance := time.Time{}, time.Time{}
 	path, _ := os.Executable()
+	root, rootErr := selfupdate.InstallationRoot(path)
+	key, _ := base64.StdEncoding.DecodeString(skills.VerifyPublicKeyBase64)
 	initial, _ := os.Stat(path)
 	firstCheck := true
 	for ctx.Err() == nil {
@@ -696,6 +714,15 @@ func (w *accountWatch) checkLoop(ctx context.Context) error {
 				return err
 			}
 			lastMaintenance = now
+		}
+		if rootErr == nil {
+			if installed, err := selfupdate.ResolveInstallation(root, key); err == nil {
+				if selfupdate.ValidVersion(version) && selfupdate.Compare(installed.Version, version) > 0 {
+					w.handoff.request(installed.Version)
+				}
+			} else if _, statErr := os.Lstat(root + ".current.json"); !os.IsNotExist(statErr) {
+				_ = w.emit("cli_update_status", map[string]string{"status": "failed", "code": "installation_invalid"})
+			}
 		}
 		if current, statErr := os.Stat(path); statErr == nil && (firstCheck || initial == nil || !os.SameFile(initial, current) || current.ModTime() != initial.ModTime()) {
 			probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)

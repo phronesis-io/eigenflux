@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"cli.eigenflux.ai/internal/selfupdate"
 )
 
 const maxRunnerOutput = 1 << 20
@@ -240,6 +242,19 @@ func (r Runner) command(args []string) (*exec.Cmd, error) {
 	if r.cliEnvironment {
 		if cdn, ok := os.LookupEnv("EIGENFLUX_CDN_URL"); ok {
 			env["EIGENFLUX_CDN_URL"] = cdn
+		}
+	}
+	// Only our own CLI receives its validated installation root. Host Agents
+	// keep the existing environment filter and cannot select an update target.
+	if current, err := os.Executable(); err == nil {
+		own := r.cliEnvironment || (r.Binding.Host == "workbuddy" && r.Binding.Mode == "acp" && len(r.Binding.Command) >= 3 && r.Binding.Command[1] == "watch" && r.Binding.Command[2] == "workbuddy-acp" && sameCLIInstallation(r.Binding.Command[0], current))
+		if own {
+			root, err := selfupdate.InstallationRoot(current)
+			if err != nil {
+				return nil, err
+			}
+			env[selfupdate.InstallRootEnv] = root
+			env[selfupdate.InstallChildEnv] = "1"
 		}
 	}
 	if r.Binding.SkillsDir != "" {

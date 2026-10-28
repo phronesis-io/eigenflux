@@ -139,7 +139,7 @@ func newWatchStartCommand() *cobra.Command {
 			} else if !os.IsNotExist(err) {
 				return err
 			}
-			cli, err := os.Executable()
+			cli, err := stableInstalledExecutable()
 			if err != nil {
 				return err
 			}

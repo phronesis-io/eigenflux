@@ -543,3 +543,52 @@ func TestPendingTargetDoesNotRestartChangedPIDWithoutRuntime(t *testing.T) {
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestUpdateProgressKeepsVerifiedLoadedRuntime(t *testing.T) {
+	f := newFixture(t)
+	f.i.Plugin.Version, f.i.Install.Version, f.i.Install.ResolvedVersion = "0.0.45", "0.0.45", "0.0.45"
+	f.i.Install.ResolvedSpec = PackageName + "@0.0.45"
+	f.r.PluginVersion = "0.0.45"
+	f.autoRestart = true
+	var observations []Progress
+	f.o.OnProgress = func(p Progress) { observations = append(observations, p) }
+	r := Update(context.Background(), f.o)
+	if r.Status != "loaded" || r.Phase != "load" || r.LoadedVersion != f.target {
+		t.Fatalf("runtime evidence: %+v", r)
+	}
+	var stages []string
+	for _, p := range observations {
+		stages = append(stages, p.Phase+":"+p.Result)
+		if p.Phase != "check" && (p.FromVersion != "0.0.45" || p.TargetVersion != f.target) {
+			t.Fatalf("lost versions: %+v", p)
+		}
+	}
+	if got := strings.Join(stages, ","); got != "check:started,verify:started,install:started,install:installed,load:started" {
+		t.Fatalf("stages=%s", got)
+	}
+}
+
+func TestUpdateProgressPreservesVerificationFailure(t *testing.T) {
+	f := newFixture(t)
+	if err := os.WriteFile(filepath.Join(f.root, "dist/index.js"), []byte("modified"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var observations []Progress
+	f.o.OnProgress = func(p Progress) { observations = append(observations, p) }
+	r := Update(context.Background(), f.o)
+	if r.Status != "blocked" || r.Phase != "verify" || r.LatestVersion != f.target || f.updates != 0 {
+		t.Fatalf("source failure mislabeled: %+v", r)
+	}
+	if len(observations) != 2 || observations[1].TargetVersion != f.target {
+		t.Fatalf("observations=%+v", observations)
+	}
+}
+
+func TestUpdateProgressPanicDoesNotInterruptVerifiedRuntime(t *testing.T) {
+	f := newFixture(t)
+	f.o.OnProgress = func(Progress) { panic("observer failed") }
+	result := Update(context.Background(), f.o)
+	if result.Status != "loaded" || result.LoadedVersion != f.target {
+		t.Fatalf("observer interrupted: %+v", result)
+	}
+}

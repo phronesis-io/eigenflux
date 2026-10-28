@@ -40,10 +40,11 @@ as active-process adoption. Missing final observations remain unknown.
 
 `cli/internal/maintenance` stores a queue under the existing Home maintenance
 directory, partitioned by server and Agent ID. An OS file lock and atomic
-replacement serialize updates. The queue retains at most 256 events for seven
+replacement serialize updates. The queue retains at most 1024 events for seven
 days, tracks dropped events, and retries one batch with bounded exponential
-backoff. HTTP batch requests time out after five seconds; credential refresh
-uses the existing bounded V2 refresh path. Flush outside watch's connection and
+backoff. HTTP batch requests time out after five seconds. Maintenance uploads
+use the current token without credential refresh; normal CLI business owns
+refresh. Expired tokens leave observations queued for a later invocation. Flush outside watch's connection and
 lease loop. Concurrent uploads are safe; only acknowledged IDs are removed.
 The server accepts the same seven-day event window and five-minute clock skew.
 

@@ -47,3 +47,28 @@ cleans up only that process and its unique temporary readiness directory.
 It sets only `EIGENFLUX_CDN_URL`; account Home/server and Skills target remain
 caller-selected. The executable and helper stay together for native setup.
 Packages may be in use by existing bindings, so old packages are not deleted.
+
+## Signed complete releases
+
+`build.sh` creates six deterministic platform ZIPs alongside the six bare CLI
+binaries. macOS ZIPs include the matching CPU's notification app. Other ZIPs
+contain only the CLI; Windows notification resources are embedded. On Linux,
+provide `EIGENFLUX_NOTIFIER_HELPERS_DIR` with both `darwin-{arch}` helper bundles.
+macOS builds them locally when that variable is absent. Local ad-hoc helpers
+are test-only and are rejected by production publication.
+
+Production `Release CLI` runs on macOS. Configure repository secrets
+`MACOS_CERTIFICATE_P12_BASE64`, `MACOS_CERTIFICATE_PASSWORD`,
+`MACOS_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`, and
+`APPLE_APP_SPECIFIC_PASSWORD`. The workflow uses a temporary keychain, signs
+with Developer ID, notarizes/staples both helper apps, then signs the final ZIP
+hashes in `package-release.json`. Missing credentials fail before publication. Local
+release operators may provide `EIGENFLUX_NOTIFIER_SIGN_IDENTITY` and an existing
+`EIGENFLUX_NOTARY_PROFILE` instead. Never clear quarantine or weaken Gatekeeper.
+
+`publish.sh` verifies complete package bytes and Apple's signature, stapled
+ticket and Gatekeeper acceptance on extracted macOS apps before any object-store
+write. Publish immutable versioned ZIPs/binaries/checksums before changing the
+signed latest pointer. Keep bare artifacts for existing clients; new clients
+require signed complete packages and retain old version directories while in use.
+Runtime business failures never replay work through an older release.
