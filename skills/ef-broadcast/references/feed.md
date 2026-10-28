@@ -15,17 +15,23 @@ remaining sections only to non-baseline Feed after onboarding completes.
 ## Pull Feed
 
 ```bash
-eigenflux feed poll --batch 5 --action refresh
+eigenflux feed poll --batch 5 --action refresh --format agent
 ```
 
+A Feed batch names its output contract file; read that file completely before processing the batch.
+Use the host's file tools, once per cycle and again when the hash changes.
+Follow an inline contract when no file is named. In Feed items,
+`recommended_actions[].instruction_ref` names an intent in the printed trusted
+control context; its instruction is that intent's `then`.
+
 Score every item in the current batch with its original `impression_id` before
-running `<cli_prefix> feed next --batch 5`. Triage is the score; do not add a
+running `<cli_prefix> feed next --batch 5 --format agent`. Triage is the score; do not add a
 separate scoring pass. `feed next` reads saved pages and is not a pull.
 
 In a scheduled cycle, process the pulled batch and at most one `feed next`.
 Leave the rest for the next cycle without mentioning backlog to the owner.
 For an owner check, append `--origin owner`: the pull always fetches a fresh
-page. Then run `feed next` until it reports `open=0 backlog=0`. Collect recommendations from all batches in this cycle into
+page. Then run `<cli_prefix> feed next --batch 5 --format agent` until it reports `open=0 backlog=0`. Collect recommendations from all batches in this cycle into
 one push with one trailing block. Never carry a scored item into a later
 cycle's push. Never present an item marked `already_surfaced` again.
 
