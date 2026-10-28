@@ -60,7 +60,7 @@ func (r Runner) withACP(ctx context.Context, use func(*acpClient) (Result, error
 	if err != nil {
 		stdin.Close()
 		stdout.Close()
-		return Result{}, errors.New("runner_start_failed")
+		return Result{}, &DiagnosticError{Cause: errors.New("runner_start_failed"), Code: "runner_start_failed"}
 	}
 	c := &acpClient{ctx: ctx, stdin: stdin, incoming: make(chan acpRead, 16), stop: make(chan struct{})}
 	defer func() {
@@ -182,7 +182,7 @@ func (c *acpClient) read(reader io.Reader) {
 	if err != nil {
 		err = errors.New("acp_read_failed_or_message_too_large")
 	} else {
-		err = errors.New("acp_unexpected_exit")
+		err = &DiagnosticError{Cause: errors.New("acp_unexpected_exit"), Code: "runner_exit_failed"}
 	}
 	deliver(acpRead{err: err})
 }
@@ -224,13 +224,13 @@ func (c *acpClient) call(method string, params any, collect bool) (json.RawMessa
 				if len(msg.ID) > 0 && string(msg.ID) != "null" {
 					if c.backgroundOnly {
 						_ = c.write(map[string]any{"jsonrpc": "2.0", "id": msg.ID, "error": map[string]any{"code": -32601, "message": "Unsupported background request"}})
-						return nil, ErrNeedsUser
+						return nil, &DiagnosticError{Cause: ErrNeedsUser, Code: "permission_required"}
 					}
 					if msg.Method == "session/request_permission" {
 						if err := c.write(map[string]any{"jsonrpc": "2.0", "id": msg.ID, "result": map[string]any{"outcome": map[string]string{"outcome": "cancelled"}}}); err != nil {
 							return nil, err
 						}
-						return nil, ErrNeedsUser
+						return nil, permissionDiagnostic(msg.Params)
 					}
 					if err := c.write(map[string]any{"jsonrpc": "2.0", "id": msg.ID, "error": map[string]any{"code": -32601, "message": "Method not found"}}); err != nil {
 						return nil, err

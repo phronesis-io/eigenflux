@@ -133,7 +133,7 @@ func (r Runner) runProcess(ctx context.Context, args []string, stdin string) ([]
 	cmd.Stderr = stderr
 	guard, err := startManaged(cmd)
 	if err != nil {
-		return nil, nil, errors.New("runner_start_failed")
+		return nil, nil, &DiagnosticError{Cause: errors.New("runner_start_failed"), Code: "runner_start_failed"}
 	}
 	defer guard.close()
 	done := make(chan error, 1)
@@ -153,7 +153,7 @@ func (r Runner) runProcess(ctx context.Context, args []string, stdin string) ([]
 		return nil, nil, errOutputLimit
 	}
 	if err != nil {
-		return nil, nil, errors.New("runner_exit_failed")
+		return nil, nil, &DiagnosticError{Cause: errors.New("runner_exit_failed"), Code: "runner_exit_failed"}
 	}
 	return out.data, stderr.data, nil
 }

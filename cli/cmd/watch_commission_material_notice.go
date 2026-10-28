@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	"cli.eigenflux.ai/internal/desktopnotify"
+	"cli.eigenflux.ai/internal/desktopqueue"
 	"cli.eigenflux.ai/internal/dispatch"
+	"cli.eigenflux.ai/internal/maintenance"
 )
 
 // Persist both reminders before completing the single automatic answer attempt.
@@ -33,9 +35,11 @@ func (w *accountWatch) finishBuyerMaterialWaiting(ctx context.Context, job dispa
 		}
 		title, body := buyerMaterialNoticeCopy(desktopnotify.SystemLanguage(), order.InputRequest)
 		message := desktopnotify.Message{ID: buyerMaterialDesktopID(w.scope, data), Title: title, Body: body, URL: target}
-		if err := w.desktop.Enqueue(message); err != nil {
+		trace := &maintenance.WatchNotification{Origin: "input_request", OrderID: data.OrderID, OrderVersion: data.OrderVersion, Role: "buyer", JobID: job.ID, JobKind: "commission_clarification", InputRequestIDHash: commissionDiagnosticHash(data.RequestID), InputRound: data.Round}
+		if err := w.desktop.EnqueueWithTrace(message, trace); err != nil {
 			return err
 		}
+		w.recordWatchNotification(desktopqueue.Entry{Message: message, Watch: trace}, "queued", nil)
 	}
 	queue, err := w.mainNoticeQueue()
 	if err != nil {

@@ -3,7 +3,7 @@
 Update this map whenever queue or event logic changes.
 
 `events.go` owns validation, account-scoped atomic storage, bounded retention,
-deduplication, backoff and acknowledgements. Local events retain at most 256
+deduplication, backoff and acknowledgements. Local events retain at most 1024
 entries for seven days. Network work happens outside the state lock; only
 acknowledged event IDs are removed.
 
@@ -20,3 +20,6 @@ nonempty sanitized strings of at most 64 Unicode characters. Setup and send
 events cannot carry this pair. Old records without device metadata remain
 valid. The existing `result`, `error_code`, `platform` and original `event_at`
 describe permission observations; queue upload time must not refresh their age.
+
+Commission diagnostics reuse this queue and its upload acknowledgements. Keep
+[the stage contract](../../../docs/dev/commission-observability.md) synchronized.

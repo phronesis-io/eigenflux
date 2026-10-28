@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
+	"cli.eigenflux.ai/internal/dispatch"
 )
 
 const commissionPollPages = 32
@@ -146,6 +147,12 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 		if err := w.dispatchIdentityOK(); err != nil {
 			return err
 		}
+		knownJobs := map[string]bool{}
+		if w.journal != nil {
+			for _, job := range w.journal.Snapshot() {
+				knownJobs[job.ID] = true
+			}
+		}
 		ack := make([]map[string]string, 0, len(page.Notifications))
 		for _, raw := range page.Notifications {
 			var notification struct {
@@ -167,6 +174,16 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 			if w.journal != nil {
 				if err := w.journal.AddCommissionNotification(raw); err != nil {
 					return errors.Join(errWatchDispatchJournal, err)
+				}
+				for _, job := range w.journal.Snapshot() {
+					if job.Kind != "commission_order" || knownJobs[job.ID] {
+						continue
+					}
+					knownJobs[job.ID] = true
+					job.Data = raw
+					observation := commissionJobObservation(job)
+					observation.Stage, observation.Attempt, observation.Transport = "queued", 0, transport
+					w.recordCommissionObservation(observation, "queued", "", time.Time{}, dispatch.Result{}, nil)
 				}
 			}
 			if w.notificationsOnly && w.desktop == nil {

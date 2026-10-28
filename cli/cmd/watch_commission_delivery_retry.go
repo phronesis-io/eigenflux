@@ -37,6 +37,10 @@ func (w *accountWatch) scheduleCommissionDelivery(job dispatch.Job, code, sessio
 		return scheduled, err
 	}
 	current := w.commissionDeliveryJob(job)
+	observation := commissionJobObservation(current)
+	observation.Stage = "retry"
+	observation.NextAttemptAt = current.CommissionDelivery.NextAttemptAt
+	w.recordCommissionObservation(observation, "retry_scheduled", dispatch.CommissionExecutionCode(code, "failed"), time.Time{}, dispatch.Result{SessionID: session}, nil)
 	return true, w.emit("dispatch_status", map[string]any{"job_id": job.ID, "kind": job.Kind, "status": current.Status, "code": current.Code, "reason": code, "delivery": current.CommissionDelivery})
 }
 
@@ -55,6 +59,12 @@ func (w *accountWatch) failCommissionDelivery(job dispatch.Job, err error, code,
 	if commissionDeliveryRetryable(err) {
 		if scheduled, saveErr := w.scheduleCommissionDelivery(job, code, session); scheduled || saveErr != nil {
 			return saveErr
+		}
+		current := w.commissionDeliveryJob(job)
+		if current.CommissionDelivery != nil && current.CommissionDelivery.Attempts >= dispatch.CommissionDeliveryMaxAttempts {
+			observation := commissionJobObservation(current)
+			observation.Stage = "retry"
+			w.recordCommissionObservation(observation, "failed", "retry_exhausted", time.Now(), dispatch.Result{SessionID: session}, err)
 		}
 	}
 	status := "failed"
@@ -142,9 +152,15 @@ func (w *accountWatch) confirmCommissionRemoteDelivery(ctx context.Context, api 
 	if !commissionDeliveryParties(order, job.CommissionDelivery) || !commissionDeliveryAdvanced(order, result.Decision.OrderVersion) {
 		return w.failCommissionDelivery(job, errCommissionDeliveryRejected, "commission_fulfillment_order_changed", session)
 	}
+	started := time.Now()
+	observation := commissionJobObservation(job)
+	observation.Stage = "verify"
 	if _, err := w.verifyCommissionRemoteArtifacts(ctx, api, order, result, false); err != nil {
+		status, code := commissionCallOutcome(err)
+		w.recordCommissionObservation(observation, status, code, started, dispatch.Result{SessionID: session}, err)
 		return w.failCommissionDelivery(job, err, "commission_delivery_verification_unavailable", session)
 	}
+	w.recordCommissionObservation(observation, "succeeded", "", started, dispatch.Result{SessionID: session}, nil)
 	confirmed, err := readCommissionDeliveryOrder(api, result.Decision.OrderID)
 	if err != nil {
 		return w.failCommissionDelivery(job, err, "commission_delivery_verification_unavailable", session)
@@ -162,30 +178,47 @@ func (w *accountWatch) confirmCommissionRemoteDelivery(ctx context.Context, api 
 	return w.finishDispatch(job, "completed", "commission_delivery_confirmed", session, "")
 }
 
-func uploadCommissionDeliveryFile(ctx context.Context, api *client.Client, base, master string, file materialFile) error {
+func uploadCommissionDeliveryFile(ctx context.Context, api *client.Client, base, master string, file materialFile, observe ...func(string, time.Time, error)) error {
+	record := func(stage string, started time.Time, err error) {
+		if len(observe) > 0 && observe[0] != nil {
+			observe[0](stage, started, err)
+		}
+	}
+	started := time.Now()
 	body := map[string]any{"logical_path": file.LogicalPath, "byte_size": file.ByteSize, "sha256": file.SHA256}
 	response, err := postMutation(api, base+"/uploads", "order.material", childMutationKey(master, "upload:"+file.LogicalPath), body)
 	if err != nil {
+		record("upload_grant", started, err)
 		return err
 	}
 	var data commissionapi.TransferGrantData
 	if response.Code != 0 || len(response.Data) > 64<<10 || json.Unmarshal(response.Data, &data) != nil || data.Grant.ObjectID <= 0 {
+		record("upload_grant", started, errCommissionDeliveryRejected)
 		return errCommissionDeliveryRejected
 	}
+	record("upload_grant", started, nil)
+	started = time.Now()
 	if data.Grant.URL != "" {
 		if err := putCommissionDeliveryFile(ctx, api.HTTPClient, data.Grant, file); err != nil {
+			record("upload_put", started, err)
 			return err
 		}
+		record("upload_put", started, nil)
 	} else if data.Grant.Method != "" {
+		record("upload_put", started, errCommissionDeliveryRejected)
 		return errCommissionDeliveryRejected
 	}
+	started = time.Now()
 	response, err = postMutation(api, base+"/uploads/confirm", "order.material.confirm", childMutationKey(master, "confirm:"+file.LogicalPath), map[string]any{"object_id": data.Grant.ObjectID})
 	if err != nil {
+		record("upload_confirm", started, err)
 		return err
 	}
 	if response.Code != 0 {
+		record("upload_confirm", started, errCommissionDeliveryRejected)
 		return errCommissionDeliveryRejected
 	}
+	record("upload_confirm", started, nil)
 	return nil
 }
 

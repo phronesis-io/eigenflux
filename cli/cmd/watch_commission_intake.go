@@ -148,6 +148,7 @@ func (w *accountWatch) readCommissionOrder(ctx context.Context, id string) (comm
 }
 
 func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job dispatch.Job) error {
+	defer w.observeCommissionJob(job)()
 	if err := w.commissionIdentityOK(); err != nil {
 		if saveErr := w.finishDispatch(job, "failed", "identity_changed", "", ""); saveErr != nil {
 			return saveErr
@@ -196,7 +197,7 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 	}()
 	defer func() { cancel(); <-guardDone }()
 	id := strconv.FormatInt(int64(notification.Payload.OrderID), 10)
-	order, err := w.readCommissionOrder(ctx, id)
+	order, err := w.readCommissionPreflight(ctx, job, id, false)
 	if err != nil || order.Version < notification.Payload.Version {
 		return w.finishDispatch(job, "failed", "commission_order_unavailable", "", "")
 	}
@@ -263,7 +264,7 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 	if ctx.Err() != nil {
 		return w.finishDispatch(job, "failed", "commission_intake_cancelled_before_execution", "", "")
 	}
-	result, runErr := w.runAgent(ctx, prompt)
+	result, runErr := w.runCommissionAgent(ctx, job, prompt)
 	if runErr != nil {
 		status, code := "unknown", "commission_intake_unconfirmed"
 		if errors.Is(runErr, dispatch.ErrNeedsUser) {
@@ -277,10 +278,26 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 		}
 		return w.finishDispatch(job, status, code, result.SessionID, "")
 	}
+	checkStarted := time.Now()
 	decision, err := dispatch.ParseCommissionIntakeDecision(result.Text, job.ID, id, order.Version)
 	if err != nil || !validCommissionInspectedFiles(decision, files, requiresMaterials) {
+		observation := commissionJobObservation(job)
+		observation.Stage = "input_check"
+		w.recordCommissionObservation(observation, "failed", "output_invalid", checkStarted, result, nil)
 		return w.finishDispatch(job, "failed", "commission_intake_result_invalid", result.SessionID, "")
 	}
+	observation := commissionJobObservation(job)
+	observation.Stage = "input_check"
+	checkStatus, checkCode := "succeeded", ""
+	switch decision.Outcome {
+	case "needs_input":
+		checkStatus, checkCode = "blocked", "materials_missing"
+	case "needs_user":
+		checkStatus, checkCode = "blocked", "execution_blocked"
+	case "failed":
+		checkStatus, checkCode = "failed", "execution_failed"
+	}
+	w.recordCommissionObservation(observation, checkStatus, checkCode, checkStarted, result, nil)
 	if err := w.commissionIdentityOK(); err != nil {
 		if saveErr := w.finishDispatch(job, "failed", "identity_changed", result.SessionID, ""); saveErr != nil {
 			return saveErr
@@ -305,9 +322,13 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 			}
 			return err
 		}
+		acceptStarted := time.Now()
+		observation.Stage = "accept"
 		if err := w.acceptInspectedCommission(ctx, order); err != nil {
+			w.recordCommissionObservation(observation, "failed", "execution_unconfirmed", acceptStarted, result, err)
 			return w.finishDispatch(job, "unknown", "commission_accept_unconfirmed", result.SessionID, "")
 		}
+		w.recordCommissionObservation(observation, "succeeded", "", acceptStarted, result, nil)
 	}
 	return auth.WithV2CredentialsLockContext(ctx, w.server.Name, 35*time.Second, func() error {
 		if err := w.commissionIdentityOK(); err != nil {

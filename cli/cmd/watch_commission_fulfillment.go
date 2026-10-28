@@ -44,6 +44,7 @@ func (w *accountWatch) commissionFulfillmentLoop(ctx context.Context) error {
 }
 
 func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job dispatch.Job) error {
+	defer w.observeCommissionJob(job)()
 	if err := w.commissionFulfillmentIdentityOK(parent); err != nil {
 		return w.failCommissionLocalCheck(job, err, "")
 	}
@@ -60,7 +61,7 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 	}
 	ctx, cancel := context.WithTimeout(parent, time.Duration(timeout)*time.Second)
 	defer cancel()
-	order, err := w.readCommissionOrder(ctx, queued.OrderID)
+	order, err := w.readCommissionPreflight(ctx, job, queued.OrderID, false)
 	if err != nil {
 		return w.failCommissionDelivery(job, err, "commission_order_unavailable", job.SessionID)
 	}
@@ -147,7 +148,7 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 		}
 		return w.deliverCommissionArtifacts(ctx, job, order, *retained, job.SessionID)
 	}
-	result, runErr := w.runAgent(ctx, prompt)
+	result, runErr := w.runCommissionAgent(ctx, job, prompt)
 	if runErr != nil {
 		status, code := "unknown", "commission_fulfillment_unconfirmed"
 		if errors.Is(runErr, dispatch.ErrNeedsUser) || errors.Is(runErr, dispatch.ErrCommandLineTooLong) {
@@ -159,9 +160,16 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 	if err != nil {
 		return w.finishDispatch(job, "failed", "commission_fulfillment_result_invalid", result.SessionID, "")
 	}
+	artifactStarted := time.Now()
+	observation := commissionJobObservation(job)
+	observation.Stage = "artifact"
 	artifacts, err := validateCommissionArtifacts(directory, decision)
 	if err != nil {
+		w.recordCommissionObservation(observation, "failed", "output_invalid", artifactStarted, result, nil)
 		return w.finishDispatch(job, "failed", "commission_fulfillment_artifacts_invalid", result.SessionID, "")
+	}
+	if decision.Outcome == "artifacts_ready" {
+		w.recordCommissionObservation(observation, "succeeded", "", artifactStarted, result, nil)
 	}
 	saved := dispatch.CommissionFulfillmentResult{Decision: decision, OutputDirectory: directory, Artifacts: artifacts}
 	if decision.Outcome == "artifacts_ready" {

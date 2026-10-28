@@ -690,3 +690,12 @@ Full completed-access heartbeat plans include Feed pre/post-push completion chec
 Control-only and watch maintenance-only plans retain their narrow stages and do
 not execute Feed work. Feed reports and event queues share the retained OS-lock
 implementation with Skills; named report locks keep their bounded wait.
+
+## Safe diagnostics
+
+`diagnostic.go` retains fixed runner-failure and ACP permission-operation
+categories while preserving `errors.Is` decisions. Never retain tool inputs,
+paths, stderr or permission explanations. The caller hashes host receipts and
+reuses [maintenance observations](../maintenance/README.md); failed telemetry
+must not authorize, retry or fail a business action. Synchronize these documents
+when changing diagnostic categories or receipt semantics.

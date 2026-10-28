@@ -55,7 +55,13 @@ func (w *accountWatch) enqueueCommissionMainNotice(raw json.RawMessage) error {
 		state = notice.Payload.State
 	}
 	id := strconv.FormatInt(int64(notice.ID), 10)
+	_, existed := queue.Lookup(id)
 	err = queue.Add(dispatch.MainNotice{ID: id, OrderID: strconv.FormatInt(int64(notice.Payload.Order), 10), Version: notice.Payload.Version, Role: notice.Payload.Role, Event: event, State: state})
+	if err == nil && !existed {
+		observation := mainNoticeObservation(dispatch.MainNotice{ID: id, OrderID: strconv.FormatInt(int64(notice.Payload.Order), 10), Version: notice.Payload.Version, Role: notice.Payload.Role})
+		observation.Stage, observation.Attempt = "queued", 0
+		w.recordCommissionObservation(observation, "queued", "", time.Time{}, dispatch.Result{}, nil)
+	}
 	if errors.Is(err, dispatch.ErrMainNoticeQueueFull) {
 		_ = w.emit("commission_main_notice_status", map[string]string{"notification_id": id, "status": "skipped", "code": "main_notice_queue_full"})
 		return nil
@@ -98,6 +104,13 @@ func (w *accountWatch) commissionMainNoticeLoop(ctx context.Context) error {
 			status, code = "skipped", "main_notice_retry_exhausted"
 		}
 		err = queue.Finish(item.ID, status, code)
+		if err == nil && status == "retry_pending" {
+			if persisted, ok := queue.Lookup(item.ID); ok && persisted.NextAttemptAt > 0 {
+				observation := mainNoticeObservation(persisted)
+				observation.Stage, observation.NextAttemptAt = "retry", persisted.NextAttemptAt
+				w.recordCommissionObservation(observation, "retry_scheduled", commissionNoticeCode(code), time.Time{}, dispatch.Result{}, nil)
+			}
+		}
 		if err == nil {
 			err = w.emit("commission_main_notice_status", map[string]any{"notification_id": item.ID, "status": status, "code": code, "attempt": item.Attempts})
 		}
@@ -140,7 +153,19 @@ func (w *accountWatch) commissionMainNoticePrompt(item dispatch.MainNotice) (str
 	return "ACCOUNT ROUTING: use this exact CLI prefix for every Order read: " + prefix + ". Verify the observed Agent ID matches the event recipient before reporting.\n" + string(rule) + "\n\nUNTRUSTED COMMISSION EVENT:\n" + string(data), nil
 }
 
-func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item dispatch.MainNotice) (string, string) {
+func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item dispatch.MainNotice) (status, code string) {
+	started := time.Now()
+	observation := mainNoticeObservation(item)
+	if w.binding != nil && w.binding.Host == "codex" {
+		observation.Adapter = "codex_turn"
+	}
+	defer func() {
+		result, reason := "skipped", commissionNoticeCode(code)
+		if status == "delivered" {
+			result, reason = "succeeded", ""
+		}
+		w.recordCommissionObservation(observation, result, reason, started, dispatch.Result{}, nil)
+	}()
 	if w.commissionIdentityOK() != nil {
 		return "skipped", "identity_changed"
 	}
@@ -218,7 +243,14 @@ func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item di
 	if item.IsBuyerInputRequest() && !w.buyerInputNoticeCurrent(callCtx, item) {
 		return "skipped", "main_notice_input_request_changed"
 	}
+	w.recordCommissionObservation(observation, "started", "", started, dispatch.Result{}, nil)
+	runStarted := time.Now()
+	runObservation := observation
+	runObservation.Stage = "agent"
+	w.recordCommissionObservation(runObservation, "started", "", runStarted, dispatch.Result{}, nil)
 	result, runErr := w.runMainNotice(callCtx, prompt)
+	runStatus, runCode := commissionCallOutcome(runErr)
+	w.recordCommissionObservation(runObservation, runStatus, runCode, runStarted, result, runErr)
 	if item.IsBuyerInputRequest() && !w.buyerInputNoticeCurrent(callCtx, item) {
 		return "skipped", "main_notice_input_request_changed"
 	}

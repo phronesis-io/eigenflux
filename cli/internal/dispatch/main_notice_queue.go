@@ -46,6 +46,18 @@ type MainNoticeQueue struct {
 	state mainNoticeQueueState
 }
 
+// Lookup returns the persisted receipt after Finish, including its retry time.
+func (q *MainNoticeQueue) Lookup(id string) (MainNotice, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for _, item := range q.state.Entries {
+		if item.ID == id {
+			return item, true
+		}
+	}
+	return MainNotice{}, false
+}
+
 func OpenMainNoticeQueue(binding Binding) (*MainNoticeQueue, error) {
 	if err := binding.validateIdentity(); err != nil {
 		return nil, err

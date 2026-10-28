@@ -746,6 +746,9 @@ func (w *accountWatch) maintenanceLoop(ctx context.Context) error {
 		if isWatchTerminal(err) {
 			return w.diagnostic("maintenance", err)
 		}
+		if err != nil {
+			_ = w.emit("maintenance_telemetry_status", map[string]string{"status": "retry_pending", "code": "upload_failed"})
+		}
 		if !watchPause(ctx, time.Minute) {
 			break
 		}

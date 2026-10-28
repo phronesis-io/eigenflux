@@ -17,6 +17,8 @@ type WatchNotification struct {
 	JobStatus            string `json:"job_status,omitempty"`
 	JobCode              string `json:"job_code,omitempty"`
 	Attempt              int    `json:"attempt"`
+	InputRequestIDHash   string `json:"input_request_id_hash,omitempty"`
+	InputRound           int    `json:"input_round,omitempty"`
 }
 
 func validateWatchNotification(e Event) error {
@@ -24,7 +26,7 @@ func validateWatchNotification(e Event) error {
 	if w == nil || e.Trigger != "auto" || e.Source != "watch" || !notificationHash.MatchString(n.IDHash) || n.DeviceID != "" || n.DeviceName != "" || n.HResult != "" {
 		return fmt.Errorf("invalid watch notification category")
 	}
-	if !watchOneOf(w.Origin, "order_event", "local_blocker", "legacy") || !canonicalPositiveNotificationID(w.OrderID) || !watchOneOf(w.Role, "buyer", "seller") || w.OrderVersion < 0 || w.Origin != "legacy" && w.OrderVersion == 0 || w.Origin == "legacy" && w.OrderVersion != 0 {
+	if !watchOneOf(w.Origin, "order_event", "local_blocker", "input_request", "legacy") || !canonicalPositiveNotificationID(w.OrderID) || !watchOneOf(w.Role, "buyer", "seller") || w.OrderVersion < 0 || w.Origin != "legacy" && w.OrderVersion == 0 || w.Origin == "legacy" && w.OrderVersion != 0 {
 		return fmt.Errorf("invalid watch notification order")
 	}
 	if w.Origin == "order_event" {
@@ -35,8 +37,15 @@ func validateWatchNotification(e Event) error {
 		if w.SourceNotificationID != "" || !notificationHash.MatchString(w.JobID) || !watchOneOf(w.JobKind, "commission_order", "commission_fulfillment") || !watchOneOf(w.JobStatus, "unknown", "failed", "needs_user") || !validWatchNotificationJobCode(w.JobCode) {
 			return fmt.Errorf("invalid watch blocker correlation")
 		}
+	} else if w.Origin == "input_request" {
+		if w.Role != "buyer" || w.SourceNotificationID != "" || !notificationHash.MatchString(w.JobID) || w.JobKind != "commission_clarification" || w.JobStatus != "" || w.JobCode != "" || !notificationHash.MatchString(w.InputRequestIDHash) || w.InputRound < 1 || w.InputRound > 3 {
+			return fmt.Errorf("invalid watch input request correlation")
+		}
 	} else if w.SourceNotificationID != "" || w.JobID != "" || w.JobKind != "" || w.JobStatus != "" || w.JobCode != "" {
 		return fmt.Errorf("invalid legacy watch correlation")
+	}
+	if w.Origin != "input_request" && (w.InputRequestIDHash != "" || w.InputRound != 0) {
+		return fmt.Errorf("input request metadata requires input request origin")
 	}
 	if w.Attempt < 0 || n.Stage == "queued" && w.Attempt != 0 || n.Stage != "queued" && w.Attempt < 1 {
 		return fmt.Errorf("invalid watch notification attempt")

@@ -68,3 +68,12 @@ There is no current Feed summary integration. The strict PM decision contains no
 - Authorized artifacts are uploaded, downloaded and verified before delivery; unknown effects do not repeat automatically.
 - Background PM/Commission results remain pending until user-visible reporting is acknowledged; no lost or repeated summaries across restart or rebind.
 - Existing PM, account isolation, heartbeat ownership and Mac/Windows behavior continue to pass. Real-host acceptance remains separate from fixtures.
+
+## Diagnostic evidence
+
+Use the existing maintenance queue for claimed/Agent/artifact/upload/delivery
+and main-conversation outcomes. Retain every physical attempt independently;
+retrying its upload reuses the persisted event ID. Session/run/file identifiers
+are hashes and errors are fixed categories. See
+[Commission observability](commission-observability.md); update it whenever
+changing execution stages or receipts. Job completion is not Order completion.

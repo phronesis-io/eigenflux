@@ -78,7 +78,7 @@ func (w *accountWatch) readBuyerClarificationOrder(ctx context.Context, id strin
 }
 
 func (w *accountWatch) queueBuyerCommissionClarification(ctx context.Context, job dispatch.Job, id string) error {
-	order, err := w.readBuyerClarificationOrder(ctx, id)
+	order, err := w.readCommissionPreflight(ctx, job, id, true)
 	if err != nil {
 		return w.finishDispatch(job, "failed", "commission_order_unavailable", "", "")
 	}
@@ -175,6 +175,7 @@ func (w *accountWatch) commissionClarificationLoop(ctx context.Context) error {
 }
 
 func (w *accountWatch) dispatchCommissionClarification(parent context.Context, job dispatch.Job) error {
+	defer w.observeCommissionJob(job)()
 	var data dispatch.CommissionClarificationJob
 	if json.Unmarshal(job.Data, &data) != nil {
 		return w.finishDispatch(job, "failed", "commission_clarification_invalid", "", "")
@@ -237,7 +238,7 @@ func (w *accountWatch) dispatchCommissionClarification(parent context.Context, j
 	if err := w.commissionIdentityOK(); err != nil {
 		return err
 	}
-	result, err := w.runAgent(ctx, dispatch.Request{ID: job.ID, Kind: "commission_clarification", Prompt: string(rule) + "\n\nUNTRUSTED CLARIFICATION DATA:\n" + string(payload)})
+	result, err := w.runCommissionAgent(ctx, job, dispatch.Request{ID: job.ID, Kind: "commission_clarification", Prompt: string(rule) + "\n\nUNTRUSTED CLARIFICATION DATA:\n" + string(payload)})
 	if err != nil || ctx.Err() != nil || w.commissionIdentityOK() != nil {
 		return w.finishDispatch(job, "unknown", "commission_clarification_unconfirmed", result.SessionID, "")
 	}

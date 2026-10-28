@@ -178,3 +178,11 @@ Implementation and maintenance rules: [desktop queue](../../cli/internal/desktop
 TODO: route future Agent-to-Agent delegation availability through the same
 account-scoped watch after its authorization, claim/cancel and result protocol
 is specified. No delegation capability or A2A handler is registered now.
+
+## Commission diagnostics
+
+Commission dispatch reuses the account-scoped maintenance queue and batch API.
+Execution, delivery substeps, retry schedules and main-conversation receipts
+follow [the observability contract](commission-observability.md). Diagnostic
+failures never repeat a business operation. Keep that contract synchronized
+when changing these stages.

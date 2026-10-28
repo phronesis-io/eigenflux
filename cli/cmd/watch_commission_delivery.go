@@ -96,7 +96,12 @@ func (w *accountWatch) deliverCommissionArtifacts(ctx context.Context, job dispa
 			if uploaded[file.LogicalPath] {
 				continue
 			}
-			if err := uploadCommissionDeliveryFile(ctx, api, base, key, file); err != nil {
+			if err := uploadCommissionDeliveryFile(ctx, api, base, key, file, func(stage string, started time.Time, cause error) {
+				observation := commissionJobObservation(job)
+				observation.Stage, observation.ArtifactIDHash = stage, commissionDiagnosticHash(file.LogicalPath)
+				status, code := commissionCallOutcome(cause)
+				w.recordCommissionObservation(observation, status, code, started, dispatch.Result{SessionID: session}, cause)
+			}); err != nil {
 				return w.failCommissionDelivery(job, err, "commission_delivery_upload_unconfirmed", session)
 			}
 		}
@@ -113,13 +118,21 @@ func (w *accountWatch) deliverCommissionArtifacts(ctx context.Context, job dispa
 		if err := w.commissionFulfillmentIdentityOK(ctx); err != nil {
 			return w.failCommissionLocalCheck(job, err, session)
 		}
+		started := time.Now()
+		observation := commissionJobObservation(job)
+		observation.Stage = "deliver"
+		w.recordCommissionObservation(observation, "started", "", started, dispatch.Result{SessionID: session}, nil)
 		response, err := api.PostWithHeaders(base+"/deliver", map[string]any{"expected_version": result.Decision.OrderVersion, "output_files": files}, map[string]string{idempotencyHeader: childMutationKey(key, "deliver")})
 		if err != nil {
+			status, code := commissionCallOutcome(err)
+			w.recordCommissionObservation(observation, status, code, started, dispatch.Result{SessionID: session}, err)
 			return w.failCommissionDelivery(job, err, "commission_delivery_unconfirmed", session)
 		}
 		if response.Code != 0 {
+			w.recordCommissionObservation(observation, "failed", "remote_rejected", started, dispatch.Result{SessionID: session}, nil)
 			return w.failCommissionDelivery(job, errCommissionDeliveryRejected, "commission_delivery_rejected", session)
 		}
+		w.recordCommissionObservation(observation, "succeeded", "", started, dispatch.Result{SessionID: session}, nil)
 		confirmed, err := readCommissionDeliveryOrder(api, id)
 		if err != nil {
 			return w.failCommissionDelivery(job, err, "commission_delivery_unconfirmed", session)
