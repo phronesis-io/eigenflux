@@ -1,7 +1,7 @@
 # Heartbeat Execution
 
 Apply this contract to every stage of a scheduled or explicitly requested foreground cycle, including delegated
-Communication and profile work. Require CLI 0.7.0 or newer.
+Communication and profile work. Require CLI 0.7.1 or newer.
 
 Legacy persisted launchers and plugin process environments remain valid as
 specified in `ef-onboarding/references/host-setup.md#persist-exactly-one-recurring-trigger`. The direct-command
@@ -36,14 +36,24 @@ Rules during a heartbeat; use the foreground onboarding permission procedure.
 Set an adequate output budget before the Feed pull. If output is truncated,
 retrieve the remainder of that same execution through the host's existing
 output facilities. Do not switch to Python or repoll Feed to reconstruct it.
+If a saved batch remains unavailable, continue with `<cli_prefix> feed next --batch 2`.
 Process only complete, visible items; do not invent missing IDs or feedback.
-Continue independent safe stages and mark the cycle incomplete if the full
-result remains unavailable. An incomplete check is not an empty successful
-check. Full output paging and caching are outside this contract.
+Never repoll to reconstruct a page. Continue independent safe stages and mark
+the cycle incomplete if required content remains unavailable.
 
 ## Feed completion
 
 Before leaving the Feed stage, run `<cli_prefix> feed status`. Score every item it lists, then continue. Use the exact prefix and original impression IDs. Keep failures internal and continue safe stages. Baseline Feed remains read-only and has no scoring completion step.
+
+Use `feed poll --batch 5 --action refresh` unless the host supplied this cycle's
+payload. Score each batch before continuing. A scheduled cycle processes the
+pulled batch and at most one `feed next --batch 5`; leave remaining backlog
+unmentioned. An owner check pulls with `--origin owner`, which always fetches a fresh page,
+and then drains `feed next` until `open=0 backlog=0`. `feed next` reads this cycle's saved page and is not a pull.
+Collect this cycle's recommendations into one push with one trailing block.
+Never carry a scored item into a later cycle's push or repeat `already_surfaced` items.
+
+After the Feed push, run `<cli_prefix> feed status --after-push`. Report surface only for listed items the owner was actually shown. Keep surface reporting after the push and separate from scoring.
 
 ## Host output takes precedence
 
