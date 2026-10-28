@@ -158,6 +158,18 @@ func (c *Client) ProcessPGCItem(ctx context.Context, rawContent, rawNotes string
 	return c.processItem(ctx, rawContent, rawNotes, c.summaryFidelity)
 }
 
+// ProcessPGCItemWithPublisherSummary keeps the normal extraction metadata
+// (tags, quality, homepage evaluation) but uses the PGC publisher's own
+// summary. The server neither rewrites nor re-audits it; PGC owns that check.
+func (c *Client) ProcessPGCItemWithPublisherSummary(ctx context.Context, rawContent, rawNotes, summary string) (*ExtractResult, error) {
+	result, err := c.processItem(ctx, rawContent, rawNotes, false)
+	if err != nil || result.Discard {
+		return result, err
+	}
+	result.Summary = summary
+	return result, nil
+}
+
 func (c *Client) processItem(ctx context.Context, rawContent, rawNotes string, audit bool) (*ExtractResult, error) {
 	result, err := ProcessItemPrompt.Execute(ctx, c, ProcessItemInput{Content: rawContent, Notes: rawNotes})
 	if err != nil {
