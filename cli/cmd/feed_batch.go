@@ -296,7 +296,7 @@ var feedNextCmd = &cobra.Command{Use: "next", Short: "Read the next batch of a s
 	}
 	if meta == nil {
 		if resolveFormat() == "agent" {
-			fmt.Fprintln(cmd.OutOrStdout(), "backlog=0 open=0")
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "backlog=0 open=0")
 		} else {
 			output.PrintData(map[string]int{"backlog": 0, "open": 0}, resolveFormat())
 		}

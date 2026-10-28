@@ -87,14 +87,14 @@ func TestFeedBatchPollAndNextKeepExposureAndRuntime(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v2/agent-context":
-			fmt.Fprint(w, `{"data":{"context_revision":2,"control_context":{"context_revision":2}}}`)
+			_, _ = fmt.Fprint(w, `{"data":{"context_revision":2,"control_context":{"context_revision":2}}}`)
 		case "/api/v2/runtime/heartbeat":
 			heartbeats++
-			fmt.Fprint(w, `{"data":{}}`)
+			_, _ = fmt.Fprint(w, `{"data":{}}`)
 		case "/api/v2/feed":
 			pulls++
 			page := bytes.ReplaceAll(batchTestPage(fmt.Sprint(pulls), 8), []byte(`"context_revision":1`), []byte(`"context_revision":2`))
-			fmt.Fprintf(w, `{"data":%s}`, page)
+			_, _ = fmt.Fprintf(w, `{"data":%s}`, page)
 		default:
 			t.Errorf("unexpected %s", r.URL.Path)
 		}
@@ -369,14 +369,14 @@ func TestFeedBatchBaselineAndNoFlagKeepWholeOutput(t *testing.T) {
 				case "/api/v2/agent-context":
 					if baseline {
 						w.WriteHeader(409)
-						fmt.Fprint(w, `{"error":{"code":"ONBOARDING_REQUIRED"}}`)
+						_, _ = fmt.Fprint(w, `{"error":{"code":"ONBOARDING_REQUIRED"}}`)
 					} else {
-						fmt.Fprint(w, `{"data":{"context_revision":1,"control_context":{"context_revision":1}}}`)
+						_, _ = fmt.Fprint(w, `{"data":{"context_revision":1,"control_context":{"context_revision":1}}}`)
 					}
 				case "/api/v2/runtime/heartbeat":
-					fmt.Fprint(w, `{"data":{}}`)
+					_, _ = fmt.Fprint(w, `{"data":{}}`)
 				case "/api/v2/feed":
-					fmt.Fprintf(w, `{"data":%s}`, page)
+					_, _ = fmt.Fprintf(w, `{"data":%s}`, page)
 				default:
 					t.Errorf("unexpected %s", r.URL.Path)
 				}

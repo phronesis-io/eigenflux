@@ -21,7 +21,7 @@ func pendingFeed(server string, state feedevent.Reports, now int64) []feedevent.
 // the ledger is diagnostic, while Feed delivery and feedback delivery are not.
 func warnReportLedger(err error) {
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "EigenFlux feed report ledger not updated: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "EigenFlux feed report ledger not updated: %v\n", err)
 	}
 }
 
@@ -132,13 +132,13 @@ var feedStatusCmd = &cobra.Command{Use: "status", Short: "List unscored Feed exp
 	}
 	if resolveFormat() == "agent" {
 		for _, item := range status.Items {
-			fmt.Fprintf(cmd.OutOrStdout(), "item_id=%s impression_id=%s age_ms=%d already_surfaced=%t title=%q\n", item.ItemID, item.ImpressionID, item.AgeMs, item.AlreadySurfaced, item.Title)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "item_id=%s impression_id=%s age_ms=%d already_surfaced=%t title=%q\n", item.ItemID, item.ImpressionID, item.AgeMs, item.AlreadySurfaced, item.Title)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "pending=%d oldest_age=%dms open=%d backlog=%d\n", status.Pending, status.OldestAgeMs, status.Open, status.Backlog)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "pending=%d oldest_age=%dms open=%d backlog=%d\n", status.Pending, status.OldestAgeMs, status.Open, status.Backlog)
 		for _, item := range status.SurfaceUnreported {
-			fmt.Fprintf(cmd.OutOrStdout(), "surface_unreported item_id=%s impression_id=%s title=%q\n", item.ItemID, item.ImpressionID, item.Title)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "surface_unreported item_id=%s impression_id=%s title=%q\n", item.ItemID, item.ImpressionID, item.Title)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "surface_unreported=%d (report only items actually shown)\n", len(status.SurfaceUnreported))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "surface_unreported=%d (report only items actually shown)\n", len(status.SurfaceUnreported))
 	} else {
 		output.PrintData(status, resolveFormat())
 	}

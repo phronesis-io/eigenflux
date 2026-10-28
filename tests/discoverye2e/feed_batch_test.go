@@ -34,7 +34,7 @@ func TestFeedCLISavedBatchesKeepOneExposureSet(t *testing.T) {
 	}
 	refreshed, err := es.Client.Indices.Refresh(es.Client.Indices.Refresh.WithIndex(es.IndexName))
 	require.NoError(t, err)
-	refreshed.Body.Close()
+	_ = refreshed.Body.Close()
 	require.False(t, refreshed.IsError())
 	home := s.socialCLIHome(t, s.owner, s.token)
 	_, private, err := ed25519.GenerateKey(rand.Reader)
