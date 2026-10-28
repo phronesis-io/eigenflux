@@ -9,7 +9,9 @@ import (
 	"testing"
 
 	"cli.eigenflux.ai/internal/auth"
+	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/client"
+	"cli.eigenflux.ai/internal/feedevent"
 	"github.com/gorilla/websocket"
 )
 
@@ -57,14 +59,17 @@ func TestQueuedEventsUseV2CredentialsAndKeepRestrictionErrors(t *testing.T) {
 		fmt.Fprint(w, `{"error":{"code":"ONBOARDING_REQUIRED","message":"read-only baseline Feed remains available"}}`)
 	}))
 	defer server.Close()
-	runtimeTestConfig(t, server.URL, true)
-	events := []map[string]interface{}{{"item_id": "42", "kind": "surface"}}
+	_, name := runtimeTestConfig(t, server.URL, true)
+	q := feedevent.NewQueue(cache.ServerDataDir(name) + "/events")
+	if err := q.Enqueue([]feedevent.Event{{"item_id": "42", "kind": "surface"}}); err != nil {
+		t.Fatal(err)
+	}
 	var apiErr *client.APIError
-	if err := pushEvents(events); !errors.As(err, &apiErr) || apiErr.ErrorCode != "ONBOARDING_REQUIRED" {
+	if _, _, err := flushFeedQueue(name, nil); !errors.As(err, &apiErr) || apiErr.ErrorCode != "ONBOARDING_REQUIRED" {
 		t.Fatalf("restricted V2 upload: %v", err)
 	}
 	status = http.StatusOK
-	if err := pushEvents(events); err != nil {
+	if _, _, err := flushFeedQueue(name, nil); err != nil {
 		t.Fatal(err)
 	}
 	if requests != 2 {

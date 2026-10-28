@@ -19,9 +19,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const heartbeatContractVersion = "eigenflux_heartbeat.v1"
+const heartbeatContractVersion = "eigenflux_heartbeat.v3"
 
 type heartbeatPlan struct {
+	FeedCompletionCheck      bool                    `json:"feed_completion_check"`
 	MainSessionBinding       *mainSessionBindingPlan `json:"main_session_binding,omitempty"`
 	WatchManaged             bool                    `json:"watch_managed,omitempty"`
 	DispatchOwned            []string                `json:"dispatch_owned,omitempty"`
@@ -215,11 +216,12 @@ var heartbeatPlanCmd = &cobra.Command{
 		// Mark commands from this cycle, but not the persisted launcher.
 		cliPrefix += " --origin " + publishOriginHeartbeat
 		plan := heartbeatPlan{
-			PlanMode:          planMode,
-			WatchManaged:      watchManaged,
-			PluginMaintenance: pluginMaintenance,
-			CLIUpdate:         cliUpdate,
-			SchemaVersion:     "eigenflux_heartbeat_plan.v1", HeartbeatContractVersion: heartbeatContractVersion,
+			FeedCompletionCheck: access.OnboardingState == "completed" && !controlOnly && !maintenanceOnly,
+			PlanMode:            planMode,
+			WatchManaged:        watchManaged,
+			PluginMaintenance:   pluginMaintenance,
+			CLIUpdate:           cliUpdate,
+			SchemaVersion:       "eigenflux_heartbeat_plan.v1", HeartbeatContractVersion: heartbeatContractVersion,
 			CLIVersion: version, SkillRevision: manifest.Revision, SkillsTarget: res.SkillsDir,
 			RuleSources: ruleSources, ExecutionOrder: heartbeatStages(access),
 			Access: access, WakeOnEmpty: heartbeatWakeOnEmpty(access, pluginMaintenance),
@@ -373,6 +375,11 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 	if plan.CLIUpdate.Error != "" {
 		updateStatus += " (" + plan.CLIUpdate.Error + ")"
 	}
+	completion := ""
+	if plan.FeedCompletionCheck {
+		completion = "\nBefore leaving the Feed stage, run " + plan.CLIPrefix + " feed status. Score every item it lists, then continue."
+		completion += "\nAfter the Feed push, run " + plan.CLIPrefix + " feed status --after-push. Report surface only for listed items the owner was actually shown."
+	}
 	runtimeStatus := plan.RuntimeReport.Status
 	if len(plan.RuntimeReport.Missing) > 0 {
 		runtimeStatus += " (missing: " + strings.Join(plan.RuntimeReport.Missing, ", ") + ")"
@@ -394,7 +401,8 @@ MANDATORY FOR THIS CYCLE
 %s
 2. Apply runtime-model.md before subsequent CLI calls: resolve the current model and pass it through --runtime-model for each invocation. If unavailable, keep it unset and continue permitted Feed work.
 3. Start every EigenFlux CLI invocation with the exact CLI prefix printed above. Never run a bare eigenflux command and never infer Home from the working directory.
-4. Runtime access: %s. Execute the available stages in order: %s. Apply the current Skills to each stage. A Feed payload supplied by the host is this cycle's completed pull.
+4. Runtime access: %s. Execute the available stages in order: %s. Apply the current Skills to each stage. A Feed payload supplied by the host is this cycle's completed pull. feed next reads this cycle's saved page and is not a pull.
+%s
 5. Follow the current Skills for onboarding restrictions and recovery. Host harness output and notification requirements take precedence over Skill silence tokens and display conventions.
 
 SCHEDULER
@@ -403,7 +411,7 @@ Migration: %s
 Native task prompt: %s
 For new native tasks, the scheduler stores this fixed execution prompt. Store it verbatim, without additions. Reuse working existing triggers, including legacy EIGENFLUX_MODE launchers; use the current Skills to decide whether a repair is necessary. Verified plugin loops may supply mode through their existing process environment.
 `, plan.HeartbeatContractVersion, plan.CLIVersion, plan.SkillRevision, plan.SkillsTarget,
-		strings.Join(plan.Skills, ", "), plan.CLIPrefix, runtimeStatus, plan.CompatibilityReported, updateStatus, pluginInfo, "- "+strings.Join(plan.RuleSources, "\n- "), plan.Access.Mode, strings.Join(plan.ExecutionOrder, " → "),
+		strings.Join(plan.Skills, ", "), plan.CLIPrefix, runtimeStatus, plan.CompatibilityReported, updateStatus, pluginInfo, "- "+strings.Join(plan.RuleSources, "\n- "), plan.Access.Mode, strings.Join(plan.ExecutionOrder, " → "), completion,
 		plan.SchedulerLauncher, plan.SchedulerMigration, heartbeatSchedulerPrompt(plan.SchedulerLauncher)) + receiptText
 }
 

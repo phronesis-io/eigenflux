@@ -931,3 +931,14 @@ queued age is in 0–604800000 ms. Counters cover the trailing window, not lifet
 totals. The newest report per Agent and Shanghai day wins using the server
 request-entry timestamp. Omission writes nothing. These client-reported facts
 are stored separately from settings and server delivery/feedback facts.
+
+
+### CLI feedback completion
+
+CLI 0.7.1 adds opt-in `feed poll --batch N`, local `feed next`, and the
+`eigenflux_heartbeat.v3` checks: `feed status` before leaving the Feed stage and
+`feed status --after-push` after delivery.
+The [client feedback contract](feedback_clients.md) defines local report state,
+durable keyed retries and the `feedback_health` settings report.
+Baseline Feed remains read-only. The server's feedback wire schema is unchanged;
+`contract_version=feedback.v2` is a batch field and `surfaced` remains optional.

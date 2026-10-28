@@ -42,7 +42,7 @@ func discoveryCall(c *cobra.Command, method, path string, body any, params map[s
 		data = r.Data
 	}
 	if save {
-		cache.SaveFeedResponse(server, data)
+		_ = cache.SaveFeedResponse(server, data)
 		cache.Cleanup(server, "broadcasts")
 	}
 	output.PrintData(data, resolveFormat())

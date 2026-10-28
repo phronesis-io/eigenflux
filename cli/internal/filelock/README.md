@@ -10,7 +10,9 @@ Consumers:
 
 - `skills/lock.go`: the Skills parent `.ef-skills.lock`, shared by synchronization,
   bundle installation and uninstall. Busy writers keep the existing retry error.
-- `feedevent/lock.go`: the event directory `.queue.lock`, shared by enqueue/flush.
+- `feedevent/lock.go`: the event directory `.queue.lock` and `.feed-reports.lock`,
+  shared by enqueue/flush and Feed reports. Named locks retain main's bounded
+  contention wait while using the shared OS-lock implementation.
 - `skills/read_signed.go`: `Idle` probes an existing lock read-only, without
   creating it. Signed reads retain snapshot, digest and journal checks; a retained
   unlocked file does not block Agent dispatch.
