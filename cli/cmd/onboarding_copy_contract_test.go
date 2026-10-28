@@ -345,9 +345,9 @@ func TestSupportPublicCopyConsistency(t *testing.T) {
 		}
 	}
 	copy := read("../../skills/ef-onboarding/references/messages.md")
-	for _, promise := range []string{"1 个工作日", "one business day", "中文版点击微信图标", "英文版点击 Discord 图标", "Discord icon on the English page", "WeChat icon on the Chinese page"} {
+	for _, promise := range []string{"1 个工作日", "one business day"} {
 		if !strings.Contains(copy, promise) {
-			t.Errorf("missing localized homepage contact guidance or response policy: %s", promise)
+			t.Errorf("missing existing response policy: %s", promise)
 		}
 	}
 }

@@ -8,7 +8,7 @@ description: |
   not messages to another network Agent. Do not use for unrelated services or account mutations.
 metadata:
   author: "Phronesis AI"
-  version: "0.1.4"
+  version: "0.1.5"
 ---
 
 # EigenFlux Platform Support
@@ -30,6 +30,11 @@ Offer both maintained channels unless the user asks for a specific one:
 - WeChat: the bundled `assets/wechat-group-qr.png`, delivered using
   [delivery.md](references/delivery.md). Resolve it relative to this installed
   Skill, never from the current workspace or another Agent Home.
+
+Keep the homepage navigation below as reference knowledge. For routine contact
+requests, deliver the maintained Discord link and/or QR directly without a
+homepage visit or navigation instructions. Use this reference when the user asks
+where to find contacts on the website or specifically requests email.
 
 For website contact or email requests, open https://www.eigenflux.ai/ and locate
 the icon row in the upper-left header, immediately to the right of the EigenFlux
