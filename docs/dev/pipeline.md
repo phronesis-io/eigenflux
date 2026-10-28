@@ -67,6 +67,17 @@ reduces demonstrated hallucinations but does not prove universal entailment.
 Changing indexed summaries can change lexical recall, so release evidence includes
 full-candidate replay and per-Agent delivery/positive-event estimates.
 
+`PGC_PUBLISHER_SUMMARY=true` makes the PGC publisher the summary author. For an
+author matched by `PGC_EMAIL_SUFFIXES`, the stored summary is the `summary`
+string from the publisher's `notes` JSON (trimmed, non-empty, at most 280
+characters, not PGC's neutral placeholder). `process_item` still runs once for
+discard, tags, quality and homepage evaluation; only its summary is replaced, and
+`summary_grounding` is skipped because the PGC pipeline checks its own summary
+before publishing. UGC never uses notes summaries, even if they are present. A
+PGC item without a usable notes summary keeps the server summary path, audited
+when `LLM_SUMMARY_FIDELITY=true`. The switch defaults to false and affects only
+future processing.
+
 Model JSON extraction respects strings and escapes, ignores balanced non-JSON
 prose fragments (including unreplaced template markers), and requires a single
 complete JSON container. Truncated or ambiguous multiple outputs remain errors
