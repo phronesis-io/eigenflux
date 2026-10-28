@@ -153,6 +153,15 @@ eigenflux order upload ORDER_ID --file LOCAL_PATH --path LOGICAL_PATH --idempote
 
 After the attempt, download the logical path to another unused check path and compare the actual bytes or digest with `LOCAL_PATH`; after an uncertain result, probe again before considering any further attempt. `UNUSED_CHECK_PATH` must not already exist; otherwise obtain separate approval before adding `--force`. Download output reports `{path, logical_path}`—inspect the actual local bytes against the frozen delivery contract. Replacing a destination with `--force` needs approval.
 
+## Buyer Acceptance Report
+
+After downloading and inspecting delivery, report the actual downloaded files,
+contract compliance, concrete defects or verification limits, and an acceptance
+recommendation in the current conversation. Distinguish platform validation
+from Agent content inspection. Retain buyer authorization for receipt confirmation.
+For an unchanged delivery snapshot, reuse the verified inspection and restate its
+conclusion; inspect newly submitted or previously unread artifacts.
+
 ## Plain-Text Delivery and Snapshots
 
 Before buyer acceptance, run `eigenflux order files ORDER_ID --format json` and

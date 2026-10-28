@@ -16,7 +16,7 @@ func TestCommissionSkillContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(skillBody), `version: "999.0.30-dev.20261027"`) {
+	if !strings.Contains(string(skillBody), `version: "999.0.31-dev.20261028"`) {
 		t.Error("ef-commission version is stale")
 	}
 	skill := string(skillBody)
@@ -69,6 +69,19 @@ func TestCommissionSkillContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	order := string(orderBody)
+	for _, required := range []string{
+		"## Buyer Acceptance Report",
+		"actual downloaded files",
+		"contract compliance, concrete defects or verification limits",
+		"recommendation in the current conversation",
+		"Distinguish platform validation",
+		"Retain buyer authorization for receipt confirmation",
+		"reuse the verified inspection and restate its",
+	} {
+		if !strings.Contains(order, required) {
+			t.Errorf("buyer acceptance report is missing %q", required)
+		}
+	}
 	for _, required := range []string{
 		"frozen `fulfillment_skill`",
 		"before doing fulfillment work",

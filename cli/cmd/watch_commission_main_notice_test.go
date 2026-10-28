@@ -5,10 +5,34 @@ import (
 	"cli.eigenflux.ai/internal/dispatch"
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestCommissionBuyerNoticeCarriesSignedAcceptanceReport(t *testing.T) {
+	w := newCommissionWatch(t, "http://127.0.0.1:1", "commission_order")
+	installCommissionIntakeRules(t, w)
+	rule, err := os.ReadFile("../../skills/ef-commission/references/main-notice.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, state := range []string{"validating", "awaiting_buyer_confirmation"} {
+		prompt, err := w.commissionMainNoticePrompt(dispatch.MainNotice{ID: "11", OrderID: "901", Version: 5, Role: "buyer", State: state})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(prompt, string(rule)) {
+			t.Fatal("main notice omitted or replaced the signed acceptance instructions")
+		}
+		for _, required := range []string{"Download and inspect the delivery", "contract compliance", "defects or verification limits", "acceptance recommendation", "Distinguish platform validation from Agent content inspection", "reuse the verified inspection and restate its conclusion", "Do not pay, accept, confirm receipt"} {
+			if !strings.Contains(prompt, required) {
+				t.Errorf("%s notice missing acceptance boundary %q", state, required)
+			}
+		}
+	}
+}
 
 func TestCommissionMainNoticeAllRolesAndFailureNoBusinessWrite(t *testing.T) {
 	for _, role := range []string{"buyer", "seller"} {
