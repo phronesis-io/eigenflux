@@ -64,7 +64,7 @@ func TestScheduledPullAlwaysFetchesAndFeedbackClearsPending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pending := pendingFeed(name, state, time.Now().UnixMilli())
+	pending := feedLedger(name).Pending(state, time.Now().UnixMilli())
 	if len(pending) != 2 || pending[0].ImpressionID != "imp-1" || pending[1].ImpressionID != "imp-2" {
 		t.Fatal(pending)
 	}
@@ -79,7 +79,7 @@ func TestScheduledPullAlwaysFetchesAndFeedbackClearsPending(t *testing.T) {
 		t.Fatal(feedback)
 	}
 	state, _ = feedReportStore(name).Read()
-	pending = pendingFeed(name, state, time.Now().UnixMilli())
+	pending = feedLedger(name).Pending(state, time.Now().UnixMilli())
 	if len(pending) != 1 || pending[0].ImpressionID != "imp-2" {
 		t.Fatal(pending)
 	}
@@ -110,7 +110,7 @@ func TestCorruptReportLedgerNeverBlocksFeedOrFeedback(t *testing.T) {
 		t.Fatal(quarantined)
 	}
 	state, err := feedReportStore(name).Read()
-	if err != nil || len(pendingFeed(name, state, time.Now().UnixMilli())) != 1 {
+	if err != nil || len(feedLedger(name).Pending(state, time.Now().UnixMilli())) != 1 {
 		t.Fatal(state, err)
 	}
 	if err := os.WriteFile(ledger, []byte("{not json"), 0o600); err != nil {
@@ -142,7 +142,7 @@ func TestFeedStatusBoundsAndFeedbackValidation(t *testing.T) {
 	}
 	ledger := feedevent.NewLedger(t.TempDir(), "server")
 	for _, raw := range []string{`[]`, `[{"item_id":"1","score":1.5}]`, `[{"item_id":"1","score":3}]`, `[{"item_id":"1","score":1,"surfaced":"true"}]`} {
-		if _, err := prepareFeedback(raw, ledger, "scope", time.Now().UnixMilli()); err == nil {
+		if _, err := prepareFeedback(raw, ledger, feedevent.Reports{}, "scope", time.Now().UnixMilli()); err == nil {
 			t.Fatal(raw)
 		}
 	}
@@ -208,7 +208,7 @@ func TestFeedbackReplayRestoresJudgmentAfterQueueOnlyWrite(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			events, err := prepareFeedback(`[{"item_id":"1","score":2}]`, feedevent.NewLedger(t.TempDir(), name), feedReportScope(name), now-50)
+			events, err := prepareFeedback(`[{"item_id":"1","score":2}]`, feedevent.NewLedger(t.TempDir(), name), feedevent.Reports{}, feedReportScope(name), now-50)
 			if err != nil {
 				t.Fatal(err)
 			}

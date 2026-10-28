@@ -30,7 +30,7 @@ func feedReportScope(server string) string {
 	return endpoint + "\x00" + settingsAgentID(server)
 }
 
-func prepareFeedback(raw string, ledger *feedevent.Ledger, scope string, now int64) ([]feedevent.Event, error) {
+func prepareFeedback(raw string, ledger *feedevent.Ledger, reports feedevent.Reports, scope string, now int64) ([]feedevent.Event, error) {
 	var items []feedevent.Event
 	decoder := json.NewDecoder(bytes.NewBufferString(raw))
 	decoder.UseNumber()
@@ -65,7 +65,7 @@ func prepareFeedback(raw string, ledger *feedevent.Ledger, scope string, now int
 		delete(item, "impression_source")
 		if imp != "" {
 			item["impression_source"] = "explicit"
-		} else if e, status := ledger.Lookup(id, now); status == feedevent.StatusHit && e.ImpressionID != "" {
+		} else if e, status := ledger.LookupHanded(id, reports, now); status == feedevent.StatusHit && e.ImpressionID != "" {
 			imp = e.ImpressionID
 			item["impression_source"] = "cli_inferred"
 		}
@@ -96,7 +96,9 @@ func submitDurableFeedback(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("authenticated Agent ID is unavailable for server %q", server)
 	}
 	now := time.Now().UnixMilli()
-	items, err := prepareFeedback(raw, feedevent.NewLedger(broadcasts, server), feedReportScope(server), now)
+	reports, readErr := feedReportStore(server).Read()
+	warnReportLedger(readErr)
+	items, err := prepareFeedback(raw, feedevent.NewLedger(broadcasts, server), reports, feedReportScope(server), now)
 	if err != nil {
 		return err
 	}

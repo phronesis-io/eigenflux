@@ -232,3 +232,38 @@ func TestQueueFeedbackRetryAnd72HourDrop(t *testing.T) {
 		t.Fatal(string(raw))
 	}
 }
+
+func TestReportUpgradeDistinguishesBacklogFromOldHandouts(t *testing.T) {
+	now := time.Now().UnixMilli()
+	var old Report
+	if err := json.Unmarshal([]byte(fmt.Sprintf(`{"item_id":"1","impression_id":"old","served_at":%d}`, now-100)), &old); err != nil {
+		t.Fatal(err)
+	}
+	if old.HandedTime() != now-100 || old.Hands() != 1 {
+		t.Fatal(old)
+	}
+	old.Hand(now)
+	if old.HandedTime() != now || old.Hands() != 2 {
+		t.Fatal(old)
+	}
+	zero := int64(0)
+	backlog := Report{ItemID: "2", ImpressionID: "page", ServedAt: now - 50, HandedAt: &zero}
+	encoded, err := json.Marshal(backlog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reloaded Report
+	if err := json.Unmarshal(encoded, &reloaded); err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.HandedTime() != 0 {
+		t.Fatal(reloaded)
+	}
+	l := &Ledger{exact: map[string]Entry{
+		"old\x001":  {ItemID: "1", ImpressionID: "old", ServedAt: now - 100, Feed: true},
+		"page\x002": {ItemID: "2", ImpressionID: "page", ServedAt: now - 50, Feed: true},
+	}}
+	if got := l.Pending(Reports{Entries: map[string]Report{"page\x002": reloaded}}, now); len(got) != 1 || got[0].ItemID != "1" {
+		t.Fatal(got)
+	}
+}
