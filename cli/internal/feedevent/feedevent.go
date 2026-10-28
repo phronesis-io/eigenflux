@@ -63,6 +63,5 @@ type Entry struct {
 	Title           string
 	ExpiresAt       int64 // epoch ms; served-time + ledgerTTL
 	Position        int
-	ItemExpiresAt   int64
 	ContextRevision int64
 }

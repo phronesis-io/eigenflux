@@ -163,7 +163,7 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 	completion := ""
 	if plan.FeedCompletionCheck {
 		completion = "\nBefore leaving the Feed stage, run " + plan.CLIPrefix + " feed status. Score every item it lists, then continue."
-		completion += "\nAfter the Feed push, run " + plan.CLIPrefix + " feed status once more. Report surface only for listed items the owner was actually shown."
+		completion += "\nAfter the Feed push, run " + plan.CLIPrefix + " feed status --after-push. Report surface only for listed items the owner was actually shown."
 	}
 	runtimeStatus := plan.RuntimeReport.Status
 	if len(plan.RuntimeReport.Missing) > 0 {

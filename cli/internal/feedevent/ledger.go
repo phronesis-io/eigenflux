@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 )
 
 // Ledger is an item_id -> Entry map built from the CLI's broadcast cache. It is
@@ -32,9 +31,8 @@ type cachedResponse struct {
 		SourceRef struct {
 			Type string `json:"type"`
 		} `json:"source_ref"`
-		Summary    string `json:"summary"`
-		ExpireTime string `json:"expire_time"`
-		Preview    struct {
+		Summary string `json:"summary"`
+		Preview struct {
 			Text string `json:"text"`
 		} `json:"preview"`
 	} `json:"items"`
@@ -121,9 +119,6 @@ func (l *Ledger) absorb(path, serverID string) {
 			Position:        position,
 			ContextRevision: envelope.Personalization.ContextRevision,
 		}
-		if expires, err := time.Parse(time.RFC3339, it.ExpireTime); err == nil {
-			entry.ItemExpiresAt = expires.UnixMilli()
-		}
 		if _, seen := l.entries[it.ItemID]; !seen {
 			l.entries[it.ItemID] = entry
 		}
@@ -152,8 +147,9 @@ func (l *Ledger) ReportEntries(reports Reports) []Entry {
 	return entries
 }
 
-func LoadPage(broadcastsDir, impressionID string) (json.RawMessage, error) {
-	path := NewLedger(broadcastsDir, "").pages[impressionID]
+// Page reads the newest cached response for an impression.
+func (l *Ledger) Page(impressionID string) (json.RawMessage, error) {
+	path := l.pages[impressionID]
 	if path == "" {
 		return nil, fmt.Errorf("cached Feed page %q is unavailable", impressionID)
 	}

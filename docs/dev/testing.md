@@ -274,9 +274,10 @@ fields. HTTP fixtures exercise the real
 CLI command paths; production cohort metrics remain rollout acceptance checks.
 
 Feed batching regressions also cover cache/lock failure fallback, old-ledger
-upgrade, concurrent process handouts, open-before-backlog order, expiry,
-re-hand limits, current control context, one-time surface reminders and local
-health-counter isolation. Run `go test -race ./cmd ./internal/feedevent
+upgrade, concurrent process handouts, open-before-backlog order, 24-hour backlog
+expiry, owner checks that always fetch, re-hand limits, current control context,
+post-push surface reminders that the pre-push check never consumes, busy-ledger
+status output and local health-counter isolation. Run `go test -race ./cmd ./internal/feedevent
 ./internal/cache` from `cli/`.
 
 With isolated migrated infrastructure and built services, run

@@ -113,17 +113,17 @@ func TestFeedBatchPollAndNextKeepExposureAndRuntime(t *testing.T) {
 	if len(page.Items) != 2 || page.LocalBatch.Source != "server" || page.LocalBatch.Backlog != 6 || page.LocalBatch.Open != 0 || len(page.Notifications) != 1 {
 		t.Fatal(raw)
 	}
-	cached, err := feedevent.LoadPage(filepath.Join(cache.ServerDataDir(server), "broadcasts"), "1")
+	cached, err := feedLedger(server).Page("1")
 	if err != nil || len(decodeBatch(t, cached).Items) != 8 {
 		t.Fatal(string(cached), err)
 	}
 	state, _ := feedReportStore(server).Read()
-	if len(pendingFeed(server, state, time.Now().UnixMilli())) != 2 {
+	if len(feedLedger(server).Pending(state, time.Now().UnixMilli())) != 2 {
 		t.Fatal(state)
 	}
 	scoreBatch(t, server, "1", "1", "2")
 	for _, ids := range [][]string{{"3", "4"}, {"5", "6"}} {
-		payload, meta, err := localFeedBatchPayload(server, 2, false)
+		payload, meta, err := localFeedBatchPayload(server, feedLedger(server), 2, false)
 		if err != nil || meta == nil {
 			t.Fatal(meta, err)
 		}
@@ -149,11 +149,21 @@ func TestFeedBatchPollAndNextKeepExposureAndRuntime(t *testing.T) {
 			t.Fatalf("local health leaked: %s", key)
 		}
 	}
+	oldOrigin := originFlag
+	originFlag = publishOriginOwner
+	raw, err = captureHeartbeatStdout(t, func() error { return pollFeedV2(cmd, server, "20") })
+	originFlag = oldOrigin
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page = decodeBatch(t, []byte(raw)); pulls != 2 || page.LocalBatch.Source != "server" || page.LocalBatch.ImpressionID != "2" || page.LocalBatch.Backlog != 6 || page.LocalBatch.Open != 2 {
+		t.Fatal(pulls, raw)
+	}
 	_ = cmd.Flags().Set("action", "more")
 	if _, err := captureHeartbeatStdout(t, func() error { return pollFeedV2(cmd, server, "20") }); err != nil {
 		t.Fatal(err)
 	}
-	if pulls != 2 {
+	if pulls != 3 {
 		t.Fatal(pulls)
 	}
 }
@@ -161,15 +171,16 @@ func TestFeedBatchPollAndNextKeepExposureAndRuntime(t *testing.T) {
 func TestFeedBatchFetchDecision(t *testing.T) {
 	now := time.Now().UnixMilli()
 	for _, tc := range []struct {
-		action               string
+		action, origin       string
 		open, backlog, polls int
 		age                  time.Duration
 		want                 bool
 	}{
-		{"more", 1, 10, 0, 0, true}, {"refresh", 0, 0, 0, 0, true}, {"refresh", 1, 0, 1, time.Hour, false},
-		{"refresh", 0, 1, 2, 30 * time.Minute, true}, {"refresh", 1, 1, 2, 29 * time.Minute, false}, {"refresh", 0, 1, 1, time.Hour, false},
+		{"more", "", 1, 10, 0, 0, true}, {"refresh", "", 0, 0, 0, 0, true}, {"refresh", "heartbeat", 1, 0, 1, time.Hour, false},
+		{"refresh", "", 0, 1, 2, 30 * time.Minute, true}, {"refresh", "", 1, 1, 2, 29 * time.Minute, false}, {"refresh", "", 0, 1, 1, time.Hour, false},
+		{"refresh", "owner", 1, 10, 0, 0, true},
 	} {
-		got := shouldFetchFeedBatch(tc.action, feedevent.Reports{LastFetchAt: now - tc.age.Milliseconds(), LocalPolls: tc.polls}, tc.open, tc.backlog, now)
+		got := shouldFetchFeedBatch(tc.action, tc.origin, feedevent.Reports{LastFetchAt: now - tc.age.Milliseconds(), LocalPolls: tc.polls}, tc.open, tc.backlog, now)
 		if got != tc.want {
 			t.Fatal(tc, got)
 		}
@@ -204,17 +215,17 @@ func TestFeedBatchRehandOrderExpiryAndAttribution(t *testing.T) {
 		t.Fatal(events, err)
 	}
 	for count := 2; count <= 3; count++ {
-		payload, _, err := localFeedBatchPayload(server, 1, false)
+		payload, _, err := localFeedBatchPayload(server, feedLedger(server), 1, false)
 		if err != nil || decodeBatch(t, payload).LocalBatch.ImpressionID != "old" || decodeBatch(t, payload).Items[0].ItemID != "1" {
 			t.Fatal(string(payload), err)
 		}
 	}
-	payload, _, err := localFeedBatchPayload(server, 1, false)
+	payload, _, err := localFeedBatchPayload(server, feedLedger(server), 1, false)
 	if err != nil || decodeBatch(t, payload).LocalBatch.ImpressionID != "new" {
 		t.Fatal(string(payload), err)
 	}
 	scoreBatch(t, server, "new", "1")
-	payload, _, err = localFeedBatchPayload(server, 2, false)
+	payload, _, err = localFeedBatchPayload(server, feedLedger(server), 2, false)
 	page := decodeBatch(t, payload)
 	if err != nil || page.LocalBatch.ImpressionID != "old" || page.Items[0].ItemID != "2" || page.Items[1].ItemID != "3" {
 		t.Fatal(string(payload), err)
@@ -274,7 +285,7 @@ func TestFeedBatchCacheAndLedgerFailurePrintWholePage(t *testing.T) {
 				if len(state.Entries) != 5 || state.Entries["failure\x001"].HandedTime() == 0 {
 					t.Fatal(state)
 				}
-				if len(pendingFeed(server, state, time.Now().UnixMilli())) != 5 {
+				if len(feedLedger(server).Pending(state, time.Now().UnixMilli())) != 5 {
 					t.Fatal("cache failure hid delivered items from completion")
 				}
 			}
@@ -305,6 +316,7 @@ func TestFeedBatchStatusSurfaceReminderOnceAndCurrentContext(t *testing.T) {
 	old := formatFlag
 	formatFlag = "json"
 	t.Cleanup(func() { formatFlag = old })
+	// The pre-push completion check must not consume the post-push reminder.
 	for run := 0; run < 2; run++ {
 		raw, err := captureHeartbeatStdout(t, func() error { return feedStatusCmd.RunE(feedStatusCmd, nil) })
 		if err != nil {
@@ -314,17 +326,35 @@ func TestFeedBatchStatusSurfaceReminderOnceAndCurrentContext(t *testing.T) {
 		if err := json.Unmarshal([]byte(raw), &status); err != nil {
 			t.Fatal(err)
 		}
-		if status.Pending != 1 || status.Backlog != 1 || status.Open != 1 || len(status.SurfaceUnreported) != 1-run {
+		if status.Pending != 1 || status.Backlog != 1 || status.Open != 1 || strings.Contains(raw, "surface_unreported") {
 			t.Fatal(raw)
 		}
 	}
+	if err := feedStatusCmd.Flags().Set("after-push", "true"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = feedStatusCmd.Flags().Set("after-push", "false") })
+	for run := 0; run < 2; run++ {
+		raw, err := captureHeartbeatStdout(t, func() error { return feedStatusCmd.RunE(feedStatusCmd, nil) })
+		if err != nil {
+			t.Fatal(err)
+		}
+		var surface feedSurfaceStatus
+		if err := json.Unmarshal([]byte(raw), &surface); err != nil {
+			t.Fatal(err)
+		}
+		if len(surface.SurfaceUnreported) != 1-run || run == 0 && surface.SurfaceUnreported[0].ItemID != "1" {
+			t.Fatal(raw)
+		}
+	}
+	_ = feedStatusCmd.Flags().Set("after-push", "false")
 	if err := feedReportStore(server).Update(now, func(r *feedevent.Reports) {
 		r.RecordSurface(feedevent.Event{"item_id": "6", "impression_id": "older"}, now)
 	}); err != nil {
 		t.Fatal(err)
 	}
 	scoreBatch(t, server, "status", "5")
-	payload, meta, err := localFeedBatchPayload(server, 5, false)
+	payload, meta, err := localFeedBatchPayload(server, feedLedger(server), 5, false)
 	if err != nil || meta == nil {
 		t.Fatal(meta, err)
 	}
@@ -418,31 +448,9 @@ func TestFeedBatchBaselineAndNoFlagKeepWholeOutput(t *testing.T) {
 	}
 }
 
-func TestFeedNextSkipsExpiredItems(t *testing.T) {
-	_, server := runtimeTestConfig(t, "http://127.0.0.1:1", true)
-	batchTestContext(t, server, 1)
-	page := bytes.Replace(batchTestPage("expiry", 4), []byte(`"item_id":"2"`), []byte(`"item_id":"2","expire_time":"2000-01-01T00:00:00Z"`), 1)
-	if err := cache.SaveFeedResponse(server, page); err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UnixMilli()
-	if err := feedReportStore(server).Update(now, func(r *feedevent.Reports) { _, _ = recordFeedPage(r, page, now, 1) }); err != nil {
-		t.Fatal(err)
-	}
-	scoreBatch(t, server, "expiry", "1")
-	payload, _, err := localFeedBatchPayload(server, 2, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := decodeBatch(t, payload)
-	if len(got.Items) != 2 || got.Items[0].ItemID != "3" || got.Items[1].ItemID != "4" {
-		t.Fatal(string(payload))
-	}
-}
-
 func TestFeedNextConcurrentProcesses(t *testing.T) {
 	if server := os.Getenv("EF_BATCH_CHILD_SERVER"); server != "" {
-		payload, _, err := localFeedBatchPayload(server, 2, false)
+		payload, _, err := localFeedBatchPayload(server, feedLedger(server), 2, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -503,5 +511,48 @@ func TestFeedNextConcurrentProcesses(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(cache.ServerDataDir(server), ".feed-reports.lock")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestFeedStatusBusyLedgerStillReports(t *testing.T) {
+	_, server := runtimeTestConfig(t, "http://127.0.0.1:1", true)
+	page := batchTestPage("busy", 2)
+	if err := cache.SaveFeedResponse(server, page); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UnixMilli()
+	store := feedReportStore(server)
+	if err := store.Update(now, func(r *feedevent.Reports) {
+		_, _ = recordFeedPage(r, page, now-1000, 0)
+		r.RecordFeedback(feedevent.Event{"item_id": "1", "impression_id": "busy", "score": 2, "client_key": "k1"}, now, "queued")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	release, ready, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	go func() {
+		done <- feedReportStore(server).Update(time.Now().UnixMilli(), func(*feedevent.Reports) { close(ready); <-release })
+	}()
+	<-ready
+	old := formatFlag
+	formatFlag = "json"
+	t.Cleanup(func() { formatFlag = old; _ = feedStatusCmd.Flags().Set("after-push", "false") })
+	raw, err := captureHeartbeatStdout(t, func() error { return feedStatusCmd.RunE(feedStatusCmd, nil) })
+	var status feedStatus
+	if err != nil || json.Unmarshal([]byte(raw), &status) != nil || status.Pending != 1 {
+		t.Fatal(raw, err)
+	}
+	_ = feedStatusCmd.Flags().Set("after-push", "true")
+	raw, err = captureHeartbeatStdout(t, func() error { return feedStatusCmd.RunE(feedStatusCmd, nil) })
+	var surface feedSurfaceStatus
+	if err != nil || json.Unmarshal([]byte(raw), &surface) != nil || len(surface.SurfaceUnreported) != 1 {
+		t.Fatal(raw, err)
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	state, _ := store.Read()
+	if state.Entries["busy\x001"].SurfaceRemindedAt != 0 {
+		t.Fatal("a busy ledger must not record a reminder it could not claim")
 	}
 }
