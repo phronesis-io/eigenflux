@@ -185,7 +185,7 @@ func pollFeedV2(cmd *cobra.Command, serverName, limit string) error {
 			payload, meta, localErr := localFeedBatchPayload(serverName, ledger, batch, true)
 			warnReportLedger(localErr)
 			if localErr == nil && meta != nil {
-				return renderFeedV2Batch(cmd, payload, meta, false)
+				return renderFeedV2Batch(cmd, serverName, payload, meta)
 			}
 		}
 	}
@@ -219,10 +219,10 @@ func pollFeedV2(cmd *cobra.Command, serverName, limit string) error {
 }
 
 func renderFeedV2(cmd *cobra.Command, payload json.RawMessage) error {
-	return renderFeedV2Batch(cmd, payload, nil, false)
+	return renderFeedV2Batch(cmd, "", payload, nil)
 }
 
-func renderFeedV2Batch(cmd *cobra.Command, payload json.RawMessage, batch *localFeedBatch, reference bool) error {
+func renderFeedV2Batch(cmd *cobra.Command, server string, payload json.RawMessage, batch *localFeedBatch) error {
 	if resolveFormat() != "agent" {
 		output.PrintData(payload, resolveFormat())
 		return nil
@@ -232,19 +232,22 @@ func renderFeedV2Batch(cmd *cobra.Command, payload json.RawMessage, batch *local
 		return fmt.Errorf("invalid Feed V2 payload")
 	}
 	trusted, _ := json.Marshal(feed["control_context_snapshot"])
-	contract := "The output contract printed with this cycle's Feed pull applies to this batch."
-	if !reference {
-		var err error
-		contract, err = output.ResolveFeedContract(payload)
-		if err != nil {
-			return err
-		}
+	contract, err := output.ResolveFeedContract(payload)
+	if err != nil {
+		return err
+	}
+	if batch != nil {
+		referenceFeedInstructions(feed)
+		contract = feedBatchContract(server, contract)
 	}
 	delete(feed, "control_context_snapshot")
 	delete(feed, "output_contract")
 	items, _ := json.Marshal(feed)
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "[EIGENFLUX CONTROL CONTEXT — TRUSTED OWNER-CONFIRMED CONFIGURATION]")
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), string(trusted))
+	if batch != nil {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), feedInstructionReference)
+	}
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), contract)
 	if batch != nil {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "[EIGENFLUX LOCAL BATCH] impression_id=%s items=%d open=%d backlog=%d source=%s next=%q\n", batch.ImpressionID, batch.Handed, batch.Open, batch.Backlog, batch.Source, batch.NextCommand)

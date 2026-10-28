@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"time"
 
@@ -54,7 +55,7 @@ func batchCandidates(ledger *feedevent.Ledger, state feedevent.Reports, now int6
 		}
 		if r.HandedTime() == 0 {
 			backlog = append(backlog, e)
-		} else if r.ScoredAt == 0 && r.Delivery == "" && !state.Surfaced(e.ItemID) && r.Hands() < feedRehandLimit {
+		} else if r.Batched && r.ScoredAt == 0 && r.Delivery == "" && !state.Surfaced(e.ItemID) && r.Hands() < feedRehandLimit {
 			open = append(open, e)
 		}
 	}
@@ -105,7 +106,11 @@ func batchNextCommand(server string, n int) string {
 	if originFlag != "" {
 		prefix += " --origin " + shellQuote(originFlag)
 	}
-	return fmt.Sprintf("%s feed next --batch %d", prefix, n)
+	command := fmt.Sprintf("%s feed next --batch %d", prefix, n)
+	if resolveFormat() == "agent" {
+		command += " --format agent"
+	}
+	return command
 }
 
 func makeFeedBatch(server string, payload json.RawMessage, selected []feedevent.Entry, state feedevent.Reports, meta localFeedBatch) (json.RawMessage, error) {
@@ -131,6 +136,9 @@ func makeFeedBatch(server string, payload json.RawMessage, selected []feedevent.
 		batch = append(batch, item)
 	}
 	page["items"], _ = json.Marshal(batch)
+	if err := filterFeedBatchMetadata(page, batch); err != nil {
+		return nil, err
+	}
 	page["local_batch"], _ = json.Marshal(meta)
 	if meta.Source == "local" {
 		page["notifications"] = json.RawMessage(`[]`)
@@ -156,6 +164,63 @@ func makeFeedBatch(server string, payload json.RawMessage, selected []feedevent.
 	}
 	page["output_contract"], _ = json.Marshal(contract)
 	return json.Marshal(page)
+}
+
+func filterFeedBatchMetadata(page map[string]json.RawMessage, batch []map[string]json.RawMessage) error {
+	if raw, ok := page["agent_card_updates"]; ok {
+		var cards map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &cards); err != nil {
+			return err
+		}
+		kept := map[string]json.RawMessage{}
+		for _, item := range batch {
+			var author struct {
+				AgentID string `json:"agent_id"`
+			}
+			if json.Unmarshal(item["author_identity"], &author) == nil {
+				if card, ok := cards[author.AgentID]; ok {
+					kept[author.AgentID] = card
+				}
+			}
+		}
+		delete(page, "agent_card_updates")
+		if len(kept) > 0 {
+			page["agent_card_updates"], _ = json.Marshal(kept)
+		}
+	}
+	if raw, ok := page["discovery"]; ok && string(raw) != "null" {
+		var discovery map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &discovery); err != nil {
+			return err
+		}
+		if rawItems, ok := discovery["items"]; ok {
+			var entries []map[string]json.RawMessage
+			if err := json.Unmarshal(rawItems, &entries); err != nil {
+				return err
+			}
+			byID := map[string]map[string]json.RawMessage{}
+			for _, entry := range entries {
+				var id string
+				_ = json.Unmarshal(entry["item_id"], &id)
+				byID[id] = entry
+			}
+			kept := []map[string]json.RawMessage{}
+			for _, item := range batch {
+				var id string
+				_ = json.Unmarshal(item["item_id"], &id)
+				if entry, ok := byID[id]; ok {
+					var preview, discoveryPreview any
+					if json.Unmarshal(item["preview"], &preview) == nil && json.Unmarshal(entry["preview"], &discoveryPreview) == nil && reflect.DeepEqual(discoveryPreview, preview) {
+						delete(entry, "preview")
+					}
+					kept = append(kept, entry)
+				}
+			}
+			discovery["items"], _ = json.Marshal(kept)
+		}
+		page["discovery"], _ = json.Marshal(discovery)
+	}
+	return nil
 }
 
 // Select and persist under the existing report lock. Revalidate the invocation's
@@ -273,7 +338,7 @@ func saveAndBatchFeed(cmd *cobra.Command, server string, payload json.RawMessage
 		warnReportLedger(recordFeedPull(server, payload))
 		return renderFeedV2(cmd, payload)
 	}
-	return renderFeedV2Batch(cmd, batch, &meta, false)
+	return renderFeedV2Batch(cmd, server, batch, &meta)
 }
 
 var feedNextCmd = &cobra.Command{Use: "next", Short: "Read the next batch of a saved Feed page", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
@@ -300,7 +365,7 @@ var feedNextCmd = &cobra.Command{Use: "next", Short: "Read the next batch of a s
 		}
 		return nil
 	}
-	return renderFeedV2Batch(cmd, payload, meta, true)
+	return renderFeedV2Batch(cmd, server, payload, meta)
 }}
 
 func init() {

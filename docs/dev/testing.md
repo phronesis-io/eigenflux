@@ -280,12 +280,22 @@ post-push surface reminders that the pre-push check never consumes, busy-ledger
 status output and local health-counter isolation. Run `go test -race ./cmd ./internal/feedevent
 ./internal/cache` from `cli/`.
 
+`cli/cmd/feed_batch_output_test.go` models a large page with ten authors, ten
+discovery entries, eight Chinese intent instructions and five actions per item.
+Its five-item agent batch must stay within 32 KiB, omit foreign cards, duplicate
+discovery previews and inline contract text, and carry instruction references.
+The suite also checks exact-text matching against current intents, unchanged
+JSON rendering, contract hashes/content/retention/write-failure fallback and
+160 pre-upgrade exposures that remain pending without being re-handed.
+
 With isolated migrated infrastructure and built services, run
 `DISCOVERY_E2E=1 EIGENFLUX_TEST_CLI="$PWD/build/cli/eigenflux-darwin-arm64"
 ./tests/run.sh --skip-start discoverye2e -c TestFeedCLISavedBatchesKeepOneExposureSet`
 (select the binary for your platform). This suite starts its own application
 processes. It scores a batch, reads two saved batches, then polls locally and
 checks the real replay/feedback rows retain the single original impression.
+It also reads the next batch in agent format, verifies the referenced served
+contract file and re-hands a skipped item without creating a new exposure.
 
 Build the CLI with `cd cli && go build -o ../build/eigenflux-cli .`, then run
 `EIGENFLUX_TEST_CLI="$PWD/build/eigenflux-cli" ./tests/run.sh --skip-start e2e -c TestCLIFeedbackProcessRecovery`

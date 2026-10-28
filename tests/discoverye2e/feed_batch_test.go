@@ -5,12 +5,14 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -63,8 +65,9 @@ func TestFeedCLISavedBatchesKeepOneExposureSet(t *testing.T) {
 		return out
 	}
 	type batch struct {
-		ImpressionID string `json:"impression_id"`
-		Items        []struct {
+		ImpressionID   string `json:"impression_id"`
+		OutputContract string `json:"output_contract"`
+		Items          []struct {
 			ItemID string `json:"item_id"`
 		} `json:"items"`
 		LocalBatch struct {
@@ -99,6 +102,20 @@ func TestFeedCLISavedBatchesKeepOneExposureSet(t *testing.T) {
 	require.Equal(t, first.ImpressionID, local.ImpressionID)
 	require.Len(t, local.Items, 1)
 	require.False(t, seen[local.Items[0].ItemID])
+	agentOutput := string(run("feed", "next", "--batch", "1", "--format", "agent"))
+	contract := strings.TrimSpace(first.OutputContract)
+	require.NotEmpty(t, contract)
+	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(contract)))[:16]
+	contractPath := filepath.Join(home, "servers", "eigenflux", "data", "feed-contracts", digest+".md")
+	contractFile, err := os.ReadFile(contractPath)
+	require.NoError(t, err)
+	require.Equal(t, contract, string(contractFile))
+	require.Contains(t, agentOutput, fmt.Sprintf("Read %s (sha256 %s, %d bytes) completely", contractPath, digest, len(contract)))
+	require.NotContains(t, agentOutput, contract)
+	lines := strings.Split(strings.TrimSpace(agentOutput), "\n")
+	rehanded := decode[batch](t, []byte(lines[len(lines)-1]))
+	require.Equal(t, local.Items, rehanded.Items)
+	require.Equal(t, first.ImpressionID, rehanded.ImpressionID)
 	require.Eventually(t, func() bool {
 		var count int64
 		return s.db.Table("feedback_logs").Where("agent_id=? AND impression_id=? AND impression_source='cli_inferred'", s.owner, first.ImpressionID).Count(&count).Error == nil && count == 3

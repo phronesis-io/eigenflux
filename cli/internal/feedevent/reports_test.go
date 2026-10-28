@@ -239,11 +239,11 @@ func TestReportUpgradeDistinguishesBacklogFromOldHandouts(t *testing.T) {
 	if err := json.Unmarshal([]byte(fmt.Sprintf(`{"item_id":"1","impression_id":"old","served_at":%d}`, now-100)), &old); err != nil {
 		t.Fatal(err)
 	}
-	if old.HandedTime() != now-100 || old.Hands() != 1 {
+	if old.HandedTime() != now-100 || old.Hands() != 1 || old.Batched {
 		t.Fatal(old)
 	}
 	old.Hand(now)
-	if old.HandedTime() != now || old.Hands() != 2 {
+	if old.HandedTime() != now || old.Hands() != 2 || !old.Batched {
 		t.Fatal(old)
 	}
 	zero := int64(0)

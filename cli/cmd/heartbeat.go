@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const heartbeatContractVersion = "eigenflux_heartbeat.v3"
+const heartbeatContractVersion = "eigenflux_heartbeat.v4"
 
 type heartbeatPlan struct {
 	FeedCompletionCheck      bool                `json:"feed_completion_check"`
@@ -184,7 +184,7 @@ MANDATORY FOR THIS CYCLE
 %s
 2. Apply runtime-model.md before subsequent CLI calls: resolve the current model and pass it through --runtime-model for each invocation. If unavailable, keep it unset and continue permitted Feed work.
 3. Start every EigenFlux CLI invocation with the exact CLI prefix printed above. Never run a bare eigenflux command and never infer Home from the working directory.
-4. Runtime access: %s. Execute the available stages in order: %s. Apply the current Skills to each stage. A Feed payload supplied by the host is this cycle's completed pull. feed next reads this cycle's saved page and is not a pull.
+4. Runtime access: %s. Execute the available stages in order: %s. Apply the current Skills to each stage. A Feed payload supplied by the host is this cycle's completed pull. feed next reads this cycle's saved page and is not a pull. A Feed batch names its output contract file; read that file completely before processing the batch.
 %s
 5. Follow the current Skills for onboarding restrictions and recovery. Host harness output and notification requirements take precedence over Skill silence tokens and display conventions.
 
