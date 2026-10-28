@@ -11,8 +11,17 @@ their existing timeout. No plugin implements a second updater or update policy.
 
 ## Binary updates
 
-Before resolving a heartbeat plan, the CLI checks a signed release at most once
-per 24 hours. macOS and Windows use `cli/latest/package-release.json`; Linux
+Watch checks signed CLI releases independently at startup and rechecks eligibility
+each minute, including notification-only mode. It does not invoke an Agent or
+require a heartbeat plan. Honor the pinned server's `auto_cli_update`, then the
+Home default. The existing installation lock and 24-hour throttle are shared
+with heartbeat checks and manual `update`; concurrent triggers do not download
+the same release independently. Failed updates leave business processing active;
+successful installation requests the existing drained adoption path. Updater
+observations use the existing maintenance queue and redacted `cli_update_status`.
+
+Heartbeat plans retain their compatibility check. macOS and Windows use
+`cli/latest/package-release.json`; Linux
 keeps `cli/latest/release.json` and the existing bare-binary replacement. The
 bare manifest retains its original schema/signature so older clients can update.
 Both manifests bind stable semantic versions and immutable artifact digests with
@@ -59,9 +68,10 @@ After a legacy bare update, a same-version CLI installs its paired complete
 package, bypassing the previous daily check once; failed checks then obey normal
 throttling. A manually replaced newer stable entry never forwards to an older
 active pointer.
-Development builds without a compiled trust key do not self-update. Explicit
-`skill` and `plugin` modes share automatic maintenance; unknown modes do not enable
-it. Plugin mode never creates a second recurring trigger. Linux keeps its existing
+Development builds without a compiled trust key do not self-update. Heartbeat
+maintenance requires explicit `skill` or `plugin` mode. Watch's CLI-only checker
+does not require an Agent adapter or infer an unknown host/mode. Plugin mode
+never creates a second recurring trigger. Linux keeps its existing
 `.previous` backup and installed-probe rollback; an uncatchable termination during
 bare replacement remains outside that rollback guarantee.
 

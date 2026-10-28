@@ -32,7 +32,16 @@ receipts. The host reuses profile context/refresh-task adapters and the bounded
 `heartbeat plan --maintenance-only` pipeline. These calls cannot block socket
 keepalive. Feed polling and feedback flushing keep their existing cadence.
 
-When the installed executable reports a newer valid version, watch closes job
+CLI 1.0.34 adds an independent update worker in every watch mode, including
+notifications-only. Check at startup, then recheck eligibility each minute using
+the existing signed-package updater, shared installation lock and daily throttle.
+Honor the pinned server's `auto_cli_update`, then the Home default; do not require
+an Agent turn or `heartbeat plan`. Network and package failures keep business
+admission open. Hold admission through checking and observation writes, then
+request the existing drain on success. Emit redacted `cli_update_status` and reuse
+the maintenance queue. Heartbeat checks remain a compatible shared entry.
+
+When a signed active package or installed executable reports a newer valid version, watch closes job
 admission before claiming further journal entries. Existing PM replies, seller
 inspection and paid fulfillment finish normally, including their business writes;
 pending entries remain durable. After every active lane finishes, standalone
@@ -40,8 +49,8 @@ watch also waits for admitted destructive PM pulls to finish local intake.
 New PM pulls and subsequent pages stop when admission closes. Standalone
 watch releases its account lock and adopts the installed executable with the
 same arguments, canonical Home, server and inherited environment. POSIX replaces
-the process in place; Windows retains a signal-forwarding parent until its
-replacement exits. Identity is pinned across adoption; account or endpoint
+the process in place; Windows uses a bounded adoption parent and immutable
+version directories without replacing a running EXE. Identity is pinned across adoption; account or endpoint
 changes stop the handoff rather than switching accounts.
 
 Plugins set `EIGENFLUX_WATCH_SUPERVISED=1`. After draining, their watch emits
@@ -61,8 +70,8 @@ a verified unique binding. POSIX, PowerShell and CMD launchers use distinct
 quoting; CMD rejects expansion characters that cannot be represented safely.
 
 The existing PM server marks messages read before delivery. This version does
-not promise replay across that failure window. Windows locked executable
-replacement stays blocked rather than forcing host termination. Long control
+not promise replay across that failure window. Package updates do not force
+host termination. Long control
 task renewal, reliable PM history replay, Codex event runners and external
 WorkBuddy desktop invocation are separate extensions.
 

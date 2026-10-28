@@ -80,6 +80,9 @@ func watchExpectedIdentity(c *auth.V2Credentials) error {
 }
 
 func (w *accountWatch) verifyHandoffIdentity() error {
+	if w.notificationsOnly {
+		return w.notificationIdentityOK()
+	}
 	credentials, err := auth.LoadV2Credentials(w.server.Name)
 	if err != nil {
 		return err

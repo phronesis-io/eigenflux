@@ -3,6 +3,13 @@
 `watch --dispatch` sends account events to a bound local Agent; the CLI delivers replies.
 Read and update the [implementation map](../../cli/internal/dispatch/README.md) with every logic change.
 
+Every watch checks signed CLI updates at startup, then rechecks eligibility each
+minute using the shared daily throttle. This also runs without dispatch and in
+notification-only mode; no Agent turn or heartbeat plan is required. Set the
+account server's `auto_cli_update=false` to stop automatic downloads. Upgrade
+failure leaves the watch running; successful updates wait for admitted work to
+finish. Supervised watches delegate the drained restart to their host.
+
 ## Automatic Windows WorkBuddy setup
 
 CLI 1.0.24: run `watch start --host workbuddy` with the existing explicit

@@ -248,6 +248,7 @@ func (w *accountWatch) run(parent context.Context, out io.Writer) error {
 	if w.notificationsOnly {
 		runners = []func(context.Context) error{live.pulse, w.checkLoop, w.maintenanceLoop, w.commissionFallbackLoop, w.desktopLoop, w.notificationPermissionLoop}
 	}
+	runners = append(runners, w.cliUpdateLoop)
 	if w.journal != nil {
 		runners = append(runners, w.dispatchLoop, w.commissionDispatchLoop, w.commissionClarificationLoop, w.commissionFulfillmentLoop, w.commissionExecutionReportLoop, w.commissionMainNoticeLoop, w.workBuddyMigrationLoop)
 	}
