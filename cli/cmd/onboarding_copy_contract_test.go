@@ -339,10 +339,15 @@ func TestSupportPublicCopyConsistency(t *testing.T) {
 			}
 		}
 	}
+	for _, marker := range []string{"upper-left header", "envelope", "actual link targets", "one business"} {
+		if !strings.Contains(support, marker) {
+			t.Errorf("missing homepage contact guidance: %s", marker)
+		}
+	}
 	copy := read("../../skills/ef-onboarding/references/messages.md")
 	for _, promise := range []string{"1 个工作日", "one business day"} {
-		if strings.Contains(copy, promise) {
-			t.Errorf("unsupported support response-time promise: %s", promise)
+		if !strings.Contains(copy, promise) {
+			t.Errorf("missing existing operations-team response policy: %s", promise)
 		}
 	}
 }

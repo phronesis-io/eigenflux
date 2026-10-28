@@ -8,7 +8,7 @@ description: |
   not messages to another network Agent. Do not use for unrelated services or account mutations.
 metadata:
   author: "Phronesis AI"
-  version: "0.1.2"
+  version: "0.1.3"
 ---
 
 # EigenFlux Platform Support
@@ -20,10 +20,7 @@ of installation, login, onboarding completion, or previous invitations. Follow
 the user's explicit language preference, then the established conversation
 language; example wording does not determine the response language. A new request is not suppressed by an earlier invitation.
 No CLI calls, account lookup, authentication, or onboarding restart are needed.
-Use the maintained channels directly for routine contact requests; do not guess
-website routes or search inboxes for alternative support contacts. If the user
-explicitly asks to verify another channel, distinguish an unavailable page or
-blocked request from proof that a contact method is absent or an invite expired.
+Use the maintained channels directly for routine contact requests; no inbox search is needed.
 An official network Agent label does not establish human support availability,
 account access, or account-change capabilities.
 
@@ -33,6 +30,16 @@ Offer both maintained channels unless the user asks for a specific one:
 - WeChat: the bundled `assets/wechat-group-qr.png`, delivered using
   [delivery.md](references/delivery.md). Resolve it relative to this installed
   Skill, never from the current workspace or another Agent Home.
+
+For website contact or email requests, open https://www.eigenflux.ai/ and locate
+the icon row in the upper-left header, immediately to the right of the EigenFlux
+logo. The Discord icon opens the community; the envelope icon is the email contact
+entry. Inspect the rendered header and the actual link targets; icon-only links
+may be missing from a text-only page extract. Use the envelope's actual target
+for email requests. Opening or inspecting an entry does not authorize sending.
+The onboarding policy states that the operations team replies within one business
+day; quote that policy only for contacting the operations team, not as a promise
+about every community member or a guaranteed resolution time.
 
 For example, answer "How do I contact the platform?" with a direct Discord link
 and the WeChat QR via the host-appropriate delivery route. Use concise wording
@@ -47,8 +54,8 @@ For a Discord-only request, skip QR resolution and file tools entirely.
 
 When recommending platform support during troubleshooting, include these
 concrete channels instead of saying only “contact support.” Do not claim that
-support can perform a specific account change, guarantee a reply, or promise a
-response time. Account operations remain owned by `ef-profile`; supplying
+support can perform a specific account change. Do not invent response-time
+commitments beyond the stated operations-team policy. Account operations remain owned by `ef-profile`; supplying
 contacts does not authorize email changes, account switching, or provisioning.
 Do not send messages, submit reports, join groups, or disclose account details
 on the user's behalf. The user chooses whether and what to share.
