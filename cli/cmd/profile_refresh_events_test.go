@@ -8,10 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/profilestate"
 	"github.com/spf13/cobra"
+	"reflect"
 )
 
 func TestProfileFunnelFailureClassification(t *testing.T) {
@@ -106,5 +108,70 @@ func TestProfileInputFailureReportsAttempt(t *testing.T) {
 	}
 	if len(run.dispatches) != 1 || run.dispatches[0].Stage != "refresh_attempt_failed" || run.dispatches[0].RunID != state.RefreshRunID {
 		t.Fatalf("input failure not observed: %+v", run.dispatches)
+	}
+}
+
+func TestProfileFunnelUsesOnlyUsableCachedAccess(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		v2     bool
+		expiry int64
+		want   int
+	}{
+		{"expired V2", true, 1, 0}, {"unknown V2 expiry", true, 0, 0},
+		{"valid V2", true, time.Now().Add(time.Hour).UnixMilli(), 1},
+		{"expired V1", false, 1, 0}, {"invalid negative V1 expiry", false, -1, 0}, {"unknown legacy expiry", false, 0, 1},
+		{"valid V1", false, time.Now().Add(time.Hour).UnixMilli(), 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			requests := 0
+			h := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				if r.URL.Path != "/api/v1/agents/me/card/refresh-events" && r.URL.Path != "/api/v2/agents/me/card/refresh-events" {
+					t.Errorf("unexpected authentication request: %s", r.URL.Path)
+				}
+				w.WriteHeader(http.StatusUnauthorized)
+			}))
+			defer h.Close()
+			_, server := runtimeTestConfig(t, h.URL, tc.v2)
+			if tc.v2 {
+				before, err := auth.LoadV2Credentials(server)
+				if err != nil {
+					t.Fatal(err)
+				}
+				before.ExpiresAt = tc.expiry
+				if err := auth.SaveV2Credentials(server, before); err != nil {
+					t.Fatal(err)
+				}
+				reportProfileFunnel(server, profileFunnelEvent{Stage: "poll_started", PollID: newProfileRunID()})
+				after, err := auth.LoadV2Credentials(server)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(before, after) {
+					t.Fatal("telemetry changed credentials")
+				}
+			} else {
+				before, err := auth.LoadCredentials(server)
+				if err != nil {
+					t.Fatal(err)
+				}
+				before.ExpiresAt = tc.expiry
+				if err := auth.SaveCredentials(server, before); err != nil {
+					t.Fatal(err)
+				}
+				reportProfileFunnel(server, profileFunnelEvent{Stage: "poll_started", PollID: newProfileRunID()})
+				after, err := auth.LoadCredentials(server)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(before, after) {
+					t.Fatal("telemetry changed credentials")
+				}
+			}
+			if requests != tc.want {
+				t.Fatalf("requests=%d want %d", requests, tc.want)
+			}
+		})
 	}
 }

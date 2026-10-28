@@ -18,8 +18,12 @@ import (
 
 func main() {
 	history := flag.Bool("history", false, "refresh all-score history instead of strict recommendation attribution")
+	compliance := flag.Bool("compliance", false, "refresh feedback compliance by client cohort")
 	daysFlag := flag.String("days", "", "comma-separated Shanghai days, e.g. 2026-09-01,2026-09-02")
 	flag.Parse()
+	if *history && *compliance {
+		log.Fatal("--history and --compliance are mutually exclusive")
+	}
 	var days []string
 	for _, day := range strings.Split(*daysFlag, ",") {
 		if day = strings.TrimSpace(day); day != "" {
@@ -41,6 +45,8 @@ func main() {
 		refresh := recommendationmetrics.RefreshDay
 		if *history {
 			refresh = recommendationmetrics.RefreshHistoryDay
+		} else if *compliance {
+			refresh = recommendationmetrics.RefreshComplianceDay
 		}
 		if err := refresh(context.Background(), conn, day, time.Now()); err != nil {
 			log.Printf("day %s failed: %v", day, err)

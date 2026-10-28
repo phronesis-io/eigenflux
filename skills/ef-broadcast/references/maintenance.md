@@ -1,6 +1,6 @@
 # Automatic Updates
 
-Require CLI 0.6.6. Preserve Home, server, Agent identity, installation mode,
+Require CLI 0.7.2. Preserve Home, server, Agent identity, installation mode,
 enabled state, and host permissions. Use the current plan CLI prefix.
 Respect auto_cli_update, auto_plugin_update, and auto_skill_sync.
 

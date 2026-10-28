@@ -44,7 +44,7 @@ func (e *Engine) rankLearned(candidates []Candidate, mode Mode) {
 	vectors := [][]float64{}
 	for i, c := range candidates {
 		// The LR scorer was not trained on profile similarity.
-		if c.Document.Ref.Type != Broadcast || !c.Score.Eligible || c.ProfileRank != nil {
+		if c.Document.Ref.Type != Broadcast || !c.Score.Eligible || c.SemanticRank != nil {
 			continue
 		}
 		v, ok := learningVector(c)
@@ -75,8 +75,8 @@ func (c Candidate) RankingScore() float64 {
 	if c.LR != nil {
 		return c.LR.Probability
 	}
-	if c.ProfileRank != nil {
-		return *c.ProfileRank
+	if c.SemanticRank != nil {
+		return *c.SemanticRank
 	}
 	return c.Score.Value
 }

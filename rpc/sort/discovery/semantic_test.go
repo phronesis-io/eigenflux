@@ -15,6 +15,9 @@ type profileFake struct {
 	vector       []float32
 	vectorErr    error
 	cosine       map[int64]float64
+	needCosine   map[int64]float64
+	vecCosine    map[float32]map[int64]float64
+	vecErr       map[float32]error
 	cosineErr    error
 	profileDocs  []Document
 	vectorCalls  int
@@ -29,14 +32,24 @@ func (s *profileFake) ProfileVector(context.Context, int64) ([]float32, error) {
 	s.vectorCalls++
 	return s.vector, s.vectorErr
 }
-func (s *profileFake) ProfileCosine(_ context.Context, _ []float32, ids []int64) (map[int64]float64, error) {
+func (s *profileFake) Cosine(_ context.Context, v []float32, ids []int64) (map[int64]float64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cosineCalls++
 	s.cosineIDs = append(s.cosineIDs, append([]int64(nil), ids...))
+	table := s.cosine
+	if len(v) > 0 && v[0] == testNeedVector[0] {
+		table = s.needCosine
+	}
+	if t, ok := s.vecCosine[v[0]]; ok {
+		table = t
+	}
+	if err := s.vecErr[v[0]]; err != nil {
+		return nil, err
+	}
 	out := map[int64]float64{}
 	for _, id := range ids {
-		if v, ok := s.cosine[id]; ok {
+		if v, ok := table[id]; ok {
 			out[id] = v
 		}
 	}
@@ -63,6 +76,8 @@ func (s *profileFake) RecallProfile(_ context.Context, _ Context, v []float32, s
 
 const testNow = int64(200 * 24 * 60 * 60 * 1000)
 
+var testNeedVector = []float32{9, 1}
+
 func profileDoc(id int64, lexical float64, ageDays int64) Document {
 	return Document{Ref: SourceRef{Type: Broadcast, ID: id}, GroupID: id, Active: true, Visible: true, AuthorID: 99, Version: "v1", Lexical: lexical, FreshAt: testNow - ageDays*day}
 }
@@ -75,7 +90,7 @@ func profileFixture() (*Engine, *profileFake) {
 func profileFixtureWithStore() (*Engine, *profileFake, *memStore) {
 	e, s, store := engineFixture()
 	s.owner = OwnerContext{Clauses: []string{"battery", "solid state"}}
-	f := &profileFake{sourceFake: s, vector: []float32{1, 0}, cosine: map[int64]float64{}}
+	f := &profileFake{sourceFake: s, vector: []float32{1, 0}, cosine: map[int64]float64{}, needCosine: map[int64]float64{}}
 	e.Sources = f
 	e.ProfileSemanticBPS = 10000
 	return e, f, store
@@ -141,7 +156,7 @@ func TestProfileSemanticOffKeepsRuleScoring(t *testing.T) {
 	}
 }
 
-func TestProfileSemanticGatesRecallsAndOrders(t *testing.T) {
+func TestProfileSemanticAdmitsAndOrders(t *testing.T) {
 	e, s := profileFixture()
 	s.docs = []Document{
 		profileDoc(1, 5, 1),   // strong keyword, unrelated profile
@@ -150,15 +165,20 @@ func TestProfileSemanticGatesRecallsAndOrders(t *testing.T) {
 		profileDoc(4, 5, 60),  // 60 days old, below the 0.40 floor
 		profileDoc(5, 5, 120), // 120 days old, above the 0.50 floor
 	}
-	s.profileDocs = []Document{profileDoc(6, 0, 2)} // no keyword match at all
+	s.profileDocs = []Document{
+		profileDoc(6, 0, 2), // no keyword match at all, close to the profile
+		profileDoc(8, 0, 2), // no keyword match, unrelated: neither rule nor cosine admits it
+	}
 	s.channels = map[string][]Document{"friend": {profileDoc(7, 0, 1)}}
 	e.FriendFeedEnabled = true
-	for id, cos := range map[int64]float64{1: .20, 2: .45, 4: .35, 5: .55, 6: .60, 7: .05} {
+	for id, cos := range map[int64]float64{1: .20, 2: .45, 4: .35, 5: .55, 6: .60, 7: .05, 8: .10} {
 		s.cosine[id] = cos
 	}
 	x := runProfile(t, e)
 	got := fmt.Sprint(ids(x))
-	if got != "[6 5 2 7]" {
+	// Rule-eligible candidates stay (positives first); similarity only adds
+	// candidates and orders them. Missing embeddings sort last in their context.
+	if got != "[6 5 2 4 1 7 3]" {
 		t.Fatalf("got %s: %+v", got, x.PartialReasons)
 	}
 	if s.recallCalls != 2 || len(s.recallVector) != 2 {
@@ -175,7 +195,16 @@ func TestProfileSemanticGatesRecallsAndOrders(t *testing.T) {
 		t.Fatalf("similarity must be read once for all contexts: %d %v", s.cosineCalls, s.cosineIDs)
 	}
 	for _, c := range x.Candidates {
-		if c.Score.Kind != "rule_score" || !strings.HasSuffix(c.Score.Version, profileSemanticVersion) || c.Score.Features["profile_cosine"] != s.cosine[c.Document.Ref.ID] || c.ProfileRank == nil || c.FinalScore != *c.ProfileRank {
+		if c.SemanticRank == nil || c.FinalScore != *c.SemanticRank {
+			t.Fatalf("missing rank: %+v", c)
+		}
+		if c.Document.Ref.ID == 3 {
+			if c.SemanticTier != semanticTierMissing || *c.SemanticRank < 0 || *c.SemanticRank > 1 || c.Score.Features["profile_embedding_missing"] != 1 {
+				t.Fatalf("missing embedding must sort last with a positive rank: %+v", c)
+			}
+			continue
+		}
+		if c.Score.Kind != "rule_score" || !strings.HasSuffix(c.Score.Version, profileSemanticVersion) || c.Score.Features["profile_cosine"] != s.cosine[c.Document.Ref.ID] {
 			t.Fatalf("missing attribution: %+v", c)
 		}
 		rule := ScoreRules(c.Context, c.Document, e.Rules[Broadcast][Recommendation], testNow)
@@ -220,7 +249,7 @@ func TestProfileSemanticDegradesToRules(t *testing.T) {
 			s.cosine[1] = .1
 			mutate(s)
 			x := runProfile(t, e)
-			if len(x.Candidates) != 1 || x.Candidates[0].ProfileRank != nil || strings.Contains(x.Candidates[0].Score.Version, "profile") {
+			if len(x.Candidates) != 1 || x.Candidates[0].SemanticRank != nil || strings.Contains(x.Candidates[0].Score.Version, "profile") {
 				t.Fatalf("expected rule fallback: %+v", x.Candidates)
 			}
 			if s.cosineCalls > 1 {
@@ -266,7 +295,7 @@ func TestDenseQueryExcludesConsumedGroups(t *testing.T) {
 	}
 }
 
-func TestProfileSemanticKeepsCapturedNeedRelevance(t *testing.T) {
+func TestProfileSemanticKeepsCapturedNeedWithoutVector(t *testing.T) {
 	e, s, store := profileFixtureWithStore()
 	store.active = []need.Snapshot{capturedFixture(9, Broadcast)}
 	lr := &learnedFake{}
@@ -274,7 +303,7 @@ func TestProfileSemanticKeepsCapturedNeedRelevance(t *testing.T) {
 	s.docs = []Document{profileDoc(1, 5, 1)}
 	s.cosine[1] = .05 // A Need far from the standing profile.
 	x := runProfile(t, e)
-	if len(x.Candidates) != 1 || x.Candidates[0].Context.CapturedNeed == nil || x.Candidates[0].ProfileRank != nil {
+	if len(x.Candidates) != 1 || x.Candidates[0].Context.CapturedNeed == nil || x.Candidates[0].SemanticRank != nil {
 		t.Fatalf("captured Need must keep rule relevance: %+v", x.Candidates)
 	}
 	if lr.calls == 0 || x.Candidates[0].LR == nil {
@@ -282,6 +311,71 @@ func TestProfileSemanticKeepsCapturedNeedRelevance(t *testing.T) {
 	}
 	if s.recallCalls != 0 || s.cosineCalls != 0 {
 		t.Fatalf("no Profile context, no profile reads: recall=%d cosine=%d", s.recallCalls, s.cosineCalls)
+	}
+}
+
+func TestNeedSemanticAdmitsAndOrdersByNeedVector(t *testing.T) {
+	e, s, store := profileFixtureWithStore()
+	store.active = []need.Snapshot{capturedFixture(9, Broadcast)}
+	e.Compiler.NeedVectors = cacheLookupFunc(func(context.Context, int64, string, string) ([]float32, error) {
+		return testNeedVector, nil
+	})
+	lr := &learnedFake{}
+	e.Learned = lr
+	s.docs = []Document{
+		profileDoc(11, 0, 1), // vector-only recall, close to the Need
+		profileDoc(12, 5, 1), // keyword match, far from the Need: rule keeps it
+		profileDoc(13, 0, 1), // vector-only recall, far from the Need
+		profileDoc(14, 5, 1), // keyword match and close to the Need
+	}
+	for id, cos := range map[int64]float64{11: .50, 12: .10, 13: .10, 14: .40} {
+		s.needCosine[id] = cos
+		s.cosine[id] = .05 // the standing profile disagrees; the Need vector decides
+	}
+	x := runProfile(t, e)
+	if got := fmt.Sprint(ids(x)); got != "[11 14 12]" {
+		t.Fatalf("got %s: %+v", got, x.PartialReasons)
+	}
+	for _, c := range x.Candidates {
+		if c.Context.CapturedNeed == nil || c.SemanticRank == nil || c.LR != nil || !strings.HasSuffix(c.Score.Version, needSemanticVersion) || c.Score.Features["need_cosine"] != s.needCosine[c.Document.Ref.ID] {
+			t.Fatalf("missing Need attribution: %+v", c)
+		}
+	}
+	if s.recallCalls != 0 || s.cosineCalls != 1 || lr.calls != 0 {
+		t.Fatalf("one Need similarity read, no profile recall or LR: recall=%d cosine=%d lr=%d", s.recallCalls, s.cosineCalls, lr.calls)
+	}
+	e.ProfileSemanticBPS = 0
+	if x = runProfile(t, e); fmt.Sprint(ids(x)) != "[12 14]" || lr.calls == 0 {
+		t.Fatalf("control must keep rule eligibility and LR: %v", ids(x))
+	}
+}
+
+func TestNeedSemanticDoesNotNeedProfileVector(t *testing.T) {
+	e, s, store := profileFixtureWithStore()
+	store.active = []need.Snapshot{capturedFixture(9, Broadcast)}
+	e.Compiler.NeedVectors = cacheLookupFunc(func(context.Context, int64, string, string) ([]float32, error) {
+		return testNeedVector, nil
+	})
+	s.vector = nil
+	s.docs = []Document{profileDoc(11, 0, 1)}
+	s.needCosine[11] = .5
+	x := runProfile(t, e)
+	if fmt.Sprint(ids(x)) != "[11]" || x.Candidates[0].SemanticRank == nil || !strings.HasSuffix(x.Candidates[0].Score.Version, needSemanticVersion) {
+		t.Fatalf("Need similarity must not depend on a profile vector: %v %+v", x.PartialReasons, x.Candidates)
+	}
+}
+
+func TestNeedSemanticCosineFailureKeepsRules(t *testing.T) {
+	e, s, store := profileFixtureWithStore()
+	store.active = []need.Snapshot{capturedFixture(9, Broadcast)}
+	e.Compiler.NeedVectors = cacheLookupFunc(func(context.Context, int64, string, string) ([]float32, error) {
+		return testNeedVector, nil
+	})
+	s.cosineErr = fmt.Errorf("es down")
+	s.docs = []Document{profileDoc(11, 0, 1), profileDoc(12, 5, 1)}
+	x := runProfile(t, e)
+	if fmt.Sprint(ids(x)) != "[12]" || x.Candidates[0].SemanticRank != nil || !strings.Contains(fmt.Sprint(x.PartialReasons), "need_semantic:cosine_unavailable") || s.cosineCalls != 1 {
+		t.Fatalf("expected rule fallback: %v %+v", x.PartialReasons, x.Candidates)
 	}
 }
 
@@ -300,7 +394,7 @@ func TestProfileSemanticControlRecordsShadowCosine(t *testing.T) {
 	s.docs = []Document{profileDoc(1, 5, 1)}
 	s.cosine[1] = .1 // Below every treatment floor; control must still deliver it.
 	x := runProfile(t, e)
-	if len(x.Candidates) != 1 || x.Candidates[0].ProfileRank != nil || strings.Contains(x.Candidates[0].Score.Version, "profile") {
+	if len(x.Candidates) != 1 || x.Candidates[0].SemanticRank != nil || strings.Contains(x.Candidates[0].Score.Version, "profile") {
 		t.Fatalf("control behaviour changed: %+v", x.Candidates)
 	}
 	if x.Candidates[0].Score.Features["profile_cosine"] != .1 || lr.calls == 0 {
@@ -330,5 +424,132 @@ func TestDenseQueryRecentOnly(t *testing.T) {
 	b, _ = json.Marshal(q)
 	if strings.Contains(string(b), "created_at") {
 		t.Fatalf("unbounded lane must not filter by date: %s", b)
+	}
+}
+
+func needVectorsByInput(vectors map[int64][]float32) NeedVectorLookup {
+	return cacheLookupFunc(func(_ context.Context, id int64, _, _ string) ([]float32, error) {
+		return vectors[id], nil
+	})
+}
+
+func TestNeedSemanticRanksAcrossNeeds(t *testing.T) {
+	e, s, store := profileFixtureWithStore()
+	store.active = []need.Snapshot{capturedFixture(9, Broadcast), capturedFixture(10, Broadcast)}
+	e.Compiler.NeedVectors = needVectorsByInput(map[int64][]float32{9: {7, 1}, 10: {8, 1}})
+	s.docs = []Document{profileDoc(21, 0, 1), profileDoc(22, 0, 1), profileDoc(23, 5, 1)}
+	s.vecCosine = map[float32]map[int64]float64{
+		7: {21: .9, 22: .1, 23: .1},
+		8: {21: .1, 22: .8, 23: .1},
+	}
+	x := runProfile(t, e)
+	// Without cross-context ranking the first Need's rule-only item would
+	// precede the second Need's strong match: [21 23 22].
+	if got := fmt.Sprint(ids(x)); got != "[21 22 23]" {
+		t.Fatalf("got %s", got)
+	}
+	if s.cosineCalls != 2 {
+		t.Fatalf("one similarity read per Need vector: %d", s.cosineCalls)
+	}
+}
+
+func TestNeedSemanticUnembeddedItemKeepsRuleEligibility(t *testing.T) {
+	e, s, store := profileFixtureWithStore()
+	store.active = []need.Snapshot{capturedFixture(9, Broadcast)}
+	e.Compiler.NeedVectors = needVectorsByInput(map[int64][]float32{9: testNeedVector})
+	s.docs = []Document{profileDoc(31, 5, 1), profileDoc(32, 5, 1)}
+	s.needCosine[32] = .2 // 31 has no item embedding
+	x := runProfile(t, e)
+	if got := fmt.Sprint(ids(x)); got != "[32 31]" {
+		t.Fatalf("got %s", got)
+	}
+	c := x.Candidates[1]
+	if c.SemanticTier != semanticTierMissing || c.Score.Features["need_embedding_missing"] != 1 || !strings.HasSuffix(c.Score.Version, needSemanticVersion) {
+		t.Fatalf("unembedded Need item attribution: %+v", c)
+	}
+}
+
+func TestNeedSemanticFailureLeavesProfileScoring(t *testing.T) {
+	e, s, store := profileFixtureWithStore()
+	store.active = []need.Snapshot{capturedFixture(9, Broadcast)}
+	e.Compiler.NeedVectors = needVectorsByInput(map[int64][]float32{9: testNeedVector})
+	e.FriendFeedEnabled = true
+	s.vecErr = map[float32]error{testNeedVector[0]: fmt.Errorf("es down")}
+	s.docs = []Document{profileDoc(41, 5, 1)}
+	s.channels = map[string][]Document{"friend": {profileDoc(42, 0, 1)}}
+	s.cosine[42] = .6
+	x := runProfile(t, e)
+	byID := map[int64]Candidate{}
+	for _, c := range x.Candidates {
+		byID[c.Document.Ref.ID] = c
+	}
+	if byID[41].SemanticRank != nil || byID[42].SemanticRank == nil || byID[42].Score.Features["profile_cosine"] != .6 {
+		t.Fatalf("Need read failure must not disable profile scoring: %+v", x.Candidates)
+	}
+	if !strings.Contains(fmt.Sprint(x.PartialReasons), "need_semantic:cosine_unavailable") {
+		t.Fatalf("missing reason: %v", x.PartialReasons)
+	}
+}
+
+func TestNeedSemanticControlReadsNoNeedVector(t *testing.T) {
+	e, s, store := profileFixtureWithStore()
+	bps := 10000
+	for bps > 0 && profileSemanticEnabled(1, bps) {
+		bps--
+	}
+	if bps == 0 {
+		t.Skip("owner 1 hashes to bucket 0")
+	}
+	e.ProfileSemanticBPS = bps
+	store.active = []need.Snapshot{capturedFixture(9, Broadcast)}
+	e.Compiler.NeedVectors = needVectorsByInput(map[int64][]float32{9: testNeedVector})
+	s.docs = []Document{profileDoc(51, 5, 1)}
+	s.needCosine[51] = .9
+	x := runProfile(t, e)
+	if len(x.Candidates) != 1 || x.Candidates[0].SemanticRank != nil || s.cosineCalls != 0 || len(x.PartialReasons) != 0 {
+		t.Fatalf("control Need contexts must stay unchanged: calls=%d %+v %v", s.cosineCalls, x.Candidates, x.PartialReasons)
+	}
+}
+
+type refillSemanticFake struct {
+	*refillFake
+	profile *profileFake
+}
+
+func (s refillSemanticFake) ProfileVector(ctx context.Context, owner int64) ([]float32, error) {
+	return s.profile.ProfileVector(ctx, owner)
+}
+func (s refillSemanticFake) Cosine(ctx context.Context, v []float32, ids []int64) (map[int64]float64, error) {
+	return s.profile.Cosine(ctx, v, ids)
+}
+func (s refillSemanticFake) RecallProfile(ctx context.Context, c Context, v []float32, since int64, limit int) ([]Document, error) {
+	return s.profile.RecallProfile(ctx, c, v, since, limit)
+}
+
+func TestSemanticScoresRefillCandidates(t *testing.T) {
+	e, rf := refillFixture()
+	pf := &profileFake{sourceFake: rf.sourceFake, vector: []float32{1, 0}, cosine: map[int64]float64{}, needCosine: map[int64]float64{}}
+	e.Sources = refillSemanticFake{rf, pf}
+	e.ProfileSemanticBPS = 10000
+	for i := int64(1); i <= 3; i++ {
+		rf.docs = append(rf.docs, refillDoc(i))
+		rf.seen[fmt.Sprintf("broadcast:%d", i)] = true
+		rf.groups = append(rf.groups, i)
+	}
+	for i := int64(61); i <= 63; i++ {
+		rf.pool = append(rf.pool, refillDoc(i))
+	}
+	pf.cosine[61], pf.cosine[62], pf.cosine[63] = .3, .9, .1
+	x, err := e.Execute(context.Background(), 1, Request{SourceKinds: []Kind{Broadcast}, Limit: 20}, Recommendation, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprint(ids(x)); got != "[62 61 63]" || x.Refill == nil || rf.refillCalls == 0 {
+		t.Fatalf("refill candidates must be similarity-ranked: %s %+v", got, x.Refill)
+	}
+	for _, c := range x.Candidates {
+		if c.SemanticRank == nil {
+			t.Fatalf("unscored refill candidate: %+v", c)
+		}
 	}
 }

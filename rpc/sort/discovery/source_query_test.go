@@ -45,7 +45,7 @@ func TestBroadcastUsesExactTopLevelLanguageInEveryChannel(t *testing.T) {
 
 func TestBroadcastRetrievalFiltersExpiryAtRequestClock(t *testing.T) {
 	c := Context{Query: "EigenFlux", Vector: []float32{1, 0}, retrievalAt: 1791017820000}
-	for _, channel := range []string{"lexical"} {
+	for _, channel := range []string{"lexical", "dense"} {
 		q, err := Query(c, Broadcast, channel, 20)
 		if err != nil {
 			t.Fatal(err)
@@ -61,7 +61,9 @@ func TestBroadcastRetrievalFiltersExpiryAtRequestClock(t *testing.T) {
 		t.Fatal(err)
 	}
 	denseJSON, _ := json.Marshal(dense)
-	if strings.Contains(string(denseJSON), "expire_time") || strings.Contains(string(denseJSON), `"timeout"`) {
+	// The kNN filter carries the expiry predicate so expired documents do not
+	// take top-k slots; the search keeps no explicit timeout.
+	if !strings.Contains(string(denseJSON), `"knn":`) || !strings.Contains(string(denseJSON), "expire_time") || strings.Contains(string(denseJSON), `"timeout"`) {
 		t.Fatalf("dense retrieval policy changed: %s", denseJSON)
 	}
 }

@@ -89,9 +89,91 @@ func TestRejectFailedPromotionAndSelfTest(t *testing.T) {
 			}
 			raw, _ = json.Marshal(data)
 			_ = os.WriteFile(path, raw, 0600)
-			if _, err := load(path); err == nil {
+			if _, err := load(path, Contract); err == nil {
 				t.Fatal("accepted invalid model")
 			}
 		})
+	}
+}
+
+func ratingFixture(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile("testdata/discovery_rating_lr_v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var data struct {
+		Model json.RawMessage `json:"model"`
+	}
+	if err = json.Unmarshal(raw, &data); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "rating.json")
+	if err = os.WriteFile(path, data.Model, 0600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestContractsAreIsolated(t *testing.T) {
+	rating := ratingFixture(t)
+	followup, features, _ := fixture(t)
+	if _, err := load(rating, RatingContract); err != nil {
+		t.Fatalf("rating bundle rejected: %v", err)
+	}
+	if _, err := load(rating, Contract); err == nil {
+		t.Fatal("follow-up scorer accepted a rating bundle")
+	}
+	if _, err := load(followup, RatingContract); err == nil {
+		t.Fatal("rating scorer accepted a follow-up bundle")
+	}
+	if _, err := load(rating, "unknown"); err == nil {
+		t.Fatal("accepted an unknown contract")
+	}
+	m := NewRating(true, rating, time.Hour)
+	defer m.Close()
+	if _, ok := m.ScoreBatch([][]float64{features}); ok {
+		t.Fatal("rating scorer accepted a follow-up vector")
+	}
+	v := make([]float64, len(RatingFeatureNames))
+	got, ok := m.ScoreBatch([][]float64{v})
+	if !ok || got[0].Contract != RatingContract || got[0].ModelVersion == "" {
+		t.Fatalf("rating score: %+v %v", got, ok)
+	}
+}
+
+func TestRatingV2ContractIsolated(t *testing.T) {
+	raw, err := os.ReadFile("testdata/discovery_rating_lr_v2.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var data struct {
+		Model json.RawMessage `json:"model"`
+	}
+	if err = json.Unmarshal(raw, &data); err != nil {
+		t.Fatal(err)
+	}
+	v2 := filepath.Join(t.TempDir(), "v2.json")
+	if err = os.WriteFile(v2, data.Model, 0600); err != nil {
+		t.Fatal(err)
+	}
+	v1 := ratingFixture(t)
+	if _, err := load(v2, RatingV2Contract); err != nil {
+		t.Fatalf("v2 bundle rejected: %v", err)
+	}
+	if _, err := load(v2, RatingContract); err == nil {
+		t.Fatal("v1 scorer accepted a v2 bundle")
+	}
+	if _, err := load(v1, RatingV2Contract); err == nil {
+		t.Fatal("v2 scorer accepted a v1 bundle")
+	}
+	m := NewRatingV2(true, v2, time.Hour)
+	defer m.Close()
+	if _, ok := m.ScoreBatch([][]float64{make([]float64, len(RatingFeatureNames))}); ok {
+		t.Fatal("v2 scorer accepted a v1 vector")
+	}
+	got, ok := m.ScoreBatch([][]float64{make([]float64, len(RatingV2FeatureNames))})
+	if !ok || got[0].Contract != RatingV2Contract || !IsRating(got[0].Contract) || IsRating(Contract) {
+		t.Fatalf("v2 score: %+v %v", got, ok)
 	}
 }

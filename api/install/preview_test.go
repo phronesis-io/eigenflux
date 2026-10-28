@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -17,11 +18,13 @@ func TestPreviewUAClassification(t *testing.T) {
 	for _, ua := range []string{
 		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4450.0 Safari/537.36 LarkUrl",
 		"Mozilla/5.0 (compatible; redditbot/1.0; +http://www.reddit.com/feedback)",
-		"Googlebot/2.1", "Google-InspectionTool/1.0", "Bytespider", "bingbot/2.0",
+		"Googlebot/2.1", "Google-InspectionTool/1.0", "bingpreview/1.0", "GoogleWebPreview", "Bytespider", "bingbot/2.0",
 		"facebookexternalhit/1.1", "Twitterbot/1.0", "Slackbot-LinkExpanding 1.0",
 		"TelegramBot (like TwitterBot)", "Discordbot/2.0", "SkypeUriPreview",
 		"WhatsApp/2.24.1", "QQUrlPreview/1.0", "WeChatPreview/1.0",
 		"Mozilla/5.0 HeadlessChrome/120.0", "Pinterestbot/1.0",
+		"Mozilla/5.0 (compatible; Googlebot-News/2.1)",
+		"Mozilla/5.0 (compatible; +https://developers.google.com/+/web/snippet)",
 	} {
 		t.Run(ua, func(t *testing.T) {
 			if !isPreviewBot(ua) {
@@ -39,12 +42,34 @@ func TestPreviewUAClassification(t *testing.T) {
 		"Mozilla/5.0 (iPhone) Mobile/15E148 Safari/604.1 YouTube/19.0 Reddit/2026.1",
 		"Mozilla/5.0 Chrome/152.0 Safari/537.36 Lark/7.0",
 		"Mozilla/5.0 Chrome/152.0 Safari/537.36 WhatsApp/2.24.1",
+		"Mozilla/5.0 BiliApp/9150300 metadata/2aWQiOiJYVTdBOTQyN0NBMDA0Mz",
+		"Mozilla/5.0 BiliApp/9150300 metadata/xMDg3QjJDODZBOTdBNDYyRUUwRD",
+		"Mozilla/5.0 BiliApp/9150300 metadata/bot",
+		"Mozilla/5.0 app_preview/1.0 feature=preview",
+		"Mozilla/5.0 +https://example.invalid/bot",
 	} {
 		t.Run(ua, func(t *testing.T) {
 			if isPreviewBot(ua) {
 				t.Fatalf("real browser or installer excluded: %s", ua)
 			}
 		})
+	}
+}
+
+func TestPreviewIdentitySurvivesUATruncation(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	c := app.NewContext(0)
+	c.Request.Header.Set("User-Agent", "Mozilla/5.0 "+strings.Repeat("a", 520)+" LarkUrl/1.0")
+	logPreview(c, "landing_token", "", "EFI-hhPnlK")
+	var event map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(logs.Bytes()), &event); err != nil {
+		t.Fatal(err)
+	}
+	if event["crawler_identity"] != "larkurl" || len(event["user_agent"].(string)) != 512 {
+		t.Fatalf("missing bounded detection evidence: %#v", event)
 	}
 }
 

@@ -91,6 +91,10 @@ After each code change, add or modify test cases. Run build and e2e tests to ens
 
 After each code change, check if documentation needs updating, especially README.md and CLAUDE.md (including module docs under `docs/dev/`). Use clear and explicit language describing the current latest state. No process descriptions needed — git history can be queried.
 
+## Locking
+
+Avoid adding locks by default, especially implementations that delete lock files: Agent host permissions may prevent deletion and block lock release. When a file lock is necessary, use an OS-backed lock, retain the file after release, and set a bounded wait.
+
 ## Code Cleanup
 
 - Never comment out old code — delete it completely

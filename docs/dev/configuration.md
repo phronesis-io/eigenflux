@@ -241,7 +241,22 @@ retain their snapshot. See [bounded refill](discovery.md#bounded-consumed-candid
 for bounds, Redis 7 requirements and partial-result semantics.
 
 `DISCOVERY_PROFILE_SEMANTIC_BPS` defaults to `0` and accepts 0–10000. It selects
-stable Agent buckets whose broadcast Profile recommendations use profile-vector
-recall, profile-cosine eligibility and ordering instead of rule relevance and
-the discovery LR scorer. Captured Needs are unaffected. Restart Sort after changing the value. See
-[the profile-semantic experiment](discovery.md#profile-semantic-recommendation-experiment).
+stable Agent buckets whose broadcast recommendations add profile-vector recall
+for Profile contexts and use cosine to the profile or captured Need vector for
+additional eligibility and ordering in place of the discovery LR scorer.
+Restart Sort after changing the value. See
+[the semantic experiment](discovery.md#semantic-recommendation-experiment).
+
+`DISCOVERY_RATING_LR_BPS` defaults to `0` and accepts 0–10000. It selects stable
+Agent buckets whose broadcast Feed recommendations are ordered by the
+positive-rating model at `DISCOVERY_RATING_LR_MODEL_PATH` (default
+`/data/models/eigenflux/discovery-rating-lr/current/model.json`), reloaded every
+`DISCOVERY_LR_RELOAD_INTERVAL`. Restart Sort after changing the value. See
+[the rating ranker experiment](discovery.md#positive-rating-ranker-experiment).
+
+`DISCOVERY_RATING_LR_V2_BPS` defaults to `0` and accepts 0–10000. Among the
+rating-ranked Agents, it selects a stable bucket that the
+`discovery_rating_lr_v2` challenger serves from `DISCOVERY_RATING_LR_V2_MODEL_PATH`
+(default `/data/models/eigenflux/discovery-rating-lr-v2/current/model.json`).
+The challenger adds real-time item rating counts from `item_stats`. See
+[the challenger](discovery.md#item-rating-count-challenger).

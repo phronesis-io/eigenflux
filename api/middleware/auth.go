@@ -13,6 +13,7 @@ import (
 	auth "eigenflux_server/kitex_gen/eigenflux/auth"
 	"eigenflux_server/pkg/agentcard"
 	"eigenflux_server/pkg/db"
+	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/reqinfo"
 )
@@ -41,6 +42,7 @@ func AuthMiddleware() app.HandlerFunc {
 		requestStartedAt := reqinfo.RequestStartedAt(ctx)
 		header := string(c.GetHeader("Authorization"))
 		if header == "" {
+			logBusinessAuthFailure(ctx, c, 401, "missing_authorization_header", 0)
 			c.JSON(http.StatusUnauthorized, map[string]interface{}{
 				"code": 401,
 				"msg":  "missing or invalid authorization header",
@@ -54,6 +56,7 @@ func AuthMiddleware() app.HandlerFunc {
 			AccessToken: accessToken,
 		})
 		if err != nil {
+			logBusinessAuthFailure(ctx, c, 503, "auth_rpc_unavailable", 0)
 			c.JSON(http.StatusServiceUnavailable, map[string]interface{}{
 				"code": 503,
 				"msg":  "authentication service temporarily unavailable, please try again later",
@@ -62,6 +65,11 @@ func AuthMiddleware() app.HandlerFunc {
 			return
 		}
 		if resp.BaseResp.Code != 0 {
+			reason := "auth_rpc_rejected"
+			if resp.BaseResp.Code == 401 {
+				reason = "credential_invalid_or_expired"
+			}
+			logBusinessAuthFailure(ctx, c, 401, reason, resp.BaseResp.Code)
 			c.JSON(http.StatusUnauthorized, map[string]interface{}{
 				"code": 401,
 				"msg":  "invalid or expired token",
@@ -95,4 +103,9 @@ func AuthMiddleware() app.HandlerFunc {
 		c.Next(ctx)
 		ObserveSuccessfulAgentRequest(ctx, c, db.DB, resp.AgentId, requestStartedAt, true)
 	}
+}
+
+// Only fixed classifications and a router-owned path enter authentication logs.
+func logBusinessAuthFailure(ctx context.Context, c *app.RequestContext, status int, reason string, rpcCode int32) {
+	logger.Ctx(ctx).Warn("Authentication rejected", "stage", "legacy_access", "route", c.FullPath(), "status", status, "reason", reason, "rpc_code", rpcCode)
 }

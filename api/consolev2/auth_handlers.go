@@ -100,14 +100,22 @@ func (s *Service) issueBootstrapGrant(_ context.Context, c *app.RequestContext) 
 }
 
 func (s *Service) issueBootstrapGrantRecord(req issueGrantRequest, publicKey ed25519.PublicKey) (bootstrapGrantResult, error) {
+	return s.issueBootstrapGrantRecordWithDB(s.db, req, publicKey)
+}
+
+func (s *Service) issueBootstrapGrantRecordWithDB(db *gorm.DB, req issueGrantRequest, publicKey ed25519.PublicKey) (bootstrapGrantResult, error) {
+	grantSecret := s.bootstrapSecret
+	if req.Channel == existingIdentityRecoveryChannel {
+		grantSecret = s.otpPepper
+	}
 	keyFingerprint := fingerprint(publicKey)
-	entitlementHash := keyedHash(s.bootstrapSecret, req.EntitlementID)
+	entitlementHash := keyedHash(grantSecret, req.EntitlementID)
 	requestID := req.IdempotencyKey
 	receiptSeed := entitlementHash + "\x00" + requestID + "\x00" + keyFingerprint
-	grant := "efbg_" + keyedHash(s.bootstrapSecret, "grant\x00"+receiptSeed)
-	nonce := "efn_" + keyedHash(s.bootstrapSecret, "nonce\x00"+receiptSeed)
+	grant := "efbg_" + keyedHash(grantSecret, "grant\x00"+receiptSeed)
+	nonce := "efn_" + keyedHash(grantSecret, "nonce\x00"+receiptSeed)
 	var expiresAt int64
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err := db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, entitlementHash).Error; err != nil {
 			return err
 		}
@@ -267,6 +275,8 @@ func normalizeDeviceName(value string) (string, bool) {
 
 func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 	ctx = reqinfo.WithRequestStart(ctx)
+	failure := refreshFailure{authenticationFailure: authenticationFailure{ctx: ctx, stage: "provision"}, c: c}
+	db := s.authenticationDB(ctx)
 	var req provisionRequest
 	if err := decodeBody(c, &req); err != nil {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", err.Error(), nil)
@@ -316,7 +326,8 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 		fail(c, http.StatusBadRequest, "INVALID_DEVICE_NAME", "device name is invalid", nil)
 		return
 	}
-	if len(req.Draft) == 0 {
+	hasDraft := len(req.Draft) != 0
+	if !hasDraft {
 		req.Draft = json.RawMessage(`{}`)
 	}
 	if len(req.Draft) > 64<<10 {
@@ -356,7 +367,7 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 	familyID := "eff_" + keyedHash(s.otpPepper, "provision-family\x00"+receiptSeed)[:36]
 	newAgentID, err := s.idgen.NextID()
 	if err != nil {
-		fail(c, http.StatusServiceUnavailable, "ID_GENERATION_FAILED", "could not allocate Agent identity", nil)
+		failure.reject(http.StatusServiceUnavailable, "ID_GENERATION_FAILED", "identity_allocation_failed", "could not allocate Agent identity", err, nil)
 		return
 	}
 	onboardingState := "in_progress"
@@ -367,12 +378,15 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 	var agentID, principalID, expiresAt int64
 	created := false
 	var attribution install.ProvisionAttribution
-	err = s.db.Transaction(func(tx *gorm.DB) error {
+	reason := "transaction_failed"
+	err = db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, keyFingerprint).Error; err != nil {
+			reason = "identity_lock_failed"
 			return err
 		}
 		var now int64
 		if err := tx.Raw(`SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint`).Scan(&now).Error; err != nil {
+			reason = "database_clock_failed"
 			return err
 		}
 		var receipt struct {
@@ -384,28 +398,36 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 			RotationRequestHash string         `gorm:"column:rotation_request_hash"`
 			Scopes              pq.StringArray `gorm:"column:scopes;type:text[]"`
 			PrincipalStatus     string         `gorm:"column:principal_status"`
+			PrincipalRevokedAt  *int64         `gorm:"column:principal_revoked_at"`
+			IdentityState       string         `gorm:"column:identity_state"`
 			OnboardingState     string         `gorm:"column:onboarding_state"`
 			CurrentStep         int16          `gorm:"column:current_step"`
 		}
 		if err := tx.Raw(`SELECT p.agent_id, cs.principal_id, cs.expires_at, cs.absolute_expires_at,
 			cs.revoked_at, cs.rotation_request_hash, cs.scopes, p.status AS principal_status,
+			p.revoked_at AS principal_revoked_at, a.identity_state,
 			COALESCE(o.state, 'in_progress') AS onboarding_state, COALESCE(o.current_step, 2) AS current_step
 			FROM agent_principals p JOIN agent_credential_sessions cs ON cs.principal_id = p.principal_id
+			JOIN agents a ON a.agent_id = p.agent_id
 			LEFT JOIN agent_onboarding_v2 o ON o.agent_id = p.agent_id
 			WHERE p.key_type = 'ed25519-v1' AND p.key_fingerprint = ?
-			  AND cs.rotation_request_id = ? FOR UPDATE OF cs`, keyFingerprint,
+			  AND cs.rotation_request_id = ? FOR UPDATE OF cs, p`, keyFingerprint,
 			"provision:"+req.IdempotencyKey).Scan(&receipt).Error; err != nil {
+			reason = "receipt_lookup_failed"
 			return err
 		}
 		if receipt.PrincipalID != 0 {
 			if receipt.RotationRequestHash != requestHash {
+				reason = "receipt_conflict"
 				return errConflict
 			}
-			if receipt.RevokedAt != nil || receipt.AbsoluteExpiresAt <= now ||
+			if receipt.RevokedAt != nil || receipt.AbsoluteExpiresAt <= now || receipt.PrincipalRevokedAt != nil || receipt.IdentityState != "active" ||
 				(receipt.PrincipalStatus != "limited" && receipt.PrincipalStatus != "active") {
+				reason = "receipt_invalid"
 				return errUnauthorized
 			}
 			if expectedAgentID != 0 && receipt.AgentID != expectedAgentID {
+				reason = "agent_binding_mismatch"
 				return errUnauthorized
 			}
 			agentID, principalID, expiresAt = receipt.AgentID, receipt.PrincipalID, receipt.ExpiresAt
@@ -413,8 +435,10 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 			initialScopes = principalScopesForOnboarding(onboardingState)
 			if err := tx.Exec(`UPDATE agent_credential_sessions SET scopes = ? WHERE principal_id = ? AND rotation_request_id = ?`,
 				pq.Array(initialScopes), principalID, "provision:"+req.IdempotencyKey).Error; err != nil {
+				reason = "receipt_update_failed"
 				return err
 			}
+			reason = "transaction_commit_failed"
 			return nil
 		}
 		var grant struct {
@@ -422,21 +446,31 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 			Status       string `gorm:"column:status"`
 			ExpiresAt    int64  `gorm:"column:expires_at"`
 			SubjectAgent *int64 `gorm:"column:subject_agent_id"`
+			Channel      string `gorm:"column:channel"`
 		}
-		if err := tx.Raw(`SELECT key_fingerprint, status, expires_at, subject_agent_id
+		if err := tx.Raw(`SELECT key_fingerprint, status, expires_at, subject_agent_id, channel
 			FROM agent_bootstrap_grants WHERE jti_hash = ? FOR UPDATE`, hashString(req.BootstrapGrant)).Scan(&grant).Error; err != nil {
+			reason = "bootstrap_grant_lookup_failed"
 			return err
 		}
 		if grant.Fingerprint == "" || grant.Fingerprint != keyFingerprint || grant.Status != "issued" || grant.ExpiresAt < now {
+			reason = "bootstrap_grant_invalid"
+			return errUnauthorized
+		}
+		if grant.Channel == existingIdentityRecoveryChannel &&
+			(expectedAgentID == 0 || grant.SubjectAgent == nil || *grant.SubjectAgent != expectedAgentID) {
+			reason = "agent_binding_mismatch"
 			return errUnauthorized
 		}
 		var nonceCount int64
 		if err := tx.Raw(`SELECT COUNT(*) FROM agent_signature_nonces
 			WHERE nonce_hash = ? AND key_fingerprint = ? AND domain = 'provision'
 			  AND consumed_at IS NULL AND expires_at >= ?`, hashString(req.Nonce), keyFingerprint, now).Scan(&nonceCount).Error; err != nil {
+			reason = "nonce_lookup_failed"
 			return err
 		}
 		if nonceCount != 1 {
+			reason = "nonce_invalid"
 			return errUnauthorized
 		}
 
@@ -444,33 +478,47 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 			PrincipalID     int64  `gorm:"column:principal_id"`
 			AgentID         int64  `gorm:"column:agent_id"`
 			Status          string `gorm:"column:status"`
+			RevokedAt       *int64 `gorm:"column:revoked_at"`
+			IdentityState   string `gorm:"column:identity_state"`
 			OnboardingState string `gorm:"column:onboarding_state"`
 			CurrentStep     int16  `gorm:"column:current_step"`
 		}
-		if err := tx.Raw(`SELECT p.principal_id, p.agent_id, p.status,
+		if err := tx.Raw(`SELECT p.principal_id, p.agent_id, p.status, p.revoked_at, a.identity_state,
 			COALESCE(o.state, 'in_progress') AS onboarding_state, COALESCE(o.current_step, 2) AS current_step
-			FROM agent_principals p LEFT JOIN agent_onboarding_v2 o ON o.agent_id = p.agent_id
-			WHERE p.key_type = 'ed25519-v1' AND p.key_fingerprint = ?`, keyFingerprint).Scan(&existing).Error; err != nil {
+			FROM agent_principals p JOIN agents a ON a.agent_id = p.agent_id
+			LEFT JOIN agent_onboarding_v2 o ON o.agent_id = p.agent_id
+			WHERE p.key_type = 'ed25519-v1' AND p.key_fingerprint = ? FOR UPDATE OF p`, keyFingerprint).Scan(&existing).Error; err != nil {
+			reason = "principal_lookup_failed"
 			return err
 		}
 		if existing.PrincipalID != 0 {
-			if existing.Status == "revoked" || existing.Status == "suspended" {
+			if existing.RevokedAt != nil || existing.IdentityState != "active" ||
+				(existing.Status != "active" && existing.Status != "limited") {
+				reason = "principal_inactive"
 				return errUnauthorized
 			}
 			if (grant.SubjectAgent != nil && existing.AgentID != *grant.SubjectAgent) ||
 				(expectedAgentID != 0 && existing.AgentID != expectedAgentID) {
+				reason = "agent_binding_mismatch"
 				return errUnauthorized
 			}
 			agentID, principalID = existing.AgentID, existing.PrincipalID
 			onboardingState, nextStep = existing.OnboardingState, existing.CurrentStep
 			initialScopes = principalScopesForOnboarding(onboardingState)
-			if err := persistExistingProvisionDraft(tx, agentID, onboardingState,
-				draftObject, req.FieldProvenance,
-				"provision:"+hashString(req.BootstrapGrant), wallNow); err != nil {
-				return err
+			if hasDraft {
+				if err := persistExistingProvisionDraft(tx, agentID, onboardingState,
+					draftObject, req.FieldProvenance,
+					"provision:"+hashString(req.BootstrapGrant), wallNow); err != nil {
+					reason = "draft_update_failed"
+					return err
+				}
 			}
+		} else if grant.Channel == existingIdentityRecoveryChannel {
+			reason = "existing_identity_required"
+			return errUnauthorized
 		} else if grant.SubjectAgent != nil {
 			if expectedAgentID != 0 && *grant.SubjectAgent != expectedAgentID {
+				reason = "agent_binding_mismatch"
 				return errUnauthorized
 			}
 			agentID = *grant.SubjectAgent
@@ -487,6 +535,7 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 				return err
 			}
 			if subject.State == "" {
+				reason = "identity_not_found"
 				return errUnauthorized
 			}
 			onboardingState, nextStep = subject.State, subject.CurrentStep
@@ -501,13 +550,17 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 				agentID, keyFingerprint, []byte(publicKey), principalStatus, now, now).Scan(&principalID).Error; err != nil {
 				return err
 			}
-			if err := persistExistingProvisionDraft(tx, agentID, onboardingState,
-				draftObject, req.FieldProvenance,
-				"provision:"+hashString(req.BootstrapGrant), wallNow); err != nil {
-				return err
+			if hasDraft {
+				if err := persistExistingProvisionDraft(tx, agentID, onboardingState,
+					draftObject, req.FieldProvenance,
+					"provision:"+hashString(req.BootstrapGrant), wallNow); err != nil {
+					reason = "draft_update_failed"
+					return err
+				}
 			}
 		} else {
 			if expectedAgentID != 0 {
+				reason = "existing_identity_required"
 				return errUnauthorized
 			}
 			agentID = newAgentID
@@ -561,34 +614,50 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 			WHERE jti_hash = ? AND status = 'issued' AND consumed_at IS NULL AND expires_at >= ?
 			  AND (subject_agent_id IS NULL OR subject_agent_id = ?)`,
 			now, agentID, hashString(req.BootstrapGrant), now, agentID)
-		if grantUpdate.Error != nil || grantUpdate.RowsAffected != 1 {
+		if grantUpdate.Error != nil {
+			reason = "bootstrap_grant_update_failed"
+			return grantUpdate.Error
+		}
+		if grantUpdate.RowsAffected != 1 {
+			reason = "bootstrap_grant_invalid"
 			return errUnauthorized
 		}
 		nonceUpdate := tx.Exec(`UPDATE agent_signature_nonces SET consumed_at = ?
 			WHERE nonce_hash = ? AND consumed_at IS NULL AND expires_at >= ?`, now, hashString(req.Nonce), now)
-		if nonceUpdate.Error != nil || nonceUpdate.RowsAffected != 1 {
+		if nonceUpdate.Error != nil {
+			reason = "nonce_update_failed"
+			return nonceUpdate.Error
+		}
+		if nonceUpdate.RowsAffected != 1 {
+			reason = "nonce_invalid"
 			return errUnauthorized
 		}
 		expiresAt = now + int64(accessTTL/time.Millisecond)
-		return tx.Exec(`INSERT INTO agent_credential_sessions
+		if err := tx.Exec(`INSERT INTO agent_credential_sessions
 			(principal_id, family_id, access_token_hash, refresh_token_hash, audience, scopes,
 			 rotation_counter, issued_at, expires_at, absolute_expires_at, last_seen_at,
 			 rotation_request_id, rotation_request_hash)
 			VALUES (?, ?, ?, ?, 'agent_v2', ?, 0, ?, ?, ?, ?, ?, ?)`, principalID, familyID,
 			hashString(accessToken), hashString(refreshToken), pq.Array(initialScopes),
 			now, expiresAt, now+int64(refreshTTL/time.Millisecond), now,
-			"provision:"+req.IdempotencyKey, requestHash).Error
+			"provision:"+req.IdempotencyKey, requestHash).Error; err != nil {
+			reason = "credential_insert_failed"
+			return err
+		}
+		reason = "transaction_commit_failed"
+		return nil
 	})
+	failure.agentID, failure.principalID = agentID, principalID
 	if errors.Is(err, errUnauthorized) {
-		fail(c, http.StatusUnauthorized, "BOOTSTRAP_PROOF_REJECTED", "bootstrap grant or nonce is invalid, consumed, or expired", nil)
+		failure.reject(http.StatusUnauthorized, "BOOTSTRAP_PROOF_REJECTED", reason, "bootstrap grant or nonce is invalid, consumed, or expired", nil, nil)
 		return
 	}
 	if errors.Is(err, errConflict) {
-		fail(c, http.StatusConflict, "PROVISION_IDEMPOTENCY_CONFLICT", "idempotency key was used with a different provision request", nil)
+		failure.reject(http.StatusConflict, "PROVISION_IDEMPOTENCY_CONFLICT", reason, "idempotency key was used with a different provision request", nil, nil)
 		return
 	}
 	if err != nil {
-		fail(c, http.StatusInternalServerError, "PROVISION_FAILED", "could not provision Agent identity", nil)
+		failure.unavailable(reason, err)
 		return
 	}
 	if created {
@@ -603,23 +672,22 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 		}
 		agentcard.PublishRebuild(ctx, agentID, "agent_v2_provisioned")
 	}
-	publicIdentity, identityErr := agentidentity.Get(ctx, s.db, agentID)
+	publicIdentity, identityErr := agentidentity.Get(ctx, db, agentID)
 	if identityErr != nil {
-		fail(c, http.StatusInternalServerError, "PROVISION_IDENTITY_READ_FAILED", "could not load public Agent identity", nil)
+		failure.unavailable("public_identity_lookup_failed", identityErr)
 		return
 	}
 	// Provision is the first authenticated request in Console V2 onboarding.
 	// Persist its validated, self-reported product identity synchronously so the
 	// claim page can name the actual runtime before the first settings heartbeat.
 	cliVersion := string(c.GetHeader("X-CLI-Ver"))
-	if err := consoledal.UpdateHandoffClientIdentity(s.db.WithContext(ctx), agentID, observedRuntime.Name, observedRuntime.Version, deviceName, cliVersion, string(c.GetHeader("X-Client-Mode"))); err != nil {
+	if err := consoledal.UpdateHandoffClientIdentity(db, agentID, observedRuntime.Name, observedRuntime.Version, deviceName, cliVersion, string(c.GetHeader("X-Client-Mode"))); err != nil {
 		if errors.Is(err, consoledal.ErrRuntimeReportSuperseded) {
 			logger.Ctx(ctx).Info("agent_runtime_report", "agent_id", agentID, "source", "provision", "outcome", "stale")
 			fail(c, http.StatusConflict, "RUNTIME_REPORT_SUPERSEDED", "newer runtime report exists; retry provision", nil)
 			return
 		}
-		logger.Ctx(ctx).Warn("agent_runtime_report", "agent_id", agentID, "source", "provision", "outcome", "failed")
-		fail(c, http.StatusInternalServerError, "PROVISION_CLIENT_REPORT_FAILED", "could not record Agent client identity", nil)
+		failure.unavailable("client_report_failed", err)
 		return
 	}
 	logger.Ctx(ctx).Info("agent_runtime_report", "agent_id", agentID, "source", "provision", "outcome", "applied")
@@ -760,60 +828,111 @@ type refreshChallengeRequest struct {
 // createRefreshChallenge proves refresh-token possession before the caller
 // performs the key proof. A consumed refresh token revokes the whole token
 // family, which turns replay into an observable credential-compromise event.
-func (s *Service) createRefreshChallenge(_ context.Context, c *app.RequestContext) {
+func (s *Service) createRefreshChallenge(ctx context.Context, c *app.RequestContext) {
+	failure := refreshFailure{authenticationFailure: authenticationFailure{ctx: ctx, stage: "challenge"}, c: c}
 	var req refreshChallengeRequest
 	if err := decodeBody(c, &req); err != nil || !strings.HasPrefix(req.RefreshToken, "efv2r_") ||
 		len(req.RotationRequestID) < 16 || len(req.RotationRequestID) > 128 {
-		fail(c, http.StatusUnauthorized, "REFRESH_INVALID", "refresh credential is invalid or expired", nil)
+		failure.invalid("malformed_request")
 		return
 	}
+
 	now := time.Now().UnixMilli()
 	var row struct {
-		FamilyID          string  `gorm:"column:family_id"`
-		KeyFingerprint    string  `gorm:"column:key_fingerprint"`
-		PrincipalStatus   string  `gorm:"column:principal_status"`
-		AbsoluteExpiresAt int64   `gorm:"column:absolute_expires_at"`
-		RevokedAt         *int64  `gorm:"column:revoked_at"`
-		ReplacedBySession *int64  `gorm:"column:replaced_by_session_id"`
-		SuccessorRequest  *string `gorm:"column:successor_request_id"`
-		IdentityState     string  `gorm:"column:identity_state"`
+		SessionID          int64   `gorm:"column:session_id"`
+		AgentID            int64   `gorm:"column:agent_id"`
+		PrincipalID        int64   `gorm:"column:principal_id"`
+		FamilyID           string  `gorm:"column:family_id"`
+		KeyFingerprint     string  `gorm:"column:key_fingerprint"`
+		PrincipalStatus    string  `gorm:"column:principal_status"`
+		PrincipalRevokedAt *int64  `gorm:"column:principal_revoked_at"`
+		AbsoluteExpiresAt  int64   `gorm:"column:absolute_expires_at"`
+		RevokedAt          *int64  `gorm:"column:revoked_at"`
+		ReplacedBySession  *int64  `gorm:"column:replaced_by_session_id"`
+		SuccessorRequest   *string `gorm:"column:successor_request_id"`
+		SuccessorHash      *string `gorm:"column:successor_request_hash"`
+		SuccessorID        int64   `gorm:"column:successor_id"`
+		SuccessorPrincipal int64   `gorm:"column:successor_principal_id"`
+		SuccessorFamily    string  `gorm:"column:successor_family_id"`
+		SuccessorReplaced  *int64  `gorm:"column:successor_replaced_by_session_id"`
+		SuccessorExpiresAt int64   `gorm:"column:successor_expires_at"`
+		SuccessorRevokedAt *int64  `gorm:"column:successor_revoked_at"`
+		IdentityState      string  `gorm:"column:identity_state"`
 	}
-	if err := s.db.Raw(`SELECT cs.family_id, p.key_fingerprint, p.status AS principal_status,
+	if err := s.authenticationDB(ctx).Raw(`SELECT cs.session_id, p.agent_id, cs.principal_id,
+		cs.family_id, p.key_fingerprint, p.status AS principal_status, p.revoked_at AS principal_revoked_at,
 		cs.absolute_expires_at, cs.revoked_at, cs.replaced_by_session_id,
-		next.rotation_request_id AS successor_request_id, a.identity_state
+		next.rotation_request_id AS successor_request_id, next.absolute_expires_at AS successor_expires_at,
+		next.rotation_request_hash AS successor_request_hash, next.session_id AS successor_id,
+		next.principal_id AS successor_principal_id, next.family_id AS successor_family_id,
+		next.replaced_by_session_id AS successor_replaced_by_session_id,
+		next.revoked_at AS successor_revoked_at, a.identity_state
 		FROM agent_credential_sessions cs
 		JOIN agent_principals p ON p.principal_id = cs.principal_id
 		JOIN agents a ON a.agent_id = p.agent_id
 		LEFT JOIN agent_credential_sessions next ON next.session_id = cs.replaced_by_session_id
-		WHERE cs.refresh_token_hash = ?`, hashString(req.RefreshToken)).Scan(&row).Error; err != nil || row.FamilyID == "" {
-		fail(c, http.StatusUnauthorized, "REFRESH_INVALID", "refresh credential is invalid or expired", nil)
+		WHERE cs.refresh_token_hash = ?`, hashString(req.RefreshToken)).Scan(&row).Error; err != nil {
+		failure.unavailable("credential_lookup_failed", err)
+		return
+	}
+	failure.agentID, failure.principalID, failure.sessionID = row.AgentID, row.PrincipalID, row.SessionID
+	if row.SessionID == 0 {
+		failure.invalid("credential_not_found")
+		return
+	}
+	if row.IdentityState != "active" {
+		failure.invalid("identity_inactive")
+		return
+	}
+	if row.PrincipalRevokedAt != nil {
+		failure.invalid("principal_revoked")
+		return
+	}
+	if row.PrincipalStatus != "limited" && row.PrincipalStatus != "active" {
+		failure.invalid("principal_inactive")
 		return
 	}
 	if row.ReplacedBySession != nil && (row.SuccessorRequest == nil || *row.SuccessorRequest != req.RotationRequestID) {
-		_ = s.db.Exec(`UPDATE agent_credential_sessions SET revoked_at = COALESCE(revoked_at, ?)
-			WHERE family_id = ?`, now, row.FamilyID).Error
-		fail(c, http.StatusUnauthorized, "REFRESH_REUSE_DETECTED", "refresh credential reuse revoked this session family", nil)
+		if err := s.authenticationDB(ctx).Exec(`UPDATE agent_credential_sessions SET revoked_at = COALESCE(revoked_at, ?)
+			WHERE family_id = ?`, now, row.FamilyID).Error; err != nil {
+			failure.unavailable("family_revocation_failed", err)
+			return
+		}
+		failure.reuse()
 		return
 	}
 	if row.RevokedAt != nil && row.ReplacedBySession == nil {
-		fail(c, http.StatusUnauthorized, "REFRESH_INVALID", "refresh credential is invalid or expired", nil)
+		failure.invalid("credential_revoked")
 		return
 	}
-	if row.AbsoluteExpiresAt <= now || row.IdentityState != "active" ||
-		(row.PrincipalStatus != "limited" && row.PrincipalStatus != "active") {
-		fail(c, http.StatusUnauthorized, "REFRESH_INVALID", "refresh credential is invalid or expired", nil)
-		return
+	if row.AbsoluteExpiresAt <= now {
+		if row.ReplacedBySession == nil {
+			failure.expired()
+			return
+		}
+		if row.SuccessorID == 0 || row.SuccessorRevokedAt != nil || row.SuccessorReplaced != nil ||
+			row.SuccessorPrincipal != row.PrincipalID || row.SuccessorFamily != row.FamilyID ||
+			row.SuccessorHash == nil || *row.SuccessorHash != s.refreshRotationHash(req.RefreshToken, row.KeyFingerprint, req.RotationRequestID) {
+			failure.invalid("successor_unavailable")
+			return
+		}
+		if row.SuccessorExpiresAt <= now {
+			failure.expired()
+			return
+		}
 	}
+
 	nonce, err := randomToken("efn_", 32)
 	if err != nil {
-		fail(c, http.StatusInternalServerError, "TOKEN_GENERATION_FAILED", "could not create refresh challenge", nil)
+		failure.reject(http.StatusInternalServerError, "TOKEN_GENERATION_FAILED", "nonce_generation_failed", "could not create refresh challenge", err, nil)
 		return
 	}
+
 	expiresAt := now + int64(2*time.Minute/time.Millisecond)
-	if err := s.db.Exec(`INSERT INTO agent_signature_nonces
+	if err := s.authenticationDB(ctx).Exec(`INSERT INTO agent_signature_nonces
 		(nonce_hash, key_fingerprint, domain, expires_at, created_at)
 		VALUES (?, ?, 'refresh', ?, ?)`, hashString(nonce), row.KeyFingerprint, expiresAt, now).Error; err != nil {
-		fail(c, http.StatusInternalServerError, "REFRESH_CHALLENGE_FAILED", "could not create refresh challenge", nil)
+		failure.unavailable("nonce_insert_failed", err)
 		return
 	}
 	reply(c, http.StatusCreated, map[string]interface{}{
@@ -838,6 +957,12 @@ type refreshProofPayload struct {
 	IssuedAt          int64  `json:"issued_at"`
 }
 
+func (s *Service) refreshRotationHash(refreshToken, keyFingerprint, rotationRequestID string) string {
+	return keyedHash(s.otpPepper, strings.Join([]string{
+		"refresh-request", hashString(refreshToken), keyFingerprint, rotationRequestID,
+	}, "\x00"))
+}
+
 func refreshTranscript(req refreshAgentSessionRequest) ([]byte, error) {
 	payload, err := json.Marshal(refreshProofPayload{
 		RefreshToken: req.RefreshToken, RotationRequestID: req.RotationRequestID,
@@ -851,17 +976,22 @@ func refreshTranscript(req refreshAgentSessionRequest) ([]byte, error) {
 	return []byte(fmt.Sprintf("EF-AUTH-V2-REFRESH\x00POST\n/api/v2/agent-sessions/refresh\n%s", hashString(string(payload)))), nil
 }
 
-func (s *Service) refreshAgentSession(_ context.Context, c *app.RequestContext) {
+func (s *Service) refreshAgentSession(ctx context.Context, c *app.RequestContext) {
+	failure := refreshFailure{authenticationFailure: authenticationFailure{ctx: ctx, stage: "refresh"}, c: c}
 	var req refreshAgentSessionRequest
 	if err := decodeBody(c, &req); err != nil || req.RefreshToken == "" || req.Nonce == "" || req.Signature == "" ||
 		len(req.RotationRequestID) < 16 || len(req.RotationRequestID) > 128 {
-		fail(c, http.StatusUnauthorized, "REFRESH_INVALID", "refresh proof is invalid or expired", nil)
+		failure.invalid("malformed_request")
 		return
 	}
 	publicKey, err := decodePublicKey(req.PublicKey)
 	now := time.Now().UnixMilli()
-	if err != nil || req.IssuedAt < now-int64(proofClockSkew/time.Millisecond) || req.IssuedAt > now+int64(proofClockSkew/time.Millisecond) {
-		fail(c, http.StatusUnauthorized, "REFRESH_INVALID", "refresh proof is invalid or expired", nil)
+	if err != nil {
+		failure.invalid("public_key_invalid")
+		return
+	}
+	if req.IssuedAt < now-int64(proofClockSkew/time.Millisecond) || req.IssuedAt > now+int64(proofClockSkew/time.Millisecond) {
+		failure.invalid("proof_clock_skew")
 		return
 	}
 	signature, sigErr := base64.RawURLEncoding.DecodeString(req.Signature)
@@ -870,12 +1000,10 @@ func (s *Service) refreshAgentSession(_ context.Context, c *app.RequestContext) 
 	}
 	transcript, transcriptErr := refreshTranscript(req)
 	if sigErr != nil || transcriptErr != nil || !ed25519.Verify(publicKey, transcript, signature) {
-		fail(c, http.StatusUnauthorized, "REFRESH_INVALID", "refresh proof is invalid or expired", nil)
+		failure.invalid("signature_invalid")
 		return
 	}
-	rotationHash := keyedHash(s.otpPepper, strings.Join([]string{
-		"refresh-request", hashString(req.RefreshToken), fingerprint(publicKey), req.RotationRequestID,
-	}, "\x00"))
+	rotationHash := s.refreshRotationHash(req.RefreshToken, fingerprint(publicKey), req.RotationRequestID)
 	newAccessToken := "efv2a_" + keyedHash(s.otpPepper, "refresh-access\x00"+rotationHash)
 	newRefreshToken := "efv2r_" + keyedHash(s.otpPepper, "refresh-token\x00"+rotationHash)
 
@@ -883,7 +1011,8 @@ func (s *Service) refreshAgentSession(_ context.Context, c *app.RequestContext) 
 	var familyID string
 	var scopes pq.StringArray
 	reuseDetected := false
-	err = s.db.Transaction(func(tx *gorm.DB) error {
+	reason := "transaction_failed"
+	err = s.authenticationDB(ctx).Transaction(func(tx *gorm.DB) error {
 		var old struct {
 			SessionID             int64          `gorm:"column:session_id"`
 			AgentID               int64          `gorm:"column:agent_id"`
@@ -896,33 +1025,50 @@ func (s *Service) refreshAgentSession(_ context.Context, c *app.RequestContext) 
 			ReplacedBySessionID   *int64         `gorm:"column:replaced_by_session_id"`
 			KeyFingerprint        string         `gorm:"column:key_fingerprint"`
 			PrincipalStatus       string         `gorm:"column:principal_status"`
+			PrincipalRevokedAt    *int64         `gorm:"column:principal_revoked_at"`
 			OnboardingState       string         `gorm:"column:onboarding_state"`
 			IdentityState         string         `gorm:"column:identity_state"`
 			AccessRefreshRequired bool           `gorm:"column:access_refresh_required"`
 		}
 		if err := tx.Raw(`SELECT cs.session_id, p.agent_id, cs.principal_id, cs.family_id, cs.scopes,
 			cs.rotation_counter, cs.absolute_expires_at, cs.revoked_at, cs.replaced_by_session_id,
-			p.key_fingerprint, p.status AS principal_status, COALESCE(o.state, '') AS onboarding_state,
+			p.key_fingerprint, p.status AS principal_status, p.revoked_at AS principal_revoked_at, COALESCE(o.state, '') AS onboarding_state,
 			a.identity_state, cs.access_refresh_required
 			FROM agent_credential_sessions cs
 			JOIN agent_principals p ON p.principal_id = cs.principal_id
 			JOIN agents a ON a.agent_id = p.agent_id
 			LEFT JOIN agent_onboarding_v2 o ON o.agent_id = p.agent_id
 			WHERE cs.refresh_token_hash = ? FOR UPDATE OF cs, p`, hashString(req.RefreshToken)).Scan(&old).Error; err != nil {
+			reason = "credential_lookup_failed"
 			return err
 		}
-		if old.SessionID == 0 || old.KeyFingerprint != fingerprint(publicKey) || old.IdentityState != "active" ||
-			(old.PrincipalStatus != "limited" && old.PrincipalStatus != "active") {
+		failure.agentID, failure.principalID, failure.sessionID = old.AgentID, old.PrincipalID, old.SessionID
+		if old.SessionID == 0 {
+			reason = "credential_not_found"
+			return errUnauthorized
+		}
+		if old.KeyFingerprint != fingerprint(publicKey) {
+			reason = "key_mismatch"
+			return errUnauthorized
+		}
+		if old.IdentityState != "active" {
+			reason = "identity_inactive"
+			return errUnauthorized
+		}
+		if old.PrincipalRevokedAt != nil {
+			reason = "principal_revoked"
+			return errUnauthorized
+		}
+		if old.PrincipalStatus != "limited" && old.PrincipalStatus != "active" {
+			reason = "principal_inactive"
 			return errUnauthorized
 		}
 		if !recoveryRefreshCLIAllowed(old.AccessRefreshRequired, string(c.GetHeader("X-CLI-Ver"))) {
 			return errCLIUpgradeRequired
 		}
 		if err := tx.Raw(`SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint`).Scan(&now).Error; err != nil {
+			reason = "database_clock_failed"
 			return err
-		}
-		if old.AbsoluteExpiresAt <= now {
-			return errUnauthorized
 		}
 		if old.ReplacedBySessionID != nil {
 			var successor struct {
@@ -933,50 +1079,78 @@ func (s *Service) refreshAgentSession(_ context.Context, c *app.RequestContext) 
 				ExpiresAt           int64          `gorm:"column:expires_at"`
 				AbsoluteExpiresAt   int64          `gorm:"column:absolute_expires_at"`
 				RevokedAt           *int64         `gorm:"column:revoked_at"`
+				ReplacedBySessionID *int64         `gorm:"column:replaced_by_session_id"`
 				RotationRequestID   *string        `gorm:"column:rotation_request_id"`
 				RotationRequestHash *string        `gorm:"column:rotation_request_hash"`
 			}
 			if err := tx.Raw(`SELECT session_id, principal_id, family_id, scopes, expires_at,
-				absolute_expires_at, revoked_at, rotation_request_id, rotation_request_hash
+				absolute_expires_at, revoked_at, replaced_by_session_id, rotation_request_id, rotation_request_hash
 				FROM agent_credential_sessions WHERE session_id = ? FOR UPDATE`, *old.ReplacedBySessionID).
 				Scan(&successor).Error; err != nil {
+				reason = "successor_lookup_failed"
 				return err
 			}
-			if successor.SessionID != 0 && successor.RevokedAt == nil && successor.AbsoluteExpiresAt > now &&
+			if successor.SessionID != 0 && successor.RevokedAt == nil && successor.ReplacedBySessionID == nil &&
+				successor.PrincipalID == old.PrincipalID && successor.FamilyID == old.FamilyID &&
 				successor.RotationRequestID != nil && *successor.RotationRequestID == req.RotationRequestID &&
 				successor.RotationRequestHash != nil && *successor.RotationRequestHash == rotationHash {
 				nonceUse := tx.Exec(`UPDATE agent_signature_nonces SET consumed_at = ?
 					WHERE nonce_hash = ? AND key_fingerprint = ? AND domain = 'refresh'
 					  AND consumed_at IS NULL AND expires_at >= ?`, now, hashString(req.Nonce), old.KeyFingerprint, now)
-				if nonceUse.Error != nil || nonceUse.RowsAffected != 1 {
+				if nonceUse.Error != nil {
+					reason = "nonce_update_failed"
+					return nonceUse.Error
+				}
+				if nonceUse.RowsAffected != 1 {
+					reason = "nonce_invalid"
 					return errUnauthorized
+				}
+				if successor.AbsoluteExpiresAt <= now {
+					return errRefreshExpired
 				}
 				agentID, principalID, newSessionID, familyID = old.AgentID, successor.PrincipalID, successor.SessionID, successor.FamilyID
 				expiresAt, scopes = successor.ExpiresAt, pq.StringArray(principalScopesForOnboarding(old.OnboardingState))
 				if err := tx.Exec(`UPDATE agent_credential_sessions SET scopes = ?, access_refresh_required = FALSE WHERE session_id = ?`, pq.Array([]string(scopes)), successor.SessionID).Error; err != nil {
+					reason = "successor_update_failed"
 					return err
 				}
+				reason = "transaction_commit_failed"
 				return nil
 			}
 			reuseDetected = true
-			return tx.Exec(`UPDATE agent_credential_sessions SET revoked_at = COALESCE(revoked_at, ?)
-				WHERE family_id = ?`, now, old.FamilyID).Error
+			reason = "family_revocation_failed"
+			if err := tx.Exec(`UPDATE agent_credential_sessions SET revoked_at = COALESCE(revoked_at, ?)
+				WHERE family_id = ?`, now, old.FamilyID).Error; err != nil {
+				return err
+			}
+			reason = "transaction_commit_failed"
+			return nil
 		}
 		if old.RevokedAt != nil {
 			reuseDetected = true
-			return tx.Exec(`UPDATE agent_credential_sessions SET revoked_at = COALESCE(revoked_at, ?)
-				WHERE family_id = ?`, now, old.FamilyID).Error
+			reason = "family_revocation_failed"
+			if err := tx.Exec(`UPDATE agent_credential_sessions SET revoked_at = COALESCE(revoked_at, ?)
+				WHERE family_id = ?`, now, old.FamilyID).Error; err != nil {
+				return err
+			}
+			reason = "transaction_commit_failed"
+			return nil
+		}
+		if old.AbsoluteExpiresAt <= now {
+			return errRefreshExpired
 		}
 		nonceUse := tx.Exec(`UPDATE agent_signature_nonces SET consumed_at = ?
 			WHERE nonce_hash = ? AND key_fingerprint = ? AND domain = 'refresh'
 			  AND consumed_at IS NULL AND expires_at >= ?`, now, hashString(req.Nonce), old.KeyFingerprint, now)
-		if nonceUse.Error != nil || nonceUse.RowsAffected != 1 {
+		if nonceUse.Error != nil {
+			reason = "nonce_update_failed"
+			return nonceUse.Error
+		}
+		if nonceUse.RowsAffected != 1 {
+			reason = "nonce_invalid"
 			return errUnauthorized
 		}
 		expiresAt = now + int64(accessTTL/time.Millisecond)
-		if expiresAt > old.AbsoluteExpiresAt {
-			expiresAt = old.AbsoluteExpiresAt
-		}
 		agentID, principalID, familyID, scopes = old.AgentID, old.PrincipalID, old.FamilyID, pq.StringArray(principalScopesForOnboarding(old.OnboardingState))
 		if err := tx.Raw(`INSERT INTO agent_credential_sessions
 			(principal_id, family_id, access_token_hash, refresh_token_hash, audience, scopes,
@@ -984,36 +1158,48 @@ func (s *Service) refreshAgentSession(_ context.Context, c *app.RequestContext) 
 			 rotation_request_id, rotation_request_hash)
 			VALUES (?, ?, ?, ?, 'agent_v2', ?, ?, ?, ?, ?, ?, ?, ?) RETURNING session_id`,
 			old.PrincipalID, old.FamilyID, hashString(newAccessToken), hashString(newRefreshToken),
-			pq.Array([]string(scopes)), old.RotationCounter+1, now, expiresAt, old.AbsoluteExpiresAt, now,
+			pq.Array([]string(scopes)), old.RotationCounter+1, now, expiresAt, now+int64(refreshTTL/time.Millisecond), now,
 			req.RotationRequestID, rotationHash).
 			Scan(&newSessionID).Error; err != nil {
+			reason = "credential_insert_failed"
 			return err
 		}
 		update := tx.Exec(`UPDATE agent_credential_sessions
 			SET revoked_at = ?, replaced_by_session_id = ?, last_seen_at = ?
 			WHERE session_id = ? AND revoked_at IS NULL AND replaced_by_session_id IS NULL`,
 			now, newSessionID, now, old.SessionID)
-		if update.Error != nil || update.RowsAffected != 1 {
+		if update.Error != nil {
+			reason = "credential_update_failed"
+			return update.Error
+		}
+		if update.RowsAffected != 1 {
+			reason = "credential_changed"
 			return errConflict
 		}
+		reason = "transaction_commit_failed"
 		return nil
 	})
-	if reuseDetected {
-		fail(c, http.StatusUnauthorized, "REFRESH_REUSE_DETECTED", "refresh credential reuse revoked this session family", nil)
-		return
-	}
 	if errors.Is(err, errCLIUpgradeRequired) {
-		fail(c, http.StatusUpgradeRequired, "CLI_UPGRADE_REQUIRED", "upgrade EigenFlux CLI before refreshing a recovered identity", map[string]interface{}{
+		failure.reject(http.StatusUpgradeRequired, "CLI_UPGRADE_REQUIRED", "cli_upgrade_required", "upgrade EigenFlux CLI before refreshing a recovered identity", nil, map[string]interface{}{
 			"minimum_cli_version": minimumConsoleV2CLI,
 		})
 		return
 	}
-	if errors.Is(err, errUnauthorized) || errors.Is(err, errConflict) {
-		fail(c, http.StatusUnauthorized, "REFRESH_INVALID", "refresh proof is invalid or expired", nil)
+	if errors.Is(err, errRefreshExpired) {
+		failure.expired()
 		return
 	}
+	if errors.Is(err, errUnauthorized) || errors.Is(err, errConflict) {
+		failure.invalid(reason)
+		return
+	}
+	// Revocation is not effective until the transaction commits successfully.
 	if err != nil {
-		fail(c, http.StatusInternalServerError, "REFRESH_FAILED", "could not rotate Agent credentials", nil)
+		failure.unavailable(reason, err)
+		return
+	}
+	if reuseDetected {
+		failure.reuse()
 		return
 	}
 	reply(c, http.StatusOK, map[string]interface{}{

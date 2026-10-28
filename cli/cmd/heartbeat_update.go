@@ -87,8 +87,7 @@ func verifyCLIUpdateReexecIdentity() error {
 }
 
 func updateHeartbeatCLI(cmd *cobra.Command, cfg *config.Config, minimum string) (selfupdate.Result, bool, error) {
-	result, restarted, recorder, err := runObservedCLIUpdate(cmd, cfg, minimum, false)
-	recorder.Flush()
+	result, restarted, _, err := runObservedCLIUpdate(cmd, cfg, minimum, false)
 	return result, restarted, err
 }
 
@@ -114,7 +113,9 @@ func runObservedCLIUpdate(cmd *cobra.Command, cfg *config.Config, minimum string
 	identity, err := captureCLIUpdateIdentity(server)
 	if err != nil {
 		if !manual {
-			return selfupdate.Result{Status: "failed", Version: version, Error: err.Error()}, false, recorder, err
+			result := selfupdate.Result{Status: "failed", Version: version, Error: err.Error()}
+			recorder.Complete(result, version)
+			return result, false, recorder, nil
 		}
 		recorder.failure("update_identity_unavailable")
 	}

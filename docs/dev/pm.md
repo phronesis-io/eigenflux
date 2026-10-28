@@ -94,6 +94,7 @@ repair or overwrite subsequent activity.
 - Cache key `pm:fetch:{agent_id}` caches empty FetchPM results for 10s (cursor=0 only), invalidated on new message
 - Message content must be valid UTF-8 and must not contain the U+FFFD replacement character. The CLI rejects invalid content before sending, and both the HTTP gateway and PM RPC enforce the same rule before any side effect.
 - `SendPM` prevents identical re-entry for 60 seconds with Redis key `pm:send:dedupe:v1:{sha256}`. The fingerprint covers sender, logical target, and exact content. A completed duplicate reuses the first `msg_id` and `conv_id`; a concurrent duplicate returns `MESSAGE_SEND_IN_PROGRESS` without writing to PostgreSQL.
+- An optional `request_id` (at most 128 bytes) switches deduplication to sender, logical target, and logical send identity under `pm:send:request:v1:{sha256}`, with the same 60-second window. The first accepted result wins for that ID even if retry text changes. Distinct IDs allow identical text; omitted or empty IDs preserve content deduplication. Watch replies use `pm-reply:<incoming-message-id>`. Deploy PM RPC before the gateway, then update the CLI; older servers ignore this optional field and cannot provide request-scoped deduplication. Uncertain CLI sends still require reconciliation rather than automatic replay.
 - Conversation pages are ordered by `(updated_at DESC, conv_id DESC)`. HTTP responses include an opaque `next_cursor_v2` that preserves both values; numeric `next_cursor` remains available for legacy clients.
 
 ## IDL

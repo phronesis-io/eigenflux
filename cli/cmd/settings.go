@@ -9,8 +9,10 @@ import (
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
+	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/feedevent"
 	"cli.eigenflux.ai/internal/output"
 	"cli.eigenflux.ai/internal/profilestate"
 
@@ -240,7 +242,7 @@ func newSettingsClient(cfg *config.Config, serverName string) (*client.Client, e
 	}
 	hasV2, err := auth.HasV2Credentials(serverName)
 	if err != nil {
-		return nil, err
+		return nil, unavailableV2Identity(err)
 	}
 	if hasV2 {
 		c, _, err := newV2ClientForServer(serverName, true)
@@ -308,7 +310,8 @@ func reportRuntimeSettings(cfg *config.Config, mode, model, runtimeName, runtime
 		result.Missing = append(result.Missing, "authenticated_account")
 		return result, nil
 	}
-	if meta.Host == "" && meta.Mode == "" && meta.Model == "" {
+	health := reportedFeedbackHealth(cfg, serverName)
+	if meta.Host == "" && meta.Mode == "" && meta.Model == "" && len(health) == 0 {
 		result.Status = "missing"
 		return result, nil
 	}
@@ -318,7 +321,7 @@ func reportRuntimeSettings(cfg *config.Config, mode, model, runtimeName, runtime
 	}
 	hasV2, err := auth.HasV2Credentials(serverName)
 	if err != nil {
-		return result, err
+		return result, unavailableV2Identity(err)
 	}
 	apiFamily := "/api/v1"
 	if hasV2 {
@@ -326,6 +329,10 @@ func reportRuntimeSettings(cfg *config.Config, mode, model, runtimeName, runtime
 	}
 	clientSnapshot := strings.Join([]string{version, strings.TrimRight(server.Endpoint, "/") + apiFamily, meta.PluginVersion}, "\x1f")
 	snapshot := reportedSettingsSnapshot(agentID, meta.Mode, "", meta.Model, meta.Host)
+	if len(health) > 0 {
+		encoded, _ := json.Marshal(health)
+		snapshot += "\x1f" + string(encoded)
+	}
 	lastSnapshot, lastClient, reportedAt := state.ReportedSnapshot, state.ReportedClient, state.ReportedAtMillis
 	ago := time.Now().UnixMilli() - reportedAt
 	if !force && snapshot == lastSnapshot && clientSnapshot == lastClient && reportedAt > 0 && ago >= 0 && ago < settingsReportInterval.Milliseconds() {
@@ -336,6 +343,9 @@ func reportRuntimeSettings(cfg *config.Config, mode, model, runtimeName, runtime
 	// Runtime observations must not write cached shared settings before SyncSettings
 	// reconciles remote changes. Preferences remain on the existing sync path.
 	body := map[string]interface{}{}
+	if len(health) > 0 {
+		body["feedback_health"] = health
+	}
 	if meta.Mode != "" {
 		body["mode"] = meta.Mode
 	}
@@ -545,4 +555,35 @@ func init() {
 	settingsCmd.AddCommand(settingsPushCmd)
 	settingsCmd.AddCommand(settingsSyncCmd)
 	rootCmd.AddCommand(settingsCmd)
+}
+
+func reportedFeedbackHealth(cfg *config.Config, server string) map[string]int64 {
+	now := time.Now().UnixMilli()
+	state, err := feedReportStore(server).Read()
+	if err != nil {
+		return nil
+	}
+	counts := state.HealthCounts(now)
+	for _, key := range []string{"batches_handed", "local_polls", "rehanded_items", "backlog_expired_items", "surface_reminders"} {
+		delete(counts, key)
+	}
+	depth, age := feedevent.NewQueue(cache.ServerDataDir(server) + "/events").Stats(now)
+	counts["queue_depth"] = int64(depth)
+	counts["oldest_queued_age_ms"] = age
+	nonzero := false
+	for k, v := range counts {
+		if v > 0 {
+			nonzero = true
+		}
+		if k == "oldest_queued_age_ms" {
+			counts[k] = min(v, 604800000)
+		} else {
+			counts[k] = min(v, 1000000)
+		}
+	}
+	if !nonzero {
+		return nil
+	}
+	counts["window_ms"] = feedevent.HealthWindowMs
+	return counts
 }

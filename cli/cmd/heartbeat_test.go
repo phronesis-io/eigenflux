@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/selfupdate"
 	"cli.eigenflux.ai/internal/skills"
 	"github.com/spf13/cobra"
 )
@@ -221,7 +222,9 @@ func TestHeartbeatPlanFailsWithoutCurrentAccessOrRules(t *testing.T) {
 func installHeartbeatTestRules(t *testing.T) string {
 	t.Helper()
 	oldVersion, oldKey := version, skills.VerifyPublicKeyBase64
-	version = "0.0.46"
+	if !selfupdate.ValidVersion(version) || selfupdate.Compare(version, "0.0.46") < 0 {
+		version = "0.0.46"
+	}
 	t.Cleanup(func() { version, skills.VerifyPublicKeyBase64 = oldVersion, oldKey })
 	pub, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -372,5 +375,23 @@ func TestHeartbeatPlanAcceptsLegacyEnvironmentMode(t *testing.T) {
 				t.Fatal("missing existing-user compatibility guidance")
 			}
 		})
+	}
+}
+
+func TestHeartbeatPlanFeedCompletionStep(t *testing.T) {
+	prompt := renderHeartbeatPlanForAgent(heartbeatPlan{CLIPrefix: "test-prefix", FeedCompletionCheck: true})
+	if !strings.Contains(prompt, "Before leaving the Feed stage, run test-prefix feed status. Score every item it lists, then continue.") {
+		t.Fatal(prompt)
+	}
+	if strings.Contains(renderHeartbeatPlanForAgent(heartbeatPlan{CLIPrefix: "test-prefix"}), "feed status") {
+		t.Fatal("completion step rendered without completed onboarding")
+	}
+	if heartbeatContractVersion != "eigenflux_heartbeat.v3" {
+		t.Fatal(heartbeatContractVersion)
+	}
+	for _, line := range []string{"After the Feed push, run test-prefix feed status --after-push. Report surface only for listed items the owner was actually shown.", "feed next reads this cycle's saved page and is not a pull."} {
+		if !strings.Contains(prompt, line) {
+			t.Fatal(prompt)
+		}
 	}
 }

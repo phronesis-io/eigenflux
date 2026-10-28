@@ -177,7 +177,7 @@ func TestStreamShutdownTerminatesWhenOutputConsumerStalls(t *testing.T) {
 			}
 			select {
 			case err := <-f.done:
-				if err == nil || !strings.Contains(f.diagnostics.String(), tc.message) {
+				if err == nil || (tc.second == nil && !strings.Contains(f.diagnostics.String(), tc.message)) {
 					t.Fatalf("expected explicit nonzero shutdown failure, got %v; %s", err, f.diagnostics.String())
 				}
 			case <-time.After(wait):

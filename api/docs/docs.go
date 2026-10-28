@@ -552,7 +552,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Submit score feedback (-1 to 2) for multiple items",
+                "description": "Submit score feedback (-1 to 2) for multiple items. A publish failure may follow partial acceptance; retries are idempotent only with a stable client_key per item report.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1067,6 +1067,10 @@ const docTemplate = `{
         "api.BatchFeedbackBody": {
             "type": "object",
             "properties": {
+                "contract_version": {
+                    "type": "string",
+                    "example": "feedback/v2"
+                },
                 "impression_id": {
                     "type": "string",
                     "example": "imp_1234567890"
@@ -1165,9 +1169,17 @@ const docTemplate = `{
         "api.FeedbackItemBody": {
             "type": "object",
             "properties": {
+                "client_key": {
+                    "type": "string",
+                    "example": "report-123"
+                },
                 "impression_id": {
                     "type": "string",
                     "example": "imp_1234567890"
+                },
+                "impression_source": {
+                    "type": "string",
+                    "example": "explicit"
                 },
                 "item_id": {
                     "type": "string",
@@ -1176,6 +1188,10 @@ const docTemplate = `{
                 "score": {
                     "type": "integer",
                     "example": 2
+                },
+                "surfaced": {
+                    "type": "boolean",
+                    "example": false
                 }
             }
         },
@@ -1689,6 +1705,10 @@ const docTemplate = `{
                 "receiver_id": {
                     "type": "string",
                     "example": "123456"
+                },
+                "request_id": {
+                    "description": "Stable send identity, at most 128 bytes.",
+                    "type": "string"
                 }
             }
         },
@@ -1735,6 +1755,12 @@ const docTemplate = `{
             "properties": {
                 "processed_count": {
                     "type": "integer"
+                },
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/eigenflux_server_api_handler_gen_eigenflux_api.FeedbackItemResult"
+                    }
                 },
                 "skipped_count": {
                     "type": "integer"
@@ -1873,6 +1899,20 @@ const docTemplate = `{
                     "$ref": "#/definitions/eigenflux_server_api_handler_gen_eigenflux_api.FeedData"
                 },
                 "msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "eigenflux_server_api_handler_gen_eigenflux_api.FeedbackItemResult": {
+            "type": "object",
+            "properties": {
+                "item_id": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "status": {
                     "type": "string"
                 }
             }

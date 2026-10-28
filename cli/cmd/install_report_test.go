@@ -63,7 +63,7 @@ func TestV2ProvisionRetriesSavedInstallAfterReportFailure(t *testing.T) {
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/api/v2/agent-identities/registration-challenges":
+		case "/api/v2/agent-identities/registration-challenges", "/api/v2/agent-identities/recovery-challenges":
 			fmt.Fprint(w, `{"code":0,"data":{"bootstrap_grant":"grant","nonce":"nonce"}}`)
 		case "/api/v2/agent-identities/provision":
 			if provisionFail {

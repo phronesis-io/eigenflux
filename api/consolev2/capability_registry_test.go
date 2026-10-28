@@ -24,8 +24,8 @@ func TestAgentCapabilityRegistryIsBilingualAndStable(t *testing.T) {
 		seen[operation.OperationID] = true
 		switch operation.OperationID {
 		case "cli.update", "heartbeat.maintenance_status", "heartbeat.plugin_check":
-			if operation.MinCLIVersion != "0.6.6" {
-				t.Fatalf("%s requires CLI 0.6.6, got %q", operation.OperationID, operation.MinCLIVersion)
+			if operation.MinCLIVersion != "0.7.2" {
+				t.Fatalf("%s requires CLI 0.7.2, got %q", operation.OperationID, operation.MinCLIVersion)
 			}
 		}
 		for _, language := range []string{"zh-CN", "en"} {

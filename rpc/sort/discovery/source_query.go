@@ -106,7 +106,7 @@ func Query(c Context, k Kind, channel string, limit int) (map[string]any, error)
 			not = append(not, terms("id", c.excludeRecalledIDs))
 		}
 	}
-	if k == Broadcast && channel == "lexical" {
+	if k == Broadcast && (channel == "lexical" || channel == "dense") {
 		at := time.Now()
 		if c.retrievalAt != 0 {
 			at = time.UnixMilli(c.retrievalAt)

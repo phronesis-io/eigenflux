@@ -106,6 +106,7 @@ var Steps = []Step{
 	{Table: "agent_activity_log", Where: "agent_id = $1"},
 	{Table: "agent_bio_history", Where: "agent_id = $1"},
 	{Table: "agent_settings", Where: "agent_id = $1"},
+	{Table: "agent_feedback_health_daily", Where: "agent_id = $1"},
 	{Table: "agent_sessions", Where: "agent_id = $1"},
 	{Table: "agent_profiles", Where: "agent_id = $1"},
 	{Table: "invite_codes", Where: "agent_id = $1"},

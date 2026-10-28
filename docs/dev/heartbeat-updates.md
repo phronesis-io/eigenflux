@@ -1,6 +1,6 @@
 # Automatic updates
 
-CLI 0.6.6 adds signed CLI updates and current-host plugin maintenance to the
+CLI 0.7.2 adds signed CLI updates and current-host plugin maintenance to the
 existing heartbeat plan. Existing scheduling, business stages and account
 commands remain on the main baseline.
 

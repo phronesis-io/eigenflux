@@ -74,7 +74,7 @@ func TestPostgresPreviewLandingFlow(t *testing.T) {
 			t.Fatalf("preview minted: %s status=%d ref=%s", ua, status, ref)
 		}
 	}
-	for _, ua := range []string{"Mozilla/5.0 MicroMessenger/8.0", "Mozilla/5.0 QQ/9.0", "Mozilla/5.0 BiliApp/9.0", "Mozilla/5.0 Xiaohongshu/8.0"} {
+	for _, ua := range []string{"Mozilla/5.0 MicroMessenger/8.0", "Mozilla/5.0 QQ/9.0", "Mozilla/5.0 BiliApp/9.0", "Mozilla/5.0 Xiaohongshu/8.0", "Mozilla/5.0 BiliApp/9150300 metadata/2aWQiOiJYVTdBOTQyN0NBMDA0Mz"} {
 		status, ref := mint(ua)
 		if status != http.StatusOK || !ValidTokenFormat(ref) {
 			t.Fatalf("real visit failed: %s status=%d ref=%s", ua, status, ref)
@@ -105,7 +105,7 @@ func TestPostgresPreviewLandingFlow(t *testing.T) {
 	if err := gdb.Model(&Token{}).Count(&count).Error; err != nil {
 		t.Fatal(err)
 	}
-	if count != 4 {
-		t.Fatalf("landing rows=%d, want only four real visits", count)
+	if count != 5 {
+		t.Fatalf("landing rows=%d, want only five browser entries", count)
 	}
 }

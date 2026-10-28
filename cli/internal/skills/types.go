@@ -131,8 +131,20 @@ type SyncResult struct {
 	// Preserved lists skills kept verbatim instead of updated — third-party
 	// folders and skills the user hand-edited. Surfaced so a user stuck on a
 	// local fork (which would otherwise never receive updates) can see why.
-	Preserved []string `json:"preserved,omitempty"`
-	Stale     bool     `json:"stale"`
-	NoNetwork bool     `json:"no_network"`
-	Atomic    bool     `json:"atomic"`
+	Preserved   []string         `json:"preserved,omitempty"`
+	Diagnostics []SyncDiagnostic `json:"diagnostics,omitempty"`
+	Stale       bool             `json:"stale"`
+	NoNetwork   bool             `json:"no_network"`
+	Atomic      bool             `json:"atomic"`
+}
+
+// SyncDiagnostic explains why installed content was retained and how to repair it.
+type SyncDiagnostic struct {
+	Path           string `json:"path"`
+	Reason         string `json:"reason"`
+	LocalVersion   string `json:"local_version,omitempty"`
+	TargetVersion  string `json:"target_version,omitempty"`
+	LocalRevision  string `json:"local_revision,omitempty"`
+	TargetRevision string `json:"target_revision,omitempty"`
+	Hint           string `json:"hint"`
 }

@@ -89,6 +89,22 @@ func refreshRecommendationEffect(ctx context.Context) error {
 			}
 		}
 	}
+
+	complianceDays, complianceErr := recommendationmetrics.CompliancePendingDays(ctx, conn, cutoff)
+	if complianceErr != nil {
+		return fmt.Errorf("select feedback compliance days: %w", complianceErr)
+	}
+	for _, day := range complianceDays {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err := recommendationmetrics.RefreshComplianceDay(ctx, conn, day, cutoff); err != nil {
+			logger.Default().Warn("feedback compliance day failed", "day", day, "err", err)
+			if firstError == nil {
+				firstError = err
+			}
+		}
+	}
 	return firstError
 }
 
