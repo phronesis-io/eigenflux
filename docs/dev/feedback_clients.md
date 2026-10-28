@@ -55,12 +55,14 @@ the fields the server already accepts; no new server health columns are needed.
 
 ## Skills and release boundary
 
-The CLI accepts and reports these fields without a Skill change. The matching
-`ef-broadcast` revision (completion step, owner `--origin owner`, minimum CLI
-0.7.0) ships separately and merges only after CLI 0.7.0 is published, because
-Skills are released automatically from `main` and the installer stops on a
-Skills minimum that the published CLI does not meet. Until then
-`SKILLS_MIN_CLI_VERSION` stays `0.6.7`.
+`ef-broadcast` requires CLI 0.7.0 (`SKILLS_MIN_CLI_VERSION=0.7.0`). Before
+leaving the Feed stage it runs `feed status`, scores every listed item with its
+original impression and does not present items marked `already_surfaced`.
+Baseline Feed stays read-only. Owner-initiated Feed checks append
+`--origin owner`. Declaring `surfaced` during scoring and changing the meaning
+of score zero remain a later Skill revision. Merge this revision only after CLI
+0.7.0 is published: Skills release automatically from `main`, and the installer
+stops on a Skills minimum that the published CLI does not meet.
 
 OpenClaw 0.0.48 and Claude Code 0.0.16 add plan and capacity gates, retain failed
 deliveries for one retry, and mark scheduled pulls only with a supported CLI.
