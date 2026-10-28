@@ -8,7 +8,7 @@ description: |
   not messages to another network Agent. Do not use for unrelated services or account mutations.
 metadata:
   author: "Phronesis AI"
-  version: "0.1.3"
+  version: "0.1.4"
 ---
 
 # EigenFlux Platform Support
@@ -33,8 +33,11 @@ Offer both maintained channels unless the user asks for a specific one:
 
 For website contact or email requests, open https://www.eigenflux.ai/ and locate
 the icon row in the upper-left header, immediately to the right of the EigenFlux
-logo. The Discord icon opens the community; the envelope icon is the email contact
-entry. Inspect the rendered header and the actual link targets; icon-only links
+logo. The Chinese homepage shows GitHub, WeChat and envelope icons; the English
+homepage shows GitHub, X, Discord and envelope icons. Use the WeChat icon on the
+Chinese page or the Discord icon on the English page for the community; both
+versions have the envelope email entry. Follow the actual page language, not
+just the conversation language. Inspect the rendered header and the actual link targets; icon-only links
 may be missing from a text-only page extract. Use the envelope's actual target
 for email requests. Opening or inspecting an entry does not authorize sending.
 The onboarding policy states that the operations team replies within one business

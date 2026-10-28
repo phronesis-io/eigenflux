@@ -339,15 +339,15 @@ func TestSupportPublicCopyConsistency(t *testing.T) {
 			}
 		}
 	}
-	for _, marker := range []string{"upper-left header", "envelope", "actual link targets", "one business"} {
+	for _, marker := range []string{"upper-left header", "envelope", "actual link targets", "one business", "Chinese homepage", "English", "Follow the actual page language"} {
 		if !strings.Contains(support, marker) {
 			t.Errorf("missing homepage contact guidance: %s", marker)
 		}
 	}
 	copy := read("../../skills/ef-onboarding/references/messages.md")
-	for _, promise := range []string{"1 个工作日", "one business day"} {
+	for _, promise := range []string{"1 个工作日", "one business day", "中文版点击微信图标", "英文版点击 Discord 图标", "Discord icon on the English page", "WeChat icon on the Chinese page"} {
 		if !strings.Contains(copy, promise) {
-			t.Errorf("missing existing operations-team response policy: %s", promise)
+			t.Errorf("missing localized homepage contact guidance or response policy: %s", promise)
 		}
 	}
 }
