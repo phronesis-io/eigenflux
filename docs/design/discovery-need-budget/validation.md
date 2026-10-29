@@ -79,8 +79,11 @@ latency. The new histogram is required to close that rollout observation gap.
 - The legacy e2e suite was attempted but cannot pass with the local empty model
   API key (HTTP 401 in profile/embedding processing); it was stopped after those
   failures.
-- Discovery process e2e uses deterministic providers; its result is recorded in
-  the PR validation section.
+- Discovery process e2e passed across the full run and targeted rechecks with
+  the Need experiment enabled. The three authorization cases needed explicit
+  loopback dependency addresses; the Swing fixture now requests four slots to
+  retain one item under the quarter-page ceiling. Three CLI-dependent cases
+  skipped because no separate CLI binary was supplied.
 
 No production source, model, environment, service or business data was changed.
 The example Swing value does not update an existing deployment environment.

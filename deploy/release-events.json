@@ -87,5 +87,16 @@
     "title": "Measure feedback declarations and client health",
     "description": "Reporting counts start after schema and pipeline-cron rollout; existing client history remains zero for fields it never reported. New client adoption is separate. Surface declarations remain distinct from observed follow-ups, and health shares use daily delivered consumers.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/443"
+  },
+  {
+    "id": "discovery-need-budget-v1",
+    "kind": "behavior",
+    "deploy_scope": "full",
+    "dashboards": [
+      "recommendation-effect"
+    ],
+    "title": "Preserve Need candidates and assign broadcast context before ranking",
+    "description": "Need budget and attribution changes default off; compare fixed Agent cohorts by Need count from recorded bucket activation, not deployment time. Global Swing recall and page ceilings activate separately for all Agents. Hydration timing starts only after the full Sort rollout; historical latency is not backfilled.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/459"
   }
 ]
