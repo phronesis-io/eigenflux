@@ -219,3 +219,68 @@ func TestHeartbeatRejectsIncompatibleLocalSkillsWithSyncOnOrOff(t *testing.T) {
 		})
 	}
 }
+
+func TestHeartbeatOfflineFallbackVerifiesLocalSignature(t *testing.T) {
+	for _, valid := range []bool{true, false} {
+		t.Run(fmt.Sprint(valid), func(t *testing.T) {
+			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/v2/agent-context" {
+					w.WriteHeader(http.StatusConflict)
+					_, _ = w.Write([]byte(`{"error":{"code":"ONBOARDING_REQUIRED","details":{"onboarding_state":"in_progress"}}}`))
+					return
+				}
+				_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+			}))
+			defer api.Close()
+			cfg, _ := runtimeTestConfig(t, api.URL, true)
+			dir := installHeartbeatTestRules(t)
+			manifest, err := skills.ReadLocalManifest(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !valid {
+				manifest.Signature = base64.StdEncoding.EncodeToString(make([]byte, ed25519.SignatureSize))
+				if err := skills.WriteManifestAtomic(dir, manifest); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := cfg.SetKV(autoSkillSyncKey, "true"); err != nil {
+				t.Fatal(err)
+			}
+			if err := cfg.SetKV("auto_plugin_update", "false"); err != nil {
+				t.Fatal(err)
+			}
+			previousFormat := formatFlag
+			formatFlag = "json"
+			t.Cleanup(func() { formatFlag = previousFormat })
+			var diagnostics bytes.Buffer
+			cmd := &cobra.Command{}
+			cmd.SetErr(&diagnostics)
+			out, err := captureHeartbeatStdout(t, func() error { return heartbeatPlanCmd.RunE(cmd, nil) })
+			if !valid {
+				if err == nil || heartbeatSkillsFailureCode(err) != "skills_signature_failed" || out != "" {
+					t.Fatalf("untrusted local fallback accepted: %s %v", out, err)
+				}
+				for _, detail := range []string{"CLI " + version, "required CLI", manifest.Revision} {
+					if !strings.Contains(err.Error(), detail) {
+						t.Fatalf("missing %s: %v", detail, err)
+					}
+				}
+				if !strings.Contains(diagnostics.String(), "phase=check error_code=skills_signature_failed") {
+					t.Fatalf("missing check failure diagnostic: %s", &diagnostics)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("signed compatible offline fallback rejected: %v", err)
+			}
+			var plan heartbeatPlan
+			if err := json.Unmarshal([]byte(out), &plan); err != nil {
+				t.Fatal(err)
+			}
+			if plan.SkillRevision != manifest.Revision || plan.SkillsFresh || plan.CompatibilityReported {
+				t.Fatalf("invalid offline evidence: %+v", plan)
+			}
+		})
+	}
+}

@@ -132,6 +132,9 @@ var heartbeatPlanCmd = &cobra.Command{
 		if err != nil || manifest == nil || manifest.Revision == "" {
 			return &heartbeatSkillsError{code: "skills_manifest_unavailable", err: fmt.Errorf("heartbeat plan: no verified Skills manifest in %s", res.SkillsDir)}
 		}
+		if err := skills.ValidateSignedRelease(manifest); err != nil {
+			return &heartbeatSkillsError{code: "skills_signature_failed", err: fmt.Errorf("local Skills validation failed (CLI %s, required CLI %q, manifest revision %q): %w", version, manifest.MinCLIVersion, manifest.Revision, err)}
+		}
 		if err := heartbeatSkillsCompatibility(manifest); err != nil {
 			return err
 		}

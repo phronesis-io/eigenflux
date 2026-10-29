@@ -309,6 +309,13 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			// Both the installed bundle and release must use the key trusted by the CLI fixtures.
+			if err = skills.SignManifest(manifest, key); err != nil {
+				t.Fatal(err)
+			}
+			if err = skills.WriteManifestAtomic(rules, manifest); err != nil {
+				t.Fatal(err)
+			}
 			manifest.MinCLIVersion, manifest.Sequence = "0.0.48", 1
 			// Matching revision needs no tarball; signature still verifies compatibility.
 			manifest.TarSHA256 = strings.Repeat("a", 64)

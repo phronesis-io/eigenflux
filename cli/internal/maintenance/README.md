@@ -21,3 +21,7 @@ plan failures emit a local `[eigenflux:maintenance]` line with `attempt_id`,
 `phase` and a fixed `error_code`. Observations contain fixed classifications,
 never raw error text. Local Skills validation reports the current CLI, required
 CLI and manifest revision without relaxing signature or rollback checks.
+
+The heartbeat verifies the local manifest signature even when automatic sync
+retains an existing installation. Compatible, correctly signed offline Skills
+remain usable without creating verified-remote compatibility evidence.
