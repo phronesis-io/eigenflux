@@ -93,7 +93,7 @@ func maintenanceIdentity(scope maintenance.Scope, principal, endpoint string) (*
 
 func (r *maintenanceRecorder) failure(code string) {
 	r.recordFailed = true
-	fmt.Fprintf(r.diagnostics, "[eigenflux:maintenance] %s attempt=%s\n", code, r.attempt)
+	fmt.Fprintf(r.diagnostics, "[eigenflux:maintenance] component=%s attempt_id=%s phase=observation error_code=%s\n", r.component, r.attempt, code)
 }
 
 func (r *maintenanceRecorder) Record(event maintenance.Event) {
@@ -125,6 +125,9 @@ func (r *maintenanceRecorder) Finish(phase, result, from, target, running, code 
 	event := maintenance.NewEvent(r.attempt, r.component, r.trigger, phase, result)
 	event.FromVersion, event.ToVersion, event.RunningVersion = from, target, running
 	event.DurationMS, event.ErrorCode = time.Since(r.started).Milliseconds(), code
+	if result == "failed" || result == "blocked" || result == "rolled_back" {
+		fmt.Fprintf(r.diagnostics, "[eigenflux:maintenance] component=%s attempt_id=%s phase=%s error_code=%s result=%s\n", r.component, r.attempt, phase, code, result)
+	}
 	r.Record(event)
 }
 
@@ -148,7 +151,10 @@ func (r *maintenanceRecorder) Complete(result selfupdate.Result, from string) {
 			target = result.Version
 		}
 	case "failed":
-		outcome, code = "failed", "update_failed"
+		outcome, code = "failed", result.Reason
+		if code == "" {
+			code = phase + "_failed"
+		}
 	case "unconfigured":
 		outcome, code = "blocked", "trust_key_missing"
 	}
@@ -167,7 +173,7 @@ func (r *maintenanceRecorder) Flush() {
 	}
 	sent, err := flushMaintenanceBatch(r.scope, r.principal, r.endpoint)
 	if err != nil {
-		fmt.Fprintf(r.diagnostics, "[eigenflux:maintenance] upload_pending attempt=%s\n", r.attempt)
+		fmt.Fprintf(r.diagnostics, "[eigenflux:maintenance] component=%s attempt_id=%s phase=observation error_code=upload_pending result=queued\n", r.component, r.attempt)
 		return
 	}
 	for _, event := range sent {

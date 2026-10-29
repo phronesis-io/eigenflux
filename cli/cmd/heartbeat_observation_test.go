@@ -82,7 +82,11 @@ func TestHeartbeatSkillsObservationClosesValidationFailure(t *testing.T) {
 					events = append(events, event)
 				}
 			}
-			if len(events) != 2 || events[0].Phase != "check" || events[0].Result != "started" || events[1].Phase != "install" || events[0].AttemptID != events[1].AttemptID {
+			terminalPhase := "install"
+			if missingRule {
+				terminalPhase = "check"
+			}
+			if len(events) != 2 || events[0].Phase != "check" || events[0].Result != "started" || events[1].Phase != terminalPhase || events[0].AttemptID != events[1].AttemptID {
 				t.Fatalf("Skills check has no correlated terminal observation: %+v", events)
 			}
 			want := "no_update"
@@ -92,7 +96,7 @@ func TestHeartbeatSkillsObservationClosesValidationFailure(t *testing.T) {
 			if events[1].Result != want {
 				t.Fatalf("Skills outcome=%s want=%s: %+v", events[1].Result, want, events)
 			}
-			if missingRule && events[1].ErrorCode != "skills_plan_failed" {
+			if missingRule && events[1].ErrorCode != "skills_rule_missing" {
 				t.Fatalf("missing validation error classification: %+v", events[1])
 			}
 		})

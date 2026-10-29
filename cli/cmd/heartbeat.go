@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -74,14 +75,26 @@ var heartbeatPlanCmd = &cobra.Command{
 		}()
 		meta := clientMetaForServerName(activeServerName())
 		skillsScope, _ := maintenanceScope(activeServerName())
-		recordSkills := func(event maintenance.Event) { _ = recordMaintenanceEventAtScope(skillsScope, event) }
 		skillsAttempt := maintenance.NewID()
+		recordSkills := func(event maintenance.Event) {
+			if err := recordMaintenanceEventAtScope(skillsScope, event); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "[eigenflux:maintenance] component=skills attempt_id=%s phase=%s error_code=maintenance_record_failed\n", skillsAttempt, event.Phase)
+			}
+		}
 		recordSkills(maintenance.NewEvent(skillsAttempt, "skills", "auto", "check", "started"))
 		skillsFinished := false
 		defer func() {
 			if !skillsFinished {
 				event := maintenance.NewEvent(skillsAttempt, "skills", "auto", "install", "failed")
-				event.ErrorCode = "skills_plan_failed"
+				event.ErrorCode = heartbeatSkillsFailureCode(resultErr)
+				switch event.ErrorCode {
+				case "skills_cli_incompatible", "skills_signature_failed", "skills_manifest_unavailable", "skills_rule_missing", "skills_local_modified", "skills_auth_blocked":
+					event.Phase = "check"
+				}
+				// Authentication failures already have a structured recovery notice.
+				if event.ErrorCode != "skills_auth_blocked" {
+					fmt.Fprintf(cmd.ErrOrStderr(), "[eigenflux:maintenance] component=skills attempt_id=%s phase=%s error_code=%s cli_version=%s\n", skillsAttempt, event.Phase, event.ErrorCode, version)
+				}
 				recordSkills(event)
 			}
 		}()
@@ -104,7 +117,7 @@ var heartbeatPlanCmd = &cobra.Command{
 				return updateErr
 			}
 			if !compatibleLocalHeartbeatRules(res.SkillsDir, version) {
-				return fmt.Errorf("heartbeat needs CLI >= %s; automatic update %s: %s", res.RequiredCLIVersion, cliUpdate.Status, cliUpdate.Error)
+				return &heartbeatSkillsError{code: "skills_cli_incompatible", err: fmt.Errorf("heartbeat needs CLI >= %s (have %s); automatic update %s reason=%s", res.RequiredCLIVersion, version, cliUpdate.Status, cliUpdate.Reason)}
 			}
 			err = nil
 		}
@@ -117,10 +130,16 @@ var heartbeatPlanCmd = &cobra.Command{
 		}
 		manifest, err := skills.ReadLocalManifest(res.SkillsDir)
 		if err != nil || manifest == nil || manifest.Revision == "" {
-			return fmt.Errorf("heartbeat plan: no verified Skills manifest in %s", res.SkillsDir)
+			return &heartbeatSkillsError{code: "skills_manifest_unavailable", err: fmt.Errorf("heartbeat plan: no verified Skills manifest in %s", res.SkillsDir)}
+		}
+		if err := skills.ValidateSignedRelease(manifest); err != nil {
+			return &heartbeatSkillsError{code: "skills_signature_failed", err: fmt.Errorf("local Skills validation failed (CLI %s, required CLI %q, manifest revision %q): %w", version, manifest.MinCLIVersion, manifest.Revision, err)}
+		}
+		if err := heartbeatSkillsCompatibility(manifest); err != nil {
+			return err
 		}
 		if len(res.Preserved) > 0 {
-			return fmt.Errorf("heartbeat plan: managed Skills have local edits and were not upgraded: %s", strings.Join(res.Preserved, ", "))
+			return &heartbeatSkillsError{code: "skills_local_modified", err: fmt.Errorf("heartbeat plan: managed Skills have local edits and were not upgraded: %s", strings.Join(res.Preserved, ", "))}
 		}
 
 		ruleSources := []string{
@@ -139,7 +158,7 @@ var heartbeatPlanCmd = &cobra.Command{
 				return err
 			}
 			if !fileExistsCLI(source) {
-				return fmt.Errorf("heartbeat plan: required rule source is missing: %s", source)
+				return &heartbeatSkillsError{code: "skills_rule_missing", err: fmt.Errorf("heartbeat plan: required rule source is missing: %s", source)}
 			}
 		}
 
@@ -219,6 +238,46 @@ func compatibleLocalHeartbeatRules(dir, current string) bool {
 	return m.MinCLIVersion == "" || (selfupdate.ValidVersion(current) && selfupdate.ValidVersion(m.MinCLIVersion) && selfupdate.Compare(current, m.MinCLIVersion) >= 0)
 }
 
+// Error codes are fixed local classifications; raw errors never enter observations.
+type heartbeatSkillsError struct {
+	code string
+	err  error
+}
+
+func (e *heartbeatSkillsError) Error() string { return e.err.Error() }
+func (e *heartbeatSkillsError) Unwrap() error { return e.err }
+
+func heartbeatSkillsCompatibility(manifest *skills.Manifest) error {
+	minimum := manifest.MinCLIVersion
+	if minimum == "" || (selfupdate.ValidVersion(version) && selfupdate.ValidVersion(minimum) && selfupdate.Compare(version, minimum) >= 0) {
+		return nil
+	}
+	return &heartbeatSkillsError{code: "skills_cli_incompatible", err: fmt.Errorf("no compatible managed local Skills (CLI %s, required CLI %q, manifest revision %q)", version, minimum, manifest.Revision)}
+}
+
+func heartbeatSkillsFailureCode(err error) string {
+	if isV2CredentialError(err) || v2CredentialNeedsLogin(err) || isAgentAuthUnavailable(err) {
+		return "skills_auth_blocked"
+	}
+	var failure *heartbeatSkillsError
+	if errors.As(err, &failure) {
+		return failure.code
+	}
+	if errors.Is(err, os.ErrPermission) {
+		return "skills_permission_denied"
+	}
+	if err != nil {
+		message := err.Error()
+		switch {
+		case strings.Contains(message, "skills manifest signature"), strings.Contains(message, "skills manifest signing key"), strings.Contains(message, "release revision does not match"):
+			return "skills_signature_failed"
+		case strings.Contains(message, "signed manifest rollback rejected"), strings.Contains(message, "signed manifest sequence reused"):
+			return "skills_rollback_rejected"
+		}
+	}
+	return "skills_plan_failed"
+}
+
 func heartbeatWakeOnEmpty(access runtimeAccess, maintenance pluginMaintenance) bool {
 	return access.OnboardingState == "completed" || maintenance.Due
 }
@@ -244,15 +303,19 @@ func localHeartbeatSkillsAt(into, host string) (*skills.SyncResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !managed || m == nil || !compatibleLocalHeartbeatRules(dir, version) {
-		return nil, fmt.Errorf("no compatible managed local Skills")
+	if !managed || m == nil {
+		return nil, &heartbeatSkillsError{code: "skills_manifest_unavailable", err: fmt.Errorf("no managed local Skills manifest (CLI %s)", version)}
 	}
+	context := fmt.Sprintf("CLI %s, required CLI %q, manifest revision %q", version, m.MinCLIVersion, m.Revision)
 	if err = skills.ValidateSignedRelease(m); err != nil {
+		return nil, &heartbeatSkillsError{code: "skills_signature_failed", err: fmt.Errorf("local Skills validation failed (%s): %w", context, err)}
+	}
+	if err := heartbeatSkillsCompatibility(m); err != nil {
 		return nil, err
 	}
 	for _, entry := range entries {
 		if !entry.SHAMatch {
-			return nil, fmt.Errorf("managed skill %s has local modifications", entry.Name)
+			return nil, &heartbeatSkillsError{code: "skills_local_modified", err: fmt.Errorf("managed skill %s has local modifications (%s)", entry.Name, context)}
 		}
 	}
 	return &skills.SyncResult{SkillsDir: dir, Source: "local", CLIVersion: m.CLIVersion}, nil
@@ -273,6 +336,12 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 	}
 	pluginInfo, _ := json.Marshal(plan.PluginMaintenance)
 	updateStatus := plan.CLIUpdate.Status
+	if plan.CLIUpdate.Reason != "" {
+		updateStatus += " reason=" + plan.CLIUpdate.Reason
+	}
+	if plan.CLIUpdate.NextCheckAt != "" {
+		updateStatus += " next_check_at=" + plan.CLIUpdate.NextCheckAt
+	}
 	if plan.CLIUpdate.Error != "" {
 		updateStatus += " (" + plan.CLIUpdate.Error + ")"
 	}
