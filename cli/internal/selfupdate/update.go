@@ -25,7 +25,7 @@ type Progress struct {
 }
 
 type Options struct {
-	// CheckNow bypasses only the daily throttle for an explicit owner request.
+	// CheckNow bypasses only the check interval for an explicit owner request.
 	CheckNow bool
 	// OnAttempt runs after the shared lock and throttle admit a real release check.
 	OnAttempt func()
@@ -122,10 +122,14 @@ func Check(ctx context.Context, o Options) (result Result) {
 	if b, e := os.ReadFile(path + ".update.json"); e == nil {
 		_ = json.Unmarshal(b, &s)
 	}
-	if !o.CheckNow && o.Now.Before(s.Attempt.Add(24*time.Hour)) && !o.Now.Before(s.Attempt) && (o.Minimum == "" || o.Minimum == s.Minimum) {
+	interval, reason := 24*time.Hour, "check_interval"
+	if s.Error != "" {
+		interval, reason = 5*time.Minute, "retry_interval"
+	}
+	if !o.CheckNow && o.Now.Before(s.Attempt.Add(interval)) && !o.Now.Before(s.Attempt) && (o.Minimum == "" || o.Minimum == s.Minimum) {
 		result.Status, result.Error = "deferred", s.Error
-		result.Reason = "check_interval"
-		result.NextCheckAt = s.Attempt.Add(24 * time.Hour).Format(time.RFC3339)
+		result.Reason = reason
+		result.NextCheckAt = s.Attempt.Add(interval).Format(time.RFC3339)
 		return
 	}
 	s.Attempt, s.Minimum = o.Now, o.Minimum
@@ -134,6 +138,8 @@ func Check(ctx context.Context, o Options) (result Result) {
 		observe(o.OnAttempt)
 	}
 	startPhase("check")
+	// An interrupted attempt must not acquire the successful daily interval.
+	s.Error = "CLI update did not complete"
 	if err := saveState(path, s); err != nil {
 		result.Status, result.Error = "failed", err.Error()
 		return

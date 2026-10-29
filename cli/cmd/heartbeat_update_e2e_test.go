@@ -240,15 +240,20 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 	for _, tc := range []struct {
 		mode, host             string
 		forced, contextFailure bool
+		retry                  bool
 	}{
-		{"skill", "codex", false, false}, {"skill", "codex", true, false},
-		{"plugin", "claude-code", false, false}, {"plugin", "claude-code", true, false},
-		{"plugin", "openclaw", false, false}, {"plugin", "openclaw", true, false},
-		{"skill", "codex", true, true},
+		{mode: "skill", host: "codex"}, {mode: "skill", host: "codex", forced: true},
+		{mode: "plugin", host: "claude-code"}, {mode: "plugin", host: "claude-code", forced: true},
+		{mode: "plugin", host: "openclaw"}, {mode: "plugin", host: "openclaw", forced: true},
+		{mode: "skill", host: "codex", forced: true, contextFailure: true},
+		{mode: "skill", host: "codex", retry: true},
 	} {
 		caseName := map[bool]string{false: "daily", true: "Skills minimum overrides TTL"}[tc.forced]
 		if tc.contextFailure {
 			caseName += " with replacement business failure"
+		}
+		if tc.retry {
+			caseName = "automatic retry after failed check"
 		}
 		t.Run(tc.host+"/"+caseName, func(t *testing.T) {
 			var requests, reported atomic.Int32
@@ -329,6 +334,17 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 			if tc.forced {
 				b, _ := json.Marshal(map[string]interface{}{"attempt": time.Now()})
 				if err = os.WriteFile(bin+".update.json", b, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.retry {
+				b, _ := json.Marshal(map[string]interface{}{"attempt": time.Now().Add(-5 * time.Minute), "error": "previous check failed"})
+				if err = os.WriteFile(bin+".update.json", b, 0600); err != nil {
+					t.Fatal(err)
+				}
+				// Keep the minimum unchanged so it cannot bypass the retry interval.
+				manifest.MinCLIVersion = ""
+				if err = skills.SignManifest(manifest, key); err != nil {
 					t.Fatal(err)
 				}
 			}

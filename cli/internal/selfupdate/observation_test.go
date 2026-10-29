@@ -173,3 +173,67 @@ func TestSkipAndLockReasons(t *testing.T) {
 		t.Fatal("skipped check contacted CDN")
 	}
 }
+
+func TestCheckIntervalDependsOnPreviousOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		name, previousError, reason string
+		interval                    time.Duration
+	}{
+		{name: "successful", reason: "check_interval", interval: 24 * time.Hour},
+		{name: "failed", previousError: "network unavailable", reason: "retry_interval", interval: 5 * time.Minute},
+		{name: "interrupted", previousError: "CLI update did not complete", reason: "retry_interval", interval: 5 * time.Minute},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o, _, _, count := fixture(t)
+			attempt := o.Now
+			if err := saveState(o.Executable, state{Attempt: attempt, Error: tc.previousError}); err != nil {
+				t.Fatal(err)
+			}
+			o.Now = attempt.Add(tc.interval - time.Nanosecond)
+			r := Check(context.Background(), o)
+			if r.Status != "deferred" || r.Attempted || r.Reason != tc.reason || r.Error != tc.previousError || r.NextCheckAt != attempt.Add(tc.interval).Format(time.RFC3339) || count.Load() != 0 {
+				t.Fatalf("incorrect interval before deadline: %+v requests=%d", r, count.Load())
+			}
+			o.Now = attempt.Add(tc.interval)
+			if r := Check(context.Background(), o); r.Status != "updated" || !r.Attempted || count.Load() != 2 {
+				t.Fatalf("did not check at deadline: %+v requests=%d", r, count.Load())
+			}
+			o.Version = "0.0.48"
+			r = Check(context.Background(), o)
+			if r.Status != "deferred" || r.Reason != "check_interval" || r.Error != "" || r.NextCheckAt != o.Now.Add(24*time.Hour).Format(time.RFC3339) || count.Load() != 2 {
+				t.Fatalf("successful install did not restore daily interval: %+v requests=%d", r, count.Load())
+			}
+		})
+	}
+}
+
+func TestFailedCheckRetriesThenCurrentRestoresDailyInterval(t *testing.T) {
+	o, _, _, count := fixture(t)
+	cdn := o.CDN
+	o.CDN = "http://127.0.0.1:1"
+	for i := 0; i < 2; i++ {
+		if r := Check(context.Background(), o); r.Status != "failed" || !r.Attempted || r.Error == "" {
+			t.Fatalf("failure not reported: %+v", r)
+		}
+		attempt := o.Now
+		o.Now = attempt.Add(5*time.Minute - time.Nanosecond)
+		if r := Check(context.Background(), o); r.Status != "deferred" || r.Attempted || r.Reason != "retry_interval" || r.NextCheckAt != attempt.Add(5*time.Minute).Format(time.RFC3339) {
+			t.Fatalf("failed check did not retain short retry interval: %+v", r)
+		}
+		o.Now = attempt.Add(5 * time.Minute)
+	}
+	// A verified no-update response is also a successful check.
+	o.CDN, o.Version = cdn, "0.0.48"
+	if r := Check(context.Background(), o); r.Status != "current" || !r.Attempted || count.Load() != 1 {
+		t.Fatalf("failed check did not recover automatically: %+v requests=%d", r, count.Load())
+	}
+	attempt := o.Now
+	o.Now = attempt.Add(24*time.Hour - time.Nanosecond)
+	if r := Check(context.Background(), o); r.Status != "deferred" || r.Reason != "check_interval" || r.Error != "" || r.NextCheckAt != attempt.Add(24*time.Hour).Format(time.RFC3339) || count.Load() != 1 {
+		t.Fatalf("successful check did not restore daily interval: %+v requests=%d", r, count.Load())
+	}
+	o.Now = attempt.Add(24 * time.Hour)
+	if r := Check(context.Background(), o); r.Status != "current" || !r.Attempted || count.Load() != 2 {
+		t.Fatalf("daily check did not resume: %+v requests=%d", r, count.Load())
+	}
+}
