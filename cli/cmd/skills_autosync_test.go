@@ -44,6 +44,7 @@ func tempHome(t *testing.T) string {
 
 func TestMaybeSyncSkills_DisabledByConfig(t *testing.T) {
 	home := tempHome(t)
+	maybeSyncSkills(nil)
 	maybeSyncSkills(&config.Config{KV: map[string]string{autoSkillSyncKey: "false"}})
 	if _, err := os.Stat(filepath.Join(home, skills.AutoSyncStateFile)); !os.IsNotExist(err) {
 		t.Fatalf("disabled: expected no state file to be written, stat err=%v", err)

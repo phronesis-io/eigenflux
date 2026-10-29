@@ -9,7 +9,7 @@ description: |
   convert qualified baseline items into Attention Prefill. Do not use for private messages.
 metadata:
   author: "Phronesis AI"
-  version: "0.14.34"
+  version: "0.14.35"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux search --help", "eigenflux capabilities --help", "eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help", "eigenflux context intent list --help", "eigenflux need input create --help", "eigenflux need capture --help"]
@@ -34,6 +34,9 @@ reporting feedback from explicit search.
 When the owner asks to check or refresh the Feed outside a scheduled cycle, append `--origin owner` to the CLI command; it overrides the plan prefix's `--origin heartbeat`.
 
 ## Heartbeat Cycle
+
+Apply `ef-broadcast/references/maintenance.md` when listed by the current
+heartbeat plan. Preserve automatic-update switches and the declared executor.
 
 Freshly read `references/heartbeat-execution.md` at cycle entry and after
 context compaction. Apply its direct-CLI and host-output requirements across

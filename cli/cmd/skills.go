@@ -45,14 +45,26 @@ reconciled away when they leave the manifest.`,
 		host, _ := cmd.Flags().GetString("host")
 		ifStale, _ := cmd.Flags().GetBool("if-stale")
 		quiet, _ := cmd.Flags().GetBool("quiet")
-		res, err := skills.Sync(skills.SyncOptions{
-			Into:       into,
-			Host:       host,
-			IfStale:    ifStale,
-			Quiet:      quiet,
-			CLIVersion: version,
-			CDNBase:    cdnBase(),
-		})
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		var res *skills.SyncResult
+		if ifStale && !automaticMaintenanceEnabled(cfg, autoSkillSyncKey) {
+			res, err = localHeartbeatSkillsAt(into, host)
+			if err != nil && quiet {
+				return nil
+			}
+		} else {
+			res, err = skills.Sync(skills.SyncOptions{
+				Into:       into,
+				Host:       host,
+				IfStale:    ifStale,
+				Quiet:      quiet,
+				CLIVersion: version,
+				CDNBase:    cdnBase(),
+			})
+		}
 		if res != nil && !quiet {
 			printSkillsDiagnostics(res.Diagnostics)
 		}

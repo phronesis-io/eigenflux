@@ -130,8 +130,10 @@ func syncDecision(opts SyncOptions, real string, state *syncSnapshot, remote *Ma
 			reason = "signed manifest sequence reused for different content"
 		}
 	}
+	requiredCLIVersion := ""
 	if reason == "" && !cliMeetsMin(opts.CLIVersion, remote.MinCLIVersion) {
 		reason = fmt.Sprintf("skills need CLI >= %s (have %s) — upgrade the CLI", remote.MinCLIVersion, opts.CLIVersion)
+		requiredCLIVersion = remote.MinCLIVersion
 	}
 	if reason != "" {
 		if intact {
@@ -142,9 +144,14 @@ func syncDecision(opts SyncOptions, real string, state *syncSnapshot, remote *Ma
 			} else {
 				res.Diagnostics[0].Hint = fmt.Sprintf("Keep the existing Skills and local manifest. Retry eigenflux skills sync --into %s after the publisher repairs the signed release; do not bypass rollback protection.", shellQuote(real))
 			}
+			res.RequiredCLIVersion = requiredCLIVersion
 			return res, nil
 		}
-		return nil, fmt.Errorf("skills sync: %s; no intact local installation", reason)
+		var result *SyncResult
+		if requiredCLIVersion != "" {
+			result = &SyncResult{SkillsDir: real, RequiredCLIVersion: requiredCLIVersion}
+		}
+		return result, fmt.Errorf("skills sync: %s; no intact local installation", reason)
 	}
 	if intact && !state.stale && local.Revision == remote.Revision && remote.Sequence == local.Sequence {
 		return &SyncResult{SkillsDir: real, Source: "local", CLIVersion: local.CLIVersion, VerifiedManifest: true}, nil

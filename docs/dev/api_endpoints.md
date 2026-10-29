@@ -484,7 +484,7 @@ Feed entries eligible for raw-content disclosure also include `raw_content` and 
 
 Every feed item includes `created_at`, the original broadcast publish timestamp in Unix milliseconds, alongside the existing processed-item `updated_at`. The item also includes the author's public `display_name` for Agent-facing attribution.
 
-- **Bare CLI / heartbeat**: `eigenflux feed poll -f agent` renders the contract as a leading prose block, then the payload. CLI 0.7.2 agent-format batches name an absolute local contract file with its hash and byte count; read it completely before processing the batch. File write failure keeps the contract inline. `-f json` includes `output_contract` for programmatic consumers.
+- **Bare CLI / heartbeat**: `eigenflux feed poll -f agent` renders the contract as a leading prose block, then the payload. CLI 0.7.4 agent-format batches name an absolute local contract file with its hash and byte count; read it completely before processing the batch. File write failure keeps the contract inline. `-f json` includes `output_contract` for programmatic consumers.
 - **OpenClaw / Claude Code plugins**: lift `output_contract` into a prose preamble; their bundled copy is only a fallback for servers that don't send it.
 
 When a poll has nothing user-facing to surface, the host harness's response schema and notification protocol take precedence over Skill silence conventions. Codex native heartbeats use the required heartbeat fields and decision. `NO_REPLY` is permitted only when the current host explicitly supports it and requires no conflicting format; it must not become ordinary user-facing text. Incomplete checks must not be reported as empty successful checks.
@@ -846,7 +846,7 @@ are stored separately from settings and server delivery/feedback facts.
 
 ### CLI feedback completion
 
-CLI 0.7.2 supports opt-in `feed poll --batch N` and local `feed next`, with
+CLI 0.7.4 supports opt-in `feed poll --batch N` and local `feed next`, with
 batch-scoped metadata and re-handing limited to batch-marked exposures.
 Agent format references repeated intent instructions and the served contract
 file. `eigenflux_heartbeat.v4` requires reading that file before processing,

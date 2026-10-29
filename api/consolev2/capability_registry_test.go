@@ -22,6 +22,12 @@ func TestAgentCapabilityRegistryIsBilingualAndStable(t *testing.T) {
 			t.Fatalf("invalid or duplicate operation: %#v", operation)
 		}
 		seen[operation.OperationID] = true
+		switch operation.OperationID {
+		case "cli.update", "heartbeat.maintenance_status", "heartbeat.plugin_check":
+			if operation.MinCLIVersion != "0.7.2" {
+				t.Fatalf("%s requires CLI 0.7.2, got %q", operation.OperationID, operation.MinCLIVersion)
+			}
+		}
 		for _, language := range []string{"zh-CN", "en"} {
 			text := operation.Localized[language]
 			if text.Label == "" || text.Description == "" {
@@ -29,10 +35,16 @@ func TestAgentCapabilityRegistryIsBilingualAndStable(t *testing.T) {
 			}
 		}
 	}
+	for _, excluded := range []string{"watch.run", "heartbeat.migrate.plan", "heartbeat.migrate.verify", "heartbeat.maintenance_report"} {
+		if seen[excluded] {
+			t.Fatalf("unreleased operation %q must not be advertised by the automatic-update release", excluded)
+		}
+	}
 	for _, required := range []string{
 		"need.input.create", "need.input.get", "need.input.list",
 		"identity.switch_account", "identity.recover_account", "profile.update", "context.goal.update", "context.intent.update",
 		"context.security.update", "attention.respond", "message.send", "relation.request", "settings.language.update",
+		"cli.update", "heartbeat.maintenance_status", "heartbeat.plugin_check",
 	} {
 		if !seen[required] {
 			t.Fatalf("registry missing %q", required)

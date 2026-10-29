@@ -1,6 +1,6 @@
 # Client feedback completion
 
-CLI 0.7.2 keeps `data/feed-reports.json` under the selected server's Agent Home.
+CLI 0.7.4 keeps `data/feed-reports.json` under the selected server's Agent Home.
 The scope includes the server endpoint and authenticated Agent. Reports are
 keyed by impression and item, retained for eight days, and written by atomic
 rename under an OS advisory lock. Lock files remain after release.
