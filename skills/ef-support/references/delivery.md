@@ -6,11 +6,36 @@ request, answer directly using the confirmed delivery outcome, without an
 onboarding invitation preamble. The `community_invite*` fragments below apply
 only to the eligible automatic onboarding invitation.
 
-Resolve `<wechat-qr-path>` to the absolute path of `assets/wechat-group-qr.png` under
-this installed ef-support Skill, not cwd or a developer-machine path.
+## WorkBuddy inline image
 
-In WorkBuddy, deliver the QR through a native image attachment before the final
-response. Copy the bundled PNG byte-for-byte to a fresh file under the current
+In WorkBuddy, use this maintained HTTPS image directly as `<wechat-qr-path>`:
+
+https://raw.githubusercontent.com/phronesis-io/eigenflux/6e1349833d7672cd5a425c425687ffffa8f2f476/skills/ef-support/assets/wechat-group-qr.png
+
+Render it with Markdown image syntax immediately after the invitation text,
+before the separator and scheduling question. Use `community_invite` for the
+automatic welcome. For explicit requests, put the image after the direct contact
+answer. Do not call `present_files`, copy files, or probe the URL on this primary
+path. Do not claim that client-side rendering was verified merely by emitting
+Markdown. The final scheduling question remains last.
+
+This immutable public image matches the bundled PNG. When replacing that asset,
+maintainers must update this URL to the corresponding published image and verify
+byte equality before release. Never construct a URL from the current workspace.
+
+Use the native fallback below only if HTTPS image loading is known unavailable
+or the user reports a failed image. Do not deliver both forms preemptively.
+A user-reported failure permits one fallback for that request, not a new
+onboarding invitation or a repetition of setup/permission questions.
+
+## Bundled asset and WorkBuddy fallback
+
+For the fallback and other hosts, resolve `<wechat-qr-path>` to the absolute path
+of `assets/wechat-group-qr.png` under this installed ef-support Skill, not cwd or
+a developer-machine path.
+
+In WorkBuddy, deliver the QR through a native image attachment only on the
+fallback path, before the final response. Copy the bundled PNG byte-for-byte to a fresh file under the current
 task workspace's `outputs/` directory; do not overwrite an existing file or
 change Agent Home. Verify the copy's SHA-256 equals the bundled asset. Call
 `present_files` once with `cwd` set to that workspace, `files` containing only

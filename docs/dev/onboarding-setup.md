@@ -209,12 +209,13 @@ when the asset is unavailable. Never repeat it in action results or scheduled
 checks. Joining remains optional and manual.
 
 
-For WorkBuddy, community delivery uses a native image attachment: copy the
-installed QR asset unchanged into a fresh task outputs file, verify its hash,
-and call present_files with that path. Select community_invite_attachment only
-with a matching files receipt; failure uses community_invite_discord. Do not
-render local-path Markdown images in WorkBuddy. Other hosts keep the original
-inline/link invitation. Preserve the once-only verified-installation welcome gate.
+WorkBuddy uses a maintained immutable HTTPS QR image inline after the invitation
+and before the scheduling question. It does not call present_files on this path.
+The bundled native-attachment route remains a fallback for known loading failure
+or an explicit user report; do not deliver both forms preemptively. Source URL
+and fallback details are owned by ef-support/references/delivery.md. Other hosts
+retain their bundled-image delivery. Once-only welcome timing and explicit
+repeatable support requests remain unchanged.
 
 
 Platform support channels are owned by the discoverable `ef-support` Skill,

@@ -254,6 +254,11 @@ func TestWorkBuddyCommunityAttachmentContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, marker := range []string{"https://raw.githubusercontent.com/phronesis-io/eigenflux/", "immediately after the invitation text", "Do not call `present_files`", "Do not deliver both forms preemptively", "final scheduling question remains last"} {
+		if !strings.Contains(string(b), marker) {
+			t.Errorf("missing inline QR boundary: %s", marker)
+		}
+	}
 	section := strings.SplitN(string(b), "In WorkBuddy, deliver the QR", 2)
 	if len(section) != 2 {
 		t.Fatal("missing native QR delivery route")

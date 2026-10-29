@@ -135,13 +135,13 @@ test protects the exact URL and bounded visibility attempt.
 Native WorkBuddy behavior and authenticated external handoff require host acceptance.
 
 
-WorkBuddy delivers the community QR with the verified-installation welcome
-as a native `present_files` attachment. Copy the installed Skill asset unchanged
-to a fresh task outputs file and verify its hash before delivery. Only a matching
-non-error `files` receipt selects attachment copy; unavailable/failed delivery
-uses Discord-only copy. Do not emit local Markdown images on this host or retry
-on continuation. Other hosts retain inline image/link delivery. This optional
-invitation does not change identity, permissions, scheduling or completion.
+WorkBuddy uses a maintained immutable HTTPS QR image inline after the invitation
+and before the scheduling question. It does not call present_files on this path.
+The bundled native-attachment route remains a fallback for known loading failure
+or an explicit user report; do not deliver both forms preemptively. Source URL
+and fallback details are owned by ef-support/references/delivery.md. Other hosts
+retain their bundled-image delivery. Once-only welcome timing and explicit
+repeatable support requests remain unchanged.
 
 
 Platform support channels are owned by the discoverable `ef-support` Skill,
