@@ -64,3 +64,36 @@ func TestSummaryFidelitySwitchReachesModelAndPreservesResponse(t *testing.T) {
 		})
 	}
 }
+
+func TestPGCPublisherSummaryReplacesServerSummaryWithoutAudit(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		if strings.Contains(string(body), "You are auditing factual entailment") {
+			t.Error("publisher summary must not be re-audited")
+		}
+		calls++
+		r.Body = io.NopCloser(strings.NewReader(string(body)))
+		mockServer(t, `{"summary":"Server rewrite.","discard":false,"quality":0.6,"keywords":["grid"],"homepage_eligible":true,"homepage_real_world_relevant":true,"homepage_evaluation_version":"homepage-v2"}`).Config.Handler.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+	// The audit switch stays on: a publisher summary bypasses it anyway.
+	c := NewClient(&config.Config{LLMApiKey: "test-key", LLMBaseURL: srv.URL, LLMModel: "test-model", LLMMaxTokens: 4096, LLMSummaryFidelity: true}, testPromptRegistry(t))
+	result, err := c.ProcessPGCItemWithPublisherSummary(context.Background(), "Grid operator adds 2 GW.", `{"summary":"Grid operator adds 2 GW."}`, "Grid operator adds 2 GW.")
+	require.NoError(t, err)
+	require.Equal(t, 1, calls)
+	require.Equal(t, "Grid operator adds 2 GW.", result.Summary)
+	require.Equal(t, 0.6, result.Quality)
+	require.Equal(t, []string{"grid"}, result.Keywords)
+}
+
+func TestPGCPublisherSummaryKeepsDiscard(t *testing.T) {
+	srv := mockServer(t, `{"discard":true,"discard_reason":"spam"}`)
+	defer srv.Close()
+	c := NewClient(&config.Config{LLMApiKey: "test-key", LLMBaseURL: srv.URL, LLMModel: "test-model", LLMMaxTokens: 4096}, testPromptRegistry(t))
+	result, err := c.ProcessPGCItemWithPublisherSummary(context.Background(), "buy now", "", "One line.")
+	require.NoError(t, err)
+	require.True(t, result.Discard)
+	require.Empty(t, result.Summary)
+}

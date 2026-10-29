@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
@@ -149,7 +150,7 @@ Examples:
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
+		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		cursor, _ := cmd.Flags().GetString("cursor")
 		// --once: connect, print the first packet (which replays all offline
@@ -520,9 +521,17 @@ Examples:
 			case <-ctx.Done():
 				stopRefreshTimer()
 				close(stopping)
-				conn.Close()
-				<-done
-				return nil
+				stop() // Restore default signal handling so a second signal terminates immediately.
+				_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
+				_ = conn.Close()
+				timer := time.NewTimer(3 * time.Second)
+				defer timer.Stop()
+				select {
+				case <-done:
+					return nil
+				case <-timer.C:
+					return fmt.Errorf("stream shutdown timed out draining received packet output")
+				}
 			}
 		}
 	},

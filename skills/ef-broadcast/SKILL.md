@@ -35,6 +35,9 @@ When the owner asks to check or refresh the Feed outside a scheduled cycle, appe
 
 ## Heartbeat Cycle
 
+Apply `ef-broadcast/references/maintenance.md` when listed by the current
+heartbeat plan. Preserve automatic-update switches and the declared executor.
+
 Freshly read `references/heartbeat-execution.md` at cycle entry and after
 context compaction. Apply its direct-CLI and host-output requirements across
 every stage below, including other Skills invoked by this cycle.

@@ -57,35 +57,37 @@ func homepageCountryFromPrivateCard(raw string) (string, error) {
 // handleMessage) are kept on the consumer struct so miniredis-based tests can
 // override them between NewItemConsumer and Start, mirroring ItemStatsConsumer.
 type ItemConsumer struct {
-	summaryFidelity    bool
-	pgcEmailSuffixes   []string
-	enableFeatureIndex bool
-	llmClient          *llm.Client
-	safetyClient       *llm.Client
-	embeddingClient    *embedding.Client
-	qualityThreshold   float64
-	consumerName       string
-	workers            int
-	maxRetries         int64
-	retryMinIdle       time.Duration
-	readBlock          time.Duration
-	handleMessage      MessageHandler
+	summaryFidelity     bool
+	pgcPublisherSummary bool
+	pgcEmailSuffixes    []string
+	enableFeatureIndex  bool
+	llmClient           *llm.Client
+	safetyClient        *llm.Client
+	embeddingClient     *embedding.Client
+	qualityThreshold    float64
+	consumerName        string
+	workers             int
+	maxRetries          int64
+	retryMinIdle        time.Duration
+	readBlock           time.Duration
+	handleMessage       MessageHandler
 }
 
 func NewItemConsumer(cfg *config.Config, prompts *llm.PromptRegistry) *ItemConsumer {
 	c := &ItemConsumer{
-		summaryFidelity:    cfg.LLMSummaryFidelity,
-		pgcEmailSuffixes:   append([]string(nil), cfg.PGCEmailSuffixes...),
-		enableFeatureIndex: cfg.EnableNeedSearch,
-		llmClient:          llm.NewClient(cfg, prompts),
-		safetyClient:       llm.NewSafetyClient(cfg, prompts),
-		embeddingClient:    embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions),
-		qualityThreshold:   cfg.QualityThreshold,
-		consumerName:       itemConsumerName,
-		maxRetries:         itemMaxRetryCount,
-		retryMinIdle:       itemRetryMinIdle,
-		readBlock:          itemReadBlock,
-		workers:            cfg.ItemConsumerWorkers,
+		summaryFidelity:     cfg.LLMSummaryFidelity,
+		pgcPublisherSummary: cfg.PGCPublisherSummary,
+		pgcEmailSuffixes:    append([]string(nil), cfg.PGCEmailSuffixes...),
+		enableFeatureIndex:  cfg.EnableNeedSearch,
+		llmClient:           llm.NewClient(cfg, prompts),
+		safetyClient:        llm.NewSafetyClient(cfg, prompts),
+		embeddingClient:     embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions),
+		qualityThreshold:    cfg.QualityThreshold,
+		consumerName:        itemConsumerName,
+		maxRetries:          itemMaxRetryCount,
+		retryMinIdle:        itemRetryMinIdle,
+		readBlock:           itemReadBlock,
+		workers:             cfg.ItemConsumerWorkers,
 	}
 	c.handleMessage = c.handle
 	return c
@@ -285,13 +287,18 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 	// Select the PGC-only path from authoritative publisher identity, never
 	// raw notes or source text. Lookup errors retry rather than bypassing auditing.
 	processItem := c.llmClient.ProcessItem
-	if c.summaryFidelity {
+	if c.summaryFidelity || c.pgcPublisherSummary {
 		pgc, lookupErr := pgcSummaryPublisher(itemDB, raw.AuthorAgentID, c.pgcEmailSuffixes)
 		if lookupErr != nil {
 			logger.Default().Warn("PGC summary publisher lookup failed", "itemID", itemID, "err", lookupErr)
 			return HandleRetry
 		}
-		if pgc {
+		switch route, summary := c.summaryRoute(pgc, raw.RawNotes); route {
+		case summaryRoutePublisher:
+			processItem = func(ctx context.Context, content, notes string) (*llm.ExtractResult, error) {
+				return c.llmClient.ProcessPGCItemWithPublisherSummary(ctx, content, notes, summary)
+			}
+		case summaryRouteAudited:
 			processItem = c.llmClient.ProcessPGCItem
 		}
 	}

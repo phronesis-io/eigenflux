@@ -1,8 +1,12 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
+	"syscall"
 
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
@@ -51,6 +55,9 @@ Examples:
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if homeDirFlag != "" {
 			config.SetHomeDir(homeDirFlag)
+		}
+		if err := verifyCLIUpdateReexecIdentity(); err != nil {
+			return err
 		}
 		clientMeta = client.ResolveMeta()
 		clientMeta.CLIVersion = version
@@ -167,6 +174,16 @@ func run() error {
 
 func Execute() {
 	if err := run(); err != nil {
+		var updated *updatedCLIError
+		var exitErr *exec.ExitError
+		if errors.As(err, &updated) && errors.As(err, &exitErr) {
+			if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+				os.Exit(128 + int(status.Signal()))
+			}
+			if exitErr.ExitCode() > 0 {
+				os.Exit(exitErr.ExitCode())
+			}
+		}
 		exitCommandFailure(err)
 	}
 }
