@@ -2,6 +2,9 @@ package cmd
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -11,11 +14,67 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/selfupdate"
 	"cli.eigenflux.ai/internal/skills"
 	"github.com/spf13/cobra"
 )
+
+func TestPluginBaselinePlanDeliversDueMaintenance(t *testing.T) {
+	for _, state := range []string{"due", "cached", "disabled"} {
+		t.Run(state, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/v2/agent-context" {
+					w.WriteHeader(http.StatusConflict)
+					_, _ = w.Write([]byte(`{"error":{"code":"ONBOARDING_REQUIRED","details":{"onboarding_state":"in_progress"}}}`))
+					return
+				}
+				if r.URL.Path != "/api/v2/agents/me/settings" && r.URL.Path != "/api/v2/maintenance/events:batch" {
+					t.Errorf("unexpected baseline request: %s", r.URL.Path)
+				}
+				_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+			}))
+			defer server.Close()
+			cfg, _ := runtimeTestConfig(t, server.URL, true)
+			clientMeta.Host, clientMeta.Mode = "claude-code", "plugin"
+			if err := cfg.SetKV("auto_cli_update", "false"); err != nil {
+				t.Fatal(err)
+			}
+			installHeartbeatTestRules(t)
+			if state == "cached" {
+				p := pluginMaintenanceForHost("claude-code", "plugin", cfg)
+				p.Scope, p.Status, p.CheckedAt = "user", "not_installed", time.Now()
+				if err := saveMaintenance(maintenancePath("plugin-claude-code"), p); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if state == "disabled" {
+				if err := cfg.SetKV("auto_plugin_update", "false"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			oldFormat := formatFlag
+			formatFlag = "json"
+			t.Cleanup(func() { formatFlag = oldFormat })
+			out, err := captureHeartbeatStdout(t, func() error { return heartbeatPlanCmd.RunE(&cobra.Command{}, nil) })
+			if err != nil {
+				t.Fatal(err)
+			}
+			var plan heartbeatPlan
+			if err := json.Unmarshal([]byte(out), &plan); err != nil {
+				t.Fatal(err)
+			}
+			if plan.WakeOnEmpty != (state == "due") || !reflect.DeepEqual(plan.ExecutionOrder, []string{"feed"}) {
+				t.Fatalf("incorrect baseline maintenance dispatch: %+v", plan)
+			}
+			if plan.AgentPrompt != renderHeartbeatPlanForAgent(plan) || !strings.Contains(plan.AgentPrompt, `"plugin_id":"eigenflux@eigenflux-marketplace"`) {
+				t.Fatal("plugin maintenance missing from delivered prompt")
+			}
+		})
+	}
+}
 
 func TestRenderHeartbeatPlanForAgentIsThinAndCurrent(t *testing.T) {
 	plan := heartbeatPlan{
@@ -73,7 +132,7 @@ func TestHeartbeatPlanJSONCarriesCurrentPromptAndAccessDecision(t *testing.T) {
 					_, _ = w.Write([]byte(`{"code":0,"data":{"context_revision":1}}`))
 					return
 				}
-				if baseline {
+				if baseline && r.URL.Path != "/api/v2/maintenance/events:batch" {
 					t.Errorf("baseline made non-Feed business request: %s %s", r.Method, r.URL.Path)
 				}
 				_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
@@ -119,7 +178,7 @@ func TestHeartbeatPlanJSONCarriesCurrentPromptAndAccessDecision(t *testing.T) {
 			if strings.Contains(plan.SchedulerLauncher, "EIGENFLUX_MODEL") {
 				t.Fatal("scheduler must not freeze the current model")
 			}
-			if plan.SkillsTarget != rulesDir || !strings.Contains(plan.CLIPrefix, "--server "+shellQuote(serverName)) {
+			if plan.SkillsTarget != rulesDir || (!strings.Contains(plan.CLIPrefix, "--server") || !strings.Contains(plan.CLIPrefix, shellQuote(serverName))) {
 				t.Fatalf("host target/server lost: %+v", plan)
 			}
 		})
@@ -162,6 +221,17 @@ func TestHeartbeatPlanFailsWithoutCurrentAccessOrRules(t *testing.T) {
 
 func installHeartbeatTestRules(t *testing.T) string {
 	t.Helper()
+	oldVersion, oldKey := version, skills.VerifyPublicKeyBase64
+	if !selfupdate.ValidVersion(version) || selfupdate.Compare(version, "0.0.46") < 0 {
+		version = "0.0.46"
+	}
+	t.Cleanup(func() { version, skills.VerifyPublicKeyBase64 = oldVersion, oldKey })
+	pub, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skills.VerifyPublicKeyBase64 = base64.StdEncoding.EncodeToString(pub)
+	t.Setenv(updateReexecEnv, "1") // These unit tests exercise plans, not binary replacement.
 	dir := t.TempDir()
 	t.Setenv("EIGENFLUX_SKILLS_DIR", dir)
 	t.Setenv("EIGENFLUX_CDN_URL", "http://127.0.0.1:1")
@@ -189,8 +259,19 @@ func installHeartbeatTestRules(t *testing.T) string {
 	if err := os.WriteFile(modelRule, []byte("# Runtime Model Reporting\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	for _, name := range []string{"maintenance.md"} {
+		if err := os.WriteFile(filepath.Join(dir, "ef-broadcast", "references", name), []byte("# Central rules\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	manifest, err := skills.GenerateManifest(dir, "0.0.46", "0.0.46", names, 1)
 	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.Sequence = 1
+	manifest.TarSHA256 = strings.Repeat("a", 64)
+	manifest.ManagedBy = skills.ManagedByValue
+	if err := skills.SignManifest(manifest, key); err != nil {
 		t.Fatal(err)
 	}
 	if err := skills.WriteManifestAtomic(dir, manifest); err != nil {
@@ -294,5 +375,23 @@ func TestHeartbeatPlanAcceptsLegacyEnvironmentMode(t *testing.T) {
 				t.Fatal("missing existing-user compatibility guidance")
 			}
 		})
+	}
+}
+
+func TestHeartbeatPlanFeedCompletionStep(t *testing.T) {
+	prompt := renderHeartbeatPlanForAgent(heartbeatPlan{CLIPrefix: "test-prefix", FeedCompletionCheck: true})
+	if !strings.Contains(prompt, "Before leaving the Feed stage, run test-prefix feed status. Score every item it lists, then continue.") {
+		t.Fatal(prompt)
+	}
+	if strings.Contains(renderHeartbeatPlanForAgent(heartbeatPlan{CLIPrefix: "test-prefix"}), "feed status") {
+		t.Fatal("completion step rendered without completed onboarding")
+	}
+	if heartbeatContractVersion != "eigenflux_heartbeat.v4" {
+		t.Fatal(heartbeatContractVersion)
+	}
+	for _, line := range []string{"After the Feed push, run test-prefix feed status --after-push. Report surface only for listed items the owner was actually shown.", "feed next reads this cycle's saved page and is not a pull.", "A Feed batch names its output contract file; read that file completely before processing the batch."} {
+		if !strings.Contains(prompt, line) {
+			t.Fatal(prompt)
+		}
 	}
 }

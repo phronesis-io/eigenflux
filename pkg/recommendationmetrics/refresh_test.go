@@ -57,6 +57,20 @@ func fixtureDB(t *testing.T) *sql.DB {
 	 pipeline_version text,sample_schema_version integer,request_mode text,need_id bigint,item_features jsonb);
 	 CREATE TABLE feedback_logs(id bigserial,agent_id bigint,item_id bigint,impression_id text,feedback_at bigint,score integer);
 	 CREATE TABLE followup_labels(agent_id bigint,item_id bigint,impression_id text,reported_at bigint,kind text);
+	 CREATE TABLE agent_settings(agent_id bigint PRIMARY KEY,runtime_name text,mode text,cli_version text,
+	 model text,skill_revision text,heartbeat_contract_version text,auto_comment boolean);
+	 CREATE TABLE conversations(conv_id bigint PRIMARY KEY,participant_a bigint,participant_b bigint,
+	 initiator_id bigint,origin_type text,origin_id bigint);
+	 CREATE TABLE private_messages(msg_id bigint PRIMARY KEY,conv_id bigint,sender_id bigint,created_at bigint);
+	 CREATE INDEX idx_replay_logs_impression ON replay_logs(impression_id);
+	 CREATE INDEX idx_replay_logs_agent_served ON replay_logs(agent_id,served_at);
+	 CREATE INDEX idx_feedback_logs_impression_id ON feedback_logs(impression_id);
+	 CREATE INDEX idx_feedback_logs_agent_feedback_at ON feedback_logs(agent_id,feedback_at);
+	 CREATE INDEX idx_feedback_logs_item_feedback_at ON feedback_logs(item_id,feedback_at);
+	 CREATE INDEX idx_followup_labels_impression ON followup_labels(impression_id) WHERE impression_id<>'';
+	 CREATE INDEX idx_followup_labels_agent_item ON followup_labels(agent_id,item_id,reported_at);
+	 CREATE INDEX idx_conv_origin_id ON conversations(origin_id) WHERE origin_id>0;
+	 CREATE INDEX idx_pm_conv_msg ON private_messages(conv_id,msg_id DESC);
 	 INSERT INTO agents VALUES (1,'consumer@example.invalid',false),(2,'second@example.invalid',false),
 	 (3,'source@pgc.eigenflux.one',false),(4,'author@example.invalid',false),
 	 (5,'official@example.invalid',true),(6,'bot@bot.eigenflux.one',false);

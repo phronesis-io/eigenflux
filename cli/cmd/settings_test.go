@@ -14,6 +14,41 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func TestRuntimeReportObservesCLIUpdatesWithoutSyncingLocalOverride(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		if body["auto_cli_update"] != true {
+			t.Errorf("effective CLI update policy not reported: %v", body)
+		}
+		_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+	}))
+	defer server.Close()
+	cfg, name := runtimeTestConfig(t, server.URL, true)
+	if err := cfg.SetKV("auto_cli_update", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetServerKV(name, "auto_cli_update", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := syncedSettingsBody(cfg)["auto_cli_update"]; present {
+		t.Fatal("local override leaked into mutable settings sync")
+	}
+	for _, expected := range []string{"reported", "unchanged"} {
+		r, err := reportRuntimeSettings(cfg, "skill", "model", "codex", "", false)
+		if err != nil || r.Status != expected {
+			t.Fatalf("report=%+v err=%v", r, err)
+		}
+	}
+	if requests != 1 {
+		t.Fatalf("unchanged policy generated %d requests", requests)
+	}
+}
+
 // TestSyncedSettingsBody_FeedPollIntentGuard verifies that feed_poll_interval is
 // pushed to the backend only when the user explicitly set it (an intent marker
 // is present), and never when the KV merely holds a value pulled down from the
@@ -214,16 +249,16 @@ func TestSettingsPushRegistersRuntimeIdentityFlags(t *testing.T) {
 }
 
 func TestReportedSettingsSnapshotChangesWithRuntimeIdentity(t *testing.T) {
-	hermes := reportedSettingsSnapshot("101", "skill", "", "gpt-5.6", "hermes/0.20.0")
-	workbuddy := reportedSettingsSnapshot("101", "skill", "", "gpt-5.6", "workbuddy/5.3.8")
+	hermes := reportedSettingsSnapshot("101", "skill", "", "gpt-5.6", "hermes/0.20.0", true)
+	workbuddy := reportedSettingsSnapshot("101", "skill", "", "gpt-5.6", "workbuddy/5.3.8", true)
 	if hermes == workbuddy {
 		t.Fatal("runtime identity change must invalidate the reported-settings snapshot")
 	}
 }
 
 func TestReportedSettingsSnapshotChangesWithAccount(t *testing.T) {
-	first := reportedSettingsSnapshot("101", "skill", "", "gpt-5.6", "hermes/0.20.0")
-	second := reportedSettingsSnapshot("202", "skill", "", "gpt-5.6", "hermes/0.20.0")
+	first := reportedSettingsSnapshot("101", "skill", "", "gpt-5.6", "hermes/0.20.0", true)
+	second := reportedSettingsSnapshot("202", "skill", "", "gpt-5.6", "hermes/0.20.0", true)
 	if first == second {
 		t.Fatal("account switch must invalidate the reported-settings snapshot")
 	}
@@ -293,7 +328,7 @@ func TestPushReportedSupportsV2OnlyCredentials(t *testing.T) {
 	if err := pushReported(cfg, "skill", "gpt-5.6", "workbuddy", "5.3.14", false); err != nil {
 		t.Fatal(err)
 	}
-	want := reportedSettingsSnapshot("v2-agent", "skill", "", "gpt-5.6", "workbuddy/5.3.14")
+	want := reportedSettingsSnapshot("v2-agent", "skill", "", "gpt-5.6", "workbuddy/5.3.14", true)
 	if got := loadRuntimeTestState(t, active.Name).ReportedSnapshot; got != want {
 		t.Fatalf("cached snapshot = %q; want %q", got, want)
 	}
@@ -350,7 +385,7 @@ func TestPushReportedSendsRuntimeToBoundServerAndCachesSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-requestSeen
-	want := reportedSettingsSnapshot("42", "skill", "", "gpt-5.6", "hermes/0.20.0")
+	want := reportedSettingsSnapshot("42", "skill", "", "gpt-5.6", "hermes/0.20.0", true)
 	if got := loadRuntimeTestState(t, active.Name).ReportedSnapshot; got != want {
 		t.Fatalf("cached snapshot = %q; want %q", got, want)
 	}

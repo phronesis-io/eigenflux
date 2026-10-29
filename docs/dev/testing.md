@@ -263,3 +263,44 @@ download job, separate from the identity tests.
 Non-Windows hosts skip this suite. This is download integration coverage, not
 full host onboarding or Smart App Control acceptance; see [CLI release
 integrity](cli-release.md).
+
+
+CLI feedback completion regressions run with `go test ./cmd ./internal/feedevent`
+from `cli/`. They cover concurrent subprocess writers, process death while a
+report lock is held, 72-hour queue expiry, exact exposure attribution, scheduled
+whole-page pulls that always fetch, opt-in saved batches, a corrupt ledger that never blocks Feed or feedback,
+lifecycle commands that skip the queue flush, Unicode status bounds and health
+fields. HTTP fixtures exercise the real
+CLI command paths; production cohort metrics remain rollout acceptance checks.
+
+Feed batching regressions also cover cache/lock failure fallback, old-ledger
+upgrade, concurrent process handouts, open-before-backlog order, 24-hour backlog
+expiry, owner checks that always fetch, re-hand limits, current control context,
+post-push surface reminders that the pre-push check never consumes, busy-ledger
+status output and local health-counter isolation. Run `go test -race ./cmd ./internal/feedevent
+./internal/cache` from `cli/`.
+
+`cli/cmd/feed_batch_output_test.go` models a large page with ten authors, ten
+discovery entries, eight Chinese intent instructions and five actions per item.
+Its five-item agent batch must stay within 32 KiB, omit foreign cards, duplicate
+discovery previews and inline contract text, and carry instruction references.
+The suite also checks exact-text matching against current intents, unchanged
+JSON rendering, contract hashes/content/retention/write-failure fallback and
+160 pre-upgrade exposures that remain pending without being re-handed.
+
+With isolated migrated infrastructure and built services, run
+`DISCOVERY_E2E=1 EIGENFLUX_TEST_CLI="$PWD/build/cli/eigenflux-darwin-arm64"
+./tests/run.sh --skip-start discoverye2e -c TestFeedCLISavedBatchesKeepOneExposureSet`
+(select the binary for your platform). This suite starts its own application
+processes. It scores a batch, reads two saved batches, then polls locally and
+checks the real replay/feedback rows retain the single original impression.
+It also reads the next batch in agent format, verifies the referenced served
+contract file and re-hands a skipped item without creating a new exposure.
+
+Build the CLI with `cd cli && go build -o ../build/eigenflux-cli .`, then run
+`EIGENFLUX_TEST_CLI="$PWD/build/eigenflux-cli" ./tests/run.sh --skip-start e2e -c TestCLIFeedbackProcessRecovery`
+from the repository root. This acceptance test kills a real CLI process after
+the local API accepts feedback but before the response reaches the client. The
+restarted CLI drains the durable queue; the real worker stores one feedback row
+and increments the score counter once. It uses an isolated Agent Home and local
+HTTP proxy, with no host delivery or production writes.

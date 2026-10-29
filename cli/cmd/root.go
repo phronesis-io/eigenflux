@@ -1,8 +1,12 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
+	"syscall"
 
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
@@ -52,6 +56,9 @@ Examples:
 		if homeDirFlag != "" {
 			config.SetHomeDir(homeDirFlag)
 		}
+		if err := verifyCLIUpdateReexecIdentity(); err != nil {
+			return err
+		}
 		clientMeta = client.ResolveMeta()
 		clientMeta.CLIVersion = version
 		if cmd.Flags().Changed("runtime-mode") {
@@ -66,8 +73,26 @@ Examples:
 		if cmd.Flags().Changed("origin") && originFlag != publishOriginHeartbeat && originFlag != publishOriginOwner {
 			return fmt.Errorf("--origin must be %s or %s", publishOriginHeartbeat, publishOriginOwner)
 		}
+		if flushesFeedQueue(cmd) {
+			maybeFlushFeedQueue()
+		}
 		return nil
 	},
+}
+
+// Installation lifecycle and local metadata commands never write into a Home
+// they may be about to remove, migrate or only describe.
+func flushesFeedQueue(cmd *cobra.Command) bool {
+	if cmd == feedNextCmd {
+		return false
+	}
+	for c := cmd; c != nil; c = c.Parent() {
+		switch c.Name() {
+		case "uninstall", "uninstall-finalize", "installation", "migrate", "version", "help", "completion":
+			return false
+		}
+	}
+	return true
 }
 
 func init() {
@@ -76,7 +101,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&originFlag, "origin", "", "why this invocation runs: heartbeat (automatic cycle) or owner (the owner asked); recorded on publish")
 	rootCmd.PersistentFlags().StringVar(&homeDirFlag, "homedir", "", "data directory (default: $EIGENFLUX_HOME or ~/.eigenflux)")
 	rootCmd.PersistentFlags().StringVarP(&serverFlag, "server", "s", "", "target server name (default: current server)")
-	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "", "output format: json, table, or agent (feed poll only: contract preamble + payload). Default: json in non-TTY, table in TTY")
+	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "", "output format: json, table, or agent (Feed: trusted instructions + payload). Default: json in non-TTY, table in TTY")
 	rootCmd.PersistentFlags().BoolVar(&noInteract, "no-interactive", false, "skip all interactive prompts")
 	rootCmd.PersistentFlags().BoolVarP(&verboseFlag, "verbose", "v", false, "verbose stderr logging")
 
@@ -149,6 +174,16 @@ func run() error {
 
 func Execute() {
 	if err := run(); err != nil {
+		var updated *updatedCLIError
+		var exitErr *exec.ExitError
+		if errors.As(err, &updated) && errors.As(err, &exitErr) {
+			if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+				os.Exit(128 + int(status.Signal()))
+			}
+			if exitErr.ExitCode() > 0 {
+				os.Exit(exitErr.ExitCode())
+			}
+		}
 		exitCommandFailure(err)
 	}
 }

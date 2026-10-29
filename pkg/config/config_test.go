@@ -2,6 +2,20 @@ package config
 
 import "testing"
 
+func TestCLIAutoUpdateDefaultsEnabled(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  bool
+	}{
+		{"", true}, {"true", true}, {"false", false}, {"invalid", true},
+	} {
+		t.Setenv("ENABLE_CLI_AUTO_UPDATE", tc.value)
+		if got := Load().EnableCLIAutoUpdate; got != tc.want {
+			t.Fatalf("value=%q enabled=%t want=%t", tc.value, got, tc.want)
+		}
+	}
+}
+
 func TestLoadCommissionDiscoveryConfiguration(t *testing.T) {
 	t.Setenv("ENABLE_COMMISSION_INDEX", "true")
 	t.Setenv("ENABLE_COMMISSION_DISCOVERY_API", "true")

@@ -2,6 +2,7 @@ package feedevent
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,6 +20,8 @@ import (
 type Ledger struct {
 	entries map[string]Entry
 	exact   map[string]Entry
+	pages   map[string]string
+	files   int
 }
 
 // cachedResponse is the shape SaveFeedResponse persists (the API `data` object).
@@ -40,7 +43,7 @@ type cachedResponse struct {
 // directory yields an empty (all-missing) ledger — callers treat that as
 // "unknown item", never an error.
 func NewLedger(broadcastsDir, serverID string) *Ledger {
-	l := &Ledger{entries: map[string]Entry{}, exact: map[string]Entry{}}
+	l := &Ledger{entries: map[string]Entry{}, exact: map[string]Entry{}, pages: map[string]string{}}
 	dateDirs, err := os.ReadDir(broadcastsDir)
 	if err != nil {
 		return l
@@ -80,6 +83,14 @@ func (l *Ledger) absorb(path, serverID string) {
 	if err != nil {
 		return
 	}
+	var envelope struct {
+		SchemaVersion   string `json:"schema_version"`
+		Personalization struct {
+			Mode            string `json:"mode"`
+			ContextRevision int64  `json:"context_revision"`
+		} `json:"personalization"`
+	}
+	_ = json.Unmarshal(data, &envelope)
 	var resp cachedResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return
@@ -89,7 +100,12 @@ func (l *Ledger) absorb(path, serverID string) {
 	if info, err := os.Stat(path); err == nil {
 		servedMs = info.ModTime().UnixMilli()
 	}
-	for _, it := range resp.Items {
+	order := l.files
+	l.files++
+	if _, exists := l.pages[resp.ImpressionID]; !exists {
+		l.pages[resp.ImpressionID] = path
+	}
+	for position, it := range resp.Items {
 		if it.ItemID == "" || (it.SourceRef.Type != "" && it.SourceRef.Type != "broadcast") {
 			continue
 		}
@@ -98,18 +114,68 @@ func (l *Ledger) absorb(path, serverID string) {
 			it.Summary = it.Preview.Text
 		}
 		entry := Entry{
-			ImpressionID: resp.ImpressionID,
-			ServerID:     serverID,
-			Title:        truncate(it.Summary, shortTitleMax),
-			ExpiresAt:    servedMs + ledgerTTLMs,
+			ItemID: it.ItemID, ServedAt: servedMs, Feed: envelope.SchemaVersion == "feed.v2", Baseline: envelope.Personalization.Mode == "baseline",
+			ImpressionID:    resp.ImpressionID,
+			ServerID:        serverID,
+			Title:           truncate(it.Summary, shortTitleMax),
+			ExpiresAt:       servedMs + ledgerTTLMs,
+			Position:        position,
+			ContextRevision: envelope.Personalization.ContextRevision,
+			CacheOrder:      order,
 		}
 		if _, seen := l.entries[it.ItemID]; !seen {
 			l.entries[it.ItemID] = entry
 		}
-		if _, seen := l.exact[it.ItemID+":"+resp.ImpressionID]; !seen {
-			l.exact[it.ItemID+":"+resp.ImpressionID] = entry
+		if _, seen := l.exact[reportKey(resp.ImpressionID, it.ItemID)]; !seen {
+			l.exact[reportKey(resp.ImpressionID, it.ItemID)] = entry
 		}
 	}
+}
+
+func (l *Ledger) Entries() []Entry {
+	entries := make([]Entry, 0, len(l.exact))
+	for _, entry := range l.exact {
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
+// Whole-page fallback remains scoreable even when its cache write failed.
+func (l *Ledger) ReportEntries(reports Reports) []Entry {
+	entries := l.Entries()
+	for key, r := range reports.Entries {
+		if _, cached := l.exact[key]; !cached && r.ServedAt > 0 {
+			entries = append(entries, Entry{ItemID: r.ItemID, ImpressionID: r.ImpressionID, ServedAt: r.ServedAt, Feed: true, Baseline: r.Baseline, Position: r.Position})
+		}
+	}
+	return entries
+}
+
+// Page reads the newest cached response for an impression.
+func (l *Ledger) Page(impressionID string) (json.RawMessage, error) {
+	path := l.pages[impressionID]
+	if path == "" {
+		return nil, fmt.Errorf("cached Feed page %q is unavailable", impressionID)
+	}
+	return os.ReadFile(path)
+}
+
+func (l *Ledger) LookupHanded(itemID string, reports Reports, now int64) (Entry, Status) {
+	var latest Entry
+	var handedAt int64
+	for _, entry := range l.exact {
+		r := reports.Exposure(entry)
+		// Cache mtimes have millisecond precision; equal hand times fall back to
+		// the newest cached response, as Lookup does.
+		if entry.ItemID == itemID && entry.ExpiresAt >= now && r.HandedTime() > 0 &&
+			(r.HandedTime() > handedAt || r.HandedTime() == handedAt && entry.CacheOrder < latest.CacheOrder) {
+			latest, handedAt = entry, r.HandedTime()
+		}
+	}
+	if handedAt == 0 {
+		return Entry{}, StatusMissing
+	}
+	return latest, StatusHit
 }
 
 // Lookup returns the entry and whether the item is reportable at nowMs.
@@ -126,17 +192,18 @@ func (l *Ledger) Lookup(itemID string, nowMs int64) (Entry, Status) {
 
 func truncate(s string, max int) string {
 	s = strings.TrimSpace(s)
-	if len(s) <= max {
+	runes := []rune(s)
+	if len(runes) <= max {
 		return s
 	}
-	return s[:max]
+	return string(runes[:max])
 }
 
 func (l *Ledger) LookupImpression(itemID, impression string, nowMs int64) (Entry, Status) {
 	if impression == "" {
 		return l.Lookup(itemID, nowMs)
 	}
-	e, ok := l.exact[itemID+":"+impression]
+	e, ok := l.exact[reportKey(impression, itemID)]
 	if !ok {
 		return Entry{}, StatusMissing
 	}

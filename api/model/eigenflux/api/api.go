@@ -8298,9 +8298,12 @@ func (p *GetItemResp) String() string {
 }
 
 type FeedbackItem struct {
-	ItemID       string  `thrift:"item_id,1,required" form:"item_id,required" json:"item_id,required"`
-	Score        int32   `thrift:"score,2,required" form:"score,required" json:"score,required"`
-	ImpressionID *string `thrift:"impression_id,3,optional" form:"impression_id" json:"impression_id,omitempty"`
+	ItemID           string  `thrift:"item_id,1,required" form:"item_id,required" json:"item_id,required"`
+	Score            int32   `thrift:"score,2,required" form:"score,required" json:"score,required"`
+	ImpressionID     *string `thrift:"impression_id,3,optional" form:"impression_id" json:"impression_id,omitempty"`
+	ClientKey        *string `thrift:"client_key,4,optional" form:"client_key" json:"client_key,omitempty"`
+	Surfaced         *bool   `thrift:"surfaced,5,optional" form:"surfaced" json:"surfaced,omitempty"`
+	ImpressionSource *string `thrift:"impression_source,6,optional" form:"impression_source" json:"impression_source,omitempty"`
 }
 
 func NewFeedbackItem() *FeedbackItem {
@@ -8327,14 +8330,56 @@ func (p *FeedbackItem) GetImpressionID() (v string) {
 	return *p.ImpressionID
 }
 
+var FeedbackItem_ClientKey_DEFAULT string
+
+func (p *FeedbackItem) GetClientKey() (v string) {
+	if !p.IsSetClientKey() {
+		return FeedbackItem_ClientKey_DEFAULT
+	}
+	return *p.ClientKey
+}
+
+var FeedbackItem_Surfaced_DEFAULT bool
+
+func (p *FeedbackItem) GetSurfaced() (v bool) {
+	if !p.IsSetSurfaced() {
+		return FeedbackItem_Surfaced_DEFAULT
+	}
+	return *p.Surfaced
+}
+
+var FeedbackItem_ImpressionSource_DEFAULT string
+
+func (p *FeedbackItem) GetImpressionSource() (v string) {
+	if !p.IsSetImpressionSource() {
+		return FeedbackItem_ImpressionSource_DEFAULT
+	}
+	return *p.ImpressionSource
+}
+
 var fieldIDToName_FeedbackItem = map[int16]string{
 	1: "item_id",
 	2: "score",
 	3: "impression_id",
+	4: "client_key",
+	5: "surfaced",
+	6: "impression_source",
 }
 
 func (p *FeedbackItem) IsSetImpressionID() bool {
 	return p.ImpressionID != nil
+}
+
+func (p *FeedbackItem) IsSetClientKey() bool {
+	return p.ClientKey != nil
+}
+
+func (p *FeedbackItem) IsSetSurfaced() bool {
+	return p.Surfaced != nil
+}
+
+func (p *FeedbackItem) IsSetImpressionSource() bool {
+	return p.ImpressionSource != nil
 }
 
 func (p *FeedbackItem) Read(iprot thrift.TProtocol) (err error) {
@@ -8379,6 +8424,30 @@ func (p *FeedbackItem) Read(iprot thrift.TProtocol) (err error) {
 		case 3:
 			if fieldTypeId == thrift.STRING {
 				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 4:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 5:
+			if fieldTypeId == thrift.BOOL {
+				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 6:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField6(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -8457,6 +8526,39 @@ func (p *FeedbackItem) ReadField3(iprot thrift.TProtocol) error {
 	p.ImpressionID = _field
 	return nil
 }
+func (p *FeedbackItem) ReadField4(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.ClientKey = _field
+	return nil
+}
+func (p *FeedbackItem) ReadField5(iprot thrift.TProtocol) error {
+
+	var _field *bool
+	if v, err := iprot.ReadBool(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Surfaced = _field
+	return nil
+}
+func (p *FeedbackItem) ReadField6(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.ImpressionSource = _field
+	return nil
+}
 
 func (p *FeedbackItem) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -8474,6 +8576,18 @@ func (p *FeedbackItem) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField3(oprot); err != nil {
 			fieldId = 3
+			goto WriteFieldError
+		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
+			goto WriteFieldError
+		}
+		if err = p.writeField6(oprot); err != nil {
+			fieldId = 6
 			goto WriteFieldError
 		}
 	}
@@ -8547,6 +8661,63 @@ WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
 }
 
+func (p *FeedbackItem) writeField4(oprot thrift.TProtocol) (err error) {
+	if p.IsSetClientKey() {
+		if err = oprot.WriteFieldBegin("client_key", thrift.STRING, 4); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.ClientKey); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *FeedbackItem) writeField5(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSurfaced() {
+		if err = oprot.WriteFieldBegin("surfaced", thrift.BOOL, 5); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteBool(*p.Surfaced); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+
+func (p *FeedbackItem) writeField6(oprot thrift.TProtocol) (err error) {
+	if p.IsSetImpressionSource() {
+		if err = oprot.WriteFieldBegin("impression_source", thrift.STRING, 6); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.ImpressionSource); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
+}
+
 func (p *FeedbackItem) String() string {
 	if p == nil {
 		return "<nil>"
@@ -8556,8 +8727,9 @@ func (p *FeedbackItem) String() string {
 }
 
 type BatchFeedbackReq struct {
-	Items        []*FeedbackItem `thrift:"items,1,required,list<FeedbackItem>" form:"items,required" json:"items,required"`
-	ImpressionID *string         `thrift:"impression_id,2,optional" form:"impression_id" json:"impression_id,omitempty"`
+	Items           []*FeedbackItem `thrift:"items,1,required,list<FeedbackItem>" form:"items,required" json:"items,required"`
+	ImpressionID    *string         `thrift:"impression_id,2,optional" form:"impression_id" json:"impression_id,omitempty"`
+	ContractVersion *string         `thrift:"contract_version,3,optional" form:"contract_version" json:"contract_version,omitempty"`
 }
 
 func NewBatchFeedbackReq() *BatchFeedbackReq {
@@ -8580,13 +8752,27 @@ func (p *BatchFeedbackReq) GetImpressionID() (v string) {
 	return *p.ImpressionID
 }
 
+var BatchFeedbackReq_ContractVersion_DEFAULT string
+
+func (p *BatchFeedbackReq) GetContractVersion() (v string) {
+	if !p.IsSetContractVersion() {
+		return BatchFeedbackReq_ContractVersion_DEFAULT
+	}
+	return *p.ContractVersion
+}
+
 var fieldIDToName_BatchFeedbackReq = map[int16]string{
 	1: "items",
 	2: "impression_id",
+	3: "contract_version",
 }
 
 func (p *BatchFeedbackReq) IsSetImpressionID() bool {
 	return p.ImpressionID != nil
+}
+
+func (p *BatchFeedbackReq) IsSetContractVersion() bool {
+	return p.ContractVersion != nil
 }
 
 func (p *BatchFeedbackReq) Read(iprot thrift.TProtocol) (err error) {
@@ -8621,6 +8807,14 @@ func (p *BatchFeedbackReq) Read(iprot thrift.TProtocol) (err error) {
 		case 2:
 			if fieldTypeId == thrift.STRING {
 				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField3(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -8695,6 +8889,17 @@ func (p *BatchFeedbackReq) ReadField2(iprot thrift.TProtocol) error {
 	p.ImpressionID = _field
 	return nil
 }
+func (p *BatchFeedbackReq) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.ContractVersion = _field
+	return nil
+}
 
 func (p *BatchFeedbackReq) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -8708,6 +8913,10 @@ func (p *BatchFeedbackReq) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField2(oprot); err != nil {
 			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
 			goto WriteFieldError
 		}
 	}
@@ -8772,6 +8981,25 @@ WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
 }
 
+func (p *BatchFeedbackReq) writeField3(oprot thrift.TProtocol) (err error) {
+	if p.IsSetContractVersion() {
+		if err = oprot.WriteFieldBegin("contract_version", thrift.STRING, 3); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.ContractVersion); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
 func (p *BatchFeedbackReq) String() string {
 	if p == nil {
 		return "<nil>"
@@ -8780,10 +9008,269 @@ func (p *BatchFeedbackReq) String() string {
 
 }
 
+type FeedbackItemResult struct {
+	ItemID string  `thrift:"item_id,1,required" form:"item_id,required" json:"item_id,required" query:"item_id,required"`
+	Status string  `thrift:"status,2,required" form:"status,required" json:"status,required" query:"status,required"`
+	Reason *string `thrift:"reason,3,optional" form:"reason" json:"reason,omitempty" query:"reason"`
+}
+
+func NewFeedbackItemResult() *FeedbackItemResult {
+	return &FeedbackItemResult{}
+}
+
+func (p *FeedbackItemResult) InitDefault() {
+}
+
+func (p *FeedbackItemResult) GetItemID() (v string) {
+	return p.ItemID
+}
+
+func (p *FeedbackItemResult) GetStatus() (v string) {
+	return p.Status
+}
+
+var FeedbackItemResult_Reason_DEFAULT string
+
+func (p *FeedbackItemResult) GetReason() (v string) {
+	if !p.IsSetReason() {
+		return FeedbackItemResult_Reason_DEFAULT
+	}
+	return *p.Reason
+}
+
+var fieldIDToName_FeedbackItemResult = map[int16]string{
+	1: "item_id",
+	2: "status",
+	3: "reason",
+}
+
+func (p *FeedbackItemResult) IsSetReason() bool {
+	return p.Reason != nil
+}
+
+func (p *FeedbackItemResult) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetItemID bool = false
+	var issetStatus bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetItemID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetStatus = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetItemID {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetStatus {
+		fieldId = 2
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_FeedbackItemResult[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_FeedbackItemResult[fieldId]))
+}
+
+func (p *FeedbackItemResult) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.ItemID = _field
+	return nil
+}
+func (p *FeedbackItemResult) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Status = _field
+	return nil
+}
+func (p *FeedbackItemResult) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Reason = _field
+	return nil
+}
+
+func (p *FeedbackItemResult) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("FeedbackItemResult"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *FeedbackItemResult) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("item_id", thrift.STRING, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.ItemID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *FeedbackItemResult) writeField2(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("status", thrift.STRING, 2); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Status); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *FeedbackItemResult) writeField3(oprot thrift.TProtocol) (err error) {
+	if p.IsSetReason() {
+		if err = oprot.WriteFieldBegin("reason", thrift.STRING, 3); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Reason); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *FeedbackItemResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("FeedbackItemResult(%+v)", *p)
+
+}
+
 type BatchFeedbackData struct {
-	ProcessedCount int32    `thrift:"processed_count,1,required" form:"processed_count,required" json:"processed_count,required" query:"processed_count,required"`
-	SkippedCount   int32    `thrift:"skipped_count,2,required" form:"skipped_count,required" json:"skipped_count,required" query:"skipped_count,required"`
-	SkippedReasons []string `thrift:"skipped_reasons,3,optional,list<string>" form:"skipped_reasons" json:"skipped_reasons,omitempty" query:"skipped_reasons"`
+	ProcessedCount int32                 `thrift:"processed_count,1,required" form:"processed_count,required" json:"processed_count,required" query:"processed_count,required"`
+	SkippedCount   int32                 `thrift:"skipped_count,2,required" form:"skipped_count,required" json:"skipped_count,required" query:"skipped_count,required"`
+	SkippedReasons []string              `thrift:"skipped_reasons,3,optional,list<string>" form:"skipped_reasons" json:"skipped_reasons,omitempty" query:"skipped_reasons"`
+	Results        []*FeedbackItemResult `thrift:"results,4,optional,list<FeedbackItemResult>" form:"results" json:"results,omitempty" query:"results"`
 }
 
 func NewBatchFeedbackData() *BatchFeedbackData {
@@ -8810,14 +9297,28 @@ func (p *BatchFeedbackData) GetSkippedReasons() (v []string) {
 	return p.SkippedReasons
 }
 
+var BatchFeedbackData_Results_DEFAULT []*FeedbackItemResult
+
+func (p *BatchFeedbackData) GetResults() (v []*FeedbackItemResult) {
+	if !p.IsSetResults() {
+		return BatchFeedbackData_Results_DEFAULT
+	}
+	return p.Results
+}
+
 var fieldIDToName_BatchFeedbackData = map[int16]string{
 	1: "processed_count",
 	2: "skipped_count",
 	3: "skipped_reasons",
+	4: "results",
 }
 
 func (p *BatchFeedbackData) IsSetSkippedReasons() bool {
 	return p.SkippedReasons != nil
+}
+
+func (p *BatchFeedbackData) IsSetResults() bool {
+	return p.Results != nil
 }
 
 func (p *BatchFeedbackData) Read(iprot thrift.TProtocol) (err error) {
@@ -8862,6 +9363,14 @@ func (p *BatchFeedbackData) Read(iprot thrift.TProtocol) (err error) {
 		case 3:
 			if fieldTypeId == thrift.LIST {
 				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 4:
+			if fieldTypeId == thrift.LIST {
+				if err = p.ReadField4(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -8952,6 +9461,29 @@ func (p *BatchFeedbackData) ReadField3(iprot thrift.TProtocol) error {
 	p.SkippedReasons = _field
 	return nil
 }
+func (p *BatchFeedbackData) ReadField4(iprot thrift.TProtocol) error {
+	_, size, err := iprot.ReadListBegin()
+	if err != nil {
+		return err
+	}
+	_field := make([]*FeedbackItemResult, 0, size)
+	values := make([]FeedbackItemResult, size)
+	for i := 0; i < size; i++ {
+		_elem := &values[i]
+		_elem.InitDefault()
+
+		if err := _elem.Read(iprot); err != nil {
+			return err
+		}
+
+		_field = append(_field, _elem)
+	}
+	if err := iprot.ReadListEnd(); err != nil {
+		return err
+	}
+	p.Results = _field
+	return nil
+}
 
 func (p *BatchFeedbackData) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -8969,6 +9501,10 @@ func (p *BatchFeedbackData) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField3(oprot); err != nil {
 			fieldId = 3
+			goto WriteFieldError
+		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
 			goto WriteFieldError
 		}
 	}
@@ -9048,6 +9584,33 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *BatchFeedbackData) writeField4(oprot thrift.TProtocol) (err error) {
+	if p.IsSetResults() {
+		if err = oprot.WriteFieldBegin("results", thrift.LIST, 4); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteListBegin(thrift.STRUCT, len(p.Results)); err != nil {
+			return err
+		}
+		for _, v := range p.Results {
+			if err := v.Write(oprot); err != nil {
+				return err
+			}
+		}
+		if err := oprot.WriteListEnd(); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
 }
 
 func (p *BatchFeedbackData) String() string {

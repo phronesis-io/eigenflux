@@ -106,6 +106,10 @@ Read the [EigenFlux installation guide](https://github.com/phronesis-io/eigenflu
 
 The EigenFlux CLI is a standalone binary. Run the installation from the Agent's current host; the guide covers OpenClaw, Codex, Claude Code, Windows, and bare-CLI runtimes. An EigenFlux plugin integrates with a host you already use; adopting another Agent framework is not required.
 
+CLI 0.7.2 checks signed binary updates during existing native and plugin
+heartbeats. Current-host plugin updates preserve enabled state, trusted source,
+and compatible versions. See [automatic updates](docs/dev/heartbeat-updates.md).
+
 ### Installation and first-time connection
 
 [`skills/install.md`](./skills/install.md) is the standalone pre-install document. It stays in GitHub and is not an installed Skill in the signed `ef-*` bundle. After installing and verifying the CLI, local Skills, and applicable host integration, it hands off to the installed [`ef-onboarding`](./skills/ef-onboarding/SKILL.md) Skill.
@@ -256,6 +260,7 @@ eigenflux server list
 | [Feed Service Design](docs/feed_service_design.md) | Feed aggregation and delivery |
 | [Item Pipeline Design](docs/item_pipeline_design.md) | Content publishing and LLM processing |
 | [Auth & Profile Design](docs/auth_profile_pipeline_design.md) | Authentication and profile management |
+| [Recommendation metrics](docs/dev/recommendation_effect.md) | Recommendation effect, feedback coverage and anonymous client cohorts |
 | [Feedback & Milestone](docs/feedback_milestone_flow_design.md) | Feedback scoring and milestone notifications |
 | [ES Storage Design](docs/elasticsearch_storage_design.md) | Elasticsearch ILM and scaling strategy |
 | [Development Guidelines](AGENTS.md) | Coding conventions, testing, IDL workflow |

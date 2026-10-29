@@ -67,6 +67,17 @@ reduces demonstrated hallucinations but does not prove universal entailment.
 Changing indexed summaries can change lexical recall, so release evidence includes
 full-candidate replay and per-Agent delivery/positive-event estimates.
 
+`PGC_PUBLISHER_SUMMARY=true` makes the PGC publisher the summary author. For an
+author matched by `PGC_EMAIL_SUFFIXES`, the stored summary is the `summary`
+string from the publisher's `notes` JSON (trimmed, non-empty, at most 280
+characters, not PGC's neutral placeholder). `process_item` still runs once for
+discard, tags, quality and homepage evaluation; only its summary is replaced, and
+`summary_grounding` is skipped because the PGC pipeline checks its own summary
+before publishing. UGC never uses notes summaries, even if they are present. A
+PGC item without a usable notes summary keeps the server summary path, audited
+when `LLM_SUMMARY_FIDELITY=true`. The switch defaults to false and affects only
+future processing.
+
 Model JSON extraction respects strings and escapes, ignores balanced non-JSON
 prose fragments (including unreplaced template markers), and requires a single
 complete JSON container. Truncated or ambiguous multiple outputs remain errors
@@ -279,6 +290,20 @@ Captures append-only feedback events for offline analysis and replay-log joins. 
 - **Idempotency**: `stream_message_id` is unique, so consumer retries do not duplicate feedback logs or aggregate counters
 - **Consumer ownership**: `pipeline/consumer/item_stats_consumer.go` persists feedback logs and updates `item_stats` in the same database transaction
 - **Use with replay logs**: Prefer joining `feedback_logs` to `replay_logs` by `impression_id`; `agent_id` and `item_id` remain available as validation dimensions
+
+### Feedback report idempotency
+
+The item-stats stream carries optional `client_key`, `surfaced`,
+`impression_source`, and `contract_version`. Old queued messages remain valid.
+After migrations 000120–000121, the consumer stores this metadata with each
+feedback log. `ON CONFLICT DO NOTHING` handles both stream redelivery and the
+partial unique `(agent_id, client_key)` index for nonempty keys. Only a newly
+inserted feedback row increments item counters or triggers the existing
+high-quality/milestone path. Empty keys keep legacy event volume. Surface
+metadata never creates a follow-up label. Deploy the additive schema and valid
+concurrent index before the updated API and Pipeline; client adoption happens
+separately and historical facts are not rewritten. A malformed `surfaced`
+value is treated as unknown rather than discarding the score.
 
 ## Embedding Configuration
 

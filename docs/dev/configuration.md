@@ -39,6 +39,7 @@ Default config in `pkg/config/config.go`, override via environment variables:
 | `DB_LOG_LEVEL` | `warn` | GORM SQL log level for core services: `silent` / `error` / `warn` / `info` (`debug` = alias of `info`). `warn` keeps errors and slow queries (>200 ms); `record not found` is not logged as an error (at `info` its statement is still traced, and a >200 ms lookup is still reported as slow); `info` prints every statement (three journal lines per query). Console honours the same variable but keeps its own default of `info`. To trace one production instance without touching the shared `/etc/eigenflux/runtime.env`, see *Temporary SQL trace on one instance* below |
 | `PROJECT_NAME` | `myhub` | Lowercase project slug. Docker Compose project name, local agent storage namespace, and the `{project_name}#{email}` friend-invite prefix |
 | `PUBLIC_BASE_URL` | (auto) | Public root URL of the API gateway (a trailing `/api/v1` is stripped); logged at API startup and passed to the install attribution routes. Auto-generates a LAN fallback such as `http://192.168.1.10:8080` if empty |
+| `ENABLE_CLI_AUTO_UPDATE` | `true` | Administrator-only global policy returned to heartbeat CLIs through settings. Restart API after changing; manual updates remain available |
 | `ENABLE_EMAIL_VERIFICATION` | `false` | Whether login requires OTP email verification |
 | `ENABLE_CONSOLE_V2` | `false` | Enables the isolated Console V2 BFF, handoff, and onboarding routes |
 | `ENABLE_FEED_V2` | `false` | Enables the stateless latest-view Feed V2 route; V1 feed behavior is unchanged |

@@ -16,16 +16,15 @@ const (
 
 	// MaxBatch matches the backend/CLI push cap.
 	MaxBatch = 50
-	// MaxAgeMs drops events that never flushed within a day.
-	MaxAgeMs = 24 * 60 * 60 * 1000
+	// MaxAgeMs drops events that never flushed within 72 hours.
+	MaxAgeMs = 72 * 60 * 60 * 1000
 	// ledgerTTLMs mirrors the CLI's 8-day broadcast-cache retention: an item
 	// last served longer ago than this is treated as expired for reporting.
 	ledgerTTLMs   = 8 * 24 * 60 * 60 * 1000
 	shortTitleMax = 80
 
-	dirPerm         = 0o700
-	filePerm        = 0o600
-	staleLockSecond = 300
+	dirPerm  = 0o700
+	filePerm = 0o600
 )
 
 // Event is a backend event payload (already carrying its dedup_key). It is
@@ -55,8 +54,15 @@ func (s Status) String() string {
 
 // Entry is the cached metadata for one feed item, used to enrich an event.
 type Entry struct {
-	ImpressionID string
-	ServerID     string
-	Title        string
-	ExpiresAt    int64 // epoch ms; served-time + ledgerTTL
+	ItemID          string
+	ServedAt        int64
+	Feed            bool
+	Baseline        bool
+	ImpressionID    string
+	ServerID        string
+	Title           string
+	ExpiresAt       int64 // epoch ms; served-time + ledgerTTL
+	Position        int
+	ContextRevision int64
+	CacheOrder      int // 0 for the newest cached response
 }

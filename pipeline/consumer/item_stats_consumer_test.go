@@ -168,3 +168,45 @@ func TestPersistFeedbackEventDeduplicatesByStreamMessageID(t *testing.T) {
 	assert.Equal(t, int64(101), logs[0].ItemID)
 	assert.Equal(t, int16(2), logs[0].Score)
 }
+
+func TestPersistFeedbackEventDeduplicatesClientKey(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, database.AutoMigrate(&itemdal.ItemStats{}, &FeedbackLog{}))
+	require.NoError(t, database.Exec(`CREATE UNIQUE INDEX uq_feedback_logs_agent_client_key ON feedback_logs(agent_id,client_key) WHERE client_key<>''`).Error)
+	previous := db.DB
+	db.DB = database
+	t.Cleanup(func() { db.DB = previous })
+	require.NoError(t, database.Create(&itemdal.ItemStats{ItemID: 202, AuthorAgentID: 9}).Error)
+	c := NewItemStatsConsumer(&config.Config{FeedbackConsumerWorkers: 1}, nil)
+	no := false
+	event := itemstats.Event{EventType: itemstats.EventTypeFeedback, AgentID: 7, ItemID: 202, Score: 2, ClientKey: "key", ImpressionID: "imp", ImpressionSource: "explicit", ContractVersion: "v2", Surfaced: &no}
+	inserted, err := c.persistFeedbackEvent("keyed-1", event)
+	require.NoError(t, err)
+	require.True(t, inserted)
+	inserted, err = c.persistFeedbackEvent("keyed-2", event)
+	require.NoError(t, err)
+	require.False(t, inserted)
+	var rows []FeedbackLog
+	require.NoError(t, database.Find(&rows).Error)
+	require.Len(t, rows, 1)
+	require.Equal(t, &no, rows[0].Surfaced)
+	require.Equal(t, "explicit", rows[0].ImpressionSource)
+	require.Equal(t, "v2", rows[0].ContractVersion)
+	var counts itemdal.ItemStats
+	require.NoError(t, database.First(&counts, "item_id = ?", 202).Error)
+	require.Equal(t, int64(1), counts.Score2Count)
+	// Keys belong to an Agent. An empty key retains event-by-event counting.
+	event.AgentID = 8
+	inserted, err = c.persistFeedbackEvent("other-agent", event)
+	require.NoError(t, err)
+	require.True(t, inserted)
+	event.ClientKey = ""
+	for _, id := range []string{"legacy-1", "legacy-2"} {
+		inserted, err = c.persistFeedbackEvent(id, event)
+		require.NoError(t, err)
+		require.True(t, inserted)
+	}
+	require.NoError(t, database.First(&counts, "item_id = ?", 202).Error)
+	require.Equal(t, int64(4), counts.Score2Count)
+}

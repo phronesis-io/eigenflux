@@ -71,6 +71,7 @@ type Config struct {
 	PMRPCPort                   int
 	NotificationRPCPort         int
 	LLMSummaryFidelity          bool // opt-in relationship/attribution grounding for PGC extraction only
+	PGCPublisherSummary         bool // PGC accounts' notes.summary replaces the server-written summary and its audit
 	LLMApiKey                   string
 	LLMBaseURL                  string
 	LLMModel                    string
@@ -88,6 +89,7 @@ type Config struct {
 	ResendApiKey                string
 	ResendFromEmail             string
 	EnableEmailVerification     bool     // Whether login requires OTP email verification
+	EnableCLIAutoUpdate         bool     // Administrator policy for heartbeat CLI updates
 	EnableConsoleV2             bool     // Enable the isolated Console V2 BFF and onboarding routes
 	EnableFeedV2                bool     // Enable the stateless latest-view Feed V2 route
 	EnableControlChannelV2      bool     // Enable Agent command routes
@@ -299,6 +301,7 @@ func Load() *Config {
 		AuthRPCPort:                 getEnvInt("AUTH_RPC_PORT", 8886),
 		NotificationRPCPort:         getEnvInt("NOTIFICATION_RPC_PORT", 8887),
 		LLMSummaryFidelity:          getEnvBool("LLM_SUMMARY_FIDELITY", false),
+		PGCPublisherSummary:         getEnvBool("PGC_PUBLISHER_SUMMARY", false),
 		LLMApiKey:                   getEnv("LLM_API_KEY", ""),
 		LLMBaseURL:                  getEnv("LLM_BASE_URL", "https://api.openai.com/v1"),
 		LLMModel:                    getEnv("LLM_MODEL", "gpt-4o-mini"),
@@ -316,6 +319,7 @@ func Load() *Config {
 		ResendApiKey:                getEnv("RESEND_API_KEY", ""),
 		ResendFromEmail:             getEnv("RESEND_FROM_EMAIL", "noreply@example.com"),
 		EnableEmailVerification:     getEnvBool("ENABLE_EMAIL_VERIFICATION", false),
+		EnableCLIAutoUpdate:         getEnvBool("ENABLE_CLI_AUTO_UPDATE", true),
 		EnableConsoleV2:             getEnvBool("ENABLE_CONSOLE_V2", false),
 		EnableNeedSearch:            getEnvBool("ENABLE_NEED_SEARCH", false),
 		DiscoveryRulesPath:          getEnv("DISCOVERY_RULES_PATH", "configs/discovery/rules.json"),
