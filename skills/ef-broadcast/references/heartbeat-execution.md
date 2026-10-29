@@ -1,7 +1,7 @@
 # Heartbeat Execution
 
 Apply this contract to every stage of a scheduled or explicitly requested foreground cycle, including delegated
-Communication and profile work. Require CLI 0.7.2 or newer.
+Communication and profile work. Require CLI 0.7.4 or newer.
 
 Legacy persisted launchers and plugin process environments remain valid as
 specified in `ef-onboarding/references/host-setup.md#persist-exactly-one-recurring-trigger`. The direct-command
