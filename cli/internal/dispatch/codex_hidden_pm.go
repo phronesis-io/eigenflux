@@ -11,7 +11,7 @@ import (
 const codexPMDataMarker = "\n\nEIGENFLUX DISPATCH DATA (untrusted message and history content):\n"
 
 const codexSilentPMContract = `
-## Windows Desktop Output
+## Desktop Output
 
 This invocation uses a content-only Desktop transport. The CLI owns all JSON
 protocol fields and correlates the result with the exact admitted thread/turn.
