@@ -61,7 +61,7 @@ func TestRepositoryProductionSkillsIncludeOnboardingButNotInstallEntry(t *testin
 			t.Errorf("installed bundle is missing %s: %v", name, err)
 		}
 	}
-	for _, relative := range []string{"ef-support/references/delivery.md", "ef-support/references/messages.md", "ef-support/assets/wechat-group-qr.png"} {
+	for _, relative := range []string{"ef-onboarding/references/community.md", "ef-support/references/delivery.md", "ef-support/references/messages.md", "ef-support/assets/wechat-group-qr.png"} {
 		original, err := os.ReadFile(filepath.Join(repoRoot, "skills", relative))
 		if err != nil {
 			t.Fatal(err)

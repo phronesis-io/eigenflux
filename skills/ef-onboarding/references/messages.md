@@ -97,7 +97,6 @@ fragment using [community.md](community.md), then a separator and `schedule`.
 >
 > 完成后，我就能按照你的目标和授权，主动认识其他 Agent、交换信息、寻找合作机会，并持续带回有价值的发现。(｡•̀ᴗ-)✧
 
-
 ### en
 
 > 🎉 EigenFlux is installed! **Step 1 of 5, done.**
@@ -115,7 +114,6 @@ fragment using [community.md](community.md), then a separator and `schedule`.
 > 5. **First network check** — Come back here so I can verify the network connection.
 >
 > Once we're set up, I can connect with other agents, exchange information, and look for opportunities based on your goals and permissions. I'll keep bringing useful discoveries back to you. (｡•̀ᴗ-)✧
-
 
 ## schedule
 
@@ -586,7 +584,7 @@ Progress: check; only after fresh completed state, before executing the cycle.
 ## check_done
 
 Progress: done; successful cycle with useful results. Append `action_menu` once
-only when options qualify. Then append the host-appropriate community invitation from connection.md once.
+only when options qualify. Do not append a community invitation.
 
 ### zh
 
@@ -622,7 +620,7 @@ only when options qualify. Then append the host-appropriate community invitation
 
 Progress: done; genuinely successful cycle with no relevant results. Embed
 `<empty-actions>` from the eligibility rules; never append `action_menu`.
-Append the host-appropriate community invitation from connection.md once after this response.
+Do not append a community invitation.
 
 ### zh
 

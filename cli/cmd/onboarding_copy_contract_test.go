@@ -182,6 +182,17 @@ func TestOnboardingCommunityInvitation(t *testing.T) {
 	if !strings.Contains(read("SKILL.md"), "references/community.md") || !strings.Contains(read("references/connection.md"), "Do not append a community invitation") {
 		t.Error("invitation must be routed from installation and excluded from first check")
 	}
+	completionCopy := read("references/messages.md")
+	for _, id := range []string{"check_done", "check_empty"} {
+		section := regexp.MustCompile(`(?s)\n## ` + id + `\n(.*?)(?:\n## |$)`).FindStringSubmatch(completionCopy)
+		if len(section) != 2 {
+			t.Fatalf("missing completion fragment %s", id)
+		}
+		instructions := strings.SplitN(section[1], "### zh", 2)[0]
+		if !strings.Contains(instructions, "Do not append a community invitation.") || strings.Contains(instructions, "Then append") || strings.Contains(instructions, "Append the host-appropriate") {
+			t.Errorf("completion fragment %s must not repeat welcome invitation", id)
+		}
+	}
 	messages := read("../ef-support/references/messages.md")
 	if strings.Count(messages, "https://discord.gg/MWFr98Pbe") != 6 {
 		t.Error("expected bilingual inline, attachment and Discord-only community links")

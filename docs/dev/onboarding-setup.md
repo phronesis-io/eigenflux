@@ -202,12 +202,11 @@ server-delivered copy takes effect with the normal backend release/restart.
 ## Community invitation
 
 The verified-installation welcome ends with community_invite before the
-scheduling permission question. First-check responses never repeat it. Both languages share the
-Discord destination and bundled assets/wechat-group-qr.png. Use the installed
-Skill path; fall back to a file link when images cannot render, or Discord only
-when the asset is unavailable. Never repeat it in action results or scheduled
-checks. Joining remains optional and manual.
-
+scheduling permission question. First-check responses never repeat it. Both
+languages share the maintained Discord destination and QR asset owned by
+`ef-support`. Its delivery reference selects the host route and failure behavior.
+Never repeat it in action results or scheduled checks. Joining remains optional
+and manual.
 
 WorkBuddy uses a maintained immutable HTTPS QR image inline after the invitation
 and before the scheduling question. It does not call present_files on this path.
@@ -216,7 +215,6 @@ or an explicit user report; do not deliver both forms preemptively. Source URL
 and fallback details are owned by ef-support/references/delivery.md. Other hosts
 retain their bundled-image delivery. Once-only welcome timing and explicit
 repeatable support requests remain unchanged.
-
 
 Platform support channels are owned by the discoverable `ef-support` Skill,
 including the Discord URL, QR asset, localized invitation copy and host delivery.

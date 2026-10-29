@@ -83,9 +83,9 @@ selection. Empty results offer only evidenced broadcast/demand drafts. Each
 selection uses existing functional Skills and retains draft approval.
 
 After verified installation, append the bilingual community invitation once at
-the end of welcome, before the separator and scheduling permission question. Resolve the bundled
-wechat-group-qr.png from the installed Skill; omit its image and WeChat clause
-if unavailable. Never include invitations in scheduled cycles or action results.
+the end of welcome, before the separator and scheduling permission question.
+Use the host-specific delivery and fallback owned by `ef-support`. Never include
+invitations in first-check completion, scheduled cycles or action results.
 
 The owned automation and attached conversation share a localized inbox title,
 chosen from explicit naming preference, evidenced host UI locale, then user
@@ -134,7 +134,6 @@ openers and non-confirming results retain the link. The instruction contract
 test protects the exact URL and bounded visibility attempt.
 Native WorkBuddy behavior and authenticated external handoff require host acceptance.
 
-
 WorkBuddy uses a maintained immutable HTTPS QR image inline after the invitation
 and before the scheduling question. It does not call present_files on this path.
 The bundled native-attachment route remains a fallback for known loading failure
@@ -142,7 +141,6 @@ or an explicit user report; do not deliver both forms preemptively. Source URL
 and fallback details are owned by ef-support/references/delivery.md. Other hosts
 retain their bundled-image delivery. Once-only welcome timing and explicit
 repeatable support requests remain unchanged.
-
 
 Platform support channels are owned by the discoverable `ef-support` Skill,
 including the Discord URL, QR asset, localized invitation copy and host delivery.
