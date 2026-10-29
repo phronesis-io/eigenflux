@@ -16,9 +16,12 @@ each minute, including notification-only mode. It does not invoke an Agent or
 require a heartbeat plan. Honor the pinned server's `auto_cli_update`, then the
 Home default. The existing installation lock and 24-hour throttle are shared
 with heartbeat checks and manual `update`; concurrent triggers do not download
-the same release independently. Failed updates leave business processing active;
+the same release independently. Failed or interrupted attempts retry after five
+minutes; successful checks keep the 24-hour interval. Failed updates leave business processing active;
 successful installation requests the existing drained adoption path. Updater
-observations use the existing maintenance queue and redacted `cli_update_status`.
+observations use the existing maintenance queue and redacted `cli_update_status`,
+including fixed `reason` and `next_check_at`; unchanged deferred decisions are not
+logged again each minute.
 
 Heartbeat plans retain their compatibility check. macOS and Windows use
 `cli/latest/package-release.json`; Linux

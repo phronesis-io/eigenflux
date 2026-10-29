@@ -53,13 +53,20 @@ func recordFeedPage(r *feedevent.Reports, data json.RawMessage, now int64, batch
 		entry.ImpressionID = feed.ImpressionID
 		if entry.ServedAt == 0 {
 			entry.ServedAt = now
-			unhanded := int64(0)
-			entry.HandedAt = &unhanded
+			if batch > 0 && !baseline {
+				unhanded := int64(0)
+				entry.HandedAt = &unhanded
+			}
+		}
+		if batch == 0 || baseline {
+			entry.HandedAt = nil
+			entry.HandCount = 0
+			entry.Batched = false
 		}
 		entry.Baseline = baseline
 		entry.Position = position
 		entry.ContextRevision = feed.Personalization.ContextRevision
-		if batch == 0 || baseline || position < batch {
+		if batch > 0 && !baseline && position < batch {
 			entry.Hand(now)
 			selected = append(selected, feedevent.Entry{ItemID: item.ItemID, ImpressionID: feed.ImpressionID, Position: position})
 		}

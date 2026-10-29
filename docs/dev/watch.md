@@ -35,10 +35,12 @@ keepalive. Feed polling and feedback flushing keep their existing cadence.
 CLI 1.0.34 adds an independent update worker in every watch mode, including
 notifications-only. Check at startup, then recheck eligibility each minute using
 the existing signed-package updater, shared installation lock and daily throttle.
+Failed or interrupted checks retry after five minutes; successful checks wait 24 hours.
 Honor the pinned server's `auto_cli_update`, then the Home default; do not require
 an Agent turn or `heartbeat plan`. Network and package failures keep business
 admission open. Hold admission through checking and observation writes, then
-request the existing drain on success. Emit redacted `cli_update_status` and reuse
+request the existing drain on success. Emit redacted `cli_update_status` with the
+fixed decision reason and next check time; suppress unchanged deferred decisions. Reuse
 the maintenance queue. Heartbeat checks remain a compatible shared entry.
 
 When a signed active package or installed executable reports a newer valid version, watch closes job

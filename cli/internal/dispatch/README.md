@@ -7,6 +7,8 @@ Persisted native tasks and built-in WorkBuddy bindings use the stable CLI entry.
 During packaged updates, recognize only that entry or an exact version in its
 validated installation. Remap the built-in WorkBuddy bridge to the running CLI
 for each invocation, preserving that release's Skill grants and admitted work.
+Watch update events carry fixed skip/retry reasons and the next eligible check;
+repeat unchanged deferred decisions only after their state changes.
 Pass the validated installation root only to our own CLI; third-party Agent
 commands retain the existing environment filter and permission contract.
 

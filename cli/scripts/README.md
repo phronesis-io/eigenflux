@@ -48,6 +48,14 @@ It sets only `EIGENFLUX_CDN_URL`; account Home/server and Skills target remain
 caller-selected. The executable and helper stay together for native setup.
 Packages may be in use by existing bindings, so old packages are not deleted.
 
+`devbuild -test-bundle` also serves a signed single-platform complete update ZIP
+and both release manifests from its loopback CDN. The update ZIP contains only
+the CLI and its paired macOS helper; it excludes the test server and wrappers.
+The signing key stays in memory. Each build creates a different trust root,
+so this source verifies its own same-version bootstrap, not updates from later
+Git commits or independently rebuilt bundles. Rebuild/reinstall to follow the
+test branch; no test artifact is published to the production CDN.
+
 ## Signed complete releases
 
 `build.sh` creates six deterministic platform ZIPs alongside the six bare CLI

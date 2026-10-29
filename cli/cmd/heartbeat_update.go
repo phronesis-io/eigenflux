@@ -108,13 +108,15 @@ func runObservedCLIUpdate(cmd *cobra.Command, cfg *config.Config, minimum string
 		return selfupdate.Result{Status: "restarted", Version: version}, false, recorder, nil
 	}
 	recorder := newMaintenanceRecorder(server, "cli", trigger, "", cmd.ErrOrStderr())
-	if !manual && (cfg == nil || !heartbeatMaintenanceEnabled(clientMetaForServerName(server).Mode, cfg, "auto_cli_update")) {
-		return selfupdate.Result{Status: "skipped", Version: version}, false, recorder, nil
+	if !manual {
+		if reason := heartbeatUpdateSkipReason(clientMetaForServerName(server).Mode, cfg); reason != "" {
+			return selfupdate.Result{Status: "skipped", Version: version, Reason: reason}, false, recorder, nil
+		}
 	}
 	identity, err := captureCLIUpdateIdentity(server)
 	if err != nil {
 		if !manual {
-			result := selfupdate.Result{Status: "failed", Version: version, Error: err.Error()}
+			result := selfupdate.Result{Status: "failed", Phase: "check", Version: version, Reason: "update_identity_unavailable", Error: err.Error()}
 			recorder.Complete(result, version)
 			return result, false, recorder, nil
 		}
@@ -122,7 +124,7 @@ func runObservedCLIUpdate(cmd *cobra.Command, cfg *config.Config, minimum string
 	}
 	path, err := os.Executable()
 	if err != nil {
-		result := selfupdate.Result{Status: "failed", Version: version, Error: err.Error()}
+		result := selfupdate.Result{Status: "failed", Phase: "check", Version: version, Reason: "executable_unavailable", Error: err.Error()}
 		recorder.Complete(result, version)
 		return result, false, recorder, nil
 	}
@@ -145,6 +147,7 @@ func runObservedCLIUpdate(cmd *cobra.Command, cfg *config.Config, minimum string
 		return result, false, recorder, cancelled
 	}
 	if err := identity.verify(); err != nil {
+		recorder.Finish("adoption", "failed", version, result.TargetVersion, "", "identity_changed")
 		return result, false, recorder, err
 	}
 	if result.Status != "updated" {
@@ -165,9 +168,15 @@ func runObservedCLIUpdate(cmd *cobra.Command, cfg *config.Config, minimum string
 
 	child.Stdin, child.Stdout, child.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()
 	if err := runHeartbeatReexec(child); err != nil {
+		code := "process_exit_failed"
 		if child.Process == nil {
-			recorder.Finish("execute", "failed", version, result.Version, "", "process_start_failed")
+			code = "process_start_failed"
+		} else if completed, readErr := maintenance.LastAttempt(recorder.scope, "cli"); readErr == nil && completed.AttemptID == recorder.attempt && completed.Phase == "execute" && completed.Result == "executed" && completed.RunningVersion == result.Version {
+			// Preserve confirmed adoption when the resumed business command fails.
+			fmt.Fprintf(cmd.ErrOrStderr(), "[eigenflux:maintenance] component=cli attempt_id=%s phase=execute error_code=%s\n", recorder.attempt, code)
+			return result, true, recorder, &updatedCLIError{err}
 		}
+		recorder.Finish("execute", "failed", version, result.Version, "", code)
 		return result, true, recorder, &updatedCLIError{err}
 	}
 	return result, true, recorder, nil
@@ -226,6 +235,19 @@ func automaticMaintenanceEnabled(cfg *config.Config, key string) bool {
 
 // Both host adapters and native triggers enter the same heartbeat plan pipeline.
 // Unknown integration modes remain unknown rather than enabling maintenance.
+func heartbeatUpdateSkipReason(mode string, cfg *config.Config) string {
+	if cfg == nil {
+		return "configuration_unavailable"
+	}
+	if mode != "skill" && mode != "plugin" {
+		return "unknown_integration_mode"
+	}
+	if !automaticMaintenanceEnabled(cfg, "auto_cli_update") {
+		return "automatic_update_disabled"
+	}
+	return ""
+}
+
 func heartbeatMaintenanceEnabled(mode string, cfg *config.Config, key string) bool {
 	return (mode == "skill" || mode == "plugin") && automaticMaintenanceEnabled(cfg, key)
 }

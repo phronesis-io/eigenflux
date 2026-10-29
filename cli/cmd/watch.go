@@ -76,6 +76,7 @@ type accountWatch struct {
 	notificationsOnly     bool
 	notificationsReady    atomic.Bool
 	handoff               *watchHandoff
+	cliUpdateDecision     string // Owned by the single CLI update worker.
 }
 
 var watchCmd = &cobra.Command{

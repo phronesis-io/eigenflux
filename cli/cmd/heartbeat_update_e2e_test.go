@@ -410,15 +410,20 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 	for _, tc := range []struct {
 		mode, host             string
 		forced, contextFailure bool
+		retry                  bool
 	}{
-		{"skill", "codex", false, false}, {"skill", "codex", true, false},
-		{"plugin", "claude-code", false, false}, {"plugin", "claude-code", true, false},
-		{"plugin", "openclaw", false, false}, {"plugin", "openclaw", true, false},
-		{"skill", "codex", true, true},
+		{mode: "skill", host: "codex"}, {mode: "skill", host: "codex", forced: true},
+		{mode: "plugin", host: "claude-code"}, {mode: "plugin", host: "claude-code", forced: true},
+		{mode: "plugin", host: "openclaw"}, {mode: "plugin", host: "openclaw", forced: true},
+		{mode: "skill", host: "codex", forced: true, contextFailure: true},
+		{mode: "skill", host: "codex", retry: true},
 	} {
 		caseName := map[bool]string{false: "daily", true: "Skills minimum overrides TTL"}[tc.forced]
 		if tc.contextFailure {
 			caseName += " with replacement business failure"
+		}
+		if tc.retry {
+			caseName = "automatic retry after failed check"
 		}
 		t.Run(tc.host+"/"+caseName, func(t *testing.T) {
 			var requests, reported atomic.Int32
@@ -504,6 +509,17 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			if tc.retry {
+				b, _ := json.Marshal(map[string]interface{}{"attempt": time.Now().Add(-5 * time.Minute), "error": "previous check failed"})
+				if err = os.WriteFile(bin+".update.json", b, 0600); err != nil {
+					t.Fatal(err)
+				}
+				// Keep the minimum unchanged so it cannot bypass the retry interval.
+				manifest.MinCLIVersion = ""
+				if err = skills.SignManifest(manifest, key); err != nil {
+					t.Fatal(err)
+				}
+			}
 			cmd := exec.Command(bin, "--homedir", config.HomeDir(), "--server", server, "heartbeat", "plan", "--format", "json")
 			envHome := t.TempDir()
 			cmd.Env = append(os.Environ(), "EIGENFLUX_HOME="+envHome, "EIGENFLUX_UPDATE_REEXEC=0", "EIGENFLUX_CDN_URL="+srv.URL, "EIGENFLUX_SKILLS_DIR="+rules, "EIGENFLUX_MODE="+tc.mode, "EIGENFLUX_HOST="+tc.host, "EIGENFLUX_MODEL=test-model")
@@ -518,6 +534,22 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 				captured := append([]maintenance.Event(nil), observations...)
 				eventMu.Unlock()
 				assertCLIUpdateStages(t, captured, "auto", "")
+				localState, snapshotErr := maintenance.Snapshot(maintenance.Scope{Home: config.HomeDir(), Server: server, AgentID: "agent-1"})
+				if snapshotErr != nil {
+					t.Fatal(snapshotErr)
+				}
+				completed := localState.Attempts["cli"]
+				if completed.Phase != "execute" || completed.Result != "executed" || completed.RunningVersion != "0.0.48" {
+					t.Fatalf("business failure overwrote confirmed CLI adoption: %+v", completed)
+				}
+				for _, event := range append(captured, localState.Events...) {
+					if event.Component == "cli" && event.Result == "failed" {
+						t.Fatalf("business failure falsely failed CLI update: %+v", event)
+					}
+				}
+				if !strings.Contains(stderr.String(), "error_code=process_exit_failed") {
+					t.Fatalf("replacement exit diagnostic missing: %s", &stderr)
+				}
 				validated := false
 				for _, event := range captured {
 					if event.Component != "skills" {

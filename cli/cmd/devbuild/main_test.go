@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
@@ -16,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"cli.eigenflux.ai/internal/selfupdate"
 	"cli.eigenflux.ai/internal/skills"
 )
 
@@ -145,6 +147,25 @@ func TestBuiltCLIUsesEmbeddedVerifier(t *testing.T) {
 	if err != nil || !strings.Contains(string(instructions), "runtime_verified:false") {
 		t.Fatalf("missing restart readiness boundary: %v", err)
 	}
+	if !strings.Contains(string(instructions), "not automatic tracking of later Git commits") {
+		t.Fatal("test trust-root update boundary is missing")
+	}
+	buildInfoBytes, err := os.ReadFile(filepath.Join(out, "build-info.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buildInfo struct {
+		Version   string `json:"version"`
+		PublicKey string `json:"public_key"`
+	}
+	if err := json.Unmarshal(buildInfoBytes, &buildInfo); err != nil {
+		t.Fatal(err)
+	}
+	public, err := decodePublicKey(buildInfo.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertTestCLIPackage(t, out, runtime.GOOS+"/"+runtime.GOARCH, buildInfo.Version, public)
 	if (runtime.GOOS == "darwin" || runtime.GOOS == "windows") && !strings.Contains(string(instructions), "watch restart --") {
 		t.Fatal("missing background watch upgrade step")
 	}
@@ -159,6 +180,12 @@ func TestBuiltCLIUsesEmbeddedVerifier(t *testing.T) {
 		}
 		if helper.Mode().Perm()&0111 == 0 {
 			t.Fatal("notification helper is not executable")
+		}
+		for _, key := range []string{"CFBundleVersion", "CFBundleShortVersionString"} {
+			value, err := exec.Command("/usr/libexec/PlistBuddy", "-c", "Print :"+key, filepath.Join(out, "EigenFlux Notifications.app", "Contents", "Info.plist")).Output()
+			if err != nil || strings.TrimSpace(string(value)) != buildInfo.Version {
+				t.Fatalf("helper is not paired with CLI version: %s %v %s", key, err, value)
+			}
 		}
 	}
 	ext := ""
@@ -180,6 +207,10 @@ func TestBuiltCLIUsesEmbeddedVerifier(t *testing.T) {
 	}
 	if strings.Contains(string(b), "verifier is not configured") {
 		t.Fatal("missing embedded trust root")
+	}
+	updated := selfupdate.Check(context.Background(), selfupdate.Options{Executable: filepath.Join(out, "eigenflux"+ext), Home: home, Version: buildInfo.Version, Key: public, CDN: server.URL, CompletePackage: true, CheckNow: true})
+	if updated.Status != "updated" || updated.Version != buildInfo.Version {
+		t.Fatalf("paired loopback package bootstrap failed: %+v", updated)
 	}
 	entries, err := os.ReadDir(out)
 	if err != nil {

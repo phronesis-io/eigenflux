@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/config"
@@ -148,5 +149,42 @@ func TestNotificationOnlyWatchChecksCLIWithoutAgentBinding(t *testing.T) {
 	}
 	if calls.Load() != 1 {
 		t.Fatal("notification-only watch did not check the CDN")
+	}
+}
+
+func TestWatchCLIUpdateExplainsFiveMinuteRetryWithoutRepeatedLogs(t *testing.T) {
+	w, options, calls := watchCLIUpdateFixture(t)
+	var events []map[string]interface{}
+	w.emit = func(kind string, data interface{}) error {
+		if kind == "cli_update_status" {
+			events = append(events, data.(map[string]interface{}))
+		}
+		return nil
+	}
+	trusted := options.Key
+	options.Key, _, _ = ed25519.GenerateKey(rand.Reader)
+	options.Now = time.Now()
+	if _, err := w.checkCLIUpdate(context.Background(), options); err != nil {
+		t.Fatal(err)
+	}
+	options.Key = trusted
+	options.Now = options.Now.Add(4 * time.Minute)
+	for range 2 {
+		if _, err := w.checkCLIUpdate(context.Background(), options); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls.Load() != 1 || len(events) != 2 || events[1]["reason"] != "retry_interval" || events[1]["next_check_at"] == "" {
+		t.Fatalf("retry decision is missing or repeated: calls=%d events=%+v", calls.Load(), events)
+	}
+	if _, exists := events[1]["error"]; exists {
+		t.Fatal("raw updater error leaked into watch events")
+	}
+	options.Now = options.Now.Add(time.Minute)
+	if _, err := w.checkCLIUpdate(context.Background(), options); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 2 || len(events) != 3 || events[2]["status"] != "current" {
+		t.Fatalf("update did not retry at five minutes: %+v", events)
 	}
 }

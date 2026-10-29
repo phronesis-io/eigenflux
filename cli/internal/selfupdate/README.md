@@ -19,7 +19,9 @@ Never overwrite existing versions, remove quarantine, request notification
 permission, or change credentials during staging. Probe before pointer activation;
 staging alone is not successful adoption. Runtime business failures never replay
 work on an older version. A bare same-version CLI bootstraps its complete package
-once despite the old daily throttle; failed checks then retain normal throttling.
+once despite the old daily throttle. Failed or interrupted checks retry after
+five minutes; successful checks keep the 24-hour interval. Preserve the verified
+target and fixed decision reason separately from raw local error diagnostics.
 
 `cli/scripts/cli-packages.py` creates deterministic ZIPs before `clirelease`
 signs their final hashes. Build macOS helpers on macOS for each target CPU.

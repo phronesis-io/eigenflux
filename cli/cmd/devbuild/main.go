@@ -132,6 +132,7 @@ func run() error {
 	}
 	if parts[0] == "darwin" {
 		command := exec.Command("bash", filepath.Join(root, "cli", "scripts", "build-notifier-macos.sh"), *out, parts[1])
+		command.Env = append(os.Environ(), "EIGENFLUX_NOTIFIER_VERSION="+version)
 		command.Stdout, command.Stderr = os.Stdout, os.Stderr
 		if err := command.Run(); err != nil {
 			return fmt.Errorf("build macOS notification helper: %w", err)
@@ -141,20 +142,7 @@ func run() error {
 		if err := packageSkills(root, *out, version, minimum, private); err != nil {
 			return err
 		}
-		name := "eigenflux-" + parts[0] + "-" + parts[1] + ext
-		data, err := os.ReadFile(binary)
-		if err != nil {
-			return err
-		}
-		sum := sha256.Sum256(data)
-		m := selfupdate.Manifest{Version: version, Artifacts: map[string]selfupdate.Artifact{name: {SHA256: hex.EncodeToString(sum[:]), Size: int64(len(data))}}}
-		if err := selfupdate.Sign(&m, private); err != nil {
-			return err
-		}
-		if err := writeJSON(filepath.Join(*out, "cdn", "cli", "latest", "release.json"), m); err != nil {
-			return err
-		}
-		if err := writeFile(filepath.Join(*out, "cdn", "cli", version, name), data); err != nil {
+		if err := packageCLI(*out, *target, version, private); err != nil {
 			return err
 		}
 		if err := build(root, *target, filepath.Join(*out, "test-source"+ext), "./cmd/devbuild", ""); err != nil {
@@ -163,7 +151,7 @@ func run() error {
 		if err := writeFile(filepath.Join(*out, "Run-Test.ps1"), testRunner); err != nil {
 			return err
 		}
-		instructions := "TEST ONLY. This CLI trusts only its paired local Skills/CDN. Do not install it over a production CLI. Run-Test.ps1 uses isolated state and does not change PATH. Private signing keys are not included.\n"
+		instructions := "TEST ONLY. This CLI trusts only its paired local Skills/CDN. Do not install it over a production CLI. Run-Test.ps1 uses isolated state and does not change PATH. Private signing keys are not included. Each build generates a fresh trust root; its signed complete package supports this bundle's bootstrap, not automatic tracking of later Git commits or independently built test bundles.\n"
 		if parts[0] == "darwin" {
 			instructions += "macOS source upgrades: use cli/scripts/install-test-macos.sh with the existing --homedir and current --host. It installs the complete paired package and runs notify setup/status automatically; building or copying a standalone CLI is not an installation.\n"
 			instructions += "macOS: keep EigenFlux Notifications.app beside the real eigenflux executable. From this directory, run ./eigenflux notify setup, then ./eigenflux notify status. Building or syncing Skills alone does not request permission. macOS prompts only on first request; if denied, enable EigenFlux in System Settings > Notifications. After updating the existing wrapper to this complete package, run ./eigenflux watch restart --launch-agent <absolute-plist-path-in-your-Library/LaunchAgents>. Run from a separate foreground session; preserve the original account parameters.\n"
@@ -339,7 +327,86 @@ func writeJSON(path string, value interface{}) error {
 	return writeFile(path, append(b, '\n'))
 }
 
+// packageCLI signs only the selected executable/helper pair. The distribution's
+// loopback server, wrappers and Skills remain outside the updater payload.
+func packageCLI(out, target, version string, key ed25519.PrivateKey) error {
+	parts := strings.Split(target, "/")
+	if len(parts) != 2 || (parts[0] != "darwin" && parts[0] != "windows" && parts[0] != "linux") || (parts[1] != "amd64" && parts[1] != "arm64") || !selfupdate.ValidVersion(version) || len(key) != ed25519.PrivateKeySize {
+		return fmt.Errorf("invalid test CLI package configuration")
+	}
+	executable, name := "eigenflux", "eigenflux-"+parts[0]+"-"+parts[1]
+	if parts[0] == "windows" {
+		executable += ".exe"
+		name += ".exe"
+	}
+	info, err := os.Lstat(filepath.Join(out, executable))
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 128<<20 {
+		return fmt.Errorf("invalid test CLI executable")
+	}
+	if parts[0] == "darwin" {
+		for _, relative := range []string{"EigenFlux Notifications.app", "EigenFlux Notifications.app/Contents/Info.plist", "EigenFlux Notifications.app/Contents/MacOS/EigenFluxNotifications"} {
+			info, err := os.Lstat(filepath.Join(out, filepath.FromSlash(relative)))
+			if err != nil {
+				return err
+			}
+			if info.Mode()&os.ModeSymlink != 0 || (relative == "EigenFlux Notifications.app" && !info.IsDir()) || (relative != "EigenFlux Notifications.app" && !info.Mode().IsRegular()) {
+				return fmt.Errorf("invalid paired macOS notification helper")
+			}
+		}
+	}
+	versionDir := filepath.Join(out, "cdn", "cli", version)
+	if err := os.MkdirAll(versionDir, 0700); err != nil {
+		return err
+	}
+	archive := filepath.Join(versionDir, name+".zip")
+	if err := zipSelectedDirectory(out, archive, func(relative string) bool {
+		return relative == executable || (parts[0] == "darwin" && (relative == "EigenFlux Notifications.app" || strings.HasPrefix(relative, "EigenFlux Notifications.app/")))
+	}); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(filepath.Join(out, executable))
+	if err != nil {
+		return err
+	}
+	packageData, err := os.ReadFile(archive)
+	if err != nil {
+		return err
+	}
+	if len(packageData) > 256<<20 {
+		return fmt.Errorf("test CLI package exceeds size limit")
+	}
+	artifact := func(data []byte) selfupdate.Artifact {
+		sum := sha256.Sum256(data)
+		return selfupdate.Artifact{SHA256: hex.EncodeToString(sum[:]), Size: int64(len(data))}
+	}
+	manifest := selfupdate.Manifest{Version: version, Artifacts: map[string]selfupdate.Artifact{name: artifact(data)}, Packages: map[string]selfupdate.Artifact{name + ".zip": artifact(packageData)}}
+	if err := writeFile(filepath.Join(versionDir, name), data); err != nil {
+		return err
+	}
+	for _, filename := range []string{"package-release.json", "release.json"} {
+		if filename == "release.json" {
+			manifest.Packages = nil
+		}
+		if err := selfupdate.Sign(&manifest, key); err != nil {
+			return err
+		}
+		for _, location := range []string{versionDir, filepath.Join(out, "cdn", "cli", "latest")} {
+			if err := writeJSON(filepath.Join(location, filename), manifest); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func zipDirectory(dir, path string) error {
+	return zipSelectedDirectory(dir, path, nil)
+}
+
+func zipSelectedDirectory(dir, path string, include func(string) bool) error {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
@@ -349,16 +416,29 @@ func zipDirectory(dir, path string) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if d.IsDir() {
+		if p == dir {
 			return nil
 		}
 		rel, err := filepath.Rel(dir, p)
 		if err != nil {
 			return err
 		}
+		rel = filepath.ToSlash(rel)
+		if include != nil && !include(rel) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
 		info, err := d.Info()
 		if err != nil {
 			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("unsupported ZIP file: %s", rel)
 		}
 		header, err := zip.FileInfoHeader(info)
 		if err != nil {
