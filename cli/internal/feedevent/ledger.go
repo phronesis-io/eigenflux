@@ -21,6 +21,7 @@ type Ledger struct {
 	entries map[string]Entry
 	exact   map[string]Entry
 	pages   map[string]string
+	files   int
 }
 
 // cachedResponse is the shape SaveFeedResponse persists (the API `data` object).
@@ -99,6 +100,8 @@ func (l *Ledger) absorb(path, serverID string) {
 	if info, err := os.Stat(path); err == nil {
 		servedMs = info.ModTime().UnixMilli()
 	}
+	order := l.files
+	l.files++
 	if _, exists := l.pages[resp.ImpressionID]; !exists {
 		l.pages[resp.ImpressionID] = path
 	}
@@ -118,6 +121,7 @@ func (l *Ledger) absorb(path, serverID string) {
 			ExpiresAt:       servedMs + ledgerTTLMs,
 			Position:        position,
 			ContextRevision: envelope.Personalization.ContextRevision,
+			CacheOrder:      order,
 		}
 		if _, seen := l.entries[it.ItemID]; !seen {
 			l.entries[it.ItemID] = entry
@@ -161,8 +165,10 @@ func (l *Ledger) LookupHanded(itemID string, reports Reports, now int64) (Entry,
 	var handedAt int64
 	for _, entry := range l.exact {
 		r := reports.Exposure(entry)
+		// Cache mtimes have millisecond precision; equal hand times fall back to
+		// the newest cached response, as Lookup does.
 		if entry.ItemID == itemID && entry.ExpiresAt >= now && r.HandedTime() > 0 &&
-			(r.HandedTime() > handedAt || r.HandedTime() == handedAt && entry.ServedAt > latest.ServedAt) {
+			(r.HandedTime() > handedAt || r.HandedTime() == handedAt && entry.CacheOrder < latest.CacheOrder) {
 			latest, handedAt = entry, r.HandedTime()
 		}
 	}

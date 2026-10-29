@@ -64,4 +64,5 @@ type Entry struct {
 	ExpiresAt       int64 // epoch ms; served-time + ledgerTTL
 	Position        int
 	ContextRevision int64
+	CacheOrder      int // 0 for the newest cached response
 }
