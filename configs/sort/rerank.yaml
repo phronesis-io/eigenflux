@@ -36,3 +36,6 @@ policies:
   - name: source_limit
     source: friend
     max_fraction: 1/2
+  - name: source_limit
+    source: swing_i2i
+    max_fraction: 1/4

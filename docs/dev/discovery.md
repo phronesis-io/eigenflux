@@ -808,6 +808,51 @@ scripts/cloud/install_lr_model.sh --rollback` as the installer user (on one
 shell line). Disabling `DISCOVERY_LR_ENABLED` and restarting Sort restores rule
 ordering. Keep the legacy model directory intact for a pipeline rollback.
 
+### Need candidate budget and attribution experiment
+
+`DISCOVERY_NEED_BUDGET_BPS=0` preserves the existing recommendation behavior
+(default). Values 1–10000 select a stable Agent-ID bucket independently of the
+consumed-refill, semantic and rating experiments. Sort rejects values outside
+that range. Search never uses this experiment.
+
+Selected recommendations merge up to 300 unique candidates per context and up
+to 300 broadcasts (other kinds retain their 100-candidate limit), instead of
+200. `Engine.ContextCandidateLimit` supplies the treated merge cap; zero means
+300. Need dense k remains 80 and the global Feed snapshot remains 200.
+
+Before captured-Need broadcast dense retrieval, one request-local history read
+supplies every Need with at most 8,192 verified consumed groups. The same
+`ConsumedGroups` authority used by refill checks rolling delivery history.
+The kNN filter excludes these groups before top-k selection. Failed or timed-out
+history reads use no exclusion; all Needs share the same 300 ms attempt, without
+retries. Lexical recall, profile recall and downstream authoritative seen checks
+retain their existing behavior. A truncated history is still useful but does
+not exclude every consumed group.
+
+Before global recommendation ordering, each broadcast chooses one eligible
+context copy: an injected copy first, then a copy recalled by that context's
+lexical/dense channel, then the highest available current-Need cosine, then the
+existing ordering for ties or missing evidence. Evidence is read before channels
+are combined across contexts. Only the winning copy enters global ordering;
+its LR score, boosts and provenance stay intact. The merged channel attribution
+still includes losing copies so source ceilings cannot be bypassed. Injection
+retains the existing exposure guarantee; its one reserved item per page can
+still be attributed to a less relevant Need. There is no per-Need page minimum.
+
+The global configuration is independent: `SWING_I2I_RECALL_K=80` limits Swing
+recall (the code fallback remains 100), and `configs/sort/rerank.yaml` limits
+`swing_i2i` to 1/4 of each recommendation page, at most five on a 20-item page.
+These settings affect every Agent, including the control bucket. Roll them back
+separately from the Need experiment. Existing frozen pages keep their contents
+until expiry; restart Sort to apply changed environment settings.
+
+`discovery_hydrate_duration_seconds{mode}` measures each Source hydration call,
+including failures, with a 300 ms bucket. It does not introduce a new timeout:
+Hydrate remains a required authority read governed by the caller's deadline.
+The rating evidence stage retains its existing 300 ms budget. Compare treatment
+and control by selected Need count using the recorded bucket activation time,
+not the merge or deployment time; model, cosine gates and UGC boosts are unchanged.
+
 ### Bounded consumed-candidate refill
 
 `DISCOVERY_CONSUMED_REFILL_BPS=0` disables refill (default). Values 1–10000

@@ -45,6 +45,9 @@ type Engine struct {
 	PGCAuthors        PGCAuthors
 	FriendFeedEnabled bool
 	ConsumedRefillBPS int
+	NeedBudgetBPS     int
+	// ContextCandidateLimit overrides the treated recommendation merge cap (default 300).
+	ContextCandidateLimit int
 	// ProfileSemanticBPS selects Agents whose broadcast recommendations add
 	// profile-vector recall and use profile/Need similarity for eligibility
 	// and ordering.
@@ -239,6 +242,17 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	if r.Cursor != "" {
 		return x, Invalid("cursor", "requires_feed_delivery")
 	}
+	needBudgetOn := mode == Recommendation && bucketEnabled("discovery-need-budget-v1:", owner, e.NeedBudgetBPS)
+	contextCap := 200
+	if needBudgetOn {
+		contextCap = e.ContextCandidateLimit
+		if contextCap == 0 {
+			contextCap = 300
+		}
+		if contextCap < 1 || contextCap > 1000 {
+			return x, Invalid("context_candidate_limit", "out_of_range")
+		}
+	}
 	resultLimit := r.Limit
 	if r.Prefetch {
 		resultLimit = MaxSnapshotCandidates
@@ -373,6 +387,20 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		err  error
 	}
 	userRecalls := map[string]*userRecall{"swing_i2i": {}, profileDenseKey: {}, profileFreshKey: {}}
+	var historyOnce sync.Once
+	var needGroups []int64
+	loadNeedGroups := func() {
+		src, ok := e.Sources.(RefillSources)
+		if !ok {
+			return
+		}
+		historyCtx, cancel := context.WithTimeout(ctx, profileHistoryTimeout)
+		defer cancel()
+		groups, _, err := src.ConsumedGroups(historyCtx, owner)
+		if err == nil && historyCtx.Err() == nil && len(groups) <= MaxRefillGroups {
+			needGroups = groups
+		}
+	}
 	sem := make(chan struct{}, 6)
 	for ci, c := range contexts {
 		c.retrievalAt = now
@@ -469,6 +497,10 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 							docs[i].NeedExclusionText = len(c.Filters.ExcludeTerms) > 0
 						}
 					} else {
+						if needBudgetOn && kind == Broadcast && channel == "dense" && c.CapturedNeed != nil {
+							historyOnce.Do(loadNeedGroups)
+							c.excludeConsumedGroups = needGroups
+						}
 						docs, err = e.Sources.Recall(ctx, c, kind, channel, limit)
 					}
 					mu.Lock()
@@ -726,9 +758,9 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				}
 				cap := 100
 				if d.Ref.Type == Broadcast {
-					cap = 200
+					cap = contextCap
 				}
-				if perKind[d.Ref.Type] >= cap || len(order) >= 200 {
+				if perKind[d.Ref.Type] >= cap || len(order) >= contextCap {
 					continue
 				}
 				d.Channels = appendUnique(d.Channels, res.channel)
@@ -816,7 +848,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		if mode == Recommendation && len(x.SourceLimits) > 0 {
 			mergeLimit = MaxSnapshotCandidates
 		}
-		out := Merge(in, r.SourceKinds, mode, mergeLimit)
+		out := Merge(in, r.SourceKinds, mode, mergeLimit, needBudgetOn)
 		if mode == Recommendation && !r.Prefetch {
 			out, _ = SelectRecommendationPage(out, resultLimit, x.SourceLimits)
 		}

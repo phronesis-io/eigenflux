@@ -30,7 +30,8 @@ func TestDiscoveryFriendAndSurfacedSwing(t *testing.T) {
 	require.NoError(t, mq.RDB.SAdd(ctx, fmt.Sprintf(impr.KeyItemIDs, s.other), seed).Err())
 	require.NoError(t, mq.RDB.Set(ctx, namespace+":swing_i2i:active_version", "v1", time.Hour).Err())
 	require.NoError(t, mq.RDB.Set(ctx, fmt.Sprintf("%s:swing_i2i:v1:item:%d:scored_neighbors", namespace, seed), fmt.Sprintf("%d:1", s.item), time.Hour).Err())
-	request := discovery.Request{SourceKinds: []discovery.Kind{discovery.Broadcast}, Limit: 2}
+	// A quarter-page Swing ceiling needs at least four slots to expose one item.
+	request := discovery.Request{SourceKinds: []discovery.Kind{discovery.Broadcast}, Limit: 4}
 	recommendOther := func() discovery.Response {
 		return decode[discovery.Response](t, s.call(t, "POST", "/api/v2/discovery/recommendations", s.otherToken, "", request, 200))
 	}

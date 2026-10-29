@@ -139,7 +139,7 @@ func TestUserSourceAttributionSurvivesWinningNeed(t *testing.T) {
 	low.Context.ID = 2
 	low.Context.Priority = 0
 	low.Document.Channels = []string{"friend"}
-	merged := Merge([]Candidate{high, low}, []Kind{Broadcast}, Recommendation, 10)
+	merged := Merge([]Candidate{high, low}, []Kind{Broadcast}, Recommendation, 10, false)
 	require.Len(t, merged, 1)
 	require.Contains(t, merged[0].Document.Channels, "friend")
 	page, _ := SelectRecommendationPage(merged, 1, []SourceLimit{{Source: "friend", Numerator: 1, Denominator: 2}})

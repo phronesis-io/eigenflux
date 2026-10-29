@@ -233,6 +233,7 @@ type Config struct {
 	LRRankerModelPath          string
 	LRRankerReloadInterval     string
 	DiscoveryConsumedRefillBPS int
+	DiscoveryNeedBudgetBPS     int
 	// DiscoveryProfileSemanticBPS is the share of Agents (basis points) whose
 	// broadcast recommendations add profile-vector recall and use profile/Need
 	// similarity for eligibility and ordering.
@@ -449,6 +450,7 @@ func Load() *Config {
 		LRRankerModelPath:            getEnv("LR_RANKER_MODEL_PATH", "/data/models/eigenflux/lr-ranker/current/model.json"),
 		LRRankerReloadInterval:       getEnv("LR_RANKER_RELOAD_INTERVAL", "60s"),
 		DiscoveryConsumedRefillBPS:   getEnvInt("DISCOVERY_CONSUMED_REFILL_BPS", 0),
+		DiscoveryNeedBudgetBPS:       getEnvInt("DISCOVERY_NEED_BUDGET_BPS", 0),
 		DiscoveryProfileSemanticBPS:  getEnvInt("DISCOVERY_PROFILE_SEMANTIC_BPS", 0),
 		DiscoveryLREnabled:           getEnvBool("DISCOVERY_LR_ENABLED", false),
 		DiscoveryLRModelPath:         getEnv("DISCOVERY_LR_MODEL_PATH", "/data/models/eigenflux/discovery-lr/current/model.json"),

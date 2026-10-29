@@ -26,3 +26,8 @@ Policies are pure transforms with no I/O. Request-specific predicates and source
 ## Verification
 
 Run `go test ./rpc/sort/rank/... ./rpc/sort/rerank/...` and build the Sort service after changing the candidate contract or policy configuration.
+
+The default policy also caps `swing_i2i` at one quarter of each recommendation
+page (five on a 20-item page). This is a global source ceiling, independent of
+`DISCOVERY_NEED_BUDGET_BPS`; unioned cross-Need source attribution counts toward
+the cap even when another context owns the delivered item.

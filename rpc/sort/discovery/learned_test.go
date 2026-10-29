@@ -74,13 +74,13 @@ func TestLearnedRankingPreservesEligibilityModeKindAndContextOrder(t *testing.T)
 	if in[0].Score.Value != .9 {
 		t.Fatal("lost frozen rule baseline")
 	}
-	out := Merge(in, []Kind{Broadcast, Agent}, Recommendation, 10)
+	out := Merge(in, []Kind{Broadcast, Agent}, Recommendation, 10, false)
 	if out[0].Document.Ref.ID != 2 || len(out) != 3 {
 		t.Fatalf("unexpected merge: %+v", out)
 	}
 	// A lower-priority context still cannot leapfrog a higher-priority context.
 	in[0].Context.Priority = 10
-	out = Merge(in, []Kind{Broadcast, Agent}, Recommendation, 10)
+	out = Merge(in, []Kind{Broadcast, Agent}, Recommendation, 10, false)
 	if out[0].Document.Ref.ID != 1 {
 		t.Fatal("LR overrode context priority")
 	}
@@ -88,7 +88,7 @@ func TestLearnedRankingPreservesEligibilityModeKindAndContextOrder(t *testing.T)
 	in[0].Context.Priority = 0
 	in[0].Order = 1
 	in[1].Order = 2
-	out = Merge(in, []Kind{Broadcast, Agent}, Recommendation, 10)
+	out = Merge(in, []Kind{Broadcast, Agent}, Recommendation, 10, false)
 	if out[0].Document.Ref.ID != 1 {
 		t.Fatal("LR overrode policy order")
 	}
