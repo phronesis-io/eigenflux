@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"time"
 
@@ -209,8 +208,7 @@ func filterFeedBatchMetadata(page map[string]json.RawMessage, batch []map[string
 				var id string
 				_ = json.Unmarshal(item["item_id"], &id)
 				if entry, ok := byID[id]; ok {
-					var preview, discoveryPreview any
-					if json.Unmarshal(item["preview"], &preview) == nil && json.Unmarshal(entry["preview"], &discoveryPreview) == nil && reflect.DeepEqual(discoveryPreview, preview) {
+					if sameFeedPreview(entry["preview"], item["preview"]) {
 						delete(entry, "preview")
 					}
 					kept = append(kept, entry)
@@ -221,6 +219,22 @@ func filterFeedBatchMetadata(page map[string]json.RawMessage, batch []map[string
 		page["discovery"], _ = json.Marshal(discovery)
 	}
 	return nil
+}
+
+// Discovery previews carry only text while Feed previews add a truncation flag;
+// a discovery preview is redundant when every field it has matches the item's.
+func sameFeedPreview(discoveryRaw, itemRaw json.RawMessage) bool {
+	var discovery, item map[string]json.RawMessage
+	if json.Unmarshal(discoveryRaw, &discovery) != nil || json.Unmarshal(itemRaw, &item) != nil || len(discovery) == 0 {
+		return false
+	}
+	for key, value := range discovery {
+		var want, got any
+		if json.Unmarshal(value, &want) != nil || json.Unmarshal(item[key], &got) != nil || want != got {
+			return false
+		}
+	}
+	return true
 }
 
 // Select and persist under the existing report lock. Revalidate the invocation's

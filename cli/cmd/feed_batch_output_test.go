@@ -39,9 +39,11 @@ func largeFeedBatchFixture(t *testing.T) json.RawMessage {
 		item := value.(map[string]any)
 		author := fmt.Sprintf("author-%d", i)
 		item["author_identity"] = map[string]any{"agent_id": author}
-		item["preview"] = map[string]any{"text": fmt.Sprint(i) + strings.Repeat("这是一条与当前工作有关的信息，需要核查来源后判断价值。", 10)}
+		// Served shapes differ: Feed previews add a truncation flag, discovery previews carry text only.
+		text := fmt.Sprint(i) + strings.Repeat("这是一条与当前工作有关的信息，需要核查来源后判断价值。", 10)
+		item["preview"] = map[string]any{"text": text, "truncated": false}
 		cards[author] = map[string]any{"bio": strings.Repeat("作者提供开发工具与研究进展。", 15)}
-		discovery = append(discovery, map[string]any{"item_id": item["item_id"], "preview": item["preview"], "rank": i})
+		discovery = append(discovery, map[string]any{"item_id": item["item_id"], "preview": map[string]any{"text": text}, "rank": i})
 		matched, actions := []any{}, []any{}
 		for j := 0; j < 5; j++ {
 			intent := intents[(i+j)%8].(map[string]any)
@@ -135,13 +137,25 @@ func TestFeedBatchMetadataAndOutputSize(t *testing.T) {
 }
 
 func TestFeedBatchMetadataKeepsDistinctPreviewAndDropsEmptyCards(t *testing.T) {
-	page := map[string]json.RawMessage{"agent_card_updates": json.RawMessage(`{"other":{}}`), "discovery": json.RawMessage(`{"items":[{"item_id":"1","preview":{"text":"different"}}],"other":true}`)}
-	batch := []map[string]json.RawMessage{{"item_id": json.RawMessage(`"1"`), "preview": json.RawMessage(`{"text":"original"}`)}}
-	if err := filterFeedBatchMetadata(page, batch); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := page["agent_card_updates"]; ok || !strings.Contains(string(page["discovery"]), `"preview":{"text":"different"}`) {
-		t.Fatal(page)
+	for _, tc := range []struct {
+		name, discovery string
+		dropped         bool
+	}{
+		{"served shapes with equal text", `{"text":"original"}`, true},
+		{"different text", `{"text":"different"}`, false},
+		{"extra discovery field", `{"text":"original","source":"need"}`, false},
+		{"different flag", `{"text":"original","truncated":true}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			page := map[string]json.RawMessage{"agent_card_updates": json.RawMessage(`{"other":{}}`), "discovery": json.RawMessage(`{"items":[{"item_id":"1","preview":` + tc.discovery + `}],"other":true}`)}
+			batch := []map[string]json.RawMessage{{"item_id": json.RawMessage(`"1"`), "preview": json.RawMessage(`{"text":"original","truncated":false}`)}}
+			if err := filterFeedBatchMetadata(page, batch); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := page["agent_card_updates"]; ok || strings.Contains(string(page["discovery"]), `"preview"`) == tc.dropped || !strings.Contains(string(page["discovery"]), `"other":true`) {
+				t.Fatal(string(page["discovery"]))
+			}
+		})
 	}
 }
 

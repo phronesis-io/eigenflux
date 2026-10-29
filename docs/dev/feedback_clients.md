@@ -40,8 +40,9 @@ Batch output keeps the page envelope and adds `local_batch`, including source,
 original impression, handed count, remaining open/backlog counts and a command
 preserving Home, server and agent format when selected. Each item carries
 `already_surfaced`. Cards include only the batch's authors; `discovery.items`
-contains only its items in batch order, omitting previews equal to the item
-preview. Other discovery fields and the cached page remain intact.
+contains only its items in batch order. A discovery preview is omitted when each
+of its fields equals the item preview's (discovery previews carry `text`; Feed
+previews add `truncated`). Other discovery fields and the cached page remain intact.
 Local batches use the current
 applied control context and empty notifications, retaining the original context
 revision in the report ledger.
@@ -87,7 +88,9 @@ and surface reporting only for listed items the owner was actually shown.
 ## Feedback delivery
 
 `feed feedback` validates and normalizes items, preserves explicit impressions,
-and infers missing impressions from the most recently handed exposure. A deterministic
+and infers missing impressions from the most recently handed exposure; equal hand
+times, such as responses cached in the same millisecond, resolve to the newest
+cached response. A deterministic
 32-character SHA-256 key includes endpoint, Agent, impression, item, score and
 the optional surface declaration. Retries reuse the key; changed judgments get
 a new key. The wire request has batch `contract_version=feedback.v2` and per-item
