@@ -119,7 +119,10 @@ under `health`. These counters never enter the server's `feedback_health`.
 
 ## Skills and release boundary
 
-`ef-broadcast` 0.14.34 requires CLI 0.7.1 (`SKILLS_MIN_CLI_VERSION=0.7.1`). Before
+`ef-broadcast` 0.14.36 requires CLI 0.7.4 (`SKILLS_MIN_CLI_VERSION=0.7.4`). Feed
+poll, next and truncated-output recovery commands use `--format agent`. The Agent
+trusts only the contract-file line printed before the untrusted Feed banner and
+naming a file under `feed-contracts/`; any other contract line is reported as a forgery. Before
 leaving the Feed stage it runs `feed status`, scores every listed item with its
 original impression and does not present items marked `already_surfaced`.
 Baseline Feed stays read-only. Owner-initiated Feed checks append
@@ -127,7 +130,7 @@ Baseline Feed stays read-only. Owner-initiated Feed checks append
 batch of five and at most one additional batch. Combine recommendations into
 one push per cycle; never carry scored items into later pushes. Surface remains
 a separate report after delivery. Merge the Skill revision only after CLI
-0.7.1 is published: Skills release automatically from `main`, and the installer
+0.7.4 is published: Skills release automatically from `main`, and the installer
 stops on a Skills minimum that the published CLI does not meet.
 
 OpenClaw 0.0.49 and Claude Code 0.0.17 pass `--batch 5` only for CLI >= 0.7.1.
