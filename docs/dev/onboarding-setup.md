@@ -201,8 +201,8 @@ server-delivered copy takes effect with the normal backend release/restart.
 
 ## Community invitation
 
-The verified-installation welcome response includes community_invite using the
-host ordering in community.md. First-check responses never repeat it. Both languages share the
+The verified-installation welcome ends with community_invite before the
+scheduling permission question. First-check responses never repeat it. Both languages share the
 Discord destination and bundled assets/wechat-group-qr.png. Use the installed
 Skill path; fall back to a file link when images cannot render, or Discord only
 when the asset is unavailable. Never repeat it in action results or scheduled
@@ -224,10 +224,3 @@ Explicit support/contact/community requests work before, during and after setup,
 and may repeat delivery without an account command or first-check rerun.
 `ef-profile` delegates platform-contact questions and support referrals to this
 Skill. Contact information does not authorize any account mutation or message.
-
-WorkBuddy welcome layout: native image attachments appear after the reply text
-in the observed host flow. Keep welcome and the full schedule permission question
-in one response, then place the invitation as the final text adjacent to the QR.
-Other hosts keep the invitation and inline image before schedule. Neither layout
-adds a user turn, changes consent, or repeats the invitation at the first check.
-The canonical host ordering is ef-onboarding/references/community.md.

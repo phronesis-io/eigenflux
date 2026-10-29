@@ -76,9 +76,8 @@ Never append action_menu or invent a topic, project or need.
 
 ## welcome
 
-Once, after verified installation. Combine with the appropriate `ef-support`
-community fragment and `schedule` using the host-specific order in
-[community.md](community.md).
+Once, after verified installation. Append the appropriate `ef-support` community
+fragment using [community.md](community.md), then a separator and `schedule`.
 
 ### zh
 
