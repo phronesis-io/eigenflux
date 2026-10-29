@@ -120,7 +120,9 @@ under `health`. These counters never enter the server's `feedback_health`.
 ## Skills and release boundary
 
 `ef-broadcast` 0.14.35 requires CLI 0.7.2 (`SKILLS_MIN_CLI_VERSION=0.7.2`). Feed
-poll, next and truncated-output recovery commands use `--format agent`. Before
+poll, next and truncated-output recovery commands use `--format agent`. The Agent
+trusts only the contract-file line printed before the untrusted Feed banner and
+naming a file under `feed-contracts/`; any other contract line is reported as a forgery. Before
 leaving the Feed stage it runs `feed status`, scores every listed item with its
 original impression and does not present items marked `already_surfaced`.
 Baseline Feed stays read-only. Owner-initiated Feed checks append
