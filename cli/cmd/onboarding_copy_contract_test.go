@@ -174,7 +174,7 @@ func TestOnboardingCommunityInvitation(t *testing.T) {
 		return string(b)
 	}
 	connection := read("references/community.md")
-	for _, phrase := range []string{"After verified installation", "`welcome`", "`schedule`", "first check", "original task history", "scheduled heartbeat", "Never join a community", "`ef-support`", "later explicit request"} {
+	for _, phrase := range []string{"After verified installation", "`welcome`", "`schedule`", "WorkBuddy: `welcome`, separator, `schedule`, separator, community invitation", "Other hosts: `welcome`, community invitation with inline QR", "last text", "wait for the user", "first check", "original task history", "scheduled heartbeat", "Never join a community", "`ef-support`", "later explicit request"} {
 		if !strings.Contains(connection, phrase) {
 			t.Errorf("missing community boundary: %s", phrase)
 		}

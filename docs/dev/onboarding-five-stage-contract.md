@@ -82,8 +82,8 @@ repeat a Feed pull to populate a menu, or infer publish/message permission from
 selection. Empty results offer only evidenced broadcast/demand drafts. Each
 selection uses existing functional Skills and retains draft approval.
 
-After verified installation, append the bilingual community invitation once at
-the end of welcome, before the separator and scheduling permission question. Resolve the bundled
+After verified installation, include the bilingual community invitation once
+in the welcome response using the host ordering in community.md. Resolve the bundled
 wechat-group-qr.png from the installed Skill; omit its image and WeChat clause
 if unavailable. Never include invitations in scheduled cycles or action results.
 
@@ -151,3 +151,10 @@ Explicit support/contact/community requests work before, during and after setup,
 and may repeat delivery without an account command or first-check rerun.
 `ef-profile` delegates platform-contact questions and support referrals to this
 Skill. Contact information does not authorize any account mutation or message.
+
+WorkBuddy welcome layout: native image attachments appear after the reply text
+in the observed host flow. Keep welcome and the full schedule permission question
+in one response, then place the invitation as the final text adjacent to the QR.
+Other hosts keep the invitation and inline image before schedule. Neither layout
+adds a user turn, changes consent, or repeats the invitation at the first check.
+The canonical host ordering is ef-onboarding/references/community.md.
