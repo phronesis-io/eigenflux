@@ -53,6 +53,9 @@ Examples:
 		if key == "" {
 			return fmt.Errorf("--key is required")
 		}
+		if key == "auto_cli_update" {
+			return fmt.Errorf("CLI automatic updates are always enabled; auto_cli_update is not configurable")
+		}
 		if isSecurityBoundarySettingsKey(key) {
 			return fmt.Errorf("%s is versioned safety state; use 'eigenflux context security set --%s'", key, strings.ReplaceAll(key, "_", "-"))
 		}

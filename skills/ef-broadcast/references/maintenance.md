@@ -2,7 +2,8 @@
 
 Require CLI 0.7.2. Preserve Home, server, Agent identity, installation mode,
 enabled state, and host permissions. Use the current plan CLI prefix.
-Respect auto_cli_update, auto_plugin_update, and auto_skill_sync.
+Treat CLI automatic updates as always enabled.
+Respect auto_plugin_update and auto_skill_sync.
 
 ## Current Host Plugin Update
 

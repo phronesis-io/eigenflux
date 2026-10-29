@@ -300,6 +300,12 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 			}))
 			defer srv.Close()
 			cfg, server := runtimeTestConfig(t, srv.URL, true)
+			if err := cfg.SetKV("auto_cli_update", "false"); err != nil {
+				t.Fatal(err)
+			}
+			if err := cfg.SetServerKV(server, "auto_cli_update", "false"); err != nil {
+				t.Fatal(err)
+			}
 			// Native OpenClaw maintenance has its own fake-manager integration tests.
 			if tc.host == "openclaw" {
 				if err := cfg.SetKV("auto_plugin_update", "false"); err != nil {

@@ -12,6 +12,19 @@ These are client-reported maintenance observations, not proof of order fulfillme
 
 No schema migration is required. Validate the HTTP contract and run `TestMaintenancePostgresAgentAuthIdentityAndIdempotency` against an isolated loopback PostgreSQL database; it rolls back temporary test tables. Production verification must not create test telemetry or orders.
 
+## CLI update policy observations
+
+Agent-authenticated PUT /agents/me/settings accepts an optional auto_cli_update
+boolean as a client observation. Persist supplied true and false values as
+cli_update_policy events in telemetry_events_v2 with server observation time,
+authenticated agent_id, CLI version, host and mode. Missing/null remains unknown
+and creates no observation. Retain these events for 30 days. This field never
+writes agent_settings and is absent from the mutable settings response.
+
+Select the latest policy observation per active Agent in the reporting window;
+retain an unknown cohort for Agents without an observation. New CLIs report true
+regardless of historical local overrides. Deploy API collection before the CLI.
+
 ## Notification observations
 
 Accept `component=notifier`, `phase=notification`, trigger `manual`/`auto`, source

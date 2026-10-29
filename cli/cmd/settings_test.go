@@ -14,6 +14,41 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func TestRuntimeReportObservesCLIUpdatesWithoutSyncingLocalOverride(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		if body["auto_cli_update"] != true {
+			t.Errorf("effective CLI update policy not reported: %v", body)
+		}
+		_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+	}))
+	defer server.Close()
+	cfg, name := runtimeTestConfig(t, server.URL, true)
+	if err := cfg.SetKV("auto_cli_update", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetServerKV(name, "auto_cli_update", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := syncedSettingsBody(cfg)["auto_cli_update"]; present {
+		t.Fatal("local override leaked into mutable settings sync")
+	}
+	for _, expected := range []string{"reported", "unchanged"} {
+		r, err := reportRuntimeSettings(cfg, "skill", "model", "codex", "", false)
+		if err != nil || r.Status != expected {
+			t.Fatalf("report=%+v err=%v", r, err)
+		}
+	}
+	if requests != 1 {
+		t.Fatalf("unchanged policy generated %d requests", requests)
+	}
+}
+
 // TestSyncedSettingsBody_FeedPollIntentGuard verifies that feed_poll_interval is
 // pushed to the backend only when the user explicitly set it (an intent marker
 // is present), and never when the KV merely holds a value pulled down from the

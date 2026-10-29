@@ -342,7 +342,7 @@ func reportRuntimeSettings(cfg *config.Config, mode, model, runtimeName, runtime
 
 	// Runtime observations must not write cached shared settings before SyncSettings
 	// reconciles remote changes. Preferences remain on the existing sync path.
-	body := map[string]interface{}{}
+	body := map[string]interface{}{"auto_cli_update": true}
 	if len(health) > 0 {
 		body["feedback_health"] = health
 	}
@@ -426,7 +426,7 @@ func pushHeartbeatCompatibility(_ *config.Config, contractVersion, skillRevision
 }
 
 func reportedSettingsSnapshot(agentID, mode, feedPreference, model, runtimeHost string) string {
-	return strings.Join([]string{agentID, mode, feedPreference, model, runtimeHost}, "\x1f")
+	return strings.Join([]string{agentID, mode, feedPreference, model, runtimeHost, "auto_cli_update=true"}, "\x1f")
 }
 
 func reportedRuntimeHost(name, version string) (string, error) {

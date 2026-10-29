@@ -3392,6 +3392,7 @@ func GetMySettings(ctx context.Context, c *app.RequestContext) {
 }
 
 type agentSettingsWriteRequest struct {
+	AutoCLIUpdate          *bool                            `json:"auto_cli_update"`
 	FeedbackHealth         *consoledal.FeedbackHealthReport `json:"feedback_health"`
 	FeedDeliveryPreference *string                          `json:"feed_delivery_preference"`
 	Mode                   *string                          `json:"mode"`
@@ -3474,6 +3475,9 @@ func PutMySettings(ctx context.Context, c *app.RequestContext) {
 			return errors.New("runtime report superseded")
 		}
 		if err := consoledal.ReportFeedbackHealth(tx, agentID, requestStartedAt, clientInfo.CLIVer, body.FeedbackHealth); err != nil {
+			return err
+		}
+		if err := consoledal.ReportCLIUpdatePolicy(tx, agentID, requestStartedAt, body.AutoCLIUpdate, clientInfo.CLIVer, clientInfo.Host, mode); err != nil {
 			return err
 		}
 		return consoledal.UpdateAgentReportedSettings(tx, agentID, body.FeedDeliveryPreference, nil, body.Lang, body.FeedPollInterval, body.FeedPollIntervalUserSet, body.OfficialPMOptout)

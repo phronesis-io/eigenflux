@@ -235,9 +235,6 @@ func heartbeatUpdateSkipReason(mode string, cfg *config.Config) string {
 	if mode != "skill" && mode != "plugin" {
 		return "unknown_integration_mode"
 	}
-	if !automaticMaintenanceEnabled(cfg, "auto_cli_update") {
-		return "automatic_update_disabled"
-	}
 	return ""
 }
 

@@ -7,8 +7,9 @@ commands remain on the main baseline.
 ## CLI binary
 
 Explicit skill and plugin modes enable maintenance. Unknown modes leave it
-disabled. Home and per-server auto_cli_update, auto_plugin_update and
-auto_skill_sync settings retain their overrides.
+disabled. CLI automatic updates are always enabled in explicit skill and plugin
+modes. Ignore historical Home and per-server auto_cli_update values; config set
+rejects that key. auto_plugin_update and auto_skill_sync retain their overrides.
 
 Check the signed cli/latest/release.json once daily. A verified Skills minimum
 may admit one additional check. Verify the domain-separated Ed25519 signature,
@@ -61,6 +62,19 @@ host-driven maintenance instructions. Preserve installation scope and permission
 verify the installed version and distinguish it from current-process load evidence.
 
 ## Observations
+
+Settings reports include the effective auto_cli_update boolean as observation
+only. The backend stores supplied values as cli_update_policy events in the
+existing telemetry_events_v2 table for 30 days. This does not write or return a
+mutable update setting. Reports share the existing changed-or-daily runtime
+report cache; failed reports retry without marking that cache successful.
+
+For enabled/disabled shares, select the latest observation per authenticated
+Agent in the reporting window, then join recent active Agents. Classify missing
+observations as unknown, including older clients that never reported the field.
+Count Agents, not requests or update attempts. CLI, host and mode fields permit
+cohort comparisons. Deploy the API before releasing the matching CLI; older
+servers ignore the new field and cannot establish reporting coverage.
 
 Automatic and manual CLI updates share check, download, verify, probe, install,
 installed-path adoption and execute events. One attempt_id crosses the CLI handoff;
