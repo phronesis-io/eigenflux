@@ -386,10 +386,10 @@ func TestHeartbeatPlanFeedCompletionStep(t *testing.T) {
 	if strings.Contains(renderHeartbeatPlanForAgent(heartbeatPlan{CLIPrefix: "test-prefix"}), "feed status") {
 		t.Fatal("completion step rendered without completed onboarding")
 	}
-	if heartbeatContractVersion != "eigenflux_heartbeat.v3" {
+	if heartbeatContractVersion != "eigenflux_heartbeat.v4" {
 		t.Fatal(heartbeatContractVersion)
 	}
-	for _, line := range []string{"After the Feed push, run test-prefix feed status --after-push. Report surface only for listed items the owner was actually shown.", "feed next reads this cycle's saved page and is not a pull."} {
+	for _, line := range []string{"After the Feed push, run test-prefix feed status --after-push. Report surface only for listed items the owner was actually shown.", "feed next reads this cycle's saved page and is not a pull.", "A Feed batch names its output contract file; read that file completely before processing the batch."} {
 		if !strings.Contains(prompt, line) {
 			t.Fatal(prompt)
 		}

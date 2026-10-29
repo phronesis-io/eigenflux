@@ -239,11 +239,11 @@ func TestReportUpgradeDistinguishesBacklogFromOldHandouts(t *testing.T) {
 	if err := json.Unmarshal([]byte(fmt.Sprintf(`{"item_id":"1","impression_id":"old","served_at":%d}`, now-100)), &old); err != nil {
 		t.Fatal(err)
 	}
-	if old.HandedTime() != now-100 || old.Hands() != 1 {
+	if old.HandedTime() != now-100 || old.Hands() != 1 || old.Batched {
 		t.Fatal(old)
 	}
 	old.Hand(now)
-	if old.HandedTime() != now || old.Hands() != 2 {
+	if old.HandedTime() != now || old.Hands() != 2 || !old.Batched {
 		t.Fatal(old)
 	}
 	zero := int64(0)
@@ -265,5 +265,34 @@ func TestReportUpgradeDistinguishesBacklogFromOldHandouts(t *testing.T) {
 	}}
 	if got := l.Pending(Reports{Entries: map[string]Report{"page\x002": reloaded}}, now); len(got) != 1 || got[0].ItemID != "1" {
 		t.Fatal(got)
+	}
+}
+
+func TestLookupHandedEqualTimesPreferNewestCachedResponse(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "broadcasts", "20261029")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Now().Truncate(time.Millisecond)
+	for _, page := range []struct{ name, impression string }{
+		{"feeds-20261029-100000.000000001.json", "older"},
+		{"feeds-20261029-100000.000000002.json", "newer"},
+	} {
+		path := filepath.Join(dir, page.name)
+		body := fmt.Sprintf(`{"impression_id":%q,"items":[{"item_id":"7","source_ref":{"type":"broadcast"}}]}`, page.impression)
+		if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+		// Both responses land in the same millisecond, as rapid discovery calls do.
+		if err := os.Chtimes(path, stamp, stamp); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Map iteration order varies per run; every run must pick the newest response.
+	for run := 0; run < 200; run++ {
+		entry, status := NewLedger(filepath.Dir(dir), "s").LookupHanded("7", Reports{}, stamp.UnixMilli())
+		if status != StatusHit || entry.ImpressionID != "newer" {
+			t.Fatalf("run %d: %v %q", run, status, entry.ImpressionID)
+		}
 	}
 }

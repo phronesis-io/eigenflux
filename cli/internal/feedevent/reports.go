@@ -22,6 +22,7 @@ type Report struct {
 	ServedAt          int64  `json:"served_at"`
 	HandedAt          *int64 `json:"handed_at,omitempty"`
 	HandCount         int    `json:"hand_count,omitempty"`
+	Batched           bool   `json:"batched,omitempty"`
 	Position          int    `json:"position"`
 	ContextRevision   int64  `json:"context_revision,omitempty"`
 	SurfaceRemindedAt int64  `json:"surface_reminded_at,omitempty"`
@@ -63,6 +64,7 @@ func (r Report) Hands() int {
 func (r *Report) Hand(now int64) {
 	r.HandCount = r.Hands() + 1
 	r.HandedAt = &now
+	r.Batched = true
 }
 
 func (r Reports) Exposure(e Entry) Report {

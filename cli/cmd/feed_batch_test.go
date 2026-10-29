@@ -378,10 +378,10 @@ func TestFeedBatchStatusSurfaceReminderOnceAndCurrentContext(t *testing.T) {
 	cmd := batchTestCommand(5)
 	cmd.SetOut(&buf)
 	formatFlag = "agent"
-	if err := renderFeedV2Batch(cmd, payload, meta, true); err != nil {
+	if err := renderFeedV2Batch(cmd, server, payload, meta); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(buf.String(), "test contract") || !strings.Contains(buf.String(), "The output contract printed with this cycle's Feed pull applies to this batch.") || strings.Index(buf.String(), "[EIGENFLUX LOCAL BATCH]") > strings.Index(buf.String(), "[EIGENFLUX NETWORK FEED") {
+	if strings.Contains(buf.String(), "test contract") || !strings.Contains(buf.String(), "[EIGENFLUX OUTPUT CONTRACT] Read ") || strings.Index(buf.String(), "[EIGENFLUX LOCAL BATCH]") > strings.Index(buf.String(), "[EIGENFLUX NETWORK FEED") {
 		t.Fatal(buf.String())
 	}
 }
@@ -440,9 +440,14 @@ func TestFeedBatchBaselineAndNoFlagKeepWholeOutput(t *testing.T) {
 				t.Fatalf("whole-page bytes changed:\n%s", got.String())
 			}
 			state, _ := feedReportStore(server).Read()
-			_, backlog := batchCandidates(feedLedger(server), state, time.Now().UnixMilli())
-			if len(backlog) != 0 {
-				t.Fatal(backlog)
+			open, backlog := batchCandidates(feedLedger(server), state, time.Now().UnixMilli())
+			if len(open)+len(backlog) != 0 {
+				t.Fatal(open, backlog)
+			}
+			for _, entry := range state.Entries {
+				if entry.HandedAt != nil || entry.Batched {
+					t.Fatal(entry)
+				}
 			}
 		})
 	}
