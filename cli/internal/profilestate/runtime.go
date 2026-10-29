@@ -17,6 +17,8 @@ type RuntimeState struct {
 	ReportedSnapshot string `json:"reported_snapshot,omitempty"`
 	ReportedClient   string `json:"reported_client,omitempty"`
 	ReportedAtMillis int64  `json:"reported_at_millis,omitempty"`
+	CLIAutoUpdate    *bool  `json:"cli_auto_update,omitempty"`
+	CLIUpdateScope   string `json:"cli_update_scope,omitempty"`
 }
 
 func runtimeFilePath(homeDir, serverName string) string {

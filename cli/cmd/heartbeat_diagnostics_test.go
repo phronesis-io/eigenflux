@@ -30,17 +30,18 @@ func TestHeartbeatUpdateSkipReason(t *testing.T) {
 	if got := heartbeatUpdateSkipReason("", cfg); got != "unknown_integration_mode" {
 		t.Fatal(got)
 	}
-	if err := cfg.SetKV("auto_cli_update", "false"); err != nil {
-		t.Fatal(err)
-	}
-	if got := heartbeatUpdateSkipReason("plugin", cfg); got != "automatic_update_disabled" {
-		t.Fatal(got)
-	}
-	if err := cfg.SetKV("auto_cli_update", "true"); err != nil {
-		t.Fatal(err)
-	}
-	if got := heartbeatUpdateSkipReason("skill", cfg); got != "" {
-		t.Fatal(got)
+	for _, mode := range []string{"skill", "plugin"} {
+		for _, legacy := range []string{"", "false", "true"} {
+			if err := cfg.SetKV("auto_cli_update", legacy); err != nil {
+				t.Fatal(err)
+			}
+			if err := cfg.SetServerKV(activeServerName(), "auto_cli_update", legacy); err != nil {
+				t.Fatal(err)
+			}
+			if got := heartbeatUpdateSkipReason(mode, cfg); got != "" {
+				t.Fatalf("legacy %q blocked %s updates: %s", legacy, mode, got)
+			}
+		}
 	}
 }
 

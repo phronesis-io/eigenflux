@@ -109,7 +109,7 @@ func TestSharedHeartbeatMaintenanceModes(t *testing.T) {
 			}
 		}
 	}
-	for _, key := range []string{"auto_cli_update", "auto_plugin_update"} {
+	for _, key := range []string{"auto_plugin_update"} {
 		if err := cfg.SetKV(key, "false"); err != nil {
 			t.Fatal(err)
 		}

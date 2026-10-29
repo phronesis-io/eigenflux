@@ -7,8 +7,23 @@ commands remain on the main baseline.
 ## CLI binary
 
 Explicit skill and plugin modes enable maintenance. Unknown modes leave it
-disabled. Home and per-server auto_cli_update, auto_plugin_update and
-auto_skill_sync settings retain their overrides.
+disabled. CLI automatic updates default to enabled in explicit skill and plugin
+modes. The API administrator controls the global ENABLE_CLI_AUTO_UPDATE environment
+setting, default true; restart the API after changing it. Each automatic maintenance
+entry reads auto_cli_update through authenticated GET /agents/me/settings before
+checking the CDN, even within the daily update-check interval. A false policy
+returns skipped/server_policy_disabled and records a check/blocked observation.
+Ignore historical Home and per-server auto_cli_update values; config set rejects
+that key. auto_plugin_update and auto_skill_sync retain their overrides.
+
+Policy requests use a three-second HTTP timeout. Failure logs
+update_policy_unavailable and records check/waiting_online; use the last received
+policy for the same Home, server, endpoint and Agent, or true if none exists.
+Store that policy in the existing runtime sidecar, separate from mutable config
+KV. Missing/null fields from older servers mean true. Do not let ordinary settings
+sync copy this policy into local KV. The backend switch affects new automatic
+maintenance entries, not an in-progress update or an explicit manual update.
+Existing CLI releases do not implement this server policy.
 
 Check the signed cli/latest/release.json once daily. A verified Skills minimum
 may admit one additional check. Verify the domain-separated Ed25519 signature,
@@ -25,7 +40,7 @@ business commands. Token rotation remains allowed. Preserve child exit codes and
 forward termination signals, with a bounded forced-stop fallback.
 
 Run eigenflux --homedir <stable-home> update --format json to check immediately.
-This owner command bypasses only the daily throttle. Missing or unreadable account
+This owner command bypasses the daily throttle and automatic-update policy. Missing or unreadable account
 files do not block manual binary updates. It needs no login and reports
 the replacement process version, PID and Home. It does not change update switches.
 A bootstrap install is required for older CLIs. Installation permission failures
@@ -61,6 +76,19 @@ host-driven maintenance instructions. Preserve installation scope and permission
 verify the installed version and distinguish it from current-process load evidence.
 
 ## Observations
+
+Settings reports include the effective auto_cli_update boolean as observation
+only. The backend stores supplied values as cli_update_policy events in the
+existing telemetry_events_v2 table for 30 days. This does not write a mutable
+update setting; the GET response independently returns the administrator policy.
+Reports share the existing changed-or-daily runtime report cache; failed reports retry without marking that cache successful.
+
+For enabled/disabled shares, select the latest observation per authenticated
+Agent in the reporting window, then join recent active Agents. Classify missing
+observations as unknown, including older clients that never reported the field.
+Count Agents, not requests or update attempts. CLI, host and mode fields permit
+cohort comparisons. Deploy the API before releasing the matching CLI; older
+servers ignore the new field and cannot establish reporting coverage.
 
 Automatic and manual CLI updates share check, download, verify, probe, install,
 installed-path adoption and execute events. One attempt_id crosses the CLI handoff;

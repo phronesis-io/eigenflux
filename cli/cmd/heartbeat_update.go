@@ -121,6 +121,17 @@ func runObservedCLIUpdate(cmd *cobra.Command, cfg *config.Config, minimum string
 		}
 		recorder.failure("update_identity_unavailable")
 	}
+	if !manual {
+		enabled, policyErr := refreshCLIUpdatePolicy(cfg, server)
+		if policyErr != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "[eigenflux:maintenance] component=cli phase=check error_code=update_policy_unavailable effective_enabled=%t error=%q\n", enabled, policyErr.Error())
+			recorder.Finish("check", "waiting_online", version, "", "", "update_policy_unavailable")
+		}
+		if !enabled {
+			recorder.Finish("check", "blocked", version, "", "", "server_policy_disabled")
+			return selfupdate.Result{Status: "skipped", Version: version, Reason: "server_policy_disabled"}, false, recorder, nil
+		}
+	}
 	path, err := os.Executable()
 	if err != nil {
 		result := selfupdate.Result{Status: "failed", Phase: "check", Version: version, Reason: "executable_unavailable", Error: err.Error()}
@@ -234,9 +245,6 @@ func heartbeatUpdateSkipReason(mode string, cfg *config.Config) string {
 	}
 	if mode != "skill" && mode != "plugin" {
 		return "unknown_integration_mode"
-	}
-	if !automaticMaintenanceEnabled(cfg, "auto_cli_update") {
-		return "automatic_update_disabled"
 	}
 	return ""
 }

@@ -241,12 +241,14 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 		mode, host             string
 		forced, contextFailure bool
 		retry                  bool
+		policyDisabled         bool
 	}{
 		{mode: "skill", host: "codex"}, {mode: "skill", host: "codex", forced: true},
 		{mode: "plugin", host: "claude-code"}, {mode: "plugin", host: "claude-code", forced: true},
 		{mode: "plugin", host: "openclaw"}, {mode: "plugin", host: "openclaw", forced: true},
 		{mode: "skill", host: "codex", forced: true, contextFailure: true},
 		{mode: "skill", host: "codex", retry: true},
+		{mode: "skill", host: "codex", policyDisabled: true},
 	} {
 		caseName := map[bool]string{false: "daily", true: "Skills minimum overrides TTL"}[tc.forced]
 		if tc.contextFailure {
@@ -255,8 +257,13 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 		if tc.retry {
 			caseName = "automatic retry after failed check"
 		}
+		if tc.policyDisabled {
+			caseName = "server pause and resume automatic upgrade"
+		}
 		t.Run(tc.host+"/"+caseName, func(t *testing.T) {
 			var requests, reported atomic.Int32
+			var policyDisabled atomic.Bool
+			policyDisabled.Store(tc.policyDisabled)
 			var eventMu sync.Mutex
 			var observations []maintenance.Event
 			var manifest *skills.Manifest
@@ -287,6 +294,10 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 					eventMu.Unlock()
 					_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
 				case "/api/v2/agents/me/settings", "/api/v2/agent-settings/heartbeat-compatibility":
+					if r.Method == http.MethodGet {
+						_ = json.NewEncoder(w).Encode(map[string]interface{}{"code": 0, "data": map[string]bool{"auto_cli_update": !policyDisabled.Load()}})
+						return
+					}
 					if r.Method == http.MethodPut || r.Method == http.MethodPost {
 						if r.Header.Get("X-Client-CLI-Version") == "0.0.48" {
 							reported.Add(1)
@@ -300,6 +311,12 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 			}))
 			defer srv.Close()
 			cfg, server := runtimeTestConfig(t, srv.URL, true)
+			if err := cfg.SetKV("auto_cli_update", "false"); err != nil {
+				t.Fatal(err)
+			}
+			if err := cfg.SetServerKV(server, "auto_cli_update", "false"); err != nil {
+				t.Fatal(err)
+			}
 			// Native OpenClaw maintenance has its own fake-manager integration tests.
 			if tc.host == "openclaw" {
 				if err := cfg.SetKV("auto_plugin_update", "false"); err != nil {
@@ -322,6 +339,9 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 				t.Fatal(err)
 			}
 			manifest.MinCLIVersion, manifest.Sequence = "0.0.48", 1
+			if tc.policyDisabled {
+				manifest.MinCLIVersion = ""
+			}
 			// Matching revision needs no tarball; signature still verifies compatibility.
 			manifest.TarSHA256 = strings.Repeat("a", 64)
 			if err = skills.SignManifest(manifest, key); err != nil {
@@ -399,6 +419,35 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 			}
 			if err != nil {
 				t.Fatalf("heartbeat failed: %s %s %v", out, stderr.String(), err)
+			}
+			if tc.policyDisabled {
+				var paused heartbeatPlan
+				if err := json.Unmarshal(out, &paused); err != nil {
+					t.Fatal(err)
+				}
+				if paused.CLIVersion != "0.0.47" || paused.CLIUpdate.Reason != "server_policy_disabled" || requests.Load() != 0 {
+					t.Fatalf("backend pause ignored: %+v requests=%d", paused.CLIUpdate, requests.Load())
+				}
+				if _, err := os.Stat(bin + ".update.json"); !os.IsNotExist(err) {
+					t.Fatalf("policy pause changed binary check stamp: %v", err)
+				}
+				eventMu.Lock()
+				blocked := false
+				for _, event := range observations {
+					blocked = blocked || (event.Component == "cli" && event.Result == "blocked" && event.ErrorCode == "server_policy_disabled" && event.ToVersion == "")
+				}
+				observations = nil
+				eventMu.Unlock()
+				if !blocked {
+					t.Fatal("missing backend-policy pause observation")
+				}
+				policyDisabled.Store(false)
+				resumed := exec.Command(bin, cmd.Args[1:]...)
+				resumed.Env, resumed.Stderr = cmd.Env, &stderr
+				out, err = resumed.Output()
+				if err != nil {
+					t.Fatalf("resume heartbeat failed: %s %s %v", out, stderr.String(), err)
+				}
 			}
 			if entries, err := os.ReadDir(envHome); err != nil || len(entries) != 0 {
 				t.Fatalf("environment Home changed by update probes: %v %v", entries, err)
