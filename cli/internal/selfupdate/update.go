@@ -40,10 +40,12 @@ type Options struct {
 }
 
 type Result struct {
-	Phase     string `json:"phase,omitempty"`
-	Attempted bool   `json:"attempted,omitempty"`
-	Status    string `json:"status"`
-	Version   string `json:"version"`
+	Reason      string `json:"reason,omitempty"`
+	NextCheckAt string `json:"next_check_at,omitempty"`
+	Phase       string `json:"phase,omitempty"`
+	Attempted   bool   `json:"attempted,omitempty"`
+	Status      string `json:"status"`
+	Version     string `json:"version"`
 	// TargetVersion comes only from a verified manifest, including on failure.
 	TargetVersion string `json:"target_version,omitempty"`
 	// RolledBack means the previous binary was restored and directory-synced.
@@ -63,6 +65,11 @@ type state struct {
 // locking are binary-scoped because several Agent Homes can share one install.
 func Check(ctx context.Context, o Options) (result Result) {
 	result = Result{Status: "skipped", Version: o.Version, Phase: "check"}
+	defer func() {
+		if result.Status == "failed" && result.Reason == "" {
+			result.Reason = result.Phase + "_failed"
+		}
+	}()
 	startPhase := func(phase string) {
 		result.Phase = phase
 		if o.OnProgress != nil {
@@ -70,10 +77,11 @@ func Check(ctx context.Context, o Options) (result Result) {
 		}
 	}
 	if !ValidVersion(o.Version) {
+		result.Reason = "invalid_version"
 		return
 	}
 	if len(o.Key) != ed25519.PublicKeySize {
-		result.Status = "unconfigured"
+		result.Status, result.Reason = "unconfigured", "trust_key_missing"
 		return
 	}
 	if o.Now.IsZero() {
@@ -99,7 +107,7 @@ func Check(ctx context.Context, o Options) (result Result) {
 		return
 	}
 	if !locked {
-		result.Status = "busy"
+		result.Status, result.Reason = "busy", "installation_locked"
 		return
 	}
 	defer unlock(lock)
@@ -116,6 +124,8 @@ func Check(ctx context.Context, o Options) (result Result) {
 	}
 	if !o.CheckNow && o.Now.Before(s.Attempt.Add(24*time.Hour)) && !o.Now.Before(s.Attempt) && (o.Minimum == "" || o.Minimum == s.Minimum) {
 		result.Status, result.Error = "deferred", s.Error
+		result.Reason = "check_interval"
+		result.NextCheckAt = s.Attempt.Add(24 * time.Hour).Format(time.RFC3339)
 		return
 	}
 	s.Attempt, s.Minimum = o.Now, o.Minimum
@@ -146,6 +156,7 @@ func Check(ctx context.Context, o Options) (result Result) {
 	}
 	m, err := Verify(data, o.Key)
 	if err != nil {
+		result.Reason = "manifest_verify_failed"
 		return fail(err)
 	}
 	result.TargetVersion = m.Version

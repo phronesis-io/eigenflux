@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestObservationDistinguishesActualCheckAndSiblingAdoption(t *testing.T) {
@@ -36,7 +37,7 @@ func TestObservationDistinguishesActualCheckAndSiblingAdoption(t *testing.T) {
 	o.Version = "0.0.48"
 	progress = nil
 	r = Check(context.Background(), o)
-	if r.Attempted || r.Status != "deferred" || started != 1 || len(progress) != 0 {
+	if r.Attempted || r.Status != "deferred" || r.Reason != "check_interval" || r.NextCheckAt != o.Now.Add(24*time.Hour).Format(time.RFC3339) || started != 1 || len(progress) != 0 {
 		t.Fatalf("throttle counted as attempt: %+v progress=%+v", r, progress)
 	}
 }
@@ -76,7 +77,7 @@ func TestObservationRetainsFailurePhaseAndTrustedTarget(t *testing.T) {
 				resignFixture(t, &o, m, *bin)
 			}
 			r := Check(context.Background(), o)
-			if r.Status != "failed" || r.Phase != tc.phase || !r.Attempted || r.TargetVersion != tc.target || r.RolledBack != tc.rolledBack || r.Version != o.Version {
+			if r.Status != "failed" || r.Reason == "" || r.Phase != tc.phase || !r.Attempted || r.TargetVersion != tc.target || r.RolledBack != tc.rolledBack || r.Version != o.Version {
 				t.Fatalf("failure observation: %+v", r)
 			}
 			if progress[len(progress)-1].Phase != tc.phase {
@@ -142,4 +143,33 @@ func (artifactFailureTransport) RoundTrip(r *http.Request) (*http.Response, erro
 		return nil, fmt.Errorf("artifact unavailable")
 	}
 	return http.DefaultTransport.RoundTrip(r)
+}
+
+func TestSkipAndLockReasons(t *testing.T) {
+	o, _, _, count := fixture(t)
+	invalid := o
+	invalid.Version = "dev"
+	if r := Check(context.Background(), invalid); r.Reason != "invalid_version" || r.Status != "skipped" {
+		t.Fatalf("invalid version: %+v", r)
+	}
+	untrusted := o
+	untrusted.Key = nil
+	if r := Check(context.Background(), untrusted); r.Reason != "trust_key_missing" || r.Status != "unconfigured" {
+		t.Fatalf("missing trust root: %+v", r)
+	}
+	lock, err := os.OpenFile(o.Executable+".update.lock", os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if locked, err := tryLock(lock); !locked || err != nil {
+		t.Fatal(err)
+	}
+	defer unlock(lock)
+	if r := Check(context.Background(), o); r.Reason != "installation_locked" || r.Status != "busy" || r.Attempted || r.NextCheckAt != "" {
+		t.Fatalf("lock: %+v", r)
+	}
+	if count.Load() != 0 {
+		t.Fatal("skipped check contacted CDN")
+	}
 }
