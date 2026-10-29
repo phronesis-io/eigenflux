@@ -164,6 +164,10 @@ func runObservedCLIUpdate(cmd *cobra.Command, cfg *config.Config, minimum string
 		code := "process_exit_failed"
 		if child.Process == nil {
 			code = "process_start_failed"
+		} else if completed, readErr := maintenance.LastAttempt(recorder.scope, "cli"); readErr == nil && completed.AttemptID == recorder.attempt && completed.Phase == "execute" && completed.Result == "executed" && completed.RunningVersion == result.Version {
+			// Preserve confirmed adoption when the resumed business command fails.
+			fmt.Fprintf(cmd.ErrOrStderr(), "[eigenflux:maintenance] component=cli attempt_id=%s phase=execute error_code=%s\n", recorder.attempt, code)
+			return result, true, recorder, &updatedCLIError{err}
 		}
 		recorder.Finish("execute", "failed", version, result.Version, "", code)
 		return result, true, recorder, &updatedCLIError{err}

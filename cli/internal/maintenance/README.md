@@ -28,3 +28,7 @@ CLI and manifest revision without relaxing signature or rollback checks.
 The heartbeat verifies the local manifest signature even when automatic sync
 retains an existing installation. Compatible, correctly signed offline Skills
 remain usable without creating verified-remote compatibility evidence.
+
+A replacement command's nonzero exit retains its original exit status and a
+local diagnostic. If the same attempt already recorded the target CLI as
+`execute/executed`, later business failure does not overwrite that update result.

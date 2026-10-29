@@ -362,6 +362,22 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 				captured := append([]maintenance.Event(nil), observations...)
 				eventMu.Unlock()
 				assertCLIUpdateStages(t, captured, "auto", "")
+				localState, snapshotErr := maintenance.Snapshot(maintenance.Scope{Home: config.HomeDir(), Server: server, AgentID: "agent-1"})
+				if snapshotErr != nil {
+					t.Fatal(snapshotErr)
+				}
+				completed := localState.Attempts["cli"]
+				if completed.Phase != "execute" || completed.Result != "executed" || completed.RunningVersion != "0.0.48" {
+					t.Fatalf("business failure overwrote confirmed CLI adoption: %+v", completed)
+				}
+				for _, event := range append(captured, localState.Events...) {
+					if event.Component == "cli" && event.Result == "failed" {
+						t.Fatalf("business failure falsely failed CLI update: %+v", event)
+					}
+				}
+				if !strings.Contains(stderr.String(), "error_code=process_exit_failed") {
+					t.Fatalf("replacement exit diagnostic missing: %s", &stderr)
+				}
 				validated := false
 				for _, event := range captured {
 					if event.Component != "skills" {
