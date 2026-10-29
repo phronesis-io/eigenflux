@@ -249,16 +249,16 @@ func TestSettingsPushRegistersRuntimeIdentityFlags(t *testing.T) {
 }
 
 func TestReportedSettingsSnapshotChangesWithRuntimeIdentity(t *testing.T) {
-	hermes := reportedSettingsSnapshot("101", "skill", "", "gpt-5.6", "hermes/0.20.0")
-	workbuddy := reportedSettingsSnapshot("101", "skill", "", "gpt-5.6", "workbuddy/5.3.8")
+	hermes := reportedSettingsSnapshot("101", "skill", "", "gpt-5.6", "hermes/0.20.0", true)
+	workbuddy := reportedSettingsSnapshot("101", "skill", "", "gpt-5.6", "workbuddy/5.3.8", true)
 	if hermes == workbuddy {
 		t.Fatal("runtime identity change must invalidate the reported-settings snapshot")
 	}
 }
 
 func TestReportedSettingsSnapshotChangesWithAccount(t *testing.T) {
-	first := reportedSettingsSnapshot("101", "skill", "", "gpt-5.6", "hermes/0.20.0")
-	second := reportedSettingsSnapshot("202", "skill", "", "gpt-5.6", "hermes/0.20.0")
+	first := reportedSettingsSnapshot("101", "skill", "", "gpt-5.6", "hermes/0.20.0", true)
+	second := reportedSettingsSnapshot("202", "skill", "", "gpt-5.6", "hermes/0.20.0", true)
 	if first == second {
 		t.Fatal("account switch must invalidate the reported-settings snapshot")
 	}
@@ -328,7 +328,7 @@ func TestPushReportedSupportsV2OnlyCredentials(t *testing.T) {
 	if err := pushReported(cfg, "skill", "gpt-5.6", "workbuddy", "5.3.14", false); err != nil {
 		t.Fatal(err)
 	}
-	want := reportedSettingsSnapshot("v2-agent", "skill", "", "gpt-5.6", "workbuddy/5.3.14")
+	want := reportedSettingsSnapshot("v2-agent", "skill", "", "gpt-5.6", "workbuddy/5.3.14", true)
 	if got := loadRuntimeTestState(t, active.Name).ReportedSnapshot; got != want {
 		t.Fatalf("cached snapshot = %q; want %q", got, want)
 	}
@@ -385,7 +385,7 @@ func TestPushReportedSendsRuntimeToBoundServerAndCachesSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-requestSeen
-	want := reportedSettingsSnapshot("42", "skill", "", "gpt-5.6", "hermes/0.20.0")
+	want := reportedSettingsSnapshot("42", "skill", "", "gpt-5.6", "hermes/0.20.0", true)
 	if got := loadRuntimeTestState(t, active.Name).ReportedSnapshot; got != want {
 		t.Fatalf("cached snapshot = %q; want %q", got, want)
 	}

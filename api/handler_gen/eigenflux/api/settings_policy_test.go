@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"eigenflux_server/api/dal"
+	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/reqinfo"
 
@@ -73,5 +74,48 @@ event_at INTEGER, created_at INTEGER, expires_at INTEGER)`).Error)
 		require.Equal(t, i == 0, props["auto_cli_update"])
 		require.Equal(t, "codex", props["host"])
 		require.Equal(t, "skill", props["mode"])
+	}
+}
+
+func TestSettingsReadOnlyAdministratorCLIUpdatePolicy(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := database.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	previous := db.DB
+	db.DB = database
+	t.Cleanup(func() { db.DB = previous; _ = sqlDB.Close() })
+	require.NoError(t, database.AutoMigrate(&dal.AgentSettings{}))
+	require.NoError(t, database.Create(&dal.AgentSettings{AgentID: 42, FeedPollIntervalUserSet: true, FeedPollInterval: 300}).Error)
+	require.NoError(t, database.Exec(`CREATE TABLE telemetry_events_v2 (
+event_id TEXT PRIMARY KEY, agent_id INTEGER, event_type TEXT, properties JSONB,
+event_at INTEGER, created_at INTEGER, expires_at INTEGER)`).Error)
+	for _, tc := range []struct {
+		value string
+		want  bool
+	}{
+		{"", true}, {"false", false}, {"true", true},
+	} {
+		t.Setenv("ENABLE_CLI_AUTO_UPDATE", tc.value)
+		require.Equal(t, tc.want, config.Load().EnableCLIAutoUpdate)
+		write := app.NewContext(0)
+		write.Set("agent_id", int64(42))
+		body, err := json.Marshal(map[string]bool{"auto_cli_update": !tc.want})
+		require.NoError(t, err)
+		write.Request.SetBody(body)
+		PutMySettings(context.Background(), write)
+		require.Equal(t, http.StatusOK, write.Response.StatusCode(), "%s", write.Response.Body())
+		c := app.NewContext(0)
+		c.Set("agent_id", int64(42))
+		GetMySettings(context.Background(), c)
+		require.Equal(t, http.StatusOK, c.Response.StatusCode(), "%s", c.Response.Body())
+		var response struct {
+			Data struct {
+				AutoCLIUpdate bool `json:"auto_cli_update"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(c.Response.Body(), &response))
+		require.Equal(t, tc.want, response.Data.AutoCLIUpdate)
 	}
 }

@@ -3376,6 +3376,7 @@ func GetMySettings(ctx context.Context, c *app.RequestContext) {
 	}
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"recurring_publish":        settings.RecurringPublish,
+		"auto_cli_update":          config.Load().EnableCLIAutoUpdate,
 		"feed_poll_interval":       feedPollInterval,
 		"auto_reply_pm":            settings.AutoReplyPM,
 		"auto_comment":             settings.AutoComment,

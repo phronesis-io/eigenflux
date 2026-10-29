@@ -204,7 +204,8 @@ func SyncSettings(cfg *config.Config) error {
 	// compromised backend could disable updates or overflow the throttle.
 	skip := map[string]bool{
 		"mode": true, "updated_at": true,
-		runtimeHostKey: true, runtimeModeKey: true,
+		"auto_cli_update": true, // Read-only policy; never mirror into mutable KV.
+		runtimeHostKey:    true, runtimeModeKey: true,
 		"runtime_name": true, "runtime_version": true, "runtime_reported_at": true,
 		autoSkillSyncKey: true, skillSyncIntervalKey: true,
 		// Profile-refresh bookkeeping is client-local for the same reason: a
@@ -328,7 +329,8 @@ func reportRuntimeSettings(cfg *config.Config, mode, model, runtimeName, runtime
 		apiFamily = "/api/v2"
 	}
 	clientSnapshot := strings.Join([]string{version, strings.TrimRight(server.Endpoint, "/") + apiFamily, meta.PluginVersion}, "\x1f")
-	snapshot := reportedSettingsSnapshot(agentID, meta.Mode, "", meta.Model, meta.Host)
+	enabled := cachedCLIUpdatePolicy(cfg, serverName, state)
+	snapshot := reportedSettingsSnapshot(agentID, meta.Mode, "", meta.Model, meta.Host, enabled)
 	if len(health) > 0 {
 		encoded, _ := json.Marshal(health)
 		snapshot += "\x1f" + string(encoded)
@@ -342,7 +344,7 @@ func reportRuntimeSettings(cfg *config.Config, mode, model, runtimeName, runtime
 
 	// Runtime observations must not write cached shared settings before SyncSettings
 	// reconciles remote changes. Preferences remain on the existing sync path.
-	body := map[string]interface{}{"auto_cli_update": true}
+	body := map[string]interface{}{"auto_cli_update": enabled}
 	if len(health) > 0 {
 		body["feedback_health"] = health
 	}
@@ -425,8 +427,8 @@ func pushHeartbeatCompatibility(_ *config.Config, contractVersion, skillRevision
 	return nil
 }
 
-func reportedSettingsSnapshot(agentID, mode, feedPreference, model, runtimeHost string) string {
-	return strings.Join([]string{agentID, mode, feedPreference, model, runtimeHost, "auto_cli_update=true"}, "\x1f")
+func reportedSettingsSnapshot(agentID, mode, feedPreference, model, runtimeHost string, enabled bool) string {
+	return strings.Join([]string{agentID, mode, feedPreference, model, runtimeHost, "auto_cli_update=" + strconv.FormatBool(enabled)}, "\x1f")
 }
 
 func reportedRuntimeHost(name, version string) (string, error) {

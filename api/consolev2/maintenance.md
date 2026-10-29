@@ -19,11 +19,15 @@ boolean as a client observation. Persist supplied true and false values as
 cli_update_policy events in telemetry_events_v2 with server observation time,
 authenticated agent_id, CLI version, host and mode. Missing/null remains unknown
 and creates no observation. Retain these events for 30 days. This field never
-writes agent_settings and is absent from the mutable settings response.
+writes agent_settings or changes the administrator policy. Authenticated GET
+/agents/me/settings returns auto_cli_update from ENABLE_CLI_AUTO_UPDATE (default
+true), independently of client observations. Restart API after changing this
+environment setting. Agent and Console settings writes cannot change this policy.
 
 Select the latest policy observation per active Agent in the reporting window;
-retain an unknown cohort for Agents without an observation. New CLIs report true
-regardless of historical local overrides. Deploy API collection before the CLI.
+retain an unknown cohort for Agents without an observation. New CLIs report the
+effective received or cached policy, ignoring historical local overrides. Missing
+server policy fields default to true. Deploy API collection before the CLI.
 
 ## Notification observations
 
