@@ -15,8 +15,8 @@ func TestOnboardingBrowserHandoffRendering(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, newline := range []string{"\n", "\r\n"} {
-		messages := strings.ReplaceAll(string(b), "\n", newline)
-		fragment := func(id, locale string) string {
+		messages := strings.ReplaceAll(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n", newline)
+		fragment := func(t *testing.T, id, locale string) string {
 			t.Helper()
 			normalized := strings.ReplaceAll(messages, "\r\n", "\n")
 			section := regexp.MustCompile(`(?s)\n## ` + regexp.QuoteMeta(id) + `\n(.*?)(?:\n## |$)`).FindStringSubmatch(normalized)
@@ -46,12 +46,12 @@ func TestOnboardingBrowserHandoffRendering(t *testing.T) {
 							t.Fatal(err)
 						}
 						body := strings.NewReplacer(
-							"<profile-result>", fragment(profile, locale),
-							"<browser-instruction>", fragment(browser, locale),
-							"<return-instruction>", strings.ReplaceAll(fragment("return_host", locale), "<first-check-request>", fragment("first_check_request", locale)),
+							"<profile-result>", fragment(t, profile, locale),
+							"<browser-instruction>", fragment(t, browser, locale),
+							"<return-instruction>", strings.ReplaceAll(fragment(t, "return_host", locale), "<first-check-request>", fragment(t, "first_check_request", locale)),
 							"<progress>", "stage-4-pending",
 							"<console-url>", url,
-						).Replace(fragment("handoff", locale))
+						).Replace(fragment(t, "handoff", locale))
 						links := regexp.MustCompile(`\]\(([^\n]+)\)`).FindAllStringSubmatch(body, -1)
 						if len(links) != 1 || links[0][1] != url {
 							t.Fatalf("handoff must preserve exactly one complete link: %q", body)
@@ -59,7 +59,7 @@ func TestOnboardingBrowserHandoffRendering(t *testing.T) {
 						if regexp.MustCompile(`<[-a-z]+>`).MatchString(body) {
 							t.Fatalf("unresolved handoff slot: %q", body)
 						}
-						if !strings.Contains(body, fragment("first_check_request", locale)) {
+						if !strings.Contains(body, fragment(t, "first_check_request", locale)) {
 							t.Fatal("browser opening must retain the explicit first-check request")
 						}
 						if browser == "browser_manual" && (strings.Contains(body, "I've opened") || strings.Contains(body, "已在内置浏览器")) {
@@ -139,6 +139,9 @@ func TestRichPrefillAndFeedPresentationContract(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if strings.HasSuffix(path, ".md") {
+			return strings.ReplaceAll(string(b), "\r\n", "\n")
+		}
 		return string(b)
 	}
 	prefill := read("skills/ef-onboarding/references/prefill.md")
@@ -170,6 +173,9 @@ func TestOnboardingCommunityInvitation(t *testing.T) {
 		b, err := os.ReadFile("../../skills/ef-onboarding/" + path)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if strings.HasSuffix(path, ".md") {
+			return strings.ReplaceAll(string(b), "\r\n", "\n")
 		}
 		return string(b)
 	}
@@ -235,7 +241,7 @@ func TestWorkBuddyDirectPreviewContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := string(b)
+	text := strings.ReplaceAll(string(b), "\r\n", "\n")
 	start := strings.Index(text, "In WorkBuddy,")
 	if start < 0 {
 		t.Fatal("missing WorkBuddy route")
@@ -284,7 +290,7 @@ func TestWorkBuddyCommunityAttachmentContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"community_invite_attachment", "community_invite_discord"} {
-		match := regexp.MustCompile(`(?s)\n## ` + id + `\n(.*?)(?:\n## |$)`).FindStringSubmatch(string(b))
+		match := regexp.MustCompile(`(?s)\n## ` + id + `\n(.*?)(?:\n## |$)`).FindStringSubmatch(strings.ReplaceAll(string(b), "\r\n", "\n"))
 		if match == nil {
 			t.Fatalf("missing %s", id)
 		}
@@ -310,6 +316,9 @@ func TestPlatformSupportRouting(t *testing.T) {
 		b, err := os.ReadFile("../../skills/" + path)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if strings.HasSuffix(path, ".md") {
+			return strings.ReplaceAll(string(b), "\r\n", "\n")
 		}
 		return string(b)
 	}
@@ -338,6 +347,9 @@ func TestSupportPublicCopyConsistency(t *testing.T) {
 		b, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if strings.HasSuffix(path, ".md") {
+			return strings.ReplaceAll(string(b), "\r\n", "\n")
 		}
 		return string(b)
 	}
