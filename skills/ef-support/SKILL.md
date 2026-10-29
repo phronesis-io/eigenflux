@@ -8,7 +8,7 @@ description: |
   not messages to another network Agent. Do not use for unrelated services or account mutations.
 metadata:
   author: "Phronesis AI"
-  version: "0.1.5"
+  version: "0.1.6"
 ---
 
 # EigenFlux Platform Support
@@ -70,7 +70,7 @@ on the user's behalf. The user chooses whether and what to share.
 
 ## Automatic onboarding invitation
 
-`ef-onboarding` owns when its once-only successful foreground first-check
+`ef-onboarding` owns when its once-only verified-installation welcome
 invitation is eligible. Reuse [messages.md](references/messages.md) and the same
 [delivery.md](references/delivery.md) there. Do not proactively repeat invitations
 in scheduled tasks or unrelated replies. Explicit contact requests above remain

@@ -201,8 +201,8 @@ server-delivered copy takes effect with the normal backend release/restart.
 
 ## Community invitation
 
-A successful foreground first-check response ends with community_invite after
-its eligible action menu or empty-result suggestions. Both languages share the
+The verified-installation welcome ends with community_invite before the
+scheduling permission question. First-check responses never repeat it. Both languages share the
 Discord destination and bundled assets/wechat-group-qr.png. Use the installed
 Skill path; fall back to a file link when images cannot render, or Discord only
 when the asset is unavailable. Never repeat it in action results or scheduled
@@ -214,7 +214,7 @@ installed QR asset unchanged into a fresh task outputs file, verify its hash,
 and call present_files with that path. Select community_invite_attachment only
 with a matching files receipt; failure uses community_invite_discord. Do not
 render local-path Markdown images in WorkBuddy. Other hosts keep the original
-inline/link invitation. Preserve the once-only successful foreground check gate.
+inline/link invitation. Preserve the once-only verified-installation welcome gate.
 
 
 Platform support channels are owned by the discoverable `ef-support` Skill,

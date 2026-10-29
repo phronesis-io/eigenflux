@@ -6,19 +6,19 @@ and the actual delivery outcome; do not use the invitation preamble.
 
 ## community_invite
 
-Use for an optional onboarding invitation. For an explicit support request,
+Use for the optional stage-1 welcome invitation after verified installation. For an explicit support request,
 answer directly using the same channels and delivery rules; do not repeat the
 onboarding invitation preamble. Resolve the QR from the installed ef-support Skill.
 
 ### zh
 
-> 想交流使用心得、分享发现，或给我们提建议？欢迎加入 [EigenFlux Discord 社区](https://discord.gg/MWFr98Pbe)，也可以扫描下方二维码加入微信群。
+> 如果设置时遇到问题，可以加入 [EigenFlux Discord 社区](https://discord.gg/MWFr98Pbe)，或扫描下方二维码加入微信群，联系运营团队。他们会在 1 个工作日内回复你。
 >
 > ![EigenFlux 微信群二维码](<wechat-qr-path>)
 
 ### en
 
-> Want to swap tips, share discoveries, or give us feedback? Join the [EigenFlux Discord community](https://discord.gg/MWFr98Pbe), or scan the QR code below to join our WeChat group.
+> If you get stuck during setup, join the [EigenFlux Discord community](https://discord.gg/MWFr98Pbe), or scan the QR code below to join our WeChat group and contact the operations team. They will reply within one business day.
 >
 > ![EigenFlux WeChat group QR code](<wechat-qr-path>)
 
@@ -31,11 +31,11 @@ Use only after confirmed native QR attachment delivery in WorkBuddy.
 
 ### zh
 
-> 想交流使用心得、分享发现，或给我们提建议？欢迎加入 [EigenFlux Discord 社区](https://discord.gg/MWFr98Pbe)，也可以扫描所附二维码加入微信群。
+> 如果设置时遇到问题，可以加入 [EigenFlux Discord 社区](https://discord.gg/MWFr98Pbe)，或扫描所附二维码加入微信群，联系运营团队。他们会在 1 个工作日内回复你。
 
 ### en
 
-> Want to share tips, discoveries, or feedback? Join the [EigenFlux Discord community](https://discord.gg/MWFr98Pbe), or scan the attached QR code to join our WeChat group.
+> If you get stuck during setup, join the [EigenFlux Discord community](https://discord.gg/MWFr98Pbe), or scan the attached QR code to join our WeChat group and contact the operations team. They will reply within one business day.
 
 ## community_invite_discord
 
@@ -43,8 +43,8 @@ Use when the QR asset or native attachment delivery is unavailable.
 
 ### zh
 
-> 想交流使用心得、分享发现，或给我们提建议？欢迎加入 [EigenFlux Discord 社区](https://discord.gg/MWFr98Pbe)。
+> 如果设置时遇到问题，可以加入 [EigenFlux Discord 社区](https://discord.gg/MWFr98Pbe) 联系运营团队。他们会在 1 个工作日内回复你。
 
 ### en
 
-> Want to share tips, discoveries, or feedback? Join the [EigenFlux Discord community](https://discord.gg/MWFr98Pbe).
+> If you get stuck during setup, join the [EigenFlux Discord community](https://discord.gg/MWFr98Pbe) to contact the operations team. They will reply within one business day.

@@ -173,11 +173,14 @@ func TestOnboardingCommunityInvitation(t *testing.T) {
 		}
 		return string(b)
 	}
-	connection := read("references/connection.md")
-	for _, phrase := range []string{"after `action_menu`", "`check_empty`", "Do not wait for an action selection", "Do not repeat it in action results", "original task history", "scheduled heartbeat", "Never join a community", "`ef-support`", "later explicit request"} {
+	connection := read("references/community.md")
+	for _, phrase := range []string{"After verified installation", "`welcome`", "`schedule`", "first check", "original task history", "scheduled heartbeat", "Never join a community", "`ef-support`", "later explicit request"} {
 		if !strings.Contains(connection, phrase) {
 			t.Errorf("missing community boundary: %s", phrase)
 		}
+	}
+	if !strings.Contains(read("SKILL.md"), "references/community.md") || !strings.Contains(read("references/connection.md"), "Do not append a community invitation") {
+		t.Error("invitation must be routed from installation and excluded from first check")
 	}
 	messages := read("../ef-support/references/messages.md")
 	if strings.Count(messages, "https://discord.gg/MWFr98Pbe") != 6 {
@@ -344,7 +347,7 @@ func TestSupportPublicCopyConsistency(t *testing.T) {
 			t.Errorf("missing homepage contact guidance: %s", marker)
 		}
 	}
-	copy := read("../../skills/ef-onboarding/references/messages.md")
+	copy := read("../../skills/ef-support/references/messages.md")
 	for _, promise := range []string{"1 个工作日", "one business day"} {
 		if !strings.Contains(copy, promise) {
 			t.Errorf("missing existing response policy: %s", promise)

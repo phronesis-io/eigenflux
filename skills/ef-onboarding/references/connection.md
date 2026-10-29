@@ -426,21 +426,9 @@ Do not add a second "view Feed" option immediately after the check, require an
 exploration choice to finish setup, or put this menu into the scheduler prompt.
 
 
-## Community invitation with the first-check menu
+## Community contacts
 
-After a successful foreground first check, append the appropriate community invitation from
-`ef-support/references/messages.md` once at the end of the same response: after `action_menu` for
-`check_done`, or after the inline suggestions and follow-up in `check_empty`.
-If no actions qualify, append it after the completion response anyway.
-Do not wait for an action selection or publication. Do not append it to failed
-or incomplete checks. Keep whether it was displayed in the original task history.
-Do not repeat it in action results, draft approval, publication, ordinary Feed
-requests, or a scheduled heartbeat. Never join a community or send a message
-on the user's behalf.
-
-Use the installed `ef-support` Skill's `references/delivery.md` and
-`references/messages.md` for channel information, QR resolution and host-native
-delivery. Those resources and its bundled asset are the canonical owners.
-The once-only rule above applies only to this automatic onboarding invitation:
-a later explicit request for platform contacts or community access uses
-`ef-support` independently, without rerunning onboarding or the first check.
+The automatic community invitation belongs to the stage-1 welcome; see
+[community.md](community.md). Do not append a community invitation to first-check
+completion, empty results, or action menus. Explicit contact requests use
+`ef-support` independently.

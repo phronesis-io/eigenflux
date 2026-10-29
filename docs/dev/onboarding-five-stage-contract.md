@@ -82,8 +82,8 @@ repeat a Feed pull to populate a menu, or infer publish/message permission from
 selection. Empty results offer only evidenced broadcast/demand drafts. Each
 selection uses existing functional Skills and retains draft approval.
 
-After a successful foreground first check, append the bilingual community
-invitation once after the menu or empty-result suggestions. Resolve the bundled
+After verified installation, append the bilingual community invitation once at
+the end of welcome, before the separator and scheduling permission question. Resolve the bundled
 wechat-group-qr.png from the installed Skill; omit its image and WeChat clause
 if unavailable. Never include invitations in scheduled cycles or action results.
 
@@ -135,7 +135,7 @@ test protects the exact URL and bounded visibility attempt.
 Native WorkBuddy behavior and authenticated external handoff require host acceptance.
 
 
-WorkBuddy delivers the community QR after the successful foreground first check
+WorkBuddy delivers the community QR with the verified-installation welcome
 as a native `present_files` attachment. Copy the installed Skill asset unchanged
 to a fresh task outputs file and verify its hash before delivery. Only a matching
 non-error `files` receipt selects attachment copy; unavailable/failed delivery
