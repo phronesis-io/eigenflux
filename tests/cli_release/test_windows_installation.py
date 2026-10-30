@@ -58,3 +58,62 @@ if ($LASTEXITCODE -ne 0) { throw 'Registration failed' }
             self.assertIn('|migrate', calls)
             self.assertIn('|skills|sync|--host=codex', calls)
             self.assertIn('|installation|record|--host|codex|--skills-target=' + str(root / '.agents' / 'skills'), calls)
+
+    def test_notification_failure_does_not_skip_watch_recovery(self):
+        shell = shutil.which('powershell') or shutil.which('pwsh')
+        if os.name != 'nt' or not shell:
+            self.skipTest('Windows PowerShell required')
+        source = (Path(__file__).resolve().parents[2] / 'static/install.ps1').read_text(encoding='utf-8')
+        prefix, main = source.split('# ── Main ─', 1)
+        main = main[main.index('\n'):]
+        with tempfile.TemporaryDirectory(prefix='notification recovery ') as temp:
+            root = Path(temp)
+            binary = root / 'eigenflux.exe'
+            log = root / 'calls.txt'
+            stub = root / 'main.go'
+            stub.write_text('''package main
+import ("fmt"; "os"; "strings")
+func main() {
+    args := strings.Join(os.Args[1:], "|")
+    f, err := os.OpenFile(os.Getenv("TEST_CALLS"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+    if err != nil { panic(err) }
+    fmt.Fprintln(f, args)
+    f.Close()
+    if strings.Contains(args, "notify|" + os.Getenv("TEST_NOTIFY_FAILURE")) && os.Getenv("TEST_NOTIFY_FAILURE") != "" { os.Exit(1) }
+}
+''', encoding='utf-8')
+            subprocess.run(['go', 'build', '-o', str(binary), str(stub)], check=True,
+                           env=dict(os.environ, GO111MODULE='off'), capture_output=True,
+                           text=True, timeout=60)
+            fixture = root / 'fixture.ps1'
+            fixture.write_text(prefix + '''
+function Install-Cli { $script:installedCliPath = $env:TEST_BINARY }
+function Install-Skills { $script:installedSkillsTarget = $env:TEST_SKILLS }
+function Migrate-Config {}
+function Setup-Agents {}
+function Get-InvokingHost { 'workbuddy' }
+''' + main, encoding='utf-8-sig')
+            for failure, skip_agent in [('setup', False), ('status', False), ('', False), ('setup', True)]:
+                with self.subTest(notification_failure=failure, skip_agent=skip_agent):
+                    if log.exists():
+                        log.unlink()
+                    env = dict(os.environ, TEST_CALLS=str(log), TEST_BINARY=str(binary),
+                               TEST_SKILLS=str(root / '.agents' / 'skills'),
+                               EIGENFLUX_HOME=str(root / 'agent home'), USERPROFILE=str(root),
+                               TEST_NOTIFY_FAILURE=failure, EIGENFLUX_SKIP_AGENT_SETUP='1' if skip_agent else '0')
+                    result = subprocess.run([shell, '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                                             '-File', str(fixture)], env=env, capture_output=True,
+                                            text=True, timeout=30)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    calls = log.read_text()
+                    self.assertIn('|notify|setup|--source|installer', calls)
+                    if skip_agent:
+                        self.assertNotIn('watch|recover', calls)
+                    else:
+                        self.assertIn('|watch|recover', calls)
+                    if failure:
+                        self.assertIn('notifications are not ready', result.stdout)
+                        self.assertNotIn('Windows notification registration is complete', result.stdout)
+                    else:
+                        self.assertIn('Windows notification registration is complete', result.stdout)
+                        self.assertNotIn('notifications are not ready', result.stdout)

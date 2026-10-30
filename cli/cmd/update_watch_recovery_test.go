@@ -10,7 +10,7 @@ import (
 )
 
 func TestUpgradeWatchRecovery(t *testing.T) {
-	for _, scenario := range []string{"bound", "notifications", "wrong_account", "skills_failed", "disabled", "running", "start_failed", "not_ready", "identity_switch", "owner_locked"} {
+	for _, scenario := range []string{"bound", "notifications", "wrong_account", "skills_failed", "disabled", "running", "start_failed", "not_ready", "identity_switch", "owner_locked", "busy", "old_version", "main_unavailable", "running_skills_failed"} {
 		t.Run(scenario, func(t *testing.T) {
 			expected := dispatch.Binding{Home: "/home/agent", Server: "eigenflux", Endpoint: "https://example.com", AgentID: "42", PrincipalID: "7", Scope: "scope"}
 			b := expected
@@ -26,6 +26,10 @@ func TestUpgradeWatchRecovery(t *testing.T) {
 			}
 			var syncs, starts, checks, reads int
 			deps := updateRecoveryDeps{
+				busy: func(dispatch.Binding) (bool, error) { return scenario == "busy", nil },
+				probe: func(context.Context, dispatch.Binding) dispatch.MainNoticeProbe {
+					return dispatch.MainNoticeProbe{TransportAvailable: scenario != "main_unavailable", TargetMatched: true, Enabled: true, Code: "main_notice_owner_unavailable"}
+				},
 				idle: func() error {
 					if scenario == "owner_locked" {
 						return errors.New("busy")
@@ -44,7 +48,7 @@ func TestUpgradeWatchRecovery(t *testing.T) {
 					if binding != nil && got.SkillsDir != "/rules" {
 						t.Fatal("lost binding rules")
 					}
-					if scenario == "skills_failed" {
+					if scenario == "skills_failed" || scenario == "running_skills_failed" {
 						return errors.New("untrusted")
 					}
 					return nil
@@ -68,16 +72,20 @@ func TestUpgradeWatchRecovery(t *testing.T) {
 					if notifications != (binding == nil) {
 						t.Fatal("wrong live scope")
 					}
-					if scenario == "running" {
-						return watchLiveStatus{Running: true, Ready: true}
+					if scenario == "running" || scenario == "running_skills_failed" || scenario == "busy" || scenario == "old_version" {
+						c := commit
+						if scenario == "old_version" {
+							c = "old"
+						}
+						return watchLiveStatus{Running: true, Ready: true, Commit: c}
 					}
-					return watchLiveStatus{Running: reads > 1, Ready: reads > 1 && scenario != "not_ready"}
+					return watchLiveStatus{Running: reads > 1, Ready: reads > 1 && scenario != "not_ready", Commit: commit}
 				},
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 			defer cancel()
 			got := recoverUpdatedWatch(ctx, expected, binding, "/bin/eigenflux", deps)
-			want := map[string]string{"bound": "ready", "notifications": "ready", "wrong_account": "blocked", "skills_failed": "blocked", "disabled": "skipped", "running": "running", "start_failed": "blocked", "not_ready": "starting", "identity_switch": "blocked", "owner_locked": "blocked"}[scenario]
+			want := map[string]string{"bound": "ready", "notifications": "ready", "wrong_account": "blocked", "skills_failed": "blocked", "disabled": "skipped", "running": "ready", "start_failed": "blocked", "not_ready": "starting", "identity_switch": "blocked", "owner_locked": "blocked", "busy": "pending", "old_version": "pending", "main_unavailable": "blocked", "running_skills_failed": "blocked"}[scenario]
 			if got.Status != want {
 				t.Fatalf("%+v", got)
 			}
@@ -87,8 +95,14 @@ func TestUpgradeWatchRecovery(t *testing.T) {
 			if (scenario == "skills_failed" || scenario == "identity_switch") && starts != 0 {
 				t.Fatal("started despite failed preflight")
 			}
-			if scenario == "running" && (starts != 0 || syncs != 0) {
+			if scenario == "running" && (starts != 0 || syncs != 1) {
 				t.Fatal("interrupted running work")
+			}
+			if scenario == "busy" && (syncs != 0 || starts != 0) {
+				t.Fatal("interrupted active work")
+			}
+			if scenario == "old_version" && got.VersionVerified {
+				t.Fatal("old process counted as adopted")
 			}
 			if scenario == "not_ready" && got.RuntimeReady {
 				t.Fatal("startup is not readiness")

@@ -201,3 +201,43 @@ func TestMissingAccountLaunchAgentCreatedOrPreservesDisable(t *testing.T) {
 		})
 	}
 }
+
+func TestLaunchAgentForAnotherHomeDoesNotBlockRecovery(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, "Library", "LaunchAgents")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	cli := filepath.Join(home, "eigenflux")
+	if err := os.WriteFile(cli, []byte("fixture"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "other-account.plist")
+	if err := os.WriteFile(file, []byte("preserve"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	other := notificationLaunchDefinition{Label: "ai.eigenflux.watch.other", ProgramArguments: []string{cli, "--homedir", filepath.Join(home, "other"), "--server", "eigenflux", "watch", "--dispatch"}, EnvironmentVariables: map[string]string{"EIGENFLUX_WATCH_EXPECTED_AGENT": "other-agent", "EIGENFLUX_WATCH_EXPECTED_PRINCIPAL": "other-owner"}}
+	raw, _ := json.Marshal(other)
+	task := NotificationTask{CLI: cli, Home: filepath.Join(home, "current"), Server: "eigenflux", Scope: "0123456789abcdef0123456789abcdef", AgentID: "current-agent", PrincipalID: "current-owner", Dispatch: true, PrepareOnly: true}
+	run := func(_ context.Context, program string, args ...string) ([]byte, error) {
+		if program == "/usr/bin/plutil" {
+			return raw, nil
+		}
+		if args[0] == "print-disabled" || args[0] == "print" && strings.Count(args[1], "/") == 1 {
+			return nil, nil
+		}
+		if args[0] == "print" {
+			return nil, errors.New("absent")
+		}
+		t.Fatalf("unexpected mutation %s %v", program, args)
+		return nil, nil
+	}
+	r, err := startNotificationLaunchAgent(context.Background(), task, home, os.Getuid(), run)
+	if err != nil || r.Status != "task_stopped" {
+		t.Fatalf("other account blocked recovery: %+v %v", r, err)
+	}
+	after, _ := os.ReadFile(file)
+	if string(after) != "preserve" {
+		t.Fatal("other account changed")
+	}
+}

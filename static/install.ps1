@@ -345,7 +345,15 @@ $recordBin = $script:installedCliPath
 $recordHost = Get-InvokingHost
 & $recordBin --homedir $env:EIGENFLUX_HOME installation record "--host=$recordHost" "--skills-target=$($script:installedSkillsTarget)" | Out-Null
 if ($LASTEXITCODE -ne 0) { Info "Installation registration unavailable; record it with the new CLI before uninstalling." }
-Setup-Notifications
+# Notification permission is independent of background order processing. Preserve
+# the diagnostic, but always attempt outer-loop recovery even when setup fails.
+$notificationSetupError = $null
+try {
+    Setup-Notifications
+} catch {
+    $notificationSetupError = $_.Exception.Message
+    Info "Notifications need attention: $notificationSetupError"
+}
 $watchHome = Resolve-EigenfluxHome -ExplicitHome $ExplicitEigenfluxHome -InvokingHost (Get-InvokingHost)
 if ($env:EIGENFLUX_SKIP_AGENT_SETUP -ne '1') {
     & $script:installedCliPath watch recover --help *> $null
@@ -358,6 +366,10 @@ if ($env:EIGENFLUX_SKIP_AGENT_SETUP -ne '1') {
     }
 }
 Info "Updated plugin files may require a host restart after current work finishes."
+
+if ($notificationSetupError) {
+    Info "CLI installation completed; notifications are not ready. $notificationSetupError"
+}
 
 Ok ""
 if ([Console]::IsOutputRedirected) {

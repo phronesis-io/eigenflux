@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"reflect"
 	"runtime"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 )
 
 type updateWatchRecovery struct {
+	TargetCommit      string                     `json:"target_commit,omitempty"`
 	Status            string                     `json:"status"`
 	Mode              string                     `json:"mode,omitempty"`
 	Reason            string                     `json:"reason,omitempty"`
@@ -27,10 +29,16 @@ type updateWatchRecovery struct {
 	AgentCallVerified bool                       `json:"agent_call_verified"`
 	DesktopStatus     string                     `json:"desktop_status,omitempty"`
 	Notifications     *upgradeNotificationStatus `json:"notifications,omitempty"`
+	RunningCommit     string                     `json:"running_commit,omitempty"`
+	VersionVerified   bool                       `json:"version_verified"`
+	SkillsVerified    bool                       `json:"skills_verified"`
+	MainSession       *dispatch.MainNoticeProbe  `json:"main_session,omitempty"`
 }
 
 type updateRecoveryDeps struct {
 	idle   func() error
+	busy   func(dispatch.Binding) (bool, error)
+	probe  func(context.Context, dispatch.Binding) dispatch.MainNoticeProbe
 	verify func() error
 	sync   func(dispatch.Binding) error
 	start  func(context.Context, watchservice.NotificationTask) (watchservice.Result, error)
@@ -38,7 +46,7 @@ type updateRecoveryDeps struct {
 }
 
 func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding *dispatch.Binding, cli string, deps updateRecoveryDeps) updateWatchRecovery {
-	r := updateWatchRecovery{Status: "blocked", Mode: "notifications_only"}
+	r := updateWatchRecovery{Status: "blocked", Mode: "notifications_only", TargetCommit: commit}
 	if binding != nil {
 		if !sameBindingIdentity(*binding, expected) {
 			r.Reason = "identity_changed"
@@ -51,15 +59,33 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 		r.Reason = "identity_changed"
 		return r
 	}
-	// A running owner must drain and adopt updates itself. Never interrupt paid work.
-	if live := deps.live(expected, binding == nil); live.Running {
-		r.Status = "running"
-		r.RuntimeReady = live.Ready
-		r.AgentCallVerified = live.AgentCallVerified
-		r.DesktopStatus = live.DesktopStatus
-		return r
+
+	running := deps.live(expected, binding == nil).Running
+	// Wait for admitted work without killing the owner or replacing its rules.
+	if running && deps.busy != nil {
+		for {
+			busy, err := deps.busy(expected)
+			if err != nil {
+				r.Reason = "work_state_unavailable"
+				return r
+			}
+			if !busy {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				r.Status = "pending"
+				r.Reason = "active_work_draining"
+				return r
+			case <-time.After(250 * time.Millisecond):
+			}
+			if err := deps.verify(); err != nil {
+				r.Reason = "identity_changed"
+				return r
+			}
+		}
 	}
-	if deps.idle != nil {
+	if !running && deps.idle != nil {
 		if err := deps.idle(); err != nil {
 			r.Reason = "owner_active_unverified"
 			return r
@@ -73,15 +99,18 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 		r.Reason = "identity_changed"
 		return r
 	}
-	result, err := deps.start(ctx, watchservice.NotificationTask{CLI: cli, Home: expected.Home, Server: expected.Server, Scope: expected.Scope, AgentID: expected.AgentID, PrincipalID: expected.PrincipalID, Dispatch: binding != nil})
-	if err != nil {
-		r.Reason = "watch_start_failed"
-		return r
-	}
-	if result.Status == "skipped_disabled" {
-		r.Status = "skipped"
-		r.Reason = "owner_disabled"
-		return r
+	r.SkillsVerified = true
+	if !running {
+		result, err := deps.start(ctx, watchservice.NotificationTask{CLI: cli, Home: expected.Home, Server: expected.Server, Scope: expected.Scope, AgentID: expected.AgentID, PrincipalID: expected.PrincipalID, Dispatch: binding != nil})
+		if err != nil {
+			r.Reason = "watch_start_failed"
+			return r
+		}
+		if result.Status == "skipped_disabled" {
+			r.Status = "skipped"
+			r.Reason = "owner_disabled"
+			return r
+		}
 	}
 	r.Status = "starting"
 	ticker := time.NewTicker(250 * time.Millisecond)
@@ -93,16 +122,41 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 			return r
 		}
 		live := deps.live(expected, binding == nil)
-		if live.Running && live.Ready {
+
+		r.RuntimeReady = live.Running && live.Ready
+		r.RunningCommit = live.Commit
+		r.VersionVerified = live.Running && live.Commit == commit
+		r.AgentCallVerified = live.AgentCallVerified
+		r.DesktopStatus = live.DesktopStatus
+		if r.RuntimeReady && r.VersionVerified {
 			r.Status = "ready"
-			r.RuntimeReady = true
-			r.AgentCallVerified = live.AgentCallVerified
-			r.DesktopStatus = live.DesktopStatus
+			if expected.Host == "codex" {
+				if deps.probe == nil {
+					r.Status = "blocked"
+					r.Reason = "codex_main_probe_unavailable"
+					return r
+				}
+				probe := deps.probe(ctx, expected)
+				r.MainSession = &probe
+				if err := deps.verify(); err != nil {
+					r.Status = "blocked"
+					r.Reason = "identity_changed"
+					return r
+				}
+				if !probe.TransportAvailable || !probe.TargetMatched || !probe.Enabled {
+					r.Status = "blocked"
+					r.Reason = probe.Code
+				}
+			}
 			return r
 		}
 		select {
 		case <-ctx.Done():
 			r.Reason = "runtime_not_ready"
+			if running && !r.VersionVerified {
+				r.Status = "pending"
+				r.Reason = "version_adoption_pending"
+			}
 			return r
 		case <-ticker.C:
 		}
@@ -120,6 +174,9 @@ func recoverWatchAfterUpdate(cmd *cobra.Command, cfg *config.Config, manual bool
 	}
 	if cfg == nil {
 		r.Reason = "pending_auth"
+		if markWatchRecoveryPending(cfg) != nil {
+			r.Reason = "pending_auth_receipt_failed"
+		}
 		return r
 	}
 	expected, err := watchBindingIdentity()
@@ -128,6 +185,9 @@ func recoverWatchAfterUpdate(cmd *cobra.Command, cfg *config.Config, manual bool
 		if errors.Is(err, os.ErrNotExist) {
 			r.Status = "skipped"
 			r.Reason = "pending_auth"
+			if markWatchRecoveryPending(cfg) != nil {
+				r.Reason = "pending_auth_receipt_failed"
+			}
 			return r
 		}
 		r.Reason = "identity_unavailable"
@@ -145,7 +205,7 @@ func recoverWatchAfterUpdate(cmd *cobra.Command, cfg *config.Config, manual bool
 
 		currentBinding, bindingErr := dispatch.ReadBinding(expected.Home, expected.Server)
 		if binding != nil {
-			if bindingErr != nil || !sameBindingIdentity(currentBinding, *binding) || currentBinding.Revision != binding.Revision {
+			if bindingErr != nil || !sameBindingIdentity(currentBinding, *binding) || currentBinding.Revision != binding.Revision || currentBinding.MainSessionID != binding.MainSessionID || !reflect.DeepEqual(currentBinding.Env, binding.Env) {
 				return errWatchConfiguration
 			}
 		} else {
@@ -231,6 +291,22 @@ func recoverWatchAfterUpdate(cmd *cobra.Command, cfg *config.Config, manual bool
 			release()
 		}
 		return err
+	}, busy: func(b dispatch.Binding) (bool, error) {
+		if binding == nil {
+			return false, nil
+		}
+		jobs, err := dispatch.ReadJournalStatus(b)
+		if err != nil {
+			return false, err
+		}
+		for _, job := range jobs {
+			if job.Status == "running" || job.Status == "sending" {
+				return true, nil
+			}
+		}
+		return false, nil
+	}, probe: func(ctx context.Context, b dispatch.Binding) dispatch.MainNoticeProbe {
+		return dispatch.ProbeMainNotice(ctx, dispatch.MainNoticeTarget{Host: b.Host, SessionID: b.MainSessionID, Binding: b})
 	}, verify: verify, sync: syncRules, start: watchservice.StartNotifications, live: func(b dispatch.Binding, n bool) watchLiveStatus { return readWatchLiveStatus(b, n, time.Now()) }})
 	return r
 }
@@ -268,7 +344,7 @@ func init() {
 		if err := json.NewEncoder(cmd.OutOrStdout()).Encode(r); err != nil {
 			return err
 		}
-		if r.Status == "blocked" || r.Status == "starting" {
+		if r.Status == "blocked" || r.Status == "starting" || r.Status == "pending" {
 			return fmt.Errorf("watch recovery incomplete: %s", r.Reason)
 		}
 		return nil

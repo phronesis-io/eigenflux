@@ -524,6 +524,9 @@ var agentV2ProvisionCmd = &cobra.Command{
 			"runtime_host": meta.Host, "mode": meta.Mode,
 			"runtime_identity_complete": meta.Host != "" && meta.Mode != "",
 		}
+		if recovery := completePendingWatchRecovery(cmd, cfg); recovery != nil {
+			result["watch_recovery"] = recovery
+		}
 		if ref != "" {
 			reportErr := reportProvisionedInstall(*server, ref, meta)
 			result["install_reported"] = reportErr == nil

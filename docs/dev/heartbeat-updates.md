@@ -321,3 +321,18 @@ is silent. Permission-required, denied, setup timeout and unknown-first-notifica
 states are reported independently in `notifications`, with no visibility claim.
 CLI installation success is not notification or watch success. The existing
 `EIGENFLUX_SKIP_AGENT_SETUP=1` opt-out also skips notification initialization.
+
+### Current-runtime and authentication continuation
+
+A live watch is not an upgrade receipt: completion checks signed host Skills,
+waits for admitted journal work, and verifies the running commit. An old runtime
+is reported as pending while its normal drained update path adopts the package;
+recovery never kills it to force success. Codex additionally requires a read-only
+probe of the exact bound main session. No prompt or model turn is generated.
+
+An installation that is pending authentication records a Home/server/endpoint
+intent. Successful credential provisioning resumes that intent; later completed
+heartbeats retry unresolved recovery. Ordinary registration without this intent
+does not install a background task. Readiness or explicit owner disablement
+consumes the intent in place, without deleting a lock or marker file. Windows
+notification setup/status failure is reported but does not skip watch recovery.

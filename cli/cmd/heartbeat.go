@@ -343,7 +343,10 @@ var heartbeatPlanCmd = &cobra.Command{
 			notifications := upgradeNotifications(cmd, false)
 			plan.Notifications = &notifications
 			recovery := recoverWatchAfterUpdate(cmd, cfg, false)
-			plan.OuterLoop = &recovery
+			plan.OuterLoop = resumePendingWatchRecovery(cfg, func() updateWatchRecovery { return recovery })
+			if plan.OuterLoop == nil {
+				plan.OuterLoop = &recovery
+			}
 		}
 
 		plan.AgentPrompt = renderHeartbeatPlanForAgent(plan)

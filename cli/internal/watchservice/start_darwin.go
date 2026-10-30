@@ -189,9 +189,6 @@ func notificationLaunchAgent(ctx context.Context, file, home string, uid int, ta
 	if json.Unmarshal(raw, &d) != nil || !launchLabel.MatchString(d.Label) {
 		return d, errors.New("invalid LaunchAgent definition")
 	}
-	if agent := d.EnvironmentVariables["EIGENFLUX_WATCH_EXPECTED_AGENT"]; agent != "" && (agent != task.AgentID || d.EnvironmentVariables["EIGENFLUX_WATCH_EXPECTED_PRINCIPAL"] != task.PrincipalID) {
-		return d, fmt.Errorf("%w: launcher is pinned to another Agent", errExistingAccountLauncher)
-	}
 	args := d.ProgramArguments
 	if len(args) == 0 {
 		return d, errors.New("LaunchAgent has no verifiable command")
@@ -226,6 +223,9 @@ func notificationLaunchAgent(ctx context.Context, file, home string, uid int, ta
 	}
 	if !notificationAccountCommand(args, task) {
 		return d, errors.New("LaunchAgent does not launch this Home/server dispatch watch")
+	}
+	if agent := d.EnvironmentVariables["EIGENFLUX_WATCH_EXPECTED_AGENT"]; agent != "" && (agent != task.AgentID || d.EnvironmentVariables["EIGENFLUX_WATCH_EXPECTED_PRINCIPAL"] != task.PrincipalID) {
+		return d, fmt.Errorf("%w: launcher is pinned to another Agent", errExistingAccountLauncher)
 	}
 	if task.CLI != "" {
 		actual, err := filepath.EvalSymlinks(args[0])
