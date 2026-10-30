@@ -7,6 +7,7 @@ import (
 	"eigenflux_server/pkg/replaylog"
 	"eigenflux_server/rpc/sort/discovery"
 	"encoding/json"
+	"reflect"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -284,5 +285,28 @@ func TestSamplePreservesRequestTimeAndRecordsDeliveryTime(t *testing.T) {
 	}
 	if features.Search.RequestTime != requestTime {
 		t.Fatal("request snapshot timestamp changed")
+	}
+}
+
+func TestSampleRecordsExperimentArms(t *testing.T) {
+	_, e, _ := setup(t)
+	e.x.Mode = discovery.Recommendation
+	read := func() map[string]any {
+		values, err := sampleValues(1, e.x, "impression", 0, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var features map[string]any
+		if err := json.Unmarshal([]byte(values["agent_features"].(string)), &features); err != nil {
+			t.Fatal(err)
+		}
+		return features
+	}
+	if _, ok := read()["experiments"]; ok {
+		t.Fatal("no running experiment must omit the field")
+	}
+	e.x.Experiments = map[string]string{"discovery-need-budget-v1": "control"}
+	if got := read()["experiments"]; !reflect.DeepEqual(got, map[string]any{"discovery-need-budget-v1": "control"}) {
+		t.Fatal("experiment arms not recorded", got)
 	}
 }

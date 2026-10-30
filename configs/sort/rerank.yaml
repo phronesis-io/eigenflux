@@ -36,3 +36,9 @@ policies:
   - name: source_limit
     source: friend
     max_fraction: 1/2
+  - name: source_limit
+    source: swing_i2i
+    max_fraction: 1/4
+  - name: need_mix
+    reserved_fraction: 3/4   # positions reserved for equal-priority Needs in turn (Need budget bucket only)
+    min_need_cosine: 0.4     # current-Need cosine required to take a reserved position

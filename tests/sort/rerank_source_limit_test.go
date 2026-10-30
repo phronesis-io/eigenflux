@@ -87,11 +87,14 @@ func TestSourceLimitConfigUsesExactFraction(t *testing.T) {
 
 	limits, err := cfg.SourceLimits()
 	require.NoError(t, err)
-	require.Len(t, limits, 1)
+	require.Len(t, limits, 2)
 	assert.Equal(t, "friend", limits[0].Source)
 	assert.Equal(t, 10, limits[0].MaxCount(20))
 	assert.Equal(t, 1, limits[0].MaxCount(3))
 	assert.Equal(t, 0, limits[0].MaxCount(1))
+	assert.Equal(t, "swing_i2i", limits[1].Source)
+	assert.Equal(t, 5, limits[1].MaxCount(20))
+	assert.Equal(t, 0, limits[1].MaxCount(3))
 }
 
 func TestSourceLimitConfigRejectsInvalidValues(t *testing.T) {

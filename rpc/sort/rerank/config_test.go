@@ -225,3 +225,37 @@ func TestLoadConfigRejectsInvalidBoostRules(t *testing.T) {
 		require.Error(t, err)
 	}
 }
+
+func TestNeedMixConfig(t *testing.T) {
+	cosine := func(v float64) *float64 { return &v }
+	cfg := &Config{Policies: []PolicyConfig{{Name: "need_mix", ReservedFraction: "3/4", MinNeedCosine: cosine(0.4)}}}
+	_, err := cfg.NewPolicies(time.Now)
+	require.NoError(t, err)
+	mix, err := cfg.NeedMix()
+	require.NoError(t, err)
+	n, d := mix.Ratio()
+	require.Equal(t, []any{3, 4, 0.4}, []any{n, d, mix.MinNeedCosine})
+
+	none, err := (&Config{}).NeedMix()
+	require.NoError(t, err)
+	require.Nil(t, none)
+
+	for name, pc := range map[string]PolicyConfig{
+		"zero":       {ReservedFraction: "0/4", MinNeedCosine: cosine(0.4)},
+		"over_one":   {ReservedFraction: "5/4", MinNeedCosine: cosine(0.4)},
+		"malformed":  {ReservedFraction: "3:4", MinNeedCosine: cosine(0.4)},
+		"no_cosine":  {ReservedFraction: "3/4"},
+		"nan_cosine": {ReservedFraction: "3/4", MinNeedCosine: cosine(math.NaN())},
+		"big_cosine": {ReservedFraction: "3/4", MinNeedCosine: cosine(1.5)},
+	} {
+		pc.Name = "need_mix"
+		bad := &Config{Policies: []PolicyConfig{pc}}
+		_, err := bad.NewPolicies(time.Now)
+		require.Error(t, err, name)
+		_, err = bad.NeedMix()
+		require.Error(t, err, name)
+	}
+	twice := &Config{Policies: []PolicyConfig{cfg.Policies[0], cfg.Policies[0]}}
+	_, err = twice.NeedMix()
+	require.Error(t, err)
+}

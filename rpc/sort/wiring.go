@@ -23,9 +23,12 @@ import (
 	"time"
 )
 
-func initDiscovery(ctx context.Context, cfg *config.Config, policies func(context.Context, []discovery.Candidate, discovery.Mode, int) ([]discovery.Candidate, error), sourceLimits []discovery.SourceLimit, pgcAuthors discovery.PGCAuthors) (*discovery.Service, func(), error) {
+func initDiscovery(ctx context.Context, cfg *config.Config, policies func(context.Context, []discovery.Candidate, discovery.Mode, int) ([]discovery.Candidate, error), sourceLimits []discovery.SourceLimit, needMix *discovery.NeedMix, pgcAuthors discovery.PGCAuthors) (*discovery.Service, func(), error) {
 	if !cfg.EnableNeedSearch {
 		return nil, func() {}, nil
+	}
+	if cfg.DiscoveryNeedBudgetBPS < 0 || cfg.DiscoveryNeedBudgetBPS > 10000 {
+		return nil, nil, fmt.Errorf("DISCOVERY_NEED_BUDGET_BPS must be in [0,10000]")
 	}
 	if cfg.DiscoveryConsumedRefillBPS < 0 || cfg.DiscoveryConsumedRefillBPS > 10000 {
 		return nil, nil, fmt.Errorf("DISCOVERY_CONSUMED_REFILL_BPS must be in [0,10000]")
@@ -91,6 +94,7 @@ func initDiscovery(ctx context.Context, cfg *config.Config, policies func(contex
 	}
 	engine := &discovery.Engine{
 		FriendFeedEnabled: cfg.FriendFeedEnabled, SourceLimits: sourceLimits,
+		NeedBudgetBPS: cfg.DiscoveryNeedBudgetBPS, NeedMix: needMix,
 		ConsumedRefillBPS: cfg.DiscoveryConsumedRefillBPS, ProfileSemanticBPS: cfg.DiscoveryProfileSemanticBPS,
 		Compiler: &discovery.Compiler{Cache: contexts, Embedder: embed, NeedVectors: vectors, EmbeddingVersion: vectors.Generation()},
 		Needs:    discovery.CachedNeeds{NeedReader: need.Store{DB: db.DB}, Cache: contexts},

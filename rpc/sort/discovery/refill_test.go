@@ -139,6 +139,10 @@ func TestConsumedRefillPreservesCappedPageAndRecoversEmptyWithNeedPriority(t *te
 	}
 	e.ConsumedRefillBPS = 10000
 	after, page := run()
+	if after.Experiments["discovery-consumed-refill-v1"] != "treatment" {
+		t.Fatal("refill arm not recorded", after.Experiments)
+	}
+	after.Experiments = before.Experiments
 	if !reflect.DeepEqual(before, after) || len(page) != 10 || s.historyCalls != 0 || s.refillCalls != 0 {
 		t.Fatal("refill changed a nonempty source-capped page")
 	}
@@ -183,6 +187,7 @@ func TestConsumedRefillPreservesEveryNonemptyPage(t *testing.T) {
 				before := run()
 				e.ConsumedRefillBPS = 10000
 				after := run()
+				after.Experiments = before.Experiments
 				if !reflect.DeepEqual(before, after) || s.historyCalls != 0 || s.refillCalls != 0 {
 					t.Fatal("nonempty page changed or read optional dependencies")
 				}

@@ -139,7 +139,7 @@ The per-user opt-out is a setting, not an env var: `eigenflux config set --key o
 | `ENABLE_NEW_UGC_RECALL` | `false` | Enables the Redis-backed `new_ugc` recall channel (un-exposed UGC written by the offline service). Force-insertion is configured declaratively in `configs/sort/rerank.yaml` (`name: inject`), not via env |
 | `ENABLE_SWING_I2I_RECALL` | `false` | Enables Swing item-to-item recall from the offline `rec:swing_i2i` Redis index |
 | `SWING_I2I_RECALL_SEEDS` | `20` | Maximum newest confirmed surface item IDs expanded through the Swing index per request |
-| `SWING_I2I_RECALL_K` | `100` | Maximum aggregated Swing candidates returned per request |
+| `SWING_I2I_RECALL_K` | `100` | Maximum aggregated Swing candidates returned per request; `.env.example` sets `80` for the global recall budget |
 | `ENABLE_KNN_RECALL` | `false` | Enables the legacy profile-embedding KNN item-feed recall lane. Disabled by default while its replacement is prepared |
 | `KNN_RECALL_K` | `80` | Number of KNN item candidates returned when the legacy lane is enabled |
 | `KNN_RECALL_CANDIDATES` | `300` | Elasticsearch candidate pool size for the legacy KNN item recall lane |
@@ -240,6 +240,16 @@ recommendations. Search, relevance thresholds, ranking and source ceilings are
 unchanged. Restart Sort after changing the value; existing frozen Feed responses
 retain their snapshot. See [bounded refill](discovery.md#bounded-consumed-candidate-refill)
 for bounds, Redis 7 requirements and partial-result semantics.
+
+`DISCOVERY_NEED_BUDGET_BPS` defaults to `0` and accepts 0–10000. A stable
+Agent bucket enables a 300-candidate context merge cap, consumed-group exclusion
+in captured-Need dense recall, broadcast context attribution, and the `need_mix`
+soft quota from `configs/sort/rerank.yaml` across equal-priority captured Needs. Within-Need scores,
+explicit priorities, Search, and the 200-candidate global cap are unchanged. Restart
+Sort after changing the value; frozen Feed snapshots retain their original
+contents. The global Swing recall setting (`SWING_I2I_RECALL_K=80`) and the
+`swing_i2i` 1/4 page ceiling in `configs/sort/rerank.yaml` apply independently to
+all Agents. See [Need budgets and attribution](discovery.md#need-candidate-budget-and-attribution-experiment).
 
 `DISCOVERY_PROFILE_SEMANTIC_BPS` defaults to `0` and accepts 0–10000. It selects
 stable Agent buckets whose broadcast recommendations add profile-vector recall

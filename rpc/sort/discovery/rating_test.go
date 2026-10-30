@@ -309,16 +309,16 @@ func TestMergeOrdersRatingAcrossContextsAndKeepsInjectedFront(t *testing.T) {
 		rated(4, 2, 1, .9), rated(5, 2, 2, .3),
 		needCandidate,
 	}
-	if got := fmt.Sprint(ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 10)})); got != "[9 4 1 2 5 3]" {
+	if got := fmt.Sprint(ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 10, false, nil)})); got != "[9 4 1 2 5 3]" {
 		t.Fatalf("got %s", got)
 	}
 	slices.Reverse(in)
-	if got := fmt.Sprint(ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 10)})); got != "[9 4 1 2 5 3]" {
+	if got := fmt.Sprint(ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 10, false, nil)})); got != "[9 4 1 2 5 3]" {
 		t.Fatalf("order depends on input order: %s", got)
 	}
 	in[0].Context.Priority = 1
 	in[0].Context.CapturedNeed = nil
-	if got := fmt.Sprint(ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 10)})); got != "[9 4 1 2 5 3]" {
+	if got := fmt.Sprint(ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 10, false, nil)})); got != "[9 4 1 2 5 3]" {
 		t.Fatalf("priority: %s", got)
 	}
 }

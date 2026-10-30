@@ -559,3 +559,14 @@ func TestProfileSemanticDefaultsOffAndLoadsBucket(t *testing.T) {
 		t.Fatal("profile semantic bucket not loaded")
 	}
 }
+
+func TestNeedBudgetDefaultsOffAndLoadsBucket(t *testing.T) {
+	t.Setenv("DISCOVERY_NEED_BUDGET_BPS", "")
+	if Load().DiscoveryNeedBudgetBPS != 0 {
+		t.Fatal("Need budget must default off")
+	}
+	t.Setenv("DISCOVERY_NEED_BUDGET_BPS", "500")
+	if Load().DiscoveryNeedBudgetBPS != 500 {
+		t.Fatal("Need budget bucket not loaded")
+	}
+}

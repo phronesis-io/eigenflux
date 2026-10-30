@@ -170,6 +170,10 @@ func (s *Source) Recall(ctx context.Context, c Context, k Kind, channel string, 
 	return s.search(ctx, c, k, channel, limit)
 }
 func (s *Source) Hydrate(ctx context.Context, owner int64, mode Mode, docs []Document) ([]Document, error) {
+	started := time.Now()
+	defer func() {
+		metrics.DiscoveryHydrateDuration.WithLabelValues(string(mode)).Observe(time.Since(started).Seconds())
+	}()
 	if len(docs) > 1000 {
 		return nil, fmt.Errorf("hydration bound exceeded")
 	}

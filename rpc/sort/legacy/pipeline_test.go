@@ -9,6 +9,7 @@ import (
 
 	"eigenflux_server/pkg/recallsource"
 	sortDal "eigenflux_server/rpc/sort/dal"
+	"eigenflux_server/rpc/sort/discovery"
 	"eigenflux_server/rpc/sort/ranker"
 
 	"github.com/stretchr/testify/assert"
@@ -138,4 +139,30 @@ policies:
 
 	assert.Empty(t, policySet.PreRankPolicies())
 	assert.Empty(t, policySet.PostRankPolicies())
+}
+
+func TestConfiguredSwingPageCeiling(t *testing.T) {
+	s := &Service{itemRerankPolicies: loadRerankPolicySet(context.Background(), "../../../configs/sort/rerank.yaml", time.Now)}
+	limits := s.DiscoverySourceLimits()
+	require.Contains(t, limits, discovery.SourceLimit{Source: "swing_i2i", Numerator: 1, Denominator: 4})
+	require.Equal(t, &discovery.NeedMix{Numerator: 3, Denominator: 4, MinNeedCosine: 0.4}, s.DiscoveryNeedMix())
+	require.NotEmpty(t, s.itemRerankPolicies.PostRankPolicies(), "need_mix must not invalidate the other policies")
+	require.NotEmpty(t, s.itemRerankPolicies.InjectRules())
+	candidates := []discovery.Candidate{}
+	for id := int64(1); id <= 30; id++ {
+		c := discovery.Candidate{Document: discovery.Document{Ref: discovery.SourceRef{Type: discovery.Broadcast, ID: id}}}
+		if id <= 13 {
+			c.Document.Channels = []string{"swing_i2i"}
+		}
+		candidates = append(candidates, c)
+	}
+	page, _ := discovery.SelectRecommendationPage(candidates, 20, limits)
+	require.Len(t, page, 20)
+	swings := 0
+	for _, c := range page {
+		if c.Document.RecallSources().Has(recallsource.SwingI2I) {
+			swings++
+		}
+	}
+	require.Equal(t, 5, swings)
 }

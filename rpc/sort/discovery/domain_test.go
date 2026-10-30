@@ -170,7 +170,7 @@ func TestIndependentRulesAndMerge(t *testing.T) {
 	b.Document = baseDoc(Broadcast)
 	b.Score = Score{Value: .99, Eligible: true, Version: "broadcast_rules_v7"}
 	a.Score.Value = .5
-	items := Merge([]Candidate{b, a, b}, []Kind{Agent, Broadcast}, Search, 20)
+	items := Merge([]Candidate{b, a, b}, []Kind{Agent, Broadcast}, Search, 20, false, nil)
 	if len(items) != 2 || items[0].Document.Ref.Type != Agent {
 		t.Fatal("mixed scores compared or typed IDs collapsed")
 	}
@@ -242,7 +242,7 @@ func TestSearchMergePrioritizesExactWithinEachKind(t *testing.T) {
 	in := []Candidate{broadcast, commission, duplicate, ordinaryAgent, exactB, ineligible, exactA, exactA}
 	for _, kinds := range [][]Kind{AllKinds, {Commission, Broadcast, Agent}} {
 		for _, limit := range []int{0, 1, 2, 3, 20} {
-			got := Merge(in, kinds, Search, limit)
+			got := Merge(in, kinds, Search, limit, false, nil)
 			want := []SourceRef{}
 			if kinds[0] == Commission {
 				want = append(want, commission.Document.Ref, broadcast.Document.Ref)
@@ -262,7 +262,7 @@ func TestSearchMergePrioritizesExactWithinEachKind(t *testing.T) {
 			}
 		}
 	}
-	if got := Merge(in, []Kind{Broadcast}, Search, 20); len(got) != 1 || got[0].Document.Ref != broadcast.Document.Ref {
+	if got := Merge(in, []Kind{Broadcast}, Search, 20, false, nil); len(got) != 1 || got[0].Document.Ref != broadcast.Document.Ref {
 		t.Fatal("exact match escaped requested kinds", got)
 	}
 }
@@ -273,7 +273,7 @@ func TestResultBlocksPreserveSelectionAndWithinKindOrder(t *testing.T) {
 		in = append(in, Candidate{Document: Document{Ref: SourceRef{kind, int64(i + 1)}}, Context: Context{Priority: float64(10 - i)}, Score: Score{Eligible: true}})
 	}
 	// Selection still honors Need priority. Only the selected page is grouped.
-	selected := Merge(in, AllKinds, Recommendation, 5)
+	selected := Merge(in, AllKinds, Recommendation, 5, false, nil)
 	groupResultPages(selected, AllKinds, 5)
 	want := []int64{2, 5, 3, 1, 4}
 	for i, c := range selected {

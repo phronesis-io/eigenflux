@@ -2,9 +2,11 @@ package discovery
 
 import (
 	"crypto/sha256"
+	"eigenflux_server/rpc/sort/discoverylr"
 	"encoding/hex"
 	"encoding/json"
 	"math"
+	"slices"
 	"sort"
 )
 
@@ -119,7 +121,7 @@ func ScoreRules(c Context, d Document, rule Rule, now int64) Score {
 // Merge selects search hits round-robin in requested kind order, with exact
 // hits first within each kind. Automatic selection uses context priority.
 // The engine groups each selected page by kind before freezing or delivering it.
-func Merge(in []Candidate, kinds []Kind, mode Mode, limit int) []Candidate {
+func Merge(in []Candidate, kinds []Kind, mode Mode, limit int, needBudget bool, mix *NeedMix) []Candidate {
 	if limit <= 0 {
 		return []Candidate{}
 	}
@@ -133,11 +135,6 @@ func Merge(in []Candidate, kinds []Kind, mode Mode, limit int) []Candidate {
 		}
 		for _, channel := range c.Document.Channels {
 			sources[c.Document.Ref.Key()] = appendUnique(sources[c.Document.Ref.Key()], channel)
-		}
-	}
-	for i := range in {
-		if in[i].Document.Ref.Type == Broadcast {
-			in[i].Document.Channels = sources[in[i].Document.Ref.Key()]
 		}
 	}
 	// Rating-scored candidates compete across contexts of equal priority by
@@ -158,8 +155,7 @@ func Merge(in []Candidate, kinds []Kind, mode Mode, limit int) []Candidate {
 		}
 		return c.FinalScore
 	}
-	sort.SliceStable(in, func(i, j int) bool {
-		a, b := in[i], in[j]
+	less := func(a, b Candidate) bool {
 		if mode == Recommendation && (a.Context.CapturedNeed != nil) != (b.Context.CapturedNeed != nil) {
 			return a.Context.CapturedNeed != nil
 		}
@@ -197,7 +193,33 @@ func Merge(in []Candidate, kinds []Kind, mode Mode, limit int) []Candidate {
 			return a.RankingScore() > b.RankingScore()
 		}
 		return a.Document.Ref.ID < b.Document.Ref.ID
-	})
+	}
+	if mode == Recommendation && needBudget {
+		winners := map[string]int{}
+		for i, c := range in {
+			if c.Document.Ref.Type != Broadcast || !c.Score.Eligible {
+				continue
+			}
+			key := c.Document.Ref.Key()
+			prior, ok := winners[key]
+			if !ok || preferBroadcastContext(c, in[prior], less) {
+				winners[key] = i
+			}
+		}
+		selected := make([]Candidate, 0, len(in))
+		for i, c := range in {
+			if c.Document.Ref.Type != Broadcast || c.Score.Eligible && winners[c.Document.Ref.Key()] == i {
+				selected = append(selected, c)
+			}
+		}
+		in = selected
+	}
+	for i := range in {
+		if in[i].Document.Ref.Type == Broadcast {
+			in[i].Document.Channels = sources[in[i].Document.Ref.Key()]
+		}
+	}
+	sort.SliceStable(in, func(i, j int) bool { return less(in[i], in[j]) })
 	out := make([]Candidate, 0)
 	seen := map[string]bool{}
 	groups := map[int64]bool{}
@@ -213,11 +235,22 @@ func Merge(in []Candidate, kinds []Kind, mode Mode, limit int) []Candidate {
 		out = append(out, c)
 	}
 	if mode == Recommendation {
-		for _, c := range in {
-			add(c)
-			if len(out) == limit {
-				break
+		for len(in) > 0 && len(out) < limit {
+			if !needBudget || mix == nil || in[0].Context.CapturedNeed == nil {
+				add(in[0])
+				in = in[1:]
+				continue
 			}
+			end := 1
+			for end < len(in) && in[end].Context.CapturedNeed != nil && in[end].Context.Priority == in[0].Context.Priority {
+				end++
+			}
+			mixNeeds(in[:end], *mix, limit-len(out), func(c Candidate) bool {
+				before := len(out)
+				add(c)
+				return len(out) > before
+			})
+			in = in[end:]
 		}
 		return out
 	}
@@ -254,6 +287,112 @@ func Merge(in []Candidate, kinds []Kind, mode Mode, limit int) []Candidate {
 	}
 	return out
 }
+
+// NeedMix reserves Numerator/Denominator of recommendation positions for
+// equal-priority Needs. Reserved positions rotate across Needs in their local
+// order and accept only injected copies or copies with current-Need cosine at
+// least MinNeedCosine; the remaining positions take the best remaining
+// candidate of the tier in global order.
+type NeedMix struct {
+	Numerator     int     `json:"numerator"`
+	Denominator   int     `json:"denominator"`
+	MinNeedCosine float64 `json:"min_need_cosine"`
+}
+
+// mixNeeds fills at most room positions from one equal-priority Need tier,
+// already sorted in global order. add reports whether a candidate was taken.
+func mixNeeds(tier []Candidate, mix NeedMix, room int, add func(Candidate) bool) {
+	var queues [][]Candidate
+	at := map[int64]int{}
+	for _, c := range tier {
+		if v, ok := attributionCosine(c); !injected(c) && (!ok || v < mix.MinNeedCosine) {
+			continue
+		}
+		i, ok := at[c.Context.ID]
+		if !ok {
+			i = len(queues)
+			at[c.Context.ID] = i
+			queues = append(queues, nil)
+		}
+		queues[i] = append(queues[i], c)
+	}
+	sort.SliceStable(queues, func(i, j int) bool {
+		a, b := queues[i][0].Context, queues[j][0].Context
+		if a.UpdatedAt != b.UpdatedAt {
+			return a.UpdatedAt > b.UpdatedAt
+		}
+		return a.ID < b.ID
+	})
+	take := func(q *[]Candidate) bool {
+		for len(*q) > 0 {
+			c := (*q)[0]
+			*q = (*q)[1:]
+			if add(c) {
+				return true
+			}
+		}
+		return false
+	}
+	next, reserved := 0, 0
+	for filled := 0; filled < room; filled++ {
+		taken := false
+		if reserved*mix.Denominator < (filled+1)*mix.Numerator {
+			for k := range queues {
+				i := (next + k) % len(queues)
+				if take(&queues[i]) {
+					next, reserved, taken = i+1, reserved+1, true
+					break
+				}
+			}
+		}
+		if !taken && !take(&tier) {
+			return
+		}
+	}
+}
+
+// preferBroadcastContext uses context-local recall before channel union and LR ordering.
+func preferBroadcastContext(a, b Candidate, less func(Candidate, Candidate) bool) bool {
+	if injected(a) != injected(b) {
+		// shortcut: one injected item per page may retain the wrong Need; revisit with Need-aware injection.
+		return injected(a)
+	}
+	own := func(c Candidate) bool {
+		return slices.Contains(c.Document.Channels, "lexical") || slices.Contains(c.Document.Channels, "dense")
+	}
+	if own(a) != own(b) {
+		return own(a)
+	}
+	ac, aok := attributionCosine(a)
+	bc, bok := attributionCosine(b)
+	if aok != bok {
+		return aok
+	}
+	if aok && ac != bc {
+		return ac > bc
+	}
+	return less(a, b)
+}
+
+var needCosCtx0 = slices.Index(discoverylr.RatingFeatureNames, "need_cos_ctx0")
+
+func attributionCosine(c Candidate) (float64, bool) {
+	if c.Context.CapturedNeed == nil {
+		return 0, false
+	}
+	if v, ok := c.Score.Features["need_cosine"]; ok && finite(v) {
+		return v, true
+	}
+	if c.Document.DenseScore != nil && finite(*c.Document.DenseScore) {
+		return 2*(*c.Document.DenseScore) - 1, true
+	}
+	// Both rating contracts retain the v1 feature prefix when semantic ranking is off.
+	if i := needCosCtx0; len(c.Context.Vector) > 0 && i >= 0 && i < len(c.RatingFeatures) && finite(c.RatingFeatures[i]) {
+		return c.RatingFeatures[i], true
+	}
+	return 0, false
+}
+
 func kindPosition(kinds []Kind, k Kind) int {
 	for i, x := range kinds {
 		if x == k {

@@ -16,6 +16,7 @@ type rerankPolicySet struct {
 	policies     []rerank.Policy
 	injectRules  []rerank.InjectRuleConfig
 	sourceLimits []rerank.SourceLimitConfig
+	needMix      *rerank.NeedMixConfig
 }
 
 func loadRerankPolicySet(ctx context.Context, path string, now func() time.Time) *rerankPolicySet {
@@ -41,8 +42,21 @@ func loadRerankPolicySet(ctx context.Context, path string, now func() time.Time)
 		logger.Ctx(ctx).Warn("rerank config invalid; continuing without configured policies", "path", path, "err", err)
 		return &rerankPolicySet{}
 	}
-	logger.Ctx(ctx).Info("rerank config loaded", "path", path, "policies", len(policies), "injectRules", len(injectRules), "sourceLimits", len(sourceLimits))
-	return &rerankPolicySet{policies: policies, injectRules: injectRules, sourceLimits: sourceLimits}
+	needMix, err := cfg.NeedMix()
+	if err != nil {
+		logger.Ctx(ctx).Warn("rerank config invalid; continuing without configured policies", "path", path, "err", err)
+		return &rerankPolicySet{}
+	}
+	logger.Ctx(ctx).Info("rerank config loaded", "path", path, "policies", len(policies), "injectRules", len(injectRules), "sourceLimits", len(sourceLimits), "needMix", needMix != nil)
+	return &rerankPolicySet{policies: policies, injectRules: injectRules, sourceLimits: sourceLimits, needMix: needMix}
+}
+
+// NeedMix returns the configured Need mixing policy, or nil when none.
+func (l *rerankPolicySet) NeedMix() *rerank.NeedMixConfig {
+	if l == nil {
+		return nil
+	}
+	return l.needMix
 }
 
 // InjectRules returns the configured force-insertion rules, or nil when none.
