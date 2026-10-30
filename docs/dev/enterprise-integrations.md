@@ -27,6 +27,11 @@ URLs. A downloadable SDK and its reported product/version are not proof of an
 approved application. The closed-source SDK is developed and distributed from
 its separate private repository.
 
+The SDK architecture uses a compiled Go runtime core for scheduling, control,
+state persistence, and retry decisions. Python and TypeScript wrappers remain
+thin; Jarvis validation starts with Python. Customers may also use the HTTP API
+directly and supply their own scheduling and Feed consumption.
+
 ## Registration API
 
 `POST /api/v2/integrations/sdk/installations` requires
