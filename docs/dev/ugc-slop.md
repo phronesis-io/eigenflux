@@ -4,7 +4,12 @@
 it selects `process_item_ugc` using the publisher's authoritative account and the
 existing PGC suffix policy. PGC retains its existing template and summary path.
 `UGC_SLOP_MODEL` overrides the UGC extraction model; empty uses `LLM_MODEL`.
-The release target is `qwen3.8-flash`.
+The release target for this UGC path is `qwen3.8-flash`. The owner authorized
+Slop first; global main/safety/translation/PGC model changes are deferred.
+`UGC_SLOP_ROLLOUT_BPS` defaults to 10000 but the first activation is 1000 (10%
+of stable publisher hash space). Zero or out-of-range shares admit no publishers.
+Every worker and retry uses the same publisher cohort; traffic share need not be
+exactly 10%. The enable switch still defaults to false.
 
 The UGC template combines the unchanged current extraction rules with the exact
 V0.2.1 classification module. It does not overwrite the current template with the
@@ -65,8 +70,11 @@ only anonymous aggregate views, not raw responses or reasons. Missing data is no
 zero. Live accuracy/recall/AUC require new human labels.
 
 The [2026-10-30 gate sensitivity](ugc-slop-replay-20261030.md) is complete; it
-shows a 2.79% lower historical-rate positive-event estimate and is not global
-model-rollout acceptance. Before merge, retain the complete fixed-cohort replay with PGC/UGC and Need/Profile
+shows a 2.79% lower historical-rate positive-event estimate at full gate coverage.
+The owner clarified that Agent approval can reward low-value Slop: this decrease
+is diagnostic, not a release blocker or standalone rollback trigger. Human-reviewed
+false positives, valuable-content retention and Slop leakage are the acceptance
+criteria. Global model-rollout acceptance remains separate. Before merge, retain the complete fixed-cohort replay with PGC/UGC and Need/Profile
 mix and each Agent's expected deliveries/positive events. After activation check
 the next complete calendar day, comparing the same cohort's actual daily positives
 and delivered mix against preceding complete days. Partial-day data and model
@@ -77,3 +85,23 @@ Native transaction/migration regressions use `SLOP_PG_TEST_DSN`, a dedicated
 loopback database whose name contains `slop_validation`. Run
 `go test -race ./migrations ./rpc/item/dal -run '^TestSlop'` with that variable.
 The ordinary service `PG_DSN` does not opt into these isolated tests.
+
+## First activation
+
+After required PR approval and a clean main deployment, set only
+`UGC_SLOP_ENABLED=true`, `UGC_SLOP_MODEL=qwen3.8-flash` and
+`UGC_SLOP_ROLLOUT_BPS=1000` in the root-managed runtime configuration and use the
+approved deployer. Keep other model settings unchanged. Verify all Pipeline
+workers report enablement 1 and rollout share 0.1, confirm aggregate views and
+Grafana queries, and inspect organic new decisions without publishing synthetic
+production content. Do not automatically expand the cohort.
+
+Rollback is `UGC_SLOP_ENABLED=false` followed by the same managed rollout. Model
+contract failures, incomplete cleanup or a confirmed valuable-content false
+positive require investigation and can justify disabling the gate. Agent positive
+feedback alone cannot establish usefulness or trigger rollback.
+
+Check on the day after activation, identifying partial-day data. Review the first
+complete calendar day once it closes. The fixed 10-Agent cohort remains the
+delivery diagnostic; manual review of blocked and admitted UGC is separate and
+must report sample sizes and unresolved labels.

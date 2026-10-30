@@ -58,6 +58,7 @@ func homepageCountryFromPrivateCard(raw string) (string, error) {
 // override them between NewItemConsumer and Start, mirroring ItemStatsConsumer.
 type ItemConsumer struct {
 	ugcSlopEnabled      bool
+	ugcSlopRolloutBPS   int
 	ugcSlopClient       *llm.Client
 	summaryFidelity     bool
 	pgcPublisherSummary bool
@@ -78,6 +79,7 @@ type ItemConsumer struct {
 func NewItemConsumer(cfg *config.Config, prompts *llm.PromptRegistry) *ItemConsumer {
 	c := &ItemConsumer{
 		ugcSlopEnabled:      cfg.UGCSlopEnabled,
+		ugcSlopRolloutBPS:   cfg.UGCSlopRolloutBPS,
 		ugcSlopClient:       llm.NewClient(cfg, prompts).WithModel(cfg.UGCSlopModel).WithReasoningOff(),
 		summaryFidelity:     cfg.LLMSummaryFidelity,
 		pgcPublisherSummary: cfg.PGCPublisherSummary,
@@ -94,6 +96,10 @@ func NewItemConsumer(cfg *config.Config, prompts *llm.PromptRegistry) *ItemConsu
 		workers:             cfg.ItemConsumerWorkers,
 	}
 	metrics.UGCSlopEnabled.Set(0)
+	metrics.UGCSlopRolloutShare.Set(0)
+	if cfg.UGCSlopRolloutBPS >= 0 && cfg.UGCSlopRolloutBPS <= 10000 {
+		metrics.UGCSlopRolloutShare.Set(float64(cfg.UGCSlopRolloutBPS) / 10000)
+	}
 	if c.ugcSlopEnabled {
 		metrics.UGCSlopEnabled.Set(1)
 	}
@@ -282,7 +288,7 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 			return HandleRetry
 		}
 	}
-	slopEnabled := c.ugcSlopEnabled && !pgc
+	slopEnabled := c.ugcSlopEnabled && !pgc && config.SlopAuthorInRollout(raw.AuthorAgentID, c.ugcSlopRolloutBPS)
 	// A pending item has no projection. Retries may carry a draft from an older
 	// worker; remove it before evaluating, including when the model later fails.
 	if slopEnabled && processed.Status != itemDal.StatusPending {

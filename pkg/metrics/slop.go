@@ -8,5 +8,6 @@ var UGCSlopAttempts = prometheus.NewCounterVec(prometheus.CounterOpts{
 }, []string{"outcome"})
 
 var UGCSlopEnabled = prometheus.NewGauge(prometheus.GaugeOpts{Name: "eigenflux_ugc_slop_enabled", Help: "Whether new UGC extraction and blocking are enabled in this worker."})
+var UGCSlopRolloutShare = prometheus.NewGauge(prometheus.GaugeOpts{Name: "eigenflux_ugc_slop_rollout_share", Help: "Configured stable publisher share for UGC Slop, effective only when enabled."})
 
-func init() { Registry.MustRegister(UGCSlopAttempts, UGCSlopEnabled) }
+func init() { Registry.MustRegister(UGCSlopAttempts, UGCSlopEnabled, UGCSlopRolloutShare) }

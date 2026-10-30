@@ -157,7 +157,7 @@ func TestSlopHandleStopsBeforeAnyPublicProjection(t *testing.T) {
 	require.NoError(t, err)
 	reg, err := llm.LoadDefaultPrompts()
 	require.NoError(t, err)
-	c := NewItemConsumer(&config.Config{UGCSlopEnabled: true, LLMBaseURL: server.URL, LLMModel: "test", LLMMaxTokens: 4096, SafetyLLMBaseURL: server.URL, EmbeddingProvider: "openai", EmbeddingBaseURL: server.URL, EmbeddingModel: "test", EmbeddingDimensions: 3, PGCEmailSuffixes: []string{"@pgc.example.test"}}, reg)
+	c := NewItemConsumer(&config.Config{UGCSlopEnabled: true, UGCSlopRolloutBPS: 10000, LLMBaseURL: server.URL, LLMModel: "test", LLMMaxTokens: 4096, SafetyLLMBaseURL: server.URL, EmbeddingProvider: "openai", EmbeddingBaseURL: server.URL, EmbeddingModel: "test", EmbeddingDimensions: 3, PGCEmailSuffixes: []string{"@pgc.example.test"}}, reg)
 	values := map[string]any{"item_id": strconv.FormatInt(id, 10)}
 	require.Equal(t, HandleSuccess, c.handle(context.Background(), "first", values))
 	require.Equal(t, HandleSuccess, c.handle(context.Background(), "duplicate", values))

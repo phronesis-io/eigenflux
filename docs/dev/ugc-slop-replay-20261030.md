@@ -15,7 +15,7 @@ Capture times ranged from 2026-10-30T11:28:08.250000+00:00 to 2026-10-30T11:48:5
 | Profile | 69 | 69 |
 | Estimated positive events | 12.923059 | 12.562875 |
 
-The historical-rate estimate decreases by **2.79%**, with three Agents lower and no Agent losing delivery count. It does not model higher approval probability from removing Slop and is not observed online feedback or a causal forecast. It also does not replay changed summaries, keywords, quality for non-Slop, context generation or a global model migration. This missing scope and the negative sensitivity must be reviewed before activation.
+The historical-rate estimate decreases by **2.79%**, with three Agents lower and no Agent losing delivery count. It does not model higher approval probability from removing Slop and is not observed online feedback or a causal forecast. It also does not replay changed summaries, keywords, quality for non-Slop, context generation or a global model migration. Global-model scope remains deferred. The owner clarified that lower Agent approval can be an intended consequence of removing low-value Slop; this estimate is not a release blocker. Human-reviewed false positives and Slop leakage determine quality acceptance.
 
 Estimates use one frozen request per Agent, source-stratified historical positive-event/delivery rates and a 20-delivery empirical-Bayes prior. History is 2026-10-22 through 2026-10-29 (exclusive), UTC+8. Feedback includes unmatched impression events and event lag; expected positive events are not unique positively rated items. This is not a daily-volume forecast.
 
@@ -35,3 +35,20 @@ Estimates use one frozen request per Agent, source-stratified historical positiv
 Private raw evidence remains local and is not committed. Only aggregate counts and Agent IDs are included here. The fixed cohort mapping, before/after executions, provider results and a SHA-256 manifest are retained for review.
 
 Reproduce with `slop-discovery-replay -mode slop-replay -dir <private-directory>` and `python3 scripts/discovery_fidelity_replay/report.py --dir <private-directory> --variant slop`. Use frozen rules/model/rerank files and the documented read-only capture environment. Do not point evaluation or scratch writes at production.
+
+## First activation: 10% of stable publisher hash space
+
+The same frozen contexts replayed with `UGC_SLOP_ROLLOUT_BPS=1000`: 89 → 89 deliveries, PGC 43 → 44, UGC 46 → 45, Need 20 → 20 and Profile 69 → 69. Historical-rate positive events project 12.923059 → 12.919810. This remains a diagnostic estimate, not observed online usefulness. The selected publisher cohort is stable across instances and retries; it is not a random per-item 10% filter.
+
+| Agent | Deliveries before→after | PGC before→after | UGC before→after | Need before→after | Profile before→after | Estimated positive events before→after |
+|---|---:|---:|---:|---:|---:|---:|
+| 339338708664713216 | 20 → 20 | 13 → 13 | 7 → 7 | 0 → 0 | 20 → 20 | 2.193733 → 2.193733 |
+| 359904276295712768 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 | 0.000000 → 0.000000 |
+| 360979555462152192 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 | 0.000000 → 0.000000 |
+| 361428400298000384 | 9 → 9 | 0 → 0 | 9 → 9 | 0 → 0 | 9 → 9 | 0.084289 → 0.084289 |
+| 368600644946231296 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 | 0.000000 → 0.000000 |
+| 371130135526506496 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 | 0.000000 → 0.000000 |
+| 371512333609992192 | 20 → 20 | 3 → 3 | 17 → 17 | 0 → 0 | 20 → 20 | 3.925215 → 3.925215 |
+| 372327066533625856 | 20 → 20 | 11 → 11 | 9 → 9 | 20 → 20 | 0 → 0 | 6.648459 → 6.648459 |
+| 372594943438356480 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 | 0.000000 → 0.000000 |
+| 373303811579576320 | 20 → 20 | 16 → 17 | 4 → 3 | 0 → 0 | 20 → 20 | 0.071363 → 0.068114 |
