@@ -97,6 +97,8 @@ func newDispatchWatchFixture(t *testing.T, sendMode string) *dispatchWatchFixtur
 			return
 		}
 		switch r.URL.Path {
+		case "/api/v2/agents/me/settings":
+			_, _ = io.WriteString(w, `{"code":0,"data":{"auto_cli_update":false}}`)
 		case "/api/v2/agent-context":
 			f.contexts.Add(1)
 			if r.Method != http.MethodGet || r.URL.Query().Get("if_newer") != "0" {
