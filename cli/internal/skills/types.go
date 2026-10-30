@@ -43,9 +43,6 @@ const (
 	skillFilePerm    = 0o644 // skill files must be world-readable: agents read SKILL.md
 	manifestFilePerm = 0o600 // local metadata, mirror cache.go credentials perms
 
-	// staleLockTimeout: a lock file older than this is treated as crash debris
-	// and force-claimed.
-	staleLockSeconds = 600
 )
 
 // CDNDefault is the public CDN base; overridable via EIGENFLUX_CDN_URL.

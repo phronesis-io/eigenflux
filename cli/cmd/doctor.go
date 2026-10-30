@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,17 +14,19 @@ import (
 )
 
 type doctorReport struct {
-	CLIVersion    string                  `json:"cli_version"`
-	LatestVersion string                  `json:"latest_version"`
-	Outdated      bool                    `json:"outdated"`
-	SkillsDir     string                  `json:"skills_dir"`
-	HostDetected  string                  `json:"host_detected"`
-	Writable      bool                    `json:"writable"`
-	Stale         bool                    `json:"stale"`
-	Skills        []skills.LocalSkill     `json:"skills"`
-	AutoSync      autoSyncStatus          `json:"auto_sync"`
-	Diagnostics   []skills.SyncDiagnostic `json:"diagnostics,omitempty"`
-	Hint          string                  `json:"hint,omitempty"`
+	Scheduler            map[string]interface{}  `json:"scheduler"`
+	InstallationWritable bool                    `json:"installation_writable"`
+	CLIVersion           string                  `json:"cli_version"`
+	LatestVersion        string                  `json:"latest_version"`
+	Outdated             bool                    `json:"outdated"`
+	SkillsDir            string                  `json:"skills_dir"`
+	HostDetected         string                  `json:"host_detected"`
+	Writable             bool                    `json:"writable"`
+	Stale                bool                    `json:"stale"`
+	Skills               []skills.LocalSkill     `json:"skills"`
+	AutoSync             autoSyncStatus          `json:"auto_sync"`
+	Diagnostics          []skills.SyncDiagnostic `json:"diagnostics,omitempty"`
+	Hint                 string                  `json:"hint,omitempty"`
 }
 
 // autoSyncStatus surfaces the last background (heartbeat) skills refresh so ops
@@ -45,6 +48,10 @@ silently corrupted or hand-modified.`,
 		host, _ := cmd.Flags().GetString("host")
 
 		rep := doctorReport{CLIVersion: version}
+		rep.Scheduler = schedulerDiagnostic(host)
+		if bin, e := installedExecutable(); e == nil {
+			rep.InstallationWritable = isWritableDir(filepath.Dir(bin))
+		}
 		rep.LatestVersion = skills.FetchLatestVersion(cdnBase(), nil)
 		rep.Outdated = rep.LatestVersion != "" && rep.LatestVersion != version
 
@@ -104,6 +111,7 @@ func printDoctorTable(rep doctorReport) {
 		}
 	}
 	fmt.Println()
+	fmt.Printf("Installation writable: %t; scheduler: %v\n", rep.InstallationWritable, rep.Scheduler)
 	fmt.Printf("Skills dir: %s (host=%s, writable=%t, stale=%t)\n", rep.SkillsDir, rep.HostDetected, rep.Writable, rep.Stale)
 	if rep.AutoSync.LastAttemptUnix > 0 {
 		fmt.Printf("Auto-sync:  last %s (result=%s)\n",
@@ -158,4 +166,23 @@ func skillsStale(dir string) bool {
 func init() {
 	doctorCmd.Flags().String("host", "", "openclaw|claude-code|codex|terminal")
 	rootCmd.AddCommand(doctorCmd)
+}
+
+// A host receipt is historical evidence, never a live scheduler inventory.
+func schedulerDiagnostic(host string) map[string]interface{} {
+	if host == "" {
+		host = clientMetaForServerName(activeServerName()).Host
+	}
+	report := map[string]interface{}{"status": "unknown", "host": runtimeProduct(host), "source": "host_native_tools_required"}
+	data, err := os.ReadFile(migrationReceiptPath(host))
+	if err != nil {
+		return report
+	}
+	var record migrationRecord
+	if json.Unmarshal(data, &record) == nil && !record.Verified.IsZero() && record.Home == config.HomeDir() && record.Server == activeServerName() {
+		report["last_verified_at"] = record.Verified
+		report["task_id"] = record.Plan.TaskID
+		report["source"] = "cached_host_readback"
+	}
+	return report
 }

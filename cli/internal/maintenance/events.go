@@ -15,7 +15,8 @@ import (
 	"time"
 )
 
-const MaxEvents = 256
+// Retain one maximum-size Commission upload burst alongside ordinary maintenance.
+const MaxEvents = 1024
 const Retention = 7 * 24 * time.Hour
 
 var ErrBusy = errors.New("maintenance state is busy")
@@ -24,23 +25,25 @@ var idValue = regexp.MustCompile(`^[a-f0-9]{32,64}$`)
 
 type Scope struct{ Home, Server, AgentID string }
 type Event struct {
-	EventID        string `json:"event_id"`
-	EventAt        int64  `json:"event_at"`
-	AttemptID      string `json:"attempt_id"`
-	Component      string `json:"component"`
-	Trigger        string `json:"trigger"`
-	Phase          string `json:"phase"`
-	Result         string `json:"result"`
-	Host           string `json:"host,omitempty"`
-	Mode           string `json:"mode,omitempty"`
-	FromVersion    string `json:"from_version,omitempty"`
-	ToVersion      string `json:"to_version,omitempty"`
-	RunningVersion string `json:"running_version,omitempty"`
-	ErrorCode      string `json:"error_code,omitempty"`
-	DurationMS     int64  `json:"duration_ms,omitempty"`
-	Source         string `json:"source,omitempty"`
-	Platform       string `json:"platform,omitempty"`
-	ReasonCategory string `json:"reason_category,omitempty"`
+	Commission     *Commission   `json:"commission,omitempty"`
+	Notification   *Notification `json:"notification,omitempty"`
+	EventID        string        `json:"event_id"`
+	EventAt        int64         `json:"event_at"`
+	AttemptID      string        `json:"attempt_id"`
+	Component      string        `json:"component"`
+	Trigger        string        `json:"trigger"`
+	Phase          string        `json:"phase"`
+	Result         string        `json:"result"`
+	Host           string        `json:"host,omitempty"`
+	Mode           string        `json:"mode,omitempty"`
+	FromVersion    string        `json:"from_version,omitempty"`
+	ToVersion      string        `json:"to_version,omitempty"`
+	RunningVersion string        `json:"running_version,omitempty"`
+	ErrorCode      string        `json:"error_code,omitempty"`
+	DurationMS     int64         `json:"duration_ms,omitempty"`
+	Source         string        `json:"source,omitempty"`
+	Platform       string        `json:"platform,omitempty"`
+	ReasonCategory string        `json:"reason_category,omitempty"`
 }
 
 type State struct {
@@ -67,6 +70,18 @@ func NewEvent(attempt, component, trigger, phase, result string) Event {
 func Validate(e Event) error {
 	if !idValue.MatchString(e.EventID) || !idValue.MatchString(e.AttemptID) {
 		return errors.New("invalid maintenance identity")
+	}
+	if e.Phase == "commission" {
+		return ValidateCommission(e)
+	}
+	if e.Commission != nil {
+		return errors.New("commission metadata requires commission phase")
+	}
+	if e.Phase == "notification" {
+		return validateNotification(e)
+	}
+	if e.Notification != nil {
+		return errors.New("notification metadata requires notification phase")
 	}
 	if e.Phase == "uninstall" {
 		if !contains([]string{"cli", "skills", "plugin", "scheduler", "notifier"}, e.Component) || e.Trigger != "manual" || !contains([]string{"started", "removed", "partial", "failed", "blocked"}, e.Result) {

@@ -248,6 +248,7 @@ install_cli() {
     CURRENT_VERSION=$(eigenflux version --short 2>/dev/null || echo "")
     if [ "$CURRENT_VERSION" = "$LATEST_VERSION" ]; then
       INSTALLED_CLI_PATH=$(command -v eigenflux)
+      complete_macos_install
       ok "eigenflux ${CURRENT_VERSION} is already up to date."
       return
     fi
@@ -260,6 +261,18 @@ install_cli() {
   TMP_FILE=$(mktemp)
   info "Downloading ${DOWNLOAD_URL}..."
   curl -fsSL "$DOWNLOAD_URL" -o "$TMP_FILE"
+  if [ "$OS" = "darwin" ]; then
+    # Check bootstrap byte integrity; the CLI then authenticates the complete package.
+    EXPECTED_SHA=$(curl -fsSL "${DOWNLOAD_URL}.sha256") || { rm -f "$TMP_FILE"; return 1; }
+    case "$EXPECTED_SHA" in
+      *[!a-fA-F0-9]*|'') err "Invalid CLI checksum"; rm -f "$TMP_FILE"; return 1 ;;
+    esac
+    [ "${#EXPECTED_SHA}" -eq 64 ] || { err "Invalid CLI checksum"; rm -f "$TMP_FILE"; return 1; }
+    ACTUAL_SHA=$(shasum -a 256 "$TMP_FILE" | awk '{print $1}')
+    [ "$(printf '%s' "$EXPECTED_SHA" | tr 'A-F' 'a-f')" = "$ACTUAL_SHA" ] || {
+      err "CLI SHA256 verification failed"; rm -f "$TMP_FILE"; return 1;
+    }
+  fi
   chmod +x "$TMP_FILE"
 
   # Honor EIGENFLUX_INSTALL_DIR override; default to ~/.local/bin.
@@ -269,12 +282,25 @@ install_cli() {
   "$TMP_FILE" --homedir "$INSTALL_HOME" installation replace --destination "$INSTALL_DIR/eigenflux" --host "$INVOKING_HOST" --skills-target ""
   rm -f "$TMP_FILE"
   INSTALLED_CLI_PATH="$INSTALL_DIR/eigenflux"
+  complete_macos_install
 
   ok "eigenflux ${LATEST_VERSION} installed successfully"
   "$INSTALL_DIR/eigenflux" version 2>/dev/null || true
 
   if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
     persist_path "$INSTALL_DIR"
+  fi
+}
+
+# The native CLI owns signed package verification, immutable installation and
+# activation. Also run for same-version bare installs that lack the helper.
+complete_macos_install() {
+  [ "$OS" = "darwin" ] || return 0
+  INSTALL_HOME=$(resolve_eigenflux_home "$HOMEDIR_FLAG" "$EXPLICIT_EIGENFLUX_HOME" "$INVOKING_HOST")
+  info "Installing the signed macOS CLI and notification helper package..."
+  if ! "$INSTALLED_CLI_PATH" --homedir "$INSTALL_HOME" update; then
+    err "Complete macOS package installation failed; retry the installer before onboarding."
+    return 1
   fi
 }
 
@@ -427,15 +453,17 @@ install_skills() {
     skill_name=$(basename "$skill_dir")
     # Only the production allowlist — never ship dev-only skills (e.g. ef-localdev).
     case "$skill_name" in
-      ef-broadcast|ef-communication|ef-onboarding|ef-profile) ;;
+      ef-broadcast|ef-commission|ef-communication|ef-onboarding|ef-profile|ef-uninstall) ;;
       *) continue ;;
     esac
     rm -rf "$SKILLS_DIR/$skill_name"
     cp -R "$skill_dir" "$SKILLS_DIR/$skill_name"
   done
   : > "$SKILLS_DIR/.ef-stale"
+  INSTALL_SKILLS_TARGET=""
 
   ok "EigenFlux skills bootstrapped to ${SKILLS_DIR} (provisional — will refresh from R2 on next sync)"
+  info "Uninstall will preserve provisional Skills at ${SKILLS_DIR}; no verified managed target was registered."
 }
 
 # ── Step 3: Migrate legacy config ─────────────────────────────
@@ -745,7 +773,7 @@ setup_agents() {
       fi
     fi
 
-    if [ "$PLUGIN_CHANGED" = "true" ]; then
+    if [ "$PLUGIN_CHANGED" = "true" ] && [ "${EIGENFLUX_ALLOW_HOST_RESTART:-0}" = "1" ]; then
       info "Restarting OpenClaw gateway..."
       openclaw gateway restart 2>/dev/null && \
         ok "OpenClaw gateway restarted" || \
@@ -1211,9 +1239,11 @@ install_skills
 persist_install_ref
 provision_agent_v2
 setup_agents
+
 if ! "$INSTALLED_CLI_PATH" --homedir "$EF_HOME" installation record --host "$INVOKING_HOST" --skills-target "${INSTALL_SKILLS_TARGET:-}" >/dev/null 2>&1; then
   info "Installation registration unavailable; record it with the new CLI before uninstalling."
 fi
+info "Updated plugin files may require a host restart after current work finishes."
 
 # Name the hosts we found but left alone, so "it didn't set up my Codex" is an
 # informed outcome rather than a silent one.
@@ -1227,7 +1257,7 @@ fi
 
 ok ""
 if [ -t 1 ]; then
-  ok "Done! Send this to your agents \"Read ef-onboarding skill to help me join EigenFlux\""
+  ok "Done! Ask your Agent to read ef-broadcast/references/maintenance.md for an existing installation, or ef-onboarding for a first connection."
 else
-  ok "Done! Check ef-onboarding skill to start Console V2 onboarding"
+  ok "Done! Preserve the existing Home and identity. Existing Agent upgrades continue through ef-broadcast/references/maintenance.md; first connections continue through ef-onboarding."
 fi

@@ -234,6 +234,44 @@ FROM telemetry_events_v2 WHERE properties->'notification'->>'action'='watch' ORD
 		t.Fatal("invalid watch batch was partially persisted")
 	}
 
+	// Execution diagnostics keep independent stage and retry receipts in the same
+	// account-namespaced event table. A replay cannot erase an earlier failure.
+	svc.telemetryRates = map[string]telemetryRateState{}
+	for i, stage := range []string{"preflight", "agent", "upload_put", "retry"} {
+		e := validCommissionMaintenance()
+		e.EventID, e.AttemptID = fmt.Sprintf("%064x", 10000+i), fmt.Sprintf("%032x", 11000+i)
+		e.Commission.Stage = stage
+		if stage == "preflight" {
+			e.Commission.OrderVersion, e.Result, e.ErrorCode = 0, "failed", "preflight_unavailable"
+		}
+		if stage == "retry" {
+			e.Result, e.ErrorCode, e.Commission.NextAttemptAt = "retry_scheduled", "transport_failed", e.EventAt+60000
+		}
+		body = map[string]interface{}{"events": []maintenanceEvent{e}}
+		for _, id := range []int64{42, 42, 43} {
+			if status := send(id); status != 202 {
+				t.Fatalf("commission diagnostic %s: %d", stage, status)
+			}
+		}
+	}
+	var dispatchRows []struct {
+		AgentID               int64
+		Stage, OrderID, JobID string
+	}
+	if err := tx.Raw(`SELECT agent_id, properties->'commission'->>'stage' AS stage,
+properties->'commission'->>'order_id' AS order_id,properties->'commission'->>'job_id' AS job_id
+FROM telemetry_events_v2 WHERE properties->>'component'='dispatch' ORDER BY agent_id,event_id`).Scan(&dispatchRows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(dispatchRows) != 8 {
+		t.Fatalf("commission diagnostic replay or account scope: %+v", dispatchRows)
+	}
+	for i, row := range dispatchRows {
+		if row.AgentID != int64(42+i/4) || row.OrderID != "123" || row.JobID != strings.Repeat("c", 64) {
+			t.Fatalf("commission diagnostic correlation: %+v", row)
+		}
+	}
+
 	// Same device installation may be used by different accounts. Only status
 	// checks establish the latest permission; delayed uploads retain event time.
 	deviceID := strings.Repeat("d", 32)

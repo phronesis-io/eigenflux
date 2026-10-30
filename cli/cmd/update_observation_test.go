@@ -168,7 +168,7 @@ func TestUpdateObservationFailuresStayVisible(t *testing.T) {
 			}
 		}
 		recorder.Phase("check", "0.6.6", "")
-		for i := 0; i < 6; i++ {
+		for i := 0; i < maintenance.MaxEvents/50+1; i++ {
 			recorder.Flush()
 		}
 		if got := recorder.Status(); got.Status != "reported" {

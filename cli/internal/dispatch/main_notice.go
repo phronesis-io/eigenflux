@@ -1,0 +1,238 @@
+package dispatch
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
+	"unicode/utf8"
+)
+
+var ErrMainNoticeUnsupported = errors.New("main_notice_transport_unverified")
+var ErrMainNoticeBusy = errors.New("main_notice_target_busy")
+var ErrMainNoticeNotSubmitted = errors.New("main_notice_not_submitted")
+
+// Only failures before the first hidden-input write may be retried. A missing
+// receipt after that write does not prove the host did not execute the notice.
+func mainNoticeNotSubmitted(err error) error {
+	if err == nil || errors.Is(err, ErrMainNoticeUnsupported) || errors.Is(err, ErrMainSessionMismatch) || errors.Is(err, ErrNeedsUser) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", ErrMainNoticeNotSubmitted, err)
+}
+
+func MainNoticeCanRetry(err error) bool {
+	return errors.Is(err, ErrMainNoticeNotSubmitted) || errors.Is(err, ErrMainNoticeBusy)
+}
+
+// MainNoticeTarget carries the bound hidden-input adapter's admission decision.
+// Implementation availability and real-host acceptance are reported separately.
+type MainNoticeTarget struct {
+	Host               string
+	SessionID          string
+	HiddenInputEnabled bool
+	Binding            Binding
+}
+
+type MainNoticeRunner struct{ Target MainNoticeTarget }
+
+type MainNoticeCapabilityInfo struct {
+	Protocol     string `json:"protocol"`
+	Status       string `json:"status"`
+	Experimental bool   `json:"experimental"`
+}
+
+func MainNoticeCapability(host string) MainNoticeCapabilityInfo {
+	return mainNoticeCapabilityForPlatform(host, runtime.GOOS)
+}
+
+func mainNoticeCapabilityForPlatform(host, platform string) MainNoticeCapabilityInfo {
+	if host == "codex" {
+		status := "unsupported_platform"
+		if platform == "darwin" {
+			status = "verified_macos"
+		} else if platform == "windows" {
+			status = "implemented_untested"
+		}
+		return MainNoticeCapabilityInfo{Protocol: "codex_turn", Status: status, Experimental: true}
+	}
+	return MainNoticeCapabilityInfo{Protocol: "acp", Status: "acp_extension_required", Experimental: true}
+}
+
+// This reports completed real-host acceptance, not implementation availability.
+func MainNoticeHostVerified(host string) bool {
+	return host == "codex" && runtime.GOOS == "darwin"
+}
+
+func MainNoticeHostImplemented(host string) bool {
+	return mainNoticeHostImplementedOn(host, runtime.GOOS)
+}
+
+func mainNoticeHostImplementedOn(host, platform string) bool {
+	if host == "codex" {
+		return platform == "darwin" || platform == "windows"
+	}
+	return host != ""
+}
+
+func MainNoticeBindingEnabled(binding Binding) bool {
+	if binding.Host == "codex" {
+		return MainNoticeHostImplemented(binding.Host) && binding.Mode == "native" && binding.MainSessionID != "" && filepath.IsAbs(binding.Env["CODEX_HOME"])
+	}
+	// This enables capability negotiation only. A standard ACP process remains
+	// unavailable until its existing owner advertises the hidden-main extension.
+	return binding.Host != "" && validACPMainID(binding.MainSessionID) && filepath.IsAbs(binding.WorkDir) &&
+		(len(binding.MainCommand) != 0 || binding.Mode == "acp" && len(binding.Command) != 0)
+}
+
+// Run never creates a conversation or falls back to visible user input. The
+// caller may schedule a retry only for MainNoticeCanRetry errors and must not
+// replay a turn whose admission or completion is uncertain.
+func (r MainNoticeRunner) Run(ctx context.Context, prompt string) (Result, error) {
+	t := r.Target
+	if !t.HiddenInputEnabled {
+		return Result{}, ErrMainNoticeUnsupported
+	}
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
+	if strings.TrimSpace(t.SessionID) == "" || len(t.SessionID) > 4096 || strings.HasPrefix(t.SessionID, "-") || strings.ContainsRune(t.SessionID, 0) || !utf8.ValidString(t.SessionID) {
+		return Result{}, ErrMainSessionUnavailable
+	}
+	if strings.TrimSpace(prompt) == "" || len(prompt) > maxRunnerOutput || !utf8.ValidString(prompt) {
+		return Result{}, errors.New("invalid_main_notice")
+	}
+	if t.Host == "" || t.Binding.Host != t.Host || t.Binding.MainSessionID != "" && t.Binding.MainSessionID != t.SessionID {
+		return Result{}, ErrMainSessionMismatch
+	}
+	timeout := t.Binding.TimeoutSeconds
+	if timeout <= 0 {
+		timeout = 300
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+	defer cancel()
+	if t.Host == "codex" {
+		return r.runCodex(ctx, prompt)
+	}
+	if t.Binding.Mode != "acp" && len(t.Binding.MainCommand) == 0 {
+		return Result{}, ErrMainNoticeUnsupported
+	}
+	if t.Binding.MainSessionID != t.SessionID || !MainNoticeBindingEnabled(t.Binding) {
+		return Result{}, ErrMainSessionMismatch
+	}
+	runner := Runner{Binding: acpMainBinding(t.Binding)}
+	connected := false
+	result, err := runner.withACP(ctx, func(c *acpClient) (Result, error) {
+		connected = true
+		return runner.runACPMainNotice(c, prompt)
+	})
+	if !connected {
+		err = mainNoticeNotSubmitted(err)
+	}
+	return result, err
+}
+
+type mainNoticeRPC struct {
+	ctx      context.Context
+	stdin    io.WriteCloser
+	incoming chan acpRead
+	stop     chan struct{}
+	nextID   int
+}
+
+func (p *mainNoticeRPC) read(reader io.Reader) {
+	scan := bufio.NewScanner(reader)
+	scan.Buffer(make([]byte, 4096), maxRunnerOutput+1)
+	deliver := func(v acpRead) bool {
+		select {
+		case p.incoming <- v:
+			return true
+		case <-p.stop:
+			return false
+		}
+	}
+	for scan.Scan() {
+		line := scan.Bytes()
+		var msg acpMessage
+		if len(line) > maxRunnerOutput || !utf8.Valid(line) || json.Unmarshal(line, &msg) != nil || msg.JSONRPC != "" && msg.JSONRPC != "2.0" {
+			deliver(acpRead{err: errors.New("invalid_main_notice_message")})
+			return
+		}
+		if !deliver(acpRead{message: msg}) {
+			return
+		}
+	}
+	deliver(acpRead{err: errors.New("main_notice_proxy_closed_or_oversize")})
+}
+
+func (p *mainNoticeRPC) write(value any) error {
+	done := make(chan error, 1)
+	go func() { done <- json.NewEncoder(p.stdin).Encode(value) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			return errors.New("main_notice_write_failed")
+		}
+		return nil
+	case <-p.ctx.Done():
+		return p.ctx.Err()
+	}
+}
+
+func (p *mainNoticeRPC) next() (acpMessage, error) {
+	select {
+	case <-p.ctx.Done():
+		return acpMessage{}, p.ctx.Err()
+	case value := <-p.incoming:
+		if value.err != nil {
+			return acpMessage{}, value.err
+		}
+		msg := value.message
+		if msg.Method != "" && len(msg.ID) != 0 && string(msg.ID) != "null" {
+			// Host requests are never approved by the background notice client.
+			_ = p.write(map[string]any{"id": msg.ID, "error": map[string]any{"code": -32601, "message": "Unsupported background request"}})
+			return acpMessage{}, ErrNeedsUser
+		}
+		return msg, nil
+	}
+}
+
+func (p *mainNoticeRPC) call(method string, params any) (json.RawMessage, error) {
+	p.nextID++
+	id := p.nextID
+	if err := p.write(map[string]any{"id": id, "method": method, "params": params}); err != nil {
+		return nil, err
+	}
+	notifications, notificationBytes := 0, 0
+	for {
+		msg, err := p.next()
+		if err != nil {
+			return nil, err
+		}
+		if msg.Method != "" {
+			notificationBytes += len(msg.Params) + len(msg.Method)
+			notifications++
+			if notifications > 1024 || notificationBytes > maxRunnerOutput {
+				return nil, errOutputLimit
+			}
+			continue
+		}
+		var got int
+		if json.Unmarshal(msg.ID, &got) != nil || got != id {
+			return nil, errors.New("main_notice_response_mismatch")
+		}
+		if len(msg.Error) != 0 && string(msg.Error) != "null" {
+			return nil, errors.New("main_notice_rpc_failed")
+		}
+		if len(msg.Result) == 0 || string(msg.Result) == "null" {
+			return nil, errors.New("main_notice_missing_result")
+		}
+		return msg.Result, nil
+	}
+}

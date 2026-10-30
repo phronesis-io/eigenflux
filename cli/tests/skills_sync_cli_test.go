@@ -77,6 +77,10 @@ func TestSkillsSyncCLIReadOnly(t *testing.T) {
 	if output, err := run(target); err != nil {
 		t.Fatalf("initial CLI install: %v\n%s", err, output)
 	}
+	lockBefore, err := os.Stat(filepath.Join(targetParent, ".ef-skills.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, dir := range []string{targetParent, target} {
 		if err := os.Chmod(dir, 0500); err != nil {
 			t.Fatal(err)
@@ -92,15 +96,16 @@ func TestSkillsSyncCLIReadOnly(t *testing.T) {
 	if err != nil || !strings.Contains(string(output), `"verified_manifest": true`) {
 		t.Fatalf("read-only unchanged CLI sync: %v\n%s", err, output)
 	}
-	if _, err := os.Lstat(filepath.Join(targetParent, ".ef-skills.lock")); !os.IsNotExist(err) {
-		t.Fatalf("unchanged CLI sync created a lock: %v", err)
+	lockAfter, err := os.Stat(filepath.Join(targetParent, ".ef-skills.lock"))
+	if err != nil || !os.SameFile(lockBefore, lockAfter) || !lockBefore.ModTime().Equal(lockAfter.ModTime()) {
+		t.Fatalf("unchanged CLI sync modified retained lock: %v", err)
 	}
 	update.Store(true)
 	output, err = run(target)
 	if err == nil || !strings.Contains(strings.ToLower(string(output)), "permission denied") {
 		t.Fatalf("quiet CLI hid write failure: %v\n%s", err, output)
 	}
-	if !strings.Contains(string(output), "SKILLS_PERMISSION_REQUIRED") || !strings.Contains(string(output), "operation=create_lock") || !strings.Contains(string(output), "host permission flow") || !strings.Contains(string(output), "after approval") {
+	if !strings.Contains(string(output), "SKILLS_PERMISSION_REQUIRED") || !strings.Contains(string(output), "operation=install") || !strings.Contains(string(output), "host permission flow") || !strings.Contains(string(output), "after approval") {
 		t.Fatalf("CLI did not guide the Agent to request permission: %s", output)
 	}
 	if strings.Contains(string(output), "%!w") || strings.Contains(string(output), "panic:") {

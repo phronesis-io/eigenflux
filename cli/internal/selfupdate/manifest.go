@@ -20,6 +20,7 @@ type Artifact struct {
 type Manifest struct {
 	Version   string              `json:"version"`
 	Artifacts map[string]Artifact `json:"artifacts"`
+	Packages  map[string]Artifact `json:"packages,omitempty"`
 	Signature string              `json:"signature,omitempty"`
 }
 

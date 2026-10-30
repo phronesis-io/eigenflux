@@ -20,7 +20,7 @@ func validWatchNotificationMaintenance() maintenanceEvent {
 
 func TestWatchNotificationMaintenanceContract(t *testing.T) {
 	now := time.Now()
-	for _, origin := range []string{"order_event", "local_blocker", "legacy"} {
+	for _, origin := range []string{"order_event", "local_blocker", "input_request", "legacy"} {
 		for _, row := range []struct {
 			stage, result, code string
 			attempt             int
@@ -39,6 +39,10 @@ func TestWatchNotificationMaintenanceContract(t *testing.T) {
 			}
 			if origin == "local_blocker" {
 				w.JobID, w.JobKind, w.JobStatus, w.JobCode = strings.Repeat("d", 64), "commission_order", "unknown", "commission_intake_unconfirmed"
+			}
+			if origin == "input_request" {
+				w.Role, w.JobID, w.JobKind = "buyer", strings.Repeat("d", 64), "commission_clarification"
+				w.InputRequestIDHash, w.InputRound = strings.Repeat("e", 64), 2
 			}
 			if origin == "legacy" {
 				w.OrderVersion = 0
@@ -199,5 +203,57 @@ func TestNotificationMaintenanceRejectsNestedPrivateFields(t *testing.T) {
 	status, _, _ := performJSON(t, h, "POST", "/test", map[string]interface{}{"events": []interface{}{e}})
 	if status != 400 {
 		t.Fatalf("private nested field accepted: %d", status)
+	}
+}
+
+func TestInputRequestNotificationCorrelation(t *testing.T) {
+	valid := func() maintenanceEvent {
+		e := validWatchNotificationMaintenance()
+		w := e.Notification.Watch
+		w.Origin, w.Role, w.SourceNotificationID = "input_request", "buyer", ""
+		w.JobID, w.JobKind = strings.Repeat("d", 64), "commission_clarification"
+		w.InputRequestIDHash, w.InputRound = strings.Repeat("e", 64), 2
+		return e
+	}
+	for name, mutate := range map[string]func(*watchNotificationMaintenanceData){
+		"seller":              func(w *watchNotificationMaintenanceData) { w.Role = "seller" },
+		"zero version":        func(w *watchNotificationMaintenanceData) { w.OrderVersion = 0 },
+		"no job":              func(w *watchNotificationMaintenanceData) { w.JobID = "" },
+		"wrong job":           func(w *watchNotificationMaintenanceData) { w.JobKind = "commission_order" },
+		"source notification": func(w *watchNotificationMaintenanceData) { w.SourceNotificationID = "456" },
+		"status":              func(w *watchNotificationMaintenanceData) { w.JobStatus = "needs_user" },
+		"code":                func(w *watchNotificationMaintenanceData) { w.JobCode = "execution_blocked" },
+		"raw input":           func(w *watchNotificationMaintenanceData) { w.InputRequestIDHash = "private question" },
+		"no round":            func(w *watchNotificationMaintenanceData) { w.InputRound = 0 },
+		"extra round":         func(w *watchNotificationMaintenanceData) { w.InputRound = 4 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := valid()
+			mutate(e.Notification.Watch)
+			if validateMaintenanceEvent(e, time.Now()) == nil {
+				t.Fatal("invalid input request notification accepted")
+			}
+		})
+	}
+	for _, origin := range []string{"order_event", "local_blocker", "legacy"} {
+		e := validWatchNotificationMaintenance()
+		w := e.Notification.Watch
+		w.Origin = origin
+		if origin != "order_event" {
+			w.SourceNotificationID = ""
+		}
+		if origin == "legacy" {
+			w.OrderVersion = 0
+		}
+		if origin == "local_blocker" {
+			w.JobID, w.JobKind, w.JobStatus, w.JobCode = strings.Repeat("d", 64), "commission_order", "unknown", "execution_blocked"
+		}
+		if err := validateMaintenanceEvent(e, time.Now()); err != nil {
+			t.Fatalf("invalid old-origin fixture %s: %v", origin, err)
+		}
+		w.InputRequestIDHash, w.InputRound = strings.Repeat("e", 64), 1
+		if validateMaintenanceEvent(e, time.Now()) == nil {
+			t.Fatal("input correlation accepted on another origin")
+		}
 	}
 }

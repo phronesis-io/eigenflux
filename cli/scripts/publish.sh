@@ -30,6 +30,7 @@ fi
 # Reject incomplete or changed artifacts before making any remote writes.
 ARTIFACTS=$(python3 "$SCRIPT_DIR/cli-artifacts.py" list "$BUILD_DIR")
 python3 "$SCRIPT_DIR/cli-artifacts.py" verify-release "$BUILD_DIR"
+bash "$SCRIPT_DIR/verify-macos-packages.sh" "$BUILD_DIR"
 if [[ "$(cat "$BUILD_DIR/version.txt")" != "$CLI_VERSION" ]]; then
   echo "build/cli/version.txt does not match CLI_VERSION; rebuild before publishing" >&2
   exit 1
@@ -57,7 +58,7 @@ VERSION_FILES=()
 while IFS= read -r name; do
   VERSION_FILES+=("$BUILD_DIR/$name")
 done <<< "$ARTIFACTS"
-VERSION_FILES+=("$BUILD_DIR/version.txt" "$BUILD_DIR/release.json")
+VERSION_FILES+=("$BUILD_DIR/version.txt" "$BUILD_DIR/release.json" "$BUILD_DIR/package-release.json")
 for file in "${VERSION_FILES[@]}"; do
   name=$(basename "$file")
   if aws s3api get-object --bucket "$R2_BUCKET" --key "cli/$CLI_VERSION/$name" \
@@ -111,6 +112,7 @@ python3 "$SCRIPT_DIR/cli-artifacts.py" verify-release-public "$BUILD_DIR" \
 # Advertise the version only after all payloads are available and verified.
 aws s3 cp "$BUILD_DIR/version.txt" "s3://$R2_BUCKET/cli/latest/version.txt" $S3_ARGS --quiet
 aws s3 cp "$BUILD_DIR/release.json" "s3://$R2_BUCKET/cli/latest/release.json" $S3_ARGS --cache-control no-store --quiet
+aws s3 cp "$BUILD_DIR/package-release.json" "s3://$R2_BUCKET/cli/latest/package-release.json" $S3_ARGS --cache-control no-store --quiet
 
 # Skills use the serialized Linux Release Skills workflow after CLI publication.
 echo -e "${CYAN}skills: ${GREEN}published separately by Release Skills workflow${NC}"

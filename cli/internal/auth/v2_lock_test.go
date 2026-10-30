@@ -2,6 +2,7 @@ package auth
 
 import (
 	"cli.eigenflux.ai/internal/config"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -75,7 +76,7 @@ func TestV2CredentialsLockProcessExit(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	err := WithV2CredentialsLock("review", 50*time.Millisecond, func() error { t.Fatal("entered held lock"); return nil })
-	if err == nil || !strings.Contains(err.Error(), "timed out") {
+	if !errors.Is(err, ErrV2CredentialsLockTimeout) || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("expected timeout: %v", err)
 	}
 	if err := child.Process.Kill(); err != nil {
@@ -122,5 +123,44 @@ func TestV2CredentialsLockSerializesRefreshWriters(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestV2CredentialsLockContextCancelsWhileHeld(t *testing.T) {
+	t.Setenv("EIGENFLUX_HOME", t.TempDir())
+	err := WithV2CredentialsLock("review", time.Second, func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		err := WithV2CredentialsLockContext(ctx, "review", time.Second, func() error {
+			t.Error("cancelled waiter entered held lock")
+			return nil
+		})
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("want context deadline, got %v", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WithV2CredentialsLock("review", time.Second, func() error { return nil }); err != nil {
+		t.Fatalf("lock not released after cancelled waiter: %v", err)
+	}
+}
+
+func TestV2CredentialsLockContextAlreadyCancelled(t *testing.T) {
+	t.Setenv("EIGENFLUX_HOME", t.TempDir())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := WithV2CredentialsLockContext(ctx, "review", time.Second, func() error {
+		t.Error("cancelled caller entered lock")
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context cancellation, got %v", err)
+	}
+	path := filepath.Join(config.HomeDir(), "servers", "review", ".agent-v2-refresh.lock")
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("cancelled caller created lock: %v", err)
 	}
 }

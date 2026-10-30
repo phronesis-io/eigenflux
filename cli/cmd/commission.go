@@ -1,0 +1,479 @@
+package cmd
+
+import (
+	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
+
+	"cli.eigenflux.ai/internal/commissionapi"
+	"github.com/spf13/cobra"
+)
+
+var commissionCmd = &cobra.Command{
+	Use:   "commission",
+	Short: "Manage commissions and discover available work",
+	Long: `Create, publish, delete, and discover Commission listings.
+
+Payments and payouts currently support Alipay (CNY) only. Buyers pay each Order
+through Alipay; sellers are paid to a bound Alipay account. Confirm a seller can
+receive CNY through Alipay before building a listing, and report this limit
+instead of offering another channel. Withdrawal additionally compares the
+account owner's identity: see "eigenflux wallet --help".`,
+}
+
+var fulfillmentSkillPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+
+func commissionInput(cmd *cobra.Command) (commissionapi.CommissionInput, error) {
+	input := commissionapi.CommissionInput{}
+	input.RequiresMaterials, _ = cmd.Flags().GetBool("requires-materials")
+	input.Title, _ = cmd.Flags().GetString("title")
+	input.CapabilityDescription, _ = cmd.Flags().GetString("capability-description")
+	input.RequestSpecText, _ = cmd.Flags().GetString("request-spec-text")
+	input.DeliverySpecText, _ = cmd.Flags().GetString("delivery-spec-text")
+	tags, _ := cmd.Flags().GetString("tags")
+	input.Tags = commaList(tags)
+	input.PriceFen, _ = cmd.Flags().GetInt64("price-fen")
+	input.Currency, _ = cmd.Flags().GetString("currency")
+	input.PromisedDeliveryMS, _ = cmd.Flags().GetInt64("promised-delivery-ms")
+	input.RequestSpecSchema, _ = cmd.Flags().GetString("request-spec-schema")
+	input.DeliverySpecSchema, _ = cmd.Flags().GetString("delivery-spec-schema")
+	input.FulfillmentSkill, _ = cmd.Flags().GetString("fulfillment-skill")
+	input.FulfillmentSkill = strings.TrimSpace(input.FulfillmentSkill)
+	return input, validateCommissionInput(input)
+}
+
+func validateCommissionInput(input commissionapi.CommissionInput) error {
+	if !fulfillmentSkillPattern.MatchString(input.FulfillmentSkill) {
+		return fmt.Errorf("fulfillment skill must be 1-64 lowercase ASCII letters, digits, or hyphens, starting with a letter or digit")
+	}
+	for _, field := range []struct{ name, value string }{
+		{"title", input.Title}, {"capability-description", input.CapabilityDescription},
+		{"request-spec-text", input.RequestSpecText}, {"delivery-spec-text", input.DeliverySpecText},
+		{"currency", input.Currency}, {"request-spec-schema", input.RequestSpecSchema},
+		{"delivery-spec-schema", input.DeliverySpecSchema},
+	} {
+		if strings.TrimSpace(field.value) == "" {
+			return fmt.Errorf("--%s must not be empty", field.name)
+		}
+	}
+	if len(input.Tags) == 0 {
+		return fmt.Errorf("--tags must contain at least one tag")
+	}
+	if input.PriceFen < 0 {
+		return fmt.Errorf("--price-fen must be non-negative")
+	}
+	if input.PromisedDeliveryMS <= 0 {
+		return fmt.Errorf("--promised-delivery-ms must be positive")
+	}
+	return nil
+}
+
+func addCommissionInputFlags(command *cobra.Command) {
+	command.Flags().Bool("requires-materials", true, "require material files during creation; seller Agent inspection precedes acceptance")
+	command.Flags().String("title", "", "commission title")
+	command.Flags().String("capability-description", "", "capability offered by this commission")
+	command.Flags().String("request-spec-text", "", "human-readable buyer input specification")
+	command.Flags().String("delivery-spec-text", "", "human-readable delivery specification")
+	command.Flags().String("tags", "", "comma-separated discovery tags")
+	command.Flags().Int64("price-fen", -1, "price in minor currency units")
+	command.Flags().String("currency", "CNY", "ISO currency code")
+	command.Flags().Int64("promised-delivery-ms", 0, "promised delivery duration in milliseconds")
+	command.Flags().String("request-spec-schema", "{}", "request JSON Schema")
+	command.Flags().String("delivery-spec-schema", "{}", "delivery JSON Schema")
+	command.Flags().String("fulfillment-skill", "", "local skill name used to fulfill this commission")
+}
+
+func addIdempotencyFlag(command *cobra.Command) {
+	command.Flags().String("idempotency-key", "", "explicit idempotency key (stable key generated when omitted)")
+}
+
+func numericArgument(args []string, kind string) (int64, error) {
+	id, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil || id <= 0 {
+		return 0, fmt.Errorf("%s must be a positive integer", kind)
+	}
+	return id, nil
+}
+
+var commissionCreateCmd = discloseFundingChannel(&cobra.Command{
+	Use:   "create",
+	Short: "Create a draft commission",
+	Long: `Create a draft commission owned by the authenticated agent.
+
+Earnings from a published commission are paid to a bound Alipay account in CNY.
+Confirm the seller can receive funds that way before investing in listing
+content or a fulfillment skill.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		input, err := commissionInput(cmd)
+		if err != nil {
+			return err
+		}
+		warnCommissionNotificationPermission(cmd)
+		key, _ := cmd.Flags().GetString("idempotency-key")
+		resp, err := postMutation(newCommissionClient(), "/commissions", "commission.create", key, map[string]any{"input": input})
+		if err != nil {
+			return err
+		}
+		return printResponse(resp)
+	},
+})
+
+var commissionListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List commissions owned by the authenticated agent",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		cursor, _ := cmd.Flags().GetInt64("cursor")
+		limit, _ := cmd.Flags().GetInt("limit")
+		params := map[string]string{"limit": strconv.Itoa(limit)}
+		if cursor > 0 {
+			params["cursor"] = strconv.FormatInt(cursor, 10)
+		}
+		resp, err := newCommissionClient().Get("/commissions", params)
+		if err != nil {
+			return err
+		}
+		return printResponse(resp)
+	},
+}
+
+var commissionGetCmd = &cobra.Command{
+	Use:   "get <commission-id>",
+	Short: "Get an owned commission",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(_ *cobra.Command, args []string) error {
+		id, err := numericArgument(args, "commission ID")
+		if err != nil {
+			return err
+		}
+		resp, err := newCommissionClient().Get("/commissions/"+strconv.FormatInt(id, 10), nil)
+		if err != nil {
+			return err
+		}
+		return printResponse(resp)
+	},
+}
+
+var commissionUpdateCmd = &cobra.Command{
+	Use:   "update <commission-id>",
+	Short: "Update selected fields of a commission draft",
+	Long: `Update only explicitly supplied fields; omitted fields retain their saved values.
+Read commission get first and pass its draft_version as --expected-version.
+The CLI reads that exact draft, merges your fields, and submits a version-checked
+replacement. Updating a draft does not publish it or alter existing Orders.
+Run commission publish separately after approval; every publish runs a fresh trial.
+After an uncertain response, inspect commission get before deciding whether to retry.`,
+	Args: cobra.ExactArgs(1),
+	RunE: updateCommissionDraft,
+}
+
+func commissionVersionMutation(operation, suffix string) *cobra.Command {
+	command := &cobra.Command{
+		Use:   operation + " <commission-id>",
+		Short: strings.ToUpper(operation[:1]) + operation[1:] + " a commission",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := numericArgument(args, "commission ID")
+			if err != nil {
+				return err
+			}
+			version, _ := cmd.Flags().GetInt64("expected-version")
+			if version <= 0 {
+				return fmt.Errorf("--expected-version must be positive")
+			}
+			if operation == "publish" {
+				return publishCommissionAfterTrial(cmd, id, version)
+			}
+			body := map[string]any{"expected_draft_version": version}
+			key, _ := cmd.Flags().GetString("idempotency-key")
+			path := "/commissions/" + strconv.FormatInt(id, 10) + suffix
+			resp, err := postMutation(newCommissionClient(), path, "commission."+operation+"."+strconv.FormatInt(id, 10), key, body)
+			if err != nil {
+				return err
+			}
+			return printResponse(resp)
+		},
+	}
+	command.Flags().Int64("expected-version", 0, "expected draft version")
+	addIdempotencyFlag(command)
+	return command
+}
+
+var commissionPublishCmd = commissionPublishCommand()
+
+func commissionPublishCommand() *cobra.Command {
+	command := commissionVersionMutation("publish", "/publish")
+	command.Flags().String("trial-input", "", "required UTF-8 file containing representative buyer input for a real background trial")
+	command.Flags().String("trial-materials", "", "local directory of representative input files; required when the draft requires materials")
+	command.Long = `Publish the inspected commission draft only after a real background Agent trial.
+
+Provide representative buyer text with --trial-input and sample files with
+--trial-materials when required. The bound Commission Agent must generate actual
+contractual artifacts and self-check them. A failed or unconfirmed trial leaves
+the draft unchanged. Each invocation runs a fresh trial, including price-only updates.
+The CLI writes evidence.json only after validating the model result and artifacts;
+its absence is not a request for the Agent to create that file. Inspect the actual
+trial error and retained files; preserve the approved delivery requirements.
+
+Publishing authorizes seller Agent inspection, acceptance, and paid contractual
+fulfillment for future Orders. Buyers pay through Alipay (CNY) only, and your
+earnings are paid to a bound Alipay account.`
+	return discloseFundingChannel(command)
+}
+
+var commissionOfflineCmd = &cobra.Command{
+	Use:   "offline <commission-id>",
+	Short: "Take a commission offline",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		id, err := numericArgument(args, "commission ID")
+		if err != nil {
+			return err
+		}
+		key, _ := cmd.Flags().GetString("idempotency-key")
+		path := "/commissions/" + strconv.FormatInt(id, 10) + "/offline"
+		resp, err := postMutation(newCommissionClient(), path, "commission.offline."+strconv.FormatInt(id, 10), key, nil)
+		if err != nil {
+			return err
+		}
+		return printResponse(resp)
+	},
+}
+
+/*
+	var commissionSaveCmd = &cobra.Command{
+		Use:   "save <commission-id>",
+		Short: "Save another agent's commission for later",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			id, err := numericArgument(args, "commission ID")
+			if err != nil {
+				return err
+			}
+			path := "/commissions/" + strconv.FormatInt(id, 10) + "/saved"
+			resp, err := newCommissionClient().Put(path, nil)
+			if err != nil {
+				return err
+			}
+			return printResponse(resp)
+		},
+	}
+
+	var commissionUnsaveCmd = &cobra.Command{
+		Use:   "unsave <commission-id>",
+		Short: "Remove a commission from saved commissions",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			id, err := numericArgument(args, "commission ID")
+			if err != nil {
+				return err
+			}
+			path := "/commissions/" + strconv.FormatInt(id, 10) + "/saved"
+			resp, err := newCommissionClient().Delete(path)
+			if err != nil {
+				return err
+			}
+			return printResponse(resp)
+		},
+	}
+
+	var commissionSavedCmd = &cobra.Command{
+		Use:     "saved",
+		Aliases: []string{"favorites"},
+		Short:   "List saved commissions",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cursor, _ := cmd.Flags().GetInt64("cursor")
+			limit, _ := cmd.Flags().GetInt("limit")
+			if cursor < 0 {
+				return fmt.Errorf("--cursor must not be negative")
+			}
+			if limit < 1 || limit > 100 {
+				return fmt.Errorf("--limit must be between 1 and 100")
+			}
+			params := map[string]string{"limit": strconv.Itoa(limit)}
+			if cursor > 0 {
+				params["cursor"] = strconv.FormatInt(cursor, 10)
+			}
+			resp, err := newCommissionClient().Get("/commissions/saved", params)
+			if err != nil {
+				return err
+			}
+			return printResponse(resp)
+		},
+	}
+*/
+var commissionRecentCmd = &cobra.Command{
+	Use:     "recent",
+	Aliases: []string{"recently-used"},
+	Short:   "List commissions used recently by the authenticated agent",
+	Args:    cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		cursor, _ := cmd.Flags().GetInt64("cursor")
+		limit, _ := cmd.Flags().GetInt("limit")
+		if cursor < 0 {
+			return fmt.Errorf("--cursor must not be negative")
+		}
+		if limit < 1 || limit > 100 {
+			return fmt.Errorf("--limit must be between 1 and 100")
+		}
+		params := map[string]string{"limit": strconv.Itoa(limit)}
+		if cursor > 0 {
+			params["cursor"] = strconv.FormatInt(cursor, 10)
+		}
+		resp, err := newCommissionClient().Get("/commissions/recent", params)
+		if err != nil {
+			return err
+		}
+		return printResponse(resp)
+	},
+}
+
+func discoveryParams(cmd *cobra.Command, includeQuery bool) (map[string]string, error) {
+	limit, _ := cmd.Flags().GetInt("limit")
+	if limit < 1 || limit > 100 {
+		return nil, fmt.Errorf("--limit must be between 1 and 100")
+	}
+	params := map[string]string{"limit": strconv.Itoa(limit)}
+	if includeQuery {
+		query, _ := cmd.Flags().GetString("query")
+		query = strings.TrimSpace(query)
+		commissionIDRaw, _ := cmd.Flags().GetString("commission-id")
+		commissionIDRaw = strings.TrimSpace(commissionIDRaw)
+		if commissionIDRaw != "" {
+			commissionID, err := strconv.ParseInt(commissionIDRaw, 10, 64)
+			if err != nil || commissionID <= 0 {
+				return nil, fmt.Errorf("--commission-id must be a positive integer")
+			}
+			params["commission_id"] = strconv.FormatInt(commissionID, 10)
+		}
+		if (query == "") == (commissionIDRaw == "") {
+			return nil, fmt.Errorf("exactly one of --query or --commission-id is required")
+		}
+		if query != "" {
+			params["query"] = query
+		}
+	}
+	for _, name := range []string{"min-price-fen", "max-price-fen", "min-promised-delivery-ms", "max-promised-delivery-ms"} {
+		value, _ := cmd.Flags().GetInt64(name)
+		if value >= 0 {
+			params[strings.ReplaceAll(name, "-", "_")] = strconv.FormatInt(value, 10)
+		}
+	}
+	return params, nil
+}
+
+func addDiscoveryFlags(command *cobra.Command, query bool) {
+	if query {
+		command.Flags().String("query", "", "search query (mutually exclusive with --commission-id)")
+		command.Flags().String("commission-id", "", "exact Commission ID (mutually exclusive with --query)")
+	}
+	command.Flags().Int("limit", 20, "maximum candidates (1-100)")
+	command.Flags().Int64("min-price-fen", -1, "minimum price in minor currency units")
+	command.Flags().Int64("max-price-fen", -1, "maximum price in minor currency units")
+	command.Flags().Int64("min-promised-delivery-ms", -1, "minimum promised delivery duration")
+	command.Flags().Int64("max-promised-delivery-ms", -1, "maximum promised delivery duration")
+}
+
+func discoveryCommand(use, short, path string, query bool) *cobra.Command {
+	command := &cobra.Command{
+		Use:   use,
+		Short: short,
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			params, err := discoveryParams(cmd, query)
+			if err != nil {
+				return err
+			}
+			resp, err := newClient().Get(path, params)
+			if err != nil {
+				return err
+			}
+			return printResponse(resp)
+		},
+	}
+	addDiscoveryFlags(command, query)
+	return command
+}
+
+var commissionSearchCmd = discoveryCommand("search", "Search published commissions", "/commissions/search", true)
+var commissionRecommendCmd = discoveryCommand("recommend", "Recommend commissions for the authenticated agent", "/commissions/recommendations", false)
+
+func commissionReadCommand(use, short, suffix string, flags func(*cobra.Command)) *cobra.Command {
+	command := &cobra.Command{
+		Use:   use + " <commission-id>",
+		Short: short,
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := numericArgument(args, "commission ID")
+			if err != nil {
+				return err
+			}
+			params := map[string]string{}
+			if cmd.Flags().Lookup("limit") != nil {
+				limit, _ := cmd.Flags().GetInt("limit")
+				params["limit"] = strconv.Itoa(limit)
+				if cursor, _ := cmd.Flags().GetString("cursor"); cursor != "" {
+					params["cursor"] = cursor
+				}
+			}
+			resp, err := newCommissionClient().Get("/commissions/"+strconv.FormatInt(id, 10)+suffix, params)
+			if err != nil {
+				return err
+			}
+			return printResponse(resp)
+		},
+	}
+	if flags != nil {
+		flags(command)
+	}
+	return command
+}
+
+var commissionOrderableCmd = commissionReadCommand("orderable", "Get the current published contract for ordering", "/orderable", nil)
+
+var commissionReviewsCmd = commissionReadCommand("reviews", "List commission reviews", "/reviews", func(command *cobra.Command) {
+	command.Flags().Int("limit", 20, "maximum reviews")
+	command.Flags().String("cursor", "", "pagination cursor")
+})
+var commissionStatisticsCmd = commissionReadCommand("statistics", "Get commission statistics", "/statistics", nil)
+
+func init() {
+	addCommissionInputFlags(commissionCreateCmd)
+	addIdempotencyFlag(commissionCreateCmd)
+	commissionListCmd.Flags().Int64("cursor", 0, "pagination cursor")
+	commissionListCmd.Flags().Int("limit", 20, "maximum commissions")
+	commissionRecentCmd.Flags().Int64("cursor", 0, "pagination cursor (latest order ID)")
+	commissionRecentCmd.Flags().Int("limit", 20, "maximum recently used commissions (1-100)")
+	addCommissionInputFlags(commissionUpdateCmd)
+	commissionUpdateCmd.Flags().Int64("expected-version", 0, "expected draft version")
+	addIdempotencyFlag(commissionUpdateCmd)
+	addIdempotencyFlag(commissionOfflineCmd)
+	addIdempotencyFlag(commissionDeleteCmd)
+	commissionCmd.AddCommand(commissionCreateCmd, commissionListCmd, commissionGetCmd, commissionUpdateCmd,
+		commissionPublishCmd, commissionOfflineCmd, commissionDeleteCmd, commissionOrderableCmd, commissionSearchCmd, commissionRecommendCmd,
+		commissionReviewsCmd, commissionStatisticsCmd, commissionRecentCmd)
+	rootCmd.AddCommand(commissionCmd)
+}
+
+var commissionDeleteCmd = &cobra.Command{
+	Use: "delete <commission-id>", Short: "Delete an owned service while retaining existing orders", Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		id, err := numericArgument(args, "commission ID")
+		if err != nil {
+			return err
+		}
+		explicit, _ := cmd.Flags().GetString("idempotency-key")
+		key, err := mutationKey(explicit, "commission.delete", map[string]any{"commission_id": id})
+		if err != nil {
+			return err
+		}
+		resp, err := newCommissionClient().DeleteWithHeaders("/commissions/"+strconv.FormatInt(id, 10), map[string]string{idempotencyHeader: key})
+		if err != nil {
+			return err
+		}
+		return printResponse(resp)
+	},
+}

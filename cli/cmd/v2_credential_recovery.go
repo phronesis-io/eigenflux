@@ -57,7 +57,7 @@ func isExpiredV2Refresh(err error) bool {
 
 // recoverExpiredV2Credentials runs under the credential lock and uses only the
 // selected Home's existing key and an Agent-bound recovery grant.
-func recoverExpiredV2Credentials(serverName string, v2 v2Poster, previous *auth.V2Credentials, publicKey ed25519.PublicKey, privateKey ed25519.PrivateKey) (*auth.V2Credentials, error) {
+func recoverExpiredV2Credentials(serverName string, v2 v2Poster, previous *auth.V2Credentials, publicKey ed25519.PublicKey, privateKey ed25519.PrivateKey, beforeSave ...func(*auth.V2Credentials) error) (*auth.V2Credentials, error) {
 	grant, nonce, err := requestExistingAgentRecoveryChallenge(v2, publicKey, previous.AgentID)
 	if err != nil {
 		return nil, fmt.Errorf("same-account Agent authentication failed: %w", err)
@@ -83,6 +83,13 @@ func recoverExpiredV2Credentials(serverName string, v2 v2Poster, previous *auth.
 		AgentID: provisioned.AgentID, PrincipalID: provisioned.PrincipalID,
 		AccessToken: provisioned.AccessToken, RefreshToken: provisioned.RefreshToken,
 		ExpiresAt: provisioned.ExpiresAt, Scopes: provisioned.Scopes,
+	}
+	for _, guard := range beforeSave {
+		if guard != nil {
+			if err := guard(recovered); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if err := auth.SaveV2Credentials(serverName, recovered); err != nil {
 		return nil, fmt.Errorf("save recovered Agent credentials: %w", err)

@@ -7,7 +7,7 @@ Keep embedded wrappers byte-identical to `static/uninstall.sh` and
 Installation registration distributes the wrapper beside the resolved binary
 and records its digest. Test bundles also include both standalone wrappers.
 Use the absolute binary path as the first argument; pass CLI flags as data.
-Protocol 1 requires CLI 0.6.3. No script downloads or arbitrary shell expansion
+Protocol 1 requires CLI 1.0.2. No script downloads or arbitrary shell expansion
 are needed. Preview performs no cleanup. Windows retains a temporary trusted CLI
 for locked original-file removal and final telemetry, then deletes the copy.
 
@@ -16,3 +16,8 @@ The Windows wrapper reports data removal only when the finalizer confirms it;
 older protocol-1 CLIs retain their existing data-preservation behavior.
 Partial finalization prints the actual local-data cleanup state and returns a
 nonzero exit code. Home cleanup can succeed while an abnormal wrapper remains.
+
+Only temporary Windows reporter subprocesses clear `EIGENFLUX_INSTALL_ROOT`,
+`EIGENFLUX_INSTALL_CHILD` and `EIGENFLUX_INSTALL_WATCH_LAUNCHER` from their child
+environment. Preserve the parent and original stable-entry command environment.
+The POSIX wrapper has no temporary reporter and retains the installation context.

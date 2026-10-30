@@ -32,27 +32,28 @@ const Registry = "https://registry.npmjs.org"
 
 type Run func(context.Context, ...string) ([]byte, error)
 
-// Progress reports local update stages without performing network work in the observer.
-type Progress struct {
-	Phase, Result, FromVersion, TargetVersion string
-}
+// Progress reports update stages without permitting telemetry to interrupt replacement.
+type Progress struct{ Phase, Result, FromVersion, TargetVersion string }
 
 type Options struct {
-	OnProgress func(Progress)
-	Run        Run
-	Client     *http.Client
-	Registry   string
-	// LoadedVersion is the version reported by the plugin that started this call.
-	LoadedVersion string
+	OnProgress            func(Progress)
+	Run                   Run
+	Client                *http.Client
+	Registry              string
+	PollInterval          time.Duration
+	Server                string
+	CLIVersion            string
+	RestartPendingVersion string
 }
 type Result struct {
-	Phase            string `json:"phase"`
-	Status           string `json:"status"`
-	Scope            string `json:"scope,omitempty"`
-	InstalledVersion string `json:"installed_version,omitempty"`
-	LatestVersion    string `json:"latest_version,omitempty"`
-	LoadedVersion    string `json:"loaded_version,omitempty"`
-	Error            string `json:"error,omitempty"`
+	Phase                 string `json:"phase"`
+	Status                string `json:"status"`
+	Scope                 string `json:"scope,omitempty"`
+	InstalledVersion      string `json:"installed_version,omitempty"`
+	LatestVersion         string `json:"latest_version,omitempty"`
+	LoadedVersion         string `json:"loaded_version,omitempty"`
+	RestartPendingVersion string `json:"restart_pending_version,omitempty"`
+	Error                 string `json:"error,omitempty"`
 }
 type inspection struct {
 	Plugin struct {
@@ -71,6 +72,18 @@ type release struct {
 		Compat struct{ MinGatewayVersion string }
 	}
 	Dist struct{ Tarball, Integrity string }
+}
+type runtimeStatus struct {
+	Schema        string `json:"schema_version"`
+	PluginVersion string `json:"plugin_version"`
+	GatewayPID    int    `json:"gateway_pid"`
+	Busy          bool   `json:"busy"`
+	Servers       []struct {
+		Server     string `json:"server"`
+		CLIVersion string `json:"cli_version"`
+		Ready      bool   `json:"ready"`
+		Running    bool   `json:"running"`
+	} `json:"servers"`
 }
 type gatewayStatus struct {
 	CLI     struct{ Version string }
@@ -106,6 +119,9 @@ func Update(ctx context.Context, o Options) (r Result) {
 		}
 	}
 	progress("check", "started")
+	if selfupdate.ValidVersion(o.RestartPendingVersion) {
+		r.RestartPendingVersion = o.RestartPendingVersion
+	}
 	fail := func(status string, err error) Result { r.Status, r.Error = status, err.Error(); return r }
 	if o.Run == nil {
 		return fail("failed", errors.New("OpenClaw command runner required"))
@@ -115,6 +131,9 @@ func Update(ctx context.Context, o Options) (r Result) {
 	}
 	if o.Registry == "" {
 		o.Registry = Registry
+	}
+	if o.PollInterval <= 0 {
+		o.PollInterval = time.Second
 	}
 	read := func(args ...string) (inspection, error) {
 		var i inspection
@@ -182,8 +201,7 @@ func Update(ctx context.Context, o Options) (r Result) {
 		return fail("blocked", errors.New("plugin is disabled"))
 	}
 	r.InstalledVersion, r.Scope = i.Plugin.Version, i.Install.InstallPath
-	fromVersion = r.InstalledVersion
-	_, _, err = readLocalGateway(ctx, o)
+	gateway, port, err := readLocalGateway(ctx, o)
 	if err != nil {
 		return fail("blocked", err)
 	}
@@ -197,6 +215,7 @@ func Update(ctx context.Context, o Options) (r Result) {
 	if err != nil {
 		return fail("failed", err)
 	}
+	r.LatestVersion = meta.Version
 	if meta.Name != PackageName || meta.Version != selected || !selfupdate.ValidVersion(meta.Version) {
 		return fail("blocked", errors.New("published plugin identity differs from the host-selected release"))
 	}
@@ -214,46 +233,110 @@ func Update(ctx context.Context, o Options) (r Result) {
 	if err := verifyFiles(ctx, o, installed, i.Plugin.RootDir); err != nil {
 		return fail("blocked", err)
 	}
+	if r.RestartPendingVersion != r.InstalledVersion || r.RestartPendingVersion != r.LatestVersion {
+		r.RestartPendingVersion = ""
+	}
+	before, runtimeErr := readRuntime(ctx, o, port)
+	if runtimeErr == nil && before.GatewayPID != gateway.Service.Runtime.PID {
+		return fail("blocked", errors.New("plugin runtime belongs to another Gateway process"))
+	}
+	if runtimeErr == nil && before.Busy {
+		return fail("blocked", errors.New("EigenFlux deliveries are active; retry when idle"))
+	}
 	changed := r.InstalledVersion != r.LatestVersion
 	if !changed {
 		progress("load", "started")
-		// The published plugin reports its package version when spawning the CLI.
-		// A local inspection or a changed Gateway PID is not live-version evidence.
-		if o.LoadedVersion == r.InstalledVersion {
-			r.Status, r.LoadedVersion = "loaded", o.LoadedVersion
+	}
+	if !changed && runtimeErr == nil && before.PluginVersion == r.InstalledVersion && runtimeReady(before, o) {
+		r.Status, r.LoadedVersion = "loaded", before.PluginVersion
+		r.RestartPendingVersion = ""
+		return r
+	}
+	if !changed && runtimeErr != nil && r.RestartPendingVersion == "" {
+		// Older adapters cannot attest their loaded version. Do not restart them every cycle.
+		return fail("restart_required", errors.New("installed plugin lacks live runtime evidence; use an adapter with eigenflux.runtime support"))
+	}
+	if !changed && runtimeErr == nil && before.PluginVersion == r.InstalledVersion {
+		return fail("restart_required", errors.New("plugin is loaded but its account watch is not ready"))
+	}
+	if changed {
+		progress("install", "started")
+		// The host manager owns package verification, registry writes, and source-change restart.
+		if _, err := o.Run(ctx, "plugins", "update", PluginID); err != nil {
+			return fail("failed", fmt.Errorf("host plugin update failed: %w", err))
+		}
+		i, err = read("plugins", "inspect", PluginID, "--json")
+		if err != nil {
+			return fail("failed", err)
+		}
+		if err := validateInstall(i); err != nil {
+			return fail("blocked", err)
+		}
+		r.InstalledVersion, r.Scope = i.Plugin.Version, i.Install.InstallPath
+		if r.InstalledVersion != r.LatestVersion {
+			return fail("failed", errors.New("host manager did not install the discovered version"))
+		}
+		if i.Install.Integrity != meta.Dist.Integrity {
+			return fail("blocked", errors.New("updated install integrity differs from npm"))
+		}
+		if err := verifyFiles(ctx, o, meta, i.Plugin.RootDir); err != nil {
+			return fail("blocked", err)
+		}
+		r.RestartPendingVersion = r.LatestVersion
+		progress("install", "installed")
+		progress("load", "started")
+	}
+	// The manager owns restart deferral. Repair a lost metadata notification once,
+	// without stopping the Gateway or restarting a watch that is only not ready.
+	refreshed := false
+	var refreshErr error
+	for ctx.Err() == nil {
+		local, localPort, statusErr := readLocalGateway(ctx, o)
+		if statusErr == nil && localPort != port {
+			return fail("blocked", errors.New("local Gateway endpoint changed during maintenance"))
+		}
+		current, err := readRuntime(ctx, o, port)
+		bound := statusErr == nil && err == nil && current.GatewayPID == local.Service.Runtime.PID
+		if bound && current.PluginVersion == r.LatestVersion && (!changed || current.GatewayPID != gateway.Service.Runtime.PID) && runtimeReady(current, o) {
+			r.Status, r.LoadedVersion = "loaded", current.PluginVersion
+			r.RestartPendingVersion = ""
 			return r
 		}
-		return fail("restart_required", errors.New("installed plugin version is not confirmed by the calling plugin"))
+		oldRuntime := bound && current.PluginVersion != r.LatestVersion && !current.Busy
+		// Only a verified completed install can bridge an adapter without this RPC.
+		missingRuntime := statusErr == nil && err != nil && r.RestartPendingVersion == r.LatestVersion && r.RestartPendingVersion != ""
+		if !refreshed && statusErr == nil && local.Service.Runtime.PID == gateway.Service.Runtime.PID && (oldRuntime || missingRuntime) {
+			refreshed = true
+			// Repeated notification remains a managed, idle-deferred restart request.
+			_, refreshErr = o.Run(ctx, "gateway", "call", "plugins.refresh", "--json", "--port", port)
+		}
+		timer := time.NewTimer(o.PollInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+		case <-timer.C:
+		}
 	}
+	if refreshErr != nil {
+		return fail("restart_required", fmt.Errorf("live plugin adoption is not yet verified; metadata notification failed: %w", refreshErr))
+	}
+	return fail("restart_required", errors.New("host restart is pending; live plugin adoption is not yet verified"))
+}
 
-	progress("install", "started")
-	// The host manager owns package verification, registry writes, and source-change restart.
-	if _, err := o.Run(ctx, "plugins", "update", PluginID); err != nil {
-		return fail("failed", fmt.Errorf("host plugin update failed: %w", err))
+func runtimeReady(r runtimeStatus, o Options) bool {
+	if len(r.Servers) == 0 {
+		return false
 	}
-	i, err = read("plugins", "inspect", PluginID, "--json")
-	if err != nil {
-		return fail("failed", err)
+	matched := o.Server == ""
+	for _, s := range r.Servers {
+		if !s.Ready || !s.Running || s.CLIVersion == "" || o.CLIVersion != "" && s.CLIVersion != o.CLIVersion {
+			return false
+		}
+		if s.Server == o.Server {
+			matched = true
+		}
 	}
-	if err := validateInstall(i); err != nil {
-		return fail("blocked", err)
-	}
-	r.InstalledVersion, r.Scope = i.Plugin.Version, i.Install.InstallPath
-	if r.InstalledVersion != r.LatestVersion {
-		return fail("failed", errors.New("host manager did not install the discovered version"))
-	}
-	if i.Install.Integrity != meta.Dist.Integrity {
-		return fail("blocked", errors.New("updated install integrity differs from npm"))
-	}
-	if err := verifyFiles(ctx, o, meta, i.Plugin.RootDir); err != nil {
-		return fail("blocked", err)
-	}
-	progress("install", "installed")
-	progress("load", "started")
-	// The published manager schedules its own idle-deferred source-change restart.
-	// This worker inherited the old plugin's environment, so it cannot attest the
-	// replacement's loaded version. A later plugin heartbeat supplies that evidence.
-	return fail("restart_required", errors.New("plugin installed; awaiting the host-managed restart and a heartbeat from the installed plugin"))
+	return matched
 }
 
 func validateInstall(i inspection) error {
@@ -275,6 +358,18 @@ func validateInstall(i inspection) error {
 	default:
 		return fmt.Errorf("unsupported plugin trust state: %s", i.Plugin.Trust.Reason)
 	}
+}
+
+func readRuntime(ctx context.Context, o Options, port string) (runtimeStatus, error) {
+	var r runtimeStatus
+	b, err := o.Run(ctx, "gateway", "call", "eigenflux.runtime", "--json", "--port", port)
+	if err == nil {
+		err = json.Unmarshal(b, &r)
+	}
+	if err == nil && (r.Schema != "eigenflux_runtime.v1" || r.GatewayPID <= 1 || !selfupdate.ValidVersion(r.PluginVersion)) {
+		err = errors.New("invalid plugin runtime evidence")
+	}
+	return r, err
 }
 
 func readLocalGateway(ctx context.Context, o Options) (gatewayStatus, string, error) {

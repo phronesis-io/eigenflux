@@ -1,0 +1,329 @@
+// Package dispatch connects account-scoped watch events to explicitly bound local Agents.
+package dispatch
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"io"
+	"strconv"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+)
+
+type Binding struct {
+	Version        int               `json:"version"`
+	Home           string            `json:"home"`
+	Server         string            `json:"server"`
+	Endpoint       string            `json:"endpoint"`
+	AgentID        string            `json:"agent_id"`
+	PrincipalID    string            `json:"principal_id"`
+	Scope          string            `json:"scope"`
+	Revision       string            `json:"revision"`
+	Mode           string            `json:"mode"`
+	Host           string            `json:"host"`
+	Command        []string          `json:"command"`
+	Args           []string          `json:"args,omitempty"`
+	WorkDir        string            `json:"workdir"`
+	SkillsDir      string            `json:"skills_dir,omitempty"`
+	Env            map[string]string `json:"env,omitempty"`
+	HostAgent      string            `json:"host_agent,omitempty"`
+	MainSessionID  string            `json:"main_session_id,omitempty"`
+	MainCommand    []string          `json:"main_command,omitempty"`
+	TimeoutSeconds int               `json:"timeout_seconds"`
+	// PM replies are always sent by the CLI in this runner. Existing plugin mode is separate.
+	Events []string `json:"events"`
+}
+
+type Message struct {
+	ID           string `json:"msg_id"`
+	Conversation string `json:"conv_id"`
+	Sender       string `json:"sender_id"`
+	Receiver     string `json:"receiver_id"`
+	Content      string `json:"content"`
+	CreatedAt    int64  `json:"created_at,omitempty"`
+}
+
+type Job struct {
+	ID                    string                       `json:"id"`
+	Kind                  string                       `json:"kind"`
+	Scope                 string                       `json:"scope"`
+	Revision              string                       `json:"binding_revision"`
+	Message               *Message                     `json:"message,omitempty"`
+	Data                  json.RawMessage              `json:"data,omitempty"`
+	Status                string                       `json:"status"`
+	Code                  string                       `json:"code,omitempty"`
+	Created               int64                        `json:"created"`
+	SessionID             string                       `json:"session_id,omitempty"`
+	ReplyID               string                       `json:"reply_id,omitempty"`
+	CommissionResult      *CommissionIntakeDecision    `json:"commission_result,omitempty"`
+	CommissionReadiness   *CommissionReadiness         `json:"commission_readiness,omitempty"`
+	CommissionFulfillment *CommissionFulfillmentResult `json:"commission_fulfillment,omitempty"`
+	CommissionCheckpoint  *CommissionFulfillmentResult `json:"commission_checkpoint,omitempty"`
+	CommissionDelivery    *CommissionDeliveryRetry     `json:"commission_delivery,omitempty"`
+	CommissionDirectory   string                       `json:"commission_directory,omitempty"`
+	CommissionExecution   *CommissionExecutionContext  `json:"commission_execution,omitempty"`
+}
+
+// CommissionReadiness preserves the actual pre-acceptance check independently
+// of later order versions. InputFingerprint is computed by the CLI, not the Agent.
+type CommissionReadiness struct {
+	Result           CommissionIntakeDecision `json:"result"`
+	InputFingerprint string                   `json:"input_fingerprint"`
+}
+
+// CommissionIntakeDecision records input inspection, never order acceptance or fulfillment.
+type CommissionIntakeDecision struct {
+	Version        int      `json:"version"`
+	RequestID      string   `json:"request_id"`
+	OrderID        string   `json:"order_id"`
+	OrderVersion   int64    `json:"order_version"`
+	Outcome        string   `json:"outcome"`
+	Summary        string   `json:"summary"`
+	InspectedFiles []string `json:"inspected_files"`
+}
+
+func ParseCommissionIntakeDecision(raw, requestID, orderID string, orderVersion int64) (CommissionIntakeDecision, error) {
+	var result CommissionIntakeDecision
+	if len(raw) > 1<<20 || !utf8.ValidString(raw) {
+		return result, errors.New("invalid_commission_result_encoding_or_size")
+	}
+	if err := decodeStrictObject([]byte(raw), &result); err != nil {
+		return result, errors.New("invalid_commission_result_contract")
+	}
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal([]byte(raw), &fields)
+	for _, key := range []string{"version", "request_id", "order_id", "order_version", "outcome", "summary", "inspected_files"} {
+		if value, ok := fields[key]; !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return result, errors.New("missing_commission_result_field")
+		}
+	}
+	if err := validateCommissionIntakeDecision(result, requestID, orderID, orderVersion); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func validateCommissionIntakeDecision(result CommissionIntakeDecision, requestID, orderID string, orderVersion int64) error {
+	if strings.TrimSpace(requestID) == "" || result.Version != 1 || result.RequestID != requestID || result.OrderID != orderID || orderVersion <= 0 || result.OrderVersion != orderVersion {
+		return errors.New("commission_result_identity_mismatch")
+	}
+	if _, err := positiveNotificationInteger([]byte(orderID)); err != nil {
+		return errors.New("invalid_commission_result_order_id")
+	}
+	switch result.Outcome {
+	case "ready", "needs_input", "needs_user", "failed":
+	default:
+		return errors.New("invalid_commission_result_outcome")
+	}
+	if !utf8.ValidString(result.Summary) || strings.TrimSpace(result.Summary) == "" || len(result.Summary) > 2000 {
+		return errors.New("invalid_commission_result_summary")
+	}
+	if result.InspectedFiles == nil || len(result.InspectedFiles) > 128 {
+		return errors.New("invalid_commission_result_files")
+	}
+	seen := make(map[string]bool, len(result.InspectedFiles))
+	for _, file := range result.InspectedFiles {
+		if !utf8.ValidString(file) || strings.TrimSpace(file) == "" || len(file) > 1024 || strings.IndexFunc(file, unicode.IsControl) >= 0 || seen[file] {
+			return errors.New("invalid_commission_result_files")
+		}
+		seen[file] = true
+	}
+	return nil
+}
+
+type commissionNotificationKey struct {
+	OrderID       string
+	OrderVersion  string
+	RecipientRole string
+}
+
+// Notification IDs stay as exact decimal integers; JSON float decoding would
+// lose precision for the server's snowflake IDs. Unknown fields remain in Data.
+func parseCommissionNotification(raw json.RawMessage, agentID string) (commissionNotificationKey, error) {
+	var key commissionNotificationKey
+	var notification map[string]json.RawMessage
+	if err := decodeStrictObject(raw, &notification); err != nil {
+		return key, errors.New("invalid_commission_notification")
+	}
+	var source string
+	if json.Unmarshal(notification["source_type"], &source) != nil || source != "commission_order" {
+		return key, errors.New("invalid_commission_notification_source")
+	}
+	if _, err := positiveNotificationInteger(notification["notification_id"]); err != nil {
+		return key, errors.New("invalid_commission_notification_id")
+	}
+	var payload map[string]json.RawMessage
+	if json.Unmarshal(notification["payload"], &payload) != nil || payload == nil {
+		return key, errors.New("invalid_commission_notification_payload")
+	}
+	recipient, err := positiveNotificationInteger(payload["recipient_agent_id"])
+	if err != nil || recipient != agentID {
+		return key, errors.New("commission_notification_identity_mismatch")
+	}
+	key.OrderID, err = positiveNotificationInteger(payload["order_id"])
+	if err != nil {
+		return key, errors.New("invalid_commission_order_id")
+	}
+	key.OrderVersion, err = positiveNotificationInteger(payload["order_version"])
+	if err != nil {
+		return key, errors.New("invalid_commission_order_version")
+	}
+	for _, field := range []string{"snapshot_id", "occurred_at"} {
+		if _, err := positiveNotificationInteger(payload[field]); err != nil {
+			return key, errors.New("invalid_commission_" + field)
+		}
+	}
+	if json.Unmarshal(payload["recipient_role"], &key.RecipientRole) != nil || (key.RecipientRole != "buyer" && key.RecipientRole != "seller") {
+		return key, errors.New("invalid_commission_recipient_role")
+	}
+	var state string
+	if json.Unmarshal(payload["to_state"], &state) != nil || strings.TrimSpace(state) == "" {
+		return key, errors.New("invalid_commission_order_state")
+	}
+	return key, nil
+}
+
+func positiveNotificationInteger(raw json.RawMessage) (string, error) {
+	text := strings.TrimSpace(string(raw))
+	if strings.HasPrefix(text, `"`) {
+		if err := json.Unmarshal(raw, &text); err != nil {
+			return "", err
+		}
+	}
+	for _, digit := range text {
+		if digit < '0' || digit > '9' {
+			return "", errors.New("expected positive decimal integer")
+		}
+	}
+	value, err := strconv.ParseInt(text, 10, 64)
+	if err != nil || value <= 0 {
+		return "", errors.New("expected positive int64")
+	}
+	return strconv.FormatInt(value, 10), nil
+}
+
+type Request struct {
+	ID        string
+	Kind      string
+	Prompt    string
+	SessionID string
+	// ReadOnlySkillDirs comes from the CLI's resolved frozen contract, never
+	// from prompt text or a model result. Only the built-in WorkBuddy bridge uses it.
+	ReadOnlySkillDirs []string
+}
+
+type Result struct {
+	Text      string
+	SessionID string
+	RunID     string
+}
+
+// Decision is a business result inside a model response, not an ACP extension.
+type Decision struct {
+	Version   int    `json:"version"`
+	RequestID string `json:"request_id"`
+	Action    string `json:"action"`
+	ReplyText string `json:"reply_text"`
+}
+
+func ParseDecision(raw, requestID string) (Decision, error) {
+	var d Decision
+	if len(raw) > 1<<20 || !utf8.ValidString(raw) {
+		return d, errors.New("invalid_result_encoding_or_size")
+	}
+	if err := decodeStrictObject([]byte(raw), &d); err != nil {
+		return d, errors.New("invalid_result_contract")
+	}
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal([]byte(raw), &fields)
+	for _, key := range []string{"version", "request_id", "action", "reply_text"} {
+		if value, ok := fields[key]; !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return d, errors.New("missing_result_field")
+		}
+	}
+	if strings.TrimSpace(requestID) == "" || d.Version != 1 || d.RequestID != requestID {
+		return d, errors.New("result_identity_mismatch")
+	}
+	switch d.Action {
+	case "reply":
+		if strings.TrimSpace(d.ReplyText) == "" || strings.ContainsRune(d.ReplyText, utf8.RuneError) {
+			return d, errors.New("invalid_reply")
+		}
+	case "no_reply", "needs_user":
+		if d.ReplyText != "" {
+			return d, errors.New("unexpected_reply_text")
+		}
+	default:
+		return d, errors.New("invalid_result_action")
+	}
+	return d, nil
+}
+
+// decodeStrictObject rejects duplicate keys before decoding so identity and action
+// fields cannot have different meanings to different JSON consumers.
+func decodeStrictObject(raw []byte, value any) error {
+	if !utf8.Valid(raw) {
+		return errors.New("invalid JSON encoding")
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	first, err := dec.Token()
+	if err != nil || first != json.Delim('{') {
+		return errors.New("expected JSON object")
+	}
+	if err := checkJSONContainer(dec, json.Delim('{')); err != nil {
+		return err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return errors.New("expected one JSON object")
+	}
+	dec = json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	return dec.Decode(value)
+}
+
+func checkJSONContainer(dec *json.Decoder, opening json.Delim) error {
+	keys := map[string]bool{}
+	for dec.More() {
+		if opening == '{' {
+			key, err := dec.Token()
+			if err != nil {
+				return err
+			}
+			name, ok := key.(string)
+			if !ok {
+				return errors.New("invalid JSON key")
+			}
+			folded := strings.ToUpper(name)
+			if keys[folded] {
+				return errors.New("duplicate JSON key")
+			}
+			keys[folded] = true
+		}
+		token, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		if delim, ok := token.(json.Delim); ok {
+			if delim != '{' && delim != '[' {
+				return errors.New("invalid JSON container")
+			}
+			if err := checkJSONContainer(dec, delim); err != nil {
+				return err
+			}
+		}
+	}
+	closing, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	expected := json.Delim('}')
+	if opening == '[' {
+		expected = ']'
+	}
+	if closing != expected {
+		return errors.New("invalid JSON container")
+	}
+	return nil
+}

@@ -1,0 +1,71 @@
+# Desktop notification queue
+
+Read before changing this package or `cmd/watch_desktop.go`. Update this file in
+the same change. The CLI owns durable delivery; OS adapters only submit messages.
+
+## Flow
+
+`watch --notifications-only` reuses this queue without an execution journal or
+Agent worker. Each order notification must be validated and durably enqueued
+before ACK; an unavailable/full queue prevents ACK. Account ownership checks
+and retry/submission semantics remain the same.
+
+1. `watch --dispatch` enables desktop notifications by default on macOS/Windows
+   for a binding subscribed to `commission_order`. Both buyer and seller events
+   become notifications; displaying one never invokes an Agent.
+2. `deliverCommissionNotifications` validates and saves the execution job, then
+   saves its desktop message, then ACKs the remote notification. Either save
+   failing prevents ACK. Socket and HTTP use this same path.
+3. A separate worker submits one eligible message per three-second cycle. Check
+   the pinned identity before and after OS submission, including after setup.
+4. `Journal.CommissionBlockers` supplies validated routing metadata for local
+   `needs_user`, `failed`, and `unknown` work. Recover these notifications after
+   crashes without exposing task bodies or changing execution state.
+
+## Persistence and retry
+
+`watch/desktop-<scope>.json` uses the existing Home/server/Agent/principal scope,
+independent of binding revision. The caller holds the account watch lock; a mutex
+serializes local workers. Atomic writes precede in-memory state changes.
+
+Server message IDs include scope and `notification_id`, preserving reminders that
+share an order version with a state change. Local blocker IDs hash scope, job ID,
+status, and code. Successful submission receipts prevent replay across restart or rebind.
+Keep at most 8192 entries; evict only submitted receipts, never pending work.
+Deduplication ends when a receipt is evicted.
+
+New entries persist a frozen, content-free `watch` correlation record alongside
+the message: order/version/role and either the source notification ID or blocker
+job/kind/status/fixed code. Old entries remain readable and report
+`origin=legacy`, version zero; never infer historical metadata from the current
+binding or order. Enqueue, preparation failure and OS attempt results enter the
+existing bounded notification observation log, then the authenticated
+maintenance queue. Stable lifecycle IDs deduplicate repeated blocker scans.
+Attempt zero denotes enqueue; later records include the existing retry counter
+plus one. Each real preparation/OS attempt has its own receipt ID. A crash before
+the delivery receipt is persisted can repeat the counter, but cannot merge the
+second observed submission into the first. No new business or notification
+dedup policy.
+
+Telemetry writes are best effort: they never change delivery receipts, invoke an
+Agent, or retry an OS submission. Pending entries retry unavailable enqueue
+observations before delivery. Retention, capacity or local I/O failure can still
+lose diagnostic evidence; no exactly-once audit guarantee is made.
+
+OS failures retain pending work with 1/2/4/8/16-minute retry delays; setup retries
+every five minutes. These failures do not stop Agent workers. Queue persistence
+failure or exhausted capacity stops watch; ingestion never ACKs an unsaved
+desktop message. Submission followed by a crash before receipt persistence can
+repeat the same stable message ID. OS acceptance does not prove banner visibility
+or a user click.
+
+## Links and verification
+
+Build links from the configured server origin and validated decimal account,
+order, and role fields. Never accept a URL from notification payloads or include
+credentials. Use the native adapter's URL validator for one shared origin policy.
+Unsupported origins disable only the desktop sink with a diagnostic.
+The Console must verify the expected account before reading order details.
+
+Tests: `queue_test.go` and `../../cmd/watch_desktop_test.go`. Run from `cli/`:
+`go test -race ./internal/desktopqueue ./internal/dispatch ./cmd -run 'TestDesktop|TestQueue'`.

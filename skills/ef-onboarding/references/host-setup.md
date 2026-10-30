@@ -125,7 +125,11 @@ execution failures, not reasons to repeat the business authorization question.
 ## Persist exactly one recurring trigger
 
 For new onboarding, schedule only after both required permission gates and any
-requested restart return, before provision. Use the same Home, explicit server
+requested restart return, before provision. For native Codex PM dispatch, apply
+`ef-communication/references/main-session.md` before starting watch. Keep the main
+session aligned with the verified setup conversation and heartbeat target.
+Require preflight before stopping watch; submit fresh scheduler readback when
+committing and restore the running entry on unchanged-route failure. Use the same Home, explicit server
 selection, and verified host mechanism. Do not recreate a disabled trigger.
 
 ## Existing users
@@ -135,6 +139,10 @@ or plugin process environment. Check effective mode, Home, server, and ownership
 missing `--runtime-mode` or wording different from the new template alone is
 not a repair reason. Use the current plan's CLI prefix for subsequent operations;
 receiving a new plan does not require rewriting the stored task.
+
+For a confirmed native-trigger repair, follow
+`ef-broadcast/references/maintenance.md` and verify the migration receipt.
+Preserve an explicitly paused trigger.
 
 Only when a confirmed execution incompatibility requires conversion, update the same
 owned task through the host API: replace the legacy mode assignment with the

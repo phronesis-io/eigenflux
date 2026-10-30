@@ -89,9 +89,24 @@ func refreshV2CredentialsForToken(serverName, endpoint string, force bool, rejec
 }
 
 func ensureV2CredentialsUnlocked(serverName, endpoint string, force bool, rejectedAccessToken string) (*auth.V2Credentials, error) {
+	return ensureV2CredentialsUnlockedWithGuardForToken(serverName, endpoint, force, rejectedAccessToken, nil, nil)
+}
+
+// A pinned background consumer validates identity both under the refresh lock
+// and before persisting a refresh or same-account recovery response.
+func ensureV2CredentialsUnlockedWithGuard(serverName, endpoint string, force bool, guard func(*auth.V2Credentials) error, configure func(*client.Client)) (*auth.V2Credentials, error) {
+	return ensureV2CredentialsUnlockedWithGuardForToken(serverName, endpoint, force, "", guard, configure)
+}
+
+func ensureV2CredentialsUnlockedWithGuardForToken(serverName, endpoint string, force bool, rejectedAccessToken string, guard func(*auth.V2Credentials) error, configure func(*client.Client)) (*auth.V2Credentials, error) {
 	credentials, err := auth.LoadV2Credentials(serverName)
 	if err != nil {
 		return nil, unavailableV2Identity(fmt.Errorf("cannot read Agent V2 credentials for server %q: %w", serverName, err))
+	}
+	if guard != nil {
+		if err := guard(credentials); err != nil {
+			return nil, err
+		}
 	}
 	if (!force || (rejectedAccessToken != "" && credentials.AccessToken != rejectedAccessToken)) && credentials.ExpiresAt > time.Now().Add(30*time.Second).UnixMilli() {
 		return credentials, nil
@@ -101,12 +116,28 @@ func ensureV2CredentialsUnlocked(serverName, endpoint string, force bool, reject
 		return nil, unavailableV2Identity(fmt.Errorf("cannot read the existing Agent identity for server %q: %w", serverName, err))
 	}
 	unauthenticated := client.New(strings.TrimRight(endpoint, "/")+"/api/v2", "", version, clientMetaForServerName(serverName))
+	if configure != nil {
+		configure(unauthenticated)
+	}
+	beforeSave := func(candidate *auth.V2Credentials) error {
+		if guard == nil {
+			return nil
+		}
+		if err := guard(candidate); err != nil {
+			return err
+		}
+		current, err := auth.LoadV2Credentials(serverName)
+		if err != nil {
+			return err
+		}
+		return guard(current)
+	}
 	challengeResponse, err := unauthenticated.Post("/agent-sessions/refresh-challenges", map[string]interface{}{
 		"refresh_token": credentials.RefreshToken, "rotation_request_id": refreshRotationRequestID(credentials.RefreshToken),
 	})
 	if err != nil {
 		if isExpiredV2Refresh(err) {
-			return recoverExpiredV2Credentials(serverName, unauthenticated, credentials, publicKey, privateKey)
+			return recoverExpiredV2Credentials(serverName, unauthenticated, credentials, publicKey, privateKey, beforeSave)
 		}
 		return nil, err
 	}
@@ -132,7 +163,7 @@ func ensureV2CredentialsUnlocked(serverName, endpoint string, force bool, reject
 	refreshResponse, err := unauthenticated.Post("/agent-sessions/refresh", request)
 	if err != nil {
 		if isExpiredV2Refresh(err) {
-			return recoverExpiredV2Credentials(serverName, unauthenticated, credentials, publicKey, privateKey)
+			return recoverExpiredV2Credentials(serverName, unauthenticated, credentials, publicKey, privateKey, beforeSave)
 		}
 		return nil, err
 	}
@@ -146,6 +177,13 @@ func ensureV2CredentialsUnlocked(serverName, endpoint string, force bool, reject
 	}
 	if json.Unmarshal(refreshResponse.Data, &refreshed) != nil || refreshed.AgentID == "" || refreshed.AccessToken == "" || refreshed.RefreshToken == "" {
 		return nil, fmt.Errorf("invalid Agent V2 refresh response")
+	}
+	if guard != nil {
+		candidate := *credentials
+		candidate.AgentID, candidate.PrincipalID = refreshed.AgentID, refreshed.PrincipalID
+		if err := beforeSave(&candidate); err != nil {
+			return nil, err
+		}
 	}
 	oldAgentID := credentials.AgentID
 	credentials.AccessToken = refreshed.AccessToken

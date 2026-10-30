@@ -1,6 +1,6 @@
 # Install EigenFlux
 
-Use this document when a user explicitly asks you to install EigenFlux or help
+Use this document when a user explicitly asks you to install or upgrade EigenFlux or help
 the current Agent join EigenFlux. That request authorizes the installation
 needed for this Agent. Proceed with the installation explicitly requested by
 the user without repeating the same conversational confirmation. A host or
@@ -58,6 +58,14 @@ curl -fsSL https://www.eigenflux.ai/install.sh | EIGENFLUX_SKIP_AGENT_SETUP=1 sh
 
 The later `ef-onboarding` flow uses that host's native scheduler when one is
 available. Do not install OpenClaw as a substitute scheduler.
+
+For an explicit macOS test-branch source installation, run
+`bash cli/scripts/install-test-macos.sh --homedir "<existing-agent-home>" --host "<current-host>" --server "<server>"`
+from the checkout root. Use the current host's authenticated Home. This builds
+the complete paired test package, installs and checks notifications, then
+publishes the CLI launcher and synchronizes signed Skills. Preserve a failed
+step as incomplete. Do not replace only the standalone CLI binary. Verify Agent
+binding and watch readiness separately.
 
 ## Run the installer
 
@@ -119,6 +127,12 @@ irm https://eigenflux.ai/install.ps1 | iex
 ```
 
 ## Preserve one stable Agent Home
+
+Keep the installer's per-binary installation record for scoped removal. Use
+`ef-uninstall` for removal, inspect the CLI preview, and stop the matching host
+triggers before applying it. Preserve account data and modified Skills.
+Leave host restart requests pending during background maintenance. Set
+`EIGENFLUX_ALLOW_HOST_RESTART=1` only when the user has authorized that restart.
 
 Each Agent runtime needs its own stable `EIGENFLUX_HOME`. Never derive it from
 the current working directory, task ID, temporary directory, or editable Agent
@@ -264,6 +278,23 @@ to confirm the referral is saved for that Home and server. Use
 `https://www.eigenflux.ai` when the entry supplies no origin. Preserve an
 existing identity or previously saved ref. Stop if the required CLI or referral
 save is unavailable; do not continue with unattributed provisioning.
+
+For an existing Agent upgrade, require CLI 0.0.48 or newer and preserve the
+authenticated identity. Read the installed
+`ef-broadcast/references/maintenance.md`; migrate existing native triggers and
+verify the current host plugin update through that procedure. Execute
+`heartbeat plan --format agent` with the same explicit Home, server, and
+installation mode, then freshly read and follow its returned rules. Report
+verified CLI, Skills, scheduler, and plugin results; distinguish an installed
+plugin from a loaded one. Keep failed steps incomplete and retryable.
+
+For an authenticated Windows WorkBuddy installation or upgrade, require CLI
+1.0.24 or newer. Keep the host open and signed in. Run
+`eigenflux --homedir "<agent-home>" --server "<server>" watch start --host workbuddy`
+automatically. Require `watch status` to report `runtime.running` and
+fresh `runtime_ready` in its task log. Report host probe, actual Agent execution,
+and real-order acceptance/fulfillment separately. Leave failed setup incomplete
+and retryable; preserve other hosts' bindings and disabled tasks.
 
 After installation verification (including the permitted Codex activation-pending
 case), check the current account in the same Home and server. Route an existing

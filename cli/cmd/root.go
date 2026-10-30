@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,8 @@ import (
 
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/selfupdate"
+	"cli.eigenflux.ai/internal/skills"
 	"github.com/spf13/cobra"
 )
 
@@ -173,7 +176,18 @@ func run() error {
 }
 
 func Execute() {
+	key, _ := base64.StdEncoding.DecodeString(skills.VerifyPublicKeyBase64)
+	if handled, code, err := selfupdate.ForwardInstallation(key, os.Args[1:], os.Environ(), version); err != nil {
+		exitCommandFailure(err)
+		return
+	} else if handled {
+		os.Exit(code)
+	}
 	if err := run(); err != nil {
+		var restart *selfupdate.InstallationRestart
+		if errors.As(err, &restart) {
+			os.Exit(selfupdate.InstallRestartExitCode)
+		}
 		var updated *updatedCLIError
 		var exitErr *exec.ExitError
 		if errors.As(err, &updated) && errors.As(err, &exitErr) {
@@ -183,6 +197,10 @@ func Execute() {
 			if exitErr.ExitCode() > 0 {
 				os.Exit(exitErr.ExitCode())
 			}
+		}
+		if isWatchTerminal(err) {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(78)
 		}
 		exitCommandFailure(err)
 	}

@@ -32,7 +32,7 @@ class ArtifactTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.build = self.root / 'build/cli'
         self.build.mkdir(parents=True)
-        for name in artifacts.BINARIES:
+        for name in artifacts.ARTIFACTS:
             (self.build / name).write_bytes(('binary ' + name).encode())
         (self.build / 'version.txt').write_text('99.0.0\n')
         artifacts.generate(self.build)
@@ -42,12 +42,16 @@ class ArtifactTests(unittest.TestCase):
         manifest = {'version': '99.0.0',
                     'signature': base64.b64encode(b'fixture-signature'.ljust(64, b'0')).decode(),
                     'artifacts': {name: {'sha256': value, 'size': (self.build / name).stat().st_size}
-                                  for name, value in artifacts.verify(self.build).items()}}
+                                  for name, value in artifacts.verify(self.build).items() if name in artifacts.BINARIES},
+                    'packages': {name: {'sha256': value, 'size': (self.build / name).stat().st_size}
+                                 for name, value in artifacts.verify(self.build).items() if name in artifacts.PACKAGES}}
+        (self.build / 'package-release.json').write_text(json.dumps(manifest))
+        manifest.pop('packages')
         (self.build / 'release.json').write_text(json.dumps(manifest))
 
     def test_checksums_describe_exact_bytes_for_all_six_platforms(self):
-        self.assertEqual(len(artifacts.verify(self.build)), 6)
-        for name in artifacts.BINARIES:
+        self.assertEqual(len(artifacts.verify(self.build)), 12)
+        for name in artifacts.ARTIFACTS:
             self.assertEqual((self.build / (name + '.sha256')).read_text(),
                              hashlib.sha256((self.build / name).read_bytes()).hexdigest() + '\n')
 
@@ -112,6 +116,9 @@ class ArtifactTests(unittest.TestCase):
         scripts.mkdir(parents=True, exist_ok=True)
         for name in ('publish.sh', 'cli-artifacts.py'):
             shutil.copy(ROOT / 'cli/scripts' / name, scripts / name)
+        # Native signing/notarization is separately tested on macOS. Keep the
+        # object-store integration isolated from real Apple credentials.
+        (scripts / 'verify-macos-packages.sh').write_text('#!/bin/bash\nexit "${MACOS_VERIFY_EXIT:-0}"\n')
         (self.root / 'cli/.cli.config').write_text('CLI_VERSION=99.0.0\n')
         bindir = self.root / 'bin'
         bindir.mkdir(exist_ok=True)
@@ -179,10 +186,11 @@ if os.environ.get('CORRUPT_PUBLIC') == '1' and path.name.endswith('.sha256'):
     def test_publish_uploads_each_binary_and_checksum_before_version_pointer(self):
         result, calls = self.publisher()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(len(calls), 28)
-        self.assertEqual(calls[-2:], ['s3://bucket/cli/latest/version.txt',
-                                    's3://bucket/cli/latest/release.json'])
-        for name in artifacts.BINARIES:
+        self.assertEqual(len(calls), 54)
+        self.assertEqual(calls[-3:], ['s3://bucket/cli/latest/version.txt',
+                                    's3://bucket/cli/latest/release.json',
+                                    's3://bucket/cli/latest/package-release.json'])
+        for name in artifacts.ARTIFACTS:
             for channel in ('99.0.0', 'latest'):
                 for suffix in ('', '.sha256'):
                     self.assertIn(f's3://bucket/cli/{channel}/{name}{suffix}', calls)
@@ -190,6 +198,19 @@ if os.environ.get('CORRUPT_PUBLIC') == '1' and path.name.endswith('.sha256'):
     def test_preflight_rejects_incomplete_build_before_any_upload(self):
         (self.build / (artifacts.BINARIES[-1] + '.sha256')).unlink()
         result, calls = self.publisher()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(calls, [])
+
+    def test_native_verification_is_required_before_any_upload(self):
+        previous = os.environ.get('MACOS_VERIFY_EXIT')
+        os.environ['MACOS_VERIFY_EXIT'] = '1'
+        try:
+            result, calls = self.publisher()
+        finally:
+            if previous is None:
+                os.environ.pop('MACOS_VERIFY_EXIT')
+            else:
+                os.environ['MACOS_VERIFY_EXIT'] = previous
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(calls, [])
 
@@ -217,9 +238,9 @@ if os.environ.get('CORRUPT_PUBLIC') == '1' and path.name.endswith('.sha256'):
         self.assertNotIn('s3://bucket/cli/latest/release.json', calls)
 
     def test_release_preflight_rejects_unsigned_mismatched_and_partial_manifest(self):
-        path = self.build / 'release.json'
+        path = self.build / 'package-release.json'
         original = json.loads(path.read_text())
-        for kind in ('missing', 'unsigned', 'wrong_version', 'wrong_size', 'wrong_hash', 'missing_platform'):
+        for kind in ('missing', 'unsigned', 'wrong_version', 'wrong_size', 'wrong_hash', 'missing_platform', 'missing_package', 'wrong_package_hash'):
             with self.subTest(kind=kind):
                 manifest = json.loads(json.dumps(original))
                 if kind == 'missing':
@@ -233,6 +254,10 @@ if os.environ.get('CORRUPT_PUBLIC') == '1' and path.name.endswith('.sha256'):
                         manifest['artifacts'][artifacts.BINARIES[0]]['size'] += 1
                     elif kind == 'wrong_hash':
                         manifest['artifacts'][artifacts.BINARIES[0]]['sha256'] = '0' * 64
+                    elif kind == 'missing_package':
+                        manifest['packages'].pop(artifacts.PACKAGES[-1])
+                    elif kind == 'wrong_package_hash':
+                        manifest['packages'][artifacts.PACKAGES[0]]['sha256'] = '0' * 64
                     elif kind == 'missing_platform':
                         manifest['artifacts'].pop(artifacts.BINARIES[-1])
                     path.write_text(json.dumps(manifest))
@@ -247,7 +272,7 @@ if os.environ.get('CORRUPT_PUBLIC') == '1' and path.name.endswith('.sha256'):
         (self.root / 'uploads').unlink()
         result, calls = self.publisher()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(calls), 14)
+        self.assertEqual(len(calls), 27)
         self.assertTrue(all('/cli/latest/' in path for path in calls))
 
     def test_conflicting_partial_release_stops_before_any_write(self):
@@ -271,7 +296,7 @@ if os.environ.get('CORRUPT_PUBLIC') == '1' and path.name.endswith('.sha256'):
                 result, calls = self.publisher(race_mode=race)
                 if race == 'same':
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(calls[-1], 's3://bucket/cli/latest/release.json')
+                    self.assertEqual(calls[-1], 's3://bucket/cli/latest/package-release.json')
                 else:
                     self.assertNotEqual(result.returncode, 0)
                     self.assertFalse(any('/cli/latest/' in path for path in calls))

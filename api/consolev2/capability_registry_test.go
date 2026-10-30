@@ -3,6 +3,7 @@ package consolev2
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -17,11 +18,13 @@ func TestAgentCapabilityRegistryIsBilingualAndStable(t *testing.T) {
 		t.Fatalf("operations = %T/%d, want a populated registry", registry["operations"], len(operations))
 	}
 	seen := make(map[string]bool, len(operations))
+	byID := make(map[string]capabilityOperation, len(operations))
 	for _, operation := range operations {
 		if operation.OperationID == "" || operation.CLI == "" || seen[operation.OperationID] {
 			t.Fatalf("invalid or duplicate operation: %#v", operation)
 		}
 		seen[operation.OperationID] = true
+		byID[operation.OperationID] = operation
 		switch operation.OperationID {
 		case "cli.update", "heartbeat.maintenance_status", "heartbeat.plugin_check":
 			if operation.MinCLIVersion != "0.7.2" {
@@ -35,19 +38,73 @@ func TestAgentCapabilityRegistryIsBilingualAndStable(t *testing.T) {
 			}
 		}
 	}
-	for _, excluded := range []string{"watch.run", "heartbeat.migrate.plan", "heartbeat.migrate.verify", "heartbeat.maintenance_report"} {
-		if seen[excluded] {
-			t.Fatalf("unreleased operation %q must not be advertised by the automatic-update release", excluded)
-		}
-	}
 	for _, required := range []string{
 		"need.input.create", "need.input.get", "need.input.list",
 		"identity.switch_account", "identity.recover_account", "profile.update", "context.goal.update", "context.intent.update",
 		"context.security.update", "attention.respond", "message.send", "relation.request", "settings.language.update",
+		"commission.search", "order.create", "order.payment", "wallet.withdrawal.create",
+		"wallet.kyc.read", "wallet.kyc.start", "wallet.kyc.complete",
+		"wallet.kyc.authorize",
 		"cli.update", "heartbeat.maintenance_status", "heartbeat.plugin_check",
+		"watch.run", "heartbeat.migrate.plan", "heartbeat.migrate.verify", "heartbeat.maintenance_report",
 	} {
 		if !seen[required] {
 			t.Fatalf("registry missing %q", required)
+		}
+	}
+	commission := byID["commission.create"]
+	authorize := byID["wallet.kyc.authorize"]
+	if authorize.MinCLIVersion != "0.0.107" || authorize.IdentityRoute != "current_identity" || authorize.Confirmation != "explicit_user_instruction" || authorize.Risk != "elevated" {
+		t.Fatalf("KYC browser handoff contract = %#v", authorize)
+	}
+	payment := byID["order.payment"]
+	if payment.CLI != "eigenflux order payment" || payment.MinCLIVersion != "0.0.103" || payment.RequiresConsoleHandoff || payment.Confirmation != "explicit_user_instruction" {
+		t.Fatalf("order.payment contract = %#v", payment)
+	}
+	if commission.Localized["zh-CN"].Label != "创建任务委托草稿" || commission.Localized["en"].Label != "Create a Commission draft" {
+		t.Fatalf("commission.create terminology = %#v", commission.Localized)
+	}
+	for _, id := range []string{"wallet.kyc.read", "wallet.kyc.start", "wallet.kyc.complete"} {
+		operation := byID[id]
+		if operation.MinCLIVersion != "0.0.106" || operation.IdentityRoute != "current_identity" || operation.RequiresConsoleHandoff {
+			t.Fatalf("%s KYC contract = %#v", id, operation)
+		}
+		if id != "wallet.kyc.read" && (operation.Risk != "elevated" || operation.Confirmation != "explicit_user_instruction") {
+			t.Fatalf("%s KYC consent = %#v", id, operation)
+		}
+	}
+}
+
+func TestAgentCapabilityRegistryDisclosesAlipayOnlyFunding(t *testing.T) {
+	registry := buildAgentCapabilityRegistry("en", true, true)
+	operations, ok := registry["operations"].([]capabilityOperation)
+	if !ok {
+		t.Fatalf("operations = %T", registry["operations"])
+	}
+	byID := make(map[string]capabilityOperation, len(operations))
+	for _, operation := range operations {
+		byID[operation.OperationID] = operation
+	}
+	for id, wanted := range map[string][2]string{
+		"commission.create":        {"支付宝", "Alipay"},
+		"commission.publish":       {"支付宝", "Alipay"},
+		"order.create":             {"仅支持支付宝", "Alipay in CNY only"},
+		"order.payment":            {"唯一支持的付款渠道", "only supported payment channel"},
+		"wallet.binding.update":    {"仅支持绑定支付宝账户", "only an Alipay account can be bound"},
+		"wallet.withdrawal.create": {"实名核验的支付宝账户", "mainland identity verification"},
+	} {
+		operation, found := byID[id]
+		if !found {
+			t.Fatalf("registry missing %q", id)
+		}
+		if !strings.Contains(operation.Localized["zh-CN"].Description, wanted[0]) {
+			t.Errorf("%s zh-CN description = %q, want it to state %q", id, operation.Localized["zh-CN"].Description, wanted[0])
+		}
+		if !strings.Contains(operation.Localized["en"].Description, wanted[1]) {
+			t.Errorf("%s en description = %q, want it to state %q", id, operation.Localized["en"].Description, wanted[1])
+		}
+		if operation.Localized["zh-CN"].Label == operation.Localized["zh-CN"].Description {
+			t.Errorf("%s zh-CN description still mirrors its label", id)
 		}
 	}
 }
