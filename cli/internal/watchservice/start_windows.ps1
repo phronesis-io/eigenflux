@@ -27,7 +27,10 @@ try {
         if ($taskSID -notmatch '^S-1-') { $taskSID = ([Security.Principal.NTAccount]::new($taskSID)).Translate([Security.Principal.SecurityIdentifier]).Value }
         if ($existing.Definition.RegistrationInfo.Description -ne $description -or $taskSID -ne $sid -or $principal.LogonType -ne 3 -or $principal.RunLevel -ne 0) { throw 'different task owner' }
         $failureCode = 'task_disabled'
-        if (-not $existing.Enabled) { throw 'preserve disabled task' }
+        if (-not $existing.Enabled) {
+            Write-StartResult @{status='skipped_disabled'}
+            exit 0
+        }
         # Reuse only an identical launcher. Upgrades replace this owned task,
         # not unrelated host tasks, and wait for the old Job Object to close.
         $sameLauncher = $false

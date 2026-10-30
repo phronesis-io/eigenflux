@@ -284,3 +284,24 @@ CLI builds generate checksums for all six platform binaries alongside the signed
 release manifest. Publication validates local checksums, preserves conditional
 immutable version writes, and verifies both public paths before advancing latest
 version and signed release pointers. Skills dispatch follows successful CLI publication.
+
+## Upgrade completion and watch recovery
+
+CLI 1.0.1 restores the current authenticated account's outer loop after manual
+updates and automatic maintenance checks. The installer also calls `watch recover`
+after host setup. Recovery preserves Home, server, Agent/principal identity and
+existing dispatch bindings; it never scans other Homes or rebinds another host.
+An existing running owner drains and adopts its update without being restarted.
+The watch self-update handoff also refreshes signed host Skills before enabling
+dispatch in its replacement process.
+A stopped bound watch synchronizes and validates its signed host Skills before
+starting the owned OS task. A missing WorkBuddy binding is discovered and verified through its current-host
+setup flow. Other missing bindings start notifications only, not model execution. Explicitly disabled OS tasks remain disabled. macOS and Windows use
+the same recovery entry; unsupported platforms report a skip.
+
+Recovery reports CLI installation separately from outer-loop status: `ready`
+requires a fresh live runtime observation; `starting` is not readiness. Notification
+permission and Agent-call verification remain separate fields. Network, rules,
+identity or task failures report a bounded reason and are retryable through
+`watch recover` or a later automatic maintenance entry. Never reset trust keys,
+ignore signatures, or remove user-edited Skills to make recovery succeed.

@@ -97,7 +97,7 @@ func (w *accountWatch) notificationIdentityOK() error {
 
 func newWatchStartCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use: "start", Short: "Install and start this account's Windows watch",
+		Use: "start", Short: "Install and start this account's desktop watch",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			host, _ := cmd.Flags().GetString("host")

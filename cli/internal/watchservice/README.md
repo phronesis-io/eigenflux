@@ -2,7 +2,14 @@
 
 Update this map with every lifecycle change.
 
-`cmd/watch_notifications.go` exposes Windows `watch start`. `start_windows.go`
+`cmd/update_watch_recovery.go` exposes account-scoped `watch recover`, used by
+upgrade completion and installers. `cmd/watch_notifications.go` exposes `watch start`.
+macOS uses `start_darwin.go` to restore a verified existing LaunchAgent or create
+a scope-named GUI user task, with KeepAlive and a 15-second restart throttle.
+Foreign, ambiguous, unverifiable or old-test-binary launchers are blocked; disabled
+tasks remain disabled. No second owner is created to bypass a blocked launcher.
+
+Windows `start_windows.go`
 and `start_windows.ps1` install an account-scoped, non-elevated interactive task
 named `EigenFlux-Notifications-<scope>`. Launcher JSON contains pinned identity
 and paths, never tokens. `notification_watch_windows.ps1` clears inherited
@@ -10,7 +17,7 @@ EigenFlux overrides and invokes `watch --notifications-only` inside an owned
 kill-on-close Windows Job Object. Stopping the wrapper stops its native child
 and releases the account lock. Logs remain under
 the explicit Home's `watch/` directory. Repeated starts reuse a running task;
-disabled/foreign tasks fail without mutation. New tasks start immediately and
+disabled tasks report `skipped_disabled`; foreign tasks fail without mutation. New tasks start immediately and
 on user logon. Three scheduler failure retries retain the pinned account.
 `process_started` still requires fresh `notifications_ready` in the log.
 

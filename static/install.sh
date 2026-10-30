@@ -1240,6 +1240,16 @@ persist_install_ref
 provision_agent_v2
 setup_agents
 
+if [ "${EIGENFLUX_SKIP_AGENT_SETUP:-}" != "1" ]; then
+  if "$INSTALLED_CLI_PATH" watch recover --help >/dev/null 2>&1; then
+    if ! "$INSTALLED_CLI_PATH" --homedir "$EF_HOME" watch recover; then
+      info "CLI installed, but outer-loop recovery is incomplete. Run eigenflux watch recover with this same Home to retry."
+    fi
+  else
+    info "This CLI does not support automatic outer-loop recovery; update to CLI 1.0.1 or later when available."
+  fi
+fi
+
 if ! "$INSTALLED_CLI_PATH" --homedir "$EF_HOME" installation record --host "$INVOKING_HOST" --skills-target "${INSTALL_SKILLS_TARGET:-}" >/dev/null 2>&1; then
   info "Installation registration unavailable; record it with the new CLI before uninstalling."
 fi

@@ -105,6 +105,9 @@ func runObservedCLIUpdate(cmd *cobra.Command, cfg *config.Config, minimum string
 	}
 	if os.Getenv(updateReexecEnv) == "1" {
 		recorder := resumedCLIRecorder(server, trigger, cmd.ErrOrStderr())
+		if !manual {
+			reportUpdateWatchRecovery(cmd, cfg, false)
+		}
 		return selfupdate.Result{Status: "restarted", Version: version}, false, recorder, nil
 	}
 	recorder := newMaintenanceRecorder(server, "cli", trigger, "", cmd.ErrOrStderr())
@@ -162,6 +165,9 @@ func runObservedCLIUpdate(cmd *cobra.Command, cfg *config.Config, minimum string
 		return result, false, recorder, err
 	}
 	if result.Status != "updated" {
+		if !manual && (result.Status == "current" || result.Status == "skipped") {
+			reportUpdateWatchRecovery(cmd, cfg, false)
+		}
 		return result, false, recorder, nil
 	}
 	recorder.Phase("execute", version, result.Version)

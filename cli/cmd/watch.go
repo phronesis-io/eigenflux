@@ -127,6 +127,20 @@ var watchCmd = &cobra.Command{
 				return err
 			}
 		}
+
+		if os.Getenv("EIGENFLUX_WATCH_UPGRADE_RECOVERY") == "1" {
+			_ = os.Unsetenv("EIGENFLUX_WATCH_UPGRADE_RECOVERY")
+			if dispatchEnabled {
+				b, err := dispatch.ReadBinding(home, server.Name)
+				expected := dispatch.Binding{Home: home, Server: server.Name, Endpoint: server.Endpoint, AgentID: credentials.AgentID, PrincipalID: credentials.PrincipalID, Scope: w.scope}
+				if err != nil || !sameBindingIdentity(b, expected) {
+					return errWatchIdentity
+				}
+				if err := syncUpgradeWatchRules(cfg, b, false); err != nil {
+					return err
+				}
+			}
+		}
 		if enabled, _ := cmd.Flags().GetBool("dispatch"); enabled {
 			if err := w.enableDispatch(); err != nil {
 				return err
@@ -160,7 +174,7 @@ var watchCmd = &cobra.Command{
 			return installErr
 		}
 		args := heartbeatReexecArgs(os.Args[1:], home, server.Name)
-		env := watchReexecEnvironment(os.Environ(), home, w.identity)
+		env := append(watchReexecEnvironment(os.Environ(), home, w.identity), "EIGENFLUX_WATCH_UPGRADE_RECOVERY=1")
 		if installation != nil {
 			env = selfupdate.InstallationEnvironment(env, root)
 		}

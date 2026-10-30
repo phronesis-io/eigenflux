@@ -17,6 +17,7 @@ type cliUpdateOutput struct {
 	PID         int                          `json:"pid"`
 	Home        string                       `json:"home"`
 	Observation maintenanceObservationStatus `json:"observation"`
+	OuterLoop   updateWatchRecovery          `json:"outer_loop"`
 }
 
 var updateCmd = &cobra.Command{
@@ -38,9 +39,13 @@ var updateCmd = &cobra.Command{
 		if err != nil || restarted {
 			return err
 		}
+		recovery := updateWatchRecovery{Status: "skipped", Reason: "cli_update_incomplete"}
+		if result.Status == "current" || result.Status == "restarted" {
+			recovery = reportUpdateWatchRecovery(cmd, cfg, true)
+		}
 		output.PrintDataTo(cmd.OutOrStdout(), cliUpdateOutput{
 			CLIUpdate: result, CLIVersion: version, PID: os.Getpid(), Home: config.HomeDir(),
-			Observation: recorder.Status(),
+			Observation: recorder.Status(), OuterLoop: recovery,
 		}, resolveFormat())
 		if result.Status != "current" && result.Status != "restarted" {
 			return fmt.Errorf("CLI update %s: %s", result.Status, result.Error)

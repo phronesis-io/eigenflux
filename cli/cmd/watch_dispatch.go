@@ -29,6 +29,10 @@ func (w *accountWatch) enableDispatch() error {
 	if err = b.Validate(); err != nil {
 		return err
 	}
+	b, err = w.upgradeLegacyWorkBuddyPM(b)
+	if err != nil {
+		return err
+	}
 	if _, err = localHeartbeatSkillsAt(b.SkillsDir, b.Host); err != nil {
 		return err
 	}
