@@ -64,7 +64,9 @@ and existing recommendation effect panels. The read-only Grafana role receives
 only anonymous aggregate views, not raw responses or reasons. Missing data is not
 zero. Live accuracy/recall/AUC require new human labels.
 
-Before merge, retain the recent fixed-cohort replay with PGC/UGC and Need/Profile
+The [2026-10-30 gate sensitivity](ugc-slop-replay-20261030.md) is complete; it
+shows a 2.79% lower historical-rate positive-event estimate and is not global
+model-rollout acceptance. Before merge, retain the complete fixed-cohort replay with PGC/UGC and Need/Profile
 mix and each Agent's expected deliveries/positive events. After activation check
 the next complete calendar day, comparing the same cohort's actual daily positives
 and delivered mix against preceding complete days. Partial-day data and model
