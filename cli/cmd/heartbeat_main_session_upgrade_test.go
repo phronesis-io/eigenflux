@@ -37,7 +37,7 @@ func upgradeHeartbeatFixture(t *testing.T, baseline bool) (dispatch.Binding, str
 	}
 	clientMeta.Host, clientMeta.Mode = "codex", "skill"
 	rules := installHeartbeatTestRules(t)
-	version = "1.0.10"
+	version = "1.0.2"
 	cred, err := auth.LoadV2Credentials(name)
 	if err != nil {
 		t.Fatal(err)
@@ -75,7 +75,7 @@ func runUpgradeHeartbeat(t *testing.T, cmd *cobra.Command) heartbeatPlan {
 
 func TestHeartbeatUpgradeAutomaticallySchedulesInitialBinding(t *testing.T) {
 	t.Setenv("EIGENFLUX_SKIP_AGENT_SETUP", "1") // Binding fixtures must not install native background tasks.
-	for _, state := range []string{"upgrade", "watch-managed", "watch-owns-maintenance", "ready", "unavailable", "maintenance", "control", "baseline", "other-host", "plugin", "unsigned-rules"} {
+	for _, state := range []string{"missing", "upgrade", "watch-managed", "watch-owns-maintenance", "ready", "unavailable", "maintenance", "control", "baseline", "other-host", "plugin", "unsigned-rules"} {
 		t.Run(state, func(t *testing.T) {
 			b, rules := upgradeHeartbeatFixture(t, state == "baseline")
 			cmd := &cobra.Command{}
@@ -100,6 +100,11 @@ func TestHeartbeatUpgradeAutomaticallySchedulesInitialBinding(t *testing.T) {
 			if err := dispatch.WriteJSON(path, b); err != nil {
 				t.Fatal(err)
 			}
+			if state == "missing" {
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+			}
 			before, _ := os.ReadFile(path)
 			if state == "unsigned-rules" {
 				if err := os.WriteFile(filepath.Join(rules, "ef-communication", "references", "main-session.md"), []byte("Unsigned replacement"), 0600); err != nil {
@@ -119,11 +124,14 @@ func TestHeartbeatUpgradeAutomaticallySchedulesInitialBinding(t *testing.T) {
 				return
 			}
 			plan := runUpgradeHeartbeat(t, cmd)
-			want := state == "upgrade" || state == "watch-managed" || state == "watch-owns-maintenance"
+			want := state == "missing" || state == "upgrade" || state == "watch-managed" || state == "watch-owns-maintenance"
 			if slices.Contains(plan.ExecutionOrder, "main_session_bootstrap") != want {
 				t.Fatalf("automatic bootstrap=%v: %+v", want, plan)
 			}
 			if want {
+				if state == "missing" && (!strings.Contains(plan.AgentPrompt, "--config only for initial creation") || plan.MainSessionBinding.ExpectedRevision != "") {
+					t.Fatal("missing binding lacks guarded initial creation")
+				}
 				if plan.ExecutionOrder[0] != "main_session_bootstrap" || !plan.WakeOnEmpty ||
 					!slices.Contains(plan.RuleSources, filepath.Join(rules, "ef-communication", "references", "main-session.md")) ||
 					!strings.Contains(plan.AgentPrompt, "Execute main_session_bootstrap automatically before business stages") {

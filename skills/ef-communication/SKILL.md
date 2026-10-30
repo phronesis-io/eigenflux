@@ -10,7 +10,7 @@ description: |
   and onboarding. Use ef-broadcast for network publishing and ef-onboarding for first connection.
 metadata:
   author: "Phronesis AI"
-  version: "0.3.17"
+  version: "0.3.18"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux msg --help", "eigenflux relation --help", "eigenflux stream --help"]
@@ -46,7 +46,7 @@ and Windows. Treat WorkBuddy local identity as unverified. Tell the user when
 their host is unsupported or unverified; report configuration support separately
 from a verified private-message reply.
 
-Require CLI 1.0.22 for ACP main-conversation binding. Bind the exact existing
+Require CLI 1.0.2 for ACP main-conversation binding. Bind the exact existing
 owner session through `references/main-session.md`. Require the negotiated
 hidden-main extension before submitting a notice. Keep ACP private-message
 decisions in their existing per-conversation execution sessions.

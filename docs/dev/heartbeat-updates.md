@@ -322,6 +322,21 @@ states are reported independently in `notifications`, with no visibility claim.
 CLI installation success is not notification or watch success. The existing
 `EIGENFLUX_SKIP_AGENT_SETUP=1` opt-out also skips notification initialization.
 
+### Skills freshness during recovery
+
+Recovery accepts a latest-Skills receipt only when synchronization returns a
+verified official manifest without diagnostics, preserved managed edits, stale
+bootstrap content or an offline fallback. An unchanged local revision counts as
+latest only after the signed remote comparison succeeds. Retaining valid old
+rules after a download, rollback, sequence or compatibility rejection does not
+complete the upgrade. Recovery reports a bounded `skills_*` reason and preserves
+the existing rules and trust state for retry.
+
+An owner-disabled automatic Skills sync stays offline and still verifies local
+signatures, compatibility and managed-file hashes. Its status is local-only;
+it does not assert that the installed Skills are the latest release. Explicit
+manual recovery checks the published Skills even when automatic sync is disabled.
+
 ### Current-runtime and authentication continuation
 
 A live watch is not an upgrade receipt: completion checks signed host Skills,
@@ -336,3 +351,13 @@ heartbeats retry unresolved recovery. Ordinary registration without this intent
 does not install a background task. Readiness or explicit owner disablement
 consumes the intent in place, without deleting a lock or marker file. Windows
 notification setup/status failure is reported but does not skip watch recovery.
+
+### Stable 1.0.2 bootstrap compatibility
+
+The signed Skills bundle requires CLI 1.0.2 for the completed initial-binding
+recovery path. Test-era 1.0.10, 1.0.22 and 1.0.24 instructions do not describe
+stable CLI version gates. Successful initial binding calls account-scoped
+`watch recover`, preserving explicit stops and disabled services, and requires
+dispatch readiness rather than restarting the old notification-only command.
+The native macOS App remains stamped with the CLI release version because
+existing clients verify this equality before activating the downloaded CLI.

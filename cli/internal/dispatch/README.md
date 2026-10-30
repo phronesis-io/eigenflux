@@ -30,6 +30,13 @@ credential provisioning resumes only that scoped intent, and completed heartbeat
 retry it. Failed probes retain intent for retry. Notification setup failures do
 not prevent watch restoration, and another Home's LaunchAgent is not a conflict.
 
+`cmd/update_watch_skills.go` rejects retained-old, provisional and unverified
+sync outcomes as upgrade completion. Fresh official synchronization still
+requires local signature, compatibility and file-hash validation. Owner-disabled
+automatic sync uses local validation only and makes no latest-release claim;
+manual recovery performs the remote check. Existing user edits and rollback
+protection remain intact.
+
 ## Code map
 
 Windows WorkBuddy discovery reports an absent lazy Sidecar separately from a
@@ -74,7 +81,7 @@ policy failure causes; classification does not change dispatch or admission.
 
 ## PM flow and invariants
 
-CLI 1.0.22 accepts explicit ACP `main_session_id` and optional `main_command`
+CLI 1.0.2 accepts explicit ACP `main_session_id` and optional `main_command`
 for the separate main-notice lane. The bridge override uses a copied binding
 and clears ordinary args; seller checks, fulfillment and PMs keep their original
 execution entry. Native Codex alone routes PMs through its bound main queue; ACP PMs retain
@@ -306,7 +313,7 @@ the user's standard `.codex` directory; its absolute path is persisted.
 
 For existing installations, heartbeat plans report `main_session_binding`
 (`bootstrap_required`, `ready`, `unavailable`) and include the signed
-`ef-communication/references/main-session.md` when repair is needed. CLI 1.0.10
+`ef-communication/references/main-session.md` when repair is needed. CLI 1.0.2
 prepends `main_session_bootstrap` before business work in full native Codex Skill
 plans after onboarding; the upgrade completion plan uses the same entry. The
 host completes initial binding automatically, without another enable request.
@@ -681,7 +688,7 @@ proof of a missing Desktop conversation. Windows rule encoding is implemented.
 
 ## Automatic Windows WorkBuddy binding
 
-CLI 1.0.24 `watch start --host workbuddy` resolves the running signed-in host
+CLI 1.0.2 `watch start --host workbuddy` resolves the running signed-in host
 and signed rules, probes an isolated runtime without a model call, and writes
 an ACP binding using `watch workbuddy-acp` and explicit Read/Write/Edit/Bash
 allow rules. The current account owns PM, Commission, control and maintenance

@@ -6,6 +6,13 @@ Update this map with every lifecycle change.
 upgrade completion and installers. `cmd/watch_notifications.go` exposes `watch start`.
 macOS uses `start_darwin.go` to restore a verified existing LaunchAgent or create
 a scope-named GUI user task, with KeepAlive and a 15-second restart throttle.
+Notification and dispatch modes share the same account service. Mode changes
+reload only an idle, enabled, verified launcher, preserving its other plist
+settings and any verified single-exec wrapper. Prepare-only never edits mode. A verified notification-only owner may stop
+before promotion to dispatch because it admits no Agent work; active dispatch
+owners must drain before switching. Opaque wrappers explicitly pinned to
+a different identity are excluded unless they occupy this account's scope-named
+launcher; unknown/current-account wrappers remain blocked.
 Foreign, ambiguous, unverifiable or old-test-binary launchers are blocked; disabled
 tasks remain disabled. No second owner is created to bypass a blocked launcher.
 
@@ -61,7 +68,7 @@ Tests simulate launchctl and use an in-memory Windows scheduler. Native
 acceptance must check loaded, unloaded, immediate-exit and wrapper/source failure
 cases on each OS. Never operate on real account tasks in automated tests.
 
-## Windows WorkBuddy automatic setup (CLI 1.0.24)
+## Windows WorkBuddy automatic setup (CLI 1.0.2)
 
 `watch start --host workbuddy` probes the signed-in host before changing its
 account binding. It creates no model prompt during discovery. Signed Skills

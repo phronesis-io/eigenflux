@@ -234,14 +234,21 @@ type mainSessionBindingPlan struct {
 	Error            string `json:"error,omitempty"`
 }
 
-func inspectMainSessionBinding() (*mainSessionBindingPlan, error) {
+func inspectMainSessionBinding(allowInitialBootstrap bool) (*mainSessionBindingPlan, error) {
 	home, err := watchstate.CanonicalHome(config.HomeDir())
 	if err != nil {
 		return nil, err
 	}
 	b, err := dispatch.ReadBinding(home, activeServerName())
 	if os.IsNotExist(err) {
-		return nil, nil
+		meta := clientMetaForServerName(activeServerName())
+		if !allowInitialBootstrap || meta.Host != "codex" || meta.Mode != "skill" {
+			return nil, nil
+		}
+		if _, err := watchBindingIdentity(); err != nil {
+			return nil, err
+		}
+		return &mainSessionBindingPlan{Status: "bootstrap_required"}, nil
 	}
 	if err != nil {
 		return nil, err

@@ -304,7 +304,7 @@ func TestMainSessionHeartbeatReportsLifecycleWithoutMutation(t *testing.T) {
 			t.Fatal(err)
 		}
 		before, _ := os.ReadFile(path)
-		got, err := inspectMainSessionBinding()
+		got, err := inspectMainSessionBinding(true)
 		if err != nil || got == nil || got.Status != status || got.ExpectedRevision != b.Revision {
 			t.Fatalf("status: %+v %v", got, err)
 		}

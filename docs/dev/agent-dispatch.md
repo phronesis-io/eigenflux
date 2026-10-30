@@ -77,8 +77,12 @@ inventory with the new configuration, or provide an explicit `main_session_id`.
 An absent watch binding does not establish first-time EigenFlux onboarding.
 Other host adapters retain their existing routing.
 
-Existing Codex bindings expose `bootstrap_required` in the heartbeat plan.
-CLI 1.0.10 prepends `main_session_bootstrap` to full native Codex Skill cycles
+Missing native Codex Skill bindings and existing bindings without a main session
+expose `bootstrap_required` in the heartbeat plan. Missing bindings use guarded
+initial creation with `--config`; existing bindings use session-only updates.
+Notification-only recovery remains pending until the host completes bootstrap;
+it never counts as successful Agent dispatch.
+CLI 1.0.2 prepends `main_session_bootstrap` to full native Codex Skill cycles
 after onboarding, including the plan run at upgrade completion. The host
 automatically completes the signed initial-binding procedure before business
 stages; existing valid targets are left unchanged. Narrow watch-owned maintenance
@@ -89,8 +93,9 @@ while the existing watch is running. After preflight succeeds, stop it, reread
 the native scheduler and apply with the returned task/thread/session/revision
 guards. New creation adds `--config` and uses empty expected session/revision.
 CLI accepts only one active EigenFlux heartbeat for the bound Home/server
-whose `thread_id` resolves in the pinned Codex store. Restart the same watch
-entry after readback. A failed commit with unchanged original routing must
+whose `thread_id` resolves in the pinned Codex store. After successful readback,
+use account-scoped `watch recover` and require ready dispatch plus the exact
+main-conversation probe; notification-only startup is not dispatch readiness. A failed commit with unchanged original routing must
 restart the previously running entry before reporting; inactive and disabled
 entries remain inactive. Native target readback belongs to the host adapter.
 Paused historical tasks do not compete with the unique active target. No local

@@ -78,7 +78,7 @@ esac
 				}
 				return "0"
 			}
-			command.Env = append(os.Environ(), "HOME="+dir, "PATH="+bin+":"+os.Getenv("PATH"), "EIGENFLUX_INSTALL_DIR="+install, "FIXTURE_CLI="+fixture, "FIXTURE_LOG="+log, "FIXTURE_OS="+tc.os, "FIXTURE_FAIL="+flag(tc.fail), "FIXTURE_BAD_HASH="+flag(tc.badHash), "EIGENFLUX_HOST=codex", "EIGENFLUX_HOME=", "SHELL=/bin/sh")
+			command.Env = append(os.Environ(), "HOME="+dir, "PATH="+bin+":/usr/bin:/bin:/usr/sbin:/sbin", "EIGENFLUX_INSTALL_DIR="+install, "FIXTURE_CLI="+fixture, "FIXTURE_LOG="+log, "FIXTURE_OS="+tc.os, "FIXTURE_FAIL="+flag(tc.fail), "FIXTURE_BAD_HASH="+flag(tc.badHash), "EIGENFLUX_HOST=codex", "EIGENFLUX_HOME=", "SHELL=/bin/sh")
 			out, err := command.CombinedOutput()
 			if (err != nil) != (tc.fail || tc.badHash) {
 				t.Fatalf("unexpected result %v: %s", err, out)

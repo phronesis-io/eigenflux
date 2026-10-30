@@ -2,7 +2,7 @@
 
 ## ACP hosts
 
-Require CLI 1.0.22. Bind Claude Code, OpenClaw, Hermes, WorkBuddy and other ACP
+Require CLI 1.0.2. Bind Claude Code, OpenClaw, Hermes, WorkBuddy and other ACP
 hosts only to an explicitly selected existing EigenFlux owner session and its
 absolute work directory. Configure the local ACP host bridge as `main_command`;
 preserve the ordinary execution command, arguments and mode.
@@ -19,7 +19,7 @@ current-thread and scheduler selectors exclusive to native Codex bindings.
 
 ## Codex setup
 
-Require CLI 1.0.10. Keep account identity, Agent Home, server and host-owned
+Require CLI 1.0.2. Keep account identity, Agent Home, server and host-owned
 conversation storage fixed. Complete initial binding automatically during
 setup, an owner-requested upgrade, or a full native Codex heartbeat listing
 `main_session_bootstrap`. Reuse the existing scheduler maintenance inventory
@@ -75,10 +75,14 @@ Preserve pending jobs and send receipts. Report cleanup failure separately;
 keep stopped, disabled or identity-changed entries from automatic activation.
 Leave an unsuccessful initial binding retryable in the next full native heartbeat.
 
-On a confirmed commit, restart the same previously running entry and require
-fresh runtime readiness. Keep an initially inactive entry inactive until the
-owner’s setup flow starts it. Preserve the heartbeat target; later target changes
-require an explicit owner-directed switch.
+On a confirmed commit, run `watch recover` with the fixed Home and server
+when watch was previously running or the current setup authorizes startup.
+Require `mode: dispatch`, `status: ready`, fresh `runtime_ready` and a successful
+main-conversation probe. Preserve the account service and let recovery replace
+its notification-only command with dispatch. Keep explicitly stopped or disabled
+entries inactive. Report incomplete recovery and retry through the next full
+host cycle. Preserve the heartbeat target; later target changes require an
+explicit owner-directed switch.
 
 ## Explicit switching
 
