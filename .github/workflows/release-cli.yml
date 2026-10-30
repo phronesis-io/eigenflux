@@ -13,7 +13,7 @@ concurrency:
 jobs:
   release-cli:
     if: github.ref == 'refs/heads/main'
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
