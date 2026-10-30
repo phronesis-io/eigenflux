@@ -235,11 +235,55 @@ func Merge(in []Candidate, kinds []Kind, mode Mode, limit int, needBudget bool) 
 		out = append(out, c)
 	}
 	if mode == Recommendation {
-		for _, c := range in {
-			add(c)
-			if len(out) == limit {
-				break
+		for len(in) > 0 && len(out) < limit {
+			if !needBudget || in[0].Context.CapturedNeed == nil {
+				add(in[0])
+				in = in[1:]
+				continue
 			}
+			// Preserve local ranking and explicit priority, then alternate Needs
+			// without comparing their absolute probabilities or cosine scores.
+			end := 0
+			queues := [][]Candidate{}
+			positions := map[int64]int{}
+			for end < len(in) && in[end].Context.CapturedNeed != nil && in[end].Context.Priority == in[0].Context.Priority {
+				c := in[end]
+				position, ok := positions[c.Context.ID]
+				if !ok {
+					position = len(queues)
+					positions[c.Context.ID] = position
+					queues = append(queues, nil)
+				}
+				queues[position] = append(queues[position], c)
+				end++
+			}
+			sort.Slice(queues, func(i, j int) bool {
+				a, b := queues[i][0].Context, queues[j][0].Context
+				if a.UpdatedAt != b.UpdatedAt {
+					return a.UpdatedAt > b.UpdatedAt
+				}
+				return a.ID < b.ID
+			})
+			for len(out) < limit {
+				beforeRound := len(out)
+				for i := range queues {
+					for len(queues[i]) > 0 {
+						before := len(out)
+						add(queues[i][0])
+						queues[i] = queues[i][1:]
+						if len(out) > before {
+							break
+						}
+					}
+					if len(out) == limit {
+						return out
+					}
+				}
+				if len(out) == beforeRound {
+					break
+				}
+			}
+			in = in[end:]
 		}
 		return out
 	}

@@ -835,9 +835,22 @@ lexical/dense channel, then the highest available current-Need cosine, then the
 existing ordering for ties or missing evidence. Evidence is read before channels
 are combined across contexts. Only the winning copy enters global ordering;
 its LR score, boosts and provenance stay intact. The merged channel attribution
-still includes losing copies so source ceilings cannot be bypassed. Injection
-retains the existing exposure guarantee; its one reserved item per page can
-still be attributed to a less relevant Need. There is no per-Need page minimum.
+still includes losing copies so source ceilings cannot be bypassed.
+
+After attribution, equal-priority captured Needs are mixed by their local rank:
+one eligible, deduplicated candidate per nonempty Need per round. Within each
+Need the existing LR, boost, injection and kind ordering stays intact; no LR
+probability or cosine value is rewritten or compared across Needs to allocate
+these turns. Higher explicit priorities remain ahead of lower ones, and captured
+Needs remain ahead of Profile/friend fallback contexts. Within a priority tier,
+Need order uses context update time descending, then context ID ascending.
+Duplicate items/groups and ineligible copies do not consume a Need's turn;
+exhausted Needs are skipped. The shared snapshot still stops at 200 candidates.
+
+The per-page source ceilings run after mixing and can skip candidates, so this
+is not a fixed per-Need page quota. Injection retains its place within its Need;
+its reserved item can still be attributed to a less relevant Need. Search and
+recommendations outside the experiment retain their existing global ordering.
 
 The global configuration is independent: `SWING_I2I_RECALL_K=80` limits Swing
 recall (the code fallback remains 100), and `configs/sort/rerank.yaml` limits

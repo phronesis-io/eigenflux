@@ -201,3 +201,76 @@ func TestHydrateHistogramRecordsSuccessAndFailure(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, before+2, count())
 }
+
+func roundRobinCandidate(ctx, id int64, probability float64, channels ...string) Candidate {
+	c := attributionCandidate(ctx, .5, probability, channels...)
+	c.Document.Ref.ID = id
+	return c
+}
+
+func TestNeedBudgetRoundRobinPreservesLocalRanking(t *testing.T) {
+	in := []Candidate{
+		roundRobinCandidate(1, 101, .9, "dense"), roundRobinCandidate(1, 102, .8, "dense"), roundRobinCandidate(1, 103, .7, "dense"),
+		roundRobinCandidate(2, 201, .2, "dense"), roundRobinCandidate(2, 202, .1, "dense"),
+		roundRobinCandidate(3, 301, .6, "dense"), roundRobinCandidate(3, 302, .5, "dense"),
+	}
+	for _, reverse := range []bool{false, true} {
+		if reverse {
+			slices.Reverse(in)
+		}
+		got := Merge(in, []Kind{Broadcast}, Recommendation, 20, true)
+		require.Equal(t, []int64{101, 201, 301, 102, 202, 302, 103}, ids(Execution{Candidates: got}))
+		require.Equal(t, []int64{101, 201, 301, 102}, ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 4, true)}))
+		for _, c := range got {
+			require.Equal(t, c.LR.Probability, c.FinalScore, "mixing must not rewrite scores")
+		}
+		require.Equal(t, []int64{101, 102, 103, 301, 302, 201, 202}, ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 20, false)}))
+		require.Equal(t, Merge(in, []Kind{Broadcast}, Search, 20, false), Merge(in, []Kind{Broadcast}, Search, 20, true))
+	}
+}
+
+func TestNeedBudgetRoundRobinSkipsDuplicatesWithinTurn(t *testing.T) {
+	in := []Candidate{
+		roundRobinCandidate(1, 11, .9, "dense"), roundRobinCandidate(1, 12, .8, "dense"), roundRobinCandidate(1, 13, .7, "dense"),
+		roundRobinCandidate(2, 21, .3, "dense"), roundRobinCandidate(2, 22, .2, "dense"), roundRobinCandidate(2, 23, .1, "dense"),
+	}
+	in[0].Document.GroupID, in[3].Document.GroupID = 50, 50
+	in[4].Score.Eligible = false
+	got := Merge(in, []Kind{Broadcast}, Recommendation, 20, true)
+	require.Equal(t, []int64{11, 23, 12, 13}, ids(Execution{Candidates: got}), "duplicate and ineligible candidates do not consume a Need's turn")
+}
+
+func TestNeedBudgetRoundRobinPreservesPriorityFallbackAndInjection(t *testing.T) {
+	injectedCopy := roundRobinCandidate(1, 11, .01, "new_ugc_recall")
+	injectedCopy.Reasons, injectedCopy.Order = []string{"inject:0"}, 1
+	regular := roundRobinCandidate(1, 12, .1, "dense")
+	regular.Order = 2
+	newer := roundRobinCandidate(2, 21, .05, "dense")
+	injectedCopy.Context.Priority, regular.Context.Priority, newer.Context.Priority = 1, 1, 1
+	newer.Context.UpdatedAt = 100
+	low := roundRobinCandidate(3, 31, .99, "dense")
+	fallback := roundRobinCandidate(4, 41, .999, "friend")
+	fallback.Context.CapturedNeed, fallback.Context.Priority = nil, 100
+	got := Merge([]Candidate{low, regular, fallback, injectedCopy, newer}, []Kind{Broadcast}, Recommendation, 20, true)
+	require.Equal(t, []int64{21, 11, 12, 31, 41}, ids(Execution{Candidates: got}))
+	require.True(t, injected(got[1]))
+}
+
+func TestNeedBudgetRoundRobinKeepsPageSourceCeiling(t *testing.T) {
+	in := []Candidate{}
+	for i := int64(1); i <= 10; i++ {
+		in = append(in, roundRobinCandidate(1, 100+i, .9-float64(i)/100, "swing_i2i"),
+			roundRobinCandidate(2, 200+i, .5-float64(i)/100, "dense"),
+			roundRobinCandidate(3, 300+i, .3-float64(i)/100, "dense"))
+	}
+	merged := Merge(in, []Kind{Broadcast}, Recommendation, 200, true)
+	page, _ := SelectRecommendationPage(merged, 20, []SourceLimit{{Source: "swing_i2i", Numerator: 1, Denominator: 4}})
+	require.Len(t, page, 20)
+	swing := 0
+	for _, c := range page {
+		if slices.Contains(c.Document.Channels, "swing_i2i") {
+			swing++
+		}
+	}
+	require.Equal(t, 5, swing)
+}

@@ -242,8 +242,9 @@ for bounds, Redis 7 requirements and partial-result semantics.
 
 `DISCOVERY_NEED_BUDGET_BPS` defaults to `0` and accepts 0–10000. A stable
 Agent bucket enables a 300-candidate context merge cap, consumed-group exclusion
-in captured-Need dense recall, and broadcast context attribution before global
-ordering. Search and the 200-candidate global snapshot are unchanged. Restart
+in captured-Need dense recall, broadcast context attribution, and round-robin
+mixing by local rank across equal-priority captured Needs. Within-Need scores,
+explicit priorities, Search, and the 200-candidate global cap are unchanged. Restart
 Sort after changing the value; frozen Feed snapshots retain their original
 contents. The global Swing recall setting (`SWING_I2I_RECALL_K=80`) and the
 `swing_i2i` 1/4 page ceiling in `configs/sort/rerank.yaml` apply independently to

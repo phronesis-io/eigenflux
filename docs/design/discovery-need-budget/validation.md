@@ -2,13 +2,13 @@
 
 ## Decision
 
-Keep the Need experiment off. The implementation passes unit, race and Sort
-integration checks, but the requested effect gate fails: LLM4search still has
-zero own dense results on the first page. The final page also contains no
-A-stock results, so absence of technical content there is not evidence of useful
-market coverage. No per-Need minimum quota or model change is included.
+Keep the Need experiment off pending human review. The latest local-rank mixing
+replay restores two LLM4search and one A-stock own-dense homepage candidates,
+but the usefulness of promoted content and A-stock pooled items remains
+unverified. The shared snapshot stays at 200 and the Swing page ceiling stays
+at 25%. No model change or fixed per-Need page quota is included.
 
-## Frozen effect replay
+## Original budget/attribution replay — 2026-10-29
 
 The original private snapshot was captured at 2026-10-29T16:58:27.914000+08:00.
 SHA-256: `2784a069cc04aa4d4937ba17c0b678b42a874c6a960693df6b028fa8d2555ce9`.
@@ -88,3 +88,38 @@ latency. The new histogram is required to close that rollout observation gap.
 No production source, model, environment, service or business data was changed.
 The example Swing value does not update an existing deployment environment.
 The global Swing controls are independent of the default-off Need bucket.
+
+## Local-rank mixing replay — 2026-10-30
+
+A separate, newly retained input was approved because the original excluded
+dense lists were not preserved. Its SHA-256 is
+`232a244c033b5abfbf2496374424ae21e98e0bfae1827de87097baf2aa9ab3ef`.
+The original execution clock, model and original candidate facts remain frozen.
+Consumed history and excluded dense recall were captured on October 30: 1,129
+groups and 845 inventory items, including two new items hydrated read-only.
+This is a controlled shared-input comparison, not an atomic historical A/A.
+
+The snapshot-500 / Swing-15% experiment was rejected: it retained more candidates
+but did not add LLM4search or A-stock own dense to the homepage. Both settings
+remain at 200 and 25%. Equal-priority Need round-robin mixing instead gives:
+
+| Need | Baseline page total / own dense | Round-robin page total / own dense | Baseline snapshot total / own dense | Round-robin snapshot total / own dense |
+| --- | --- | --- | --- | --- |
+| LLM4search | 2 / 0 | 7 / 2 | 23 / 13 | 66 / 53 |
+| A-stock | 0 / 0 | 7 / 1 | 45 / 33 | 67 / 51 |
+| Proactive Agent | 18 / 11 | 6 / 3 | 132 / 48 | 67 / 25 |
+
+Both pages contain 20 items, including five Swing-attributed items, and both
+snapshots contain 200. Baseline replay matches the retained October 30 baseline
+byte-for-byte. Local-rank mixing does not change recall, eligibility, ownership,
+model probabilities, or boost multipliers. It changes cross-Need allocation.
+This restores homepage representation; candidate usefulness and the semantic
+quality of A-stock's pooled items still require human review. No production
+activation or new latency measurement is included.
+
+Current-change validation passed: core build, all Sort unit packages, Discovery
+race checks, Sort integration, release-declaration validation, and the complete
+Discovery process E2E suite with the Need experiment enabled. Three cases
+requiring a separate CLI binary skipped. Repeated treatment output and the
+switch-off before/after output are byte-identical; all 40-feature LR probability
+reconstructions differ by less than 1e-12.
