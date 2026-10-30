@@ -88,6 +88,8 @@ const (
 // rest carry an agent id with no foreign key and would survive it. Every other
 // agent-scoped table cascades from agents.
 var Steps = []Step{
+	{Table: "integration_installations", Where: "agent_id = $1"},
+	{Table: "integration_agents", Where: "agent_id = $1"},
 	{Table: "agent_account_recovery_audit", Where: "source_agent_id = $1 OR target_agent_id = $1"},
 	{Table: "agent_account_recoveries", Where: "source_agent_id = $1 OR target_agent_id = $1 OR principal_id IN " + ownPrincipals +
 		" OR console_session_id IN " + ownSessions + " OR email_challenge_id IN " + ownChallenges},
@@ -122,10 +124,11 @@ var Blocking = []Step{
 	{Table: "trade_order_events", Where: "actor_agent_id = $1"},
 }
 
-// ReportOnly rows are counted and left alone: other agents that registered
-// through this account's invite keep pointing at the old agent id.
+// ReportOnly rows retain historical references: invitees and enterprise operator
+// audit records keep pointing at the old test Agent ID.
 var ReportOnly = []Step{
 	{Table: "agents", Where: "inviter_agent_id = $1"},
+	{Table: "integration_audit", Where: "agent_id = $1"},
 }
 
 // indirect rows disappear through a cascade that does not start at agents.
