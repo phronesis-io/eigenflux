@@ -146,7 +146,11 @@ func sampleValues(owner int64, x discovery.Execution, impression string, positio
 	if err != nil {
 		return nil, err
 	}
-	contexts, err := json.Marshal(map[string]any{"pipeline_version": discovery.PipelineVersion, "search_context": map[string]any{"contexts": x.Contexts, "request_mode": x.Mode, "request_time": now, "fallback_reason": x.FallbackReason}})
+	features := map[string]any{"pipeline_version": discovery.PipelineVersion, "search_context": map[string]any{"contexts": x.Contexts, "request_mode": x.Mode, "request_time": now, "fallback_reason": x.FallbackReason}}
+	if len(x.Experiments) > 0 {
+		features["experiments"] = x.Experiments
+	}
+	contexts, err := json.Marshal(features)
 	if err != nil {
 		return nil, err
 	}

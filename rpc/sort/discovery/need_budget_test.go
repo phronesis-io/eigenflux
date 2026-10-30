@@ -147,6 +147,11 @@ func TestNeedBudgetSharedHistoryAndMergeCap(t *testing.T) {
 			require.Equal(t, tc.wantReads, s.historyCalls)
 			require.Equal(t, []int{tc.wantCap, tc.wantCap, tc.wantCap}, s.batches)
 			require.Len(t, x.Candidates, 200, "global snapshot cap stays 200")
+			var arms map[string]string
+			if tc.bps > 0 && tc.mode == Recommendation {
+				arms = map[string]string{"discovery-need-budget-v1": "treatment"}
+			}
+			require.Equal(t, arms, x.Experiments)
 			for key, q := range s.queries {
 				raw, err := json.Marshal(q)
 				require.NoError(t, err)
@@ -317,4 +322,16 @@ func TestNeedMixInjectedCopyKeepsReservedPosition(t *testing.T) {
 
 func TestNeedCosineFeatureIndexExists(t *testing.T) {
 	require.GreaterOrEqual(t, needCosCtx0, 0)
+}
+
+func TestExperimentArmsRecordRunningExperimentsOnly(t *testing.T) {
+	require.Nil(t, (&Engine{}).experimentArms(7))
+	var control int64
+	for control = 1; bucketEnabled(needBudgetSalt, control, 5000); control++ {
+	}
+	e := &Engine{NeedBudgetBPS: 5000, ProfileSemanticBPS: 10000, RatingNextBPS: 10000}
+	require.Equal(t, map[string]string{"discovery-need-budget-v1": "control", "discovery-profile-semantic-v1": "treatment"}, e.experimentArms(control),
+		"control is recorded; the rating challenger needs a running rating treatment")
+	e = &Engine{RatingLRBPS: 10000, RatingNextBPS: 10000, ConsumedRefillBPS: 10000}
+	require.Equal(t, map[string]string{"discovery-rating-lr-v1": "treatment", "discovery-rating-lr-v2": "treatment", "discovery-consumed-refill-v1": "treatment"}, e.experimentArms(control))
 }

@@ -10,6 +10,7 @@ import (
 	"hash/fnv"
 	"io"
 	"math"
+	"strings"
 	"time"
 
 	"eigenflux_server/pkg/cache"
@@ -57,6 +58,40 @@ func bucketEnabled(salt string, owner int64, bps int) bool {
 	binary.BigEndian.PutUint64(b[:], uint64(owner))
 	_, _ = h.Write(b[:])
 	return h.Sum64()%10000 < uint64(bps)
+}
+
+const (
+	needBudgetSalt     = "discovery-need-budget-v1:"
+	consumedRefillSalt = "discovery-consumed-refill-v1:"
+)
+
+// experimentArms records the intent-to-treat arm of every running
+// recommendation experiment, keyed by its salt without the trailing colon.
+// The rating challenger's population is the rating treatment.
+func (e *Engine) experimentArms(owner int64) map[string]string {
+	arms := map[string]string{}
+	assign := func(salt string, bps int) bool {
+		if bps <= 0 {
+			return false
+		}
+		on := bucketEnabled(salt, owner, bps)
+		arm := "control"
+		if on {
+			arm = "treatment"
+		}
+		arms[strings.TrimSuffix(salt, ":")] = arm
+		return on
+	}
+	assign(needBudgetSalt, e.NeedBudgetBPS)
+	assign(consumedRefillSalt, e.ConsumedRefillBPS)
+	assign(profileSemanticSalt, e.ProfileSemanticBPS)
+	if assign(ratingLRSalt, e.RatingLRBPS) {
+		assign(ratingNextSalt, e.RatingNextBPS)
+	}
+	if len(arms) == 0 {
+		return nil
+	}
+	return arms
 }
 
 func profileSemanticEnabled(owner int64, bps int) bool {

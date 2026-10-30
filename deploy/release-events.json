@@ -96,7 +96,7 @@
       "recommendation-effect"
     ],
     "title": "Preserve Need candidates and soft-quota equal-priority Needs",
-    "description": "Need budget, attribution and the need_mix soft quota default off; compare fixed Agent cohorts by Need count from recorded bucket activation, not deployment time. Scores are unchanged, while snapshot and page allocation across Needs can change. Global Swing recall and page ceilings activate separately for all Agents. Hydration timing starts only after the full Sort rollout; historical latency is not backfilled. Existing frozen pages retain their order.",
+    "description": "Need budget, attribution and the need_mix soft quota default off; compare arms recorded in replay_logs.agent_features.experiments by Need count, starting from bucket activation, not deployment time; rows before this release carry no arm. Scores are unchanged, while snapshot and page allocation across Needs can change. Global Swing recall and page ceilings activate separately for all Agents. Hydration timing starts only after the full Sort rollout; historical latency is not backfilled. Existing frozen pages retain their order.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/459"
   }
 ]

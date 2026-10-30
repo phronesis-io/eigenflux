@@ -69,6 +69,8 @@ type Execution struct {
 	PartialReasons []string      `json:"partial_reasons,omitempty"`
 	FallbackReason string        `json:"fallback_reason,omitempty"`
 	Refill         *RefillReport `json:"refill,omitempty"`
+	// Experiments maps each running experiment to this Agent's arm.
+	Experiments map[string]string `json:"experiments,omitempty"`
 }
 
 func (e *Engine) contexts(ctx context.Context, owner int64, r Request, mode Mode, now int64) ([]Context, string, error) {
@@ -230,6 +232,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	x = Execution{Mode: mode, Candidates: []Candidate{}}
 	if mode == Recommendation {
 		x.SourceLimits = e.SourceLimits
+		x.Experiments = e.experimentArms(owner)
 	}
 	if owner <= 0 {
 		return x, Failure(401, "unauthorized")
@@ -242,7 +245,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	if r.Cursor != "" {
 		return x, Invalid("cursor", "requires_feed_delivery")
 	}
-	needBudgetOn := mode == Recommendation && bucketEnabled("discovery-need-budget-v1:", owner, e.NeedBudgetBPS)
+	needBudgetOn := mode == Recommendation && bucketEnabled(needBudgetSalt, owner, e.NeedBudgetBPS)
 	contextCap := 200
 	if needBudgetOn {
 		contextCap = 300

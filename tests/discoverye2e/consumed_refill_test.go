@@ -72,6 +72,13 @@ func TestDiscoveryConsumedHeadRefill(t *testing.T) {
 	require.Len(t, first.Items, 1, "%+v", first)
 	require.Contains(t, ids[190:], first.Items[0].Ref.ID)
 	require.Equal(t, first, s.recommend(t, request, "consumed-refill-first"), "retry must retain the same delivery")
+	s.waitSamples(t, first.ImpressionID, 1)
+	var sample string
+	require.NoError(t, s.db.Table("replay_logs").Select("agent_features").Where("impression_id=?", first.ImpressionID).Scan(&sample).Error)
+	arms := decode[struct {
+		Experiments map[string]string `json:"experiments"`
+	}](t, []byte(sample)).Experiments
+	require.Equal(t, "treatment", arms["discovery-consumed-refill-v1"], "delivered samples record the experiment arm")
 	require.Eventually(t, func() bool {
 		return mq.RDB.SIsMember(ctx, fmt.Sprintf(impr.KeyItemIDs, s.owner), first.Items[0].Ref.ID).Val()
 	}, 5*time.Second, 25*time.Millisecond)

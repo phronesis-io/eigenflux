@@ -460,7 +460,18 @@ Migration 108 extends the same `replay_logs` table and Redis stream:
 
 New rows also have context/Need/revision fields. `agent_features.search_context`
 contains frozen contexts and provenance; `item_features.search` contains the
-candidate, rule evidence and policy result. `item_score` is the final policy
+candidate, rule evidence and policy result. Recommendation samples carry
+`agent_features.experiments`, mapping each running Agent-bucket experiment to
+the Agent's arm (`treatment` or `control`), for example
+`{"discovery-need-budget-v1": "treatment"}`. The key is the bucket salt without
+its trailing colon. An experiment is running when its basis-point setting is
+positive; settings of 0 omit it, and Search samples omit the field. The arm is
+the intent-to-treat hash assignment, recorded even when a runtime dependency
+such as a model leaves the request on the incumbent path.
+`discovery-rating-lr-v2` is recorded only for `discovery-rating-lr-v1`
+treatment Agents, its population. Frozen pages keep the arms of the execution
+that created them. Compare arms with `agent_features->'experiments'->>'<name>'`;
+a changed salt starts a new experiment. `item_score` is the final policy
 score. The existing unique `(impression_id, position)` key makes consumption
 idempotent. No reject/empty result creates a row or a negative label. Internal
 Feed readers restrict to broadcast Feed/recommendation samples; legacy

@@ -45,7 +45,7 @@ type refillContext struct {
 }
 
 func consumedRefillEnabled(owner int64, bps int) bool {
-	return bucketEnabled("discovery-consumed-refill-v1:", owner, bps)
+	return bucketEnabled(consumedRefillSalt, owner, bps)
 }
 
 // Atomic bound check prevents a concurrent impression writer from growing the
