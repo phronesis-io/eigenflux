@@ -288,6 +288,7 @@ FROM telemetry_events_v2 WHERE properties->>'component'='dispatch' ORDER BY agen
 		e := validNotificationMaintenance()
 		e.EventID, e.AttemptID = fmt.Sprintf("%064x", 5000+i), fmt.Sprintf("%032x", 6000+i)
 		e.EventAt, e.Result, e.ErrorCode = row.at, row.result, row.code
+		e.FromVersion = "0.7.7"
 		e.Notification.Action, e.Notification.IDHash = "status", ""
 		e.Notification.DeviceID, e.Notification.DeviceName = deviceID, row.name
 		body = map[string]interface{}{"events": []maintenanceEvent{e}}
@@ -305,7 +306,7 @@ FROM telemetry_events_v2 WHERE properties->>'component'='dispatch' ORDER BY agen
 		t.Fatalf("device scope: %v", devices)
 	}
 	device := devices[0].(map[string]interface{})
-	if device["device_name"] != "我的电脑" || device["permission_state"] != "denied" || device["stale"] != false {
+	if device["cli_version"] != "0.7.7" || device["device_name"] != "我的电脑" || device["permission_state"] != "denied" || device["stale"] != false {
 		t.Fatalf("late upload or other account replaced current permission: %v", device)
 	}
 	exec(`UPDATE telemetry_events_v2 SET event_at=? WHERE agent_id=42 AND properties->'notification'->>'device_id'=?`, time.Now().Add(-11*time.Minute).UnixMilli(), deviceID)
@@ -314,6 +315,21 @@ FROM telemetry_events_v2 WHERE properties->>'component'='dispatch' ORDER BY agen
 	device = devices[0].(map[string]interface{})
 	if status != 200 || device["permission_state"] != "unknown" || device["stale"] != true {
 		t.Fatalf("offline observation reported as disabled: %v", payload)
+	}
+
+	// Legacy CLI installations have no notification device events.
+	exec(`CREATE TEMP TABLE agent_settings (agent_id BIGINT PRIMARY KEY, cli_version TEXT) ON COMMIT DROP`)
+	exec(`INSERT INTO agent_settings VALUES (42,'0.7.7'), (43,'1.0.0')`)
+	exec(`DELETE FROM telemetry_events_v2 WHERE agent_id=42 AND properties->'notification'->>'device_id'=?`, deviceID)
+	status, payload, _ = performJSON(t, h, "GET", "/devices", nil)
+	data := payload["data"].(map[string]interface{})
+	if status != 200 || len(data["devices"].([]interface{})) != 0 || data["account_cli_version"] != "0.7.7" {
+		t.Fatalf("legacy account upgrade version missing or cross-account: %v", payload)
+	}
+	exec(`UPDATE agent_settings SET cli_version='1.0.0' WHERE agent_id=42`)
+	status, payload, _ = performJSON(t, h, "GET", "/devices", nil)
+	if status != 200 || payload["data"].(map[string]interface{})["account_cli_version"] != "1.0.0" {
+		t.Fatalf("upgraded account version not refreshed: %v", payload)
 	}
 
 	exec(`UPDATE agent_credential_sessions SET scopes=ARRAY['feed:read'] WHERE principal_id=42`)
