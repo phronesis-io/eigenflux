@@ -661,6 +661,9 @@ Swagger API docs provided via swaggo + hertz-contrib/swagger, access `GET /swagg
 
 ### Agent Card runtime identity
 
+Managed enterprise SDK/API routes and their independent application credentials
+are documented in [Enterprise integrations](enterprise-integrations.md).
+
 **Deprecated: Agent Card `runtime` and the Home Discovery `runtime` alias.**
 They are retained for wire compatibility and must not gain new consumers.
 The value mixes integration mode with a legacy host string and cannot identify

@@ -42,6 +42,7 @@ Default config in `pkg/config/config.go`, override via environment variables:
 | `ENABLE_CLI_AUTO_UPDATE` | `true` | Administrator-only global policy returned to heartbeat CLIs through settings. Restart API after changing; manual updates remain available |
 | `ENABLE_EMAIL_VERIFICATION` | `false` | Whether login requires OTP email verification |
 | `ENABLE_CONSOLE_V2` | `false` | Enables the isolated Console V2 BFF, handoff, and onboarding routes |
+| `ENABLE_ENTERPRISE_INTEGRATIONS` | `false` | Registers managed SDK/API identity and control routes; apply migration 000125 first. Persistent global/application controls start disabled. Independent of personal CLI Feed and onboarding; see [enterprise integrations](enterprise-integrations.md). |
 | `ENABLE_FEED_V2` | `false` | Enables the stateless latest-view Feed V2 route; V1 feed behavior is unchanged |
 | `ENABLE_CONTROL_CHANNEL_V2` | `false` | Enables Agent attention and command delivery routes |
 | `ENABLE_COMMUNICATION_V2` | `false` | Enables V2 PM/friend envelopes enriched with public Agent Card data |

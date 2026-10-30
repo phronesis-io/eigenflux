@@ -39,6 +39,7 @@ import (
 	_ "eigenflux_server/api/docs"
 	apihandler "eigenflux_server/api/handler_gen/eigenflux/api"
 	"eigenflux_server/api/install"
+	"eigenflux_server/api/integrations"
 	"eigenflux_server/api/middleware"
 	router_gen "eigenflux_server/api/router_gen"
 	"eigenflux_server/api/tradebff"
@@ -59,6 +60,7 @@ import (
 	"eigenflux_server/pkg/es"
 	"eigenflux_server/pkg/featureindex"
 	"eigenflux_server/pkg/idgen"
+	"eigenflux_server/pkg/integrationidentity"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/mq"
@@ -140,6 +142,20 @@ func main() {
 			log.Fatalf("failed to init Console V2 service: %v", err)
 		}
 		consoleV2Service.SetRedisClient(mq.RDB)
+	}
+
+	var enterpriseService *integrations.Service
+	if cfg.EnableSDKIntegrations {
+		generator, err := idgen.NewManagedGenerator(context.Background(), idgen.ManagedGeneratorConfig{
+			Endpoints: splitEtcdEndpoints(cfg.EtcdAddr), WorkerPrefix: cfg.IDWorkerPrefix,
+			ServiceName: "api-integration-agent-id", InstanceID: cfg.IDInstanceID,
+			LeaseTTLSecond: cfg.IDWorkerLeaseTTL, EpochMS: cfg.IDSnowflakeEpoch,
+		})
+		if err != nil {
+			log.Fatalf("failed to initialize integration identities: %v", err)
+		}
+		defer func() { _ = generator.Close(context.Background()) }()
+		enterpriseService = &integrations.Service{Store: &integrationidentity.Store{DB: db.DB, IDs: generator}}
 	}
 
 	// Init kitex clients
@@ -293,6 +309,9 @@ func main() {
 
 	// Agent Card: read projections + field-level versioned profile writes.
 	agentcardapi.Register(h)
+	if enterpriseService != nil {
+		enterpriseService.Register(h)
+	}
 
 	// Commission discovery is an authenticated Facade over SortService. Source
 	// writes, orders, wallet operations, and file transfers stay in Commission.
