@@ -218,7 +218,11 @@ func recoverWatchAfterUpdate(cmd *cobra.Command, cfg *config.Config, manual bool
 			binding = &b
 		}
 	}
-	ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
+	parent := cmd.Context()
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, 20*time.Second)
 	defer cancel()
 	r = recoverUpdatedWatch(ctx, expected, binding, cli, updateRecoveryDeps{idle: func() error {
 		release, err := watchstate.Acquire(expected.Home, expected.Server)

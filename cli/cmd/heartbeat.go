@@ -31,6 +31,7 @@ type heartbeatPlan struct {
 	PlanMode                 string                  `json:"plan_mode,omitempty"`
 	PluginMaintenance        pluginMaintenance       `json:"plugin_maintenance"`
 	CLIUpdate                selfupdate.Result       `json:"cli_update"`
+	OuterLoop                *updateWatchRecovery    `json:"outer_loop,omitempty"`
 	AgentPrompt              string                  `json:"agent_prompt"`
 	WakeOnEmpty              bool                    `json:"wake_on_empty"`
 	Access                   runtimeAccess           `json:"access"`
@@ -335,6 +336,11 @@ var heartbeatPlanCmd = &cobra.Command{
 			} else {
 				plan.CompatibilityReported = true
 			}
+		}
+
+		if !controlOnly && access.OnboardingState == "completed" {
+			recovery := recoverWatchAfterUpdate(cmd, cfg, false)
+			plan.OuterLoop = &recovery
 		}
 
 		plan.AgentPrompt = renderHeartbeatPlanForAgent(plan)
