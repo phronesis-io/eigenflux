@@ -53,6 +53,8 @@ func TestWatchAutomaticallyUpdatesWithoutHeartbeatOrAgent(t *testing.T) {
 	upgrader := websocket.Upgrader{}
 	srv := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/api/v2/agents/me/settings":
+			_, _ = out.Write([]byte(`{"code":0,"data":{"auto_cli_update":true}}`))
 		case "/cli/latest/release.json", "/cli/latest/package-release.json":
 			manifests.Add(1)
 			_ = json.NewEncoder(out).Encode(release)
