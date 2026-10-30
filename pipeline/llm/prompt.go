@@ -142,6 +142,10 @@ func structJSONKeys(v any) []string {
 		if !f.IsExported() {
 			continue
 		}
+		if f.Anonymous && f.Type.Kind() == reflect.Struct {
+			keys = append(keys, structJSONKeys(reflect.New(f.Type).Elem().Interface())...)
+			continue
+		}
 		tag := f.Tag.Get("json")
 		if tag == "" || tag == "-" {
 			continue

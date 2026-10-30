@@ -175,6 +175,10 @@ func (c *Client) processItem(ctx context.Context, rawContent, rawNotes string, a
 	if err != nil {
 		return nil, err
 	}
+	return c.validateItem(ctx, result, rawContent, rawNotes, audit)
+}
+
+func (c *Client) validateItem(ctx context.Context, result *ExtractResult, rawContent, rawNotes string, audit bool) (*ExtractResult, error) {
 	if result.Discard {
 		return result, nil
 	}

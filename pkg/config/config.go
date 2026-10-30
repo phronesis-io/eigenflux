@@ -70,8 +70,10 @@ type Config struct {
 	AuthRPCPort                 int
 	PMRPCPort                   int
 	NotificationRPCPort         int
-	LLMSummaryFidelity          bool // opt-in relationship/attribution grounding for PGC extraction only
-	PGCPublisherSummary         bool // PGC accounts' notes.summary replaces the server-written summary and its audit
+	UGCSlopEnabled              bool   // opt-in V0.2.1 processing and explicit distribution gate
+	UGCSlopModel                string // empty uses the main extraction model
+	LLMSummaryFidelity          bool   // opt-in relationship/attribution grounding for PGC extraction only
+	PGCPublisherSummary         bool   // PGC accounts' notes.summary replaces the server-written summary and its audit
 	LLMApiKey                   string
 	LLMBaseURL                  string
 	LLMModel                    string
@@ -301,6 +303,8 @@ func Load() *Config {
 		PMRPCPort:                   getEnvInt("PM_RPC_PORT", 8885),
 		AuthRPCPort:                 getEnvInt("AUTH_RPC_PORT", 8886),
 		NotificationRPCPort:         getEnvInt("NOTIFICATION_RPC_PORT", 8887),
+		UGCSlopEnabled:              getEnvBool("UGC_SLOP_ENABLED", false),
+		UGCSlopModel:                getEnv("UGC_SLOP_MODEL", ""),
 		LLMSummaryFidelity:          getEnvBool("LLM_SUMMARY_FIDELITY", false),
 		PGCPublisherSummary:         getEnvBool("PGC_PUBLISHER_SUMMARY", false),
 		LLMApiKey:                   getEnv("LLM_API_KEY", ""),

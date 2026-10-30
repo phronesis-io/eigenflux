@@ -297,6 +297,7 @@ func DeleteItem(ctx context.Context, itemID int64) error {
 		[]string{es.ReadIndexPattern},
 		bytes.NewReader(body),
 		es.Client.DeleteByQuery.WithContext(ctx),
+		es.Client.DeleteByQuery.WithRefresh(true),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to delete item: %w", err)
@@ -306,7 +307,17 @@ func DeleteItem(ctx context.Context, itemID int64) error {
 	if res.IsError() {
 		return fmt.Errorf("ES delete error: %s", res.String())
 	}
-
+	var result struct {
+		TimedOut         bool              `json:"timed_out"`
+		VersionConflicts int               `json:"version_conflicts"`
+		Failures         []json.RawMessage `json:"failures"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+		return fmt.Errorf("decode ES deletion result: %w", err)
+	}
+	if result.TimedOut || result.VersionConflicts > 0 || len(result.Failures) > 0 {
+		return fmt.Errorf("incomplete ES deletion: timeout=%t conflicts=%d failures=%d", result.TimedOut, result.VersionConflicts, len(result.Failures))
+	}
 	return nil
 }
 
