@@ -266,6 +266,9 @@ func main() {
 	clients.ProfileClient = profileClient
 	clients.ItemClient = itemClient
 	clients.FeedClient = feedClient
+	if enterpriseService != nil {
+		enterpriseService.Feed = integrations.RPCFeedSource(feedClient)
+	}
 	clients.AuthClient = authClient
 	clients.PMClient = pmClient
 	clients.NotificationClient = notificationClient

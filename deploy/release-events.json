@@ -132,5 +132,16 @@
     "title": "Managed context updates private matching",
     "description": "Default off. Approved enterprise context can update Card facts and dedicated matching projections after API, pipeline and Sort activation. Private summaries are excluded from public Cards; existing personal CLI routes and experiment assignments retain their behavior. Deployment alone does not enable enterprise access.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/470"
+  },
+  {
+    "id": "managed-feed-durable-admission-v1",
+    "kind": "behavior",
+    "deploy_scope": "full",
+    "dashboards": [
+      "recommendation-effect"
+    ],
+    "title": "Managed Feed batches use durable admission",
+    "description": "Default off. Activated enterprise requests reserve shared application quota and Agent cadence before generation, and retry saved batches without extra source calls. Unknown outcomes conservatively consume a round. Existing personal CLI Feed cadence and authorization are unchanged. Full API, Feed and Sort rollout is required; deployment alone does not activate enterprise access.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/471"
   }
 ]
