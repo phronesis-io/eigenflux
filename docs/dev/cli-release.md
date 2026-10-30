@@ -104,3 +104,5 @@ bundle. Preserve automatic downgrade protection and the existing signing key.
 ## Notification App releases
 
 `NOTIFIER_VERSION` in `cli/.cli.config` is independent of `CLI_VERSION`. Bump it when changing the native macOS App. Release CLI caches both signed, stapled architectures using that version and a hash of all macOS App sources and both build/notarization scripts. Exact cache hits skip Apple credential setup, compilation, signing and notarization. Reused Apps must pass codesign, Developer ID, stapler, Gatekeeper and version validation; invalid cached artifacts fail the release. Cache misses (including eviction or changed build inputs) rebuild and notarize both architectures in parallel. No prefix fallback is allowed. Skills-only releases do not build the App.
+
+CLI cross-compilation runs in bounded batches of three platforms. Each compiler writes a separate build log. All children are waited for; any failure stops the build before Skills staging or package generation.

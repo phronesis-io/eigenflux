@@ -59,23 +59,51 @@ echo ""
 failed=0
 cd "$CLI_DIR"
 
-for platform in "${PLATFORMS[@]}"; do
+compile_platform() {
+  local platform="$1" os arch bin_name
   IFS='/' read -r os arch <<< "$platform"
   bin_name="eigenflux-${os}-${arch}"
   if [[ "$os" == "windows" ]]; then
     bin_name="${bin_name}.exe"
   fi
-
-  echo -ne "${CYAN}Compiling ${os}/${arch} ...${NC} "
-  if GOOS="$os" GOARCH="$arch" "${GO_CMD[@]}" build \
+  GOOS="$os" GOARCH="$arch" "${GO_CMD[@]}" build \
     -ldflags "-X main.Version=${CLI_VERSION} -X main.Commit=${CLI_COMMIT} -X cli.eigenflux.ai/internal/skills.VerifyPublicKeyBase64=${EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY}" \
-    -o "$BUILD_DIR/$bin_name" . 2>&1; then
-    echo -e "${GREEN}OK${NC}"
-  else
-    echo -e "${RED}FAILED${NC}"
-    failed=1
+    -o "$BUILD_DIR/$bin_name" . > "$BUILD_DIR/$bin_name.build.log" 2>&1
+}
+
+# Bounded batches work with macOS Bash 3.2; wait for every child, including failures.
+build_pids=()
+build_platforms=()
+wait_build_batch() {
+  local index platform bin_name
+  for index in "${!build_pids[@]}"; do
+    platform="${build_platforms[$index]}"
+    bin_name="eigenflux-${platform/\//-}"
+    [[ "$platform" != windows/* ]] || bin_name="${bin_name}.exe"
+    if wait "${build_pids[$index]}"; then
+      echo "Compiled $platform OK"
+    else
+      echo "Compilation FAILED: $platform" >&2
+      cat "$BUILD_DIR/$bin_name.build.log" >&2
+      failed=1
+    fi
+  done
+  build_pids=()
+  build_platforms=()
+}
+for platform in "${PLATFORMS[@]}"; do
+  compile_platform "$platform" &
+  build_pids+=("$!")
+  build_platforms+=("$platform")
+  if [[ ${#build_pids[@]} -eq 3 ]]; then
+    wait_build_batch
   fi
 done
+wait_build_batch
+if [[ $failed -ne 0 ]]; then
+  echo 'Some platforms failed to compile; packaging stopped.' >&2
+  exit 1
+fi
 
 # Write version file for install.sh
 echo "$CLI_VERSION" > "$BUILD_DIR/version.txt"
