@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 type slopFrozenSource struct {
@@ -91,8 +92,8 @@ func slopReplay(cfg *config.Config, dir string) {
 		close()
 		must(err)
 		save(filepath.Join(dir, fmt.Sprintf("comparison-slop-%d.json", s.Owner)), map[string]any{"before": s.Before, "after": after})
-		manifest = append(manifest, map[string]any{"agent_id": s.Owner, "required_ugc": len(required), "before": len(s.Before.Candidates), "after": len(after.Candidates)})
+		manifest = append(manifest, map[string]any{"agent_id": strconv.FormatInt(s.Owner, 10), "required_ugc": len(required), "pool": len(s.Inventory), "captured_delivered": len(s.Before.Candidates), "before": len(s.Before.Candidates), "after": len(after.Candidates)})
 		fmt.Printf("agent %d: before=%d after=%d UGC evaluations=%d\n", s.Owner, len(s.Before.Candidates), len(after.Candidates), len(required))
 	}
-	save(filepath.Join(dir, "slop-replay-manifest.json"), map[string]any{"scope": "gate-only within frozen complete recall pools; no global model/lexical/embedding replacement; steady-state sensitivity, not a historical backfill", "agents": manifest})
+	save(filepath.Join(dir, "counterfactual-slop-manifest.json"), map[string]any{"method": "gate-only within frozen complete recall pools; no global model/lexical/embedding replacement; steady-state sensitivity, not a historical backfill", "agents": manifest})
 }
