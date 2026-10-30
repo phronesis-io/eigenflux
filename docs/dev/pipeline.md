@@ -414,3 +414,8 @@ source pages, with a shared checkpoint and cycle pause. A separate bounded audit
 adopts physical retention on legacy keys and counts physical keys by type.
 Completed census snapshots, source scan progress and failure counters are exported
 through Pipeline metrics; see [feature monitoring](feature_index.md#monitoring).
+
+## UGC AI Slop
+
+Optional V0.2.1 extraction and explicit distribution blocking are described in
+[UGC AI Slop](ugc-slop.md), including migration, rollback and evaluation boundaries.

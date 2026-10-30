@@ -57,6 +57,9 @@ func homepageCountryFromPrivateCard(raw string) (string, error) {
 // handleMessage) are kept on the consumer struct so miniredis-based tests can
 // override them between NewItemConsumer and Start, mirroring ItemStatsConsumer.
 type ItemConsumer struct {
+	ugcSlopEnabled      bool
+	ugcSlopRolloutBPS   int
+	ugcSlopClient       *llm.Client
 	summaryFidelity     bool
 	pgcPublisherSummary bool
 	pgcEmailSuffixes    []string
@@ -75,6 +78,9 @@ type ItemConsumer struct {
 
 func NewItemConsumer(cfg *config.Config, prompts *llm.PromptRegistry) *ItemConsumer {
 	c := &ItemConsumer{
+		ugcSlopEnabled:      cfg.UGCSlopEnabled,
+		ugcSlopRolloutBPS:   cfg.UGCSlopRolloutBPS,
+		ugcSlopClient:       llm.NewClient(cfg, prompts).WithModel(cfg.UGCSlopModel).WithReasoningOff(),
 		summaryFidelity:     cfg.LLMSummaryFidelity,
 		pgcPublisherSummary: cfg.PGCPublisherSummary,
 		pgcEmailSuffixes:    append([]string(nil), cfg.PGCEmailSuffixes...),
@@ -88,6 +94,14 @@ func NewItemConsumer(cfg *config.Config, prompts *llm.PromptRegistry) *ItemConsu
 		retryMinIdle:        itemRetryMinIdle,
 		readBlock:           itemReadBlock,
 		workers:             cfg.ItemConsumerWorkers,
+	}
+	metrics.UGCSlopEnabled.Set(0)
+	metrics.UGCSlopRolloutShare.Set(0)
+	if cfg.UGCSlopRolloutBPS >= 0 && cfg.UGCSlopRolloutBPS <= 10000 {
+		metrics.UGCSlopRolloutShare.Set(float64(cfg.UGCSlopRolloutBPS) / 10000)
+	}
+	if c.ugcSlopEnabled {
+		metrics.UGCSlopEnabled.Set(1)
 	}
 	c.handleMessage = c.handle
 	return c
@@ -267,6 +281,22 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 		return HandleSuccess
 	}
 
+	var pgc bool
+	if c.ugcSlopEnabled || c.summaryFidelity || c.pgcPublisherSummary {
+		pgc, err = pgcSummaryPublisher(itemDB, raw.AuthorAgentID, c.pgcEmailSuffixes)
+		if err != nil {
+			return HandleRetry
+		}
+	}
+	slopEnabled := c.ugcSlopEnabled && !pgc && config.SlopAuthorInRollout(raw.AuthorAgentID, c.ugcSlopRolloutBPS)
+	// A pending item has no projection. Retries may carry a draft from an older
+	// worker; remove it before evaluating, including when the model later fails.
+	if slopEnabled && processed.Status != itemDal.StatusPending {
+		if err := sortDal.DeleteItem(ctx, itemID); err != nil {
+			return HandleRetry
+		}
+	}
+
 	// --- Draft Indexing: make item discoverable immediately after safety check ---
 	draftItem := &sortDal.Item{
 		ID:            itemID,
@@ -278,21 +308,18 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 		CreatedAt:     time.Unix(raw.CreatedAt/1000, 0),
 		UpdatedAt:     time.Now(),
 	}
-	if err := sortDal.IndexItem(ctx, draftItem); err != nil {
-		logger.Default().Warn("ItemConsumer failed to index draft item", "itemID", itemID, "err", err)
-	} else {
-		logger.Default().Info("ItemConsumer draft item indexed to ES", "itemID", itemID)
+	if !slopEnabled {
+		if err := sortDal.IndexItem(ctx, draftItem); err != nil {
+			logger.Default().Warn("ItemConsumer failed to index draft item", "itemID", itemID, "err", err)
+		} else {
+			logger.Default().Info("ItemConsumer draft item indexed to ES", "itemID", itemID)
+		}
 	}
 
 	// Select the PGC-only path from authoritative publisher identity, never
 	// raw notes or source text. Lookup errors retry rather than bypassing auditing.
 	processItem := c.llmClient.ProcessItem
 	if c.summaryFidelity || c.pgcPublisherSummary {
-		pgc, lookupErr := pgcSummaryPublisher(itemDB, raw.AuthorAgentID, c.pgcEmailSuffixes)
-		if lookupErr != nil {
-			logger.Default().Warn("PGC summary publisher lookup failed", "itemID", itemID, "err", lookupErr)
-			return HandleRetry
-		}
 		switch route, summary := c.summaryRoute(pgc, raw.RawNotes); route {
 		case summaryRoutePublisher:
 			processItem = func(ctx context.Context, content, notes string) (*llm.ExtractResult, error) {
@@ -300,6 +327,12 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 			}
 		case summaryRouteAudited:
 			processItem = c.llmClient.ProcessPGCItem
+		}
+	}
+
+	if slopEnabled {
+		processItem = func(ctx context.Context, content, notes string) (*llm.ExtractResult, error) {
+			return c.processUGC(ctx, raw)
 		}
 	}
 
@@ -321,6 +354,19 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 		return HandleFailure
 	}
 	llm.NormalizeHomepageEvaluation(result)
+
+	if slopEnabled {
+		blocked, blockErr := itemDal.IsSlopBlocked(itemDB, itemID)
+		if blockErr != nil {
+			return HandleRetry
+		}
+		if blocked {
+			if err := sortDal.DeleteItem(ctx, itemID); err != nil {
+				return HandleRetry
+			}
+			return HandleSuccess
+		}
+	}
 
 	// Check discard flag
 	if result.Discard {

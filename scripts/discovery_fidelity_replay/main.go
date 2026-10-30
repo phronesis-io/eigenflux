@@ -119,6 +119,10 @@ func main() {
 	}
 	must(os.MkdirAll(*dir, 0700))
 	cfg := config.Load()
+	if *mode == "slop-replay" {
+		slopReplay(cfg, *dir)
+		return
+	}
 	if *mode == "refill-replay" {
 		replayRefill(cfg, *dir)
 		return
@@ -136,20 +140,17 @@ func main() {
 	}
 	// Require server-enforced read-only PG sessions, not a caller promise.
 	pgConfig := postgres.Config{DSN: cfg.PgDSN, PreferSimpleProtocol: true}
-	if *mode == "refill-capture" {
-		connection, err := captureDB(cfg.PgDSN)
-		must(err)
-		pgConfig.Conn = connection
-	}
+	connection, err := captureDB(cfg.PgDSN)
+	must(err)
+	pgConfig.Conn = connection
 	db, err := gorm.Open(postgres.New(pgConfig), &gorm.Config{DisableAutomaticPing: true, Logger: glog.Default.LogMode(glog.Silent)})
 	must(err)
-	// The provider proxy can stall pgx's comment-only idle-connection ping.
-	// Refill capture uses bounded persistent read-only sessions with the
-	// dedicated liveness wrapper; older modes retain short-lived sessions.
+	// All capture/export modes use the bounded read-only liveness wrapper;
+	// the provider proxy stalls pgx's comment-only idle-connection ping.
 	sqlDB, err := db.DB()
 	must(err)
 	sqlDB.SetMaxOpenConns(2)
-	sqlDB.SetMaxIdleConns(0)
+	sqlDB.SetMaxIdleConns(2)
 	if *mode == "refill-capture" {
 		sqlDB.SetMaxOpenConns(4)
 		sqlDB.SetMaxIdleConns(4)
