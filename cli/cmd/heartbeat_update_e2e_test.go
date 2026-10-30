@@ -29,6 +29,7 @@ import (
 )
 
 func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
+	t.Setenv("EIGENFLUX_SKIP_AGENT_SETUP", "1") // Never register real OS tasks in binary-update fixtures.
 	if testing.Short() {
 		t.Skip("builds two real CLI executables")
 	}

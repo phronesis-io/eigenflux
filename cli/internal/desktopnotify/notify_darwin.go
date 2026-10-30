@@ -29,14 +29,17 @@ func platformRequest(ctx context.Context, action string, message Message) error 
 	}
 	// Every account shares one helper. Shared locks also keep Show/Check away
 	// from the replacement gap while another account performs Setup.
-	unlock, err := lockHelper(ctx, filepath.Join(home, "Library", "Application Support", "EigenFlux", "Notifications"), action == "enable")
+	unlock, err := lockHelper(ctx, filepath.Join(home, "Library", "Application Support", "EigenFlux", "Notifications"), action == "enable" || action == "prepare")
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	app, err := installedHelper(ctx, action == "enable")
+	app, err := installedHelper(ctx, action == "enable" || action == "prepare")
 	if err != nil {
 		return err
+	}
+	if action == "prepare" {
+		action = "check"
 	}
 	_, err = requestHelper(ctx, app, action, message)
 	return err

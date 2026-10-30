@@ -68,7 +68,7 @@ func platformStartNotifications(ctx context.Context, task NotificationTask) (Res
 		Status string `json:"status"`
 		Error  string `json:"error"`
 	}
-	if json.Unmarshal(output, &response) != nil || runErr != nil || (response.Status != "process_started" && !(task.PrepareOnly && response.Status == "task_stopped")) {
+	if json.Unmarshal(output, &response) != nil || runErr != nil || (response.Status != "process_started" && response.Status != "skipped_disabled" && !(task.PrepareOnly && response.Status == "task_stopped")) {
 		return Result{}, errors.New("notification watch could not start (" + response.Error + "); inspect Task Scheduler and " + request.Log)
 	}
 	return Result{Status: response.Status, Manager: "task_scheduler", Target: "\\" + name, RuntimeVerified: false}, nil

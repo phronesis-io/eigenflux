@@ -19,6 +19,17 @@ HTTP/business errors and malformed responses are not retried. Review reads,
 transfers, mutations and Agent calls do not use this recovery path; see
 [`order_read.go`](../../cmd/order_read.go).
 
+Upgrade completion uses `cmd/update_watch_recovery.go` for the same pinned Home
+and server. Running watches still synchronize signed Skills after admitted jobs
+finish and verify the actual runtime commit; old runtimes remain pending until
+the existing drained adoption completes. Codex main-session acceptance calls
+`ProbeMainNotice` on the existing binding only, without a turn, prompt or new
+conversation. Connectivity is separate from a completed model/business call.
+Installation pending authentication is recorded in `cmd/watch_recovery_pending.go`;
+credential provisioning resumes only that scoped intent, and completed heartbeats
+retry it. Failed probes retain intent for retry. Notification setup failures do
+not prevent watch restoration, and another Home's LaunchAgent is not a conflict.
+
 ## Code map
 
 Windows WorkBuddy discovery reports an absent lazy Sidecar separately from a
@@ -32,7 +43,7 @@ return `needs_user`, without switching to a permission-bypass mode.
 |---|---|
 | [commission_trial.go](../../cmd/commission_trial.go), [trial decision](commission_trial.go) | Mandatory publish trial using the bound runner, fresh draft, signed trial rules and verified local artifacts |
 | [watch.go](../../cmd/watch.go) | `accountWatch.run`, `pmLoop`, `deliverPM`: account lock, WS/SSE, heartbeat, event lifecycle |
-| [watch_workbuddy_start.go](../../cmd/watch_workbuddy_start.go) | Windows host discovery/probe, identity-pinned automatic binding and owned-task handoff |
+| [watch_workbuddy_start.go](../../cmd/watch_workbuddy_start.go) | macOS/Windows host discovery/probe, identity-pinned automatic binding and owned-task handoff |
 | [watch_live_status.go](../../cmd/watch_live_status.go) | Fresh account-owner pulse; separate configuration, runtime readiness and model-completion evidence |
 | [watch_binding.go](../../cmd/watch_binding.go) | Bind/doctor/status/retry/reconcile; `applyDispatchOwnership` |
 | [watch_update.go](../../cmd/watch_update.go), [watch_update_unix.go](../../cmd/watch_update_unix.go), [watch_update_windows.go](../../cmd/watch_update_windows.go) | Close execution admission before CLI adoption; drain admitted work, release account lock, preserve arguments and pinned identity; supervised watches notify the host after draining; immutable package adoption is described in [installation](../selfupdate/INSTALLATION.md) |

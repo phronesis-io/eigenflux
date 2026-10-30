@@ -23,33 +23,35 @@ import (
 const heartbeatContractVersion = "eigenflux_heartbeat.v4"
 
 type heartbeatPlan struct {
-	FeedCompletionCheck      bool                    `json:"feed_completion_check"`
-	MainSessionBinding       *mainSessionBindingPlan `json:"main_session_binding,omitempty"`
-	WatchManaged             bool                    `json:"watch_managed,omitempty"`
-	DispatchOwned            []string                `json:"dispatch_owned,omitempty"`
-	SkillsReadReceipt        *maintenance.Event      `json:"skills_read_receipt,omitempty"`
-	PlanMode                 string                  `json:"plan_mode,omitempty"`
-	PluginMaintenance        pluginMaintenance       `json:"plugin_maintenance"`
-	CLIUpdate                selfupdate.Result       `json:"cli_update"`
-	AgentPrompt              string                  `json:"agent_prompt"`
-	WakeOnEmpty              bool                    `json:"wake_on_empty"`
-	Access                   runtimeAccess           `json:"access"`
-	SchemaVersion            string                  `json:"schema_version"`
-	HeartbeatContractVersion string                  `json:"heartbeat_contract_version"`
-	CLIVersion               string                  `json:"cli_version"`
-	SkillRevision            string                  `json:"skill_revision"`
-	SkillsTarget             string                  `json:"skills_target"`
-	Skills                   []string                `json:"skills"`
-	RuleSources              []string                `json:"rule_sources"`
-	ExecutionOrder           []string                `json:"execution_order"`
-	CLIPrefix                string                  `json:"cli_prefix"`
-	SchedulerLauncher        string                  `json:"scheduler_launcher"`
-	SchedulerPrompt          string                  `json:"scheduler_prompt"`
-	SchedulerMigration       string                  `json:"scheduler_migration"`
-	SkillsFresh              bool                    `json:"skills_fresh"`
-	CompatibilityReported    bool                    `json:"compatibility_reported"`
-	CompatibilityError       string                  `json:"compatibility_error,omitempty"`
-	RuntimeReport            runtimeReportResult     `json:"runtime_report"`
+	FeedCompletionCheck      bool                       `json:"feed_completion_check"`
+	MainSessionBinding       *mainSessionBindingPlan    `json:"main_session_binding,omitempty"`
+	WatchManaged             bool                       `json:"watch_managed,omitempty"`
+	DispatchOwned            []string                   `json:"dispatch_owned,omitempty"`
+	SkillsReadReceipt        *maintenance.Event         `json:"skills_read_receipt,omitempty"`
+	PlanMode                 string                     `json:"plan_mode,omitempty"`
+	PluginMaintenance        pluginMaintenance          `json:"plugin_maintenance"`
+	CLIUpdate                selfupdate.Result          `json:"cli_update"`
+	OuterLoop                *updateWatchRecovery       `json:"outer_loop,omitempty"`
+	Notifications            *upgradeNotificationStatus `json:"notifications,omitempty"`
+	AgentPrompt              string                     `json:"agent_prompt"`
+	WakeOnEmpty              bool                       `json:"wake_on_empty"`
+	Access                   runtimeAccess              `json:"access"`
+	SchemaVersion            string                     `json:"schema_version"`
+	HeartbeatContractVersion string                     `json:"heartbeat_contract_version"`
+	CLIVersion               string                     `json:"cli_version"`
+	SkillRevision            string                     `json:"skill_revision"`
+	SkillsTarget             string                     `json:"skills_target"`
+	Skills                   []string                   `json:"skills"`
+	RuleSources              []string                   `json:"rule_sources"`
+	ExecutionOrder           []string                   `json:"execution_order"`
+	CLIPrefix                string                     `json:"cli_prefix"`
+	SchedulerLauncher        string                     `json:"scheduler_launcher"`
+	SchedulerPrompt          string                     `json:"scheduler_prompt"`
+	SchedulerMigration       string                     `json:"scheduler_migration"`
+	SkillsFresh              bool                       `json:"skills_fresh"`
+	CompatibilityReported    bool                       `json:"compatibility_reported"`
+	CompatibilityError       string                     `json:"compatibility_error,omitempty"`
+	RuntimeReport            runtimeReportResult        `json:"runtime_report"`
 }
 
 func fileExistsCLI(path string) bool {
@@ -334,6 +336,16 @@ var heartbeatPlanCmd = &cobra.Command{
 				plan.CompatibilityError = err.Error()
 			} else {
 				plan.CompatibilityReported = true
+			}
+		}
+
+		if !controlOnly && access.OnboardingState == "completed" {
+			notifications := upgradeNotifications(cmd, false)
+			plan.Notifications = &notifications
+			recovery := recoverWatchAfterUpdate(cmd, cfg, false)
+			plan.OuterLoop = resumePendingWatchRecovery(cfg, func() updateWatchRecovery { return recovery })
+			if plan.OuterLoop == nil {
+				plan.OuterLoop = &recovery
 			}
 		}
 

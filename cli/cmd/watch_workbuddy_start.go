@@ -39,8 +39,8 @@ func workBuddyBinding(expected dispatch.Binding, cli, workdir, rules string, cfg
 }
 
 func startWorkBuddyWatch(cmd *cobra.Command) error {
-	if runtime.GOOS != "windows" {
-		return errors.New("automatic WorkBuddy watch setup currently supports Windows; preserve the existing macOS host task")
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		return errors.New("automatic WorkBuddy watch setup supports macOS and Windows")
 	}
 	return setupWorkBuddyWatch(cmd, workBuddySetupDeps{discover: workbuddy.Discover, probe: workbuddy.Probe, start: watchservice.StartNotifications, rules: func() (string, error) {
 		res, err := localHeartbeatSkills("workbuddy")
@@ -147,8 +147,12 @@ func setupWorkBuddyWatch(cmd *cobra.Command, deps workBuddySetupDeps) error {
 	// Stop only an enabled task owned by this user after the host probe succeeds.
 	prepare := task
 	prepare.PrepareOnly = true
-	if _, err = deps.start(cmd.Context(), prepare); err != nil {
+	prepared, err := deps.start(cmd.Context(), prepare)
+	if err != nil {
 		return err
+	}
+	if prepared.Status == "skipped_disabled" {
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(prepared)
 	}
 	if ownerRelease == nil {
 		ownerRelease, err = watchstate.Acquire(expected.Home, expected.Server)

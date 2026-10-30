@@ -284,3 +284,55 @@ CLI builds generate checksums for all six platform binaries alongside the signed
 release manifest. Publication validates local checksums, preserves conditional
 immutable version writes, and verifies both public paths before advancing latest
 version and signed release pointers. Skills dispatch follows successful CLI publication.
+
+## Upgrade completion and watch recovery
+
+CLI 1.0.1 restores the current authenticated account's outer loop after manual
+updates and automatic maintenance checks. The installer also calls `watch recover`
+after host setup. Recovery preserves Home, server, Agent/principal identity and
+existing dispatch bindings; it never scans other Homes or rebinds another host.
+An existing running owner drains and adopts its update without being restarted.
+The watch self-update handoff also refreshes signed host Skills before enabling
+dispatch in its replacement process.
+A stopped bound watch synchronizes and validates its signed host Skills before
+starting the owned OS task. A missing WorkBuddy binding is discovered and verified through its current-host
+setup flow. Other missing bindings start notifications only, not model execution. Explicitly disabled OS tasks remain disabled. macOS and Windows use
+the same recovery entry; unsupported platforms report a skip.
+
+Recovery reports CLI installation separately from outer-loop status: `ready`
+requires a fresh live runtime observation; `starting` is not readiness. Notification
+permission and Agent-call verification remain separate fields. Network, rules,
+identity or task failures report a bounded reason and are retryable through
+`watch recover` or a later automatic maintenance entry. Never reset trust keys,
+ignore signatures, or remove user-edited Skills to make recovery succeed.
+
+### Notification initialization is independent of watch recovery
+
+Explicit `update` completion and `watch recover` run the notification Setup
+implementation before account, binding, Skills or watch recovery. This also runs
+when the CLI is already current and does not require authentication. The macOS
+shell installer calls `notify setup --source installer`; the Windows installer
+retains its existing setup step. Initialization never sends a test notification.
+
+Automatic authenticated maintenance uses Check, and repairs a missing native
+integration with Prepare. Prepare installs the signed macOS helper but performs
+only a permission check; it never requests macOS authorization. Windows registration
+is silent. Permission-required, denied, setup timeout and unknown-first-notification
+states are reported independently in `notifications`, with no visibility claim.
+CLI installation success is not notification or watch success. The existing
+`EIGENFLUX_SKIP_AGENT_SETUP=1` opt-out also skips notification initialization.
+
+### Current-runtime and authentication continuation
+
+A live watch is not an upgrade receipt: completion checks signed host Skills,
+waits for admitted journal work, and verifies the running commit. An old runtime
+is reported as pending while its normal drained update path adopts the package;
+recovery never kills it to force success. Codex additionally requires a read-only
+probe of the exact bound main session. No prompt or model turn is generated.
+
+An installation that is pending authentication records a Home/server/endpoint
+intent. Successful credential provisioning resumes that intent; later completed
+heartbeats retry unresolved recovery. Ordinary registration without this intent
+does not install a background task. Readiness or explicit owner disablement
+consumes the intent in place, without deleting a lock or marker file. Windows
+notification setup/status failure is reported but does not skip watch recovery.

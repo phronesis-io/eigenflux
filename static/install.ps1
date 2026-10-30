@@ -345,13 +345,31 @@ $recordBin = $script:installedCliPath
 $recordHost = Get-InvokingHost
 & $recordBin --homedir $env:EIGENFLUX_HOME installation record "--host=$recordHost" "--skills-target=$($script:installedSkillsTarget)" | Out-Null
 if ($LASTEXITCODE -ne 0) { Info "Installation registration unavailable; record it with the new CLI before uninstalling." }
-Setup-Notifications
+# Notification permission is independent of background order processing. Preserve
+# the diagnostic, but always attempt outer-loop recovery even when setup fails.
+$notificationSetupError = $null
+try {
+    Setup-Notifications
+} catch {
+    $notificationSetupError = $_.Exception.Message
+    Info "Notifications need attention: $notificationSetupError"
+}
 $watchHome = Resolve-EigenfluxHome -ExplicitHome $ExplicitEigenfluxHome -InvokingHost (Get-InvokingHost)
-Info "Starting the current user's order notification watch."
-& $script:installedCliPath --homedir $watchHome watch start
-if ($LASTEXITCODE -ne 0) { throw "CLI is installed, but order notifications are not running. Retry: & '$($script:installedCliPath)' --homedir '$watchHome' watch start" }
-Info "pending_auth requires watch start after authentication; host_managed requires verifying the existing host watch. process_started still requires notifications_ready in the watch log."
+if ($env:EIGENFLUX_SKIP_AGENT_SETUP -ne '1') {
+    & $script:installedCliPath watch recover --help *> $null
+    if ($LASTEXITCODE -eq 0) {
+        & $script:installedCliPath --homedir $watchHome watch recover
+        if ($LASTEXITCODE -ne 0) { throw "CLI is installed, but outer-loop recovery is incomplete. Retry watch recover with the same Home." }
+    } else {
+        & $script:installedCliPath --homedir $watchHome watch start
+        if ($LASTEXITCODE -ne 0) { throw "CLI is installed, but notification watch startup failed." }
+    }
+}
 Info "Updated plugin files may require a host restart after current work finishes."
+
+if ($notificationSetupError) {
+    Info "CLI installation completed; notifications are not ready. $notificationSetupError"
+}
 
 Ok ""
 if ([Console]::IsOutputRedirected) {

@@ -89,7 +89,7 @@ jobs:
         run: go test -count=1 ./internal/profilestate ./internal/client ./internal/config ./cmd
       - name: Test uninstall telemetry and owned installation cleanup
         run: |
-          go test -count=1 ./internal/maintenance ./internal/watch ./internal/desktopnotify ./internal/uninstallscript
+          go test -count=1 ./internal/maintenance ./internal/watch ./internal/watchservice ./internal/desktopnotify ./internal/uninstallscript
           go test -count=1 -run TestUninstall ./internal/skills
       - name: Test full Skills suite on POSIX
         if: runner.os != 'Windows'

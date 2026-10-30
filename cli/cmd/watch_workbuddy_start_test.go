@@ -17,7 +17,7 @@ import (
 )
 
 func TestWorkBuddyAutomaticSetup(t *testing.T) {
-	for _, scenario := range []string{"success", "sidecar_not_ready", "probe_failed", "foreign_task", "other_binding", "identity_changed", "restart_failed", "existing_workbuddy"} {
+	for _, scenario := range []string{"success", "sidecar_not_ready", "probe_failed", "foreign_task", "other_binding", "identity_changed", "restart_failed", "existing_workbuddy", "disabled"} {
 		t.Run(scenario, func(t *testing.T) {
 			w := newCommissionWatch(t, "https://example.test", "commission_order")
 			existing := *w.binding
@@ -64,6 +64,9 @@ func TestWorkBuddyAutomaticSetup(t *testing.T) {
 					}
 					if task.PrepareOnly {
 						calls = append(calls, "stop")
+						if scenario == "disabled" {
+							return watchservice.Result{Status: "skipped_disabled"}, nil
+						}
 						if scenario == "foreign_task" {
 							return watchservice.Result{}, errors.New("task ownership")
 						}
@@ -78,7 +81,7 @@ func TestWorkBuddyAutomaticSetup(t *testing.T) {
 			}
 			err := setupWorkBuddyWatch(cmd, deps)
 			wantOK := scenario == "success" || scenario == "existing_workbuddy"
-			if (err == nil) != wantOK {
+			if (err == nil) != (wantOK || scenario == "disabled") {
 				t.Fatalf("err=%v", err)
 			}
 			b, readErr := dispatch.ReadBinding(w.home, w.server.Name)

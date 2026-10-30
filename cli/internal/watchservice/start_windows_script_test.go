@@ -48,9 +48,12 @@ func TestWindowsNotificationTaskLifecycle(t *testing.T) {
 			if err := json.Unmarshal(output, &result); err != nil {
 				t.Fatalf("%s %v", output, err)
 			}
-			want := map[string]string{"disabled": "task_disabled", "other_user": "task_ownership", "exited": "start_failed"}[scenario]
+			want := map[string]string{"other_user": "task_ownership", "exited": "start_failed"}[scenario]
 			if result.Error != want || (runErr == nil) != (want == "") {
 				t.Fatalf("result=%+v err=%v", result, runErr)
+			}
+			if scenario == "disabled" && result.Status != "skipped_disabled" {
+				t.Fatalf("disabled task not preserved: %+v", result)
 			}
 			_, fileErr := os.Stat(request["wrapper"])
 			if scenario == "running" || scenario == "named_user" || scenario == "disabled" || scenario == "other_user" {
