@@ -35,7 +35,13 @@ func normalizeFeedbackItem(agentID int64, item *apimodel.FeedbackItem, batchImpr
 	if item.Score < -1 || item.Score > 2 {
 		return itemstats.Feedback{}, "invalid score for item " + item.ItemID
 	}
-	if author, known := authors[itemID]; known && author == agentID {
+	author, known := authors[itemID]
+	if !known {
+		// Deleted broadcasts keep their raw_items row, so an absent ID was
+		// never published (often a JSON-number ID rounded by the client).
+		return itemstats.Feedback{}, "unknown item " + item.ItemID
+	}
+	if author == agentID {
 		return itemstats.Feedback{}, "own item " + item.ItemID
 	}
 	feedback := itemstats.Feedback{AgentID: agentID, ItemID: itemID, Score: int(item.Score), ImpressionID: strings.TrimSpace(batchImpression), ContractVersion: contract, Surfaced: item.Surfaced}
