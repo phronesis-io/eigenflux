@@ -116,17 +116,80 @@ data-only Feed with server admission/idempotency, private SDK outer loop, and
 operator/real-host end-to-end acceptance. Webhook remains a separate increment.
 No client auto-update protocol or customer self-service billing is required.
 
+## Versioned context and matching
+
+Apply migration `000126_integration_contexts.sql` and enable the integration flag
+on API, pipeline, and Sort together. This is a full rollout, not API-only.
+Existing personal CLI routes and their recommendation behavior stay unchanged.
+
+All business requests send the application bearer credential plus
+`X-EigenFlux-Installation-ID` and `X-EigenFlux-Runtime-Instance-ID`. The server
+resolves the Agent from this authenticated binding. There is no caller-supplied
+application or internal Agent ID.
+
+`PUT /api/v2/integrations/agents/me/context` accepts exactly one input form:
+
+```json
+{"source_revision": 1, "summary": "Private current goals and interests"}
+```
+
+```json
+{"source_revision": 2, "fields": {"agent_description": "Public introduction", "demands": ["Private current need"]}}
+```
+
+The summary is private, bounded to 4000 characters, and never copied into public
+bio. Structured fields use the existing editable-field registry, including its
+public-content validation. Only explicit public fields change the public Card;
+missing fields are preserved, while explicit empty values clear editable fields.
+Protected system fields cannot be set. HTTP bodies are limited to 16 KiB.
+
+Revisions must be positive and increase when content changes. A repeated
+revision with equal normalized content is idempotent; different content at the
+same revision or an older revision returns 409. A newer revision with identical
+content does not cause another model call. The latest input row is the durable
+queue; only the latest input and last applied matching projection are retained.
+
+The PUT response is 202 with processing status. Poll
+`GET /api/v2/integrations/agents/me/context` for `pending`, `processing`, `ready`,
+or `failed`, the accepted source revision, fact profile version, and actual
+applied matching revision. Responses never include the raw input or worker
+lease. `GET /api/v2/integrations/agents/me/card` reads the existing public/private
+Card projection for this Agent; 503 means it is not ready. Card rebuild is
+asynchronous, so matching readiness and Card projection readiness are distinct.
+Every read rechecks current integration controls and installation ownership.
+
+The pipeline uses a 120-second database lease, up to three processing attempts,
+and a 5-second retry delay. Model calls run outside transactions with a bounded
+90-second processing context. An expired lease or superseded content generation
+cannot commit. A concurrent fact edit also fences the result; a fresh attempt
+re-reads current facts. Global/app/Agent disable is checked before claiming,
+before embedding, and before committing. Failure status contains a fixed code,
+not provider errors or private input. Model requests can repeat after a crash;
+this is not an exactly-once external-provider guarantee.
+
+The worker reuses keyword extraction, embedding, versioned fact updates, field
+audit, and Card rebuild. Summary-derived keywords update private current focus.
+A separate matching projection prevents the legacy public-bio worker/cache from
+overwriting private context. With integrations enabled, legacy Sort uses the
+projection's keywords and vector, and Discovery uses its clauses/vector while
+preserving the existing experiment settings. No experiment is activated by this
+feature. Replay records the managed matching revision. Raw summaries are never
+logged or projected to public Cards.
+
 ## Validation
 
 ```sh
-go test ./pkg/integrationidentity ./pkg/agentidentity ./api/integrations ./pkg/config
+go test ./pkg/integrationidentity ./pkg/integrationprofile ./pkg/agentidentity ./api/integrations ./pkg/config
+# First apply all migrations to this disposable test database.
 INTEGRATION_TEST_PG_DSN=postgres://postgres:password@127.0.0.1:5432/disposable_database?sslmode=disable \
-  go test -race ./pkg/integrationidentity ./api/integrations -count=1
+  go test -race ./pkg/integrationidentity ./pkg/integrationprofile ./api/integrations -count=1
 ```
 
-The PostgreSQL suite requires an explicit loopback DSN, creates a unique isolated
-schema, executes the actual migration, and removes only that schema. It tests
-concurrent application quota admission, retry identity stability, current
-disable behavior, and the live-binding rollback guard. SQLite HTTP tests cover
-credential boundaries, strict input, default-off activation, and 503 failure
-classification. These tests do not establish production deployment state.
+The PostgreSQL suites require an explicit loopback DSN and create unique isolated
+schemas. Identity tests execute the actual migration. Context tests clone the
+current fact schema and execute both integration migrations; Card dependencies
+are read from the migrated disposable database. Tests cover concurrency, stale
+work, concurrent profile edits, summary privacy in rebuilt Cards, structured
+fields, retry deduplication, disabled processing, and fail-closed storage errors.
+SQLite HTTP tests cover credentials, ownership, strict input, revision conflicts,
+and disabled reads. These checks do not establish production deployment state.

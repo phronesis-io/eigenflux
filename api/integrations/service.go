@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
 	"eigenflux_server/pkg/integrationidentity"
+	"eigenflux_server/pkg/integrationprofile"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 )
@@ -22,6 +24,79 @@ type appKey struct{}
 func (s *Service) Register(h *server.Hertz) {
 	h.POST("/api/v2/integrations/sdk/installations", s.authenticate, s.register)
 	h.POST("/api/v2/integrations/sdk/control:check", s.authenticate, s.control)
+	h.PUT("/api/v2/integrations/agents/me/context", s.authenticate, s.putContext)
+	h.GET("/api/v2/integrations/agents/me/context", s.authenticate, s.getContext)
+	h.GET("/api/v2/integrations/agents/me/card", s.authenticate, s.getCard)
+}
+
+func (s *Service) business(ctx context.Context, c *app.RequestContext) (integrationidentity.Agent, error) {
+	owner, _ := ctx.Value(appKey{}).(string)
+	installation := string(c.GetHeader("X-EigenFlux-Installation-ID"))
+	instance := string(c.GetHeader("X-EigenFlux-Runtime-Instance-ID"))
+	if installation == "" || len(installation) > 128 || instance == "" || len(instance) > 128 {
+		return integrationidentity.Agent{}, &integrationidentity.Error{Status: 400, Code: "INVALID_INTEGRATION_BINDING"}
+	}
+	return s.Store.RequireBusiness(ctx, owner, installation, instance)
+}
+
+func (s *Service) putContext(ctx context.Context, c *app.RequestContext) {
+	bound, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	agent, err := s.business(bound, c)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	var input integrationprofile.Input
+	if err := body(c, &input); err != nil {
+		fail(c, err)
+		return
+	}
+	profiles := integrationprofile.Store{DB: s.Store.DB}
+	state, err := profiles.Accept(bound, agent.AgentID, input)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	c.JSON(202, map[string]any{"code": 0, "msg": "accepted", "data": state})
+}
+
+func (s *Service) getContext(ctx context.Context, c *app.RequestContext) {
+	bound, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	agent, err := s.business(bound, c)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	profiles := integrationprofile.Store{DB: s.Store.DB}
+	state, err := profiles.Get(bound, agent.AgentID)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	c.JSON(200, map[string]any{"code": 0, "msg": "success", "data": state})
+}
+
+func (s *Service) getCard(ctx context.Context, c *app.RequestContext) {
+	bound, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	agent, err := s.business(bound, c)
+	if err != nil {
+		fail(c, err)
+		return
+	}
+	var card struct {
+		PublicCard  string
+		PrivateCard string
+		CardVersion int64
+	}
+	err = s.Store.DB.WithContext(bound).Table("agent_cards").Select("public_card,private_card,card_version").Where("agent_id = ?", agent.AgentID).First(&card).Error
+	if err != nil {
+		fail(c, &integrationidentity.Error{Status: 503, Code: "INTEGRATION_CARD_NOT_READY"})
+		return
+	}
+	c.JSON(200, map[string]any{"code": 0, "msg": "success", "data": map[string]any{"agent_id": strconv.FormatInt(agent.AgentID, 10), "public_card": json.RawMessage(card.PublicCard), "private_card": json.RawMessage(card.PrivateCard), "card_version": card.CardVersion}})
 }
 
 func fail(c *app.RequestContext, err error) {

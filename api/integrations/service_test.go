@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"eigenflux_server/pkg/integrationidentity"
+	"eigenflux_server/pkg/integrationprofile"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"gorm.io/driver/sqlite"
@@ -92,9 +93,37 @@ func TestManagedHTTPRegistrationAndLiveControls(t *testing.T) {
 	if registered.Agent.AgentID == 0 || registered.Installation.InstallationID == "" || registered.Agent.AppID != "partner" {
 		t.Fatalf("binding incomplete %+v", registered)
 	}
+	if err := database.AutoMigrate(&integrationprofile.State{}); err != nil {
+		t.Fatal(err)
+	}
+	contextRequest := func(method, instance, payload string) (int, []byte) {
+		r := ut.PerformRequest(h.Engine, method, "/api/v2/integrations/agents/me/context", &ut.Body{Body: strings.NewReader(payload), Len: len(payload)},
+			ut.Header{Key: "Authorization", Value: "Bearer " + secret},
+			ut.Header{Key: "X-EigenFlux-Installation-ID", Value: registered.Installation.InstallationID},
+			ut.Header{Key: "X-EigenFlux-Runtime-Instance-ID", Value: instance}).Result()
+		return r.StatusCode(), append([]byte(nil), r.Body()...)
+	}
+	if status, raw := contextRequest("PUT", "first", `{"source_revision":1,"summary":"private-raw-context"}`); status != 202 || strings.Contains(string(raw), "private-raw-context") {
+		t.Fatal(status, string(raw))
+	}
+	if status, raw := contextRequest("GET", "first", ""); status != 200 || strings.Contains(string(raw), "private-raw-context") {
+		t.Fatal(status, string(raw))
+	}
+	if status, _ := contextRequest("PUT", "first", `{"source_revision":1,"summary":"conflicting"}`); status != 409 {
+		t.Fatal("revision conflict accepted", status)
+	}
+	if status, _ := contextRequest("PUT", "first", `{"source_revision":2,"fields":{"runtime_name":"official"}}`); status != 400 {
+		t.Fatal("protected field accepted", status)
+	}
+	if status, _ := contextRequest("PUT", "foreign-instance", `{"source_revision":2,"summary":"wrong runtime"}`); status != 403 {
+		t.Fatal("foreign instance accepted", status)
+	}
 	controlBody, _ := json.Marshal(map[string]string{"installation_id": registered.Installation.InstallationID, "runtime_instance_id": "first"})
 	if err := store.SetEnabled(context.Background(), "partner", registered.Agent.AgentID, false, "test-operator", "test stop"); err != nil {
 		t.Fatal(err)
+	}
+	if status, _ := contextRequest("GET", "first", ""); status != 403 {
+		t.Fatal("disabled context remains readable", status)
 	}
 	status, raw = request("/api/v2/integrations/sdk/control:check", secret, string(controlBody))
 	if status != 200 {

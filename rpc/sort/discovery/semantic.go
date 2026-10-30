@@ -16,6 +16,7 @@ import (
 	"eigenflux_server/pkg/cache"
 	embcodec "eigenflux_server/pkg/embedding"
 	"eigenflux_server/pkg/es"
+	"eigenflux_server/pkg/integrationprofile"
 )
 
 const (
@@ -163,7 +164,16 @@ func scoreUnembedded(s Score, need bool) (Score, float64, int) {
 
 func (s *Source) ProfileVector(ctx context.Context, owner int64) ([]float32, error) {
 	var raw []byte
-	if s.Redis != nil {
+	if s.ManagedIntegrations {
+		managed, err := integrationprofile.LoadMatching(ctx, s.DB, owner)
+		if err != nil {
+			return nil, err
+		}
+		if managed != nil {
+			raw = managed.Embedding
+		}
+	}
+	if len(raw) == 0 && s.Redis != nil {
 		cached, err := cache.NewEmbeddingCache(s.Redis, 0).Get(ctx, owner)
 		if err != nil && !errors.Is(err, cache.ErrCacheMiss) {
 			return nil, err
