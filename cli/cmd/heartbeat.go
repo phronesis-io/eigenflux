@@ -301,7 +301,7 @@ var heartbeatPlanCmd = &cobra.Command{
 			}
 		}
 		if !controlOnly {
-			plan.MainSessionBinding, err = inspectMainSessionBinding()
+			plan.MainSessionBinding, err = inspectMainSessionBinding(planMode == "full")
 			if err != nil {
 				return err
 			}
