@@ -13,25 +13,63 @@ concurrency:
 jobs:
   release-cli:
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version-file: cli/go.mod
           cache-dependency-path: cli/go.sum
-      - name: Provide GNU tar
-        run: sudo ln -sf "$(command -v tar)" /usr/local/bin/gtar
+      - name: Provide publication tools
+        run: |
+          brew list gnu-tar >/dev/null 2>&1 || brew install gnu-tar
+          brew list awscli >/dev/null 2>&1 || brew install awscli
+      - name: Test publication safeguards
+        run: |
+          aws s3api put-object --generate-cli-skeleton input | python3 -c 'import json,sys; assert "IfNoneMatch" in json.load(sys.stdin)'
+          cd cli
+          go test ./cmd/clirelease ./tests
       - name: Test CLI artifact publication
         run: |
           python3 -m unittest discover -s tests/cli_release -p 'test_cli_artifacts.py'
+          python3 -m unittest discover -s tests/cli_release -p 'test_cli_packages.py'
           aws s3api put-object --generate-cli-skeleton input | python3 -c 'import json,sys; assert "IfNoneMatch" in json.load(sys.stdin)'
           cd cli
           go test ./internal/selfupdate ./cmd/clirelease
+      - name: Configure temporary Apple signing and notarization credentials
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          for name in MACOS_CERTIFICATE_P12_BASE64 MACOS_CERTIFICATE_PASSWORD MACOS_SIGNING_IDENTITY APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD; do
+            [[ -n "${!name}" ]] || { echo "Missing production release secret: $name" >&2; exit 1; }
+          done
+          certificate="$RUNNER_TEMP/eigenflux-signing.p12"
+          keychain="$RUNNER_TEMP/eigenflux-release.keychain-db"
+          keychain_password=$(openssl rand -base64 32)
+          echo "::add-mask::$keychain_password"
+          printf '%s' "$MACOS_CERTIFICATE_P12_BASE64" | /usr/bin/base64 -D > "$certificate"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$certificate" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" login.keychain-db
+          xcrun notarytool store-credentials eigenflux-release --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --keychain "$keychain"
+          rm -f "$certificate"
       - name: Build CLI binaries and signed Skills bundle
         env:
           EIGENFLUX_SKILLS_SIGNING_KEY: ${{ secrets.EIGENFLUX_SKILLS_SIGNING_KEY }}
           EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY: ${{ secrets.EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY }}
+          EIGENFLUX_NOTIFIER_SIGN_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          EIGENFLUX_NOTARY_PROFILE: eigenflux-release
         run: |
           signing_key_file="$RUNNER_TEMP/eigenflux-skills-signing-key"
           printf '%s' "$EIGENFLUX_SKILLS_SIGNING_KEY" > "$signing_key_file"
@@ -55,3 +93,10 @@ jobs:
           test "$live_version" = "$CLI_VERSION"
           curl -fsSL "${R2_PUBLIC_URL}/cli/latest/release.json?run=${GITHUB_RUN_ID}" -o "$RUNNER_TEMP/cli-release.json"
           cmp build/cli/release.json "$RUNNER_TEMP/cli-release.json"
+          curl -fsSL "${R2_PUBLIC_URL}/cli/latest/package-release.json?run=${GITHUB_RUN_ID}" -o "$RUNNER_TEMP/cli-package-release.json"
+          cmp build/cli/package-release.json "$RUNNER_TEMP/cli-package-release.json"
+      - name: Remove temporary signing material
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/eigenflux-release.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/eigenflux-signing.p12" "$RUNNER_TEMP/eigenflux-skills-signing-key"

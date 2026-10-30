@@ -23,6 +23,7 @@ var telemetryEventTypes = map[string]bool{
 	"goal_edited": true, "intent_action_edited": true, "attention_item_opened": true,
 	"agent_command_created": true, "agent_command_completed": true,
 	"feed_item_helpful": true, "feed_item_dismissed": true,
+	"commission_order_action": true,
 }
 
 var telemetryPropertyKeys = map[string]bool{
@@ -94,6 +95,11 @@ func validateTelemetryEvent(event telemetryEventRequest, now int64) error {
 	for key := range event.Properties {
 		if !telemetryPropertyKeys[key] {
 			return errors.New("telemetry property is not allowed")
+		}
+	}
+	if event.EventType == "commission_order_action" {
+		if err := validateCommissionOrderAction(event.Properties); err != nil {
+			return err
 		}
 	}
 	encoded, _ := json.Marshal(event.Properties)

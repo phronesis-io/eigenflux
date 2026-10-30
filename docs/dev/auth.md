@@ -403,7 +403,8 @@ Refresh and unauthorized-response recovery use an OS-backed file lock and reload
 credentials after acquiring it so concurrent processes reuse a completed rotation.
 The lock file remains in place after release; process exit releases the OS lock.
 Existing lock-file contents do not indicate ownership or expiry. Lock contention
-has a bounded wait, and open/acquisition failures report the path and underlying
+has a bounded wait; context-aware callers can cancel before entry or during contention.
+Open/acquisition failures report the path and underlying
 filesystem error. Keep `agent-v2-credentials.json` intact.
 
 ## Logout

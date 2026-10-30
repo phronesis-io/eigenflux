@@ -136,6 +136,21 @@ build_skills_bundle
 
 echo ""
 if [[ $failed -eq 0 ]]; then
+  # Go cross-compilation cannot build the native macOS notification helper.
+  HELPERS_DIR="${EIGENFLUX_NOTIFIER_HELPERS_DIR:-$BUILD_DIR/helpers}"
+  if [[ -z "${EIGENFLUX_NOTIFIER_HELPERS_DIR:-}" ]]; then
+    if [[ "$(uname -s)" != Darwin ]]; then
+      echo 'Provide EIGENFLUX_NOTIFIER_HELPERS_DIR built on macOS for complete CLI packages.' >&2
+      exit 1
+    fi
+    for arch in amd64 arm64; do
+      EIGENFLUX_NOTIFIER_VERSION="$CLI_VERSION" bash "$SCRIPT_DIR/build-notifier-macos.sh" "$HELPERS_DIR/darwin-$arch" "$arch"
+    done
+  fi
+  if [[ -n "${EIGENFLUX_NOTARY_PROFILE:-}" ]]; then
+    bash "$SCRIPT_DIR/notarize-notifier-macos.sh" "$HELPERS_DIR"
+  fi
+  python3 "$SCRIPT_DIR/cli-packages.py" generate "$BUILD_DIR" --helpers "$HELPERS_DIR"
   python3 "$SCRIPT_DIR/cli-artifacts.py" generate "$BUILD_DIR"
   "${GO_CMD[@]}" run ./cmd/clirelease --dir "$BUILD_DIR" --version "$CLI_VERSION" \
     --signing-key-file "$EIGENFLUX_SKILLS_SIGNING_KEY_FILE"

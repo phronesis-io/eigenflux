@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"cli.eigenflux.ai/internal/config"
-	"cli.eigenflux.ai/internal/selfupdate"
 	"cli.eigenflux.ai/internal/skills"
 	"github.com/spf13/cobra"
 )
@@ -86,12 +85,12 @@ func TestRenderHeartbeatPlanForAgentIsThinAndCurrent(t *testing.T) {
 		SchedulerLauncher:  "eigenflux --homedir /tmp/home heartbeat plan --format agent",
 		SchedulerMigration: "migrate owned task",
 		Access:             runtimeAccess{Mode: "intent_aligned", OnboardingState: "completed"},
-		ExecutionOrder:     []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report"},
+		ExecutionOrder:     []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report", "commission_confirmations"},
 	}
 	text := renderHeartbeatPlanForAgent(plan)
 	for _, required := range []string{
 		heartbeatContractVersion, "rev-123", "ef-future", "Freshly read, from disk",
-		"commands → feed → attention → communication → publish → need_capture → settings_report",
+		"commands → feed → attention → communication → publish → need_capture → settings_report → commission_confirmations",
 		"CLI prefix for every EigenFlux command in this cycle: eigenflux --homedir /tmp/home",
 		"Never run a bare eigenflux command",
 		"Apply runtime-model.md before subsequent CLI calls",
@@ -154,7 +153,7 @@ func TestHeartbeatPlanJSONCarriesCurrentPromptAndAccessDecision(t *testing.T) {
 			if err := json.Unmarshal([]byte(text), &plan); err != nil {
 				t.Fatalf("invalid JSON %q: %v", text, err)
 			}
-			wantStages := []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report"}
+			wantStages := []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report", "commission_confirmations"}
 			if baseline {
 				wantStages = []string{"feed"}
 			}
@@ -222,9 +221,7 @@ func TestHeartbeatPlanFailsWithoutCurrentAccessOrRules(t *testing.T) {
 func installHeartbeatTestRules(t *testing.T) string {
 	t.Helper()
 	oldVersion, oldKey := version, skills.VerifyPublicKeyBase64
-	if !selfupdate.ValidVersion(version) || selfupdate.Compare(version, "0.0.46") < 0 {
-		version = "0.0.46"
-	}
+	version = "0.0.46"
 	t.Cleanup(func() { version, skills.VerifyPublicKeyBase64 = oldVersion, oldKey })
 	pub, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -259,10 +256,20 @@ func installHeartbeatTestRules(t *testing.T) string {
 	if err := os.WriteFile(modelRule, []byte("# Runtime Model Reporting\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"maintenance.md"} {
+	for _, name := range []string{"maintenance.md", "commands.md"} {
 		if err := os.WriteFile(filepath.Join(dir, "ef-broadcast", "references", name), []byte("# Central rules\n"), 0600); err != nil {
 			t.Fatal(err)
 		}
+	}
+	dispatchRule := filepath.Join(dir, "ef-communication", "references", "dispatch.md")
+	if err := os.MkdirAll(filepath.Dir(dispatchRule), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dispatchRule, []byte("Return the fixed request decision. CLI owns replies.\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(dispatchRule), "main-session.md"), []byte("Automatically complete guarded initial binding.\n"), 0600); err != nil {
+		t.Fatal(err)
 	}
 	manifest, err := skills.GenerateManifest(dir, "0.0.46", "0.0.46", names, 1)
 	if err != nil {
@@ -308,7 +315,7 @@ func captureHeartbeatStdout(t *testing.T, run func() error) (string, error) {
 func TestSchedulerMigrationUsesNativeHostOwnership(t *testing.T) {
 	launcher := "eigenflux --homedir /stable heartbeat plan --format agent"
 	tests := map[string][]string{
-		"workbuddy/5.3.14": {"CronList/CronUpdate", "owned EigenFlux task"},
+		"workbuddy/5.3.14": {"automation_update", "owned EigenFlux task"},
 		"codex/1.0":        {"native automation", "owned EigenFlux task"},
 		"hermes/0.20":      {"cron list/edit", "ownership marker", "matching Home"},
 		"openclaw/1.0":     {"plugin owns scheduling", "do not create a second heartbeat"},
@@ -360,7 +367,7 @@ func TestHeartbeatPlanAcceptsLegacyEnvironmentMode(t *testing.T) {
 				t.Fatal(err)
 			}
 			home, _ := config.HomeDirInfo()
-			for _, part := range []string{"--homedir " + shellQuote(home), "--server " + shellQuote(serverName), "--runtime-mode " + shellQuote(mode)} {
+			for _, part := range []string{shellQuote("--homedir") + " " + shellQuote(home), shellQuote("--server") + " " + shellQuote(serverName), shellQuote("--runtime-mode") + " " + shellQuote(mode)} {
 				if !strings.Contains(plan.CLIPrefix, part) || !strings.Contains(plan.SchedulerLauncher, part) {
 					t.Fatalf("legacy identity lost %q: %+v", part, plan)
 				}
@@ -392,6 +399,15 @@ func TestHeartbeatPlanFeedCompletionStep(t *testing.T) {
 	for _, line := range []string{"After the Feed push, run test-prefix feed status --after-push. Report surface only for listed items the owner was actually shown.", "feed next reads this cycle's saved page and is not a pull.", "A Feed batch names its output contract file; read that file completely before processing the batch."} {
 		if !strings.Contains(prompt, line) {
 			t.Fatal(prompt)
+		}
+	}
+}
+
+func TestMergedFeedCompletionStaysOutOfNarrowWatchPlans(t *testing.T) {
+	for _, mode := range []string{"control", "maintenance"} {
+		prompt := renderHeartbeatPlanForAgent(heartbeatPlan{PlanMode: mode, FeedCompletionCheck: true, CLIPrefix: "test-prefix"})
+		if strings.Contains(prompt, "feed status") {
+			t.Fatalf("%s plan widened into Feed work: %s", mode, prompt)
 		}
 	}
 }

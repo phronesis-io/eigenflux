@@ -17,6 +17,7 @@ import (
 )
 
 type maintenanceEvent struct {
+	Commission     *commissionMaintenanceData   `json:"commission,omitempty"`
 	Notification   *notificationMaintenanceData `json:"notification,omitempty"`
 	EventID        string                       `json:"event_id"`
 	EventAt        int64                        `json:"event_at"`
@@ -54,6 +55,12 @@ func validateMaintenanceEvent(e maintenanceEvent, now time.Time) error {
 	}
 	if e.EventAt < now.Add(-7*24*time.Hour).UnixMilli() || e.EventAt > now.Add(5*time.Minute).UnixMilli() {
 		return fmt.Errorf("maintenance event outside retention window")
+	}
+	if e.Phase == "commission" {
+		return validateCommissionMaintenance(e)
+	}
+	if e.Commission != nil {
+		return fmt.Errorf("commission metadata requires commission phase")
 	}
 	if e.Phase == "notification" {
 		return validateNotificationMaintenance(e)

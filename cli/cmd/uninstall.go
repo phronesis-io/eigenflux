@@ -16,6 +16,7 @@ import (
 	"cli.eigenflux.ai/internal/desktopnotify"
 	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/output"
+	"cli.eigenflux.ai/internal/selfupdate"
 	"cli.eigenflux.ai/internal/skills"
 	"cli.eigenflux.ai/internal/uninstallscript"
 	watchstate "cli.eigenflux.ai/internal/watch"
@@ -40,6 +41,16 @@ func installedExecutable() (string, error) {
 		return "", err
 	}
 	return filepath.EvalSymlinks(p)
+}
+
+// Persisted tasks and installation ownership follow the stable entry, while
+// package resources and installer sources use the running executable itself.
+func stableInstalledExecutable() (string, error) {
+	executable, err := installedExecutable()
+	if err != nil {
+		return "", err
+	}
+	return selfupdate.InstallationRoot(executable)
 }
 
 func registerInstallation(executable string, entry installationHome) error {
@@ -87,7 +98,7 @@ func registerInstallationUnlocked(executable string, entry installationHome) err
 
 var installationCmd = &cobra.Command{Use: "installation", Short: "Inspect or register this explicit CLI installation"}
 var installationRecordCmd = &cobra.Command{Use: "record", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-	bin, err := installedExecutable()
+	bin, err := stableInstalledExecutable()
 	if err != nil {
 		return err
 	}
@@ -120,7 +131,7 @@ var installationRecordCmd = &cobra.Command{Use: "record", Args: cobra.NoArgs, Ru
 }}
 
 var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a registered CLI installation; clear local Agent data", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) (retErr error) {
-	bin, err := installedExecutable()
+	bin, err := stableInstalledExecutable()
 	if err != nil {
 		return err
 	}

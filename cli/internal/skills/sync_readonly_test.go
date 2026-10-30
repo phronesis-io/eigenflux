@@ -53,6 +53,7 @@ func TestSyncUnchangedReadOnlyDoesNotWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	lockBefore, _ := os.Stat(filepath.Join(parent, lockFileName))
 	manifestBefore, _ := os.ReadFile(filepath.Join(opts.Into, ManifestFileName))
 	opts.Quiet, opts.IfStale = true, true
 	res, err := Sync(opts)
@@ -64,9 +65,7 @@ func TestSyncUnchangedReadOnlyDoesNotWrite(t *testing.T) {
 	if !before.ModTime().Equal(after.ModTime()) || !bytes.Equal(manifestBefore, manifestAfter) {
 		t.Fatal("no-change check modified installation metadata")
 	}
-	if _, err := os.Lstat(filepath.Join(parent, lockFileName)); !os.IsNotExist(err) {
-		t.Fatalf("no-change check created lock: %v", err)
-	}
+	assertLockFileUnchanged(t, filepath.Join(parent, lockFileName), lockBefore)
 }
 
 func TestSyncNoChangeCanReadWhileLockHeld(t *testing.T) {
@@ -312,6 +311,9 @@ func TestRecoverInterruptedFailurePreservesRollback(t *testing.T) {
 	if !dirExists(old) || !fileExists(real+journalSuffix) {
 		t.Fatal("failed rollback destroyed recovery state")
 	}
+	if data, err := os.ReadFile(real); err != nil || string(data) != "obstruction" {
+		t.Fatalf("failed rollback replaced the obstructing file: %q %v", data, err)
+	}
 }
 
 func TestSyncRepairsMissingSkillAndProvisionalInstall(t *testing.T) {
@@ -430,8 +432,8 @@ func TestSyncRecoversBeforeRequestingManifest(t *testing.T) {
 		if !dirExists(opts.Into) || fileExists(opts.Into+journalSuffix) {
 			t.Error("network request started before restoring interrupted installation")
 		}
-		if fileExists(filepath.Join(filepath.Dir(opts.Into), lockFileName)) {
-			t.Error("recovery lock held during manifest request")
+		if err := signedReadSyncIdle(opts.Into); err != nil {
+			t.Errorf("recovery lock held during manifest request: %v", err)
 		}
 		return http.DefaultTransport.RoundTrip(r)
 	})}

@@ -65,3 +65,35 @@ Windows runners and cross-compilation do not establish SAC acceptance.
 
 See Microsoft's [code-signing guidance](https://learn.microsoft.com/en-us/windows/apps/develop/smart-app-control/code-signing-for-smart-app-control)
 and [SAC testing guidance](https://learn.microsoft.com/en-us/windows/apps/develop/smart-app-control/test-your-app-with-smart-app-control).
+
+## macOS shell bootstrap
+
+`static/install.sh` verifies the downloaded bootstrap binary checksum before
+execution, then calls `eigenflux --homedir <resolved-home> update`. The CLI uses
+its compiled trust key to verify and activate the complete signed package,
+including the notification helper. The same step runs for an already installed
+matching version, repairing bare installations without bypassing package checks.
+A failed complete-package installation stops onboarding and notification setup;
+it must not be reported as a successful installation. Linux keeps its existing
+binary installation path. Identity-directory selection remains host-scoped.
+
+## Release ownership and credentials
+
+Use the existing `Release CLI` workflow in `phronesis-io/eigenflux`, dispatched
+from `main` after the release PR is merged. Repository Actions Secrets hold the
+existing Skills signing key and R2 credentials plus `MACOS_CERTIFICATE_P12_BASE64`,
+`MACOS_CERTIFICATE_PASSWORD`, `MACOS_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`,
+and `APPLE_APP_SPECIFIC_PASSWORD`. Maintainers with workflow-run permission use
+the same entry; they do not need to receive private keys or passwords.
+
+Run publication tests before importing Apple credentials. Import the encrypted
+P12 and its G2 certificate chain into a temporary runner keychain, sign with
+Developer ID Application, notarize both macOS notification helpers, staple and
+validate their tickets, then publish verified complete packages. Never commit
+credentials or include them in distributable archives. Always remove temporary
+keychain, P12 and signing-key files. Do not enable a second DevOps publisher.
+
+The first stable outer-loop release uses `CLI_VERSION=1.0.0` and
+`SKILLS_MIN_CLI_VERSION=1.0.0`. Production clients upgrade normally; higher
+numbered local test builds require an explicit owner installation of the stable
+bundle. Preserve automatic downgrade protection and the existing signing key.

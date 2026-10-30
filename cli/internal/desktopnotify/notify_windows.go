@@ -6,13 +6,13 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
+
+	"cli.eigenflux.ai/internal/selfupdate"
 )
 
 //go:embed windows.ps1
@@ -25,6 +25,10 @@ func platformRequest(ctx context.Context, action string, message Message) error 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	executable, err = selfupdate.InstallationRoot(executable)
 	if err != nil {
 		return err
 	}
@@ -60,18 +64,5 @@ func platformRequest(ctx context.Context, action string, message Message) error 
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	result := strings.TrimSpace(string(output))
-	if result == "permission_denied" {
-		return ErrPermission
-	}
-	if result == "setup_required" {
-		return errors.New("desktop notifications need initial setup")
-	}
-	if err != nil {
-		return fmt.Errorf("Windows notification helper failed (check notification settings and PowerShell policy): %w", err)
-	}
-	if result != "accepted" {
-		return errors.New("invalid Windows notification helper response")
-	}
-	return nil
+	return windowsHelperResult(output, err)
 }

@@ -138,6 +138,7 @@ func syncDecision(opts SyncOptions, real string, state *syncSnapshot, remote *Ma
 	if reason != "" {
 		if intact {
 			res := keepLocal(real, local, reason)
+			res.RequiredCLIVersion = requiredCLIVersion
 			res.Diagnostics[0].TargetRevision = remote.Revision
 			if strings.HasPrefix(reason, "skills need CLI") {
 				res.Diagnostics[0].Hint = fmt.Sprintf("Keep the existing Skills. Upgrade the CLI using https://cdn.eigenflux.ai/skills/latest/install.md, then retry eigenflux skills sync --into %s.", shellQuote(real))
@@ -325,6 +326,13 @@ func recoverInterrupted(real string) error {
 	old := strings.TrimSpace(string(data))
 	parent := filepath.Dir(real)
 	// Preserve the journal and rollback slot if any recovery step fails.
+	if info, statErr := os.Lstat(real); statErr == nil {
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("skills sync: recovery target is not a directory: %s", real)
+		}
+	} else if !os.IsNotExist(statErr) {
+		return statErr
+	}
 	if !dirExists(real) && old != "" {
 		if !dirExists(old) {
 			return fmt.Errorf("skills sync: rollback directory is missing: %s", old)

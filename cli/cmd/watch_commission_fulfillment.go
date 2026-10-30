@@ -1,0 +1,242 @@
+package cmd
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"strconv"
+	"time"
+
+	"cli.eigenflux.ai/internal/auth"
+	"cli.eigenflux.ai/internal/dispatch"
+)
+
+// Fulfillment has its own serial lane and host timeout, keeping long local work
+// off both PM delivery and the short seller-inspection budget.
+func (w *accountWatch) commissionFulfillmentLoop(ctx context.Context) error {
+	if !w.receivesCommission() {
+		return nil
+	}
+	for ctx.Err() == nil {
+		if !w.handoff.begin() {
+			return nil
+		}
+		job, ok, err := w.journal.NextKind("commission_fulfillment")
+		if err != nil {
+			w.handoff.end()
+			return err
+		}
+		if !ok {
+			w.handoff.end()
+			if !watchPause(ctx, time.Second) {
+				break
+			}
+			continue
+		}
+		err = w.dispatchCommissionFulfillment(ctx, job)
+		w.handoff.end()
+		if err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
+}
+
+func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job dispatch.Job) error {
+	defer w.observeCommissionJob(job)()
+	if err := w.commissionFulfillmentIdentityOK(parent); err != nil {
+		return w.failCommissionLocalCheck(job, err, "")
+	}
+	var queued dispatch.CommissionFulfillmentJob
+	if json.Unmarshal(job.Data, &queued) != nil || queued.OrderID == "" || queued.OrderVersion <= 0 || queued.IntakeResult.Outcome != "ready" || queued.IntakeResult.OrderID != queued.OrderID || queued.IntakeResult.OrderVersion > queued.OrderVersion {
+		return w.finishDispatch(job, "failed", "commission_fulfillment_job_invalid", "", "")
+	}
+	if queued.InputFingerprint == "" {
+		return w.finishDispatch(job, "needs_user", "commission_intake_evidence_missing", "", "")
+	}
+	timeout := w.binding.TimeoutSeconds
+	if timeout <= 0 {
+		timeout = 300
+	}
+	ctx, cancel := context.WithTimeout(parent, time.Duration(timeout)*time.Second)
+	defer cancel()
+	order, err := w.readCommissionPreflight(ctx, job, queued.OrderID, false)
+	if err != nil {
+		return w.failCommissionDelivery(job, err, "commission_order_unavailable", job.SessionID)
+	}
+	if job.CommissionDelivery != nil && commissionDeliveryAdvanced(order, queued.OrderVersion) {
+		retained := job.CommissionFulfillment
+		if retained == nil {
+			retained = job.CommissionCheckpoint
+		}
+		if retained == nil {
+			return w.finishDispatch(job, "failed", "commission_fulfillment_job_invalid", job.SessionID, "")
+		}
+		return w.deliverCommissionArtifacts(ctx, job, order, *retained, job.SessionID)
+	}
+	if order.State != "in_progress" || order.Version != queued.OrderVersion {
+		return w.finishDispatch(job, "needs_user", "commission_fulfillment_order_changed", "", "")
+	}
+	if err := w.journal.SetCommissionExecution(job.ID, queued.OrderID, order.Version, order.ExecutionRevision, order.ExecutionIssue != nil); err != nil {
+		return err
+	}
+	// Cancellation interrupts local work if the identity or paid order changes.
+	// Stop this read-only guard before our own delivery changes the version.
+	guardDone := make(chan struct{})
+	guardCtx, guardCancel := context.WithCancel(ctx)
+	go w.guardCommissionFulfillment(guardCtx, cancel, order, guardDone)
+	defer func() { guardCancel(); <-guardDone }()
+	directory := job.CommissionDirectory
+	if job.CommissionCheckpoint == nil && job.CommissionDelivery == nil {
+		directory, err = os.MkdirTemp(w.binding.WorkDir, ".eigenflux-fulfillment-"+queued.OrderID+"-")
+		if err != nil {
+			return w.finishDispatch(job, "needs_user", "commission_output_directory_unavailable", "", "")
+		}
+		if err := w.journal.SetCommissionFulfillmentDirectory(job.ID, directory); err != nil {
+			_ = os.Remove(directory) // Still empty; no Agent has received it.
+			return err
+		}
+	}
+	prompt, required, files, cleanup, err := w.commissionAgentPrompt(ctx, job, order, map[string]any{"output_directory": directory, "intake_result": queued.IntakeResult})
+	if err != nil {
+		if errors.Is(err, auth.ErrV2CredentialsLockTimeout) {
+			return w.failCommissionLocalCheck(job, err, job.SessionID)
+		}
+		status, code := "failed", "commission_fulfillment_prompt_unavailable"
+		switch {
+		case errors.Is(err, dispatch.ErrNeedsUser):
+			status, code = "needs_user", commissionSkillFailureCode(err)
+		case errors.Is(err, errCommissionMaterialsMissing):
+			status, code = "needs_user", "commission_materials_missing"
+		case errors.Is(err, errCommissionMaterialsInvalid):
+			code = "commission_materials_invalid"
+		case errors.Is(err, errCommissionMaterialsUnavailable):
+			code = "commission_materials_unavailable"
+		}
+		if errors.Is(err, errCommissionMaterialsUnavailable) {
+			return w.failCommissionDelivery(job, err, code, job.SessionID)
+		}
+		return w.finishDispatch(job, status, code, "", "")
+	}
+	defer cleanup()
+	// The current immutable input set must still be the one actually inspected.
+	fingerprint, fingerprintErr := commissionInputFingerprint(order, files)
+	if fingerprintErr != nil || fingerprint != queued.InputFingerprint || !validCommissionInspectedFiles(queued.IntakeResult, files, required) {
+		return w.finishDispatch(job, "needs_user", "commission_fulfillment_inputs_changed", "", "")
+	}
+	before, err := w.readCommissionOrder(ctx, queued.OrderID)
+	if err != nil {
+		return w.failCommissionDelivery(job, err, "commission_order_unavailable", job.SessionID)
+	}
+	if !sameCommissionIntakeOrder(order, before) || ctx.Err() != nil {
+		return w.finishDispatch(job, "failed", "commission_fulfillment_cancelled_before_execution", "", "")
+	}
+	if err := w.commissionFulfillmentIdentityOK(ctx); err != nil {
+		return w.failCommissionLocalCheck(job, err, job.SessionID)
+	}
+	if job.CommissionCheckpoint != nil || job.CommissionDelivery != nil {
+		// Reuse only exact persisted verified bytes, never another model run.
+		guardCancel()
+		<-guardDone
+		retained := job.CommissionCheckpoint
+		if retained == nil {
+			retained = job.CommissionFulfillment
+		}
+		if retained == nil {
+			return w.finishDispatch(job, "failed", "commission_fulfillment_job_invalid", job.SessionID, "")
+		}
+		return w.deliverCommissionArtifacts(ctx, job, order, *retained, job.SessionID)
+	}
+	result, runErr := w.runCommissionAgent(ctx, job, prompt)
+	if runErr != nil {
+		status, code := "unknown", "commission_fulfillment_unconfirmed"
+		if errors.Is(runErr, dispatch.ErrNeedsUser) || errors.Is(runErr, dispatch.ErrCommandLineTooLong) {
+			status, code = "needs_user", "commission_fulfillment_permission_required"
+		}
+		return w.finishDispatch(job, status, code, result.SessionID, "")
+	}
+	decision, err := dispatch.ParseCommissionFulfillmentDecision(result.Text, job.ID, queued.OrderID, order.Version)
+	if err != nil {
+		return w.finishDispatch(job, "failed", "commission_fulfillment_result_invalid", result.SessionID, "")
+	}
+	artifactStarted := time.Now()
+	observation := commissionJobObservation(job)
+	observation.Stage = "artifact"
+	artifacts, err := validateCommissionArtifacts(directory, decision)
+	if err != nil {
+		w.recordCommissionObservation(observation, "failed", "output_invalid", artifactStarted, result, nil)
+		return w.finishDispatch(job, "failed", "commission_fulfillment_artifacts_invalid", result.SessionID, "")
+	}
+	if decision.Outcome == "artifacts_ready" {
+		w.recordCommissionObservation(observation, "succeeded", "", artifactStarted, result, nil)
+	}
+	saved := dispatch.CommissionFulfillmentResult{Decision: decision, OutputDirectory: directory, Artifacts: artifacts}
+	if decision.Outcome == "artifacts_ready" {
+		retry := dispatch.CommissionDeliveryRetry{Attempts: 1, BuyerID: strconv.FormatInt(int64(order.BuyerID), 10), SellerID: strconv.FormatInt(int64(order.SellerID), 10), SnapshotID: strconv.FormatInt(int64(order.SnapshotID), 10)}
+		if err := w.journal.SaveCommissionCheckpoint(job.ID, saved, result.SessionID, retry); err != nil {
+			return err
+		}
+	}
+	if err := w.commissionFulfillmentIdentityOK(ctx); err != nil {
+		return w.failCommissionLocalCheck(job, err, result.SessionID)
+	}
+	current, err := w.readCommissionOrder(ctx, queued.OrderID)
+	if err != nil {
+		return w.failCommissionDelivery(job, err, "commission_order_unavailable", result.SessionID)
+	}
+	if !sameCommissionIntakeOrder(order, current) || ctx.Err() != nil {
+		return w.finishDispatch(job, "failed", "commission_fulfillment_order_changed", result.SessionID, "")
+	}
+	if decision.Outcome == "artifacts_ready" {
+		guardCancel()
+		<-guardDone
+		return w.deliverCommissionArtifacts(ctx, job, order, saved, result.SessionID)
+	}
+	return auth.WithV2CredentialsLockContext(ctx, w.server.Name, 35*time.Second, func() error {
+		if err := w.commissionFulfillmentIdentityOK(ctx); err != nil {
+			return w.failCommissionLocalCheck(job, err, result.SessionID)
+		}
+		if err := w.journal.CompleteCommissionFulfillment(job.ID, saved, result.SessionID); err != nil {
+			return err
+		}
+		return w.emit("dispatch_status", map[string]string{"job_id": job.ID, "kind": job.Kind, "order_id": queued.OrderID, "code": "commission_fulfillment_" + decision.Outcome, "outcome": decision.Outcome})
+	})
+}
+
+func (w *accountWatch) guardCommissionFulfillment(ctx context.Context, cancel context.CancelFunc, expected commissionIntakeOrder, done chan<- struct{}) {
+	ctx, stop := context.WithCancel(ctx)
+	// Network reads must never block the one-second local identity check.
+	identityDone := make(chan struct{})
+	go func() {
+		defer close(identityDone)
+		tick := time.NewTicker(time.Second)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				if w.commissionFulfillmentIdentityOK(ctx) != nil {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	defer func() { stop(); <-identityDone; close(done) }()
+	orderTick := time.NewTicker(10 * time.Second)
+	defer orderTick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-orderTick.C:
+			current, err := w.readCommissionOrder(ctx, strconv.FormatInt(int64(expected.OrderID), 10))
+			if err != nil || !sameCommissionIntakeOrder(expected, current) {
+				cancel()
+				return
+			}
+		}
+	}
+}

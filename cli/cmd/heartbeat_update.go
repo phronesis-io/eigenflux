@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -125,7 +126,7 @@ func runObservedCLIUpdate(cmd *cobra.Command, cfg *config.Config, minimum string
 		enabled, policyErr := refreshCLIUpdatePolicy(cfg, server)
 		if policyErr != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(), "[eigenflux:maintenance] component=cli phase=check error_code=update_policy_unavailable effective_enabled=%t error=%q\n", enabled, policyErr.Error())
-			recorder.Finish("check", "waiting_online", version, "", "", "update_policy_unavailable")
+			recorder.PolicyFailure(policyErr, version)
 		}
 		if !enabled {
 			recorder.Finish("check", "blocked", version, "", "", "server_policy_disabled")
@@ -145,7 +146,8 @@ func runObservedCLIUpdate(cmd *cobra.Command, cfg *config.Config, minimum string
 	}
 	updateCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	result := selfupdate.Check(updateCtx, selfupdate.Options{
-		Home: config.HomeDir(), Executable: path, Version: version, Minimum: minimum,
+		CompletePackage: runtime.GOOS == "darwin" || runtime.GOOS == "windows",
+		Home:            config.HomeDir(), Executable: path, Version: version, Minimum: minimum,
 		CDN: cdnBase(), Key: key, CheckNow: manual, OnProgress: recorder.Progress(version),
 	})
 	recorder.Complete(result, version)
@@ -165,6 +167,11 @@ func runObservedCLIUpdate(cmd *cobra.Command, cfg *config.Config, minimum string
 	recorder.Phase("execute", version, result.Version)
 	child := exec.CommandContext(ctx, result.Executable, heartbeatReexecArgs(os.Args[1:], config.HomeDir(), server)...)
 	child.Env = append(heartbeatReexecEnvironment(os.Environ()), updateAttemptEnv+"="+recorder.attempt, updateFromVersionEnv+"="+version)
+	if root, err := selfupdate.InstallationRoot(path); err == nil {
+		if _, err := selfupdate.ResolveInstallation(root, key); err == nil {
+			child.Env = selfupdate.InstallationEnvironment(child.Env, root)
+		}
+	}
 	if identity != nil {
 		encoded, _ := json.Marshal(identity)
 		child.Env = append(child.Env, updateIdentityEnv+"="+string(encoded))

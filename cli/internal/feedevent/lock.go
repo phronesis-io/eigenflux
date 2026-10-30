@@ -1,13 +1,13 @@
 package feedevent
 
 import (
+	"cli.eigenflux.ai/internal/filelock"
 	"os"
 	"path/filepath"
 	"time"
 )
 
-// Keep the inode after unlock so competing processes always lock the same file.
-type lock struct{ f *os.File }
+type lock struct{ held *filelock.Lock }
 
 func acquireLock(dir string) (*lock, bool) { return acquireNamedLock(dir, lockFileName) }
 func acquireNamedLock(dir, name string) (*lock, bool) {
@@ -17,22 +17,16 @@ func acquireNamedLockFor(dir, name string, wait time.Duration) (*lock, bool) {
 	if err := os.MkdirAll(dir, dirPerm); err != nil {
 		return nil, false
 	}
-	f, err := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_RDWR, filePerm)
-	if err != nil {
-		return nil, false
-	}
 	deadline := time.Now().Add(wait)
 	for {
-		acquired, err := tryFileLock(f)
+		held, ok, err := filelock.TryAcquire(filepath.Join(dir, name))
 		if err != nil {
-			f.Close()
 			return nil, false
 		}
-		if acquired {
-			return &lock{f: f}, true
+		if ok {
+			return &lock{held: held}, true
 		}
-		if time.Now().After(deadline) {
-			f.Close()
+		if !time.Now().Before(deadline) {
 			return nil, false
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -40,7 +34,6 @@ func acquireNamedLockFor(dir, name string, wait time.Duration) (*lock, bool) {
 }
 func (l *lock) release() {
 	if l != nil {
-		_ = unlockFile(l.f)
-		_ = l.f.Close()
+		l.held.Release()
 	}
 }

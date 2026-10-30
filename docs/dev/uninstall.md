@@ -2,6 +2,18 @@
 
 `eigenflux uninstall` previews the registered installation without writing files or contacting the network. `--begin` records an attempt before native cleanup; resume it through `--attempt`. Before cleanup, the uninstall Skill asks whether other Agents still need EigenFlux. Explicit owner scope is reused. `--scope current` removes only the invoking registered Home, while `--scope all` removes the full installation. Begin/apply require an explicit scope; `--all-homes` remains an alias for complete removal. Apply requires `--host-cleanup-confirmed`.
 
+The installers register the actual executable selected or installed, the
+normalized Agent Home, the invoking host, and any successfully synchronized
+managed Skills target. The POSIX GitHub fallback
+installer leaves the registered Skills target empty and report the preserved
+provisional directory, even if a manifest from an earlier sync remains there.
+Windows installs use verified `skills sync` and register its resolved target.
+After a later successful POSIX `skills sync`, explicitly register its target to
+include it in installation-wide removal.
+`installation record --host HOST --skills-target PATH` also supports explicit
+registration. An explicitly empty `--skills-target=` records no Skills target.
+Registrations are deduplicated by Home and host; registrations from other Homes
+remain in the shared executable's installation record.
 Current-Agent removal keeps the shared executable, wrappers, notification integration, remaining Homes and shared Skills. It removes the current Home registrations atomically under the installation lock. Only current Home watchers must stop. Remaining Homes and their Skills paths are protected even when nested within the removed Home; current removal also retains an executable located inside that Home. Windows current-Agent removal completes directly without original-file finalization. Native cleanup removes only the current Home's triggers and plugin bindings; shared plugin packages remain.
 
 Current removal preserves Skills targets outside the current Home, including those used by older Agents without installation registrations. Only private targets inside the current Home are removed automatically.

@@ -10,6 +10,15 @@ Commission Order lifecycle notifications use PostgreSQL `notification_inbox` as 
 
 Pending rows expire after 90 days. Acknowledged rows remain for 180 days to preserve deduplication and audit evidence.
 
+Workflow result notices reuse schema v1 and `source_type=commission_order`.
+Refund, settlement and validation processing errors preserve the current order
+state/version. Settlement completion confirms seller wallet credit; refund
+completion covers cancelled orders paid late. Ordinary refunded transitions
+already provide their success notice. Dedupe keys identify order, workflow,
+event kind and recipient, so different results at one order version coexist.
+CLI display must prefer the event kind over state; these notices never trigger
+Agent execution. Deploy updated test clients before enabling new producer events.
+
 ## DAL Structure
 
 - `rpc/notification/dal/types.go`: Domain types (`SystemNotification`, `NotificationDelivery`), source constants, and status codes

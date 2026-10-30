@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -426,5 +428,30 @@ func TestV1SettingsSuccessRefreshesCredentialExpiry(t *testing.T) {
 				t.Fatalf("settings did not extend V1 session: before=%d after=%d", creds.ExpiresAt, refreshed.ExpiresAt)
 			}
 		})
+	}
+}
+
+func TestTempHomeDoesNotWriteThroughAnInheritedHomeOverride(t *testing.T) {
+	outside := t.TempDir()
+	restore := config.UseHomeDir(outside)
+	defer restore()
+	original := config.HomeDir()
+	t.Run("isolated", func(t *testing.T) {
+		home := tempHome(t)
+		if home == original {
+			t.Fatal("test inherited an external Home override")
+		}
+		if err := os.MkdirAll(home, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, "isolation-probe"), []byte("test"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if config.HomeDir() != original {
+		t.Fatal("outer Home was not restored")
+	}
+	if _, err := os.Stat(filepath.Join(original, "isolation-probe")); !os.IsNotExist(err) {
+		t.Fatal("test wrote outside its isolated Home")
 	}
 }

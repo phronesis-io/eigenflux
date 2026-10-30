@@ -1,4 +1,34 @@
 $ErrorActionPreference = 'Stop'
+$stage = 'request'
+function Get-NotificationSetting([object]$notifier, [type]$notifierType) {
+    # Use the WinRT type's getter rather than PowerShell's dynamic property
+    # adapter, which can return null for a successfully created notifier.
+    if ($null -eq $notifier) { throw 'notifier unavailable' }
+    $property = $notifierType.GetProperty('Setting')
+    if ($null -eq $property) { throw 'setting getter unavailable' }
+    try { $value = $property.GetValue($notifier, $null) }
+    catch {
+        $exception = $_.Exception
+        while ($null -ne $exception.InnerException) { $exception = $exception.InnerException }
+        # Windows creates the sender's notification settings on its first toast.
+        # A registered sender can therefore have no Setting yet, without denial.
+        if ($exception.HResult.ToString('X8') -eq '80070490') { return 'Uninitialized' }
+        throw
+    }
+    if ($null -eq $value) { return $null }
+    return $value.ToString()
+}
+function Send-Notification([object]$notifier, [object]$request) {
+    $script:stage = 'toast_xml'
+    $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+    $xml.LoadXml($request.xml)
+    $script:stage = 'toast_create'
+    $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+    $toast.Tag = $request.tag
+    $toast.Group = 'EigenFlux'
+    $script:stage = 'toast_show'
+    $notifier.Show($toast)
+}
 try {
     # CREATE_NO_WINDOW has no console code page. Decode the redirected pipe
     # directly; setting Console.InputEncoding would call SetConsoleCP and fail.
@@ -9,6 +39,7 @@ try {
     $registration = 'HKCU:\Software\Classes\AppUserModelId\' + $appId
     $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'EigenFlux Notifications.lnk'
     if ($request.action -eq 'remove') {
+        $stage = 'remove'
         if (Test-Path -LiteralPath $shortcut) {
             $item = Get-Item -LiteralPath $shortcut -Force
             if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'preserve linked shortcut' }
@@ -28,7 +59,11 @@ try {
             if (Test-Path -LiteralPath $icon) {
                 $item = Get-Item -LiteralPath $icon -Force
                 if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'preserve linked icon' }
-                if ((Get-FileHash -LiteralPath $icon -Algorithm SHA256).Hash.ToLowerInvariant() -ne [IO.Path]::GetFileNameWithoutExtension($icon)) { throw 'preserve changed icon' }
+                $hash = [Security.Cryptography.SHA256]::Create()
+                $stream = [IO.File]::OpenRead($icon)
+                try { $digest = [BitConverter]::ToString($hash.ComputeHash($stream)).Replace('-', '').ToLowerInvariant() }
+                finally { $stream.Dispose(); $hash.Dispose() }
+                if ($digest -ne [IO.Path]::GetFileNameWithoutExtension($icon)) { throw 'preserve changed icon' }
             }
         }
         if (Test-Path -LiteralPath $shortcut) { Remove-Item -LiteralPath $shortcut -ErrorAction Stop }
@@ -37,6 +72,7 @@ try {
         [Console]::Out.WriteLine('accepted'); exit 0
     }
     if ($request.action -eq 'enable') {
+        $stage = 'registration'
         # Versioned files avoid stale icon caches; atomic creation lets account
         # loops share the same assets without exposing partially written files.
         function Save-BrandIcon([string]$directory, [string]$encoded) {
@@ -138,26 +174,43 @@ namespace EigenFluxNotifications {
     if (-not (Test-Path -LiteralPath $shortcut) -or -not (Test-Path -LiteralPath $registration)) {
         [Console]::Out.WriteLine('setup_required'); exit 1
     }
+    $stage = 'winrt_load'
     [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+    $notifierType = [Windows.UI.Notifications.ToastNotifier, Windows.UI.Notifications, ContentType = WindowsRuntime]
+    [Windows.UI.Notifications.NotificationSetting, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
     [Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
     [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+    $stage = 'notifier_create'
     $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId)
-    if ($notifier.Setting.ToString() -ne 'Enabled') {
+    $stage = 'setting_read'
+    $setting = Get-NotificationSetting $notifier $notifierType
+    if ($setting -eq 'Uninitialized') {
+        if ($request.action -eq 'check' -or $request.action -eq 'enable') {
+            # Registration is complete, but permission state is not established
+            # until the first real notification. Setup and checks stay silent.
+            [Console]::Out.WriteLine('registered'); exit 0
+        }
+    }
+    if ($null -eq $setting -or $setting -eq '') {
+        [Console]::Out.WriteLine('setting_unavailable'); exit 1
+    }
+    if ($setting -in @('DisabledForApplication', 'DisabledForUser', 'DisabledByGroupPolicy', 'DisabledByManifest')) {
         [Console]::Out.WriteLine('permission_denied'); exit 1
     }
+    if ($setting -ne 'Enabled' -and -not ($setting -eq 'Uninitialized' -and $request.action -eq 'show')) {
+        [Console]::Out.WriteLine('setting_unavailable'); exit 1
+    }
     if ($request.action -eq 'show') {
-        $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
-        $xml.LoadXml($request.xml)
-        $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
-        $toast.Tag = $request.tag
-        $toast.Group = 'EigenFlux'
-        $notifier.Show($toast)
+        Send-Notification $notifier $request
     } elseif ($request.action -ne 'check' -and $request.action -ne 'enable') {
         throw 'invalid action'
     }
     [Console]::Out.WriteLine('accepted')
 } catch {
     # Do not expose notification data, browser URLs or arbitrary exception data.
-    [Console]::Out.WriteLine('notification_failed')
+    $exception = $_.Exception
+    while ($null -ne $exception.InnerException) { $exception = $exception.InnerException }
+    $hresult = $exception.HResult.ToString('X8')
+    [Console]::Out.WriteLine(('notification_failed:{0}:0x{1}' -f $stage, $hresult))
     exit 1
 }

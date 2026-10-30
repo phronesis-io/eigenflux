@@ -81,6 +81,7 @@ func TestSyncReplacementReadDenialDoesNotCreateLock(t *testing.T) {
 				return http.DefaultTransport.RoundTrip(r)
 			})}
 			parent := filepath.Dir(opts.Into)
+			lockBefore, _ := os.Stat(filepath.Join(parent, lockFileName))
 			before, err := os.Stat(parent)
 			if err != nil {
 				t.Fatal(err)
@@ -96,9 +97,7 @@ func TestSyncReplacementReadDenialDoesNotCreateLock(t *testing.T) {
 			if err != nil || !before.ModTime().Equal(after.ModTime()) {
 				t.Fatalf("read denial created/removed a lock: %v", err)
 			}
-			if _, err := os.Lstat(filepath.Join(parent, lockFileName)); !os.IsNotExist(err) {
-				t.Fatalf("read denial left a lock: %v", err)
-			}
+			assertLockFileUnchanged(t, filepath.Join(parent, lockFileName), lockBefore)
 		})
 	}
 }
@@ -199,6 +198,7 @@ func TestSyncReadAccessFailureDoesNotCreateLock(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			lockBefore, _ := os.Stat(filepath.Join(parent, lockFileName))
 			lock, err := beginSyncWrite(opts.Into, parent)
 			if lock != nil {
 				lock.Release()
@@ -211,9 +211,7 @@ func TestSyncReadAccessFailureDoesNotCreateLock(t *testing.T) {
 			if err != nil || !before.ModTime().Equal(after.ModTime()) {
 				t.Fatalf("preflight modified parent (created/removed lock): %v", err)
 			}
-			if _, err := os.Lstat(filepath.Join(parent, lockFileName)); !os.IsNotExist(err) {
-				t.Fatalf("preflight left a lock: %v", err)
-			}
+			assertLockFileUnchanged(t, filepath.Join(parent, lockFileName), lockBefore)
 		})
 	}
 }
@@ -263,5 +261,19 @@ func TestSyncReadDenialIsNotHiddenByLocalEdits(t *testing.T) {
 	after, _ := os.Stat(filepath.Dir(opts.Into))
 	if !before.ModTime().Equal(after.ModTime()) {
 		t.Fatal("read denial created or removed a lock")
+	}
+}
+
+func assertLockFileUnchanged(t *testing.T, path string, before os.FileInfo) {
+	t.Helper()
+	after, err := os.Stat(path)
+	if before == nil {
+		if !os.IsNotExist(err) {
+			t.Fatalf("read-only path created lock: %v", err)
+		}
+		return
+	}
+	if err != nil || !os.SameFile(before, after) || !before.ModTime().Equal(after.ModTime()) || before.Size() != after.Size() {
+		t.Fatalf("read-only path changed retained lock: %v", err)
 	}
 }

@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"cli.eigenflux.ai/internal/config"
@@ -21,28 +23,33 @@ import (
 const heartbeatContractVersion = "eigenflux_heartbeat.v4"
 
 type heartbeatPlan struct {
-	FeedCompletionCheck      bool                `json:"feed_completion_check"`
-	PluginMaintenance        pluginMaintenance   `json:"plugin_maintenance"`
-	CLIUpdate                selfupdate.Result   `json:"cli_update"`
-	AgentPrompt              string              `json:"agent_prompt"`
-	WakeOnEmpty              bool                `json:"wake_on_empty"`
-	Access                   runtimeAccess       `json:"access"`
-	SchemaVersion            string              `json:"schema_version"`
-	HeartbeatContractVersion string              `json:"heartbeat_contract_version"`
-	CLIVersion               string              `json:"cli_version"`
-	SkillRevision            string              `json:"skill_revision"`
-	SkillsTarget             string              `json:"skills_target"`
-	Skills                   []string            `json:"skills"`
-	RuleSources              []string            `json:"rule_sources"`
-	ExecutionOrder           []string            `json:"execution_order"`
-	CLIPrefix                string              `json:"cli_prefix"`
-	SchedulerLauncher        string              `json:"scheduler_launcher"`
-	SchedulerPrompt          string              `json:"scheduler_prompt"`
-	SchedulerMigration       string              `json:"scheduler_migration"`
-	SkillsFresh              bool                `json:"skills_fresh"`
-	CompatibilityReported    bool                `json:"compatibility_reported"`
-	CompatibilityError       string              `json:"compatibility_error,omitempty"`
-	RuntimeReport            runtimeReportResult `json:"runtime_report"`
+	FeedCompletionCheck      bool                    `json:"feed_completion_check"`
+	MainSessionBinding       *mainSessionBindingPlan `json:"main_session_binding,omitempty"`
+	WatchManaged             bool                    `json:"watch_managed,omitempty"`
+	DispatchOwned            []string                `json:"dispatch_owned,omitempty"`
+	SkillsReadReceipt        *maintenance.Event      `json:"skills_read_receipt,omitempty"`
+	PlanMode                 string                  `json:"plan_mode,omitempty"`
+	PluginMaintenance        pluginMaintenance       `json:"plugin_maintenance"`
+	CLIUpdate                selfupdate.Result       `json:"cli_update"`
+	AgentPrompt              string                  `json:"agent_prompt"`
+	WakeOnEmpty              bool                    `json:"wake_on_empty"`
+	Access                   runtimeAccess           `json:"access"`
+	SchemaVersion            string                  `json:"schema_version"`
+	HeartbeatContractVersion string                  `json:"heartbeat_contract_version"`
+	CLIVersion               string                  `json:"cli_version"`
+	SkillRevision            string                  `json:"skill_revision"`
+	SkillsTarget             string                  `json:"skills_target"`
+	Skills                   []string                `json:"skills"`
+	RuleSources              []string                `json:"rule_sources"`
+	ExecutionOrder           []string                `json:"execution_order"`
+	CLIPrefix                string                  `json:"cli_prefix"`
+	SchedulerLauncher        string                  `json:"scheduler_launcher"`
+	SchedulerPrompt          string                  `json:"scheduler_prompt"`
+	SchedulerMigration       string                  `json:"scheduler_migration"`
+	SkillsFresh              bool                    `json:"skills_fresh"`
+	CompatibilityReported    bool                    `json:"compatibility_reported"`
+	CompatibilityError       string                  `json:"compatibility_error,omitempty"`
+	RuntimeReport            runtimeReportResult     `json:"runtime_report"`
 }
 
 func fileExistsCLI(path string) bool {
@@ -60,19 +67,51 @@ var heartbeatPlanCmd = &cobra.Command{
 	Short: "Sync Skills and emit the current thin heartbeat plan",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) (resultErr error) {
+		maintenanceOnly, _ := cmd.Flags().GetBool("maintenance-only")
+		controlOnly, _ := cmd.Flags().GetBool("control-only")
+		watchManaged, _ := cmd.Flags().GetBool("watch-managed")
+		watchManaged = watchManaged && !maintenanceOnly && !controlOnly
+		watchOwnershipRequested := watchManaged
+		if maintenanceOnly && controlOnly {
+			return fmt.Errorf("--maintenance-only and --control-only are mutually exclusive")
+		}
 		cfg, err := config.Load()
 		if err != nil {
 			return err
 		}
-		cliUpdate, restarted, updateErr := updateHeartbeatCLI(cmd, cfg, "")
+		if watchOwnershipRequested {
+			ownership := heartbeatPlan{}
+			if err := applyDispatchOwnership(&ownership); err != nil {
+				return err
+			}
+			if len(ownership.DispatchOwned) > 0 {
+				watchManaged = false
+				for _, event := range ownership.DispatchOwned {
+					if event == "maintenance_due" {
+						watchManaged = true
+					}
+				}
+			}
+		}
+		cliUpdate := selfupdate.Result{Status: "skipped", Version: version}
+		var restarted bool
+		var updateErr error
+		flushMaintenance := !controlOnly
+		if !controlOnly {
+			if maintenanceOnly {
+				markMaintenanceAttempt(activeServerName())
+			}
+			defer func() {
+				if flushMaintenance && !restarted && !isV2CredentialError(resultErr) && !v2CredentialNeedsLogin(resultErr) && !isAgentAuthUnavailable(resultErr) {
+					_ = flushMaintenanceEvents(activeServerName())
+				}
+			}()
+			cliUpdate, restarted, updateErr = updateHeartbeatCLI(cmd, cfg, "")
+		}
 		if restarted || updateErr != nil {
 			return updateErr
 		}
-		defer func() {
-			if !restarted && !isV2CredentialError(resultErr) && !v2CredentialNeedsLogin(resultErr) && !isAgentAuthUnavailable(resultErr) {
-				_ = flushMaintenanceEvents(activeServerName())
-			}
-		}()
+		// Public recovery rules remain available before authenticated work.
 		meta := clientMetaForServerName(activeServerName())
 		skillsScope, _ := maintenanceScope(activeServerName())
 		skillsAttempt := maintenance.NewID()
@@ -81,8 +120,7 @@ var heartbeatPlanCmd = &cobra.Command{
 				fmt.Fprintf(cmd.ErrOrStderr(), "[eigenflux:maintenance] component=skills attempt_id=%s phase=%s error_code=maintenance_record_failed\n", skillsAttempt, event.Phase)
 			}
 		}
-		recordSkills(maintenance.NewEvent(skillsAttempt, "skills", "auto", "check", "started"))
-		skillsFinished := false
+		skillsFinished := controlOnly
 		defer func() {
 			if !skillsFinished {
 				event := maintenance.NewEvent(skillsAttempt, "skills", "auto", "install", "failed")
@@ -98,32 +136,36 @@ var heartbeatPlanCmd = &cobra.Command{
 				recordSkills(event)
 			}
 		}()
+		if !controlOnly {
+			recordSkills(maintenance.NewEvent(skillsAttempt, "skills", "auto", "check", "started"))
+		}
 		var res *skills.SyncResult
-		// Recovery instructions arrive through the public Skills bundle, so its
-		// update must remain available while Agent authentication is blocked.
-		if automaticMaintenanceEnabled(cfg, autoSkillSyncKey) {
+		if controlOnly || !automaticMaintenanceEnabled(cfg, autoSkillSyncKey) {
+			res, err = localHeartbeatSkills(meta.Host)
+		} else {
 			res, err = skills.Sync(skills.SyncOptions{
 				Host: meta.Host, IfStale: true, Quiet: true, CLIVersion: version, CDNBase: cdnBase(),
 				HTTPClient: &http.Client{Timeout: autoSkillSyncTimeout},
 			})
-		} else {
-			res, err = localHeartbeatSkills(meta.Host)
 		}
-		if res != nil && res.RequiredCLIVersion != "" {
+		if !controlOnly && res != nil && res.RequiredCLIVersion != "" {
 			cliUpdate, restarted, updateErr = updateHeartbeatCLI(cmd, cfg, res.RequiredCLIVersion)
 			if restarted || updateErr != nil {
-				// The replacement process owns a new Skills check after CLI handoff.
 				skillsFinished = restarted
 				return updateErr
 			}
 			if !compatibleLocalHeartbeatRules(res.SkillsDir, version) {
 				return &heartbeatSkillsError{code: "skills_cli_incompatible", err: fmt.Errorf("heartbeat needs CLI >= %s (have %s); automatic update %s reason=%s", res.RequiredCLIVersion, version, cliUpdate.Status, cliUpdate.Reason)}
 			}
-			err = nil
+			err = nil // Continue only the already-installed compatible rules.
 		}
-		runtimeReport, reportErr := reportRuntimeSettings(cfg, "", "", "", "", false)
-		if isV2CredentialError(reportErr) || v2CredentialNeedsLogin(reportErr) || isAgentAuthUnavailable(reportErr) {
-			return reportErr
+		runtimeReport := runtimeReportResult{Status: "skipped"}
+		if !controlOnly {
+			var reportErr error
+			runtimeReport, reportErr = reportRuntimeSettings(cfg, "", "", "", "", false)
+			if isV2CredentialError(reportErr) || v2CredentialNeedsLogin(reportErr) || isAgentAuthUnavailable(reportErr) {
+				return reportErr
+			}
 		}
 		if err != nil || res == nil {
 			return fmt.Errorf("heartbeat plan: skills sync failed: %w", err)
@@ -142,17 +184,27 @@ var heartbeatPlanCmd = &cobra.Command{
 			return &heartbeatSkillsError{code: "skills_local_modified", err: fmt.Errorf("heartbeat plan: managed Skills have local edits and were not upgraded: %s", strings.Join(res.Preserved, ", "))}
 		}
 
+		modelRule := filepath.Join(res.SkillsDir, "ef-profile", "references", "runtime-model.md")
 		ruleSources := []string{
-			filepath.Join(res.SkillsDir, "ef-profile", "references", "runtime-model.md"),
+			modelRule,
 			filepath.Join(res.SkillsDir, "ef-broadcast", "SKILL.md"),
 			filepath.Join(res.SkillsDir, "ef-broadcast", "references", "attention.md"),
 			filepath.Join(res.SkillsDir, "ef-communication", "SKILL.md"),
 		}
+		// Older compatible bundles remain executable while the new release rolls out.
 		maintenanceRule := filepath.Join(res.SkillsDir, "ef-broadcast", "references", "maintenance.md")
-		if fileExistsCLI(maintenanceRule) {
+		if !watchManaged && fileExistsCLI(maintenanceRule) {
 			ruleSources = append(ruleSources, maintenanceRule)
 		}
-
+		planMode := "full"
+		if maintenanceOnly {
+			planMode = "maintenance"
+			ruleSources = []string{modelRule, maintenanceRule}
+		}
+		if controlOnly {
+			planMode = "control"
+			ruleSources = []string{modelRule, filepath.Join(res.SkillsDir, "ef-broadcast", "references", "commands.md")}
+		}
 		for _, source := range ruleSources {
 			if _, err := filepath.Abs(source); err != nil {
 				return err
@@ -162,36 +214,58 @@ var heartbeatPlanCmd = &cobra.Command{
 			}
 		}
 
-		skillsEvent := maintenance.NewEvent(skillsAttempt, "skills", "auto", "install", "installed")
-		skillsEvent.ToVersion = manifest.Revision
-		if res.Source == "local" {
-			skillsEvent.Result = "no_update"
+		var skillsReadReceipt *maintenance.Event
+		if !controlOnly {
+			e := maintenance.NewEvent(skillsAttempt, "skills", "auto", "install", "installed")
+			e.ToVersion = manifest.Revision
+			if res.Source == "local" {
+				e.Result = "no_update"
+			}
+			if _, validationErr := localHeartbeatSkills(meta.Host); validationErr != nil {
+				e.Result = "blocked"
+				e.ErrorCode = "local_verification_failed"
+			} else {
+				receipt := maintenance.NewEvent(skillsAttempt, "skills", "auto", "read", "rules_read")
+				receipt.ToVersion = manifest.Revision
+				skillsReadReceipt = &receipt
+			}
+			recordSkills(e)
+			skillsFinished = true
 		}
-		recordSkills(skillsEvent)
-		skillsFinished = true
-
 		access, err := runtimeAccessForServer(activeServerName())
 		if err != nil {
 			return err
 		}
+		flushMaintenance = !controlOnly
 
 		home, _ := config.HomeDirInfo()
-		cliPrefix := fmt.Sprintf("eigenflux --homedir %s", shellQuote(home))
-		if serverName := activeServerName(); serverName != "" {
-			cliPrefix += " --server " + shellQuote(serverName)
+		shellName, _ := cmd.Flags().GetString("shell")
+		cliPrefix, err := nativeHeartbeatCLIPrefix(home, activeServerName(), shellName, meta.Mode)
+		if err != nil {
+			return err
 		}
-		if meta.Mode != "" {
-			cliPrefix += " --runtime-mode " + shellQuote(meta.Mode)
+		launcher, err := nativeHeartbeatLauncher(home, activeServerName(), meta.Mode, shellName)
+		if err != nil {
+			return err
 		}
-		launcher := cliPrefix + " heartbeat plan --format agent"
-		// Commands issued with this cycle's prefix run inside an automatic
-		// heartbeat, so a publish records origin=heartbeat. The persisted launcher
-		// stays without it.
+		if watchOwnershipRequested {
+			launcher += " --watch-managed"
+		}
+		pluginMaintenance := pluginMaintenance{Status: "not_applicable"}
+		if !controlOnly && !watchManaged {
+			pluginMaintenance = pluginMaintenanceForHost(meta.Host, meta.Mode, cfg)
+			pluginMaintenance = scheduleOpenClawUpdate(pluginMaintenance)
+		}
+		// Mark commands from this cycle, but not the persisted launcher.
 		cliPrefix += " --origin " + publishOriginHeartbeat
-		pluginMaintenance := scheduleOpenClawUpdate(pluginMaintenanceForHost(meta.Host, meta.Mode, cfg))
 		plan := heartbeatPlan{
-			CLIUpdate: cliUpdate, PluginMaintenance: pluginMaintenance,
-			SchemaVersion: "eigenflux_heartbeat_plan.v1", HeartbeatContractVersion: heartbeatContractVersion, FeedCompletionCheck: access.OnboardingState == "completed",
+			FeedCompletionCheck: access.OnboardingState == "completed" && !controlOnly && !maintenanceOnly,
+			PlanMode:            planMode,
+			SkillsReadReceipt:   skillsReadReceipt,
+			WatchManaged:        watchManaged,
+			PluginMaintenance:   pluginMaintenance,
+			CLIUpdate:           cliUpdate,
+			SchemaVersion:       "eigenflux_heartbeat_plan.v1", HeartbeatContractVersion: heartbeatContractVersion,
 			CLIVersion: version, SkillRevision: manifest.Revision, SkillsTarget: res.SkillsDir,
 			RuleSources: ruleSources, ExecutionOrder: heartbeatStages(access),
 			Access: access, WakeOnEmpty: heartbeatWakeOnEmpty(access, pluginMaintenance),
@@ -201,6 +275,48 @@ var heartbeatPlanCmd = &cobra.Command{
 			SkillsFresh:     res.VerifiedManifest,
 			RuntimeReport:   runtimeReport,
 		}
+		if watchManaged {
+			plan.SchedulerMigration = ""
+		}
+		if watchOwnershipRequested {
+			plan.SchedulerMigration = ""
+			if err := applyDispatchOwnership(&plan); err != nil {
+				return err
+			}
+		}
+		if maintenanceOnly {
+			plan.ExecutionOrder = []string{"maintenance"}
+			plan.WakeOnEmpty = true
+		}
+		if controlOnly {
+			plan.ExecutionOrder = []string{}
+			plan.WakeOnEmpty = false
+			plan.SchedulerMigration = ""
+			plan.SchedulerLauncher = ""
+			if access.OnboardingState == "completed" {
+				plan.ExecutionOrder = []string{"commands"}
+				plan.WakeOnEmpty = true
+			}
+		}
+		if !controlOnly {
+			plan.MainSessionBinding, err = inspectMainSessionBinding()
+			if err != nil {
+				return err
+			}
+			if plan.MainSessionBinding != nil && plan.MainSessionBinding.Status != "ready" {
+				source := filepath.Join(res.SkillsDir, "ef-communication", "references", "main-session.md")
+				if _, ruleErr := skills.ReadSignedFile(res.SkillsDir, "ef-communication", "references/main-session.md", 64<<10); ruleErr == nil {
+					plan.RuleSources = append(plan.RuleSources, source)
+					if plan.MainSessionBinding.Status == "bootstrap_required" && planMode == "full" &&
+						access.OnboardingState == "completed" && meta.Host == "codex" && meta.Mode == "skill" {
+						plan.ExecutionOrder = append([]string{"main_session_bootstrap"}, plan.ExecutionOrder...)
+					}
+				} else {
+					plan.MainSessionBinding.Error = "main session rules missing or unsigned; sync compatible signed Skills before binding"
+				}
+				plan.WakeOnEmpty = true
+			}
+		}
 
 		for _, entry := range manifest.Skills {
 			plan.Skills = append(plan.Skills, entry.Name)
@@ -209,9 +325,10 @@ var heartbeatPlanCmd = &cobra.Command{
 		// Only this cycle's verified official manifest may create Console upgrade
 		// evidence. Lock contention, an offline fallback, a rollback rejection, or
 		// a provisional local bundle can render a plan but cannot unlock V2.
-		if res.VerifiedManifest && access.OnboardingState == "completed" {
+		if !controlOnly && res.VerifiedManifest && access.OnboardingState == "completed" {
 			if err := pushHeartbeatCompatibility(cfg, heartbeatContractVersion, manifest.Revision); err != nil {
 				if isV2CredentialError(err) || v2CredentialNeedsLogin(err) || isAgentAuthUnavailable(err) {
+					flushMaintenance = false
 					return err
 				}
 				plan.CompatibilityError = err.Error()
@@ -325,14 +442,40 @@ func heartbeatStages(access runtimeAccess) []string {
 	if access.OnboardingState != "completed" {
 		return []string{"feed"}
 	}
-	return []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report"}
+	return []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report", "commission_confirmations"}
 }
 
 func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
-	completion := ""
-	if plan.FeedCompletionCheck {
-		completion = "\nBefore leaving the Feed stage, run " + plan.CLIPrefix + " feed status. Score every item it lists, then continue."
-		completion += "\nAfter the Feed push, run " + plan.CLIPrefix + " feed status --after-push. Report surface only for listed items the owner was actually shown."
+	receiptText := ""
+	if plan.PluginMaintenance.Executor == "cli" {
+		receiptText += "\nOpenClaw plugin maintenance is executed by the independent CLI worker. Do not run plugin discovery, installation, restart, or plugin-check from this Agent turn. Cached maintenance results are historical observations.\n"
+	}
+	if plan.MainSessionBinding != nil {
+		b, _ := json.Marshal(plan.MainSessionBinding)
+		receiptText += "\nCodex main session binding: " + string(b) + ". Ordinary heartbeat and PM execution cannot select a replacement thread.\n"
+		if slices.Contains(plan.ExecutionOrder, "main_session_bootstrap") {
+			receiptText += "Execute main_session_bootstrap automatically before business stages using the listed ef-communication/references/main-session.md. Complete the existing preflight, guarded binding update and watch recovery without asking the owner to enable binding. Preserve existing targets; ask only when the verified heartbeat target is missing or ambiguous.\n"
+		} else if plan.MainSessionBinding.Status == "unavailable" {
+			receiptText += "The established main session is unavailable. Preserve its binding and request an owner-directed switch.\n"
+		} else if plan.MainSessionBinding.Status == "bootstrap_required" {
+			receiptText += "Bootstrap remains pending for the next full native Codex heartbeat or owner-requested upgrade. Watch-owned narrow handlers must not stop their own watch.\n"
+		}
+	}
+	if plan.WatchManaged {
+		receiptText += "\nHost plugin and scheduler maintenance is owned exclusively by the watch maintenance-only handler. Execute only the listed stages and Skills read receipt. A listed main_session_bootstrap is an independent host upgrade step; other host maintenance stays with the watch.\n"
+	}
+	if len(plan.DispatchOwned) > 0 {
+		receiptText += "\nThe bound watch dispatcher exclusively owns these events: " + strings.Join(plan.DispatchOwned, ", ") + ". Skip only the procedures for those listed events in this heartbeat, including indirect Skill references. Preserve the watch binding and its dedicated foreground process except during the listed guarded main_session_bootstrap procedure.\n"
+	}
+	if slices.Contains(plan.ExecutionOrder, "commission_confirmations") {
+		receiptText += "\nAfter this cycle's Feed and other business stages, run order pending-confirmations --format json using the exact CLI prefix. Include its pending-order reminder in the owner-facing result every cycle while orders remain awaiting buyer confirmation, even if Feed is empty or unchanged. Empty or failed checks must not be reported as successful completion; never confirm receipt automatically.\n"
+	}
+	if plan.SkillsReadReceipt != nil {
+		b, _ := json.Marshal(plan.SkillsReadReceipt)
+		receiptText += "\nAfter freshly reading every listed rule source, submit this unchanged JSON to heartbeat maintenance-report --stdin using the CLI prefix above: " + string(b) + "\n"
+	}
+	if plan.PlanMode == "control" || plan.PlanMode == "maintenance" {
+		return fmt.Sprintf("EIGENFLUX HEARTBEAT PLAN\nPlan mode: %s\nCLI: %s\nSkill revision: %s\nCLI prefix for every command: %s\nFreshly read these central rule sources:\n- %s\nExecute only these stages: %s. Runtime access: %s. Onboarding state: %s. Do not execute stages outside this list.\nPlugin maintenance: %s\nScheduler migration: %s\n", plan.PlanMode, plan.CLIVersion, plan.SkillRevision, plan.CLIPrefix, strings.Join(plan.RuleSources, "\n- "), strings.Join(plan.ExecutionOrder, ", "), plan.Access.Mode, plan.Access.OnboardingState, pluginMaintenanceJSON(plan.PluginMaintenance), plan.SchedulerMigration) + receiptText
 	}
 	pluginInfo, _ := json.Marshal(plan.PluginMaintenance)
 	updateStatus := plan.CLIUpdate.Status
@@ -344,6 +487,11 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 	}
 	if plan.CLIUpdate.Error != "" {
 		updateStatus += " (" + plan.CLIUpdate.Error + ")"
+	}
+	completion := ""
+	if plan.FeedCompletionCheck {
+		completion = "\nBefore leaving the Feed stage, run " + plan.CLIPrefix + " feed status. Score every item it lists, then continue."
+		completion += "\nAfter the Feed push, run " + plan.CLIPrefix + " feed status --after-push. Report surface only for listed items the owner was actually shown."
 	}
 	executorNotice := ""
 	if plan.PluginMaintenance.Executor == "cli" {
@@ -381,7 +529,7 @@ Native task prompt: %s
 For new native tasks, the scheduler stores this fixed execution prompt. Store it verbatim, without additions. Reuse working existing triggers, including legacy EIGENFLUX_MODE launchers; use the current Skills to decide whether a repair is necessary. Verified plugin loops may supply mode through their existing process environment.
 `, plan.HeartbeatContractVersion, plan.CLIVersion, plan.SkillRevision, plan.SkillsTarget,
 		strings.Join(plan.Skills, ", "), plan.CLIPrefix, runtimeStatus, plan.CompatibilityReported, updateStatus, pluginInfo, "- "+strings.Join(plan.RuleSources, "\n- "), plan.Access.Mode, strings.Join(plan.ExecutionOrder, " → "), completion,
-		plan.SchedulerLauncher, plan.SchedulerMigration, heartbeatSchedulerPrompt(plan.SchedulerLauncher)) + executorNotice
+		plan.SchedulerLauncher, plan.SchedulerMigration, heartbeatSchedulerPrompt(plan.SchedulerLauncher)) + receiptText + executorNotice
 }
 
 func heartbeatSchedulerPrompt(launcher string) string {
@@ -407,7 +555,7 @@ func schedulerMigrationForHost(host, launcher string) string {
 	host = strings.ToLower(strings.TrimSpace(strings.SplitN(host, "/", 2)[0]))
 	switch host {
 	case "workbuddy":
-		return "Use WorkBuddy CronList/CronUpdate to replace only the owned EigenFlux task with: " + launcher
+		return "Use WorkBuddy native automation_update to replace only the owned EigenFlux task, preserving its ID, cadence, status and other fields, then read it back: " + launcher
 	case "codex":
 		return "Use Codex native automation tools to replace only the owned EigenFlux task with: " + launcher
 	case "hermes":
@@ -420,6 +568,12 @@ func schedulerMigrationForHost(host, launcher string) string {
 }
 
 func init() {
+	heartbeatPlanCmd.Flags().String("shell", "", "Native launcher shell: posix, powershell, cmd (default: platform shell)")
+	heartbeatPlanCmd.Flags().Bool("watch-managed", false, "Delegate full-plan host maintenance to the active watch handler")
+	heartbeatPlanCmd.Flags().Bool("maintenance-only", false, "Emit only central maintenance rules")
+	heartbeatPlanCmd.Flags().Bool("control-only", false, "Emit only owner command rules using verified local Skills")
 	heartbeatCmd.AddCommand(heartbeatPlanCmd)
 	rootCmd.AddCommand(heartbeatCmd)
 }
+
+func pluginMaintenanceJSON(p pluginMaintenance) string { b, _ := json.Marshal(p); return string(b) }

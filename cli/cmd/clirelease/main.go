@@ -42,7 +42,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	m := selfupdate.Manifest{Version: *version, Artifacts: map[string]selfupdate.Artifact{}}
+	m := selfupdate.Manifest{Version: *version, Artifacts: map[string]selfupdate.Artifact{}, Packages: map[string]selfupdate.Artifact{}}
 	for _, osName := range []string{"linux", "darwin", "windows"} {
 		for _, arch := range []string{"amd64", "arm64"} {
 			name := "eigenflux-" + osName + "-" + arch
@@ -58,20 +58,34 @@ func main() {
 			}
 			sum := sha256.Sum256(b)
 			m.Artifacts[name] = selfupdate.Artifact{SHA256: hex.EncodeToString(sum[:]), Size: int64(len(b))}
+			archive, err := os.ReadFile(filepath.Join(*dir, name+".zip"))
+			if err != nil {
+				log.Fatal(err)
+			}
+			if len(archive) == 0 || len(archive) > 256<<20 {
+				log.Fatal("missing or oversized CLI package: ", name)
+			}
+			packageSum := sha256.Sum256(archive)
+			m.Packages[name+".zip"] = selfupdate.Artifact{SHA256: hex.EncodeToString(packageSum[:]), Size: int64(len(archive))}
 		}
 	}
-	if err := selfupdate.Sign(&m, key); err != nil {
-		log.Fatal(err)
-	}
-	b, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		log.Fatal(err)
-	}
-	if _, err = selfupdate.Verify(b, key.Public().(ed25519.PublicKey)); err != nil {
-		log.Fatal(err)
-	}
-	if err = os.WriteFile(filepath.Join(*dir, "release.json"), b, 0644); err != nil {
-		log.Fatal(err)
+	for _, filename := range []string{"package-release.json", "release.json"} {
+		if filename == "release.json" {
+			m.Packages = nil
+		}
+		if err := selfupdate.Sign(&m, key); err != nil {
+			log.Fatal(err)
+		}
+		b, err := json.MarshalIndent(m, "", "  ")
+		if err != nil {
+			log.Fatal(err)
+		}
+		if _, err = selfupdate.Verify(b, key.Public().(ed25519.PublicKey)); err != nil {
+			log.Fatal(err)
+		}
+		if err = os.WriteFile(filepath.Join(*dir, filename), b, 0644); err != nil {
+			log.Fatal(err)
+		}
 	}
 }
 

@@ -41,6 +41,7 @@ func openClawMaintenancePlanAt(p pluginMaintenance, server string, now time.Time
 	}
 	p.Scope, p.LatestVersion, p.CheckedAt = saved.Scope, saved.LatestVersion, saved.CheckedAt
 	p.AttemptID = saved.AttemptID
+	p.RestartPendingVersion = saved.RestartPendingVersion
 	return p
 }
 
@@ -74,7 +75,7 @@ func cleanPluginUpdateEnvironment(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, value := range env {
 		skip := false
-		for _, key := range []string{updateReexecEnv, updateAttemptEnv, updateIdentityEnv, updateFromVersionEnv} {
+		for _, key := range []string{updateReexecEnv, updateAttemptEnv, updateIdentityEnv, updateFromVersionEnv, watchSupervisedEnv, watchAgentEnv, watchPrincipalEnv} {
 			if strings.HasPrefix(value, key+"=") {
 				skip = true
 				break
@@ -161,13 +162,14 @@ func runOpenClawUpdate(ctx context.Context) (pluginMaintenance, error) {
 			recorder.Finish(progress.Phase, progress.Result, progress.FromVersion, progress.TargetVersion, "", "")
 		}
 	}
-	r := pluginupdate.Update(ctx, pluginupdate.Options{OnProgress: recordProgress, LoadedVersion: meta.PluginVersion, Run: func(ctx context.Context, args ...string) ([]byte, error) {
+	r := pluginupdate.Update(ctx, pluginupdate.Options{OnProgress: recordProgress, Server: server, CLIVersion: version, RestartPendingVersion: saved.RestartPendingVersion, Run: func(ctx context.Context, args ...string) ([]byte, error) {
 		// Keep manager credentials in its own configuration; do not capture stderr in receipts.
 		cmd := exec.CommandContext(ctx, bin, args...)
 		return cmd.Output()
 	}})
 	p.Status, p.Scope, p.Error = r.Status, r.Scope, r.Error
 	p.InstalledVersion, p.LatestVersion, p.LoadedVersion = r.InstalledVersion, r.LatestVersion, r.LoadedVersion
+	p.RestartPendingVersion = r.RestartPendingVersion
 	p.CheckedAt = time.Now()
 	if fromVersion == "" {
 		fromVersion = r.InstalledVersion

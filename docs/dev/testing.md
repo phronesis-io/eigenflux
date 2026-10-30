@@ -23,6 +23,26 @@ Tests live beside the packages they exercise and in the service integration suit
 | `tests/installv2/` | Install ref through signed V2 provision, email binding, identity reuse, and transaction rollback | `go test -v ./tests/installv2/` |
 | `tests/replay/` | Offline replay service tests (sort simulation with custom params, inline profiles) | `go test -v ./tests/replay/` |
 
+## Local Agent dispatch
+
+Windows regressions close queue readers before atomic replacement and preserve
+Skills rollback journals when the recovery target is a file or symlink. Tests
+isolate both `HOME` and `USERPROFILE`; isolated PowerShell uninstall fixtures
+use process-local `-ExecutionPolicy Bypass`, without changing machine policy.
+Feed contract assertions account for the renderer's documented trimming.
+`TestCodexHiddenPMWindowsOwnerAndSilentReceipt` exercises an isolated named pipe
+and read-only child reader, including empty completed turns and rejection of
+visible input, commentary, missing items, failed turns and permission requests.
+
+From `cli/`, run `go test ./...` and
+`go test -race ./internal/dispatch ./cmd -run 'Test.*(Dispatch|Binding|Decision|Journal|Runner|ACP|Watch)'`.
+The dispatch tests use isolated Homes, signed Skills fixtures, local WebSocket
+and HTTP servers, and fake subprocess Agents. They cover socket/poll deduplication,
+fixed account routing, permission revocation, uncertain sends, crash recovery,
+and ACP session/permission/cancellation behavior without contacting real users
+or model providers. See [Local Agent Dispatch](agent-dispatch.md) for binding,
+Windows packaging, manual acceptance, and unsupported-host boundaries.
+
 ## Agent V2 authentication regressions
 
 Use an isolated PostgreSQL database for `PG_DSN`. Run
@@ -110,6 +130,13 @@ go test -tags=deployed ./tests/deployed -count=1 -v -timeout=10m
 The runner requires explicit endpoints, binaries, private control tokens, and
 test OTP settings. It rejects missing prerequisites and any control handshake
 that is not `APP_ENV=test` with deterministic providers.
+
+CLI preparation regressions run from `cli/` with
+`go test ./cmd -run 'TestCreateOrder(PreparationOrderPresence|UploadsLongTextAndResumesFinalizedPreparation|DoesNotFinalizeFailedUpload)'`.
+Both create and resume must upload and confirm material bytes before finalizing
+when the response has no Order, null, an empty object, or `order_id: 0`.
+Only a positive Order ID matching the preparation permits skipping uploads on
+a finalized retry; malformed, negative or mismatched IDs stop the command.
 
 ## Legacy authentication fixtures
 
@@ -269,6 +296,19 @@ download job, separate from the identity tests.
 Non-Windows hosts skip this suite. This is download integration coverage, not
 full host onboarding or Smart App Control acceptance; see [CLI release
 integrity](cli-release.md).
+
+## Skills and Feed queue OS locks
+
+See [`cli/internal/filelock/README.md`](../../cli/internal/filelock/README.md)
+for the shared Mac/Windows implementation and upgrade boundary. Skills sync,
+bundle install/uninstall and Feed enqueue/flush retain their lock files; file
+presence no longer indicates an active owner. Signed Skill reads probe ownership
+without creating or modifying a lock. Run the filelock, skills and feedevent
+packages with `-race`; verify forced child termination permits immediate reuse,
+old marker contents do not block an idle target, active owners remain exclusive,
+and retained idle locks do not disable signed dispatch. Keep atomic Skills
+recovery and preservation tests. Stop old CLI writers before adopting OS locks;
+normal Skills directory cleanup may still require WorkBuddy authorization.
 
 
 CLI feedback completion regressions run with `go test ./cmd ./internal/feedevent`

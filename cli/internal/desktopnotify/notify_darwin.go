@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode"
 
+	"cli.eigenflux.ai/internal/selfupdate"
 	"golang.org/x/sys/unix"
 )
 
@@ -45,6 +46,20 @@ type helperReceipt struct {
 	OK   bool   `json:"ok"`
 	Code string `json:"code"`
 	PID  int    `json:"pid"`
+}
+
+func (r helperReceipt) err() error {
+	if r.OK {
+		return nil
+	}
+	switch r.Code {
+	case "permission_required":
+		return ErrPermissionRequired
+	case "permission_denied":
+		return ErrPermission
+	default:
+		return fmt.Errorf("notification helper: %s", r.Code)
+	}
 }
 
 func requestHelper(ctx context.Context, app, action string, message Message) (helperReceipt, error) {
@@ -77,7 +92,7 @@ func requestHelper(ctx context.Context, app, action string, message Message) (he
 		case <-ctx.Done():
 			return helperReceipt{}, ctx.Err()
 		case <-deadline.C:
-			return helperReceipt{}, errors.New("notification helper timed out; check the system permission dialog")
+			return helperReceipt{}, fmt.Errorf("notification helper timed out; check the system permission dialog: %w", context.DeadlineExceeded)
 		case <-ticker.C:
 			result, err := os.ReadFile(path + ".result")
 			if os.IsNotExist(err) {
@@ -90,13 +105,7 @@ func requestHelper(ctx context.Context, app, action string, message Message) (he
 			if err := json.Unmarshal(result, &receipt); err != nil {
 				return helperReceipt{}, errors.New("invalid notification helper response")
 			}
-			if receipt.OK {
-				return receipt, nil
-			}
-			if receipt.Code == "permission_denied" || receipt.Code == "permission_required" {
-				return helperReceipt{}, ErrPermission
-			}
-			return helperReceipt{}, fmt.Errorf("notification helper: %s", receipt.Code)
+			return receipt, receipt.err()
 		}
 	}
 }
@@ -126,8 +135,19 @@ func installedHelper(ctx context.Context, install bool) (string, error) {
 	}
 	// The signed source bundle is retained verbatim. Never clear quarantine or
 	// modify Gatekeeper settings; downloaded production bundles need notarization.
-	if err := exec.CommandContext(ctx, "/usr/bin/codesign", "--verify", "--deep", "--strict", source).Run(); err != nil {
-		return "", fmt.Errorf("verify notification helper signature: %w", err)
+	if err := verifyHelperSignature(ctx, source); err != nil {
+		return "", err
+	}
+	keep, err := newerInstalledHelper(ctx, source, destination)
+	if err != nil {
+		return "", err
+	}
+	if keep {
+		digest, err := bundleDigest(destination)
+		if err != nil {
+			return "", err
+		}
+		return destination, recordBundleOwner(destination, digest)
 	}
 	want, err := bundleDigest(source)
 	if err != nil {
@@ -160,6 +180,60 @@ func installedHelper(ctx context.Context, install bool) (string, error) {
 		return "", err
 	}
 	return destination, recordBundleOwner(destination, want)
+}
+
+func verifyHelperSignature(ctx context.Context, app string) error {
+	if err := exec.CommandContext(ctx, "/usr/bin/codesign", "--verify", "--deep", "--strict", app).Run(); err != nil {
+		return fmt.Errorf("verify notification helper signature: %w", err)
+	}
+	return nil
+}
+
+// The installed bundle is shared by every account. This setup path must not
+// replace a newer signed helper, including from an unversioned source bundle.
+func newerInstalledHelper(ctx context.Context, source, destination string) (bool, error) {
+	installed, err := helperBundleVersion(ctx, destination)
+	if err != nil {
+		return false, err
+	}
+	if installed == "" {
+		return false, nil
+	}
+	incoming, err := helperBundleVersion(ctx, source)
+	if err != nil {
+		return false, err
+	}
+	if incoming != "" && selfupdate.Compare(installed, incoming) <= 0 {
+		return false, nil
+	}
+	if err := verifyHelperSignature(ctx, destination); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func helperBundleVersion(ctx context.Context, app string) (string, error) {
+	path := filepath.Join(app, "Contents", "Info.plist")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return "", nil
+	} else if err != nil {
+		return "", err
+	}
+	data, err := exec.CommandContext(ctx, "/usr/bin/plutil", "-convert", "json", "-o", "-", path).Output()
+	if err != nil {
+		return "", fmt.Errorf("read notification helper version: %w", err)
+	}
+	var fields map[string]interface{}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return "", err
+	}
+	version, _ := fields["CFBundleVersion"].(string)
+	// Legacy builds used CFBundleVersion=2 and a fixed short version. Neither
+	// that build counter nor the display version identifies a CLI release.
+	if !selfupdate.ValidVersion(version) {
+		return "", nil
+	}
+	return version, nil
 }
 
 func lockHelper(ctx context.Context, directory string, exclusive bool) (func(), error) {

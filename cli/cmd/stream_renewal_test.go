@@ -168,6 +168,10 @@ func TestStreamOnceAndLegacyConnectionsDoNotRotateCredentials(t *testing.T) {
 			var connections atomic.Int32
 			upgrader := websocket.Upgrader{}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if v2 && r.URL.Path == "/api/v2/notifications/pending" {
+					writeV2RecoveryData(w, map[string]any{"notifications": []any{}, "has_more": false})
+					return
+				}
 				wantPath := "/ws/pm"
 				if v2 {
 					wantPath = "/api/v2/agent/events/ws"

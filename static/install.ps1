@@ -127,6 +127,7 @@ function Install-Cli {
         try { $currentVersion = (& eigenflux version --short 2>$null).Trim() } catch {}
         if ($currentVersion -eq $script:latestVersion) {
             $script:installedCliPath = $eigenfluxCmd.Source
+            $script:installDir = Split-Path -Parent $script:installedCliPath
             Ok "eigenflux ${currentVersion} is already up to date."
             return
         }
@@ -153,6 +154,7 @@ function Install-Cli {
         Info "D: drive not found; installing to ${fallbackDir}"
     }
     $installPath = Join-Path $script:installDir "eigenflux.exe"
+    $script:installedCliPath = $installPath
 
     Info "Downloading ${downloadUrl}..."
     Download-WithRetry -Url $downloadUrl -Destination $installPath -Sha256Url $sha256Url -CliInstallation
@@ -309,7 +311,7 @@ function Setup-Agents {
         $pluginChanged = $true
     }
 
-    if ($pluginChanged) {
+    if ($pluginChanged -and $env:EIGENFLUX_ALLOW_HOST_RESTART -eq "1") {
         Info "Restarting OpenClaw gateway..."
         try {
             & openclaw gateway restart 2>$null
@@ -318,6 +320,19 @@ function Setup-Agents {
             Info "OpenClaw gateway restart failed; run 'openclaw gateway restart' manually"
         }
     }
+}
+
+function Setup-Notifications {
+    $cli = $script:installedCliPath
+    $homeDir = Resolve-EigenfluxHome -ExplicitHome $ExplicitEigenfluxHome -InvokingHost (Get-InvokingHost)
+    Info "Registering Windows notifications without sending a test. Windows does not display an Allow permission dialog."
+    & $cli --homedir $homeDir notify setup --source installer
+    if ($LASTEXITCODE -ne 0) {
+        throw "CLI is installed, but notification setup failed. Retry: & '$cli' --homedir '$homeDir' notify setup. If disabled, check Settings > System > Notifications."
+    }
+    & $cli --homedir $homeDir notify status
+    if ($LASTEXITCODE -ne 0) { throw "CLI is installed, but notification status is not ready. Run notify status to inspect the error." }
+    Ok "Windows notification registration is complete. Before the first real notification, status may be registered with an unknown OS setting. Use notify log for local observations."
 }
 
 # ── Main ──────────────────────────────────────────────────────
@@ -330,6 +345,13 @@ $recordBin = $script:installedCliPath
 $recordHost = Get-InvokingHost
 & $recordBin --homedir $env:EIGENFLUX_HOME installation record "--host=$recordHost" "--skills-target=$($script:installedSkillsTarget)" | Out-Null
 if ($LASTEXITCODE -ne 0) { Info "Installation registration unavailable; record it with the new CLI before uninstalling." }
+Setup-Notifications
+$watchHome = Resolve-EigenfluxHome -ExplicitHome $ExplicitEigenfluxHome -InvokingHost (Get-InvokingHost)
+Info "Starting the current user's order notification watch."
+& $script:installedCliPath --homedir $watchHome watch start
+if ($LASTEXITCODE -ne 0) { throw "CLI is installed, but order notifications are not running. Retry: & '$($script:installedCliPath)' --homedir '$watchHome' watch start" }
+Info "pending_auth requires watch start after authentication; host_managed requires verifying the existing host watch. process_started still requires notifications_ready in the watch log."
+Info "Updated plugin files may require a host restart after current work finishes."
 
 Ok ""
 if ([Console]::IsOutputRedirected) {

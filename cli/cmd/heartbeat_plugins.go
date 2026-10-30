@@ -4,31 +4,29 @@ import (
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/output"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/spf13/cobra"
-	"io"
 	"os"
 	"path/filepath"
 	"time"
 )
 
 type pluginMaintenance struct {
-	Executor         string    `json:"executor,omitempty"`
-	AttemptID        string    `json:"attempt_id,omitempty"`
-	Host             string    `json:"host"`
-	PluginID         string    `json:"plugin_id"`
-	Scope            string    `json:"scope,omitempty"`
-	Context          string    `json:"context,omitempty"`
-	Due              bool      `json:"due"`
-	Status           string    `json:"status"`
-	InstalledVersion string    `json:"installed_version,omitempty"`
-	LatestVersion    string    `json:"latest_version,omitempty"`
-	LoadedVersion    string    `json:"loaded_version,omitempty"`
-	Error            string    `json:"error,omitempty"`
-	CheckedAt        time.Time `json:"checked_at,omitempty"`
+	Executor              string    `json:"executor,omitempty"`
+	AttemptID             string    `json:"attempt_id,omitempty"`
+	Host                  string    `json:"host"`
+	PluginID              string    `json:"plugin_id"`
+	Scope                 string    `json:"scope,omitempty"`
+	Context               string    `json:"context,omitempty"`
+	Due                   bool      `json:"due"`
+	Status                string    `json:"status"`
+	InstalledVersion      string    `json:"installed_version,omitempty"`
+	LatestVersion         string    `json:"latest_version,omitempty"`
+	LoadedVersion         string    `json:"loaded_version,omitempty"`
+	RestartPendingVersion string    `json:"restart_pending_version,omitempty"`
+	Error                 string    `json:"error,omitempty"`
+	CheckedAt             time.Time `json:"checked_at,omitempty"`
 }
 
 func heartbeatPluginID(host string) string {
@@ -180,28 +178,4 @@ func pluginDiscoveryTime(p pluginMaintenance, now time.Time) time.Time {
 		}
 	}
 	return now
-}
-
-func maintenancePath(name string) string {
-	return maintenancePathForServer(name, activeServerName())
-}
-
-func maintenancePathForServer(name, serverName string) string {
-	server := sha256.Sum256([]byte(serverName))
-	return filepath.Join(config.HomeDir(), "maintenance", hex.EncodeToString(server[:8])+"-"+name+".json")
-}
-
-func readMaintenanceInput(cmd *cobra.Command, target interface{}) error {
-	ok, _ := cmd.Flags().GetBool("stdin")
-	if !ok {
-		return fmt.Errorf("--stdin is required")
-	}
-	b, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), 2<<20))
-	if err != nil {
-		return err
-	}
-	if len(b) >= 2<<20 {
-		return fmt.Errorf("plugin receipt input too large")
-	}
-	return json.Unmarshal(b, target)
 }

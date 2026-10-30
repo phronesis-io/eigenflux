@@ -109,8 +109,15 @@ func TestCLIUpdatePolicyTimeoutKeepsLastReceivedPolicy(t *testing.T) {
 		t.Fatalf("cache setup: enabled=%t err=%v", enabled, err)
 	}
 	stalled.Store(true)
-	if enabled, err := refreshCLIUpdatePolicy(cfg, server); enabled || err == nil || !strings.Contains(err.Error(), "Client.Timeout") {
+	enabled, err := refreshCLIUpdatePolicy(cfg, server)
+	if enabled || err == nil || !strings.Contains(err.Error(), "Client.Timeout") {
 		t.Fatalf("policy timeout ignored: enabled=%t err=%v", enabled, err)
+	}
+	recorder := newMaintenanceRecorder(server, "cli", "auto", "", nil)
+	recorder.PolicyFailure(err, "1.0.0")
+	state, readErr := maintenance.Snapshot(recorder.scope)
+	if readErr != nil || state.Attempts["cli"].ErrorCode != "update_policy_request_timeout" {
+		t.Fatalf("timeout not classified: %+v %v", state, readErr)
 	}
 }
 
@@ -198,5 +205,52 @@ func TestSettingsSyncCannotMirrorCLIUpdatePolicyIntoKV(t *testing.T) {
 	}
 	if cfg.GetKV("auto_cli_update") != "" {
 		t.Fatal("remote policy entered mutable config KV")
+	}
+}
+
+func TestPolicyFailureCategoriesAreQueuedAndUploaded(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, code string
+		status           int
+	}{
+		{"onboarding", `{"code":409,"error_code":"ONBOARDING_REQUIRED","msg":"private detail"}`, "update_policy_request_onboarding_required", 409},
+		{"unauthorized", `{"code":401,"error_code":"AGENT_AUTH_REQUIRED"}`, "update_policy_request_authentication_required", 401},
+		{"unavailable", `unavailable`, "update_policy_request_http_503", 503},
+		{"malformed", `{"code":0,"data":{"auto_cli_update":"yes"}}`, "update_policy_decode_failed", 200},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var received []maintenance.Event
+			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/v2/maintenance/events:batch" {
+					var batch struct {
+						Events []maintenance.Event `json:"events"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&batch); err != nil {
+						t.Error(err)
+					}
+					received = batch.Events
+					_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+					return
+				}
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer api.Close()
+			cfg, server := runtimeTestConfig(t, api.URL, true)
+			enabled, err := refreshCLIUpdatePolicy(cfg, server)
+			if !enabled || err == nil {
+				t.Fatalf("failure changed default: %t %v", enabled, err)
+			}
+			recorder := newMaintenanceRecorder(server, "cli", "auto", "", nil)
+			recorder.PolicyFailure(err, "1.0.0")
+			recorder.Flush()
+			if len(received) != 1 || received[0].ErrorCode != tc.code || received[0].Result != "waiting_online" {
+				t.Fatalf("missing uploaded failure: %+v", received)
+			}
+			encoded, _ := json.Marshal(received)
+			if strings.Contains(string(encoded), "private detail") || strings.Contains(string(encoded), api.URL) {
+				t.Fatal("raw diagnostic was uploaded")
+			}
+		})
 	}
 }

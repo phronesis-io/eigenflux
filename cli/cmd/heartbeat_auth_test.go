@@ -163,6 +163,8 @@ func TestHeartbeatStopsAfterOneCredentialFailure(t *testing.T) {
 
 func serveHeartbeatTestManifest(t *testing.T, dir string) *atomic.Int32 {
 	t.Helper()
+	// These authentication cases verify public synchronization before the
+	// credential boundary; the shared runtime fixture disables it by default.
 	cfg, err := config.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -229,7 +231,7 @@ func TestHeartbeatCompatibilityAuthenticationFailureStopsPlan(t *testing.T) {
 					if tc.status == 401 || tc.code == "AGENT_AUTH_UNAVAILABLE" {
 						t.Error("authentication failure did not stop maintenance upload")
 					}
-					_, _ = w.Write([]byte(`{"data":{}}`))
+					writeV2RecoveryData(w, map[string]any{})
 				default:
 					t.Errorf("unexpected request: %s", r.URL.Path)
 				}
@@ -301,7 +303,7 @@ func TestHeartbeatMetadataServiceFailureDoesNotBlockAuthenticatedPlan(t *testing
 	settings, context := 0, 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v2/maintenance/events:batch" {
-			_, _ = w.Write([]byte(`{"data":{}}`))
+			writeV2RecoveryData(w, map[string]any{})
 			return
 		}
 		if r.URL.Path == "/api/v2/agents/me/settings" {
