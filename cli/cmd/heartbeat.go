@@ -475,7 +475,7 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 		receiptText += "\nCodex main session binding: " + string(b) + ". Ordinary heartbeat and PM execution cannot select a replacement thread.\n"
 		if slices.Contains(plan.ExecutionOrder, "main_session_bootstrap") {
 			if plan.MainSessionBinding.ExpectedRevision == "" {
-				receiptText += "\nNo watch binding exists. Create the initial native Codex configuration with the current account identity, absolute executable, work directory and signed Skills directory; include pm_push and commission_order. Use --config only for initial creation and the verified scheduler preflight/readback procedure. Do not guess a conversation or create a replacement conversation.\n"
+				receiptText += "\nNo watch binding exists. Create the initial native Codex configuration with the current account identity, absolute executable, work directory and signed Skills directory; include pm_push and commission_order. Use --config only for initial creation and the verified scheduler preflight/readback procedure. After committing the binding, run watch recover with the exact CLI prefix and require dispatch mode, ready status and main-conversation readiness. Do not guess a conversation or create a replacement conversation.\n"
 			}
 			receiptText += "Execute main_session_bootstrap automatically before business stages using the listed ef-communication/references/main-session.md. Complete the existing preflight, guarded binding update and watch recovery without asking the owner to enable binding. Preserve existing targets; ask only when the verified heartbeat target is missing or ambiguous.\n"
 		} else if plan.MainSessionBinding.Status == "unavailable" {

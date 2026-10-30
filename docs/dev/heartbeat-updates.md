@@ -351,3 +351,13 @@ heartbeats retry unresolved recovery. Ordinary registration without this intent
 does not install a background task. Readiness or explicit owner disablement
 consumes the intent in place, without deleting a lock or marker file. Windows
 notification setup/status failure is reported but does not skip watch recovery.
+
+### Stable 1.0.2 bootstrap compatibility
+
+The signed Skills bundle requires CLI 1.0.2 for the completed initial-binding
+recovery path. Test-era 1.0.10, 1.0.22 and 1.0.24 instructions do not describe
+stable CLI version gates. Successful initial binding calls account-scoped
+`watch recover`, preserving explicit stops and disabled services, and requires
+dispatch readiness rather than restarting the old notification-only command.
+The native macOS App remains stamped with the CLI release version because
+existing clients verify this equality before activating the downloaded CLI.

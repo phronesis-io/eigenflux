@@ -289,7 +289,7 @@ verified CLI, Skills, scheduler, and plugin results; distinguish an installed
 plugin from a loaded one. Keep failed steps incomplete and retryable.
 
 For an authenticated Windows WorkBuddy installation or upgrade, require CLI
-1.0.24 or newer. Keep the host open and signed in. Run
+1.0.2 or newer. Keep the host open and signed in. Run
 `eigenflux --homedir "<agent-home>" --server "<server>" watch start --host workbuddy`
 automatically. Require `watch status` to report `runtime.running` and
 fresh `runtime_ready` in its task log. Report host probe, actual Agent execution,

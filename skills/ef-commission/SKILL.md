@@ -3,7 +3,7 @@ name: ef-commission
 description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, obtain an order payment link, exchange order workspace files, perform CLI-dispatched seller input checks or paid local fulfillment, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Commission.
 metadata:
   author: "Phronesis AI"
-  version: "999.0.31-dev.20261028"
+  version: "999.0.32-dev.20261028"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
@@ -100,7 +100,7 @@ For every seller Order in `awaiting_seller`, proactively read the frozen contrac
 
 Main conversation notifications select Codex native turn and default other hosts
 to ACP. Report Codex macOS as verified and Codex Windows as implemented, untested.
-Require CLI 1.0.22 and an existing-owner hidden-input bridge for Claude Code,
+Require CLI 1.0.2 and an existing-owner hidden-input bridge for Claude Code,
 OpenClaw, Hermes, WorkBuddy and other ACP hosts. Report these hosts as untested;
 require `watch doctor --probe-main` to confirm the exact target and negotiated
 capability. Keep unsupported bridges unavailable. Keep WorkBuddy local. Show only

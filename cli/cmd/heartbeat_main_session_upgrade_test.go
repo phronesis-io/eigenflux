@@ -37,7 +37,7 @@ func upgradeHeartbeatFixture(t *testing.T, baseline bool) (dispatch.Binding, str
 	}
 	clientMeta.Host, clientMeta.Mode = "codex", "skill"
 	rules := installHeartbeatTestRules(t)
-	version = "1.0.10"
+	version = "1.0.2"
 	cred, err := auth.LoadV2Credentials(name)
 	if err != nil {
 		t.Fatal(err)

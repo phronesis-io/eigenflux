@@ -68,7 +68,7 @@ Tests simulate launchctl and use an in-memory Windows scheduler. Native
 acceptance must check loaded, unloaded, immediate-exit and wrapper/source failure
 cases on each OS. Never operate on real account tasks in automated tests.
 
-## Windows WorkBuddy automatic setup (CLI 1.0.24)
+## Windows WorkBuddy automatic setup (CLI 1.0.2)
 
 `watch start --host workbuddy` probes the signed-in host before changing its
 account binding. It creates no model prompt during discovery. Signed Skills

@@ -123,7 +123,7 @@ in this state. Known disabled settings remain failures. Only explicit
 notification ID, and fixed failure codes/stages/HRESULTs. It never records text,
 URLs, credentials, or a claim that the user saw a banner. CLI commands and watch
 persist at most 256 local observations for seven days per Home/server under
-`notifications/`; `notify log` reads them. From CLI 1.0.10, observations enter the
+`notifications/`; `notify log` reads them. From CLI 1.0.2, observations enter the
 authenticated maintenance queue and upload with bounded retries. Installer,
 watch, manual, and explicit test sources remain distinct. Only pre-authentication
 setup may bind to the first authenticated account; recorded account-bound

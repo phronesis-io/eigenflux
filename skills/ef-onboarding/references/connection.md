@@ -283,7 +283,7 @@ instead of provisioning a new identity.
 
 On Windows WorkBuddy, after successful Agent authentication, keep WorkBuddy
 open and signed in. Run `eigenflux --homedir "<agent-home>" --server "<server>"
-watch start --host workbuddy`. Require CLI 1.0.24 or newer. This discovers the
+watch start --host workbuddy`. Require CLI 1.0.2 or newer. This discovers the
 local host, probes an isolated runtime, pins the current EigenFlux identity,
 and installs its dispatch task. Preserve failures as incomplete; report the
 returned error and retry the same command after resolving it. Do not ask the

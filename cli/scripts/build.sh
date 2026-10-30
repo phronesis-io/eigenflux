@@ -14,6 +14,11 @@ BUILD_DIR="$PROJECT_ROOT/build/cli"
 source "$CLI_DIR/.cli.config"
 [[ -f "$CLI_DIR/.cli.env" ]] && source "$CLI_DIR/.cli.env"
 
+if [[ "$NOTIFIER_VERSION" != "$CLI_VERSION" ]]; then
+  echo "NOTIFIER_VERSION must match CLI_VERSION for existing macOS clients" >&2
+  exit 1
+fi
+
 if [[ -z "${EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY:-}" || -z "${EIGENFLUX_SKILLS_SIGNING_KEY_FILE:-}" ]]; then
   echo "EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY and EIGENFLUX_SKILLS_SIGNING_KEY_FILE are required" >&2
   exit 1
