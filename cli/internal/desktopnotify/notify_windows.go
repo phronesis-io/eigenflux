@@ -22,6 +22,9 @@ var windowsScript string
 var windowsIconPNG []byte
 
 func platformRequest(ctx context.Context, action string, message Message) error {
+	if action == "prepare" {
+		action = "enable"
+	} // Registration is silent on Windows.
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	executable, err := os.Executable()

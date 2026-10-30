@@ -47,7 +47,7 @@ func (n *Notifier) request(ctx context.Context, action string, message Message) 
 }
 
 func observeResult(action string, message Message, err error, start time.Time) Observation {
-	a := map[string]string{"enable": "setup", "check": "status", "show": "send"}[action]
+	a := map[string]string{"enable": "setup", "prepare": "setup", "check": "status", "show": "send"}[action]
 	e := Observation{At: time.Now().UTC(), Platform: runtime.GOOS, Action: a, Result: "ready", Visibility: "unknown", DurationMS: time.Since(start).Milliseconds()}
 	if action == "show" {
 		e.Result = "submitted"

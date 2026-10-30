@@ -20,12 +20,13 @@ import (
 )
 
 type updateWatchRecovery struct {
-	Status            string `json:"status"`
-	Mode              string `json:"mode,omitempty"`
-	Reason            string `json:"reason,omitempty"`
-	RuntimeReady      bool   `json:"runtime_ready"`
-	AgentCallVerified bool   `json:"agent_call_verified"`
-	DesktopStatus     string `json:"desktop_status,omitempty"`
+	Status            string                     `json:"status"`
+	Mode              string                     `json:"mode,omitempty"`
+	Reason            string                     `json:"reason,omitempty"`
+	RuntimeReady      bool                       `json:"runtime_ready"`
+	AgentCallVerified bool                       `json:"agent_call_verified"`
+	DesktopStatus     string                     `json:"desktop_status,omitempty"`
+	Notifications     *upgradeNotificationStatus `json:"notifications,omitempty"`
 }
 
 type updateRecoveryDeps struct {
@@ -256,11 +257,14 @@ func reportUpdateWatchRecovery(cmd *cobra.Command, cfg *config.Config, manual bo
 
 func init() {
 	watchCmd.AddCommand(&cobra.Command{Use: "recover", Short: "Restore this account's watch after a CLI upgrade, preserving its binding and disabled tasks", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
+		notifications := upgradeNotifications(cmd, true)
+		cfg, configErr := config.Load()
 		r := recoverWatchAfterUpdate(cmd, cfg, true)
+		if configErr != nil && !errors.Is(configErr, os.ErrNotExist) {
+			r.Status = "blocked"
+			r.Reason = "configuration_unreadable"
+		}
+		r.Notifications = &notifications
 		if err := json.NewEncoder(cmd.OutOrStdout()).Encode(r); err != nil {
 			return err
 		}

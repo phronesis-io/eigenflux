@@ -305,3 +305,19 @@ permission and Agent-call verification remain separate fields. Network, rules,
 identity or task failures report a bounded reason and are retryable through
 `watch recover` or a later automatic maintenance entry. Never reset trust keys,
 ignore signatures, or remove user-edited Skills to make recovery succeed.
+
+### Notification initialization is independent of watch recovery
+
+Explicit `update` completion and `watch recover` run the notification Setup
+implementation before account, binding, Skills or watch recovery. This also runs
+when the CLI is already current and does not require authentication. The macOS
+shell installer calls `notify setup --source installer`; the Windows installer
+retains its existing setup step. Initialization never sends a test notification.
+
+Automatic authenticated maintenance uses Check, and repairs a missing native
+integration with Prepare. Prepare installs the signed macOS helper but performs
+only a permission check; it never requests macOS authorization. Windows registration
+is silent. Permission-required, denied, setup timeout and unknown-first-notification
+states are reported independently in `notifications`, with no visibility claim.
+CLI installation success is not notification or watch success. The existing
+`EIGENFLUX_SKIP_AGENT_SETUP=1` opt-out also skips notification initialization.

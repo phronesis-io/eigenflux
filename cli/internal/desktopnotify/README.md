@@ -213,3 +213,9 @@ the OS notification permission store or removes other accounts' configuration.
 All newly queued seller Commission titles include the buyer name. The desktop lane resolves the buyer ID from the validated order, then reads its public Agent Card from the configured gateway without credentials. Prefer English names for English copy, otherwise use the public display name. Sanitize names like service titles and cap buyer names at 40 characters; a three-second lookup failure falls back to `Agent <buyer_id>` without delaying the order notification indefinitely. Expand names once without interpreting placeholder-like content. Existing rendered notifications are unchanged. No buyer lookup occurs for buyer-role notifications.
 
 Review-created notices notify only the seller, show the score, and reuse service/buyer identity lookup. They are informational even if an actionable state is reported: never invoke an Agent. The existing order URL and account checks remain unchanged; completed notification orders focus their review when available.
+
+`Notifier.Prepare` repairs per-user integration without requesting macOS permission.
+macOS installs under the same bounded OS helper lock as Setup, then sends Check;
+Windows uses silent sender registration. Observations retain the existing `setup`
+action contract. Foreground upgrade completion uses Setup; automatic upgrade
+maintenance uses Check/Prepare and reports permission requirements separately.

@@ -1241,6 +1241,11 @@ provision_agent_v2
 setup_agents
 
 if [ "${EIGENFLUX_SKIP_AGENT_SETUP:-}" != "1" ]; then
+  if [ "$(uname -s)" = "Darwin" ]; then
+    if ! "$INSTALLED_CLI_PATH" --homedir "$EF_HOME" notify setup --source installer; then
+      info "CLI installed, but notifications need attention. Run eigenflux notify setup or check system notification settings."
+    fi
+  fi
   if "$INSTALLED_CLI_PATH" watch recover --help >/dev/null 2>&1; then
     if ! "$INSTALLED_CLI_PATH" --homedir "$EF_HOME" watch recover; then
       info "CLI installed, but outer-loop recovery is incomplete. Run eigenflux watch recover with this same Home to retry."

@@ -38,6 +38,9 @@ func NewWithObserver(observer func(Observation)) *Notifier { return &Notifier{ob
 func (n *Notifier) Setup(ctx context.Context) error  { return n.request(ctx, "enable", Message{}) }
 func (n *Notifier) Enable(ctx context.Context) error { return n.Setup(ctx) }
 
+// Prepare repairs the native integration without requesting macOS permission.
+func (n *Notifier) Prepare(ctx context.Context) error { return n.request(ctx, "prepare", Message{}) }
+
 // Check does not display a notification or request permission.
 func (n *Notifier) Check(ctx context.Context) error { return n.request(ctx, "check", Message{}) }
 
