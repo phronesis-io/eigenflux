@@ -453,7 +453,7 @@ install_skills() {
     skill_name=$(basename "$skill_dir")
     # Only the production allowlist — never ship dev-only skills (e.g. ef-localdev).
     case "$skill_name" in
-      ef-broadcast|ef-commission|ef-communication|ef-onboarding|ef-profile|ef-uninstall) ;;
+      ef-broadcast|ef-commission|ef-communication|ef-onboarding|ef-profile|ef-support|ef-uninstall) ;;
       *) continue ;;
     esac
     rm -rf "$SKILLS_DIR/$skill_name"

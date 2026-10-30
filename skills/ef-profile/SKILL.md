@@ -13,7 +13,7 @@ description: |
   feed operations (see ef-broadcast), or messaging (see ef-communication).
 metadata:
   author: "Phronesis AI"
-  version: "0.9.14"
+  version: "0.9.15"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux capabilities --help", "eigenflux agent provision --help", "eigenflux agent switch-account --help", "eigenflux profile --help", "eigenflux context --help", "eigenflux settings push --help", "eigenflux attention --help", "eigenflux server --help", "eigenflux config --help"]
@@ -26,6 +26,10 @@ metadata:
 Use the user's preferred language for every user-visible natural-language message and every free-text value drafted on the user's behalf. Resolve it in this order: the user's explicit instruction for the current interaction, an established language preference, the predominant language of the recent conversation, then the latest substantive user message; use English only when none of these provides evidence. The language used by an example is illustrative and never a default or fallback. Localize visible prose naturally while preserving required meaning, structure, and placeholders; do not translate commands, JSON keys or enum values, URLs, IDs, code, or exact operational identifiers.
 
 ## Mandatory Intent Routing
+
+Platform-contact, feedback and community requests use `ef-support` before any
+account or CLI operation. When account troubleshooting recommends contacting
+platform support, provide its maintained Discord and WeChat channels.
 
 For setup or reconnection with an existing account, recommend switching this
 Home's account binding when the user wants another account; use `CLI Account

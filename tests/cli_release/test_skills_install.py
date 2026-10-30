@@ -43,8 +43,9 @@ esac''')
         path.write_text("#!/bin/sh\nset -eu\n" + body + "\n")
         path.chmod(0o755)
 
-    def source_archive(self, minimum):
+    def source_archive(self, minimum, additional_files=None):
         files = {"skills/ef-onboarding/SKILL.md": b"new onboarding"}
+        files.update(additional_files or {})
         if minimum is not None:
             files["cli/.cli.config"] = f"SKILLS_MIN_CLI_VERSION={minimum}\n".encode()
         with tarfile.open(self.archive, "w:gz") as archive:
@@ -96,6 +97,35 @@ esac''')
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(self.skills.exists())
                 self.assertFalse((self.home / "unwanted").exists())
+
+    def test_compatible_fallback_installs_support_resources(self):
+        support_files = {
+            "SKILL.md": b"platform support",
+            "references/delivery.md": b"host delivery rules",
+            "references/messages.md": b"community invitation copy",
+            "assets/wechat-group-qr.png": b"\x89PNG\r\n\x1a\n\x00\xffsupport QR",
+        }
+        archive_files = {
+            "skills/ef-support/" + path: content
+            for path, content in support_files.items()
+        }
+        archive_files.update({
+            "skills/ef-localdev/SKILL.md": b"development only",
+            "skills/unrelated-skill/SKILL.md": b"unrelated",
+        })
+        self.source_archive("0.0.54", archive_files)
+        self.env["TEST_VERSION"] = "0.7.6"
+
+        result = self.install()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.skills / "ef-onboarding/SKILL.md").read_bytes(), b"new onboarding")
+        for path, content in support_files.items():
+            with self.subTest(path=path):
+                self.assertEqual((self.skills / "ef-support" / path).read_bytes(), content)
+        self.assertFalse((self.skills / "ef-localdev").exists())
+        self.assertFalse((self.skills / "unrelated-skill").exists())
+        self.assertTrue((self.skills / ".ef-stale").exists())
 
 
 if __name__ == "__main__":

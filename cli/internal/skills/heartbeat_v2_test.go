@@ -40,7 +40,7 @@ func TestRepositoryProductionSkillsIncludeOnboardingButNotInstallEntry(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"ef-broadcast", "ef-commission", "ef-communication", "ef-onboarding", "ef-profile", "ef-uninstall"}
+	want := []string{"ef-broadcast", "ef-commission", "ef-communication", "ef-onboarding", "ef-profile", "ef-support", "ef-uninstall"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("repository production Skills = %v, want %v", got, want)
 	}
@@ -59,6 +59,19 @@ func TestRepositoryProductionSkillsIncludeOnboardingButNotInstallEntry(t *testin
 	for _, name := range want {
 		if _, err := os.Stat(filepath.Join(destination, name, "SKILL.md")); err != nil {
 			t.Errorf("installed bundle is missing %s: %v", name, err)
+		}
+	}
+	for _, relative := range []string{"ef-onboarding/references/community.md", "ef-support/references/delivery.md", "ef-support/references/messages.md", "ef-support/assets/wechat-group-qr.png"} {
+		original, err := os.ReadFile(filepath.Join(repoRoot, "skills", relative))
+		if err != nil {
+			t.Fatal(err)
+		}
+		installed, err := os.ReadFile(filepath.Join(destination, relative))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(original) != string(installed) {
+			t.Errorf("installed support resource differs: %s", relative)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(destination, "install.md")); !os.IsNotExist(err) {

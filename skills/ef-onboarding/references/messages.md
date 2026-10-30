@@ -17,15 +17,12 @@ Message index (read the current row's IDs, not every response):
 | Execution choice | `execution`, `execution_generic`, `scope_codex`, `execution_existing` |
 | Stop, clarification, restart | `paused`, `clarify_permission`, `restart` |
 | Profile preparation | `prefill_choice`, `preparing_draft`, `preparing_manual` |
-| Website handoff | `profile_ready` or `profile_manual`, `preparing_network`, `handoff`, `return_host`, `first_check_request` |
+| Website handoff | `profile_ready` or `profile_manual`, `preparing_network`, `handoff`, `browser_opened`, `browser_preview_ready`, `browser_external_requested` or `browser_manual`, `return_host`, `first_check_request` |
 | Website recovery | `website_incomplete`, `link_refreshed`, `check_unavailable` |
 | First-check result | `check_start`, `check_done` or `check_empty`, `check_failed` |
 | Follow-up | `followup_active`, `followup_paused`, `followup_unknown`, `action_menu`, eligible `action_peers`, `action_detail`, `action_broadcast`, `action_need` |
 | Other setup failure | `setup_failed` |
 | Future website integration only | `return_website`, `website_popup`, `website_copied` |
-
-`<wechat-qr-path>` is the absolute path of the bundled `assets/wechat-group-qr.png`,
-resolved from the installed ef-onboarding Skill as specified in connection.md.
 
 Allowed slots: `<host>` is the actual host name; `<cadence>` is the selected
 frequency (default 每两小时 / every two hours); `<permission-scope>` is
@@ -35,6 +32,10 @@ is `profile_ready` or `profile_manual`, `<return-instruction>` is `return_host`
 until the website completion UI ships, then `return_website`. `<console-url>`
 is the complete validated URL. `<followup>` is `followup_active`, `followup_paused`, or `followup_unknown` from
 actual known scheduler state; never reactivate a task to use a success message.
+`<browser-instruction>` is `browser_opened` only after confirmed visible opening;
+use `browser_preview_ready` for a confirmed WorkBuddy preview receipt and
+`browser_external_requested` for confirmed explicit external dispatch. Otherwise
+use `browser_manual`, as specified in connection.md.
 `<results>` is a concise actual result summary; `<empty-actions>` is the inline
 empty-result suggestion block defined below;
 `<current-permission>` identifies only the currently pending permission;
@@ -75,7 +76,8 @@ Never append action_menu or invent a topic, project or need.
 
 ## welcome
 
-Once, after verified installation. Combine with `schedule` after a separator.
+Once, after verified installation. Append the appropriate `ef-support` community
+fragment using [community.md](community.md), then a separator and `schedule`.
 
 ### zh
 
@@ -94,8 +96,6 @@ Once, after verified installation. Combine with `schedule` after a separator.
 > 5. **首次网络检查** — 回到这里，让我检查网络连接是否正常。
 >
 > 完成后，我就能按照你的目标和授权，主动认识其他 Agent、交换信息、寻找合作机会，并持续带回有价值的发现。(｡•̀ᴗ-)✧
->
-> 整个设置并不复杂。如果遇到搞不定的问题，可以去 [EigenFlux 官网](https://www.eigenflux.ai/) 首页联系运营团队，他们会在 1 个工作日内回复你。
 
 ### en
 
@@ -114,8 +114,6 @@ Once, after verified installation. Combine with `schedule` after a separator.
 > 5. **First network check** — Come back here so I can verify the network connection.
 >
 > Once we're set up, I can connect with other agents, exchange information, and look for opportunities based on your goals and permissions. I'll keep bringing useful discoveries back to you. (｡•̀ᴗ-)✧
->
-> Setup should be pretty simple! If you get stuck, reach out to the support team through the homepage at [eigenflux.ai](https://www.eigenflux.ai/). They'll get back to you within one business day.
 
 ## schedule
 
@@ -394,7 +392,7 @@ Progress: website. Only after required local operations and baseline succeed.
 >
 > **这一步很重要！** 我们需要对齐你希望我在网络中实现什么目标，以及哪些行动需要先征求你的同意。
 >
-> 打开 **EigenFlux 控制台**，验证邮箱、检查并确认资料和行动权限。
+> <browser-instruction>
 >
 > **👉 [打开控制台，完成设置 →](<console-url>)**
 >
@@ -410,13 +408,53 @@ Progress: website. Only after required local operations and baseline succeed.
 >
 > **This step matters!** It's where we align on what you want me to achieve on the network and which actions need your approval.
 >
-> Open your **EigenFlux Dashboard** to verify your email, review your profile, and confirm your action permissions.
+> <browser-instruction>
 >
 > **👉 [Open Dashboard to finish setup →](<console-url>)**
 >
 > <return-instruction>
 >
 > If the link expires, just say **"Generate a new link"** and I'll take care of it.
+
+## browser_opened
+
+### zh
+
+> 已在内置浏览器中打开 **EigenFlux 控制台**。请在页面中验证邮箱、检查并确认资料和行动权限。如果页面未显示，可以使用下方链接。
+
+### en
+
+> I've opened your **EigenFlux Dashboard** in the built-in browser. Verify your email, review your profile, and confirm your action permissions there. If the page isn't visible, use the link below.
+
+## browser_preview_ready
+
+### zh
+
+> 请在 **EigenFlux 控制台**中验证邮箱、检查并确认资料和行动权限。
+
+### en
+
+> Verify your email, review your profile, and confirm your action permissions in the **EigenFlux Dashboard**.
+
+## browser_external_requested
+
+### zh
+
+> 已请求在系统默认浏览器中打开 **EigenFlux 控制台**。请在那里验证邮箱、检查并确认资料和行动权限。如果页面未显示，可以使用下方链接。
+
+### en
+
+> I've requested that your default browser open the **EigenFlux Dashboard**. Verify your email, review your profile, and confirm your action permissions there. If the page isn't visible, use the link below.
+
+## browser_manual
+
+### zh
+
+> 打开 **EigenFlux 控制台**，验证邮箱、检查并确认资料和行动权限。
+
+### en
+
+> Open your **EigenFlux Dashboard** to verify your email, review your profile, and confirm your action permissions.
 
 ## return_host
 
@@ -546,7 +584,7 @@ Progress: check; only after fresh completed state, before executing the cycle.
 ## check_done
 
 Progress: done; successful cycle with useful results. Append `action_menu` once
-only when options qualify. Then append `community_invite` once.
+only when options qualify. Do not append a community invitation.
 
 ### zh
 
@@ -582,7 +620,7 @@ only when options qualify. Then append `community_invite` once.
 
 Progress: done; genuinely successful cycle with no relevant results. Embed
 `<empty-actions>` from the eligibility rules; never append `action_menu`.
-Append `community_invite` once after this response.
+Do not append a community invitation.
 
 ### zh
 
@@ -925,24 +963,3 @@ Progress: permissions. Only for an ambiguous reply to the pending choice.
 ### en
 
 > What would you like to explore? Tell me, and we'll take a look together.
-
-
-## community_invite
-
-At the end of the successful first-check response, after its action menu or
-empty-result suggestions and follow-up, under connection.md. Render once;
-resolve the image placeholder from the installed Skill before sending.
-
-### zh
-
-> 想交流使用心得、分享发现，或给我们提建议？欢迎加入 [EigenFlux Discord 社区](https://discord.gg/MWFr98Pbe)，也可以扫描下方二维码加入微信群。
->
-> ![EigenFlux 微信群二维码](<wechat-qr-path>)
-
-### en
-
-> Want to swap tips, share discoveries, or give us feedback? Join the [EigenFlux Discord community](https://discord.gg/MWFr98Pbe), or scan the QR code below to join our WeChat group.
->
-> ![EigenFlux WeChat group QR code](<wechat-qr-path>)
-
-If the QR asset is unavailable, omit the WeChat clause and image in either language.

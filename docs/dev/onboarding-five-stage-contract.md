@@ -32,6 +32,26 @@ never substitute a shell/interpreter prefix or change sandbox/network policy.
 
 ## Explicit handoffs and loading
 
+### Built-in browser handoff contract
+
+The baseline for this change is `6299f688`. Browser opening is production
+behavior owned by the Skill, not by CLI output or a test prompt.
+
+| Invariant / current source | Final owner | Boundary | Check | Intentional change |
+| --- | --- | --- | --- | --- |
+| Manual link only / connection.md | connection.md browser handoff | Available host tool receives the validated URL after all prerequisites | Host success, unavailable, denied, failed and queued walkthroughs | Open the built-in browser once when supported; keep a clickable link |
+| Home, server, ticket and nonce / connection.md and CLI provision | Same owners | CLI response to host tool; preserve the full URL without reconstruction | Existing provision/URL/access tests; non-default URL template test | None |
+| Consent and baseline / SKILL.md and connection.md | Same owners | Browser attempt follows required permissions and successful baseline | Existing onboarding contract tests; prerequisite failure walkthrough | None |
+| Idempotency / connection.md | connection.md browser handoff | Confirmed attempt receipt survives continuation | Resume walkthrough; no re-provision or baseline retry on browser failure | At most one automatic open per initial handoff |
+| Human email/settings confirmation / connection.md | Same owner | Browser UI to server-confirmed access | Existing runtime-access tests; manual incomplete/completed paths | None; opening never completes stage 4 or starts stage 5 |
+| Canonical bilingual output / messages.md | Same owner | Observed tool outcome selects a declared message fragment | Render both languages and profile paths with non-default ticket/nonce | Confirmed-open copy; manual fallback otherwise |
+
+Tests and synthetic URLs are test scaffolding only. No test URL, host override,
+installed-Skill overlay, or production release is required by this change.
+Static/template tests do not prove native browser behavior; test that boundary
+in a desktop host before promotion. Compare the base, this contract and the
+final diff for retained identity, permission, lifecycle and recovery rules.
+
 `SKILL.md` routes the current request and declares shared gates. Load
 `messages.md` for user responses; `host-setup.md` for consent, restart or scheduler
 work; `prefill.md` after the profile choice; `connection.md` for provision,
@@ -62,10 +82,10 @@ repeat a Feed pull to populate a menu, or infer publish/message permission from
 selection. Empty results offer only evidenced broadcast/demand drafts. Each
 selection uses existing functional Skills and retains draft approval.
 
-After a successful foreground first check, append the bilingual community
-invitation once after the menu or empty-result suggestions. Resolve the bundled
-wechat-group-qr.png from the installed Skill; omit its image and WeChat clause
-if unavailable. Never include invitations in scheduled cycles or action results.
+After verified installation, append the bilingual community invitation once at
+the end of welcome, before the separator and scheduling permission question.
+Use the host-specific delivery and fallback owned by `ef-support`. Never include
+invitations in first-check completion, scheduled cycles or action results.
 
 The owned automation and attached conversation share a localized inbox title,
 chosen from explicit naming preference, evidenced host UI locale, then user
@@ -97,3 +117,35 @@ configuration belongs in this flow. CLI business code and release configuration
 remain unchanged. The consumer website is separate: use the host return phrase
 until a real completion component is shipped and verified. Reserved website
 fragments must not be presented as an existing popup.
+
+The explicit Codex/macOS default-browser route is owned by connection.md and
+uses the exact validated URL once. It is selected before a built-in attempt and
+never bypasses a denial. Launch success is a dispatch receipt, not visible-page
+or setup completion. Bilingual rendering covers each outcome. WorkBuddy
+directly uses the declared `present_files` tool with the task workspace and the
+exact URL as its only file. Its non-error result must identify that URL in
+`previewed`; completion or an unrelated preview is insufficient. This selects
+`browser_preview_ready`, not `browser_opened`: the receipt does not prove that
+the sidebar expanded. After preview confirmation, a documented show/focus
+operation may reveal that existing pane, with at most one tool-discovery lookup
+and a relevant available host Skill read. No second navigation, browser-control
+activation, external browser or user expansion step is introduced. Missing
+openers and non-confirming results retain the link. The instruction contract
+test protects the exact URL and bounded visibility attempt.
+Native WorkBuddy behavior and authenticated external handoff require host acceptance.
+
+WorkBuddy uses a maintained immutable HTTPS QR image inline after the invitation
+and before the scheduling question. It does not call present_files on this path.
+The bundled native-attachment route remains a fallback for known loading failure
+or an explicit user report; do not deliver both forms preemptively. Source URL
+and fallback details are owned by ef-support/references/delivery.md. Other hosts
+retain their bundled-image delivery. Once-only welcome timing and explicit
+repeatable support requests remain unchanged.
+
+Platform support channels are owned by the discoverable `ef-support` Skill,
+including the Discord URL, QR asset, localized invitation copy and host delivery.
+Onboarding delegates presentation while retaining its once-only automatic timing.
+Explicit support/contact/community requests work before, during and after setup,
+and may repeat delivery without an account command or first-check rerun.
+`ef-profile` delegates platform-contact questions and support referrals to this
+Skill. Contact information does not authorize any account mutation or message.
