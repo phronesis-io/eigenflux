@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"regexp"
 	"strings"
 )
@@ -87,6 +88,12 @@ func (s *Store) SetInstallationEnabled(ctx context.Context, appID, installationI
 		return unavailable()
 	}
 	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Match registration's application-first lock order before touching an
+		// installation and its Agent revision, avoiding opposite-order updates.
+		var owner App
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&owner, "app_id = ?", appID).Error; err != nil {
+			return err
+		}
 		var row Installation
 		if err := tx.Where("installation_id = ? AND agent_id IN (SELECT agent_id FROM integration_agents WHERE app_id = ?)", installationID, appID).First(&row).Error; err != nil {
 			return err
