@@ -49,6 +49,9 @@ func (c *ItemConsumer) processUGC(ctx context.Context, raw *itemDal.RawItem) (*l
 	if err := llm.ValidateSlop(&result); err != nil {
 		return nil, err
 	}
+	// This transient validation flag is not part of the raw model JSON. Restore
+	// it on checkpoint reads so a missing field still schedules homepage backfill.
+	result.HomepageEvaluationIncomplete = !result.Discard && result.HomepageRealWorldRelevant == nil
 	if saved.Blocked {
 		// Another delivery may have read Processing before the first decision
 		// committed. Reapply that decision before acknowledging this attempt.

@@ -53,6 +53,9 @@ func TestSlopCheckpointBlocksAtEveryThresholdAndRetriesCleanup(t *testing.T) {
 			result, err := c.processUGC(context.Background(), raw)
 			require.NoError(t, err)
 			require.Zero(t, result.Quality)
+			require.True(t, result.HomepageEvaluationIncomplete, "raw checkpoint lacks real-world relevance")
+			llm.NormalizeHomepageEvaluation(result)
+			require.Empty(t, result.HomepageEvaluationVersion, "checkpoint replay must preserve the backfill marker")
 			var deletes atomic.Int32
 			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				require.Equal(t, http.MethodPost, r.Method)
