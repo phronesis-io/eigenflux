@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -81,6 +82,12 @@ func (c *ItemStatsConsumer) handle(ctx context.Context, msgID string, values map
 	}
 
 	if err := c.handleEvent(ctx, msgID, event); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// item_stats is created with the broadcast, so no row means no
+			// broadcast: retrying cannot succeed and only repeats the error.
+			logger.Default().Warn("ItemStatsConsumer dropped event for unknown item", "eventType", event.EventType, "itemID", event.ItemID)
+			return HandleSuccess
+		}
 		logger.Default().Error("ItemStatsConsumer failed to process event", "eventType", event.EventType, "itemID", event.ItemID, "err", err)
 		return HandleRetry
 	}

@@ -20,6 +20,8 @@ func TestNormalizeFeedbackItem(t *testing.T) {
 		{"id", `{"item_id":"invalid","score":0}`, "", "invalid item_id invalid"},
 		{"score", `{"item_id":"10","score":3}`, "", "invalid score for item 10"},
 		{"own", `{"item_id":"11","score":1}`, "", "own item 11"},
+		// A JSON-number ID rounded to float64 precision names no broadcast.
+		{"unknown", `{"item_id":"373718292642136060","score":1}`, "", "unknown item 373718292642136060"},
 		{"empty_key", `{"item_id":"10","score":0,"client_key":" "}`, "", "invalid client_key for item 10"},
 		{"invalid_key", `{"item_id":"10","score":0,"client_key":"a/b"}`, "", "invalid client_key for item 10"},
 		{"max_key", `{"item_id":"10","score":1,"client_key":"` + strings.Repeat("a", 64) + `","surfaced":true}`, "", ""},

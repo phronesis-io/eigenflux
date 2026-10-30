@@ -3,6 +3,7 @@ package consumer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -116,6 +117,43 @@ func TestItemStatsConsumerDropsMessageAfterMaxRetries(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 	assert.Equal(t, int64(3), attempts.Load())
+}
+
+func TestItemStatsConsumerAcksUnknownItemWithoutRetry(t *testing.T) {
+	setupItemStatsConsumerRedis(t)
+
+	consumer := NewItemStatsConsumer(&config.Config{FeedbackConsumerWorkers: 1}, nil)
+	consumer.consumerName = "test-item-stats-unknown"
+	consumer.readBlock = 10 * time.Millisecond
+	consumer.retryMinIdle = 50 * time.Millisecond
+
+	var attempts atomic.Int64
+	consumer.handleEvent = func(ctx context.Context, msgID string, event itemstats.Event) error {
+		attempts.Add(1)
+		return fmt.Errorf("lookup item stats: %w", gorm.ErrRecordNotFound)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		consumer.Start(ctx)
+		close(done)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+
+	_, err := itemstats.PublishFeedback(context.Background(), itemstats.Feedback{AgentID: 303, ItemID: 373718292642136060, Score: 1})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		pending, pendingErr := mq.PendingCount(context.Background(), itemstats.StreamName, itemstats.GroupName)
+		return pendingErr == nil && attempts.Load() == 1 && pending == 0
+	}, 2*time.Second, 20*time.Millisecond)
+
+	time.Sleep(200 * time.Millisecond)
+	assert.Equal(t, int64(1), attempts.Load(), "a missing item must not be retried")
 }
 
 func TestPersistFeedbackEventDeduplicatesByStreamMessageID(t *testing.T) {

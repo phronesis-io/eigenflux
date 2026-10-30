@@ -61,14 +61,12 @@ func TestBatchFeedbackSkipsAuthorOwnItems(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(c.Response.Body(), &result))
 	require.Zero(t, result.Code, "body: %s", c.Response.Body())
-	require.Equal(t, 2, result.Data.ProcessedCount)
-	require.Equal(t, 1, result.Data.SkippedCount)
-	require.Equal(t, []string{"own item 7"}, result.Data.SkippedReasons)
+	require.Equal(t, 1, result.Data.ProcessedCount)
+	require.Equal(t, 2, result.Data.SkippedCount)
+	require.Equal(t, []string{"own item 7", "unknown item 404"}, result.Data.SkippedReasons)
 
 	events, err := client.XRange(context.Background(), itemstats.StreamName, "-", "+").Result()
 	require.NoError(t, err)
-	require.Len(t, events, 2, "only the non-author scores may reach the stats stream")
-	for _, event := range events {
-		require.NotEqual(t, "7", event.Values["item_id"], "author feedback must not be published")
-	}
+	require.Len(t, events, 1, "only feedback on another Agent's existing broadcast may reach the stats stream")
+	require.Equal(t, "8", events[0].Values["item_id"])
 }
