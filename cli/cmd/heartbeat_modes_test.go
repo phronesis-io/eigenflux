@@ -218,6 +218,7 @@ func TestMaintenanceObservationDoesNotFollowConcurrentAccountSwitch(t *testing.T
 }
 
 func TestFullPlanCannotSuppressIndependentMaintenanceAndSlowRulesReceipt(t *testing.T) {
+	t.Setenv("EIGENFLUX_SKIP_AGENT_SETUP", "1") // Maintenance fixtures must not install native background tasks.
 	var observed []maintenance.Event
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v2/agent-context" {

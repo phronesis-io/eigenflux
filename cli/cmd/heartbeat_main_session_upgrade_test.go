@@ -74,6 +74,7 @@ func runUpgradeHeartbeat(t *testing.T, cmd *cobra.Command) heartbeatPlan {
 }
 
 func TestHeartbeatUpgradeAutomaticallySchedulesInitialBinding(t *testing.T) {
+	t.Setenv("EIGENFLUX_SKIP_AGENT_SETUP", "1") // Binding fixtures must not install native background tasks.
 	for _, state := range []string{"upgrade", "watch-managed", "watch-owns-maintenance", "ready", "unavailable", "maintenance", "control", "baseline", "other-host", "plugin", "unsigned-rules"} {
 		t.Run(state, func(t *testing.T) {
 			b, rules := upgradeHeartbeatFixture(t, state == "baseline")
