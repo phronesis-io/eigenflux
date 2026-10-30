@@ -111,6 +111,16 @@ func (s *Service) DiscoverySourceLimits() []discovery.SourceLimit {
 	return out
 }
 
+// DiscoveryNeedMix is applied by Merge to equal-priority Needs in the Need budget bucket.
+func (s *Service) DiscoveryNeedMix() *discovery.NeedMix {
+	m := s.itemRerankPolicies.NeedMix()
+	if m == nil {
+		return nil
+	}
+	numerator, denominator := m.Ratio()
+	return &discovery.NeedMix{Numerator: numerator, Denominator: denominator, MinNeedCosine: m.MinNeedCosine}
+}
+
 // NewDiscoveryReplayPolicies pins time, classification and injection claims from
 // an offline snapshot. It does not initialize network clients or reload models.
 func NewDiscoveryReplayPolicies(cfg *config.Config, path string, now time.Time, classes map[int64]string, claims map[int64]bool) *Service {

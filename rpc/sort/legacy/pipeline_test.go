@@ -145,6 +145,9 @@ func TestConfiguredSwingPageCeiling(t *testing.T) {
 	s := &Service{itemRerankPolicies: loadRerankPolicySet(context.Background(), "../../../configs/sort/rerank.yaml", time.Now)}
 	limits := s.DiscoverySourceLimits()
 	require.Contains(t, limits, discovery.SourceLimit{Source: "swing_i2i", Numerator: 1, Denominator: 4})
+	require.Equal(t, &discovery.NeedMix{Numerator: 3, Denominator: 4, MinNeedCosine: 0.4}, s.DiscoveryNeedMix())
+	require.NotEmpty(t, s.itemRerankPolicies.PostRankPolicies(), "need_mix must not invalidate the other policies")
+	require.NotEmpty(t, s.itemRerankPolicies.InjectRules())
 	candidates := []discovery.Candidate{}
 	for id := int64(1); id <= 30; id++ {
 		c := discovery.Candidate{Document: discovery.Document{Ref: discovery.SourceRef{Type: discovery.Broadcast, ID: id}}}

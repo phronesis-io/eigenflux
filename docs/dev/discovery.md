@@ -817,8 +817,7 @@ that range. Search never uses this experiment.
 
 Selected recommendations merge up to 300 unique candidates per context and up
 to 300 broadcasts (other kinds retain their 100-candidate limit), instead of
-200. `Engine.ContextCandidateLimit` supplies the treated merge cap; zero means
-300. Need dense k remains 80 and the global Feed snapshot remains 200.
+200. Need dense k remains 80 and the global Feed snapshot remains 200.
 
 Before captured-Need broadcast dense retrieval, one request-local history read
 supplies every Need with at most 8,192 verified consumed groups. The same
@@ -837,20 +836,29 @@ are combined across contexts. Only the winning copy enters global ordering;
 its LR score, boosts and provenance stay intact. The merged channel attribution
 still includes losing copies so source ceilings cannot be bypassed.
 
-After attribution, equal-priority captured Needs are mixed by their local rank:
-one eligible, deduplicated candidate per nonempty Need per round. Within each
-Need the existing LR, boost, injection and kind ordering stays intact; no LR
-probability or cosine value is rewritten or compared across Needs to allocate
-these turns. Higher explicit priorities remain ahead of lower ones, and captured
-Needs remain ahead of Profile/friend fallback contexts. Within a priority tier,
-Need order uses context update time descending, then context ID ascending.
-Duplicate items/groups and ineligible copies do not consume a Need's turn;
-exhausted Needs are skipped. The shared snapshot still stops at 200 candidates.
+After attribution, the `need_mix` policy in `configs/sort/rerank.yaml`
+(`reserved_fraction: 3/4`, `min_need_cosine: 0.4`) mixes each tier of
+equal-priority captured Needs as a soft quota with equal Need weights. Positions
+are filled in order; a position is reserved while
+`reserved × denominator < (filled + 1) × numerator`, so 3/4 yields the pattern
+reserved, reserved, reserved, global. A reserved position rotates across Needs
+and takes that Need's next candidate in its local LR/policy order, considering
+only injected copies and copies whose current-Need cosine is at least
+`min_need_cosine`; a copy without current-Need cosine never qualifies. A global
+position, or a reserved position no Need can fill, takes the tier's best
+remaining candidate in the existing global order, so pooled, below-floor and
+strong cross-Need candidates still compete there. Duplicate items/groups and
+ineligible copies do not consume a position.
 
-The per-page source ceilings run after mixing and can skip candidates, so this
-is not a fixed per-Need page quota. Injection retains its place within its Need;
-its reserved item can still be attributed to a less relevant Need. Search and
-recommendations outside the experiment retain their existing global ordering.
+Higher explicit priorities remain ahead of lower ones, and captured Needs remain
+ahead of Profile/friend fallback contexts. Within a tier, Need turn order uses
+context update time descending, then context ID ascending. No LR probability,
+boost or feature is rewritten. Without `need_mix`, the bucket keeps global
+ordering after attribution; `reserved_fraction: 1/1` with
+`min_need_cosine: -1` is plain round robin by local rank. The shared snapshot
+still stops at 200 candidates. Per-page source ceilings run after mixing and can
+skip candidates, so the split is not a fixed per-Need page count. Search and
+recommendations outside the bucket retain their existing global ordering.
 
 The global configuration is independent: `SWING_I2I_RECALL_K=80` limits Swing
 recall (the code fallback remains 100), and `configs/sort/rerank.yaml` limits

@@ -32,41 +32,41 @@ func TestNeedBudgetAttributionBeforeRatingOrder(t *testing.T) {
 		if reverse {
 			slices.Reverse(in)
 		}
-		control := Merge(in, []Kind{Broadcast}, Recommendation, 20, false)
+		control := Merge(in, []Kind{Broadcast}, Recommendation, 20, false, nil)
 		require.Equal(t, int64(1), control[0].Context.ID)
-		got := Merge(in, []Kind{Broadcast}, Recommendation, 20, true)
+		got := Merge(in, []Kind{Broadcast}, Recommendation, 20, true, nil)
 		require.Len(t, got, 1)
 		require.Equal(t, int64(3), got[0].Context.ID)
 		require.Equal(t, .7, got[0].FinalScore, "winning copy retains its LR score")
-		require.Equal(t, Merge(in, []Kind{Broadcast}, Search, 20, false), Merge(in, []Kind{Broadcast}, Search, 20, true))
+		require.Equal(t, Merge(in, []Kind{Broadcast}, Search, 20, false, nil), Merge(in, []Kind{Broadcast}, Search, 20, true, nil))
 	}
 	mid.Document.Channels = []string{"dense"}
-	got := Merge([]Candidate{low, mid, high}, []Kind{Broadcast}, Recommendation, 20, true)
+	got := Merge([]Candidate{low, mid, high}, []Kind{Broadcast}, Recommendation, 20, true, nil)
 	require.Equal(t, int64(2), got[0].Context.ID, "own recall outranks pooled cosine")
 	require.ElementsMatch(t, []string{"dense", "swing_i2i"}, got[0].Document.Channels, "source caps retain union attribution")
 	require.Equal(t, []string{"dense"}, mid.Document.Channels, "input provenance is not mutated")
 	low.Reasons = []string{"inject:0"}
-	got = Merge([]Candidate{mid, high, low}, []Kind{Broadcast}, Recommendation, 20, true)
+	got = Merge([]Candidate{mid, high, low}, []Kind{Broadcast}, Recommendation, 20, true, nil)
 	require.Equal(t, int64(1), got[0].Context.ID, "injection must survive ownership")
 	require.True(t, injected(got[0]))
 	low.Score.Eligible = false
-	got = Merge([]Candidate{low, mid, high}, []Kind{Broadcast}, Recommendation, 20, true)
+	got = Merge([]Candidate{low, mid, high}, []Kind{Broadcast}, Recommendation, 20, true, nil)
 	require.Equal(t, int64(2), got[0].Context.ID, "ineligible injection cannot discard a valid copy")
 }
 
 func TestNeedBudgetAttributionMissingAndTiedCosine(t *testing.T) {
 	a, b := attributionCandidate(1, .4, .8, "dense"), attributionCandidate(2, .4, .9, "dense")
-	got := Merge([]Candidate{a, b}, []Kind{Broadcast}, Recommendation, 20, true)
+	got := Merge([]Candidate{a, b}, []Kind{Broadcast}, Recommendation, 20, true, nil)
 	require.Equal(t, int64(2), got[0].Context.ID, "ties preserve existing LR order")
 	a.Score.Features, b.Score.Features = nil, nil
 	a.RatingFeatures = make([]float64, len(discoverylr.RatingFeatureNames))
 	b.RatingFeatures = make([]float64, len(discoverylr.RatingFeatureNames))
 	i := slices.Index(discoverylr.RatingFeatureNames, "need_cos_ctx0")
 	a.RatingFeatures[i], b.RatingFeatures[i] = .8, .3
-	got = Merge([]Candidate{a, b}, []Kind{Broadcast}, Recommendation, 20, true)
+	got = Merge([]Candidate{a, b}, []Kind{Broadcast}, Recommendation, 20, true, nil)
 	require.Equal(t, int64(1), got[0].Context.ID, "rating evidence works without the semantic experiment")
 	a.RatingFeatures, b.RatingFeatures = nil, nil
-	got = Merge([]Candidate{a, b}, []Kind{Broadcast}, Recommendation, 20, true)
+	got = Merge([]Candidate{a, b}, []Kind{Broadcast}, Recommendation, 20, true, nil)
 	require.Equal(t, int64(2), got[0].Context.ID, "missing evidence preserves existing order")
 }
 
@@ -120,22 +120,20 @@ func budgetFixture() (*Engine, *needBudgetSource) {
 }
 func TestNeedBudgetSharedHistoryAndMergeCap(t *testing.T) {
 	for _, tc := range []struct {
-		name                         string
-		bps, cap, wantCap, wantReads int
-		mode                         Mode
-		fail, timeout                bool
+		name                    string
+		bps, wantCap, wantReads int
+		mode                    Mode
+		fail, timeout           bool
 	}{
-		{"off", 0, 300, 200, 0, Recommendation, false, false},
-		{"on", 10000, 0, 300, 1, Recommendation, false, false},
-		{"explicit", 10000, 275, 275, 1, Recommendation, false, false},
-		{"search", 10000, 300, 200, 0, Search, false, false},
-		{"history_error", 10000, 0, 300, 1, Recommendation, true, false},
-		{"history_timeout", 10000, 0, 300, 1, Recommendation, false, true},
+		{"off", 0, 200, 0, Recommendation, false, false},
+		{"on", 10000, 300, 1, Recommendation, false, false},
+		{"search", 10000, 200, 0, Search, false, false},
+		{"history_error", 10000, 300, 1, Recommendation, true, false},
+		{"history_timeout", 10000, 300, 1, Recommendation, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e, s := budgetFixture()
 			e.NeedBudgetBPS = tc.bps
-			e.ContextCandidateLimit = tc.cap
 			s.timeout = tc.timeout
 			if tc.fail {
 				s.historyErr = errors.New("unavailable")
@@ -202,6 +200,9 @@ func TestHydrateHistogramRecordsSuccessAndFailure(t *testing.T) {
 	require.Equal(t, before+2, count())
 }
 
+// everyTurn reserves every position and admits every cosine: plain Need round robin.
+var everyTurn = &NeedMix{Numerator: 1, Denominator: 1, MinNeedCosine: -1}
+
 func roundRobinCandidate(ctx, id int64, probability float64, channels ...string) Candidate {
 	c := attributionCandidate(ctx, .5, probability, channels...)
 	c.Document.Ref.ID = id
@@ -218,14 +219,16 @@ func TestNeedBudgetRoundRobinPreservesLocalRanking(t *testing.T) {
 		if reverse {
 			slices.Reverse(in)
 		}
-		got := Merge(in, []Kind{Broadcast}, Recommendation, 20, true)
+		got := Merge(in, []Kind{Broadcast}, Recommendation, 20, true, everyTurn)
 		require.Equal(t, []int64{101, 201, 301, 102, 202, 302, 103}, ids(Execution{Candidates: got}))
-		require.Equal(t, []int64{101, 201, 301, 102}, ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 4, true)}))
+		require.Equal(t, []int64{101, 201, 301, 102}, ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 4, true, everyTurn)}))
 		for _, c := range got {
 			require.Equal(t, c.LR.Probability, c.FinalScore, "mixing must not rewrite scores")
 		}
-		require.Equal(t, []int64{101, 102, 103, 301, 302, 201, 202}, ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 20, false)}))
-		require.Equal(t, Merge(in, []Kind{Broadcast}, Search, 20, false), Merge(in, []Kind{Broadcast}, Search, 20, true))
+		require.Equal(t, []int64{101, 102, 103, 301, 302, 201, 202}, ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 20, false, nil)}))
+		require.Equal(t, []int64{101, 102, 103, 301, 302, 201, 202}, ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 20, true, nil)}), "no need_mix keeps global order")
+		require.Equal(t, Merge(in, []Kind{Broadcast}, Recommendation, 20, false, nil), Merge(in, []Kind{Broadcast}, Recommendation, 20, false, everyTurn), "mixing needs the Need budget bucket")
+		require.Equal(t, Merge(in, []Kind{Broadcast}, Search, 20, false, nil), Merge(in, []Kind{Broadcast}, Search, 20, true, everyTurn))
 	}
 }
 
@@ -236,7 +239,7 @@ func TestNeedBudgetRoundRobinSkipsDuplicatesWithinTurn(t *testing.T) {
 	}
 	in[0].Document.GroupID, in[3].Document.GroupID = 50, 50
 	in[4].Score.Eligible = false
-	got := Merge(in, []Kind{Broadcast}, Recommendation, 20, true)
+	got := Merge(in, []Kind{Broadcast}, Recommendation, 20, true, everyTurn)
 	require.Equal(t, []int64{11, 23, 12, 13}, ids(Execution{Candidates: got}), "duplicate and ineligible candidates do not consume a Need's turn")
 }
 
@@ -251,7 +254,7 @@ func TestNeedBudgetRoundRobinPreservesPriorityFallbackAndInjection(t *testing.T)
 	low := roundRobinCandidate(3, 31, .99, "dense")
 	fallback := roundRobinCandidate(4, 41, .999, "friend")
 	fallback.Context.CapturedNeed, fallback.Context.Priority = nil, 100
-	got := Merge([]Candidate{low, regular, fallback, injectedCopy, newer}, []Kind{Broadcast}, Recommendation, 20, true)
+	got := Merge([]Candidate{low, regular, fallback, injectedCopy, newer}, []Kind{Broadcast}, Recommendation, 20, true, everyTurn)
 	require.Equal(t, []int64{21, 11, 12, 31, 41}, ids(Execution{Candidates: got}))
 	require.True(t, injected(got[1]))
 }
@@ -263,7 +266,7 @@ func TestNeedBudgetRoundRobinKeepsPageSourceCeiling(t *testing.T) {
 			roundRobinCandidate(2, 200+i, .5-float64(i)/100, "dense"),
 			roundRobinCandidate(3, 300+i, .3-float64(i)/100, "dense"))
 	}
-	merged := Merge(in, []Kind{Broadcast}, Recommendation, 200, true)
+	merged := Merge(in, []Kind{Broadcast}, Recommendation, 200, true, everyTurn)
 	page, _ := SelectRecommendationPage(merged, 20, []SourceLimit{{Source: "swing_i2i", Numerator: 1, Denominator: 4}})
 	require.Len(t, page, 20)
 	swing := 0
@@ -273,4 +276,45 @@ func TestNeedBudgetRoundRobinKeepsPageSourceCeiling(t *testing.T) {
 		}
 	}
 	require.Equal(t, 5, swing)
+}
+
+func TestNeedMixAlternatesReservedAndGlobalPositions(t *testing.T) {
+	c := func(ctx, id int64, cosine, p float64) Candidate {
+		x := attributionCandidate(ctx, cosine, p, "dense")
+		x.Document.Ref.ID = id
+		return x
+	}
+	in := []Candidate{
+		c(1, 101, .7, .90), c(1, 102, .7, .89), c(1, 103, .7, .88), c(1, 104, .7, .87),
+		c(2, 201, .3, .95), c(2, 202, .5, .20), c(2, 203, .5, .19),
+		c(3, 301, .6, .10), c(3, 302, .6, .09),
+	}
+	mix := &NeedMix{Numerator: 3, Denominator: 4, MinNeedCosine: .4}
+	// R R R G: below-floor 201 only enters through the global position; then exhausted Needs yield.
+	got := Merge(in, []Kind{Broadcast}, Recommendation, 20, true, mix)
+	require.Equal(t, []int64{101, 202, 301, 201, 102, 203, 302, 103, 104}, ids(Execution{Candidates: got}))
+	require.Equal(t, []int64{101, 202, 301, 201, 102}, ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 5, true, mix)}))
+	none := &NeedMix{Numerator: 3, Denominator: 4, MinNeedCosine: .99}
+	require.Equal(t, ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 20, true, nil)}),
+		ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 20, true, none)}), "no qualifying candidate keeps global order")
+
+	missing := c(2, 204, 0, .99)
+	missing.Score.Features = nil
+	got = Merge(append(in, missing), []Kind{Broadcast}, Recommendation, 3, true, &NeedMix{Numerator: 1, Denominator: 1, MinNeedCosine: -1})
+	require.Equal(t, []int64{101, 201, 301}, ids(Execution{Candidates: got}), "a copy without current-Need cosine never takes a reserved position")
+}
+
+func TestNeedMixInjectedCopyKeepsReservedPosition(t *testing.T) {
+	a := roundRobinCandidate(1, 11, .9, "dense")
+	a.Score.Features["need_cosine"] = .7
+	inj := roundRobinCandidate(2, 21, .01, "new_ugc_recall")
+	inj.Score.Features["need_cosine"], inj.Reasons, inj.Order = .1, []string{"inject:0"}, 1
+	b := roundRobinCandidate(2, 22, .5, "dense")
+	b.Score.Features["need_cosine"], b.Order = .6, 2
+	got := Merge([]Candidate{a, b, inj}, []Kind{Broadcast}, Recommendation, 20, true, &NeedMix{Numerator: 1, Denominator: 1, MinNeedCosine: .4})
+	require.Equal(t, []int64{11, 21, 22}, ids(Execution{Candidates: got}))
+}
+
+func TestNeedCosineFeatureIndexExists(t *testing.T) {
+	require.GreaterOrEqual(t, needCosCtx0, 0)
 }

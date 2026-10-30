@@ -23,7 +23,20 @@ type PolicyConfig struct {
 	InjectRules []InjectRuleConfig        `yaml:"inject_rules"`
 	Source      string                    `yaml:"source"`
 	MaxFraction string                    `yaml:"max_fraction"`
+	// need_mix parameters.
+	ReservedFraction string   `yaml:"reserved_fraction"`
+	MinNeedCosine    *float64 `yaml:"min_need_cosine"`
 }
+
+// NeedMixConfig reserves a fraction of recommendation positions for
+// equal-priority Needs; only candidates at or above MinNeedCosine take them.
+type NeedMixConfig struct {
+	MinNeedCosine float64
+	numerator     int
+	denominator   int
+}
+
+func (m NeedMixConfig) Ratio() (int, int) { return m.numerator, m.denominator }
 
 // SourceLimitConfig caps candidates attributed to Source at an exact fraction
 // of the caller-requested result limit.
@@ -124,6 +137,11 @@ func (c *Config) NewPolicies(now func() time.Time) ([]Policy, error) {
 			if _, err := pc.newSourceLimitConfig(); err != nil {
 				return nil, err
 			}
+		case "need_mix":
+			// Applied by the discovery Merge; see Config.NeedMix.
+			if _, err := pc.newNeedMixConfig(); err != nil {
+				return nil, err
+			}
 		default:
 			return nil, fmt.Errorf("unknown rerank policy %q", pc.Name)
 		}
@@ -154,16 +172,58 @@ func (pc PolicyConfig) newSourceLimitConfig() (SourceLimitConfig, error) {
 	if pc.Source == "" {
 		return SourceLimitConfig{}, fmt.Errorf("source_limit policy has empty source")
 	}
-	numeratorText, denominatorText, ok := strings.Cut(pc.MaxFraction, "/")
-	if !ok || numeratorText == "" || denominatorText == "" {
+	numerator, denominator, ok := parseFraction(pc.MaxFraction)
+	if !ok {
 		return SourceLimitConfig{}, fmt.Errorf("source_limit policy for source %q has invalid max_fraction %q", pc.Source, pc.MaxFraction)
+	}
+	return SourceLimitConfig{Source: pc.Source, numerator: numerator, denominator: denominator}, nil
+}
+
+// NeedMix returns the single need_mix policy, or nil when none is configured.
+func (c *Config) NeedMix() (*NeedMixConfig, error) {
+	if c == nil {
+		return nil, nil
+	}
+	var mix *NeedMixConfig
+	for _, pc := range c.Policies {
+		if pc.Name != "need_mix" {
+			continue
+		}
+		if mix != nil {
+			return nil, fmt.Errorf("need_mix policy declared more than once")
+		}
+		m, err := pc.newNeedMixConfig()
+		if err != nil {
+			return nil, err
+		}
+		mix = &m
+	}
+	return mix, nil
+}
+
+func (pc PolicyConfig) newNeedMixConfig() (NeedMixConfig, error) {
+	numerator, denominator, ok := parseFraction(pc.ReservedFraction)
+	if !ok {
+		return NeedMixConfig{}, fmt.Errorf("need_mix policy has invalid reserved_fraction %q", pc.ReservedFraction)
+	}
+	if pc.MinNeedCosine == nil || math.IsNaN(*pc.MinNeedCosine) || *pc.MinNeedCosine < -1 || *pc.MinNeedCosine > 1 {
+		return NeedMixConfig{}, fmt.Errorf("need_mix policy requires min_need_cosine in [-1,1]")
+	}
+	return NeedMixConfig{MinNeedCosine: *pc.MinNeedCosine, numerator: numerator, denominator: denominator}, nil
+}
+
+// parseFraction accepts "n/d" with 0 < n <= d.
+func parseFraction(text string) (int, int, bool) {
+	numeratorText, denominatorText, ok := strings.Cut(text, "/")
+	if !ok || numeratorText == "" || denominatorText == "" {
+		return 0, 0, false
 	}
 	numerator, numeratorErr := strconv.Atoi(numeratorText)
 	denominator, denominatorErr := strconv.Atoi(denominatorText)
 	if numeratorErr != nil || denominatorErr != nil || numerator <= 0 || denominator <= 0 || numerator > denominator {
-		return SourceLimitConfig{}, fmt.Errorf("source_limit policy for source %q has invalid max_fraction %q", pc.Source, pc.MaxFraction)
+		return 0, 0, false
 	}
-	return SourceLimitConfig{Source: pc.Source, numerator: numerator, denominator: denominator}, nil
+	return numerator, denominator, true
 }
 
 // InjectRules returns every inject_rule declared under any policy named

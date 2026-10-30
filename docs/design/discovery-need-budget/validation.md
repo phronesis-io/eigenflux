@@ -2,11 +2,16 @@
 
 ## Decision
 
-Keep the Need experiment off pending human review. The latest local-rank mixing
-replay restores two LLM4search and one A-stock own-dense homepage candidates,
-but the usefulness of promoted content and A-stock pooled items remains
-unverified. The shared snapshot stays at 200 and the Swing page ceiling stays
-at 25%. No model change or fixed per-Need page quota is included.
+Keep the Need experiment off pending human review. Equal-priority Needs are now
+mixed by the `need_mix` soft quota in `configs/sort/rerank.yaml`
+(`reserved_fraction: 3/4`, `min_need_cosine: 0.4`). On the retained input the
+0.4 floor removes no item from reserved positions that plain round robin
+placed on the first page; it reduces each Need's reserved share and gives the
+global positions to Proactive Agent. A 0.45 sensitivity arm removes the weak
+LLM4search lexical/Swing items and the Swing validator item attributed to
+A-stock. The floor needs calibration against human review before activation.
+The shared snapshot stays at 200 and the Swing page ceiling stays at 25%. No
+model change is included.
 
 ## Original budget/attribution replay — 2026-10-29
 
@@ -123,3 +128,34 @@ Discovery process E2E suite with the Need experiment enabled. Three cases
 requiring a separate CLI binary skipped. Repeated treatment output and the
 switch-off before/after output are byte-identical; all 40-feature LR probability
 reconstructions differ by less than 1e-12.
+
+## Soft-quota replay — 2026-10-30
+
+Same retained input (`232a244c…ab3ef`) and PR Engine, with the Need experiment
+at 10000 basis points. `need_mix` is appended to the frozen policy text. Two
+equivalence checks pass byte-for-byte: without `need_mix` the output equals the
+pre-mixing baseline, and `reserved_fraction: 1/1` with `min_need_cosine: -1`
+equals the local-rank round-robin output. A repeated 3/4 + 0.4 run is
+byte-identical. Every reserved snapshot position in the first 40 holds an
+injected or qualifying copy.
+
+Each cell is **page total / page own dense / snapshot total**; every page has
+20 items and five Swing-attributed items, and every snapshot has 200.
+
+| Arm | LLM4search | A-stock | Proactive Agent | Proactive from global positions |
+| --- | --- | --- | --- | ---: |
+| Round robin (1/1, −1) | 7 / 2 / 66 | 7 / 1 / 67 | 6 / 3 / 67 | — |
+| **3/4 + 0.4 (configured)** | **5 / 2 / 51** | **6 / 1 / 51** | **9 / 5 / 98** | **4** |
+| 3/4 + 0.45 (sensitivity) | 6 / 3 / 55 | 5 / 1 / 52 | 9 / 4 / 93 | 3 |
+
+Relative to round robin, 3/4 + 0.4 drops an LLM4search Swing short-drama item
+(cosine 0.416), an LLM4search lexical observability item (0.393) and an A-stock
+lexical market-monitor item (0.561) because each Need has fewer reserved
+positions; the A-stock Swing validator item (0.425) remains. 3/4 + 0.45 drops
+the validator item, the Apex trading-agent test suite (0.447) and four
+LLM4search lexical/Swing items between 0.39 and 0.44, and adds a third LEANN
+broadcast, two LLM4search lexical items (0.459, 0.524) and Proactive items.
+The three LEANN broadcasts come from one author with three different group
+IDs, so this is a content near-duplicate gap outside Merge. One Proactive Swing item has an
+empty frozen preview. Usefulness is unrated; the review sheet is private.
+

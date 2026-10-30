@@ -46,8 +46,8 @@ type Engine struct {
 	FriendFeedEnabled bool
 	ConsumedRefillBPS int
 	NeedBudgetBPS     int
-	// ContextCandidateLimit overrides the treated recommendation merge cap (default 300).
-	ContextCandidateLimit int
+	// NeedMix reserves positions for equal-priority Needs in the Need budget bucket; nil keeps global order.
+	NeedMix *NeedMix
 	// ProfileSemanticBPS selects Agents whose broadcast recommendations add
 	// profile-vector recall and use profile/Need similarity for eligibility
 	// and ordering.
@@ -245,13 +245,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	needBudgetOn := mode == Recommendation && bucketEnabled("discovery-need-budget-v1:", owner, e.NeedBudgetBPS)
 	contextCap := 200
 	if needBudgetOn {
-		contextCap = e.ContextCandidateLimit
-		if contextCap == 0 {
-			contextCap = 300
-		}
-		if contextCap < 1 || contextCap > 1000 {
-			return x, Invalid("context_candidate_limit", "out_of_range")
-		}
+		contextCap = 300
 	}
 	resultLimit := r.Limit
 	if r.Prefetch {
@@ -848,7 +842,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		if mode == Recommendation && len(x.SourceLimits) > 0 {
 			mergeLimit = MaxSnapshotCandidates
 		}
-		out := Merge(in, r.SourceKinds, mode, mergeLimit, needBudgetOn)
+		out := Merge(in, r.SourceKinds, mode, mergeLimit, needBudgetOn, e.NeedMix)
 		if mode == Recommendation && !r.Prefetch {
 			out, _ = SelectRecommendationPage(out, resultLimit, x.SourceLimits)
 		}

@@ -107,7 +107,7 @@ func engine(cfg *config.Config, dir string, s *snapshot, source discovery.Source
 	must(rules.Validate())
 	m := discoverylr.New(cfg.DiscoveryLREnabled, filepath.Join(dir, "model.json"), 24*time.Hour)
 	policy := legacy.NewDiscoveryReplayPolicies(cfg, filepath.Join(dir, "rerank.yaml"), time.UnixMilli(s.At), s.Classes, s.Claims)
-	return &discovery.Engine{Sources: source, Rules: rules, Learned: m, Policies: policy.DiscoveryPolicies, SourceLimits: policy.DiscoverySourceLimits()}, m.Close
+	return &discovery.Engine{Sources: source, Rules: rules, Learned: m, Policies: policy.DiscoveryPolicies, SourceLimits: policy.DiscoverySourceLimits(), NeedMix: policy.DiscoveryNeedMix()}, m.Close
 }
 func main() {
 	mode := flag.String("mode", "capture", "capture or replay")

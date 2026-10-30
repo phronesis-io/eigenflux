@@ -21,6 +21,13 @@ Policies are pure transforms with no I/O. Request-specific predicates and source
 
 `SortItems` reads `configs/sort/rerank.yaml` once at startup. Missing or invalid configuration logs a warning and disables configured item policies for that process. Freshness runs before typed ranking, boost runs after ranking, injection runs before Bloom deduplication, and source limits run after Bloom deduplication but before final truncation.
 
+`need_mix` (at most one) applies only to discovery recommendations in the
+`DISCOVERY_NEED_BUDGET_BPS` bucket; the legacy Feed pipeline ignores it.
+`reserved_fraction` is `n/d` with `0 < n ≤ d`, and `min_need_cosine` is required
+in `[-1, 1]`. See [Need budgets and attribution](discovery.md#need-candidate-budget-and-attribution-experiment).
+Like every policy, an invalid `need_mix` disables all configured policies for
+the process.
+
 `boost` accepts an optional `item_boosts` list of `{item_id, weight}` entries. IDs and weights must be positive, weights must be finite, and IDs must be unique. A matching item has its score multiplied by the configured weight and skips `boost_rules`; nonmatching items retain the existing attribute-rule behavior. The repository configuration omits `item_boosts`; operators add it only when production IDs and weights are required.
 
 ## Verification

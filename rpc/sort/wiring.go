@@ -23,7 +23,7 @@ import (
 	"time"
 )
 
-func initDiscovery(ctx context.Context, cfg *config.Config, policies func(context.Context, []discovery.Candidate, discovery.Mode, int) ([]discovery.Candidate, error), sourceLimits []discovery.SourceLimit, pgcAuthors discovery.PGCAuthors) (*discovery.Service, func(), error) {
+func initDiscovery(ctx context.Context, cfg *config.Config, policies func(context.Context, []discovery.Candidate, discovery.Mode, int) ([]discovery.Candidate, error), sourceLimits []discovery.SourceLimit, needMix *discovery.NeedMix, pgcAuthors discovery.PGCAuthors) (*discovery.Service, func(), error) {
 	if !cfg.EnableNeedSearch {
 		return nil, func() {}, nil
 	}
@@ -94,7 +94,7 @@ func initDiscovery(ctx context.Context, cfg *config.Config, policies func(contex
 	}
 	engine := &discovery.Engine{
 		FriendFeedEnabled: cfg.FriendFeedEnabled, SourceLimits: sourceLimits,
-		NeedBudgetBPS:     cfg.DiscoveryNeedBudgetBPS,
+		NeedBudgetBPS: cfg.DiscoveryNeedBudgetBPS, NeedMix: needMix,
 		ConsumedRefillBPS: cfg.DiscoveryConsumedRefillBPS, ProfileSemanticBPS: cfg.DiscoveryProfileSemanticBPS,
 		Compiler: &discovery.Compiler{Cache: contexts, Embedder: embed, NeedVectors: vectors, EmbeddingVersion: vectors.Generation()},
 		Needs:    discovery.CachedNeeds{NeedReader: need.Store{DB: db.DB}, Cache: contexts},

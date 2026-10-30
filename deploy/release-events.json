@@ -95,19 +95,8 @@
     "dashboards": [
       "recommendation-effect"
     ],
-    "title": "Preserve Need candidates and assign broadcast context before ranking",
-    "description": "Need budget and attribution changes default off; compare fixed Agent cohorts by Need count from recorded bucket activation, not deployment time. Global Swing recall and page ceilings activate separately for all Agents. Hydration timing starts only after the full Sort rollout; historical latency is not backfilled.",
-    "pr": "https://github.com/phronesis-io/eigenflux/pull/459"
-  },
-  {
-    "id": "discovery-need-round-robin-v1",
-    "kind": "behavior",
-    "deploy_scope": "full",
-    "dashboards": [
-      "recommendation-effect"
-    ],
-    "title": "Mix equal-priority Needs by local rank",
-    "description": "Default off under the Need experiment; compare fixed Agent cohorts from recorded bucket activation. Local scores and source ceilings remain unchanged, while snapshot and page allocation can change. Existing frozen pages retain their order.",
+    "title": "Preserve Need candidates and soft-quota equal-priority Needs",
+    "description": "Need budget, attribution and the need_mix soft quota default off; compare fixed Agent cohorts by Need count from recorded bucket activation, not deployment time. Scores are unchanged, while snapshot and page allocation across Needs can change. Global Swing recall and page ceilings activate separately for all Agents. Hydration timing starts only after the full Sort rollout; historical latency is not backfilled. Existing frozen pages retain their order.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/459"
   }
 ]
