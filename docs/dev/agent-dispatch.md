@@ -77,7 +77,11 @@ inventory with the new configuration, or provide an explicit `main_session_id`.
 An absent watch binding does not establish first-time EigenFlux onboarding.
 Other host adapters retain their existing routing.
 
-Existing Codex bindings expose `bootstrap_required` in the heartbeat plan.
+Missing native Codex Skill bindings and existing bindings without a main session
+expose `bootstrap_required` in the heartbeat plan. Missing bindings use guarded
+initial creation with `--config`; existing bindings use session-only updates.
+Notification-only recovery remains pending until the host completes bootstrap;
+it never counts as successful Agent dispatch.
 CLI 1.0.10 prepends `main_session_bootstrap` to full native Codex Skill cycles
 after onboarding, including the plan run at upgrade completion. The host
 automatically completes the signed initial-binding procedure before business

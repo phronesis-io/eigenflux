@@ -26,6 +26,9 @@ type notificationLaunchDefinition struct {
 	WorkingDirectory     string
 	EnvironmentVariables map[string]string
 	Disabled             bool
+	watchArguments       []string
+	wrapperPath          string
+	wrapperSource        string
 }
 
 func platformStartNotifications(ctx context.Context, task NotificationTask) (Result, error) {
@@ -102,10 +105,19 @@ func startNotificationLaunchAgent(ctx context.Context, task NotificationTask, ho
 	}
 	pid := launchPID.FindSubmatch(raw)
 	if len(pid) > 0 {
-		if task.PrepareOnly {
-			return Result{}, errors.New("existing watch process is active; wait for a safe maintenance point before setup")
+		if notificationModeChanged(definition, task) && task.Dispatch {
+			// Notification-only watch cannot admit Agent work. Its verified
+			// account service can stop before binding is promoted to dispatch.
+			if _, err = run(ctx, "/bin/launchctl", "bootout", target); err != nil {
+				return Result{}, fmt.Errorf("unload notification-only watch: %w", err)
+			}
+			printErr = errors.New("notification-only owner unloaded")
+		} else {
+			if task.PrepareOnly || notificationModeChanged(definition, task) {
+				return Result{}, errors.New("existing watch process is active; wait for a safe maintenance point before setup")
+			}
+			return waitNotificationLaunchAgent(ctx, target, run)
 		}
-		return waitNotificationLaunchAgent(ctx, target, run)
 	}
 	if task.PrepareOnly {
 		if printErr == nil {
@@ -114,6 +126,17 @@ func startNotificationLaunchAgent(ctx context.Context, task NotificationTask, ho
 			}
 		}
 		return Result{Status: "task_stopped", Manager: "launchd", Target: target}, nil
+	}
+	if !create && notificationModeChanged(definition, task) {
+		if printErr == nil {
+			if _, err = run(ctx, "/bin/launchctl", "bootout", target); err != nil {
+				return Result{}, fmt.Errorf("unload watch task before mode change: %w", err)
+			}
+		}
+		if err := changeNotificationLaunchMode(ctx, selected, definition, task, uid, run); err != nil {
+			return Result{}, err
+		}
+		printErr = errors.New("reload changed watch mode")
 	}
 	if create {
 		if err := writeNotificationLaunchAgent(selected, task, definition.Label); err != nil {
@@ -213,8 +236,15 @@ func notificationLaunchAgent(ctx context.Context, file, home string, uid int, ta
 		if err != nil {
 			return d, err
 		}
+		d.wrapperPath, d.wrapperSource = args[1], string(raw)
 		args, err = notificationWrapperCommand(string(raw))
 		if err != nil {
+			// An explicit foreign identity pin may exclude an opaque launcher,
+			// but never bypass repair of this account's scope-named task.
+			agent, principal := d.EnvironmentVariables["EIGENFLUX_WATCH_EXPECTED_AGENT"], d.EnvironmentVariables["EIGENFLUX_WATCH_EXPECTED_PRINCIPAL"]
+			if d.Label != "ai.eigenflux.watch."+task.Scope && agent != "" && principal != "" && (agent != task.AgentID || principal != task.PrincipalID) {
+				return d, errors.New("wrapper belongs to another pinned account")
+			}
 			if strings.HasPrefix(d.Label, "ai.eigenflux.") {
 				return d, fmt.Errorf("%w: existing EigenFlux wrapper cannot be safely verified", errExistingAccountLauncher)
 			}
@@ -234,6 +264,7 @@ func notificationLaunchAgent(ctx context.Context, file, home string, uid int, ta
 			return d, fmt.Errorf("%w: existing account LaunchAgent uses a different CLI; update its launcher before recovery", errExistingAccountLauncher)
 		}
 	}
+	d.watchArguments = args
 	return d, nil
 }
 
@@ -321,11 +352,74 @@ func notificationAccountCommand(args []string, task NotificationTask) bool {
 	if err != nil || !executable.Mode().IsRegular() || executable.Mode().Perm()&0111 == 0 {
 		return false
 	}
+	return args[1] == "--homedir" && filepath.Clean(args[2]) == filepath.Clean(task.Home) && args[3] == "--server" && args[4] == task.Server && args[5] == "watch" && (args[6] == "--notifications-only" || args[6] == "--dispatch")
+}
+
+func notificationModeChanged(d notificationLaunchDefinition, task NotificationTask) bool {
+	return len(d.watchArguments) == 7 && (d.watchArguments[6] == "--dispatch") != task.Dispatch
+}
+
+func changeNotificationLaunchMode(ctx context.Context, file string, d notificationLaunchDefinition, task NotificationTask, uid int, run launchRunner) error {
+	if err := ownedLaunchFile(file, uid); err != nil {
+		return err
+	}
 	mode := "--notifications-only"
 	if task.Dispatch {
 		mode = "--dispatch"
 	}
-	return args[1] == "--homedir" && filepath.Clean(args[2]) == filepath.Clean(task.Home) && args[3] == "--server" && args[4] == task.Server && args[5] == "watch" && args[6] == mode
+	if d.wrapperPath == "" {
+		args := append([]string(nil), d.watchArguments...)
+		args[6] = mode
+		raw, _ := json.Marshal(args)
+		if _, err := run(ctx, "/usr/bin/plutil", "-replace", "ProgramArguments", "-json", string(raw), file); err != nil {
+			return fmt.Errorf("update owned watch mode: %w", err)
+		}
+		return nil
+	}
+	if err := ownedLaunchFile(d.wrapperPath, uid); err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(d.wrapperPath)
+	if err != nil || string(raw) != d.wrapperSource {
+		return errors.New("watch wrapper changed during mode update; retry")
+	}
+	// The verified wrapper has exactly one literal exec command. Change its
+	// final mode token only, preserving environment setup and the original path.
+	lines := strings.Split(d.wrapperSource, "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "exec ") {
+			at := strings.LastIndex(line, d.watchArguments[6])
+			if at < 0 {
+				return errors.New("watch wrapper mode unavailable")
+			}
+			lines[i] = line[:at] + mode + line[at+len(d.watchArguments[6]):]
+		}
+	}
+	updated := strings.Join(lines, "\n")
+	args, err := notificationWrapperCommand(updated)
+	if err != nil || !notificationAccountCommand(args, task) || args[6] != mode {
+		return errors.New("updated watch wrapper cannot be verified")
+	}
+	info, err := os.Stat(d.wrapperPath)
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(d.wrapperPath), ".eigenflux-watch-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if err = tmp.Chmod(info.Mode().Perm()); err == nil {
+		_, err = tmp.WriteString(updated)
+	}
+	closeErr := tmp.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Rename(tmp.Name(), d.wrapperPath)
 }
 
 func writeNotificationLaunchAgent(file string, task NotificationTask, label string) error {

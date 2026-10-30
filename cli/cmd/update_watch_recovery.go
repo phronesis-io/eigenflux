@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"reflect"
 	"runtime"
@@ -14,25 +13,26 @@ import (
 
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/dispatch"
-	"cli.eigenflux.ai/internal/skills"
 	watchstate "cli.eigenflux.ai/internal/watch"
 	"cli.eigenflux.ai/internal/watchservice"
 	"github.com/spf13/cobra"
 )
 
 type updateWatchRecovery struct {
-	TargetCommit      string                     `json:"target_commit,omitempty"`
-	Status            string                     `json:"status"`
-	Mode              string                     `json:"mode,omitempty"`
-	Reason            string                     `json:"reason,omitempty"`
-	RuntimeReady      bool                       `json:"runtime_ready"`
-	AgentCallVerified bool                       `json:"agent_call_verified"`
-	DesktopStatus     string                     `json:"desktop_status,omitempty"`
-	Notifications     *upgradeNotificationStatus `json:"notifications,omitempty"`
-	RunningCommit     string                     `json:"running_commit,omitempty"`
-	VersionVerified   bool                       `json:"version_verified"`
-	SkillsVerified    bool                       `json:"skills_verified"`
-	MainSession       *dispatch.MainNoticeProbe  `json:"main_session,omitempty"`
+	TargetCommit         string                     `json:"target_commit,omitempty"`
+	Status               string                     `json:"status"`
+	Mode                 string                     `json:"mode,omitempty"`
+	Reason               string                     `json:"reason,omitempty"`
+	RuntimeReady         bool                       `json:"runtime_ready"`
+	AgentCallVerified    bool                       `json:"agent_call_verified"`
+	DesktopStatus        string                     `json:"desktop_status,omitempty"`
+	Notifications        *upgradeNotificationStatus `json:"notifications,omitempty"`
+	RunningCommit        string                     `json:"running_commit,omitempty"`
+	VersionVerified      bool                       `json:"version_verified"`
+	SkillsLatestVerified bool                       `json:"skills_latest_verified"`
+	SkillsStatus         string                     `json:"skills_status,omitempty"`
+	SkillsVerified       bool                       `json:"skills_verified"`
+	MainSession          *dispatch.MainNoticeProbe  `json:"main_session,omitempty"`
 }
 
 type updateRecoveryDeps struct {
@@ -93,6 +93,10 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 	}
 	if err := deps.sync(expected); err != nil {
 		r.Reason = "skills_not_ready"
+		var skillsErr *upgradeSkillsError
+		if errors.As(err, &skillsErr) {
+			r.Reason = skillsErr.Reason
+		}
 		return r
 	}
 	if err := deps.verify(); err != nil {
@@ -131,6 +135,11 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 		if r.RuntimeReady && r.VersionVerified {
 			r.Status = "ready"
 			if expected.Host == "codex" {
+				if binding == nil {
+					r.Status = "pending"
+					r.Reason = "main_session_bootstrap_required"
+					return r
+				}
 				if deps.probe == nil {
 					r.Status = "blocked"
 					r.Reason = "codex_main_probe_unavailable"
@@ -308,18 +317,14 @@ func recoverWatchAfterUpdate(cmd *cobra.Command, cfg *config.Config, manual bool
 	}, probe: func(ctx context.Context, b dispatch.Binding) dispatch.MainNoticeProbe {
 		return dispatch.ProbeMainNotice(ctx, dispatch.MainNoticeTarget{Host: b.Host, SessionID: b.MainSessionID, Binding: b})
 	}, verify: verify, sync: syncRules, start: watchservice.StartNotifications, live: func(b dispatch.Binding, n bool) watchLiveStatus { return readWatchLiveStatus(b, n, time.Now()) }})
-	return r
-}
-
-func syncUpgradeWatchRules(cfg *config.Config, b dispatch.Binding, manual bool) error {
-	if manual || automaticMaintenanceEnabled(cfg, autoSkillSyncKey) {
-		_, err := skills.Sync(skills.SyncOptions{Into: b.SkillsDir, Host: b.Host, CLIVersion: version, CDNBase: cdnBase(), HTTPClient: &http.Client{Timeout: 5 * time.Second}})
-		if err != nil {
-			return err
+	if r.SkillsVerified {
+		r.SkillsLatestVerified = manual || automaticMaintenanceEnabled(cfg, autoSkillSyncKey)
+		r.SkillsStatus = "latest_verified"
+		if !r.SkillsLatestVerified {
+			r.SkillsStatus = "local_verified_auto_sync_disabled"
 		}
 	}
-	_, err := localHeartbeatSkillsAt(b.SkillsDir, b.Host)
-	return err
+	return r
 }
 
 func reportUpdateWatchRecovery(cmd *cobra.Command, cfg *config.Config, manual bool) updateWatchRecovery {

@@ -30,6 +30,13 @@ credential provisioning resumes only that scoped intent, and completed heartbeat
 retry it. Failed probes retain intent for retry. Notification setup failures do
 not prevent watch restoration, and another Home's LaunchAgent is not a conflict.
 
+`cmd/update_watch_skills.go` rejects retained-old, provisional and unverified
+sync outcomes as upgrade completion. Fresh official synchronization still
+requires local signature, compatibility and file-hash validation. Owner-disabled
+automatic sync uses local validation only and makes no latest-release claim;
+manual recovery performs the remote check. Existing user edits and rollback
+protection remain intact.
+
 ## Code map
 
 Windows WorkBuddy discovery reports an absent lazy Sidecar separately from a

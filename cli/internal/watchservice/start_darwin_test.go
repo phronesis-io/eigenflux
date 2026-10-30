@@ -241,3 +241,161 @@ func TestLaunchAgentForAnotherHomeDoesNotBlockRecovery(t *testing.T) {
 		t.Fatal("other account changed")
 	}
 }
+
+func TestNotificationModeMigration(t *testing.T) {
+	for _, scenario := range []string{"direct", "wrapper", "prepare", "active", "active_prepare", "active_dispatch", "disabled", "disabled_os"} {
+		t.Run(scenario, func(t *testing.T) {
+			home := t.TempDir()
+			dir := filepath.Join(home, "Library", "LaunchAgents")
+			os.MkdirAll(dir, 0700)
+			cli := filepath.Join(home, "eigenflux")
+			os.WriteFile(cli, []byte("fixture"), 0700)
+			task := NotificationTask{CLI: cli, Home: home, Server: "eigenflux", Scope: strings.Repeat("a", 32), AgentID: "a", PrincipalID: "p", Dispatch: true, PrepareOnly: scenario == "prepare" || scenario == "active_prepare" || scenario == "active_dispatch"}
+			label := "ai.eigenflux.watch." + task.Scope
+			file := filepath.Join(dir, label+".plist")
+			os.WriteFile(file, []byte("preserve settings"), 0600)
+			args := []string{cli, "--homedir", home, "--server", "eigenflux", "watch", "--notifications-only"}
+			d := notificationLaunchDefinition{Label: label, ProgramArguments: args, Disabled: scenario == "disabled"}
+			if scenario == "active_dispatch" {
+				d.ProgramArguments[6] = "--dispatch"
+			}
+			wrapper := filepath.Join(home, "watch.sh")
+			source := "#!/bin/bash\nset -eu\nexport PATH='/usr/bin:/bin'\nexec '" + cli + "' --homedir '" + home + "' --server eigenflux watch --notifications-only\n"
+			if scenario == "wrapper" {
+				os.WriteFile(wrapper, []byte(source), 0700)
+				d.ProgramArguments = []string{"/bin/bash", wrapper}
+			}
+			raw, _ := json.Marshal(d)
+			loaded, started := true, strings.HasPrefix(scenario, "active")
+			var changes []string
+			run := func(_ context.Context, p string, a ...string) ([]byte, error) {
+				if p == "/usr/bin/plutil" {
+					if a[0] == "-convert" {
+						return raw, nil
+					}
+					if a[0] != "-replace" || a[1] != "ProgramArguments" || a[2] != "-json" || a[4] != file {
+						t.Fatalf("bad plist mutation %v", a)
+					}
+					var got []string
+					if json.Unmarshal([]byte(a[3]), &got) != nil || got[6] != "--dispatch" {
+						t.Fatalf("bad mode %v", a)
+					}
+					changes = append(changes, "mode")
+					return nil, nil
+				}
+				switch a[0] {
+				case "print-disabled":
+					if scenario == "disabled_os" {
+						return []byte(`"` + label + `" => true`), nil
+					}
+					return nil, nil
+				case "print":
+					if strings.Count(a[1], "/") == 1 {
+						return nil, nil
+					}
+					if !loaded {
+						return nil, errors.New("absent")
+					}
+					if started {
+						return []byte("\tstate = running\n\tpid = 12345\n"), nil
+					}
+					return []byte("\tstate = waiting\n"), nil
+				case "bootout":
+					loaded, started = false, false
+				case "bootstrap":
+					loaded = true
+				case "kickstart":
+					started = true
+				default:
+					t.Fatalf("unexpected %v", a)
+				}
+				changes = append(changes, a[0])
+				return nil, nil
+			}
+			r, err := startNotificationLaunchAgent(context.Background(), task, home, os.Getuid(), run)
+			switch scenario {
+			case "active_dispatch":
+				if err == nil || len(changes) > 0 {
+					t.Fatalf("active changed: %+v %v %v", r, err, changes)
+				}
+			case "disabled", "disabled_os":
+				if err != nil || r.Status != "skipped_disabled" || len(changes) > 0 {
+					t.Fatalf("disabled changed: %+v %v %v", r, err, changes)
+				}
+			case "prepare", "active_prepare":
+				if err != nil || r.Status != "task_stopped" || strings.Join(changes, ",") != "bootout" {
+					t.Fatalf("prepare: %+v %v %v", r, err, changes)
+				}
+			default:
+				want := "bootout,mode,bootstrap,kickstart"
+				if scenario == "wrapper" {
+					want = "bootout,bootstrap,kickstart"
+					got, _ := os.ReadFile(wrapper)
+					if string(got) != strings.Replace(source, "--notifications-only", "--dispatch", 1) {
+						t.Fatalf("wrapper changed: %s", got)
+					}
+				}
+				if err != nil || r.PID != 12345 || strings.Join(changes, ",") != want {
+					t.Fatalf("migration: %+v %v %v", r, err, changes)
+				}
+			}
+			got, _ := os.ReadFile(file)
+			if string(got) != "preserve settings" {
+				t.Fatal("unrelated settings changed")
+			}
+		})
+	}
+}
+func TestOpaqueForeignPinnedWrapperDoesNotBlock(t *testing.T) {
+	for _, scenario := range []string{"foreign", "current", "unknown", "current_scope"} {
+		t.Run(scenario, func(t *testing.T) {
+			home := t.TempDir()
+			dir := filepath.Join(home, "Library", "LaunchAgents")
+			os.MkdirAll(dir, 0700)
+			cli := filepath.Join(home, "eigenflux")
+			os.WriteFile(cli, []byte("fixture"), 0700)
+			wrapper := filepath.Join(home, "old.sh")
+			source := "#!/bin/bash\nsource /tmp/test-source\nexec '" + cli + "' --homedir /other --server eigenflux watch --dispatch\n"
+			os.WriteFile(wrapper, []byte(source), 0700)
+			task := NotificationTask{CLI: cli, Home: home, Server: "eigenflux", Scope: strings.Repeat("b", 32), AgentID: "current", PrincipalID: "owner", Dispatch: true, PrepareOnly: true}
+			d := notificationLaunchDefinition{Label: "ai.eigenflux.other", ProgramArguments: []string{"/bin/bash", wrapper}, EnvironmentVariables: map[string]string{"EIGENFLUX_WATCH_EXPECTED_AGENT": "other", "EIGENFLUX_WATCH_EXPECTED_PRINCIPAL": "owner"}}
+			if scenario == "current" {
+				d.EnvironmentVariables["EIGENFLUX_WATCH_EXPECTED_AGENT"] = "current"
+			}
+			if scenario == "unknown" {
+				d.EnvironmentVariables = nil
+			}
+			if scenario == "current_scope" {
+				d.Label = "ai.eigenflux.watch." + task.Scope
+			}
+			file := filepath.Join(dir, d.Label+".plist")
+			os.WriteFile(file, []byte("preserve"), 0600)
+			raw, _ := json.Marshal(d)
+			run := func(_ context.Context, p string, a ...string) ([]byte, error) {
+				if p == "/usr/bin/plutil" {
+					return raw, nil
+				}
+				if a[0] == "print-disabled" || a[0] == "print" && strings.Count(a[1], "/") == 1 {
+					return nil, nil
+				}
+				if a[0] == "print" {
+					return nil, errors.New("absent")
+				}
+				t.Fatalf("unexpected mutation %s %v", p, a)
+				return nil, nil
+			}
+			r, err := startNotificationLaunchAgent(context.Background(), task, home, os.Getuid(), run)
+			if scenario == "foreign" {
+				if err != nil || r.Status != "task_stopped" {
+					t.Fatalf("foreign blocked: %+v %v", r, err)
+				}
+			} else if !errors.Is(err, errExistingAccountLauncher) {
+				t.Fatalf("unsafe current accepted: %+v %v", r, err)
+			}
+			got, _ := os.ReadFile(wrapper)
+			if string(got) != source {
+				t.Fatal("foreign wrapper changed")
+			}
+		})
+	}
+}

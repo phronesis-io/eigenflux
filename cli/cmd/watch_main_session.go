@@ -241,7 +241,14 @@ func inspectMainSessionBinding() (*mainSessionBindingPlan, error) {
 	}
 	b, err := dispatch.ReadBinding(home, activeServerName())
 	if os.IsNotExist(err) {
-		return nil, nil
+		meta := clientMetaForServerName(activeServerName())
+		if meta.Host != "codex" || meta.Mode != "skill" {
+			return nil, nil
+		}
+		if _, err := watchBindingIdentity(); err != nil {
+			return nil, err
+		}
+		return &mainSessionBindingPlan{Status: "bootstrap_required"}, nil
 	}
 	if err != nil {
 		return nil, err

@@ -10,7 +10,7 @@ import (
 )
 
 func TestUpgradeWatchRecovery(t *testing.T) {
-	for _, scenario := range []string{"bound", "notifications", "wrong_account", "skills_failed", "disabled", "running", "start_failed", "not_ready", "identity_switch", "owner_locked", "busy", "old_version", "main_unavailable", "running_skills_failed"} {
+	for _, scenario := range []string{"unbound_codex", "bound", "notifications", "wrong_account", "skills_failed", "disabled", "running", "start_failed", "not_ready", "identity_switch", "owner_locked", "busy", "old_version", "main_unavailable", "running_skills_failed"} {
 		t.Run(scenario, func(t *testing.T) {
 			expected := dispatch.Binding{Home: "/home/agent", Server: "eigenflux", Endpoint: "https://example.com", AgentID: "42", PrincipalID: "7", Scope: "scope"}
 			b := expected
@@ -18,11 +18,14 @@ func TestUpgradeWatchRecovery(t *testing.T) {
 			b.Revision = "revision"
 			b.SkillsDir = "/rules"
 			binding := &b
-			if scenario == "notifications" {
+			if scenario == "notifications" || scenario == "unbound_codex" {
 				binding = nil
 			}
 			if scenario == "wrong_account" {
 				b.AgentID = "43"
+			}
+			if scenario == "unbound_codex" {
+				expected.Host = "codex"
 			}
 			var syncs, starts, checks, reads int
 			deps := updateRecoveryDeps{
@@ -85,7 +88,10 @@ func TestUpgradeWatchRecovery(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 			defer cancel()
 			got := recoverUpdatedWatch(ctx, expected, binding, "/bin/eigenflux", deps)
-			want := map[string]string{"bound": "ready", "notifications": "ready", "wrong_account": "blocked", "skills_failed": "blocked", "disabled": "skipped", "running": "ready", "start_failed": "blocked", "not_ready": "starting", "identity_switch": "blocked", "owner_locked": "blocked", "busy": "pending", "old_version": "pending", "main_unavailable": "blocked", "running_skills_failed": "blocked"}[scenario]
+			want := map[string]string{"unbound_codex": "pending", "bound": "ready", "notifications": "ready", "wrong_account": "blocked", "skills_failed": "blocked", "disabled": "skipped", "running": "ready", "start_failed": "blocked", "not_ready": "starting", "identity_switch": "blocked", "owner_locked": "blocked", "busy": "pending", "old_version": "pending", "main_unavailable": "blocked", "running_skills_failed": "blocked"}[scenario]
+			if scenario == "unbound_codex" && (got.Reason != "main_session_bootstrap_required" || !got.RuntimeReady || got.MainSession != nil) {
+				t.Fatalf("unbound Codex readiness: %+v", got)
+			}
 			if got.Status != want {
 				t.Fatalf("%+v", got)
 			}

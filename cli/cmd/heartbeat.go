@@ -459,6 +459,14 @@ func heartbeatStages(access runtimeAccess) []string {
 
 func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 	receiptText := ""
+	if plan.OuterLoop != nil {
+		b, _ := json.Marshal(plan.OuterLoop)
+		receiptText += "\nOuter loop recovery: " + string(b) + ". Report unresolved recovery separately; a running notification watch does not prove Agent dispatch is ready.\n"
+	}
+	if plan.Notifications != nil {
+		b, _ := json.Marshal(plan.Notifications)
+		receiptText += "\nDesktop notification readiness: " + string(b) + ". Report missing permission or setup separately; never claim the owner granted permission automatically.\n"
+	}
 	if plan.PluginMaintenance.Executor == "cli" {
 		receiptText += "\nOpenClaw plugin maintenance is executed by the independent CLI worker. Do not run plugin discovery, installation, restart, or plugin-check from this Agent turn. Cached maintenance results are historical observations.\n"
 	}
@@ -466,6 +474,9 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 		b, _ := json.Marshal(plan.MainSessionBinding)
 		receiptText += "\nCodex main session binding: " + string(b) + ". Ordinary heartbeat and PM execution cannot select a replacement thread.\n"
 		if slices.Contains(plan.ExecutionOrder, "main_session_bootstrap") {
+			if plan.MainSessionBinding.ExpectedRevision == "" {
+				receiptText += "\nNo watch binding exists. Create the initial native Codex configuration with the current account identity, absolute executable, work directory and signed Skills directory; include pm_push and commission_order. Use --config only for initial creation and the verified scheduler preflight/readback procedure. Do not guess a conversation or create a replacement conversation.\n"
+			}
 			receiptText += "Execute main_session_bootstrap automatically before business stages using the listed ef-communication/references/main-session.md. Complete the existing preflight, guarded binding update and watch recovery without asking the owner to enable binding. Preserve existing targets; ask only when the verified heartbeat target is missing or ambiguous.\n"
 		} else if plan.MainSessionBinding.Status == "unavailable" {
 			receiptText += "The established main session is unavailable. Preserve its binding and request an owner-directed switch.\n"
