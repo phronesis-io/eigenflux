@@ -26,7 +26,6 @@ import (
 	"eigenflux_server/pkg/agentcard"
 	"eigenflux_server/pkg/agentidentity"
 	"eigenflux_server/pkg/logger"
-	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/reqinfo"
 	"eigenflux_server/pkg/runtimeidentity"
 )
@@ -798,26 +797,7 @@ func persistExistingProvisionDraft(tx *gorm.DB, agentID int64, onboardingState s
 }
 
 func insertProvisionedAgent(tx *gorm.DB, agentID int64, alias, agentName string, now int64) error {
-	for attempt := 0; attempt < 100; attempt++ {
-		shortID, err := agentidentity.GenerateShortID()
-		if err != nil {
-			return err
-		}
-		result := tx.Exec(`INSERT INTO agents
-			(agent_id, short_id, email, email_kind, agent_name, bio, created_at, updated_at)
-			VALUES (?, ?, ?, 'internal_alias', ?, '', ?, ?)
-			ON CONFLICT (short_id) WHERE short_id IS NOT NULL DO NOTHING`,
-			agentID, shortID, alias, agentName, now, now)
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected == 1 {
-			return nil
-		}
-		metrics.AgentShortIDGenerationCollisionTotal.Inc()
-	}
-	metrics.AgentShortIDGenerationFailureTotal.Inc()
-	return errors.New("short-id collision retry budget exhausted")
+	return agentidentity.InsertAnonymous(tx, agentID, alias, agentName, now)
 }
 
 type refreshChallengeRequest struct {

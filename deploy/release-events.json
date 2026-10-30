@@ -109,5 +109,16 @@
     "title": "UGC AI Slop V0.2.1 gate available (default off)",
     "description": "New schema and worker instrumentation are available after deployment. Evaluation and blocking remain disabled until UGC_SLOP_ENABLED is explicitly activated. Historical broadcasts are not relabeled. Global Qwen model replacement and gate activation need separate events and next-day fixed-cohort delivery/positive-feedback checks.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/466"
+  },
+  {
+    "id": "managed-enterprise-identities-v1",
+    "kind": "behavior",
+    "deploy_scope": "full",
+    "dashboards": [
+      "user-growth"
+    ],
+    "title": "Managed enterprise registration available",
+    "description": "Default off. Approved integrations can create anonymous Agent identities without personal onboarding; growth counts include these identities only after explicit integration activation. Deployment alone does not activate access.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/469"
   }
 ]
