@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"eigenflux_server/api/dal"
 	"github.com/cloudwego/hertz/pkg/app"
 )
 
@@ -67,6 +68,12 @@ func projectNotificationDevice(row notificationDeviceRow, now time.Time) notific
 	return d
 }
 
+func (s *Service) notificationAccountCLIVersion(ctx context.Context, id int64) (string, error) {
+	var settings struct{ CLIVersion string }
+	err := s.db.WithContext(ctx).Model(&dal.AgentSettings{}).Select("cli_version").Where("agent_id = ?", id).Scan(&settings).Error
+	return settings.CLIVersion, err
+}
+
 func (s *Service) listNotificationDevices(ctx context.Context, c *app.RequestContext) {
 	id, ok := agentID(c)
 	if !ok || id <= 0 {
@@ -86,6 +93,15 @@ func (s *Service) listNotificationDevices(ctx context.Context, c *app.RequestCon
 		}
 		devices = append(devices, projectNotificationDevice(row, now))
 	}
+	accountCLIVersion := ""
+	if len(devices) == 0 {
+		var err error
+		accountCLIVersion, err = s.notificationAccountCLIVersion(ctx, id)
+		if err != nil {
+			fail(c, http.StatusServiceUnavailable, "NOTIFICATION_DEVICES_UNAVAILABLE", "Notification device status is temporarily unavailable", nil)
+			return
+		}
+	}
 	c.Header("Cache-Control", "no-store")
-	reply(c, http.StatusOK, map[string]interface{}{"devices": devices, "checked_at": now.UnixMilli()})
+	reply(c, http.StatusOK, map[string]interface{}{"devices": devices, "account_cli_version": accountCLIVersion, "checked_at": now.UnixMilli()})
 }

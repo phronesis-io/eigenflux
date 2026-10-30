@@ -109,3 +109,8 @@ Accept phase=uninstall with trigger=manual and results started, removed, partial
 Notification device projections include `cli_version` from the same device status
 event’s `from_version`, including stale observations. Missing versions stay empty;
 never substitute another device’s or the account’s version. No migration is needed.
+
+When no valid device records exist, return `account_cli_version` from the signed-in
+Agent’s `agent_settings.cli_version`. This is the last account observation, not a
+device version or OS permission claim. Missing settings remain empty; query failures
+return 503. When devices exist, leave the account fallback empty.

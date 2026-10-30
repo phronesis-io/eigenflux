@@ -317,6 +317,21 @@ FROM telemetry_events_v2 WHERE properties->>'component'='dispatch' ORDER BY agen
 		t.Fatalf("offline observation reported as disabled: %v", payload)
 	}
 
+	// Legacy CLI installations have no notification device events.
+	exec(`CREATE TEMP TABLE agent_settings (agent_id BIGINT PRIMARY KEY, cli_version TEXT) ON COMMIT DROP`)
+	exec(`INSERT INTO agent_settings VALUES (42,'0.7.7'), (43,'1.0.0')`)
+	exec(`DELETE FROM telemetry_events_v2 WHERE agent_id=42 AND properties->'notification'->>'device_id'=?`, deviceID)
+	status, payload, _ = performJSON(t, h, "GET", "/devices", nil)
+	data := payload["data"].(map[string]interface{})
+	if status != 200 || len(data["devices"].([]interface{})) != 0 || data["account_cli_version"] != "0.7.7" {
+		t.Fatalf("legacy account upgrade version missing or cross-account: %v", payload)
+	}
+	exec(`UPDATE agent_settings SET cli_version='1.0.0' WHERE agent_id=42`)
+	status, payload, _ = performJSON(t, h, "GET", "/devices", nil)
+	if status != 200 || payload["data"].(map[string]interface{})["account_cli_version"] != "1.0.0" {
+		t.Fatalf("upgraded account version not refreshed: %v", payload)
+	}
+
 	exec(`UPDATE agent_credential_sessions SET scopes=ARRAY['feed:read'] WHERE principal_id=42`)
 	if status := send(42); status != 403 {
 		t.Fatalf("missing settings scope: %d", status)

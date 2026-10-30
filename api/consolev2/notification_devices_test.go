@@ -8,6 +8,8 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestNotificationDeviceProjection(t *testing.T) {
@@ -77,5 +79,33 @@ func TestNotificationDeviceEndpointRequiresIdentityAndFailsClosed(t *testing.T) 
 		if status != tc.status {
 			t.Fatalf("%s: %d", tc.path, status)
 		}
+	}
+}
+
+func TestNotificationAccountCLIVersionScope(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sql := range []string{
+		"CREATE TABLE agent_settings (agent_id INTEGER PRIMARY KEY, cli_version TEXT)",
+		"INSERT INTO agent_settings VALUES (42, '0.7.7'), (43, '1.0.0')",
+	} {
+		if err := db.Exec(sql).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc := &Service{db: db}
+	for id, expected := range map[int64]string{42: "0.7.7", 43: "1.0.0", 44: ""} {
+		version, err := svc.notificationAccountCLIVersion(context.Background(), id)
+		if err != nil || version != expected {
+			t.Fatalf("account %d: %q, %v", id, version, err)
+		}
+	}
+	if err := db.Exec("DROP TABLE agent_settings").Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.notificationAccountCLIVersion(context.Background(), 42); err == nil {
+		t.Fatal("database failure returned as unknown version")
 	}
 }
