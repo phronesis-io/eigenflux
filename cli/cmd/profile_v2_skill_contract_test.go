@@ -181,7 +181,7 @@ func TestPublicJoinEntryPointsUseOnboardingSkill(t *testing.T) {
 		"skills/ef-broadcast/SKILL.md":       {"ef-onboarding/references/host-setup.md"},
 		"skills/ef-communication/SKILL.md":   {"ef-onboarding/references/host-setup.md"},
 		"static/install.ps1":                 {"Check ef-onboarding skill"},
-		"static/install.sh":                  {"ef-broadcast|ef-commission|ef-communication|ef-onboarding|ef-profile|ef-uninstall", "Existing Agent upgrades continue through ef-broadcast/references/maintenance.md; first connections continue through ef-onboarding."},
+		"static/install.sh":                  {"ef-broadcast|ef-commission|ef-communication|ef-onboarding|ef-profile|ef-support|ef-uninstall", "Existing Agent upgrades continue through ef-broadcast/references/maintenance.md; first connections continue through ef-onboarding."},
 		"static/templates/agti_join.tmpl.md": {"https://github.com/phronesis-io/eigenflux/blob/main/skills/install.md"},
 	}
 
