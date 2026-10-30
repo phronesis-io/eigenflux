@@ -32,6 +32,7 @@ on:
       - 'pkg/agentidentity/**'
       - 'pkg/integrationidentity/**'
       - 'pkg/integrationprofile/**'
+      - 'pkg/integrationfeed/**'
       - 'api/integrations/**'
       - 'pkg/agentcard/**'
       - 'pkg/testaccountreset/**'
@@ -72,6 +73,7 @@ on:
       - 'pkg/agentidentity/**'
       - 'pkg/integrationidentity/**'
       - 'pkg/integrationprofile/**'
+      - 'pkg/integrationfeed/**'
       - 'api/integrations/**'
       - 'pkg/agentcard/**'
       - 'pkg/testaccountreset/**'
@@ -126,7 +128,7 @@ jobs:
       - name: Apply every migration and rollout helper
         run: bash scripts/common/migrate_up.sh
       - name: Verify managed integration identity and application quotas
-        run: INTEGRATION_TEST_PG_DSN="$PG_DSN" go test -race ./pkg/integrationidentity ./pkg/integrationprofile ./api/integrations -count=1
+        run: INTEGRATION_TEST_PG_DSN="$PG_DSN" go test -race ./pkg/integrationidentity ./pkg/integrationprofile ./pkg/integrationfeed ./api/integrations -count=1
       - name: Verify broadcast keyword expiry query
         run: go test -race -count=1 ./rpc/sort/discovery -run '^TestBroadcastRetrievalFiltersExpiryAtRequestClock$'
       - name: Verify migration source contracts

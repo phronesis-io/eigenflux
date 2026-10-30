@@ -176,13 +176,73 @@ preserving the existing experiment settings. No experiment is activated by this
 feature. Replay records the managed matching revision. Raw summaries are never
 logged or projected to public Cards.
 
+## Durable enterprise Feed
+
+Apply migration `000127_integration_feed_batches.sql` before activating the full
+API/Feed/Sort/pipeline rollout. Enterprise MVP serves personalized broadcast
+items through the existing legacy ranking, content disclosure, impression and
+replay chain. It does not depend on personal onboarding or activate personal
+Discovery experiments. Commission/Agent discovery and pagination are outside
+this first integration contract.
+
+`POST /api/v2/integrations/agents/me/feed` uses the same application credential
+and installation/runtime headers. Send `{"sequence":1,"limit":20}` for the first
+batch. `limit` defaults to 20 and accepts 1–20. Sequences start at 1 and increase
+by exactly one for a new round. Persist the sequence before sending; retry with
+the same sequence and normalized parameters after losing a response. Different
+parameters at the same sequence return 409. Old or skipped sequences never
+silently start another generation.
+
+The response is `data.batch` plus `data.feed`. The batch has its immutable ID,
+sequence, status, matching revision, timestamps, item count and next poll time.
+`data.feed` contains `schema_version=integration.feed.v1`, impression ID,
+matching revision and items. IDs are decimal strings. Items preserve source data
+but do not carry CLI output contracts, suggested actions, or behavior directives.
+An empty ready batch is successful and must not wake the Agent.
+
+`GET /api/v2/integrations/agents/me/feed` recovers the latest persisted state.
+A new Agent receives `status=none, sequence=0`. `ready` returns saved content,
+`generating` is pending, and `unknown` requires conservative recovery. Retrying
+an in-progress POST returns 409 with Retry-After. Both methods check current
+controls even when the payload already exists. A restarted/superseded runtime
+cannot read with its previous binding.
+
+Admission uses PostgreSQL time and the shared app-first transaction lock. It
+atomically reserves the Agent interval, one in-flight batch, and application
+quota before invoking the Feed source. The effective interval is the maximum
+of requested cadence and application minimum, normally 3600 seconds. An
+application initially allows 10000 admitted batches per UTC day; operators can
+change this policy, and all its Agents share that counter. An early new round
+or exceeded daily quota returns 429 plus Retry-After/retry_after_seconds. Batch
+retries and reads do not consume another generation or quota unit. This policy
+is independent of existing personal CLI cadence.
+
+Only the latest payload is retained, without a 30-minute cache expiry. Its
+monotonic sequence remains the fence after replacement, so an old retry returns
+409 instead of regenerating. There is no load_more endpoint or hidden pagination
+loop. `has_more` from the legacy cache is not exposed as another entitlement.
+
+The API commits `generating` before making one source call. If the process dies,
+the source response is lost, or completion fails, the same sequence is never
+sent to the generator again. An expired 120-second generation lease becomes
+`unknown`; explicit source failure marks it immediately. Such an admission
+conservatively consumes the reserved interval/quota. A later new sequence may
+start only when cadence permits. This may skip a failed round; it avoids false
+exactly-once claims across PostgreSQL and the Feed RPC. The SDK must likewise
+persist delivery intent and treat an unknown consumer outcome separately.
+
+The RPC request pins the applied matching revision; Sort rejects a changed or
+unavailable projection before ranking. Feed returns the actually used revision,
+and API verifies it before saving. Mixed/old binaries cannot report matching
+readiness as if the new context had been applied.
+
 ## Validation
 
 ```sh
 go test ./pkg/integrationidentity ./pkg/integrationprofile ./pkg/agentidentity ./api/integrations ./pkg/config
 # First apply all migrations to this disposable test database.
 INTEGRATION_TEST_PG_DSN=postgres://postgres:password@127.0.0.1:5432/disposable_database?sslmode=disable \
-  go test -race ./pkg/integrationidentity ./pkg/integrationprofile ./api/integrations -count=1
+  go test -race ./pkg/integrationidentity ./pkg/integrationprofile ./pkg/integrationfeed ./api/integrations -count=1
 ```
 
 The PostgreSQL suites require an explicit loopback DSN and create unique isolated
