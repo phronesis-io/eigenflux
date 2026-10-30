@@ -88,8 +88,11 @@ the same entry; they do not need to receive private keys or passwords.
 
 Run publication tests before importing Apple credentials. Import the encrypted
 P12 and its G2 certificate chain into a temporary runner keychain, sign with
-Developer ID Application, notarize both macOS notification helpers, staple and
-validate their tickets, then publish verified complete packages. Never commit
+Developer ID Application, notarize the Intel and Apple Silicon notification
+helpers concurrently, staple and validate both tickets, then publish verified
+complete packages only after both jobs succeed. Each newly built helper must be
+notarized before distribution, including beta releases; notarization is not a
+one-time account approval. Never commit
 credentials or include them in distributable archives. Always remove temporary
 keychain, P12 and signing-key files. Do not enable a second DevOps publisher.
 
