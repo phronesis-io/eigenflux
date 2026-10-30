@@ -22,9 +22,9 @@ func TestNotificationDeviceProjection(t *testing.T) {
 		{"failed", "helper_missing", "unavailable"},
 		{"submitted", "", "unknown"},
 	} {
-		row := notificationDeviceRow{DeviceID: strings.Repeat("a", 32), DeviceName: "我的电脑", Platform: "windows", Result: tc.result, ErrorCode: tc.code, EventAt: now.UnixMilli()}
+		row := notificationDeviceRow{DeviceID: strings.Repeat("a", 32), DeviceName: "我的电脑", Platform: "windows", CLIVersion: "0.7.7", Result: tc.result, ErrorCode: tc.code, EventAt: now.UnixMilli()}
 		got := projectNotificationDevice(row, now)
-		if got.PermissionState != tc.want || got.Stale || got.DeviceName != row.DeviceName {
+		if got.PermissionState != tc.want || got.Stale || got.DeviceName != row.DeviceName || got.CLIVersion != "0.7.7" {
 			t.Fatalf("%+v: %+v", tc, got)
 		}
 		for _, at := range []time.Time{now.Add(-11 * time.Minute), now.Add(2 * time.Minute)} {

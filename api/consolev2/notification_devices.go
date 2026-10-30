@@ -11,6 +11,7 @@ import (
 const notificationDeviceFreshness = 10 * time.Minute
 
 type notificationDevice struct {
+	CLIVersion      string `json:"cli_version"`
 	DeviceID        string `json:"device_id"`
 	DeviceName      string `json:"device_name"`
 	Platform        string `json:"platform"`
@@ -20,6 +21,7 @@ type notificationDevice struct {
 }
 
 type notificationDeviceRow struct {
+	CLIVersion string
 	DeviceID   string
 	DeviceName string
 	Platform   string
@@ -30,10 +32,11 @@ type notificationDeviceRow struct {
 
 // Observations remain account scoped. An older upload cannot replace a newer
 // check, and a successful send is not evidence of current OS permission.
-const notificationDevicesQuery = `SELECT device_id, device_name, platform, result, error_code, event_at FROM (
+const notificationDevicesQuery = `SELECT device_id, device_name, cli_version, platform, result, error_code, event_at FROM (
  SELECT DISTINCT ON (properties->'notification'->>'device_id')
  properties->'notification'->>'device_id' AS device_id,
  properties->'notification'->>'device_name' AS device_name,
+ COALESCE(properties->>'from_version', '') AS cli_version,
  properties->>'platform' AS platform, properties->>'result' AS result,
  properties->>'error_code' AS error_code, event_at
  FROM telemetry_events_v2
@@ -46,7 +49,7 @@ const notificationDevicesQuery = `SELECT device_id, device_name, platform, resul
 ) latest ORDER BY event_at DESC, device_id LIMIT 50`
 
 func projectNotificationDevice(row notificationDeviceRow, now time.Time) notificationDevice {
-	d := notificationDevice{DeviceID: row.DeviceID, DeviceName: row.DeviceName, Platform: row.Platform, ObservedAt: row.EventAt, PermissionState: "unknown"}
+	d := notificationDevice{CLIVersion: row.CLIVersion, DeviceID: row.DeviceID, DeviceName: row.DeviceName, Platform: row.Platform, ObservedAt: row.EventAt, PermissionState: "unknown"}
 	d.Stale = row.EventAt < now.Add(-notificationDeviceFreshness).UnixMilli() || row.EventAt > now.Add(time.Minute).UnixMilli()
 	if d.Stale {
 		return d

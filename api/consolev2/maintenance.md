@@ -105,3 +105,7 @@ settings. Deploy API support before the matching CLI/web; no migration.
 ## Uninstall observations
 
 Accept phase=uninstall with trigger=manual and results started, removed, partial, failed or blocked. Sources are agent/manual; platforms darwin/windows/linux. Require reason_category: not_provided, other, usability, cost, performance, privacy or no_longer_needed. Reject this metadata outside uninstall; reject free-text reasons, paths and client-selected account identity. Count distinct attempt_id across accounts; only removed counts toward the reason pie chart. No CLI, Skill or other business behavior changes are included in this backend contract.
+
+Notification device projections include `cli_version` from the same device status
+event’s `from_version`, including stale observations. Missing versions stay empty;
+never substitute another device’s or the account’s version. No migration is needed.
