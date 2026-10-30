@@ -61,7 +61,7 @@ func main() {
 				path := filepath.Join(*out, it.ID+".json")
 				if b, e := os.ReadFile(path); e == nil {
 					var old record
-					if json.Unmarshal(b, &old) == nil && old.Evaluation != nil && old.Evaluation.ContentHash == llm.SlopHash(it.Content+"\x00"+it.Notes) && old.Evaluation.Model == cfg.UGCSlopModel {
+					if json.Unmarshal(b, &old) == nil && old.Evaluation != nil && old.Evaluation.RequestContract == llm.SlopRequestContract && old.Evaluation.ContentHash == llm.SlopHash(it.Content+"\x00"+it.Notes) && old.Evaluation.Model == cfg.UGCSlopModel {
 						continue
 					}
 				}

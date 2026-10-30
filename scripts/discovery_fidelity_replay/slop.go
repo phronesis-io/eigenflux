@@ -81,7 +81,7 @@ func slopReplay(cfg *config.Config, dir string) {
 			}
 			required[id] = true
 			e := decisions[id]
-			if e == nil || e.ContentHash != llm.SlopHash(it.Content+"\x00"+it.Notes) {
+			if e == nil || e.RequestContract != llm.SlopRequestContract || e.ContentHash != llm.SlopHash(it.Content+"\x00"+it.Notes) {
 				panic(fmt.Sprintf("missing matching Slop evaluation %d", id))
 			}
 		}

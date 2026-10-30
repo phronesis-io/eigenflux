@@ -315,15 +315,18 @@ func (c *Client) call(ctx context.Context, prompt string, promptName string, eff
 	return extractJSON(text), nil
 }
 
-// reasoningOff requests the call be made without any reasoning parameter —
-// required for non-reasoning model tiers that reject it.
+// reasoningOff omits reasoning for older tiers that reject the parameter.
+// Qwen 3.8 instead requires explicit "none": omission defaults to xhigh.
 const reasoningOff = "off"
 
 // callRaw sends the prompt and returns the model's raw text output.
-func (c *Client) callRaw(ctx context.Context, prompt string, promptName string, effortOverride string) (string, error) {
+func (c *Client) callRaw(ctx context.Context, prompt string, promptName string, effortOverride string, requestOptions ...option.RequestOption) (string, error) {
 	effort := c.reasoningEffort
 	if effortOverride != "" {
 		effort = shared.ReasoningEffort(effortOverride)
+	}
+	if string(effort) == reasoningOff && strings.HasPrefix(strings.ToLower(c.model), "qwen3.8") {
+		effort = shared.ReasoningEffort("none")
 	}
 	params := responses.ResponseNewParams{
 		Model:           shared.ResponsesModel(c.model),
@@ -336,7 +339,7 @@ func (c *Client) callRaw(ctx context.Context, prompt string, promptName string, 
 		params.Reasoning = shared.ReasoningParam{Effort: effort}
 	}
 	start := time.Now()
-	resp, err := c.client.Responses.New(ctx, params)
+	resp, err := c.client.Responses.New(ctx, params, requestOptions...)
 	duration := time.Since(start).Seconds()
 
 	metrics.LLMCallDuration.WithLabelValues(promptName).Observe(duration)

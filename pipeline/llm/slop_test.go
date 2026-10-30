@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/stretchr/testify/require"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -41,6 +43,41 @@ func TestUGCSlopValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestQwen38ExplicitNonThinkingContract(t *testing.T) {
+	requests := make(chan map[string]any, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		requests <- body
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"status": "completed", "output": []any{map[string]any{"type": "message", "role": "assistant", "content": []any{map[string]any{"type": "output_text", "text": strings.Replace(validSlop, "homepage_v2", HomepageEvaluationV2, 1)}}}}}))
+	}))
+	defer srv.Close()
+	for _, tc := range []struct{ model, override, want string }{
+		{"qwen3.8-flash", reasoningOff, "none"},
+		{"qwen3.8-flash", "low", "low"},
+		{"qwen-flash", reasoningOff, ""},
+	} {
+		c := newTestClient(t, srv.URL).WithModel(tc.model)
+		_, err := c.callRaw(context.Background(), "test", "probe", tc.override)
+		require.NoError(t, err)
+		r := <-requests
+		if tc.want == "" {
+			require.NotContains(t, r, "reasoning")
+		} else {
+			require.Equal(t, tc.want, r["reasoning"].(map[string]any)["effort"])
+		}
+		require.NotContains(t, r, "temperature", "existing calls retain their sampling setting")
+	}
+	c := newTestClient(t, srv.URL).WithModel("qwen3.8-flash")
+	e, err := c.ProcessUGCItem(context.Background(), "content", "notes")
+	require.NoError(t, err)
+	require.Equal(t, SlopRequestContract, e.RequestContract)
+	r := <-requests
+	require.Equal(t, "none", r["reasoning"].(map[string]any)["effort"])
+	require.Equal(t, float64(0), r["temperature"])
 }
 
 func TestUGCSlopPromptPreservesPGCContract(t *testing.T) {

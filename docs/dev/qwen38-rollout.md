@@ -47,3 +47,9 @@ Record model activation and Slop activation as separate events. Compare the same
 Agent cohort's delivered count, PGC/UGC and Need/Profile mix, daily positive events,
 processing failures and fallback share on the next complete calendar day. The
 actual check date is assigned when activation occurs, not at PR creation.
+
+Qwen 3.8 needs explicit `reasoning.effort=none` for non-thinking paths. The
+previous off mode omitted the parameter, which defaults to xhigh on Qwen 3.8.
+This PR fixes that mapping for Qwen 3.8 safety/translation calls while retaining
+omission for older tiers that reject reasoning parameters. Main calls configured
+with low effort keep low effort. See the [provider Responses API reference](https://help.aliyun.com/en/model-studio/qwen-api-via-openai-responses).

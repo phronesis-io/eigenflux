@@ -9,9 +9,10 @@ The release target is `qwen3.8-flash`.
 The UGC template combines the unchanged current extraction rules with the exact
 V0.2.1 classification module. It does not overwrite the current template with the
 handoff's older full-template snapshot. The call uses the existing Responses API,
-a 60-second context timeout, existing bounded retries and no reasoning parameter.
-This differs from the handoff's Chat Completions temperature=0/enable_thinking=false
-experiment; the frozen development benchmark is not a production guarantee.
+a 60-second context timeout, existing bounded retries, temperature=0 and explicit
+reasoning.effort=none. The latter is required for Qwen 3.8, where omitting reasoning
+defaults to xhigh. The handoff used Chat Completions with enable_thinking=false;
+the frozen development benchmark is still not a production guarantee.
 
 For a non-discard UGC result, `is_slop` must be integer 0 or 1, `slop_score` and
 quality must be finite [0,1], and the reason must be nonempty English. Structural
@@ -22,7 +23,7 @@ short discard results require no Slop fields. `slop_score` never controls routin
 Migration 000124 must precede Pipeline deployment. A per-item evaluation saves the
 validated response, original/effective quality, model, prompt version, input hash,
 rendered-template hash, request hash and evaluation time. The request hash binds
-the rendered input, model, max tokens and reasoning setting; it excludes secrets.
+the rendered input, model, max tokens, temperature and reasoning contract; it excludes secrets.
 History remains absent/unevaluated. Concurrent results use the first committed
 checkpoint. A Slop checkpoint and discarded status commit atomically. It keeps the
 existing public `content_evaluation` category; detailed reasons remain private.
@@ -69,3 +70,8 @@ the next complete calendar day, comparing the same cohort's actual daily positiv
 and delivered mix against preceding complete days. Partial-day data and model
 replacement must be identified separately. No effect claim follows from passing
 latency or health checks alone.
+
+Native transaction/migration regressions use `SLOP_PG_TEST_DSN`, a dedicated
+loopback database whose name contains `slop_validation`. Run
+`go test -race ./migrations ./rpc/item/dal -run '^TestSlop'` with that variable.
+The ordinary service `PG_DSN` does not opt into these isolated tests.

@@ -123,6 +123,11 @@ jobs:
         run: go test -race -count=1 ./rpc/sort/discovery -run '^TestBroadcastRetrievalFiltersExpiryAtRequestClock$'
       - name: Verify migration source contracts
         run: go test -count=1 ./migrations
+      - name: Verify UGC Slop checkpoints and aggregate views
+        run: |
+          psql "$PG_DSN" -c 'CREATE DATABASE slop_validation_ci;'
+          SLOP_PG_TEST_DSN='postgres://postgres:postgres@127.0.0.1:5432/slop_validation_ci?sslmode=disable' \
+            go test -race -count=1 ./migrations ./rpc/item/dal -run '^TestSlop'
       - name: Verify recommendation attribution and daily/hourly snapshot transactions
         run: |
           psql "$PG_DSN" -c 'CREATE DATABASE recommendation_metrics_ci;'

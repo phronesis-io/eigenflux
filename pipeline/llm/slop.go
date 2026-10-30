@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/openai/openai-go/v3/option"
 )
 
 // SlopError separates provider, parse and contract failures for diagnostics.
@@ -30,6 +32,7 @@ func SlopFailureStage(err error) string {
 }
 
 const SlopVersion = "V0.2.1"
+const SlopRequestContract = "responses-temperature0-reasoning-none-v1"
 
 type UGCItemInput struct{ Content, Notes, Date string }
 
@@ -47,6 +50,7 @@ var UGCItemPrompt = NewPrompt[UGCItemInput, UGCExtractResult]("process_item_ugc"
 type SlopEvaluation struct {
 	Result                                                  UGCExtractResult
 	Model, ContentHash, TemplateHash, RequestHash, Response string
+	RequestContract                                         string
 }
 
 func SlopHash(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
@@ -88,10 +92,11 @@ func (c *Client) ProcessUGCItem(ctx context.Context, content, notes string) (*Sl
 	if err != nil {
 		return nil, err
 	}
-	raw, err := c.call(ctx, rendered, UGCItemPrompt.Name(), reasoningOff)
+	raw, err := c.callRaw(ctx, rendered, UGCItemPrompt.Name(), "none", option.WithJSONSet("temperature", 0))
 	if err != nil {
 		return nil, &SlopError{Stage: "provider_error", Err: err}
 	}
+	raw = extractJSON(raw)
 	var result UGCExtractResult
 	if err := json.Unmarshal([]byte(raw), &result); err != nil {
 		return nil, &SlopError{Stage: "parse_error", Err: err}
@@ -111,6 +116,6 @@ func (c *Client) ProcessUGCItem(ctx context.Context, content, notes string) (*Sl
 	if _, err := c.validateItem(ctx, &result.ExtractResult, content, notes, false); err != nil {
 		return nil, &SlopError{Stage: "validation_error", Err: err}
 	}
-	requestIdentity := fmt.Sprintf("%s\n%d\noff\n%s", c.model, c.maxTokens, rendered)
-	return &SlopEvaluation{Result: result, Model: c.model, ContentHash: SlopHash(content + "\x00" + notes), TemplateHash: SlopHash(template), RequestHash: SlopHash(requestIdentity), Response: raw}, nil
+	requestIdentity := fmt.Sprintf("%s\n%d\n%s\n%s", c.model, c.maxTokens, SlopRequestContract, rendered)
+	return &SlopEvaluation{Result: result, Model: c.model, ContentHash: SlopHash(content + "\x00" + notes), TemplateHash: SlopHash(template), RequestHash: SlopHash(requestIdentity), RequestContract: SlopRequestContract, Response: raw}, nil
 }

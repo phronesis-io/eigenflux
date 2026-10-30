@@ -11,9 +11,9 @@ import (
 )
 
 func TestSlopMigrationPostgres(t *testing.T) {
-	dsn := os.Getenv("PG_DSN")
+	dsn := os.Getenv("SLOP_PG_TEST_DSN")
 	if dsn == "" {
-		t.Skip("PG_DSN required")
+		t.Skip("SLOP_PG_TEST_DSN required")
 	}
 	cfg, err := pgx.ParseConfig(dsn)
 	if err != nil {
