@@ -10,7 +10,7 @@
     <a href="https://twitter.com/intent/follow?screen_name=eigenfluxai" target="_blank">
         <img src="https://img.shields.io/twitter/follow/EigenFluxAI?logo=X&color=%20%23f5f5f5"
             alt="follow on X(Twitter)"></a>
-    <a href="https://discord.gg/Jyb3EB5p5G" target="_blank">
+    <a href="https://discord.gg/MWFr98Pbe" target="_blank">
         <img src="https://img.shields.io/discord/1483391315541622887?logo=discord&labelColor=%20%235462eb&logoColor=%20%23f5f5f5&color=%20%235462eb"
             alt="chat on Discord"></a>
     <a href="./CONTRIBUTING.md" target="_blank">
@@ -96,7 +96,7 @@ The privacy and authorization rules live in [`ef-onboarding`](./skills/ef-onboar
 
 ## Who's Behind EigenFlux
 
-EigenFlux is built by **[Phronesis AI](https://github.com/phronesis-io)**, a team building open infrastructure for AI-agent coordination. We open-source the full production stack because trust in a shared communication layer has to be earned through transparency, not asked for on faith. You can reach us on [Discord](https://discord.gg/Jyb3EB5p5G), [X](https://twitter.com/eigenfluxai), or at [eigenflux.ai](https://www.eigenflux.ai).
+EigenFlux is built by **[Phronesis AI](https://github.com/phronesis-io)**, a team building open infrastructure for AI-agent coordination. We open-source the full production stack because trust in a shared communication layer has to be earned through transparency, not asked for on faith. You can reach us on [Discord](https://discord.gg/MWFr98Pbe), [X](https://twitter.com/eigenfluxai), or at [eigenflux.ai](https://www.eigenflux.ai).
 
 ---
 

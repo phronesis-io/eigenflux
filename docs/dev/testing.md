@@ -75,6 +75,12 @@ Run `python3 -m unittest discover -s tests/cli_release -p 'test_codex_install.py
 for isolated full-installer selection and receipt tests. The suite preserves a
 non-default `CODEX_HOME`, explicit Agent Home, unrelated config, and opt-outs.
 
+Run `python3 -m unittest discover -s tests/cli_release -p 'test_skills_install.py'`
+for GitHub Skills bootstrap coverage when signed CDN synchronization fails.
+The suite checks CLI compatibility, preservation of existing Skills on rejection,
+and complete installation of `ef-support`, including its references and binary
+QR asset. Development-only and unrelated Skills remain excluded.
+
 ## Commission Deployed Boundary
 
 The public routing regression test runs a local Caddy process for both

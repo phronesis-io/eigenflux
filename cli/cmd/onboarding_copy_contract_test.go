@@ -7,6 +7,71 @@ import (
 	"testing"
 )
 
+// Render the actual production fragments across both profile and browser paths.
+// Native tool selection and visible opening still require a desktop walkthrough.
+func TestOnboardingBrowserHandoffRendering(t *testing.T) {
+	b, err := os.ReadFile("../../skills/ef-onboarding/references/messages.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, newline := range []string{"\n", "\r\n"} {
+		messages := strings.ReplaceAll(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n", newline)
+		fragment := func(t *testing.T, id, locale string) string {
+			t.Helper()
+			normalized := strings.ReplaceAll(messages, "\r\n", "\n")
+			section := regexp.MustCompile(`(?s)\n## ` + regexp.QuoteMeta(id) + `\n(.*?)(?:\n## |$)`).FindStringSubmatch(normalized)
+			if section == nil {
+				t.Fatalf("missing fragment %s", id)
+			}
+			parts := strings.SplitN(section[1], "### "+locale+"\n", 2)
+			if len(parts) != 2 {
+				t.Fatalf("missing locale %s/%s", id, locale)
+			}
+			body := strings.SplitN(parts[1], "\n### ", 2)[0]
+			var lines []string
+			for _, line := range strings.Split(body, "\n") {
+				if strings.HasPrefix(line, ">") {
+					lines = append(lines, strings.TrimPrefix(strings.TrimPrefix(line, ">"), " "))
+				}
+			}
+			return strings.Join(lines, "\n")
+		}
+		for _, locale := range []string{"zh", "en"} {
+			for _, profile := range []string{"profile_ready", "profile_manual"} {
+				for _, browser := range []string{"browser_opened", "browser_preview_ready", "browser_external_requested", "browser_manual"} {
+					t.Run(locale+"/"+profile+"/"+browser+"/"+map[string]string{"\n": "LF", "\r\n": "CRLF"}[newline], func(t *testing.T) {
+						// Non-default origin/port and encoded ticket/nonce catch lossy URL rendering.
+						url := "https://console.example.test:8443/dashboard/handoff?ticket=efht_A%2BB&source=test#nonce=N%2Fz%3D"
+						if err := validateConsoleHandoffURL(url); err != nil {
+							t.Fatal(err)
+						}
+						body := strings.NewReplacer(
+							"<profile-result>", fragment(t, profile, locale),
+							"<browser-instruction>", fragment(t, browser, locale),
+							"<return-instruction>", strings.ReplaceAll(fragment(t, "return_host", locale), "<first-check-request>", fragment(t, "first_check_request", locale)),
+							"<progress>", "stage-4-pending",
+							"<console-url>", url,
+						).Replace(fragment(t, "handoff", locale))
+						links := regexp.MustCompile(`\]\(([^\n]+)\)`).FindAllStringSubmatch(body, -1)
+						if len(links) != 1 || links[0][1] != url {
+							t.Fatalf("handoff must preserve exactly one complete link: %q", body)
+						}
+						if regexp.MustCompile(`<[-a-z]+>`).MatchString(body) {
+							t.Fatalf("unresolved handoff slot: %q", body)
+						}
+						if !strings.Contains(body, fragment(t, "first_check_request", locale)) {
+							t.Fatal("browser opening must retain the explicit first-check request")
+						}
+						if browser == "browser_manual" && (strings.Contains(body, "I've opened") || strings.Contains(body, "已在内置浏览器")) {
+							t.Fatal("manual fallback must not claim an opened browser")
+						}
+					})
+				}
+			}
+		}
+	}
+}
+
 func TestOnboardingResultAndHostRouting(t *testing.T) {
 	for _, newline := range []string{"\n", "\r\n"} {
 		t.Run(map[string]string{"\n": "LF", "\r\n": "CRLF"}[newline], func(t *testing.T) {
@@ -74,6 +139,9 @@ func TestRichPrefillAndFeedPresentationContract(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if strings.HasSuffix(path, ".md") {
+			return strings.ReplaceAll(string(b), "\r\n", "\n")
+		}
 		return string(b)
 	}
 	prefill := read("skills/ef-onboarding/references/prefill.md")
@@ -106,19 +174,36 @@ func TestOnboardingCommunityInvitation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if strings.HasSuffix(path, ".md") {
+			return strings.ReplaceAll(string(b), "\r\n", "\n")
+		}
 		return string(b)
 	}
-	connection := read("references/connection.md")
-	for _, phrase := range []string{"after `action_menu`", "`check_empty`", "Do not wait for an action selection", "Do not repeat it in action results", "original task history", "scheduled heartbeat", "Never join a community", "absolute path", "show Discord only"} {
+	connection := read("references/community.md")
+	for _, phrase := range []string{"After verified installation", "`welcome`", "`schedule`", "first check", "original task history", "scheduled heartbeat", "Never join a community", "`ef-support`", "later explicit request"} {
 		if !strings.Contains(connection, phrase) {
 			t.Errorf("missing community boundary: %s", phrase)
 		}
 	}
-	messages := read("references/messages.md")
-	if strings.Count(messages, "https://discord.gg/MWFr98Pbe") != 2 {
-		t.Error("expected bilingual community links")
+	if !strings.Contains(read("SKILL.md"), "references/community.md") || !strings.Contains(read("references/connection.md"), "Do not append a community invitation") {
+		t.Error("invitation must be routed from installation and excluded from first check")
 	}
-	if !strings.HasPrefix(read("assets/wechat-group-qr.png"), "\x89PNG\r\n\x1a\n") {
+	completionCopy := read("references/messages.md")
+	for _, id := range []string{"check_done", "check_empty"} {
+		section := regexp.MustCompile(`(?s)\n## ` + id + `\n(.*?)(?:\n## |$)`).FindStringSubmatch(completionCopy)
+		if len(section) != 2 {
+			t.Fatalf("missing completion fragment %s", id)
+		}
+		instructions := strings.SplitN(section[1], "### zh", 2)[0]
+		if !strings.Contains(instructions, "Do not append a community invitation.") || strings.Contains(instructions, "Then append") || strings.Contains(instructions, "Append the host-appropriate") {
+			t.Errorf("completion fragment %s must not repeat welcome invitation", id)
+		}
+	}
+	messages := read("../ef-support/references/messages.md")
+	if strings.Count(messages, "https://discord.gg/MWFr98Pbe") != 6 {
+		t.Error("expected bilingual inline, attachment and Discord-only community links")
+	}
+	if !strings.HasPrefix(read("../ef-support/assets/wechat-group-qr.png"), "\x89PNG\r\n\x1a\n") {
 		t.Error("missing bundled PNG")
 	}
 }
@@ -146,5 +231,154 @@ func TestOnboardingPrefillContextDiscovery(t *testing.T) {
 	}
 	if !strings.Contains(string(host), "`prefill_choice` for every user") {
 		t.Fatal("context discovery must preserve the common optional Prefill question")
+	}
+}
+
+// The routing implementation is a Skill; protect its host/receipt contract.
+// These assertions do not replace the native WorkBuddy acceptance test.
+func TestWorkBuddyDirectPreviewContract(t *testing.T) {
+	b, err := os.ReadFile("../../skills/ef-onboarding/references/connection.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.ReplaceAll(string(b), "\r\n", "\n")
+	start := strings.Index(text, "In WorkBuddy,")
+	if start < 0 {
+		t.Fatal("missing WorkBuddy route")
+	}
+	section := strings.SplitN(text[start:], "For an explicit system-default-browser", 2)[0]
+	for _, required := range []string{
+		"call `present_files` directly", "`cwd` set to the current task's",
+		"workspace", "`explanation`", "one-element array containing the exact validated `console_url`",
+		"Keep\n`cwd` separate from the Agent Home", "non-error `present_files_result`",
+		"`previewed` array contains that exact URL", "success message alone is insufficient",
+		"Select `browser_preview_ready`", "never select `browser_opened` from this receipt",
+		"omit sidebar status or expansion",
+		"queued results select `browser_manual`", "If the tool is unavailable",
+		"at most one supported tool-discovery lookup",
+		"targeting the existing preview without\nnavigating again",
+		"Do not ask the human to expand the sidebar",
+		"Never install/enable browser control",
+	} {
+		if !strings.Contains(section, required) {
+			t.Errorf("missing host handoff contract: %s", required)
+		}
+	}
+}
+
+func TestWorkBuddyCommunityAttachmentContract(t *testing.T) {
+	b, err := os.ReadFile("../../skills/ef-support/references/delivery.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range []string{"https://raw.githubusercontent.com/phronesis-io/eigenflux/", "immediately after the invitation text", "Do not call `present_files`", "Do not deliver both forms preemptively", "final scheduling question remains last"} {
+		if !strings.Contains(string(b), marker) {
+			t.Errorf("missing inline QR boundary: %s", marker)
+		}
+	}
+	section := strings.SplitN(string(b), "In WorkBuddy, deliver the QR", 2)
+	if len(section) != 2 {
+		t.Fatal("missing native QR delivery route")
+	}
+	for _, phrase := range []string{"fresh file", "`outputs/`", "do not overwrite", "SHA-256", "`present_files` once", "that exact path in `files`", "do not add a raw local Markdown image or file link", "`community_invite_discord`", "without retrying or blocking onboarding", "For other hosts, use `community_invite`"} {
+		if !strings.Contains(section[1], phrase) {
+			t.Errorf("missing QR contract: %s", phrase)
+		}
+	}
+	b, err = os.ReadFile("../../skills/ef-support/references/messages.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"community_invite_attachment", "community_invite_discord"} {
+		match := regexp.MustCompile(`(?s)\n## ` + id + `\n(.*?)(?:\n## |$)`).FindStringSubmatch(strings.ReplaceAll(string(b), "\r\n", "\n"))
+		if match == nil {
+			t.Fatalf("missing %s", id)
+		}
+		for _, locale := range []string{"zh", "en"} {
+			parts := strings.SplitN(match[1], "### "+locale+"\n", 2)
+			if len(parts) != 2 {
+				t.Fatalf("missing %s/%s", id, locale)
+			}
+			body := strings.SplitN(parts[1], "\n### ", 2)[0]
+			if !strings.Contains(body, "https://discord.gg/MWFr98Pbe") || strings.Contains(body, "![") || strings.Contains(body, "<wechat-qr-path>") {
+				t.Errorf("invalid native/fallback copy %s/%s", id, locale)
+			}
+			if id == "community_invite_discord" && (strings.Contains(body, "微信") || strings.Contains(body, "WeChat")) {
+				t.Errorf("failed delivery must not promise QR: %s", locale)
+			}
+		}
+	}
+}
+
+func TestPlatformSupportRouting(t *testing.T) {
+	read := func(path string) string {
+		t.Helper()
+		b, err := os.ReadFile("../../skills/" + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.HasSuffix(path, ".md") {
+			return strings.ReplaceAll(string(b), "\r\n", "\n")
+		}
+		return string(b)
+	}
+	support := read("ef-support/SKILL.md")
+	for _, phrase := range []string{"怎么联系平台", "反馈问题", "微信群", "regardless", "No CLI calls", "new request is not suppressed", "Do not send messages", "unless the user asks for a specific one", "For a Discord-only request, skip QR resolution", "For a WeChat-only request"} {
+		if !strings.Contains(support, phrase) {
+			t.Errorf("missing support routing boundary: %s", phrase)
+		}
+	}
+	for _, entry := range []string{"ef-onboarding/SKILL.md", "ef-profile/SKILL.md"} {
+		if !strings.Contains(read(entry), "`ef-support`") {
+			t.Errorf("missing support route: %s", entry)
+		}
+	}
+	if strings.Contains(read("ef-onboarding/references/messages.md"), "https://discord.gg/") {
+		t.Error("onboarding must not duplicate the canonical support channel")
+	}
+	if _, err := os.Stat("../../skills/ef-onboarding/assets/wechat-group-qr.png"); !os.IsNotExist(err) {
+		t.Error("QR asset must have a single support owner")
+	}
+}
+
+func TestSupportPublicCopyConsistency(t *testing.T) {
+	read := func(path string) string {
+		t.Helper()
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.HasSuffix(path, ".md") {
+			return strings.ReplaceAll(string(b), "\r\n", "\n")
+		}
+		return string(b)
+	}
+	support := read("../../skills/ef-support/SKILL.md")
+	re := regexp.MustCompile(`https://discord\.gg/[A-Za-z0-9]+`)
+	canonical := re.FindString(support)
+	if canonical == "" {
+		t.Fatal("missing canonical support invite")
+	}
+	for _, path := range []string{"../../README.md", "../../skills/ef-support/references/messages.md"} {
+		links := re.FindAllString(read(path), -1)
+		if len(links) == 0 {
+			t.Errorf("missing Discord invite in %s", path)
+		}
+		for _, link := range links {
+			if link != canonical {
+				t.Errorf("inconsistent invite in %s: %s", path, link)
+			}
+		}
+	}
+	for _, marker := range []string{"upper-left header", "envelope", "actual link targets", "one business", "Chinese homepage", "English", "Follow the actual page language"} {
+		if !strings.Contains(support, marker) {
+			t.Errorf("missing homepage contact guidance: %s", marker)
+		}
+	}
+	copy := read("../../skills/ef-support/references/messages.md")
+	for _, promise := range []string{"1 个工作日", "one business day"} {
+		if !strings.Contains(copy, promise) {
+			t.Errorf("missing existing response policy: %s", promise)
+		}
 	}
 }

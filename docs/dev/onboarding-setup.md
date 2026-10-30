@@ -107,6 +107,36 @@ notification suppression cannot replace required output with a silence token.
 
 ## Website boundary
 
+After successful provisioning, URL validation and baseline preparation, the
+foreground Agent opens the full Console URL once in the current chat's visible
+built-in browser when the host exposes that capability. Codex uses
+`mcp__codex_app__open_in_codex` with a browser target and right placement.
+The Skill preserves the URL's ticket and nonce without prefetching it. The CLI
+does not launch a browser or change its output contract.
+
+WorkBuddy directly calls `present_files` with the current workspace and a single
+exact Console URL. Only a non-error `present_files_result` whose `previewed`
+contains that URL confirms a prepared preview (`browser_preview_ready`), not
+a visible sidebar. Use neutral Console setup copy without sidebar guidance. Generic
+completion or file listing does not confirm a preview.
+Codex and WorkBuddy skip preliminary browser discovery. After a confirmed
+WorkBuddy preview receipt, make the existing right-side preview visible using
+a documented show/focus tool when available, with at most one tool-discovery
+lookup and a relevant available host Skill read. Do not navigate again, enable
+browser control, use external browsers, or ask the human to expand the sidebar.
+An unavailable named opener falls back to the manual link.
+An explicit default-browser request in local Codex/macOS may select the system
+opener before a built-in attempt. Successful dispatch selects
+`browser_external_requested`, without claiming that the page loaded.
+
+Confirmed visible opening selects `browser_opened`; unavailable, denied,
+failed, queued or ambiguous results select `browser_manual`. All outcomes keep the
+clickable link. Honor manual-opening preferences and native approvals. An open
+failure never repeats provisioning/baseline, launches an external browser, or
+advances onboarding. Resume uses the existing attempt receipt without reopening.
+Email verification and settings remain human actions; the first check still
+requires an explicit foreground request and fresh server-confirmed completion.
+
 The consumer onboarding frontend is not part of this repository. The host
 handoff currently includes the concrete return phrase. Keep it until the
 website completion component ships; do not promise a popup that does not exist.
@@ -171,9 +201,25 @@ server-delivered copy takes effect with the normal backend release/restart.
 
 ## Community invitation
 
-A successful foreground first-check response ends with community_invite after
-its eligible action menu or empty-result suggestions. Both languages share the
-Discord destination and bundled assets/wechat-group-qr.png. Use the installed
-Skill path; fall back to a file link when images cannot render, or Discord only
-when the asset is unavailable. Never repeat it in action results or scheduled
-checks. Joining remains optional and manual.
+The verified-installation welcome ends with community_invite before the
+scheduling permission question. First-check responses never repeat it. Both
+languages share the maintained Discord destination and QR asset owned by
+`ef-support`. Its delivery reference selects the host route and failure behavior.
+Never repeat it in action results or scheduled checks. Joining remains optional
+and manual.
+
+WorkBuddy uses a maintained immutable HTTPS QR image inline after the invitation
+and before the scheduling question. It does not call present_files on this path.
+The bundled native-attachment route remains a fallback for known loading failure
+or an explicit user report; do not deliver both forms preemptively. Source URL
+and fallback details are owned by ef-support/references/delivery.md. Other hosts
+retain their bundled-image delivery. Once-only welcome timing and explicit
+repeatable support requests remain unchanged.
+
+Platform support channels are owned by the discoverable `ef-support` Skill,
+including the Discord URL, QR asset, localized invitation copy and host delivery.
+Onboarding delegates presentation while retaining its once-only automatic timing.
+Explicit support/contact/community requests work before, during and after setup,
+and may repeat delivery without an account command or first-check rerun.
+`ef-profile` delegates platform-contact questions and support referrals to this
+Skill. Contact information does not authorize any account mutation or message.

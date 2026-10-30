@@ -162,15 +162,83 @@ in the user's language and say that onboarding is incomplete. Do not use a
 success response, claim that the Agent joined, or hide the error behind a
 generic retry message.
 
-After all required local operations succeed, render `handoff` from `messages.md`.
+After all required local operations succeed, perform the built-in browser
+handoff below, then render `handoff` from `messages.md`.
 Use `profile_ready` only after the authorized draft was submitted, or
 `profile_manual` for the manual path. Stage 3 is complete; stage 4 remains
-pending. Preserve the complete validated URL as one clickable link; never open
-a browser automatically, display credentials/IDs, or claim setup is finished.
+pending. Preserve the complete validated URL as one clickable link in every
+outcome. Do not display credentials/IDs separately or claim setup is finished.
 Do not invent a link lifetime. The host-return instruction remains enabled
 because the consumer website completion component is outside this repository.
 Do not promise a website popup or switch to `return_website` until that feature
 is independently deployed and verified; currently use `return_host`.
+
+### Built-in browser handoff
+
+For the initial foreground stage-4 handoff, use the host route below. For Codex
+and WorkBuddy, call the named tool directly when its declaration is available;
+do not run a preliminary browser capability search. WorkBuddy may use the
+bounded visibility check below after dispatch. For other hosts, inspect
+available declarations or supported discovery for a tool that opens a URL in the
+current chat's visible built-in browser. Open the complete validated `console_url`
+once, preserving its scheme, host, path, query and fragment exactly; do not
+rebuild it or prefetch the one-time link. Honor a manual-opening preference.
+
+In Codex, use `mcp__codex_app__open_in_codex` when available, with `target.type`
+set to `browser`, `target.url` set to that exact URL, and `placement` set to
+`right`. Omit `threadId` to target the current chat. This only opens the page;
+do not start browser automation, inspect the form, enter email/OTP, or confirm
+settings on the human's behalf.
+
+In WorkBuddy, call `present_files` directly with `cwd` set to the current task's
+workspace, `explanation` describing the human Console setup handoff, and `files`
+set to a one-element array containing the exact validated `console_url`. Keep
+`cwd` separate from the Agent Home; do not change identity or workspace to open
+the URL. Select `browser_preview_ready` only for a non-error `present_files_result` whose
+`previewed` array contains that exact URL. This confirms a prepared preview, not
+that the sidebar expanded; never select `browser_opened` from this receipt.
+Automatically make the right-side built-in browser visible for the human
+handoff; creating a hidden preview alone does not satisfy this objective.
+After a confirmed preview receipt, inspect already available host declarations
+for a tool that shows or focuses the existing preview in the current chat.
+If needed, perform at most one supported tool-discovery lookup and read the
+available host browser Skill only when relevant to that capability. Use a
+documented show/focus operation once, targeting the existing preview without
+navigating again. Select `browser_opened` only if it confirms visible display;
+otherwise retain `browser_preview_ready` and the Console link.
+Keep the handoff focused on Console setup; omit sidebar status or expansion
+instructions. Do not ask the human to expand the sidebar. Do not automate UI
+clicks, use undocumented APIs, or change host preferences. A completed call, a `files` entry or
+a success message alone is insufficient. Missing/mismatched preview, errors,
+denials or queued results select `browser_manual`. If the tool is unavailable,
+also use `browser_manual`. Never install/enable browser control or browser
+extensions for this handoff. A host Skill may describe external-browser
+automation; do not use that as a substitute for the built-in preview. Leave the host's
+link-opening preferences unchanged.
+
+For an explicit system-default-browser request in local Codex on macOS, select
+that route before any built-in attempt. Use the normal command tool to invoke
+`/usr/bin/open` with the exact validated URL as one argument, respecting native
+approval. Prefer argument-array execution; for a shell command, use proper POSIX
+single-quote escaping, including embedded single quotes. Never interpolate an
+unquoted URL or use `eval`. Do not use this route from remote/container execution.
+A zero exit code selects `browser_external_requested`: dispatch is confirmed,
+not page loading or foreground activation. Other results use `browser_manual`.
+This is an explicit alternative, never a fallback after built-in failure or denial.
+Other OS external routes remain unsupported by this handoff.
+
+Use `browser_opened` only when the tool confirms the browser was opened visibly.
+An unavailable tool, error, denial, queued response or ambiguous result uses
+`browser_manual`. Respect host-native approvals; never widen permissions or
+launch an external browser, shell opener or another Agent as a workaround.
+Do not retry automatically or regenerate a link, repeat provisioning, or rerun
+the baseline because opening failed. Retain the attempt/result in the original
+task history; continuation must not open a second tab for the same handoff.
+
+Opening the browser does not prove the page loaded or website setup completed.
+Stage 4 still requires fresh server confirmation; stage 5 still requires the
+human's explicit foreground request. Link renewal and incomplete-setup returns
+keep their existing recovery flows and do not automatically reopen the browser.
 
 Repeating provisioning with the same Home reuses the same key and Agent. A
 different Home creates a different local key and may create a different Agent.
@@ -358,22 +426,9 @@ Do not add a second "view Feed" option immediately after the check, require an
 exploration choice to finish setup, or put this menu into the scheduler prompt.
 
 
-## Community invitation with the first-check menu
+## Community contacts
 
-After a successful foreground first check, append `community_invite` from
-`messages.md` once at the end of the same response: after `action_menu` for
-`check_done`, or after the inline suggestions and follow-up in `check_empty`.
-If no actions qualify, append it after the completion response anyway.
-Do not wait for an action selection or publication. Do not append it to failed
-or incomplete checks. Keep whether it was displayed in the original task history.
-Do not repeat it in action results, draft approval, publication, ordinary Feed
-requests, or a scheduled heartbeat. Never join a community or send a message
-on the user's behalf.
-
-Resolve `<wechat-qr-path>` to the absolute path of `assets/wechat-group-qr.png` under
-this installed ef-onboarding Skill, not cwd or a developer-machine path. Show
-it as an inline image where supported; otherwise replace the image with a
-localized clickable file link to the same asset. Never invent a public image
-URL or decode the QR into an unverified join link. If the asset is unavailable,
-show Discord only rather than a broken image. The invitation is optional and
-has no effect on onboarding completion, permissions, or scheduling.
+The automatic community invitation belongs to the stage-1 welcome; see
+[community.md](community.md). Do not append a community invitation to first-check
+completion, empty results, or action menus. Explicit contact requests use
+`ef-support` independently.
