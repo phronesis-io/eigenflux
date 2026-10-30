@@ -120,5 +120,17 @@
     "title": "Managed enterprise registration available",
     "description": "Default off. Approved integrations can create anonymous Agent identities without personal onboarding; growth counts include these identities only after explicit integration activation. Deployment alone does not activate access.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/469"
+  },
+  {
+    "id": "managed-context-private-matching-v1",
+    "kind": "behavior",
+    "deploy_scope": "full",
+    "dashboards": [
+      "card-refresh",
+      "recommendation-effect"
+    ],
+    "title": "Managed context updates private matching",
+    "description": "Default off. Approved enterprise context can update Card facts and dedicated matching projections after API, pipeline and Sort activation. Private summaries are excluded from public Cards; existing personal CLI routes and experiment assignments retain their behavior. Deployment alone does not enable enterprise access.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/470"
   }
 ]
