@@ -144,10 +144,10 @@ if [[ $failed -eq 0 ]]; then
       exit 1
     fi
     for arch in amd64 arm64; do
-      EIGENFLUX_NOTIFIER_VERSION="$CLI_VERSION" bash "$SCRIPT_DIR/build-notifier-macos.sh" "$HELPERS_DIR/darwin-$arch" "$arch"
+      EIGENFLUX_NOTIFIER_VERSION="$NOTIFIER_VERSION" bash "$SCRIPT_DIR/build-notifier-macos.sh" "$HELPERS_DIR/darwin-$arch" "$arch"
     done
   fi
-  if [[ -n "${EIGENFLUX_NOTARY_PROFILE:-}" ]]; then
+  if [[ -n "${EIGENFLUX_NOTARY_PROFILE:-}" && "${EIGENFLUX_NOTIFIER_REUSE:-0}" != 1 ]]; then
     bash "$SCRIPT_DIR/notarize-notifier-macos.sh" "$HELPERS_DIR"
   fi
   python3 "$SCRIPT_DIR/cli-packages.py" generate "$BUILD_DIR" --helpers "$HELPERS_DIR"

@@ -16,10 +16,10 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 source_dir="$script_dir/../internal/desktopnotify/macos"
 if [[ -z "${EIGENFLUX_NOTIFIER_VERSION:-}" ]]; then
   source "$script_dir/../.cli.config"
-  EIGENFLUX_NOTIFIER_VERSION="$CLI_VERSION"
+  EIGENFLUX_NOTIFIER_VERSION="$NOTIFIER_VERSION"
 fi
 if [[ ! "$EIGENFLUX_NOTIFIER_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo 'Notification helper version must be a stable CLI semantic version.' >&2
+  echo 'Notification helper version must be a stable semantic version.' >&2
   exit 1
 fi
 output_dir="$1/EigenFlux Notifications.app"

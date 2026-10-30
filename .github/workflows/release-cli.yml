@@ -36,7 +36,30 @@ jobs:
           aws s3api put-object --generate-cli-skeleton input | python3 -c 'import json,sys; assert "IfNoneMatch" in json.load(sys.stdin)'
           cd cli
           go test ./internal/selfupdate ./cmd/clirelease
+      - name: Resolve notification App cache identity
+        id: notifier
+        run: |
+          source cli/.cli.config
+          echo "version=$NOTIFIER_VERSION" >> "$GITHUB_OUTPUT"
+      - name: Restore signed and notarized notification Apps
+        id: notifier-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: build/notifier-cache
+          key: notifier-macos-${{ steps.notifier.outputs.version }}-${{ hashFiles('cli/internal/desktopnotify/macos/**', 'cli/scripts/build-notifier-macos.sh', 'cli/scripts/notarize-notifier-macos.sh') }}
+      - name: Verify reused notification Apps
+        if: steps.notifier-cache.outputs.cache-hit == 'true'
+        run: |
+          for arch in amd64 arm64; do
+            app="build/notifier-cache/darwin-$arch/EigenFlux Notifications.app"
+            codesign --verify --deep --strict "$app"
+            codesign -d --verbose=4 "$app" 2>&1 | grep -q '^Authority=Developer ID Application:'
+            xcrun stapler validate "$app"
+            spctl --assess --type execute "$app"
+            test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = '${{ steps.notifier.outputs.version }}'
+          done
       - name: Configure temporary Apple signing and notarization credentials
+        if: steps.notifier-cache.outputs.cache-hit != 'true'
         env:
           MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -70,12 +93,23 @@ jobs:
           EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY: ${{ secrets.EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY }}
           EIGENFLUX_NOTIFIER_SIGN_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
           EIGENFLUX_NOTARY_PROFILE: eigenflux-release
+          EIGENFLUX_NOTIFIER_REUSE: ${{ steps.notifier-cache.outputs.cache-hit == 'true' && '1' || '0' }}
+          EIGENFLUX_NOTIFIER_HELPERS_DIR: ${{ steps.notifier-cache.outputs.cache-hit == 'true' && format('{0}/build/notifier-cache', github.workspace) || '' }}
         run: |
           signing_key_file="$RUNNER_TEMP/eigenflux-skills-signing-key"
           printf '%s' "$EIGENFLUX_SKILLS_SIGNING_KEY" > "$signing_key_file"
           chmod 600 "$signing_key_file"
           export EIGENFLUX_SKILLS_SIGNING_KEY_FILE="$signing_key_file"
           bash cli/scripts/build.sh
+      - name: Stage newly notarized Apps for reuse
+        if: steps.notifier-cache.outputs.cache-hit != 'true'
+        run: cp -R build/cli/helpers build/notifier-cache
+      - name: Save verified notification Apps
+        if: steps.notifier-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: build/notifier-cache
+          key: ${{ steps.notifier-cache.outputs.cache-primary-key }}
       - name: Publish CLI binaries
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
