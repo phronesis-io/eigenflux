@@ -193,19 +193,19 @@ func ActivateInstallation(root, version string, key ed25519.PublicKey) error {
 	}
 	lock, err := os.OpenFile(root+".activation.lock", os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
-		return err
+		return atStep("activation_lock", err)
 	}
 	defer lock.Close()
 	locked, err := tryLock(lock)
 	if err != nil {
-		return err
+		return atStep("activation_lock", err)
 	}
 	if !locked {
 		return fmt.Errorf("installation activation is busy")
 	}
 	defer unlock(lock)
 	if _, err := resolveInstallationVersion(root, version, key); err != nil {
-		return err
+		return atStep("activation_verify", err)
 	}
 	_, pointerErr := os.Lstat(root + ".current.json")
 	current, err := ResolveInstallation(root, key)
@@ -213,12 +213,12 @@ func ActivateInstallation(root, version string, key ed25519.PublicKey) error {
 		return fmt.Errorf("installation downgrade rejected")
 	}
 	if err != nil && !errors.Is(pointerErr, os.ErrNotExist) {
-		return fmt.Errorf("read active installation before activation: %w", err)
+		return atStep("pointer_read", fmt.Errorf("read active installation before activation: %w", err))
 	}
 	data, _ := json.Marshal(installationPointer{Version: version})
 	tmp, err := os.CreateTemp(filepath.Dir(root), ".eigenflux-current-*.json")
 	if err != nil {
-		return err
+		return atStep("pointer_create", err)
 	}
 	defer os.Remove(tmp.Name())
 	if _, err = tmp.Write(data); err == nil {
@@ -229,12 +229,15 @@ func ActivateInstallation(root, version string, key ed25519.PublicKey) error {
 		err = closeErr
 	}
 	if err != nil {
-		return err
+		return atStep("pointer_write", err)
 	}
 	if err := replace(tmp.Name(), root+".current.json"); err != nil {
-		return err
+		return atStep("pointer_replace", err)
 	}
-	return syncDirectory(filepath.Dir(root))
+	if err := syncDirectory(filepath.Dir(root)); err != nil {
+		return atStep("pointer_sync", err)
+	}
+	return nil
 }
 
 func InstallationEnvironment(env []string, root string) []string {

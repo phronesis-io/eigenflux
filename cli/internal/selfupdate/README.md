@@ -26,3 +26,20 @@ target and fixed decision reason separately from raw local error diagnostics.
 `cli/scripts/cli-packages.py` creates deterministic ZIPs before `clirelease`
 signs their final hashes. Build macOS helpers on macOS for each target CPU.
 Publish immutable versioned payloads before changing the signed latest pointer.
+
+## Failure observations
+
+`diagnostics.go` classifies wrapped network and filesystem errors into bounded
+maintenance `error_code` values. Download failures distinguish HTTP status,
+timeout, DNS, TLS and incomplete transfers. Installation failures retain the
+backup, replace, package staging/rename, activation or pointer write/sync step
+and permission, file-in-use, disk-full or other system category. Other native
+errors retain the OS and numeric errno; unclassified errors remain `failed`.
+Local errors retain their original detail. Rollback outcomes
+remain authoritative and retain their diagnostic code. Classification does not
+change locks, trust checks, retry intervals or installation operations.
+
+The existing maintenance wire format and backend accept these codes without a
+migration. Raw paths, URLs, response bodies and credentials are never encoded
+in a code. Coverage starts when the client runs this implementation; upgrading
+a client cannot enrich failures emitted by its previous executable.

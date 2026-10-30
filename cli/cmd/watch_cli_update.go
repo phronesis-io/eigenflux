@@ -57,7 +57,7 @@ func (w *accountWatch) checkCLIUpdate(ctx context.Context, options selfupdate.Op
 	recorder := newMaintenanceRecorder(w.server.Name, "cli", "auto", "", os.Stderr)
 	enabled, policyErr := refreshCLIUpdatePolicy(cfg, w.server.Name)
 	if policyErr != nil {
-		recorder.Finish("check", "waiting_online", options.Version, "", "", "update_policy_unavailable")
+		recorder.PolicyFailure(policyErr, options.Version)
 	}
 	if !enabled {
 		recorder.Finish("check", "blocked", options.Version, "", "", "server_policy_disabled")

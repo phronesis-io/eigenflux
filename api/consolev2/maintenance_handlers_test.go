@@ -84,3 +84,18 @@ func TestMaintenanceHTTPRejectsUnauthenticatedAndIdentityInput(t *testing.T) {
 		t.Fatalf("private unknown event property accepted: %d", status)
 	}
 }
+
+func TestCLIUpdateDiagnosticCodesUseExistingMaintenanceContract(t *testing.T) {
+	for _, code := range []string{
+		"check_http_404", "download_http_404", "download_timeout", "download_dns_error", "download_tls_error",
+		"install_backup_create_permission_denied", "install_replace_file_in_use", "install_package_rename_disk_full",
+		"install_pointer_write_permission_denied", "install_pointer_replace_file_in_use",
+		"update_policy_request_onboarding_required", "update_policy_request_timeout", "update_policy_request_http_503",
+	} {
+		e := validMaintenanceEvent()
+		e.Phase, e.Result, e.RunningVersion, e.ErrorCode = "check", "failed", "", code
+		if err := validateMaintenanceEvent(e, time.Now()); err != nil {
+			t.Fatalf("existing API rejected %s: %v", code, err)
+		}
+	}
+}

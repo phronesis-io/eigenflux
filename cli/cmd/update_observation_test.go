@@ -185,3 +185,42 @@ func TestUpdateObservationFailuresStayVisible(t *testing.T) {
 		}
 	})
 }
+
+func TestUpdateObservationUploadsSpecificFailureWithoutRawError(t *testing.T) {
+	for _, tc := range []struct {
+		phase, code, raw, result string
+		rollback                 bool
+	}{
+		{"download", "download_http_404", "CLI download HTTP 404", "failed", false},
+		{"download", "download_timeout", "Get https://private.invalid/token: timeout", "failed", false},
+		{"install", "install_replace_file_in_use", "install CLI (existing binary retained): private path", "blocked", false},
+		{"install", "install_backup_create_permission_denied", "retain previous CLI: permission denied", "blocked", false},
+		{"adoption", "adoption_failed", "CLI check failed; previous binary restored: private detail", "rolled_back", true},
+	} {
+		t.Run(tc.code, func(t *testing.T) {
+			var received []maintenance.Event
+			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				var batch struct {
+					Events []maintenance.Event `json:"events"`
+				}
+				if err := json.NewDecoder(req.Body).Decode(&batch); err != nil {
+					t.Error(err)
+				}
+				received = batch.Events
+				_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+			}))
+			defer api.Close()
+			_, server := runtimeTestConfig(t, api.URL, true)
+			recorder := newMaintenanceRecorder(server, "cli", "auto", "", nil)
+			recorder.Complete(selfupdate.Result{Status: "failed", Phase: tc.phase, Reason: tc.code, Error: tc.raw, TargetVersion: "1.0.1", RolledBack: tc.rollback}, "1.0.0")
+			recorder.Flush()
+			if len(received) != 1 || received[0].ErrorCode != tc.code || received[0].Result != tc.result || received[0].AttemptID != recorder.attempt {
+				t.Fatalf("failure detail lost: %+v", received)
+			}
+			payload, _ := json.Marshal(received)
+			if strings.Contains(string(payload), "private") {
+				t.Fatal("raw diagnostic uploaded")
+			}
+		})
+	}
+}

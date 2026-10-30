@@ -55,7 +55,7 @@ func StagePackage(ctx context.Context, o Options, m Manifest, rootExecutable str
 	}
 	versions := rootExecutable + ".versions"
 	if err := packageDirectory(versions); err != nil {
-		return "", "", err
+		return "", "", atStep("package_directory", err)
 	}
 	manifestData, err := json.Marshal(m)
 	if err != nil {
@@ -90,17 +90,17 @@ func StagePackage(ctx context.Context, o Options, m Manifest, rootExecutable str
 	}
 	stage, err := os.MkdirTemp(versions, ".stage-*")
 	if err != nil {
-		return "", "", err
+		return "", "", atStep("package_stage", err)
 	}
 	defer os.RemoveAll(stage)
 	if err := ExtractPackage(bytes.NewReader(data), int64(len(data)), stage); err != nil {
-		return "", "", err
+		return "", "", atStep("package_extract", err)
 	}
 	if err := writePackageArchive(filepath.Join(stage, packageArchive), data); err != nil {
-		return "", "", err
+		return "", "", atStep("package_archive", err)
 	}
 	if err := writePackageArchive(filepath.Join(stage, "release.json"), manifestData); err != nil {
-		return "", "", err
+		return "", "", atStep("package_manifest", err)
 	}
 	if err := validateInstalledPackage(ctx, stage, artifact, binary, executable, m.Version, o.Home, manifestData); err != nil {
 		return "", "", err
@@ -111,13 +111,13 @@ func StagePackage(ctx context.Context, o Options, m Manifest, rootExecutable str
 	}
 	progress("install")
 	if err := syncDirectory(stage); err != nil {
-		return "", "", err
+		return "", "", atStep("package_sync", err)
 	}
 	if err := os.Rename(stage, destination); err != nil {
-		return "", "", fmt.Errorf("install immutable CLI package: %w", err)
+		return "", "", atStep("package_rename", fmt.Errorf("install immutable CLI package: %w", err))
 	}
 	if err := syncDirectory(versions); err != nil {
-		return "", "", err
+		return "", "", atStep("versions_sync", err)
 	}
 	return destination, filepath.Join(destination, executable), nil
 }

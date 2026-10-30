@@ -73,6 +73,13 @@ func Check(ctx context.Context, o Options) (result Result) {
 			result.Reason = result.Phase + "_failed"
 		}
 	}()
+	fail := func(err error) Result {
+		result.Status, result.Error = "failed", err.Error()
+		if result.Reason == "" {
+			result.Reason = failureCode(result.Phase, err)
+		}
+		return result
+	}
 	startPhase := func(phase string) {
 		result.Phase = phase
 		if o.OnProgress != nil {
@@ -95,24 +102,20 @@ func Check(ctx context.Context, o Options) (result Result) {
 	}
 	path, err := filepath.EvalSymlinks(o.Executable)
 	if err != nil {
-		result.Status, result.Error = "failed", err.Error()
-		return
+		return fail(err)
 	}
 	path, err = InstallationRoot(path)
 	if err != nil {
-		result.Status, result.Error = "failed", err.Error()
-		return
+		return fail(err)
 	}
 	lock, err := os.OpenFile(path+".update.lock", os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
-		result.Status, result.Error = "failed", err.Error()
-		return
+		return fail(err)
 	}
 	defer lock.Close()
 	locked, err := tryLock(lock)
 	if err != nil {
-		result.Status, result.Error = "failed", err.Error()
-		return
+		return fail(err)
 	}
 	if !locked {
 		result.Status, result.Reason = "busy", "installation_locked"
@@ -126,8 +129,7 @@ func Check(ctx context.Context, o Options) (result Result) {
 		o.CompletePackage = true
 		installed, err := ResolveInstallation(path, o.Key)
 		if err != nil {
-			result.Status, result.Error = "failed", err.Error()
-			return
+			return fail(atStep("resolve_package", err))
 		}
 		if Compare(installed.Version, o.Version) > 0 {
 			startPhase("adoption")
@@ -172,8 +174,7 @@ func Check(ctx context.Context, o Options) (result Result) {
 	// An interrupted attempt must not acquire the successful daily interval.
 	s.Error = "CLI update did not complete"
 	if err := saveState(path, s); err != nil {
-		result.Status, result.Error = "failed", err.Error()
-		return
+		return fail(atStep("state_write", err))
 	}
 	defer func() {
 		s.Error = result.Error
@@ -181,10 +182,6 @@ func Check(ctx context.Context, o Options) (result Result) {
 			result.Error = strings.TrimSpace(result.Error + "; save update state: " + err.Error())
 		}
 	}()
-	fail := func(err error) Result {
-		result.Status, result.Error = "failed", err.Error()
-		return result
-	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	manifestName := "release.json"
@@ -275,28 +272,30 @@ func Check(ctx context.Context, o Options) (result Result) {
 	// A hard link keeps the old bytes available without a gap at the installed path.
 	backup := path + ".previous"
 	if err = os.Remove(backup); err != nil && !os.IsNotExist(err) {
-		return fail(err)
+		return fail(atStep("backup_remove", err))
 	}
 	if err = os.Link(path, backup); err != nil {
-		return fail(fmt.Errorf("retain previous CLI: %w", err))
+		return fail(atStep("backup_create", fmt.Errorf("retain previous CLI: %w", err)))
 	}
 	if err = syncDirectory(filepath.Dir(path)); err != nil {
-		return fail(fmt.Errorf("persist CLI backup: %w", err))
+		return fail(atStep("backup_sync", fmt.Errorf("persist CLI backup: %w", err)))
 	}
 	if err = replace(tmpName, path); err != nil {
-		return fail(fmt.Errorf("install CLI (existing binary retained): %w", err))
+		return fail(atStep("replace", fmt.Errorf("install CLI (existing binary retained): %w", err)))
 	}
 	err = syncDirectory(filepath.Dir(path))
-	if err == nil {
+	if err != nil {
+		err = atStep("directory_sync", err)
+	} else {
 		startPhase("adoption")
 		err = probe(ctx, path, m.Version, o.Home)
 	}
 	if err != nil {
 		if restoreErr := replace(backup, path); restoreErr != nil {
-			return fail(fmt.Errorf("CLI check failed: %v; restore %s failed: %w", err, backup, restoreErr))
+			return fail(atStep("rollback_replace", fmt.Errorf("CLI check failed: %v; restore %s failed: %w", err, backup, restoreErr)))
 		}
 		if restoreErr := syncDirectory(filepath.Dir(path)); restoreErr != nil {
-			return fail(fmt.Errorf("previous CLI restored but directory sync failed: %w", restoreErr))
+			return fail(atStep("rollback_sync", fmt.Errorf("previous CLI restored but directory sync failed: %w", restoreErr)))
 		}
 		result.RolledBack = true
 		return fail(fmt.Errorf("CLI check failed; previous binary restored: %w", err))
@@ -355,7 +354,7 @@ func download(ctx context.Context, client *http.Client, url string, limit int64,
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("CLI download HTTP %d", resp.StatusCode)
+		return nil, &downloadHTTPError{status: resp.StatusCode}
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {

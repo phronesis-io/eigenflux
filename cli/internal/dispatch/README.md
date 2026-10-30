@@ -57,6 +57,10 @@ return `needs_user`, without switching to a permission-bypass mode.
 | [dispatch Skill](../../../skills/ef-communication/references/dispatch.md) | Agent decision rules |
 | [capability registry](../../../api/consolev2/capability_registry.go) | Command discovery |
 
+Watch CLI update failures reuse the bounded diagnostics in
+[CLI observations](../../cmd/OBSERVABILITY.md#cli-update-observations), including
+policy failure causes; classification does not change dispatch or admission.
+
 ## PM flow and invariants
 
 CLI 1.0.22 accepts explicit ACP `main_session_id` and optional `main_command`

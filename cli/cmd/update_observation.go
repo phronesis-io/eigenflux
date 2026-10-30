@@ -159,10 +159,16 @@ func (r *maintenanceRecorder) Complete(result selfupdate.Result, from string) {
 		outcome, code = "blocked", "trust_key_missing"
 	}
 	if result.RolledBack {
-		outcome, code = "rolled_back", "probe_failed"
+		outcome = "rolled_back"
+		if code == "" {
+			code = "probe_failed"
+		}
 	}
 	if !result.RolledBack && (strings.Contains(result.Error, "permission") || strings.Contains(result.Error, "access is denied") || strings.Contains(result.Error, "existing binary retained")) {
-		outcome, code = "blocked", "installation_blocked"
+		outcome = "blocked"
+		if code == "" || code == phase+"_failed" {
+			code = "installation_blocked"
+		}
 	}
 	r.Finish(phase, outcome, from, target, "", code)
 }
