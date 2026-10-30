@@ -98,5 +98,16 @@
     "title": "Preserve Need candidates and soft-quota equal-priority Needs",
     "description": "Need budget, attribution and the need_mix soft quota default off; compare arms recorded in replay_logs.agent_features.experiments by Need count, starting from bucket activation, not deployment time; rows before this release carry no arm. Scores are unchanged, while snapshot and page allocation across Needs can change. Global Swing recall and page ceilings activate separately for all Agents. Hydration timing starts only after the full Sort rollout; historical latency is not backfilled. Existing frozen pages retain their order.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/459"
+  },
+  {
+    "id": "ugc-slop-v021-available",
+    "kind": "instrumentation",
+    "deploy_scope": "full",
+    "dashboards": [
+      "recommendation-effect"
+    ],
+    "title": "UGC AI Slop V0.2.1 gate available (default off)",
+    "description": "New schema and worker instrumentation are available after deployment. Evaluation and blocking remain disabled until UGC_SLOP_ENABLED is explicitly activated. Historical broadcasts are not relabeled. Global Qwen model replacement and gate activation need separate events and next-day fixed-cohort delivery/positive-feedback checks.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/466"
   }
 ]
