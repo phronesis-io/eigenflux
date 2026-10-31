@@ -143,5 +143,17 @@
     "title": "Managed Feed batches use durable admission",
     "description": "Default off. Activated enterprise requests reserve shared application quota and Agent cadence before generation, and retry saved batches without extra source calls. Unknown outcomes conservatively consume a round. Existing personal CLI Feed cadence and authorization are unchanged. Full API, Feed and Sort rollout is required; deployment alone does not activate enterprise access.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/471"
+  },
+  {
+    "id": "managed-integration-observation-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "full",
+    "dashboards": [
+      "user-growth",
+      "recommendation-effect"
+    ],
+    "title": "Managed integration request diagnostics available",
+    "description": "Default off. Activated enterprise routes observe mapped Agent request counts, recent activity and fixed failure codes for operator inspection. Observations are best effort and not billing totals; admitted generation counters stay transactional. No historical backfill or personal CLI authorization/cadence change. SDK adoption and explicit enterprise activation are separate from deployment.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/472"
   }
 ]

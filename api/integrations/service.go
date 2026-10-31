@@ -15,6 +15,7 @@ import (
 	"eigenflux_server/pkg/integrationfeed"
 	"eigenflux_server/pkg/integrationidentity"
 	"eigenflux_server/pkg/integrationprofile"
+	"eigenflux_server/pkg/logger"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 )
@@ -25,14 +26,17 @@ type Service struct {
 }
 type appKey struct{}
 
+const observedAgentKey = "integration_observed_agent"
+const failureCodeKey = "integration_failure_code"
+
 func (s *Service) Register(h *server.Hertz) {
-	h.POST("/api/v2/integrations/sdk/installations", s.authenticate, s.register)
-	h.POST("/api/v2/integrations/sdk/control:check", s.authenticate, s.control)
-	h.PUT("/api/v2/integrations/agents/me/context", s.authenticate, s.putContext)
-	h.GET("/api/v2/integrations/agents/me/context", s.authenticate, s.getContext)
-	h.GET("/api/v2/integrations/agents/me/card", s.authenticate, s.getCard)
-	h.POST("/api/v2/integrations/agents/me/feed", s.authenticate, s.pullFeed)
-	h.GET("/api/v2/integrations/agents/me/feed", s.authenticate, s.latestFeed)
+	h.POST("/api/v2/integrations/sdk/installations", s.authenticate, s.observe, s.register)
+	h.POST("/api/v2/integrations/sdk/control:check", s.authenticate, s.observe, s.control)
+	h.PUT("/api/v2/integrations/agents/me/context", s.authenticate, s.observe, s.putContext)
+	h.GET("/api/v2/integrations/agents/me/context", s.authenticate, s.observe, s.getContext)
+	h.GET("/api/v2/integrations/agents/me/card", s.authenticate, s.observe, s.getCard)
+	h.POST("/api/v2/integrations/agents/me/feed", s.authenticate, s.observe, s.pullFeed)
+	h.GET("/api/v2/integrations/agents/me/feed", s.authenticate, s.observe, s.latestFeed)
 }
 
 func (s *Service) business(ctx context.Context, c *app.RequestContext) (integrationidentity.Agent, error) {
@@ -42,7 +46,17 @@ func (s *Service) business(ctx context.Context, c *app.RequestContext) (integrat
 	if installation == "" || len(installation) > 128 || instance == "" || len(instance) > 128 {
 		return integrationidentity.Agent{}, &integrationidentity.Error{Status: 400, Code: "INVALID_INTEGRATION_BINDING"}
 	}
-	return s.Store.RequireBusiness(ctx, owner, installation, instance)
+	policy, agent, err := s.Store.Check(ctx, owner, installation, instance)
+	if agent.AgentID != 0 {
+		c.Set(observedAgentKey, agent.AgentID)
+	}
+	if err != nil {
+		return integrationidentity.Agent{}, err
+	}
+	if !policy.BusinessEnabled {
+		return integrationidentity.Agent{}, &integrationidentity.Error{Status: 403, Code: policy.Reason}
+	}
+	return agent, nil
 }
 
 func (s *Service) putContext(ctx context.Context, c *app.RequestContext) {
@@ -117,6 +131,7 @@ func fail(c *app.RequestContext, err error) {
 		c.Header("Retry-After", strconv.Itoa(seconds))
 		response["retry_after_seconds"] = seconds
 	}
+	c.Set(failureCodeKey, typed.Code)
 	c.JSON(typed.Status, response)
 }
 
@@ -169,6 +184,7 @@ func (s *Service) register(ctx context.Context, c *app.RequestContext) {
 		fail(c, err)
 		return
 	}
+	c.Set(observedAgentKey, result.Agent.AgentID)
 	c.JSON(200, map[string]any{"code": 0, "msg": "success", "data": result})
 }
 
@@ -188,10 +204,35 @@ func (s *Service) control(ctx context.Context, c *app.RequestContext) {
 	owner, _ := ctx.Value(appKey{}).(string)
 	bound, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	policy, _, err := s.Store.Check(bound, owner, req.InstallationID, req.RuntimeInstanceID)
+	policy, agent, err := s.Store.Check(bound, owner, req.InstallationID, req.RuntimeInstanceID)
+	if agent.AgentID != 0 {
+		c.Set(observedAgentKey, agent.AgentID)
+	}
 	if err != nil {
 		fail(c, err)
 		return
 	}
 	c.JSON(200, map[string]any{"code": 0, "msg": "success", "data": policy})
+}
+
+// observe is limited to enterprise routes. Request observations never replace
+// the transactional generation counters used for cadence and quotas.
+func (s *Service) observe(ctx context.Context, c *app.RequestContext) {
+	c.Next(ctx)
+	raw, _ := c.Get(observedAgentKey)
+	agentID, _ := raw.(int64)
+	value, _ := c.Get(failureCodeKey)
+	failure, _ := value.(string)
+	if failure != "" {
+		owner, _ := ctx.Value(appKey{}).(string)
+		logger.Ctx(ctx).Warn("managed integration request rejected", "app_id", owner, "agent_id", agentID, "reason", failure)
+	}
+	if agentID == 0 {
+		return
+	}
+	bound, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	if err := s.Store.RecordRequest(bound, agentID, failure); err != nil {
+		logger.Ctx(ctx).Warn("managed request observation unavailable", "agent_id", agentID)
+	}
 }

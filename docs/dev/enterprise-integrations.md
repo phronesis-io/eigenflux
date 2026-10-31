@@ -236,13 +236,128 @@ unavailable projection before ranking. Feed returns the actually used revision,
 and API verifies it before saving. Mixed/old binaries cannot report matching
 readiness as if the new context had been applied.
 
+## Operator tool
+
+Apply migration `000128_integration_request_observation.sql` before enabling this
+version of the gateway. Operators use `go run ./scripts/integration_admin` through
+existing restricted database access; no customer-accessible management route is
+added. `PG_DSN` must be explicitly supplied in the operator environment. The tool
+does not source `.env`, migrate the database, or deploy services.
+
+The default action is read-only `inspect`. Mutations are dry-run plans unless
+`--apply` is supplied, and require an actor and reason. `set-enabled` requires an
+explicit scope and true/false value so an omitted app ID cannot accidentally
+change the global switch. The global scope is enterprise-only.
+
+```sh
+# Inspect one application's Agents, installations, runtime/SDK versions,
+# switches, cadence, activity, usage and fixed failure reasons.
+go run ./scripts/integration_admin --app-id partner
+
+go run ./scripts/integration_admin --action create-app --app-id partner \
+  --name 'Partner application' --max-agents 100 --max-installations 1 \
+  --min-poll-seconds 3600 --max-feed-batches-per-day 2400 \
+  --actor operator-name --reason 'Approved enterprise integration'
+
+# After reviewing the plan, repeat it with --apply and a new credential file.
+# Applications are created disabled; the credential is never printed.
+# --credential-out /private/partner.credential
+
+go run ./scripts/integration_admin --action set-enabled --scope app \
+  --app-id partner --enabled true --actor operator-name --reason 'Activate approved application'
+
+go run ./scripts/integration_admin --action set-enabled --scope agent \
+  --app-id partner --agent-id 123 --enabled false --actor operator-name --reason 'Customer suspension'
+
+go run ./scripts/integration_admin --action set-enabled --scope global \
+  --enabled false --actor operator-name --reason 'Enterprise service maintenance'
+
+go run ./scripts/integration_admin --action set-policy --app-id partner \
+  --max-feed-batches-per-day 4800 --actor operator-name --reason 'Approved quota change'
+
+go run ./scripts/integration_admin --action rotate-credential --app-id partner \
+  --actor operator-name --reason 'Credential rotation'
+
+go run ./scripts/integration_admin --action audit --app-id partner
+```
+
+Only executed create/rotate actions require `--credential-out`. The new file is
+opened exclusively with mode 0600 before mutation; existing files are refused.
+A file write/sync failure after committing a credential requires another audited
+rotation to a new file. Deliver the credential through the customer's approved
+secret channel; never give a B application the operator's database credential.
+
+`set-policy` retains unspecified fields, occupied identity/installation slots,
+current usage counters and enabled state. Raising the minimum interval also
+constrains the next admission relative to the last generation, even if the
+previously returned cadence hint is shorter. Lowering a limit does not delete
+or re-enable existing identities. Installation controls use scope `installation`
+plus `--app-id` and `--installation-id`.
+
+Inspection returns at most 100 apps/Agents and 1000 installations with truncation
+flags. Filter by `--app-id`/`--agent-id`, and use `--after-agent-id` for subsequent
+Agent pages. Audit returns the most recent 100 matching operator records.
+Credential hashes, raw context, private matching text and Feed payloads are not
+selected by these views. A valid credential is not proof that business is
+currently enabled; global/app/Agent/installation switches remain separate.
+
+`request_count`, last request time and fixed last-failure code/time observe
+requests that resolved to a managed Agent, including cache hits and disabled
+instance attempts. Control checks are included. Requests that cannot be mapped
+to an Agent are excluded. Observation is best effort: storage failure logs a
+fixed warning, without Token/context, and does not replace the business response.
+There is no historical backfill. These counters are operational diagnostics,
+not a billing ledger. Application/Agent admitted batch totals remain exact and
+transactional; retries do not increment those admission counters.
+
+## Reference application and end-to-end acceptance
+
+[The runnable B-side reference Agent](../../examples/enterprise_sdk/README.md)
+uses the private binary wheel, a context provider and a durable customer inbox.
+It consumes Feed into its own notes and resolves unknown delivery by batch ID.
+It is a functional reference application; it does not claim that an external
+Jarvis session or a real customer environment has already been integrated.
+
+The opt-in backend test `TestEnterpriseSDKAcceptance` uses a real native Hertz
+HTTP listener, isolated PostgreSQL schemas, the actual context worker/Card
+projection, legacy ranking and Feed delivery, and a real compiled SDK/Python
+reference process. Fixed local model/search data and a DB-backed Item RPC adapter
+replace external services. It verifies context revisions change returned Feed,
+private-summary isolation, anonymous registration without personal onboarding,
+restart binding/version metadata, retry/cadence enforcement, disabled saved reads,
+and re-enable/resume. Fixture timestamps advance a round instead of sleeping
+one hour. Registration resume uses the actual 30-second SDK retry interval.
+
+Run it alone because it owns the Feed test process's DB/RPC globals:
+
+```sh
+# The explicit loopback test database must already contain all migrations.
+# Use a Python virtualenv with the approved private wheel installed.
+INTEGRATION_TEST_PG_DSN=postgres://postgres:password@127.0.0.1:5432/disposable_database?sslmode=disable \
+EIGENFLUX_SDK_PYTHON=/private/sdk-venv/bin/python \
+EIGENFLUX_SDK_RUNTIME=/private/sdk-venv/lib/python3.12/site-packages/eigenflux_sdk/bin/eigenflux-sdk-runtime \
+  go test -race ./rpc/feed -run '^TestEnterpriseSDKAcceptance$' -count=1 -v
+```
+
+## Activation boundary
+
+These PRs do not deploy, publish a package, or edit production authorization data.
+Before a future full rollout, apply migrations 125–128, verify existing CLI
+contracts, and enable the environment flag on API/pipeline/Sort/Feed together.
+Keep the persistent enterprise global switch and applications disabled until
+approved credentials, capacities and customer state locations are ready. Start
+with one approved application/Agent, verify one full context-to-consumer round,
+and record activation separately from deployment. No personal CLI Feed approval
+migration, automatic approval list, or global CLI cadence change is part of this
+feature. Webhook, TypeScript wrapper and client auto-update remain later work.
+
 ## Validation
 
 ```sh
 go test ./pkg/integrationidentity ./pkg/integrationprofile ./pkg/agentidentity ./api/integrations ./pkg/config
 # First apply all migrations to this disposable test database.
 INTEGRATION_TEST_PG_DSN=postgres://postgres:password@127.0.0.1:5432/disposable_database?sslmode=disable \
-  go test -race ./pkg/integrationidentity ./pkg/integrationprofile ./pkg/integrationfeed ./api/integrations -count=1
+  go test -race ./pkg/integrationidentity ./pkg/integrationprofile ./pkg/integrationfeed ./api/integrations ./scripts/integration_admin -count=1
 ```
 
 The PostgreSQL suites require an explicit loopback DSN and create unique isolated
