@@ -143,6 +143,9 @@ func TestPostgresSingleGenerationAndDurableRetry(t *testing.T) {
 	if err := s.DB.Exec(`UPDATE integration_agents SET next_poll_at=0 WHERE agent_id=1`).Error; err != nil {
 		t.Fatal(err)
 	}
+	if err := s.DB.Exec(`UPDATE integration_feed_batches SET created_at=created_at-3600000 WHERE agent_id=1`).Error; err != nil {
+		t.Fatal(err)
+	}
 	second, accepted, err := s.Begin(ctx, 1, Request{Sequence: 2})
 	if err != nil || !accepted {
 		t.Fatal(second, accepted, err)
@@ -203,6 +206,9 @@ func TestPostgresUnknownNeverRegeneratesAndDisableProtectsPayload(t *testing.T) 
 	if err := s.DB.Exec(`UPDATE integration_agents SET next_poll_at=0 WHERE agent_id=1`).Error; err != nil {
 		t.Fatal(err)
 	}
+	if err := s.DB.Exec(`UPDATE integration_feed_batches SET created_at=created_at-3600000 WHERE agent_id=1`).Error; err != nil {
+		t.Fatal(err)
+	}
 	batch, _, err = s.Begin(ctx, 1, Request{Sequence: 2})
 	if err != nil {
 		t.Fatal(err)
@@ -222,4 +228,27 @@ func TestPostgresUnknownNeverRegeneratesAndDisableProtectsPayload(t *testing.T) 
 	}
 	_, err = s.Latest(ctx, 1)
 	requireError(t, err, 503, "INTEGRATION_FEED_UNAVAILABLE")
+}
+
+func TestPostgresRaisedMinimumAppliesToCurrentAdmission(t *testing.T) {
+	s := feedStore(t)
+	ctx := context.Background()
+	batch, _, err := s.Begin(ctx, 1, Request{Sequence: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied, err := s.Complete(ctx, batch, json.RawMessage(`{"items":[]}`), 0); err != nil || !applied {
+		t.Fatal(applied, err)
+	}
+	if err := s.DB.Exec(`UPDATE integration_feed_batches SET created_at=created_at-3600001`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB.Exec(`UPDATE integration_agents SET next_poll_at=0`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB.Exec(`UPDATE integration_apps SET min_poll_interval_seconds=7200`).Error; err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = s.Begin(ctx, 1, Request{Sequence: 2})
+	requireError(t, err, 429, "FEED_POLL_TOO_EARLY")
 }

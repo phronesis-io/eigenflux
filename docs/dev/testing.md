@@ -350,3 +350,18 @@ the local API accepts feedback but before the response reaches the client. The
 restarted CLI drains the durable queue; the real worker stores one feedback row
 and increments the score counter once. It uses an isolated Agent Home and local
 HTTP proxy, with no host delivery or production writes.
+
+## Enterprise SDK acceptance
+
+The managed integration suites use an explicit loopback PostgreSQL DSN and
+isolated schemas. Run `go test -race ./pkg/integrationidentity
+./pkg/integrationprofile ./pkg/integrationfeed ./api/integrations
+./scripts/integration_admin` with `INTEGRATION_TEST_PG_DSN` set to a migrated
+throwaway database. These suites cover anonymous slots, operator controls,
+context/privacy, Feed admission/retry, observations and safe credential files.
+
+`TestEnterpriseSDKAcceptance` additionally requires the private binary wheel and
+its Python virtualenv. It runs a native gateway, actual worker/ranking/Feed code,
+and the runnable B-side consumer with fixed external dependencies. It advances
+only isolated timestamps and performs no production access. Run that test alone;
+see [the full acceptance instructions](enterprise-integrations.md#reference-application-and-end-to-end-acceptance).

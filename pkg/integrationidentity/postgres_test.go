@@ -68,6 +68,16 @@ func TestPostgresRegistrationQuotaAndMigration(t *testing.T) {
 	if err := db.Exec(up).Error; err != nil {
 		t.Fatal(err)
 	}
+	for _, name := range []string{"000126_integration_contexts.sql", "000127_integration_feed_batches.sql", "000128_integration_request_observation.sql"} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", "migrations", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		up, _, _ := strings.Cut(string(raw), "-- +goose Down")
+		if err := db.Exec(up).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
 	var enabled bool
 	if err := db.Table("integration_control").Select("enabled").Where("id = 1").Scan(&enabled).Error; err != nil || enabled {
 		t.Fatal("migration must not open enterprise access", enabled, err)
@@ -142,5 +152,33 @@ func TestPostgresRegistrationQuotaAndMigration(t *testing.T) {
 	requireCode(t, err, 403, "AGENT_DISABLED")
 	if err := db.Exec(down).Error; err == nil {
 		t.Fatal("rollback discarded live managed identity bindings")
+	}
+
+	policy := AppPolicy{MaxAgents: 3, MaxInstallationsPerAgent: 2, MinPollIntervalSeconds: 7200, MaxFeedBatchesPerDay: 12}
+	if err := s.SetAppPolicy(context.Background(), "partner", policy, "operator", "contract check"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 12; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := s.RecordRequest(context.Background(), winner.Agent.AgentID, ""); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	if err := s.RecordRequest(context.Background(), winner.Agent.AgentID, "AGENT_DISABLED"); err != nil {
+		t.Fatal(err)
+	}
+	view, err := s.Inspect(context.Background(), "partner", winner.Agent.AgentID, 0)
+	if err != nil || len(view.Agents) != 1 || len(view.Applications) != 1 || len(view.Installations) != 1 {
+		t.Fatal(view, err)
+	}
+	if view.Agents[0].RequestCount != 13 || view.Agents[0].LastFailureCode != "AGENT_DISABLED" || view.Agents[0].EffectivePollIntervalSeconds != 7200 || view.Applications[0].AppPolicy != policy {
+		t.Fatal(view)
+	}
+	if view.Agents[0].Enabled {
+		t.Fatal("policy update re-enabled disabled Agent")
 	}
 }

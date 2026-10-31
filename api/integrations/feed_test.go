@@ -44,6 +44,16 @@ func TestEnterpriseHTTPFeedRetriesAndDisable(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	for _, statement := range []string{
+		`ALTER TABLE integration_agents ADD COLUMN request_count BIGINT DEFAULT 0`,
+		`ALTER TABLE integration_agents ADD COLUMN last_request_at BIGINT DEFAULT 0`,
+		`ALTER TABLE integration_agents ADD COLUMN last_failure_code TEXT DEFAULT ''`,
+		`ALTER TABLE integration_agents ADD COLUMN last_failure_at BIGINT DEFAULT 0`,
+	} {
+		if err := db.Exec(statement).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
 	secret, hash, err := integrationidentity.NewCredential()
 	if err != nil {
 		t.Fatal(err)
@@ -104,6 +114,9 @@ func TestEnterpriseHTTPFeedRetriesAndDisable(t *testing.T) {
 	if err := db.Exec(`UPDATE integration_agents SET next_poll_at=0`).Error; err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Exec(`UPDATE integration_feed_batches SET created_at=created_at-3600000`).Error; err != nil {
+		t.Fatal(err)
+	}
 	sourceFails = true
 	status, _, _ = request("POST", `{"sequence":2}`)
 	if status != 503 || calls != 2 {
@@ -112,6 +125,13 @@ func TestEnterpriseHTTPFeedRetriesAndDisable(t *testing.T) {
 	status, _, _ = request("POST", `{"sequence":2}`)
 	if status != 409 || calls != 2 {
 		t.Fatal("unknown was regenerated", status, calls)
+	}
+	var observation struct {
+		RequestCount    int64
+		LastFailureCode string
+	}
+	if err := db.Table("integration_agents").Where("agent_id=1").Scan(&observation).Error; err != nil || observation.RequestCount != 7 || observation.LastFailureCode != "FEED_GENERATION_UNKNOWN" {
+		t.Fatal(observation, err)
 	}
 }
 

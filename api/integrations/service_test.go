@@ -42,6 +42,16 @@ func TestManagedHTTPRegistrationAndLiveControls(t *testing.T) {
 	if err := database.AutoMigrate(&integrationidentity.App{}, &integrationidentity.Agent{}, &integrationidentity.Installation{}); err != nil {
 		t.Fatal(err)
 	}
+	for _, statement := range []string{
+		`ALTER TABLE integration_agents ADD COLUMN request_count BIGINT DEFAULT 0`,
+		`ALTER TABLE integration_agents ADD COLUMN last_request_at BIGINT DEFAULT 0`,
+		`ALTER TABLE integration_agents ADD COLUMN last_failure_code TEXT DEFAULT ''`,
+		`ALTER TABLE integration_agents ADD COLUMN last_failure_at BIGINT DEFAULT 0`,
+	} {
+		if err := database.Exec(statement).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
 	secret, hash, err := integrationidentity.NewCredential()
 	if err != nil {
 		t.Fatal(err)
