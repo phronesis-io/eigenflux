@@ -126,16 +126,16 @@ type Overview struct {
 		Reason    string `json:"reason"`
 		UpdatedAt int64  `json:"updated_at"`
 	} `json:"global"`
-	Applications           []AppOverview   `json:"applications"`
-	Agents                 []AgentOverview `json:"agents"`
-	Installations          []Installation  `json:"installations"`
-	ApplicationsTruncated  bool            `json:"applications_truncated"`
-	AgentsTruncated        bool            `json:"agents_truncated"`
-	InstallationsTruncated bool            `json:"installations_truncated"`
+	Applications           []AppOverview          `json:"applications"`
+	Agents                 []AgentOverview        `json:"agents"`
+	Installations          []InstallationOverview `json:"installations"`
+	ApplicationsTruncated  bool                   `json:"applications_truncated"`
+	AgentsTruncated        bool                   `json:"agents_truncated"`
+	InstallationsTruncated bool                   `json:"installations_truncated"`
 }
 
 func (s *Store) Inspect(ctx context.Context, appID string, agentID, afterAgentID int64) (Overview, error) {
-	result := Overview{Applications: []AppOverview{}, Agents: []AgentOverview{}, Installations: []Installation{}}
+	result := Overview{Applications: []AppOverview{}, Agents: []AgentOverview{}, Installations: []InstallationOverview{}}
 	if s.DB == nil {
 		return result, unavailable()
 	}
@@ -189,4 +189,43 @@ func (s *Store) Inspect(ctx context.Context, appID string, agentID, afterAgentID
 		result.Installations = result.Installations[:1000]
 	}
 	return result, nil
+}
+
+type InstallationOverview struct {
+	Installation
+	SDKState           string `json:"sdk_state"`
+	SDKFailureCode     string `json:"sdk_failure_code"`
+	SDKStateReportedAt int64  `json:"sdk_state_reported_at"`
+}
+
+func (InstallationOverview) TableName() string { return "integration_installations" }
+
+// ReportClientState accepts diagnostic observations only, never authorization
+// facts. Old/superseded instances cannot overwrite the current installation.
+func (s *Store) ReportClientState(ctx context.Context, appID, installationID, instanceID, state, failure string) error {
+	known := map[string]bool{"started": true, "stopped": true, "waiting_for_registration": true, "retrying": true, "paused": true, "control_unavailable": true, "context_failed": true, "generation_unknown": true, "delivered": true, "consumer_busy": true, "delivery_unknown": true}
+	if state == "" || !known[state] {
+		return nil
+	}
+	if failure != "" {
+		lower := map[string]bool{"business_unavailable": true, "registration_unavailable": true, "control_check_failed": true, "context_processing_failed": true, "feed_generation_unknown": true, "consumer_outcome_unknown": true, "awaiting_consumer_resolution": true}
+		valid := len(failure) <= 80
+		for _, r := range failure {
+			if !(r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_') {
+				valid = false
+			}
+		}
+		if !valid && !lower[failure] {
+			failure = "UNRECOGNIZED_CLIENT_FAILURE"
+		}
+	}
+	if s.DB == nil {
+		return unavailable()
+	}
+	db := s.DB.WithContext(ctx).Session(&gorm.Session{Logger: s.DB.Logger.LogMode(logger.Silent)})
+	now, err := serverNow(db)
+	if err != nil {
+		return err
+	}
+	return db.Table("integration_installations").Where("installation_id = ? AND runtime_instance_id = ? AND agent_id IN (SELECT agent_id FROM integration_agents WHERE app_id = ?)", installationID, instanceID, appID).Updates(map[string]any{"sdk_state": state, "sdk_failure_code": failure, "sdk_state_reported_at": now}).Error
 }

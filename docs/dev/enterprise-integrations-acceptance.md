@@ -10,7 +10,7 @@ five-PR enterprise SDK delivery. It is not a production activation record.
 | Hourly server admission, shared quota and idempotency | `pkg/integrationfeed`, Feed routes, migration 127, additive generated RPC fields | 16-way admission produces one generator owner; persisted retries, UTC app quota, changed minimum, old sequences and unknown completion are fenced; immediate second round returns 429 |
 | SDK outer loop and customer consumption | Private compiled Go runtime, thin Python adapter, binary wheel, runnable B reference Agent | Go race tests; actual compiled-runtime Python tests; installed-wheel tests; native backend HTTP -> context worker -> ranking/Feed -> SQLite consumer acceptance |
 | Global/app/Agent/installation controls and bounded local permit | Shared server control checks, operator mutations, independent SDK control loop | Disabled stored payload/Card/context reads fail; stale runtime binding fails; blocked callback is cancelled by a control check while the permit still has 90 seconds; permit expiry has a separate test; SDK restarts disabled and resumes after operator re-enable |
-| Operational visibility | `scripts/integration_admin`, `operations.go`, migration 128 and enterprise-only request observer | Real PostgreSQL dry-run/credential rotation/policy tests; inspection verifies versions, installations, effective cadence, request observations, exact admitted batches and fixed failure codes |
+| Operational visibility | `scripts/integration_admin`, `operations.go`, migration 128 and enterprise-only request observer | Real PostgreSQL dry-run/credential rotation/policy tests; inspection verifies versions, installations, effective cadence, request observations, exact admitted batches, fixed server failure codes and bounded SDK diagnostic snapshots |
 
 The final native acceptance run used an installed macOS arm64 `0.1.0` wheel and
 its bundled runtime, an isolated fully migrated PostgreSQL database, a native
@@ -38,7 +38,9 @@ Additional checks passed locally:
 - Linux/macOS amd64/arm64 wheel builds, member/hash/source-exclusion checks and third-party notices.
 - Actual wheel install into an isolated virtualenv and repeated compiled-runtime acceptance.
 
-Request observations are best effort and exclude unmapped requests. Admission
+Request observations are best effort and exclude unmapped requests. SDK failure
+snapshots are self-reported on control checks, contain no Feed/context/receipts,
+and cannot grant permissions; old instances cannot overwrite them. Admission
 counts are transactional. An unknown generator can conservatively skip a round;
 an unknown consumer outcome remains held until authoritative resolution. The
 SDK cannot forcibly undo customer side effects. Current personal CLI Feed

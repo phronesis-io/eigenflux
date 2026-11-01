@@ -304,7 +304,7 @@ func TestEnterpriseSDKAcceptance(t *testing.T) {
 	}
 	id := view.Agents[0].AgentID
 	installation := view.Installations[0]
-	if view.Agents[0].AppliedMatchingVersion != 1 || view.Agents[0].EffectivePollIntervalSeconds != 3600 || view.Agents[0].RequestCount < 1 || installation.SDKVersion == "" {
+	if view.Agents[0].AppliedMatchingVersion != 1 || view.Agents[0].EffectivePollIntervalSeconds != 3600 || view.Agents[0].RequestCount < 1 || installation.SDKVersion == "" || installation.SDKState == "" || installation.SDKStateReportedAt == 0 {
 		t.Fatal(view)
 	}
 	var public string

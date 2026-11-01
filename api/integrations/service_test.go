@@ -52,6 +52,15 @@ func TestManagedHTTPRegistrationAndLiveControls(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	for _, statement := range []string{
+		`ALTER TABLE integration_installations ADD COLUMN sdk_state TEXT DEFAULT ''`,
+		`ALTER TABLE integration_installations ADD COLUMN sdk_failure_code TEXT DEFAULT ''`,
+		`ALTER TABLE integration_installations ADD COLUMN sdk_state_reported_at BIGINT DEFAULT 0`,
+	} {
+		if err := database.Exec(statement).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
 	secret, hash, err := integrationidentity.NewCredential()
 	if err != nil {
 		t.Fatal(err)
@@ -128,7 +137,7 @@ func TestManagedHTTPRegistrationAndLiveControls(t *testing.T) {
 	if status, _ := contextRequest("PUT", "foreign-instance", `{"source_revision":2,"summary":"wrong runtime"}`); status != 403 {
 		t.Fatal("foreign instance accepted", status)
 	}
-	controlBody, _ := json.Marshal(map[string]string{"installation_id": registered.Installation.InstallationID, "runtime_instance_id": "first"})
+	controlBody, _ := json.Marshal(map[string]string{"installation_id": registered.Installation.InstallationID, "runtime_instance_id": "first", "sdk_state": "consumer_busy", "sdk_failure_code": "consumer_outcome_unknown"})
 	if err := store.SetEnabled(context.Background(), "partner", registered.Agent.AgentID, false, "test-operator", "test stop"); err != nil {
 		t.Fatal(err)
 	}
@@ -151,6 +160,22 @@ func TestManagedHTTPRegistrationAndLiveControls(t *testing.T) {
 	if status, _ := request(path, secret, body); status != 403 {
 		t.Fatal("disabled Agent recreated", status)
 	}
+	var diagnostic struct {
+		SDKState           string
+		SDKFailureCode     string
+		SDKStateReportedAt int64
+	}
+	if err := database.Table("integration_installations").Where("installation_id = ?", registered.Installation.InstallationID).Scan(&diagnostic).Error; err != nil || diagnostic.SDKState != "consumer_busy" || diagnostic.SDKFailureCode != "consumer_outcome_unknown" || diagnostic.SDKStateReportedAt == 0 {
+		t.Fatal(diagnostic, err)
+	}
+	badState, _ := json.Marshal(map[string]string{"installation_id": registered.Installation.InstallationID, "runtime_instance_id": "wrong-instance", "sdk_state": "delivered"})
+	if status, _ := request("/api/v2/integrations/sdk/control:check", secret, string(badState)); status != 200 {
+		t.Fatal(status)
+	}
+	if err := database.Table("integration_installations").Where("installation_id = ?", registered.Installation.InstallationID).Scan(&diagnostic).Error; err != nil || diagnostic.SDKState != "consumer_busy" {
+		t.Fatal("stale instance changed diagnostic", diagnostic, err)
+	}
+
 	if err := database.Exec("DROP TABLE integration_apps").Error; err != nil {
 		t.Fatal(err)
 	}

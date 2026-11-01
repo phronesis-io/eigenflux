@@ -89,6 +89,16 @@ may still read control state when business is disabled. Invalid/rotated
 credentials receive 401. Current control and ownership are read from PostgreSQL
 without a permission cache. A missing control singleton or storage error is 503.
 
+The same control body optionally carries `sdk_state` and `sdk_failure_code`.
+The Go runtime supplies a bounded coarse snapshot such as `consumer_busy` or
+`delivery_unknown`; it never uploads Feed/context/receipts through this channel.
+The server accepts only known states and bounded fixed codes, stamps its own
+report time and updates only the current installation/runtime binding. These are
+self-reported diagnostics, not authorization facts or evidence of consumption.
+They never change switches, quota or cadence, and an unknown diagnostic does not
+invalidate an otherwise valid control check.
+
+
 The effective interval is the maximum of the application's authorized minimum
 and the requested interval (default 3600). This is independent of personal CLI
 cadence. Registration currently exposes the interval; actual Feed generation
@@ -306,7 +316,11 @@ requests that resolved to a managed Agent, including cache hits and disabled
 instance attempts. Control checks are included. Requests that cannot be mapped
 to an Agent are excluded. Observation is best effort: storage failure logs a
 fixed warning, without Token/context, and does not replace the business response.
-There is no historical backfill. These counters are operational diagnostics,
+Installation inspection also shows the latest self-reported SDK state/failure
+and server report timestamp, including busy/unknown consumer outcomes. These
+snapshots ride the existing control check without another timer or endpoint;
+transient states between checks and offline clients may not be observed. They
+are not a delivery receipt ledger. There is no historical backfill. These counters are operational diagnostics,
 not a billing ledger. Application/Agent admitted batch totals remain exact and
 transactional; retries do not increment those admission counters.
 

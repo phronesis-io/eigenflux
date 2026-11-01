@@ -192,6 +192,8 @@ func (s *Service) control(ctx context.Context, c *app.RequestContext) {
 	var req struct {
 		InstallationID    string `json:"installation_id"`
 		RuntimeInstanceID string `json:"runtime_instance_id"`
+		SDKState          string `json:"sdk_state,omitempty"`
+		SDKFailureCode    string `json:"sdk_failure_code,omitempty"`
 	}
 	if err := body(c, &req); err != nil {
 		fail(c, err)
@@ -211,6 +213,9 @@ func (s *Service) control(ctx context.Context, c *app.RequestContext) {
 	if err != nil {
 		fail(c, err)
 		return
+	}
+	if err := s.Store.ReportClientState(bound, owner, req.InstallationID, req.RuntimeInstanceID, req.SDKState, req.SDKFailureCode); err != nil {
+		logger.Ctx(ctx).Warn("managed SDK diagnostic observation unavailable", "agent_id", agent.AgentID)
 	}
 	c.JSON(200, map[string]any{"code": 0, "msg": "success", "data": policy})
 }
