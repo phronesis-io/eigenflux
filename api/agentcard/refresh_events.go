@@ -26,11 +26,12 @@ func safeRefreshRunID(value string) string {
 }
 
 type refreshFunnelEvent struct {
-	Stage       string `json:"stage"`
-	RunID       string `json:"run_id,omitempty"`
-	PollID      string `json:"poll_id,omitempty"`
-	Cause       string `json:"cause"`
-	FailureCode string `json:"failure_code,omitempty"`
+	Stage         string `json:"stage"`
+	RunID         string `json:"run_id,omitempty"`
+	PollID        string `json:"poll_id,omitempty"`
+	Cause         string `json:"cause"`
+	FailureCode   string `json:"failure_code,omitempty"`
+	FailureReason string `json:"failure_reason,omitempty"`
 }
 
 func validRefreshFunnelEvent(e refreshFunnelEvent) bool {
@@ -48,19 +49,43 @@ func validRefreshFunnelEvent(e refreshFunnelEvent) bool {
 	}
 	switch e.Stage {
 	case "poll_started", "poll_succeeded":
-		return e.Cause == "feed_poll" && e.PollID != "" && e.RunID == "" && e.FailureCode == ""
+		return e.Cause == "feed_poll" && e.PollID != "" && e.RunID == "" && e.FailureCode == "" && e.FailureReason == ""
 	case "poll_failed":
-		return e.Cause == "feed_poll" && e.PollID != "" && e.RunID == "" && validRefreshFailureCode(e.FailureCode)
+		return e.Cause == "feed_poll" && e.PollID != "" && e.RunID == "" && validRefreshFailure(e.FailureCode, e.FailureReason)
 	case "refresh_dispatched":
-		return e.RunID != "" && e.FailureCode == ""
+		return e.RunID != "" && e.FailureCode == "" && e.FailureReason == ""
 	case "refresh_attempt_failed":
-		return e.RunID != "" && validRefreshFailureCode(e.FailureCode)
+		return e.RunID != "" && validRefreshFailure(e.FailureCode, e.FailureReason)
 	default:
 		return false
 	}
 }
 func validRefreshFailureCode(code string) bool {
 	return code == "version_conflict" || code == "api_error" || code == "client_error"
+}
+
+func validRefreshFailure(code, reason string) bool {
+	if !validRefreshFailureCode(code) {
+		return false
+	}
+	if reason == "" { // Older clients report the coarse category only.
+		return true
+	}
+	switch code {
+	case "version_conflict":
+		return reason == "version_conflict"
+	case "api_error":
+		switch reason {
+		case "api_feed_context_read_failed", "api_unauthorized", "api_forbidden", "api_not_found", "api_rate_limited", "api_server", "api_other":
+			return true
+		}
+	case "client_error":
+		switch reason {
+		case "context_response_invalid", "context_response_missing", "feed_schema_invalid", "baseline_formal_context", "personalization_invalid", "context_snapshot_mismatch", "context_snapshot_unavailable", "context_snapshot_invalid", "transport_timeout", "transport_network", "response_decode", "local_storage", "client_other":
+			return true
+		}
+	}
+	return false
 }
 
 // RecordRefreshEvent accepts only bounded lifecycle metadata. Auth middleware
@@ -90,6 +115,6 @@ func RecordRefreshEvent(ctx context.Context, c *app.RequestContext) {
 		respond(c, http.StatusTooManyRequests, 429, "too many refresh events", nil)
 		return
 	}
-	logger.Ctx(ctx).Info("agent_profile_refresh_funnel", "agent_id", agentID, "stage", event.Stage, "run_id", event.RunID, "poll_id", event.PollID, "cause", event.Cause, "failure_code", event.FailureCode)
+	logger.Ctx(ctx).Info("agent_profile_refresh_funnel", "agent_id", agentID, "stage", event.Stage, "run_id", event.RunID, "poll_id", event.PollID, "cause", event.Cause, "failure_code", event.FailureCode, "failure_reason", event.FailureReason)
 	respond(c, http.StatusOK, 0, "success", nil)
 }

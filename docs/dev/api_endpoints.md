@@ -263,7 +263,7 @@ discard CLI stderr.
 `POST /api/v1/agents/me/card/refresh-events` and its Agent V2 counterpart
 accept bounded lifecycle observations from an authenticated Agent. The gateway
 logs `agent_profile_refresh_funnel` with `agent_id`, `stage`, `run_id`,
-`poll_id`, `cause`, and `failure_code`. Unknown properties, invalid IDs,
+`poll_id`, `cause`, `failure_code`, and optional `failure_reason`. Unknown properties, invalid IDs,
 arbitrary text, and excessive requests are rejected.
 
 CLI Feed polling emits `poll_started` and `poll_succeeded` or `poll_failed`
@@ -275,7 +275,17 @@ and `cause=feed_poll`; task dispatches use `host_schedule` or `manual`.
 Plugin-owned loops dispatch through `refresh-task`, independently of Feed.
 
 Command failures emit `refresh_attempt_failed`, with bounded `version_conflict`,
-`api_error`, or `client_error`. An attempt failure does not mean the Agent
+`api_error`, or `client_error`. Updated clients also send a fixed, compatible
+`failure_reason`: baseline/formal-context contamination, invalid Feed metadata,
+context snapshot mismatch/unavailability, network timeout/failure, response
+decoding, local storage, or bounded API status categories. The precise baseline
+contract error is `failure_code=client_error` with
+`failure_reason=baseline_formal_context`; API context reads use
+`api_error` / `api_feed_context_read_failed`. No raw error text, response body,
+URL, path or credential is accepted. Unknown local errors remain `client_other`.
+Deploy API validation before the CLI: older gateways reject the new property;
+legacy clients remain accepted with an absent reason. Historical coarse errors
+cannot be reclassified. An attempt failure does not mean the Agent
 abandoned the run: retries may succeed under the same `run_id`. Successful
 outcomes remain `changed` and `unchanged` in `agent_profile_refresh_run`;
 `stale` is retryable. Count distinct `run_id` when joining dispatches to
@@ -778,8 +788,14 @@ the current Skills, or empty stdout when no work is available. Adapters supply
 bounded memory/session context and deliver the task. Successful writes and
 explicit `profile refresh-complete` record completion; task delivery does not.
 
-Baseline Feed uses `static/feed_baseline_contract.md`; completed Feed uses
-`static/feed_contract.md`. Both are generated from the central Skills. A CLI
+Baseline Feed uses `static/feed_baseline_contract.md`; intent-aligned Feed uses
+`static/feed_contract.md`. Discovery can return baseline Feed after onboarding
+completes when no personalized context is available. Every baseline response
+has a null `context_revision`, `context_delivery=none`, no control-context
+snapshot or intent matches, and no exposure context revision. The owner's
+onboarding state and active control context remain unchanged. Intent-aligned
+responses retain full or unchanged delivery of the active context revision.
+Both contracts are generated from the central Skills. A CLI
 without a server contract reads the corresponding current synchronized Skill
 and reports missing rules instead of using a compiled business-policy copy.
 

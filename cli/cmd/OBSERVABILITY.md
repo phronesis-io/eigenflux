@@ -26,3 +26,20 @@ these observations do not change the server switch or update eligibility.
 Policy-enabled reports are effective state, not proof of a successful policy GET.
 Only clients running the new diagnostics emit these codes. Historical generic
 codes and missing evidence retain their original meaning.
+
+# Feed and profile refresh failures
+
+`profile_refresh_events.go` preserves coarse `failure_code` counters and sends
+an optional allowlisted `failure_reason` for failed Feed pulls and profile
+refresh attempts. Feed V2 validation wraps errors with fixed diagnostic codes
+without changing their user-facing text or `errors.Is` semantics. Baseline Feed
+containing formal context is `client_error` / `baseline_formal_context`.
+Network, parsing, local-storage, API status and context-snapshot errors have
+separate bounded reasons. Unknown errors remain `client_other`; raw errors,
+response bodies, paths, URLs and credentials never enter the observation.
+
+Deploy the API receiver first, then release the CLI. Older clients omit reasons
+and remain accepted. Older receivers reject new properties, and historical
+coarse errors cannot be reconstructed. Observation failure never changes Feed
+output, retries a business request or changes its outcome. See the
+[refresh funnel contract](../../docs/dev/api_endpoints.md#refresh-funnel-observations).

@@ -23,6 +23,7 @@ const noticeNewTurn = "turn-new"
 const noticeOldTurn = "turn-before-notice"
 const noticeCodexRules = "Summarize this order event. Do not pay or confirm receipt."
 const noticeCodexData = `{"order_id":"123","state":"awaiting_confirmation","role":"buyer"}`
+const codexMacPMData = `{"request_id":"fixed-request","message":{"content":"untrusted peer"}}`
 const noticeCodexPrompt = noticeCodexRules + "\n\nUNTRUSTED COMMISSION EVENT:\n" + noticeCodexData
 
 // The child process implements a read-only app-server. A start marker written by
@@ -163,12 +164,13 @@ type noticeOwnerFixture struct {
 	listener net.Listener
 	started  string
 	scenario string
+	pm       bool
 	done     chan error
 	mu       sync.Mutex
 	calls    []map[string]json.RawMessage
 }
 
-func newNoticeOwnerFixture(t *testing.T, scenario string) (MainNoticeTarget, *noticeOwnerFixture) {
+func newNoticeOwnerFixture(t *testing.T, scenario string, pm ...bool) (MainNoticeTarget, *noticeOwnerFixture) {
 	t.Helper()
 	if runtime.GOOS != "darwin" {
 		t.Skip("Desktop owner socket integration is supported on macOS only")
@@ -193,6 +195,7 @@ func newNoticeOwnerFixture(t *testing.T, scenario string) (MainNoticeTarget, *no
 		t.Fatal(err)
 	}
 	fixture := &noticeOwnerFixture{listener: listener, started: filepath.Join(home, "started"), scenario: scenario, done: make(chan error, 1)}
+	fixture.pm = len(pm) > 0 && pm[0]
 	go func() { fixture.done <- fixture.serve() }()
 	t.Cleanup(func() {
 		_ = listener.Close()
@@ -278,7 +281,11 @@ func (f *noticeOwnerFixture) serve() error {
 			if version != 2 || source != "external-notice-client" || target != noticeOwnerID {
 				return fmt.Errorf("start was not directed at discovered owner: %s", raw)
 			}
-			if err := validateNoticeOwnerStart(request["params"]); err != nil {
+			rules, data := noticeCodexRules, noticeCodexData
+			if f.pm {
+				rules, data = codexContentPMRules(noticeCodexRules+"\n## Output Contract\nReturn JSON."), codexMacPMData
+			}
+			if err := validateNoticeOwnerEnvelope(request["params"], rules, data); err != nil {
 				return err
 			}
 			if err := os.WriteFile(f.started, raw, 0600); err != nil {
@@ -370,6 +377,10 @@ func TestMainNoticeCodexDesktopOwnerReceipts(t *testing.T) {
 }
 
 func validateNoticeOwnerStart(raw json.RawMessage) error {
+	return validateNoticeOwnerEnvelope(raw, noticeCodexRules, noticeCodexData)
+}
+
+func validateNoticeOwnerEnvelope(raw json.RawMessage, rules, data string) error {
 	var params struct {
 		ConversationID string `json:"conversationId"`
 		TurnStart      struct {
@@ -401,11 +412,11 @@ func validateNoticeOwnerStart(raw json.RawMessage) error {
 		return errors.New("owner request was not a hidden input to the exact thread")
 	}
 	request := params.TurnStart.Request
-	if len(request.Context) != 2 || request.Context["eigenflux_notice_rules"].Kind != "application" || request.Context["eigenflux_notice_rules"].Value != noticeCodexRules || request.Context["eigenflux_business_notice"].Kind != "untrusted" || request.Context["eigenflux_business_notice"].Value != noticeCodexData {
+	if len(request.Context) != 2 || request.Context["eigenflux_notice_rules"].Kind != "application" || request.Context["eigenflux_notice_rules"].Value != rules || request.Context["eigenflux_business_notice"].Kind != "untrusted" || request.Context["eigenflux_business_notice"].Value != data {
 		return errors.New("owner request did not separate trusted rules from untrusted event")
 	}
 	items := params.TurnStart.Context.ResponseItems
-	if len(items) != 2 || items[0].Type != "function_call" || items[0].Name != "untrusted_input" || items[0].Arguments != "{}" || items[0].CallID != "untrusted_input_"+request.ClientUserMessageID || items[1].Type != "function_call_output" || items[1].CallID != items[0].CallID || len(items[1].Output) != 1 || items[1].Output[0].Type != "input_text" || items[1].Output[0].Text != noticeCodexData {
+	if len(items) != 2 || items[0].Type != "function_call" || items[0].Name != "untrusted_input" || items[0].Arguments != "{}" || items[0].CallID != "untrusted_input_"+request.ClientUserMessageID || items[1].Type != "function_call_output" || items[1].CallID != items[0].CallID || len(items[1].Output) != 1 || items[1].Output[0].Type != "input_text" || items[1].Output[0].Text != data {
 		return errors.New("owner request omitted the native untrusted-input busy guard")
 	}
 	if strings.Contains(string(raw), "SECRET_CREDENTIAL_NOT_ALLOWED") {
