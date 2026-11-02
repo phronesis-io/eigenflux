@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"runtime"
@@ -113,7 +112,7 @@ func StagePackage(ctx context.Context, o Options, m Manifest, rootExecutable str
 	if err := syncDirectory(stage); err != nil {
 		return "", "", atStep("package_sync", err)
 	}
-	if err := os.Rename(stage, destination); err != nil {
+	if err := renamePackage(ctx, stage, destination); err != nil {
 		return "", "", atStep("package_rename", fmt.Errorf("install immutable CLI package: %w", err))
 	}
 	if err := syncDirectory(versions); err != nil {
@@ -429,13 +428,16 @@ func validateInstalledPackage(ctx context.Context, dir string, artifact, binary 
 		verifyCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		for _, key := range []string{"CFBundleVersion", "CFBundleShortVersionString"} {
-			value, err := exec.CommandContext(verifyCtx, "/usr/libexec/PlistBuddy", "-c", "Print :"+key, filepath.Join(dir, "EigenFlux Notifications.app", "Contents", "Info.plist")).Output()
-			if err != nil || strings.TrimSpace(string(value)) != version {
-				return fmt.Errorf("notification helper version differs from CLI release")
+			value, err := packageCommandOutput(verifyCtx, "/usr/libexec/PlistBuddy", "-c", "Print :"+key, filepath.Join(dir, "EigenFlux Notifications.app", "Contents", "Info.plist"))
+			if err != nil {
+				return atStep("helper_plist_read", fmt.Errorf("read notification helper %s: %w", key, err))
+			}
+			if strings.TrimSpace(value) != version {
+				return atStep("helper_version", fmt.Errorf("notification helper %s differs from CLI release", key))
 			}
 		}
-		if err := exec.CommandContext(verifyCtx, "/usr/bin/codesign", "--verify", "--deep", "--strict", filepath.Join(dir, "EigenFlux Notifications.app")).Run(); err != nil {
-			return fmt.Errorf("verify packaged notification helper: %w", err)
+		if _, err := packageCommandOutput(verifyCtx, "/usr/bin/codesign", "--verify", "--deep", "--strict", filepath.Join(dir, "EigenFlux Notifications.app")); err != nil {
+			return atStep("helper_signature", fmt.Errorf("verify packaged notification helper: %w", err))
 		}
 	}
 	return nil
