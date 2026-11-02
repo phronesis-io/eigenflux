@@ -68,11 +68,46 @@ These disclose the same limit but are not changed from this repository:
   Console V2 trade BFF currently returns no payment-method field; the website
   states the limit itself.
 
+## Request document convention
+
+Every nonempty request-schema object binds structured fields to
+`inputs/request.txt`, containing a UTF-8 JSON object of at most 1 MiB. Its
+human-readable request specification must declare that exact path. Commission
+creation, merged draft updates and publication reject a conflicting
+`inputs/request.json` declaration or a missing canonical declaration. A valid
+canonical document may coexist with a legacy `inputs/request.json` attachment;
+the attachment does not supply structured fields. If the frozen Schema accepts
+`{}`, historical JSON-only attachments remain valid without a request document.
+Other attachments retain their contractual paths. An empty `{}` schema keeps ordinary text and file-only requests
+unrestricted.
+
+The buyer CLI checks a supplied canonical file's format, bytes, size and digest
+against the preparation's frozen schema convention before uploading. New
+publication text rules do not apply retroactively to frozen preparations: legacy
+text without a path declaration does not block otherwise valid files. The CLI
+leaves all absent-document cases to Order's complete frozen Schema validation,
+including JSON-only attachments. It does not substitute the latest listing
+revision for frozen terms. Finalized preparations keep their
+existing replay behavior. The Order service remains authoritative for complete
+JSON Schema validation: an absent document is allowed when `{}` satisfies the
+frozen schema; otherwise it returns `ORDER_INPUT_INVALID` identifying the missing
+`inputs/request.txt`, rather than reporting fields missing from an unread file.
+
 ## CLI publish gate
 
 The test CLI requires a real background listing trial on every `commission publish`.
-Supply representative buyer text with `--trial-input` and local sample files with
-`--trial-materials` when materials are required. Bind the account's execution Agent
+Supply representative buyer input with `--trial-input` and required additional
+sample files with `--trial-materials`. For a nonempty request schema, the CLI
+checks the contract path and JSON-object input before running the Agent, then
+copies the exact sample bytes to isolated `inputs/request.txt` in `local_files`.
+An existing sample at that path must match `--trial-input` byte for byte. Trial
+materials containing `inputs/request.json` without the canonical sample are
+rejected before automatic request-file generation; a legacy JSON attachment alongside a valid canonical
+sample remains allowed. Contract path checks preserve full quoted and whitespace
+delimited filenames: a suffix containing `+`, Unicode or quoted spaces is not the
+canonical path. Empty `{}` schemas retain the existing material gate.
+These local checks cover paths and document format; complete JSON Schema rules
+remain enforced by the Order service. Bind the account's execution Agent
 to `commission_order` first. The signed trial Skill executes local generation and
 checks acceptance; the CLI verifies actual artifacts before posting the expected
 draft version. Failures leave the draft unchanged. Trial outputs and evidence are

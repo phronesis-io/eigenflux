@@ -39,7 +39,7 @@ func TestCreateOrderPreparationOrderPresence(t *testing.T) {
 						if tc.order != "" {
 							order = `,"order":` + tc.order
 						}
-						fmt.Fprintf(w, `{"code":0,"data":{"preparation_id":51%s}}`, order)
+						fmt.Fprintf(w, `{"code":0,"data":{"preparation_id":51,"contract":{"request_spec_schema":"{}"}%s}}`, order)
 					case "/api/v1/order-preparations/51/uploads":
 						fmt.Fprintf(w, `{"code":0,"data":{"grant":{"object_id":71,"method":"PUT","url":%q}}}`, server.URL+"/object")
 					case "/object":

@@ -43,3 +43,26 @@ The existing maintenance wire format and backend accept these codes without a
 migration. Raw paths, URLs, response bodies and credentials are never encoded
 in a code. Coverage starts when the client runs this implementation; upgrading
 a client cannot enrich failures emitted by its previous executable.
+
+## Native install retries and validation diagnostics
+
+Only the final Windows package directory rename retries access-denied,
+sharing-violation and lock-violation errors. Reuse the verified staging directory
+for at most two seconds, checking cancellation between attempts. Persistent
+refusal retains the original system error, old release and active pointer.
+Other errors and other operating systems retain a single rename attempt.
+No ACL, quarantine, signature requirement or update interval changes.
+
+macOS helper validation distinguishes plist command failure, version mismatch
+and signature verification failure in the existing maintenance error code.
+Capture at most 2 KiB from each command stream for local diagnostics; raw tool
+errors never enter maintenance events. Tool cancellation/deadline remains
+visible through the wrapped error. A restricted security service can cause
+verification failure; that failure never authorizes installation or bypasses
+`codesign --verify --deep --strict`.
+
+The cross-platform CLI workflow runs this entire package natively on Windows,
+macOS and Linux. Windows cases use real file handles without delete sharing to
+exercise temporary denial, persistent denial, cancellation, signed activation
+and preservation of the old installation. macOS cases exercise real plist and
+signature verification failures against isolated signed fixtures.

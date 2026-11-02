@@ -360,8 +360,20 @@ isolated schemas. Run `go test -race ./pkg/integrationidentity
 throwaway database. These suites cover anonymous slots, operator controls,
 context/privacy, Feed admission/retry, observations and safe credential files.
 
-`TestEnterpriseSDKAcceptance` additionally requires the private binary wheel and
+`TestEnterpriseSDKAcceptance` and `TestEnterpriseSDKFailedContextAcceptance` require the private binary wheel and
 its Python virtualenv. It runs a native gateway, actual worker/ranking/Feed code,
 and the runnable B-side consumer with fixed external dependencies. It advances
 only isolated timestamps and performs no production access. Run that test alone;
 see [the full acceptance instructions](enterprise-integrations.md#reference-application-and-end-to-end-acceptance).
+
+## Native CLI self-update regressions
+
+From `cli/`, run `go test ./internal/selfupdate -count=1`. The CLI cross-platform
+workflow includes this package and triggers for changes to its sources. Windows
+runners exercise complete signed-package updates with real handles preventing
+staging-directory rename: temporary release permits activation, persistent
+refusal stops within the two-second retry window, and cancellation preserves
+the old release and pointer. Existing native real-CLI tests cover consecutive
+complete updates through the stable entry. macOS runners verify bounded local
+tool diagnostics, plist errors, helper version mismatch and invalid helper
+signatures; every validation failure leaves the package unactivated.

@@ -73,3 +73,11 @@ Agent execution. Deploy updated test clients before enabling new producer events
 - `pkg/reqinfo/`: Shared request-info package containing two typed structs propagated via Kitex `metainfo.PersistentValue` (keys prefixed `ef.`):
   - `client.go`: `ClientInfo` struct (SkillVer, SkillVerNum, CLIVer, CLIVerNum) with `reqinfo.ClientFromContext(ctx)` and `ToVars()`. Written by ClientInfoMiddleware.
   - `auth.go`: `AuthInfo` struct (AgentID, Email) with `reqinfo.AuthFromContext(ctx)` and `ToVars()`. Written by AuthMiddleware.
+
+Pending-notification pagination errors from the Notification RPC return HTTP 400 (`INVALID_NOTIFICATION_PAGE`). Dependency failures remain HTTP 503 and emit `notification_pending_failed` with a bounded reason and upstream code; cursor and notification payloads are not logged.
+
+### Pending endpoint incident verification
+
+Before attributing HTTP 503 to RPC timeouts, compare status-specific request latency and the authentication rejection logs. During the 2026-11-02 investigation, the preceding 24-hour 503 histogram placed all approximately 156 failures below 5 ms; the RPC timeout is 10 seconds. A read-only live control returned 200 without a cursor and 503 with a malformed cursor on the old gateway. This proves the invalid-pagination mapping defect, but aggregate latency alone does not identify every historical request. Keep genuine dependency errors visible and use the classified gateway logs after deployment to separate them.
+
+A bounded access-log sample of 1,000 recent pending requests contained 978 HTTP 200 requests without cursors and 22 HTTP 503 requests with invalid cursors; no other 503 class appeared in that sample. Raw cursors and credentials are not retained in incident evidence.

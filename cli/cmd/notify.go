@@ -19,8 +19,9 @@ func newNotifyCommand() *cobra.Command {
 		if source != "manual" && source != "installer" {
 			return fmt.Errorf("notification setup source must be manual or installer")
 		}
-		err := observedNotificationCLIFrom(source).Setup(cmd.Context())
-		return writeNotificationStatus(cmd, err, flushNotificationTelemetry(notificationServer()))
+		notifier := observedNotificationCLIFrom(source)
+		err := notifier.Setup(cmd.Context())
+		return writeNotificationStatus(cmd, err, notifier.flushTelemetry(notificationServer()))
 	}}
 	setup.Flags().String("source", "manual", "Setup observation source: manual or installer")
 	status := &cobra.Command{Use: "status", Short: "Check local OS notification integration and permission", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -28,8 +29,9 @@ func newNotifyCommand() *cobra.Command {
 		if preflight {
 			return writeCommissionNotificationPermissionPreflight(cmd, desktopnotify.New().Check, runtime.GOOS, desktopnotify.SystemLanguage())
 		}
-		err := observedNotificationCLI().Check(cmd.Context())
-		return writeNotificationStatus(cmd, err, flushNotificationTelemetry(notificationServer()))
+		notifier := observedNotificationCLI()
+		err := notifier.Check(cmd.Context())
+		return writeNotificationStatus(cmd, err, notifier.flushTelemetry(notificationServer()))
 	}}
 	status.Flags().Bool("publish-preflight", false, "Read-only local publish guidance with warning and system-settings link; no permission request or telemetry")
 	test := &cobra.Command{Use: "test", Short: "Send a test notification that opens a specified safe URL", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -39,7 +41,7 @@ func newNotifyCommand() *cobra.Command {
 			return err
 		}
 		notifier := observedNotificationCLIFrom("test")
-		defer flushNotificationTelemetry(notificationServer())
+		defer notifier.flushTelemetry(notificationServer())
 		if err := notifier.Setup(cmd.Context()); err != nil && !errors.Is(err, desktopnotify.ErrPendingFirstNotification) {
 			return err
 		}

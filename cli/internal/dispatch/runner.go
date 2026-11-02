@@ -36,6 +36,9 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
+	if err := r.Binding.validateExecutionCommand(); err != nil {
+		return Result{}, err
+	}
 	boundMain := req.Kind == "pm_push" && r.Binding.Host == "codex" && r.Binding.Mode == "native" && r.Binding.MainSessionID != ""
 	if boundMain {
 		if req.SessionID != r.Binding.MainSessionID {
@@ -58,7 +61,7 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 	if boundMain {
-		if runtime.GOOS == "windows" {
+		if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
 			return r.runCodexHiddenPM(ctx, req)
 		}
 		return r.runCodexQueue(ctx, req)

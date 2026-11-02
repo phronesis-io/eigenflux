@@ -7,7 +7,9 @@ deduplication, backoff and acknowledgements. Local events retain at most 1024
 entries for seven days. Network work happens outside the state lock; only
 acknowledged event IDs are removed.
 
-`Flush` sends the oldest fifty observations and honors automatic backoff.
+`Flush` sends at most fifty observations, prioritizing existing maintenance events.
+Runtime observations use separate batches and backoff so an older API rejecting
+them cannot block existing maintenance uploads.
 `FlushUninstall` selects only the current uninstall attempt and bypasses that
 backoff, so an online removal is observable before its CLI exits even with an
 old maintenance backlog. It preserves unrelated history. The caller pins account
@@ -46,3 +48,14 @@ remain usable without creating verified-remote compatibility evidence.
 A replacement command's nonzero exit retains its original exit status and a
 local diagnostic. If the same attempt already recorded the target CLI as
 `execute/executed`, later business failure does not overwrite that update result.
+
+Runtime environment observations and heartbeat stage receipts share this queue.
+`cycles.go` pins the planned stages to an account and a random cycle ID. State
+updates are locked/atomic; at most 256 cycles are retained for seven days.
+Completion requires all planned stage receipts; repeats do not create events,
+terminal failures cannot be rewritten as success. Missing receipts remain
+unknown. `EIGENFLUX_RUNTIME_OBSERVATIONS=0` disables creation. Upload errors never
+repeat business actions. OS/architecture come from the running binary; model
+and host are reported evidence, not inferred hardware or user participation.
+
+A generated plan contributes environment evidence only. The first valid stage receipt records execution with its observation timestamp. Cycle failure requires a failed stage receipt. Interrupted or missing stages remain unresolved.

@@ -74,7 +74,7 @@ Examples:
 			if resultErr != nil {
 				stage = "poll_failed"
 			}
-			reportProfileFunnel(serverName, profileFunnelEvent{Stage: stage, PollID: pollID, Cause: "feed_poll", FailureCode: profileFailureCode(resultErr)})
+			reportProfileFunnel(serverName, profileFunnelEvent{Stage: stage, PollID: pollID, Cause: "feed_poll", FailureCode: profileFailureCode(resultErr), FailureReason: profileFailureReason(resultErr)})
 		}()
 		// V1 and V2 share the same best-effort fallback refresh. The primary
 		// Heartbeat V2 path uses `heartbeat plan` on every cycle; this daily hook

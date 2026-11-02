@@ -12,6 +12,7 @@ import (
 type MainNoticeProbe struct {
 	Protocol             string `json:"protocol"`
 	Code                 string `json:"code"`
+	Diagnostic           string `json:"diagnostic,omitempty"`
 	TransportAvailable   bool   `json:"transport_available"`
 	TargetMatched        bool   `json:"target_matched"`
 	TargetStatus         string `json:"target_status,omitempty"`
@@ -82,6 +83,10 @@ func probeACPMainNotice(parent context.Context, target MainNoticeTarget, probe M
 		return Result{}, inspectErr
 	})
 	probe.Code = "main_notice_owner_unavailable"
+	var diagnostic *bridgeDiagnosticError
+	if errors.As(err, &diagnostic) {
+		probe.Diagnostic = diagnostic.message
+	}
 	if errors.Is(err, ErrMainNoticeUnsupported) {
 		probe.Code = "main_notice_hidden_input_unverified"
 	} else if errors.Is(err, ErrMainNoticeBusy) {
