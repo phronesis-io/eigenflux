@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"cli.eigenflux.ai/internal/commissionapi"
+	"cli.eigenflux.ai/internal/requestcontract"
 	"github.com/spf13/cobra"
 )
 
@@ -66,20 +67,20 @@ func validateCommissionInput(input commissionapi.CommissionInput) error {
 	if input.PromisedDeliveryMS <= 0 {
 		return fmt.Errorf("--promised-delivery-ms must be positive")
 	}
-	return nil
+	return requestcontract.ValidateSpec(input.RequestSpecText, input.RequestSpecSchema)
 }
 
 func addCommissionInputFlags(command *cobra.Command) {
 	command.Flags().Bool("requires-materials", true, "require material files during creation; seller Agent inspection precedes acceptance")
 	command.Flags().String("title", "", "commission title")
 	command.Flags().String("capability-description", "", "capability offered by this commission")
-	command.Flags().String("request-spec-text", "", "human-readable buyer input specification")
+	command.Flags().String("request-spec-text", "", "buyer input specification; declare inputs/request.txt for structured requests")
 	command.Flags().String("delivery-spec-text", "", "human-readable delivery specification")
 	command.Flags().String("tags", "", "comma-separated discovery tags")
 	command.Flags().Int64("price-fen", -1, "price in minor currency units")
 	command.Flags().String("currency", "CNY", "ISO currency code")
 	command.Flags().Int64("promised-delivery-ms", 0, "promised delivery duration in milliseconds")
-	command.Flags().String("request-spec-schema", "{}", "request JSON Schema")
+	command.Flags().String("request-spec-schema", "{}", "JSON Schema for inputs/request.txt; {} permits opaque text and attachments")
 	command.Flags().String("delivery-spec-schema", "{}", "delivery JSON Schema")
 	command.Flags().String("fulfillment-skill", "", "local skill name used to fulfill this commission")
 }

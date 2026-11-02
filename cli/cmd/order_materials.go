@@ -15,6 +15,7 @@ import (
 
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/commissionapi"
+	"cli.eigenflux.ai/internal/requestcontract"
 	"github.com/spf13/cobra"
 )
 
@@ -131,7 +132,7 @@ func createOrderWithMaterials(cmd *cobra.Command, args []string) error {
 	inline, _ := cmd.Flags().GetString("buyer-input")
 	filename, _ := cmd.Flags().GetString("buyer-input-file")
 	if inline != "" || filename != "" {
-		file, cleanup, err := textMaterial(inline, filename, "inputs/request.txt")
+		file, cleanup, err := textMaterial(inline, filename, requestcontract.Path)
 		defer cleanup()
 		if err != nil {
 			return err
@@ -181,7 +182,10 @@ func createOrderWithMaterials(cmd *cobra.Command, args []string) error {
 	}
 	var data struct {
 		PreparationID int64 `json:"preparation_id"`
-		Order         *struct {
+		Contract      *struct {
+			RequestSpecSchema string `json:"request_spec_schema"`
+		} `json:"contract"`
+		Order *struct {
 			OrderID int64 `json:"order_id"`
 		} `json:"order"`
 	}
@@ -197,6 +201,12 @@ func createOrderWithMaterials(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid finalized order ID for preparation %d", preparationID)
 	}
 	if !finalized {
+		if data.Contract == nil {
+			return fmt.Errorf("preparation %d: missing frozen request contract; no materials uploaded", preparationID)
+		}
+		if err := validateOrderRequestMaterials(data.Contract.RequestSpecSchema, files); err != nil {
+			return fmt.Errorf("preparation %d: %w; no materials uploaded", preparationID, err)
+		}
 		for _, file := range files {
 			if err := uploadMaterial(cmd.Context(), c, "/order-preparations/"+strconv.FormatInt(preparationID, 10), master, file); err != nil {
 				return fmt.Errorf("preparation %d: %w; resume with the same files/key and --preparation-id %d", preparationID, err, preparationID)

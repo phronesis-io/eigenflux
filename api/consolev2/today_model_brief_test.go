@@ -2,7 +2,17 @@ package consolev2
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
+	"time"
+
+	"eigenflux_server/pipeline/llm"
+	"eigenflux_server/pkg/config"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 	"strings"
 	"testing"
 )
@@ -121,6 +131,10 @@ func TestTodayBriefRetriesOverLimitGenerationOnce(t *testing.T) {
 		t.Fatalf("compress attempts=%d", generator.compresses)
 	}
 	generator.compressed = strings.Repeat("仍", todayBriefChineseMaxRunes+1)
+	if got, err := generateNormalizedTodayBrief(context.Background(), generator, todayBriefFacts{}, todayBriefChinese); err != nil || got != generator.compressed {
+		t.Fatalf("wrapped sentence lost: %q %v", got, err)
+	}
+	generator.compressed = strings.Repeat("长", 91)
 	if _, err := generateNormalizedTodayBrief(context.Background(), generator, todayBriefFacts{}, todayBriefChinese); !errors.Is(err, errTodayBriefTooLong) {
 		t.Fatalf("second over-limit result err=%v", err)
 	}
@@ -204,5 +218,80 @@ func TestTodayBriefNameInstructionsReachGenerationAndCompression(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// Exercise the actual Service wiring and Responses HTTP payload, including the
+// second model call when a headline exceeds the language limit.
+func TestTodayBriefUsesQwen38WithoutThinkingForGenerationAndCompression(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			w.WriteHeader(400)
+			return
+		}
+		call := calls.Add(1)
+		if r.URL.Path != "/v1/responses" {
+			t.Errorf("path=%s", r.URL.Path)
+		}
+		wantModel, wantEffort := "qwen3.8-flash", "none"
+		if call == 3 {
+			wantModel, wantEffort = "qwen3.6-flash", "low"
+		}
+		if body["model"] != wantModel {
+			t.Errorf("call %d model=%v", call, body["model"])
+		}
+		reasoning, _ := body["reasoning"].(map[string]interface{})
+		if reasoning["effort"] != wantEffort {
+			t.Errorf("call %d reasoning=%v", call, body["reasoning"])
+		}
+		if body["max_output_tokens"] != float64(4096) {
+			t.Errorf("token limit=%v", body["max_output_tokens"])
+		}
+		text := "今天暂无新的待办事项。"
+		if call == 1 {
+			text = strings.Repeat("长", 61)
+		}
+		if call == 2 && !strings.Contains(body["input"].(string), "Compress the supplied Today headline") {
+			t.Error("expected compression request")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"id": "resp-test", "object": "response", "status": "completed",
+			"output": []interface{}{map[string]interface{}{"type": "message", "role": "assistant", "content": []interface{}{map[string]interface{}{"type": "output_text", "text": text}}}},
+		})
+	}))
+	defer srv.Close()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+	cfg := &config.Config{ConsoleV2PublicURL: "https://console.example.test", ConsoleV2OTPPepper: "test", LLMApiKey: "test", LLMBaseURL: srv.URL, LLMModel: "qwen3.6-flash", LLMReasoningEffort: "low", LLMMaxTokens: 4096}
+	svc, err := NewService(db, &fixedIDGenerator{}, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	text, err := generateNormalizedTodayBrief(ctx, svc.todayBriefGenerator, todayBriefFacts{Day: "2026-11-02", AgentName: "Atlas"}, todayBriefChinese)
+	if err != nil || text != "今天暂无新的待办事项。" {
+		t.Fatalf("text=%q err=%v", text, err)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("generation/compression calls=%d", calls.Load())
+	}
+	// The brief's override must not leak into other clients built from cfg.
+	if _, err := llm.NewClient(cfg, nil).CallText(ctx, "global client", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 3 {
+		t.Fatalf("calls=%d", calls.Load())
 	}
 }

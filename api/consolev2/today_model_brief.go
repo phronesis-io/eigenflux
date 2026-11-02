@@ -24,9 +24,11 @@ const (
 	todayBriefChineseMaxRunes = 60
 	todayBriefEnglishMaxRunes = 120
 	todayBriefMaxRunes        = todayBriefEnglishMaxRunes
-	todayBriefSchemaVersion   = "console_today_brief.v3-preserve-names"
+	todayBriefModel           = "qwen3.8-flash"
+	todayBriefSchemaVersion   = "console_today_brief.v4-qwen38-nonthinking"
 	todayBriefLease           = 2 * time.Minute
 	todayBriefMinGeneration   = time.Hour
+	todayBriefRetryDelay      = time.Minute
 	todayBriefTimeout         = 25 * time.Second
 )
 
@@ -45,6 +47,7 @@ type todayBriefFacts struct {
 }
 
 type todayBriefRow struct {
+	PrivateCard   string
 	Language      string `gorm:"column:language"`
 	Day           string `gorm:"column:day"`
 	FactsHash     string `gorm:"column:facts_hash"`
@@ -215,6 +218,10 @@ func normalizeTodayBriefText(raw string) (string, error) {
 }
 
 func normalizeTodayBriefTextForLanguage(raw, language string) (string, error) {
+	return normalizeTodayBriefWithin(raw, todayBriefLimit(language))
+}
+
+func normalizeTodayBriefWithin(raw string, limit int) (string, error) {
 	if !utf8.ValidString(raw) {
 		return "", errors.New("Today brief is not valid UTF-8")
 	}
@@ -223,7 +230,7 @@ func normalizeTodayBriefTextForLanguage(raw, language string) (string, error) {
 	if text == "" {
 		return "", errors.New("Today brief is empty")
 	}
-	if utf8.RuneCountInString(text) > todayBriefLimit(language) {
+	if utf8.RuneCountInString(text) > limit {
 		return "", errTodayBriefTooLong
 	}
 	return text, nil
@@ -246,15 +253,13 @@ func generateNormalizedTodayBrief(ctx context.Context, generator todayBriefGener
 	if err != nil {
 		return "", err
 	}
-	return normalizeTodayBriefTextForLanguage(compressed, language)
+	limit := todayBriefLimit(language)
+	return normalizeTodayBriefWithin(compressed, limit+limit/2)
 }
 
 func todayBriefPublicView(row todayBriefRow, requestedDay, requestedHash string, now int64) map[string]interface{} {
-	state := row.Status
-	if state == "pending" {
-		state = "generating"
-	}
-	stale := row.Day == requestedDay && row.Status == "ready" && row.FactsHash != requestedHash && row.Narrative != ""
+	state := mapTodayBriefWireState(row.Status)
+	stale := row.Day == requestedDay && row.Narrative != "" && (row.Status != "ready" || row.FactsHash != requestedHash)
 	if row.Day != requestedDay {
 		state = "generating"
 	}
@@ -268,13 +273,16 @@ func todayBriefPublicView(row todayBriefRow, requestedDay, requestedHash string,
 	if row.Status == "pending" && row.LeaseUntil > now {
 		view["poll_after_ms"] = int64(2000)
 	}
+	if row.Status == "failed" && row.LeaseUntil > 0 && row.LeaseUntil < row.LastAttemptAt+todayBriefMinGeneration.Milliseconds() {
+		view["retry_at"] = row.LeaseUntil
+	}
 	if row.LastAttemptAt > 0 && row.FactsHash != requestedHash && row.Day == requestedDay {
 		view["next_refresh_at"] = row.LastAttemptAt + todayBriefMinGeneration.Milliseconds()
 	}
 	return view
 }
 
-func (s *Service) prepareTodayBrief(agentID int64, facts todayBriefFacts, language string, now time.Time) map[string]interface{} {
+func (s *Service) prepareTodayBrief(agentID int64, facts todayBriefFacts, language string, now time.Time, dayStart int64) map[string]interface{} {
 	factsHash, err := todayBriefHash(facts, language)
 	if err != nil {
 		return map[string]interface{}{"state": "unavailable", "language": language}
@@ -287,56 +295,96 @@ func (s *Service) prepareTodayBrief(agentID int64, facts todayBriefFacts, langua
 	if readErr != nil && !errors.Is(readErr, gorm.ErrRecordNotFound) {
 		return map[string]interface{}{"state": "unavailable", "language": language}
 	}
+	// Older releases could carry yesterday's narrative into a failed row.
+	if current.GeneratedAt < dayStart {
+		current.Narrative = ""
+		current.GeneratedAt = 0
+	}
 	if current.Status == "ready" && current.Day == facts.Day && current.FactsHash == factsHash && current.Narrative != "" {
 		return todayBriefPublicView(current, facts.Day, factsHash, nowMS)
 	}
 	if s.todayBriefGenerator == nil {
-		return map[string]interface{}{"state": "unavailable", "language": language}
-	}
-	if current.Day == facts.Day && current.LastAttemptAt > nowMS-todayBriefMinGeneration.Milliseconds() {
+		if current.Day != facts.Day {
+			current.Narrative = ""
+			current.GeneratedAt = 0
+		}
+		current.Day = facts.Day
+		current.Status = "unavailable"
+		current.Language = language
 		return todayBriefPublicView(current, facts.Day, factsHash, nowMS)
 	}
-	if current.Status == "pending" && current.LeaseUntil > nowMS {
+	// A failed row uses lease_until as the earliest retry. Pre-upgrade failures
+	// have zero here and can recover on the next eligible overview request.
+	if current.Status == "failed" && current.LeaseUntil == 0 {
+		current.LeaseUntil = current.LastAttemptAt + todayBriefRetryDelay.Milliseconds()
+	}
+	next := current.LastAttemptAt + todayBriefMinGeneration.Milliseconds()
+	if current.Status == "pending" || (current.Status == "failed" && current.LeaseUntil != 0) {
+		next = current.LeaseUntil
+	}
+	if current.Day == facts.Day && nowMS < next {
 		return todayBriefPublicView(current, facts.Day, factsHash, nowMS)
 	}
-
+	earlyRetry := current.Day == facts.Day && current.Status == "failed" && nowMS < current.LastAttemptAt+todayBriefMinGeneration.Milliseconds()
 	result := s.db.Exec(`INSERT INTO agent_today_model_briefs
 		(agent_id, language, day, facts_hash, narrative, status, generated_at,
 		 last_attempt_at, lease_until, updated_at)
 		VALUES (?, ?, ?, ?, '', 'pending', 0, ?, ?, ?)
 		ON CONFLICT (agent_id, language) DO UPDATE SET
-			day = EXCLUDED.day,
+			narrative = CASE WHEN agent_today_model_briefs.day = EXCLUDED.day AND agent_today_model_briefs.generated_at >= ? THEN agent_today_model_briefs.narrative ELSE '' END,
+            generated_at = CASE WHEN agent_today_model_briefs.day = EXCLUDED.day AND agent_today_model_briefs.generated_at >= ? THEN agent_today_model_briefs.generated_at ELSE 0 END,
+            day = EXCLUDED.day,
 			facts_hash = EXCLUDED.facts_hash,
 			status = 'pending',
 			last_attempt_at = EXCLUDED.last_attempt_at,
 			lease_until = EXCLUDED.lease_until,
 			updated_at = EXCLUDED.updated_at
-		WHERE agent_today_model_briefs.lease_until <= ?
-		  AND (agent_today_model_briefs.day <> EXCLUDED.day
-		    OR agent_today_model_briefs.last_attempt_at <= ?)`,
+		WHERE agent_today_model_briefs.last_attempt_at = ?
+          AND (agent_today_model_briefs.day <> EXCLUDED.day OR
+               CASE WHEN agent_today_model_briefs.status = 'pending' OR (agent_today_model_briefs.status = 'failed' AND agent_today_model_briefs.lease_until > 0)
+                    THEN agent_today_model_briefs.lease_until <= ?
+                    WHEN agent_today_model_briefs.status = 'failed' THEN agent_today_model_briefs.last_attempt_at <= ?
+                    ELSE agent_today_model_briefs.last_attempt_at <= ? END)`,
 		agentID, language, facts.Day, factsHash, nowMS, nowMS+todayBriefLease.Milliseconds(), nowMS,
-		nowMS, nowMS-todayBriefMinGeneration.Milliseconds())
-	if result.Error != nil || result.RowsAffected == 0 {
-		if current.Status == "" {
-			current = todayBriefRow{Language: language, Day: facts.Day, FactsHash: factsHash, Status: "generating"}
+		dayStart, dayStart, current.LastAttemptAt, nowMS, nowMS-todayBriefRetryDelay.Milliseconds(), nowMS-todayBriefMinGeneration.Milliseconds())
+	if result.Error != nil {
+		if current.Day != facts.Day {
+			current.Narrative = ""
+			current.GeneratedAt = 0
 		}
+		current.Day, current.Status, current.Language = facts.Day, "unavailable", language
 		return todayBriefPublicView(current, facts.Day, factsHash, nowMS)
 	}
-
-	if !s.scheduleTodayBriefGeneration(agentID, facts, factsHash, language) {
-		s.db.Exec(`UPDATE agent_today_model_briefs
-			SET status = 'failed', last_attempt_at = 0, lease_until = 0, updated_at = ?
-			WHERE agent_id = ? AND language = ? AND day = ? AND facts_hash = ? AND status = 'pending'`,
-			nowMS, agentID, language, facts.Day, factsHash)
-		return map[string]interface{}{"state": "unavailable", "language": language}
+	// Another request may have claimed the row after our initial read. Poll its attempt.
+	if current.Day != facts.Day {
+		current.Narrative = ""
+		current.GeneratedAt = 0
 	}
-	return map[string]interface{}{
-		"state": "generating", "language": language, "stale": false,
-		"generated_at": int64(0), "poll_after_ms": int64(2000),
+	current.Day, current.Language, current.FactsHash = facts.Day, language, factsHash
+	current.Status, current.LastAttemptAt, current.LeaseUntil = "pending", nowMS, nowMS+todayBriefLease.Milliseconds()
+	if result.RowsAffected == 0 {
+		return todayBriefPublicView(current, facts.Day, factsHash, nowMS)
 	}
+	cooldown := todayBriefRetryDelay
+	if earlyRetry {
+		cooldown = todayBriefMinGeneration
+	}
+	failAttempt := func() {
+		failedAt := time.Now().UnixMilli()
+		if err := s.db.Exec(`UPDATE agent_today_model_briefs SET status='failed', lease_until=?, updated_at=?
+           WHERE agent_id=? AND language=? AND day=? AND facts_hash=? AND last_attempt_at=? AND status='pending'`,
+			failedAt+cooldown.Milliseconds(), failedAt, agentID, language, facts.Day, factsHash, nowMS).Error; err != nil {
+			logger.Default().Error("Console V2 Today brief failure state update failed", "agentID", agentID, "err", err)
+		}
+	}
+	if !s.scheduleTodayBriefGeneration(agentID, facts, factsHash, language, nowMS, failAttempt) {
+		failAttempt()
+		current.Status, current.LeaseUntil = "failed", time.Now().UnixMilli()+cooldown.Milliseconds()
+	}
+	return todayBriefPublicView(current, facts.Day, factsHash, nowMS)
 }
 
-func (s *Service) scheduleTodayBriefGeneration(agentID int64, facts todayBriefFacts, factsHash, language string) bool {
+func (s *Service) scheduleTodayBriefGeneration(agentID int64, facts todayBriefFacts, factsHash, language string, attempt int64, failAttempt func()) bool {
 	select {
 	case s.todayBriefSlots <- struct{}{}:
 	default:
@@ -350,18 +398,13 @@ func (s *Service) scheduleTodayBriefGeneration(agentID int64, facts todayBriefFa
 		nowMS := time.Now().UTC().UnixMilli()
 		if err != nil {
 			logger.Default().Warn("Console V2 Today brief generation failed", "agentID", agentID, "err", err)
-			if updateErr := s.db.Exec(`UPDATE agent_today_model_briefs
-				SET status = 'failed', lease_until = 0, updated_at = ?
-				WHERE agent_id = ? AND language = ? AND day = ? AND facts_hash = ? AND status = 'pending'`,
-				nowMS, agentID, language, facts.Day, factsHash).Error; updateErr != nil {
-				logger.Default().Error("Console V2 Today brief failure state update failed", "agentID", agentID, "err", updateErr)
-			}
+			failAttempt()
 			return
 		}
 		if updateErr := s.db.Exec(`UPDATE agent_today_model_briefs
 			SET narrative = ?, status = 'ready', generated_at = ?, lease_until = 0, updated_at = ?
-			WHERE agent_id = ? AND language = ? AND day = ? AND facts_hash = ? AND status = 'pending'`,
-			raw, nowMS, nowMS, agentID, language, facts.Day, factsHash).Error; updateErr != nil {
+			WHERE agent_id = ? AND language = ? AND day = ? AND facts_hash = ? AND last_attempt_at = ? AND status = 'pending'`,
+			raw, nowMS, nowMS, agentID, language, facts.Day, factsHash, attempt).Error; updateErr != nil {
 			logger.Default().Error("Console V2 Today brief update failed", "agentID", agentID, "err", updateErr)
 		}
 	}()
@@ -375,27 +418,26 @@ func (s *Service) getTodayBrief(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusBadRequest, "INVALID_BRIEF_LANGUAGE", "Today brief language is invalid", nil)
 		return
 	}
-	var row todayBriefRow
-	if err := s.db.Raw(`SELECT language, day, facts_hash, narrative, status,
-		generated_at, last_attempt_at, lease_until
-		FROM agent_today_model_briefs WHERE agent_id = ? AND language = ?`, agentIDValue, language).Scan(&row).Error; err != nil {
+	var brief todayBriefRow
+	if err := s.db.Raw(`SELECT b.language, b.day, b.facts_hash, b.narrative, b.status,
+        b.generated_at, b.last_attempt_at, b.lease_until, COALESCE(c.private_card, '{}'::jsonb)::text AS private_card
+        FROM agent_today_model_briefs b LEFT JOIN agent_cards c ON c.agent_id=b.agent_id
+        WHERE b.agent_id=? AND b.language=?`, agentIDValue, language).Scan(&brief).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "TODAY_BRIEF_READ_FAILED", "could not load Today brief", nil)
 		return
 	}
-	if row.Status == "" {
+	now := time.Now()
+	location, _ := todayLocationFromPrivateCard(brief.PrivateCard)
+	day := now.In(location).Format("2006-01-02")
+	if brief.Status == "" || brief.Day != day {
 		reply(c, http.StatusOK, map[string]interface{}{"state": "unavailable", "language": language})
 		return
 	}
-	view := map[string]interface{}{
-		"state": mapTodayBriefWireState(row.Status), "language": row.Language, "generated_at": row.GeneratedAt,
-		"stale": false,
+	if brief.GeneratedAt < todayStartFromPrivateCard(brief.PrivateCard, now) {
+		brief.Narrative = ""
+		brief.GeneratedAt = 0
 	}
-	if row.Status == "ready" && row.Narrative != "" {
-		view["text"] = row.Narrative
-	}
-	if row.Status == "pending" && row.LeaseUntil > time.Now().UTC().UnixMilli() {
-		view["poll_after_ms"] = int64(2000)
-	}
+	view := todayBriefPublicView(brief, day, brief.FactsHash, now.UnixMilli())
 	reply(c, http.StatusOK, view)
 }
 

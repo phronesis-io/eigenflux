@@ -25,3 +25,15 @@ func TestHeartbeatMaintenanceCapabilitiesStayLocal(t *testing.T) {
 		}
 	}
 }
+
+func TestCycleReportMinimumVersion(t *testing.T) {
+	for _, seed := range capabilitySeeds() {
+		if seed.id == "heartbeat.cycle_report" {
+			if seed.minCLI != "1.0.4" {
+				t.Fatalf("cycle-report minimum CLI = %s", seed.minCLI)
+			}
+			return
+		}
+	}
+	t.Fatal("missing cycle-report capability")
+}

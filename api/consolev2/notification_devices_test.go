@@ -29,12 +29,23 @@ func TestNotificationDeviceProjection(t *testing.T) {
 		if got.PermissionState != tc.want || got.Stale || got.DeviceName != row.DeviceName || got.CLIVersion != "0.7.7" {
 			t.Fatalf("%+v: %+v", tc, got)
 		}
-		for _, at := range []time.Time{now.Add(-11 * time.Minute), now.Add(2 * time.Minute)} {
+		for _, at := range []time.Time{now.Add(-11 * time.Minute), now.Add(-8 * 24 * time.Hour), now.Add(time.Minute)} {
 			row.EventAt = at.UnixMilli()
 			got = projectNotificationDevice(row, now)
-			if !got.Stale || got.PermissionState != "unknown" {
-				t.Fatalf("stale or clock-skewed observation counted as current: %+v", got)
+			if got.Stale || got.PermissionState != tc.want || got.ObservedAt != at.UnixMilli() {
+				t.Fatalf("latest reported permission changed with observation age: %+v", got)
 			}
+		}
+	}
+}
+
+func TestNotificationDeviceProjectionRejectsFutureClockSkew(t *testing.T) {
+	now := time.Now()
+	for _, offset := range []time.Duration{time.Minute + time.Millisecond, 2 * time.Minute, 4 * time.Minute} {
+		row := notificationDeviceRow{DeviceID: strings.Repeat("a", 32), DeviceName: "clock-test", Platform: "darwin", Result: "ready", EventAt: now.Add(offset).UnixMilli()}
+		got := projectNotificationDevice(row, now)
+		if got.PermissionState != "unknown" || !got.Stale || got.ObservedAt != row.EventAt {
+			t.Fatalf("future permission trusted after %s clock skew: %+v", offset, got)
 		}
 	}
 }

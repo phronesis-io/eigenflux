@@ -132,5 +132,50 @@
     "title": "Managed context updates private matching",
     "description": "Default off. Approved enterprise context can update Card facts and dedicated matching projections after API, pipeline and Sort activation. Private summaries are excluded from public Cards; existing personal CLI routes and experiment assignments retain their behavior. Deployment alone does not enable enterprise access.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/470"
+  },
+  {
+    "id": "feed-v2-baseline-context-v1",
+    "kind": "behavior",
+    "deploy_scope": "api",
+    "dashboards": [
+      "user-growth",
+      "card-refresh"
+    ],
+    "title": "Keep baseline Feed readable after onboarding",
+    "description": "API deployment makes completed accounts without personalized discovery input receive baseline Feed compatible with existing strict clients; no client upgrade is required. Historical failures and exposure rows are not backfilled; server delivery alone does not prove successful client consumption.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/473"
+  },
+  {
+    "id": "refresh-funnel-failure-reasons-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "api",
+    "dashboards": [
+      "card-refresh"
+    ],
+    "title": "Distinguish Feed and refresh failure causes",
+    "description": "The deployed API accepts allowlisted failure reasons while retaining coarse failure counters. Detailed reasons require the updated CLI; deploy API before CLI. Old clients and historical errors have no detailed reason, and telemetry does not establish successful Feed consumption.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/473"
+  },
+  {
+    "id": "outer-loop-setup-readback-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "api",
+    "dashboards": [
+      "user-growth"
+    ],
+    "title": "Accept outer-loop setup and scheduler readback observations",
+    "description": "API rollout accepts bounded setup/readback and container/WSL evidence from updated CLIs; deploy receiver before CLI. Native task readback requires updated Skills and CLI adoption. Historical gaps remain unknown; task state is separate from runtime health and business retention.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/479"
+  },
+  {
+    "id": "runtime-cycle-observations-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "api",
+    "dashboards": [
+      "user-growth"
+    ],
+    "title": "Runtime and external-loop observations available",
+    "description": "API accepts environment and cycle stage receipts. Coverage begins only after CLI 1.0.3 adoption; D0 snapshots are not backfilled and missing receipts are not failures. Telemetry does not count as activity. Hardware means CPU architecture only.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/477"
   }
 ]

@@ -28,3 +28,22 @@ func TestWatchACPBridgeRequiresExplicitRouting(t *testing.T) {
 		t.Fatalf("missing owner routing accepted: %v", err)
 	}
 }
+
+func TestWatchACPBridgeReturnsFieldGuidanceWithoutRouteValues(t *testing.T) {
+	for _, tc := range []struct{ url, want string }{
+		{"http://localhost:9000/api/ws", "owner-url must use ws:// or wss://"},
+		{"ws://localhost:9000/api/ws?token=private-secret", "use token-file for the raw gateway token"},
+		{"ws://localhost/api/ws", "owner-url must include an explicit port"},
+	} {
+		cmd := newWatchACPBridgeCommand()
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		cmd.SilenceErrors, cmd.SilenceUsage = true, true
+		cmd.SetArgs([]string{"--host", "hermes", "--owner-url", tc.url, "--main-session-id", "existing-owner", "--workdir", t.TempDir()})
+		err := cmd.Execute()
+		if err == nil || !strings.HasPrefix(err.Error(), "hermes_main_invalid_config:") || !strings.Contains(err.Error(), tc.want) || strings.Contains(err.Error(), "private-secret") || out.Len() != 0 {
+			t.Fatalf("lost guidance or leaked route outside RPC: %v / %q", err, out.String())
+		}
+	}
+}

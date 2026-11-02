@@ -196,7 +196,7 @@ func fixtureInput(t *testing.T, config HermesConfig, operation string) []byte {
 	t.Helper()
 	var input bytes.Buffer
 	encoder := json.NewEncoder(&input)
-	_ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1}})
+	_ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1, "clientCapabilities": map[string]any{"_meta": map[string]any{mainExtension: map[string]int{"version": 1}}}}})
 	params := map[string]string{"sessionId": config.SessionID, "cwd": config.Cwd}
 	if operation == "_eigenflux/main/notify" {
 		params["requestId"] = "fixture-request-1"
