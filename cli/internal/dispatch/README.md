@@ -68,7 +68,7 @@ return `needs_user`, without switching to a permission-bypass mode.
 | [binding.go](binding.go), [types.go](types.go) | Binding validation, atomic writes, `ParseDecision` |
 | [journal.go](journal.go) | `AddMessages`, `AddHint`, `AddCommissionNotification`, `Next` / `NextKind`, `Update`: persistence, deduplication, sessions, recovery |
 | [desktop.go](desktop.go), [desktop queue](../desktopqueue/README.md) | `CommissionBlockers`: validated routing metadata for unresolved local work; desktop delivery remains separate from execution |
-| [runner.go](runner.go), [acp.go](acp.go), [codex_hidden_pm.go](codex_hidden_pm.go) | `Runner.Run`, `RunCommand`, `runACP`: host execution, Windows hidden main-session PM decisions and result parsing |
+| [runner.go](runner.go), [acp.go](acp.go), [codex_hidden_pm.go](codex_hidden_pm.go) | `Runner.Run`, `RunCommand`, `runACP`: host execution, macOS/Windows hidden main-session PM decisions and result parsing |
 | [process_unix.go](process_unix.go), [process_windows.go](process_windows.go) | Process-group / Windows Job Object cancellation |
 | [replace_unix.go](replace_unix.go), [replace_windows.go](replace_windows.go) | Atomic file replacement |
 | [heartbeat.go](../../cmd/heartbeat.go) | Companion stages and `--watch-managed` launcher |
@@ -84,7 +84,7 @@ policy failure causes; classification does not change dispatch or admission.
 CLI 1.0.2 accepts explicit ACP `main_session_id` and optional `main_command`
 for the separate main-notice lane. The bridge override uses a copied binding
 and clears ordinary args; seller checks, fulfillment and PMs keep their original
-execution entry. Native Codex alone routes PMs through its bound main queue; ACP PMs retain
+execution entry. Native Codex routes PMs to its bound main thread, using hidden owner input on macOS/Windows; ACP PMs retain
 their per-conversation sessions. Do not route an ACP main ID into Codex execution.
 `MainNoticeBindingEnabled` admits ACP negotiation, not host acceptance. Initialize
 must advertise the EigenFlux hidden-main extension, then exact inspect and notify
@@ -294,6 +294,11 @@ Limits: journal 16 MiB, 256 unresolved jobs, latest 1024 completed jobs (includi
 
 ### Opt-in Codex PM main session
 
+Hidden input removes prompt/protocol bubbles, not the final reply from the main
+conversation. This adapter is not silent background PM execution or a periodic
+digest. The proposed split is in [background PM digests](../../../docs/design/pm-background-digest.md);
+it is not enabled by this transport fix.
+
 The canonical onboarding scheduler entry is now `skills/ef-onboarding/references/host-setup.md`;
 its Codex PM setup retains the main-session preflight, scheduler readback and
 unchanged-route recovery contract. `recurring-trigger.md` is a compatibility entry.
@@ -361,12 +366,12 @@ and binding revision. `dispatch_status` includes the returned session ID and
 existing decision/send receipt. A returned session mismatch is `unknown` and is
 never sent or automatically retried. Missing metadata yields `needs_user`.
 
-On Windows, native Codex PM jobs with an explicit main session use the existing
+On macOS and Windows, native Codex PM jobs with an explicit main session use the existing
 Desktop-owner hidden-input IPC lane, never `queue --message`. The input array
 is empty; application rules and untrusted PM data remain separate. An idle-only
 preflight waits while the owner is busy. No visible-input fallback, second
 writer, or automatic replay after an uncertain owner write is allowed.
-The Windows invocation replaces only the synchronized Output Contract section
+The Desktop invocation replaces only the synchronized Output Contract section
 with a content-only transport contract, preserving all authority and later rules.
 The final answer contains only the reply body for `reply`, is empty for `no_reply`,
 or starts with the owner-facing `EigenFlux 需要你确认：` explanation for `needs_user`.
@@ -378,8 +383,9 @@ only an exact, newly admitted, completed, error-free turn with an explicit items
 array and no user message or commentary can yield this silent decision. The CLI
 converts it to the ordinary request-correlated JSON before decision validation.
 The downstream decision/send API retains its JSON contract; Commission notices
-still require a nonempty final. Native Windows UI acceptance is distinct from fixture
-coverage. See `codex_hidden_pm*.go` and the named-pipe regression tests.
+still require a nonempty final. Native UI acceptance is distinct from fixture
+coverage. See `codex_hidden_pm*.go`, the macOS Unix-socket tests and Windows
+named-pipe regression tests. Other platforms retain the queue adapter.
 
 On other platforms, native Codex PM jobs with an explicit main session use `codex queue --thread`
 against the pinned Codex store. The host serializes the queued turn with desktop

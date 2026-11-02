@@ -111,6 +111,29 @@
     "pr": "https://github.com/phronesis-io/eigenflux/pull/466"
   },
   {
+    "id": "feed-v2-baseline-context-v1",
+    "kind": "behavior",
+    "deploy_scope": "api",
+    "dashboards": [
+      "user-growth",
+      "card-refresh"
+    ],
+    "title": "Keep baseline Feed readable after onboarding",
+    "description": "API deployment makes completed accounts without personalized discovery input receive baseline Feed compatible with existing strict clients; no client upgrade is required. Historical failures and exposure rows are not backfilled; server delivery alone does not prove successful client consumption.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/473"
+  },
+  {
+    "id": "refresh-funnel-failure-reasons-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "api",
+    "dashboards": [
+      "card-refresh"
+    ],
+    "title": "Distinguish Feed and refresh failure causes",
+    "description": "The deployed API accepts allowlisted failure reasons while retaining coarse failure counters. Detailed reasons require the updated CLI; deploy API before CLI. Old clients and historical errors have no detailed reason, and telemetry does not establish successful Feed consumption.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/473"
+  },
+  {
     "id": "outer-loop-setup-readback-v1",
     "kind": "instrumentation",
     "deploy_scope": "api",

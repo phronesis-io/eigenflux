@@ -68,9 +68,9 @@ func TestWatchDispatchCodexQueueReceiptAndSend(t *testing.T) {
 			if err := w.enableDispatch(); err != nil {
 				t.Fatal(err)
 			}
-			if runtime.GOOS == "windows" {
-				// Queue is the Unix adapter. Exercise the common decision/send
-				// checks without ever contacting the installed Windows Desktop.
+			if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+				// Desktop PMs use hidden owner input. Exercise common decision/send
+				// checks without contacting the installed Desktop.
 				w.runAgent = func(_ context.Context, req dispatch.Request) (dispatch.Result, error) {
 					if scenario == "admitted-only" {
 						return dispatch.Result{}, context.DeadlineExceeded

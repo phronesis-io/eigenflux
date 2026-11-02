@@ -54,11 +54,11 @@ func synchronizeRuntimeForFeedV2(clientV2 *clientpkg.Client, serverName, ownerAg
 			ControlContext  json.RawMessage `json:"control_context"`
 		}
 		if json.Unmarshal(response.Data, &snapshot) != nil || snapshot.ContextRevision <= 0 {
-			return 0, fmt.Errorf("invalid control-context response before Feed V2 pull")
+			return 0, feedDiagnostic("context_response_invalid", fmt.Errorf("invalid control-context response before Feed V2 pull"))
 		}
 		if !snapshot.Unchanged {
 			if len(snapshot.ControlContext) == 0 {
-				return 0, fmt.Errorf("new control-context revision has no payload")
+				return 0, feedDiagnostic("context_response_missing", fmt.Errorf("new control-context revision has no payload"))
 			}
 			if err := controlcontext.Save(serverName, controlcontext.Snapshot{
 				OwnerAgentID: ownerAgentID, Revision: snapshot.ContextRevision, Context: snapshot.ControlContext,
@@ -94,7 +94,7 @@ func reportFeedV2RuntimeRevision(clientV2 *clientpkg.Client, runtimeID string, r
 func hydrateFeedV2ControlContext(serverName, ownerAgentID string, payload json.RawMessage) (json.RawMessage, int64, error) {
 	var envelope map[string]interface{}
 	if json.Unmarshal(payload, &envelope) != nil || envelope["schema_version"] != "feed.v2" {
-		return nil, 0, fmt.Errorf("invalid Feed V2 response")
+		return nil, 0, feedDiagnostic("feed_schema_invalid", fmt.Errorf("invalid Feed V2 response"))
 	}
 	personalization, _ := envelope["personalization"].(map[string]interface{})
 	mode, _ := personalization["mode"].(string)
@@ -102,18 +102,18 @@ func hydrateFeedV2ControlContext(serverName, ownerAgentID string, payload json.R
 	requiredRevision := int64(required)
 	if mode == "baseline" {
 		if requiredRevision != 0 || envelope["control_context_snapshot"] != nil {
-			return nil, 0, fmt.Errorf("baseline Feed V2 must not contain formal control context")
+			return nil, 0, feedDiagnostic("baseline_formal_context", fmt.Errorf("baseline Feed V2 must not contain formal control context"))
 		}
 		return payload, 0, nil
 	}
 	if mode != "intent_aligned" || requiredRevision <= 0 {
-		return nil, 0, fmt.Errorf("completed Feed V2 has invalid personalization metadata")
+		return nil, 0, feedDiagnostic("personalization_invalid", fmt.Errorf("completed Feed V2 has invalid personalization metadata"))
 	}
 	if snapshot := envelope["control_context_snapshot"]; snapshot != nil {
 		snapshotMap, ok := snapshot.(map[string]interface{})
 		snapshotRevision, _ := snapshotMap["context_revision"].(float64)
 		if !ok || int64(snapshotRevision) != requiredRevision {
-			return nil, 0, fmt.Errorf("Feed V2 control-context snapshot revision does not match personalization")
+			return nil, 0, feedDiagnostic("context_snapshot_mismatch", fmt.Errorf("Feed V2 control-context snapshot revision does not match personalization"))
 		}
 		raw, err := json.Marshal(snapshot)
 		if err != nil {
@@ -129,11 +129,11 @@ func hydrateFeedV2ControlContext(serverName, ownerAgentID string, payload json.R
 	}
 	cached, err := controlcontext.Load(serverName, ownerAgentID)
 	if err != nil || cached.Revision != requiredRevision || len(cached.Context) == 0 {
-		return nil, 0, fmt.Errorf("Feed V2 references context revision %d but its owner-bound local snapshot is unavailable", requiredRevision)
+		return nil, 0, feedDiagnostic("context_snapshot_unavailable", fmt.Errorf("Feed V2 references context revision %d but its owner-bound local snapshot is unavailable", requiredRevision))
 	}
 	var contextValue interface{}
 	if json.Unmarshal(cached.Context, &contextValue) != nil {
-		return nil, 0, fmt.Errorf("cached Agent V2 control context is invalid")
+		return nil, 0, feedDiagnostic("context_snapshot_invalid", fmt.Errorf("cached Agent V2 control context is invalid"))
 	}
 	envelope["control_context_snapshot"] = contextValue
 	envelope["control_context_source"] = "local_applied_cache"
@@ -229,7 +229,7 @@ func renderFeedV2Batch(cmd *cobra.Command, server string, payload json.RawMessag
 	}
 	var feed map[string]interface{}
 	if json.Unmarshal(payload, &feed) != nil || feed["schema_version"] != "feed.v2" {
-		return fmt.Errorf("invalid Feed V2 payload")
+		return feedDiagnostic("feed_schema_invalid", fmt.Errorf("invalid Feed V2 payload"))
 	}
 	trusted, _ := json.Marshal(feed["control_context_snapshot"])
 	contract, err := output.ResolveFeedContract(payload)
