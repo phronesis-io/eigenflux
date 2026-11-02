@@ -132,6 +132,10 @@ not proof of server acknowledgement. `notify flush` reports upload state.
 The backend contract and statistics queries are in `docs/dev/maintenance-observability.md`.
 Recording
 failure is reported separately and cannot retry an already submitted message.
+Foreground `notify status` and `notify setup` return `telemetry=record_failed`
+when this invocation could not persist an observation, even if the queue is
+empty or older receipts upload successfully. The OS permission result remains
+independent. A later invocation starts with its own recording outcome.
 
 While desktop notifications are enabled, watch checks the OS setting every
 minute in an independent read-only lane, including while there are no orders.
@@ -151,7 +155,9 @@ result; never replace that identity or backfill historical observations.
 Upload uses the existing minute lane and retry backoff; an online state change
 can take about two minutes to reach the server. The server selects each device's
 latest reported state by `event_at`, independently of upload delay or elapsed
-time since the observation. The reported state does not establish connectivity.
+time since the observation. Observations more than one minute ahead of the
+server clock remain unknown until the clock-skew guard clears. The reported
+state does not establish connectivity.
 
 Setup displays `EigenFlux`, writes the embedded brand PNG into
 `%LOCALAPPDATA%\EigenFlux\Notifications`, sets the notification registration's
