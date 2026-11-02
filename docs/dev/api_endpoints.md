@@ -102,7 +102,11 @@ API startup.
 session and returns `data.devices` and `data.checked_at` (Unix milliseconds).
 Devices expose `device_id`, `device_name`, `platform`, `permission_state`,
 `observed_at`, and `stale`. State is `ready`, `denied`, `not_requested`,
-`unavailable`, or `unknown`; ten-minute-old observations become stale/unknown.
+`unavailable`, or `unknown`. Use the latest retained observation per device
+regardless of its age. Only observations more than one minute ahead of server
+time return `unknown` with `stale=true`; other retained observations have
+`stale=false`. `observed_at` records the last check and does not establish that
+the device is online.
 No data from old clients means an empty list, not denied permission. Responses
 are account scoped and `Cache-Control: no-store`.
 
@@ -263,7 +267,7 @@ discard CLI stderr.
 `POST /api/v1/agents/me/card/refresh-events` and its Agent V2 counterpart
 accept bounded lifecycle observations from an authenticated Agent. The gateway
 logs `agent_profile_refresh_funnel` with `agent_id`, `stage`, `run_id`,
-`poll_id`, `cause`, and `failure_code`. Unknown properties, invalid IDs,
+`poll_id`, `cause`, `failure_code`, and optional `failure_reason`. Unknown properties, invalid IDs,
 arbitrary text, and excessive requests are rejected.
 
 CLI Feed polling emits `poll_started` and `poll_succeeded` or `poll_failed`
@@ -275,7 +279,17 @@ and `cause=feed_poll`; task dispatches use `host_schedule` or `manual`.
 Plugin-owned loops dispatch through `refresh-task`, independently of Feed.
 
 Command failures emit `refresh_attempt_failed`, with bounded `version_conflict`,
-`api_error`, or `client_error`. An attempt failure does not mean the Agent
+`api_error`, or `client_error`. Updated clients also send a fixed, compatible
+`failure_reason`: baseline/formal-context contamination, invalid Feed metadata,
+context snapshot mismatch/unavailability, network timeout/failure, response
+decoding, local storage, or bounded API status categories. The precise baseline
+contract error is `failure_code=client_error` with
+`failure_reason=baseline_formal_context`; API context reads use
+`api_error` / `api_feed_context_read_failed`. No raw error text, response body,
+URL, path or credential is accepted. Unknown local errors remain `client_other`.
+Deploy API validation before the CLI: older gateways reject the new property;
+legacy clients remain accepted with an absent reason. Historical coarse errors
+cannot be reclassified. An attempt failure does not mean the Agent
 abandoned the run: retries may succeed under the same `run_id`. Successful
 outcomes remain `changed` and `unchanged` in `agent_profile_refresh_run`;
 `stale` is retryable. Count distinct `run_id` when joining dispatches to
@@ -439,7 +453,10 @@ switch. Final onboarding activates their limited scopes without repeating the
 completed switch; existing incomplete targets still finalize their pending switch.
 
 After Console V2 onboarding is complete, `GET /api/v2/console/today` can start
-an asynchronous model-generated Today headline. The generation language comes
+an asynchronous model-generated Today headline. Generation and overlength
+compression use `qwen3.8-flash` with explicit `reasoning.effort=none`, sharing
+the configured LLM endpoint and credentials but independent of `LLM_MODEL`.
+Each attempt has a 25-second deadline. The generation language comes
 from the Agent Card `working_languages`; the requested UI language is used only
 when it is one of the configured working languages. The prompt is facts-only
 and is bounded to the current Today counts, the Agent name, the leading
@@ -453,9 +470,10 @@ on a subsequent Today request once the existing hourly generation limit permits.
 The initial response returns `brief.narrative.state` as `generating`, `ready`,
 `failed`, or `unavailable`. Clients poll the lightweight
 `GET /api/v2/console/today/brief?language=zh-CN|en` endpoint instead of reloading
-the full Today aggregation. Generation is attempted at most once per hour for
-the same Agent, language, local day, and changed fact set. Storage is bounded to
-one row per Agent/language; a new local day overwrites the previous day.
+the full Today aggregation. A failed attempt may advertise a one-minute retry via `retry_at`. A second
+failure waits an hour. A non-ready response with `stale`, `text` and
+`generated_at` carries the last success for the same local day and language.
+See [Today brief recovery](today-brief-recovery.md) for display and length limits.
 
 ## Installation Entry
 
@@ -781,8 +799,14 @@ the current Skills, or empty stdout when no work is available. Adapters supply
 bounded memory/session context and deliver the task. Successful writes and
 explicit `profile refresh-complete` record completion; task delivery does not.
 
-Baseline Feed uses `static/feed_baseline_contract.md`; completed Feed uses
-`static/feed_contract.md`. Both are generated from the central Skills. A CLI
+Baseline Feed uses `static/feed_baseline_contract.md`; intent-aligned Feed uses
+`static/feed_contract.md`. Discovery can return baseline Feed after onboarding
+completes when no personalized context is available. Every baseline response
+has a null `context_revision`, `context_delivery=none`, no control-context
+snapshot or intent matches, and no exposure context revision. The owner's
+onboarding state and active control context remain unchanged. Intent-aligned
+responses retain full or unchanged delivery of the active context revision.
+Both contracts are generated from the central Skills. A CLI
 without a server contract reads the corresponding current synchronized Skill
 and reports missing rules instead of using a compiled business-policy copy.
 
@@ -948,3 +972,22 @@ The [client feedback contract](feedback_clients.md) defines local report state,
 durable keyed retries and the `feedback_health` settings report.
 Baseline Feed remains read-only. The server's feedback wire schema is unchanged;
 `contract_version=feedback.v2` is a batch field and `surfaced` remains optional.
+
+### Outer-loop maintenance observations
+
+`POST /api/v2/maintenance/events:batch` accepts optional `outer_loop` metadata
+for watch setup and scheduler readback. Its environment has bounded `os`,
+`arch`, `container` and `wsl` enums; detection describes the CLI process, not
+physical host identity. Container and WSL evidence are independent. The
+scheduler projection includes `observed_at`, `state` and scoped SHA-256 task
+and schedule hashes. Readback time is checked against event time so valid
+offline replay retains the original observation. Unknown nested properties,
+raw diagnostic values and incompatible component/phase claims are rejected.
+Old observations without `outer_loop` retain their existing validation.
+
+Agent identity still comes exclusively from authentication, and event IDs
+remain namespaced by that Agent. `verified` means host-reported task metadata
+passed readback validation; it does not prove a recurring execution or a
+completed model call. Deploy this receiver before the new CLI. No schema
+migration or historical backfill is required. Shared sender/receiver fixtures
+live in `contracts/outer_loop_observations.json`.

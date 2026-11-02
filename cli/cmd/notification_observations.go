@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
@@ -34,28 +35,64 @@ func notificationServer() string {
 	return "eigenflux"
 }
 
-func observedNotificationCLI() *desktopnotify.Notifier {
+func observedNotificationCLI() *notificationCLINotifier {
 	return observedNotificationCLIFrom("manual")
 }
 
-func observedNotificationCLIFrom(source string) *desktopnotify.Notifier {
+func observedNotificationCLIFrom(source string) *notificationCLINotifier {
 	server := notificationServer()
 	agent := ""
 	if credentials, err := auth.LoadV2Credentials(server); err == nil {
 		agent = credentials.AgentID
 	}
-	return observedDesktopNotifierAt(config.HomeDir(), server, agent, source)
+	return notificationCLINotifierAt(config.HomeDir(), server, agent, source)
+}
+
+type notificationCLINotifier struct {
+	*desktopnotify.Notifier
+	recordingFailed atomic.Bool
+}
+
+func notificationCLINotifierAt(home, server, agent, source string) *notificationCLINotifier {
+	n := &notificationCLINotifier{}
+	n.Notifier = desktopnotify.NewWithObserver(func(e desktopnotify.Observation) {
+		n.observe(home, server, agent, source, e)
+	})
+	return n
+}
+
+func (n *notificationCLINotifier) observe(home, server, agent, source string, e desktopnotify.Observation) {
+	if err := recordNotificationObservationAt(home, server, agent, source, e); err != nil {
+		n.recordingFailed.Store(true)
+		// Recording failure does not change the OS result or retry a notification.
+		fmt.Fprintln(os.Stderr, "Local notification observation could not be saved.")
+	}
+}
+
+func (n *notificationCLINotifier) flushTelemetry(server string) string {
+	result := flushNotificationTelemetry(server)
+	if n.recordingFailed.Load() {
+		return "record_failed"
+	}
+	return result
 }
 
 func observedDesktopNotifierAt(home, server, agent, source string) *desktopnotify.Notifier {
-	return desktopnotify.NewWithObserver(func(e desktopnotify.Observation) {
-		e.EventID, e.AgentID, e.Source = maintenance.NewID(), agent, source
-		e.CLIVersion, e.CLICommit = version, commit
-		if err := appendNotificationObservation(home, server, e); err != nil {
-			// Telemetry failure must not turn a submitted notification into a retry.
-			fmt.Fprintln(os.Stderr, "Local notification observation could not be saved.")
+	return notificationCLINotifierAt(home, server, agent, source).Notifier
+}
+
+func recordNotificationObservationAt(home, server, agent, source string, e desktopnotify.Observation) error {
+	e.EventID, e.AgentID, e.Source = maintenance.NewID(), agent, source
+	e.CLIVersion, e.CLICommit = version, commit
+	if e.Action == "status" && (e.Platform == "darwin" || e.Platform == "windows") {
+		device, err := notificationDeviceAt(home)
+		if err != nil {
+			return err
 		}
-	})
+		hostname, _ := os.Hostname()
+		e.DeviceID, e.DeviceName = device.ID, notificationDeviceName(hostname, e.Platform)
+	}
+	return appendNotificationObservation(home, server, e)
 }
 
 // Import only records pinned to this account. The sole unbound handoff is setup

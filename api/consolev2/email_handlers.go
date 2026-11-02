@@ -351,6 +351,7 @@ func (s *Service) createEmailLoginChallenge(ctx context.Context, c *app.RequestC
 	}
 	var job emailJob
 	var expiresAt int64
+	ambiguousBinding := false
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, keyedHash(s.otpPepper, normalizedEmail)).Error; err != nil {
 			return err
@@ -365,9 +366,10 @@ func (s *Service) createEmailLoginChallenge(ctx context.Context, c *app.RequestC
 			ORDER BY binding_id LIMIT 2`, normalizedEmail).Scan(&bindings).Error; err != nil {
 			return err
 		}
+		ambiguousBinding = len(bindings) > 1
 		// Lazy creation is a bounded fallback while the resumable backfill is
 		// still running. It only proceeds when the canonical legacy owner is
-		// unambiguous; conflicts receive the same public 202 envelope.
+		// unambiguous; ambiguous targets never receive a login code.
 		if len(bindings) == 0 {
 			var legacyOwners []struct {
 				AgentID int64 `gorm:"column:agent_id"`
@@ -377,6 +379,7 @@ func (s *Service) createEmailLoginChallenge(ctx context.Context, c *app.RequestC
 				ORDER BY agent_id LIMIT 2`, normalizedEmail).Scan(&legacyOwners).Error; err != nil {
 				return err
 			}
+			ambiguousBinding = len(legacyOwners) > 1
 			if len(legacyOwners) == 1 {
 				insert := tx.Exec(`INSERT INTO agent_email_bindings
 					(agent_id, normalized_email, normalization_version, verification_state, status,
@@ -411,6 +414,14 @@ func (s *Service) createEmailLoginChallenge(ctx context.Context, c *app.RequestC
 	}
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "EMAIL_CHALLENGE_FAILED", "could not create email verification challenge", nil)
+		return
+	}
+	if req.Purpose == "login" && job.to == "" {
+		if ambiguousBinding {
+			fail(c, http.StatusConflict, "EMAIL_LOGIN_UNAVAILABLE", "email is linked to conflicting accounts; use another bound email or contact support", nil)
+			return
+		}
+		fail(c, http.StatusConflict, "EMAIL_NOT_BOUND", "email is not bound to an account; claim your Agent and bind this email before signing in", nil)
 		return
 	}
 	s.queueEmailChallenge(c, job, expiresAt)

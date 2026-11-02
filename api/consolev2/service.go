@@ -220,7 +220,7 @@ func NewService(gdb *gorm.DB, idgen IDGenerator, cfg *config.Config) (*Service, 
 	}
 	if strings.TrimSpace(cfg.LLMApiKey) != "" {
 		service.todayBriefGenerator = &llmTodayBriefGenerator{
-			client: llm.NewClient(cfg, nil).WithReasoningOff(),
+			client: llm.NewClient(cfg, nil).WithModel(todayBriefModel).WithReasoningOff(),
 		}
 	}
 	if strings.TrimSpace(cfg.ResendApiKey) != "" {

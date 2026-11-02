@@ -223,7 +223,7 @@ func hasOTPRetryV2SessionCookie(cookies [][]byte) bool {
 }
 
 func TestAuthRetryV2OTPBoundaries(t *testing.T) {
-	for _, name := range []string{"resend_preserves_live_challenges", "expired_old_challenge", "wrong_email", "wrong_purpose", "attempt_limit_then_fresh_challenge", "single_consumption", "concurrent_verify", "concurrent_wrong_codes", "request_limit", "unknown_email_does_not_create_identity", "cleanup_refuses_stale_owner"} {
+	for _, name := range []string{"resend_preserves_live_challenges", "expired_old_challenge", "wrong_email", "wrong_purpose", "attempt_limit_then_fresh_challenge", "single_consumption", "concurrent_verify", "concurrent_wrong_codes", "request_limit", "unknown_email_does_not_create_identity", "ambiguous_email_does_not_claim_unbound", "cleanup_refuses_stale_owner"} {
 		t.Run(name, func(t *testing.T) {
 			f := newOTPRetryV2Fixture(t)
 			id := f.challenge(t, f.email)
@@ -399,13 +399,38 @@ func TestAuthRetryV2OTPBoundaries(t *testing.T) {
 					t.Fatalf("rate rejection inserted a challenge: count=%d err=%v", count, err)
 				}
 				f.sessions(t, 0)
+			case "ambiguous_email_does_not_claim_unbound":
+				conflicting := "conflict@otp.invalid"
+				now := time.Now().UnixMilli()
+				for index, legacyEmail := range []string{conflicting, strings.ToUpper(conflicting)} {
+					if err := f.db.Exec(`INSERT INTO agents (agent_id,email,email_kind,agent_name,bio,created_at,updated_at)
+						VALUES (?,?,'legacy_real','Conflicting legacy owner','fixture',?,?)`, 102+index, legacyEmail, now, now).Error; err != nil {
+						t.Fatal(err)
+					}
+				}
+				status, payload, cookies := performJSON(t, f.http, http.MethodPost, "/api/v2/auth/email/challenges", createEmailChallengeRequest{Email: conflicting})
+				if status != http.StatusConflict || responseErrorCode(t, payload) != "EMAIL_LOGIN_UNAVAILABLE" {
+					t.Fatalf("conflicting email was misreported as unbound: status=%d payload=%#v", status, payload)
+				}
+				if hasOTPRetryV2SessionCookie(cookies) {
+					t.Fatal("conflicting email acquired a session")
+				}
+				f.sessions(t, 0)
 			case "unknown_email_does_not_create_identity":
 				unknown := "unknown@otp.invalid"
-				unknownID := f.challenge(t, unknown)
-				status, payload, cookies := f.verify(t, unknownID, unknown, "123456", "login")
-				assertOTPRetryV2Rejected(t, status, payload, cookies)
-				if row := f.state(t, unknownID); row.SubjectAgentID != nil || row.Status != "pending" {
-					t.Fatal("unknown email acquired an identity")
+				status, payload, cookies := performJSON(t, f.http, http.MethodPost, "/api/v2/auth/email/challenges", createEmailChallengeRequest{Email: unknown})
+				if status != http.StatusConflict || responseErrorCode(t, payload) != "EMAIL_NOT_BOUND" {
+					t.Fatalf("unbound email did not return claim guidance: status=%d payload=%#v", status, payload)
+				}
+				if _, exists := payload["data"]; exists {
+					t.Fatalf("unbound email exposed a login challenge: %#v", payload)
+				}
+				if hasOTPRetryV2SessionCookie(cookies) {
+					t.Fatal("unbound email acquired a session")
+				}
+				var unknownChallenge emailChallengeRow
+				if err := f.db.Table("v2_email_challenges").Where("normalized_email_hash = ?", keyedHash(f.svc.otpPepper, unknown)).Take(&unknownChallenge).Error; err != nil || unknownChallenge.SubjectAgentID != nil {
+					t.Fatalf("unbound rate accounting changed: challenge=%#v err=%v", unknownChallenge, err)
 				}
 				var count int64
 				if err := f.db.Table("agents").Count(&count).Error; err != nil || count != 1 {

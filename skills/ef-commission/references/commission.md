@@ -25,6 +25,7 @@ Productize the capability before creating it:
 - Make acceptance criteria observable in the delivery specification.
 - Choose the currency, buyer price, promised delivery, title, and tags with the seller. State that EigenFlux deducts a 20% platform commission when an Order completes, so the seller net is 80% of the frozen price. Current CLI and service validation are authoritative; on rejection, show the validation error and ask for a revised value instead of inferring a fallback.
 - Request and delivery schemas must be JSON objects. Human-readable specifications remain authoritative context.
+- For a nonempty request-schema object, declare the exact `inputs/request.txt` path in the request specification and fulfillment Skill. Supply structured fields as a UTF-8 JSON object of at most 1 MiB at that path. Keep additional files at their declared paths. Preserve absent-document behavior when the frozen Schema accepts `{}` and retain historical JSON attachments. Preserve ordinary text and file-only behavior for `{}` schemas.
 
 Do not publish a vague promise, an open-ended staff role, or work whose required access cannot be transferred safely.
 
@@ -103,13 +104,23 @@ Before each publication, independently run `eigenflux notify status --publish-pr
 
 Before publication approval, run `eigenflux watch doctor --format json` with the same Home and server. Require a valid account-bound executable and `commission_subscription` enabled. Report the actual host and invocation mode. Resolve binding failures before offering publication. Keep WorkBuddy background execution separate from main-conversation reminders; verify its local ACP model authentication and actual trial artifacts. Require the publish command's verified trial evidence. Report manually prepared deliverables as samples, not background execution results.
 
+For Hermes, bind ordinary execution with `mode=native`, `host=hermes` and the
+absolute Hermes executable. Put `watch acp-bridge --host hermes` only in
+`main_command`. Use a loopback `ws`/`wss` owner URL with an explicit port and
+exact `/api/ws` path; keep query, user information and fragment absent. Supply
+authentication through an absolute raw-token file. Match the canonical absolute
+workdir and exact opaque live session ID. Treat `acp_extension_required` as the
+main-notice protocol category; use `watch doctor --probe-main` to check only
+that route. Require the real publish trial to verify background execution.
+Report Hermes main notifications as experimental and untested with a real host.
+
 With existing publication approval, configure a missing WorkBuddy background binding for the current Home/server directly. On macOS, use `watch bind --config` with `mode=acp`, `host=workbuddy`, the absolute native EigenFlux executable plus `watch workbuddy-acp --node ABSOLUTE_NODE`, a dedicated writable application-data workspace, compatible signed Skills and `commission_order` in `events`; inspect `watch bind --help` for guards. Install or reuse an account-owned user-level service running that executable with `watch --dispatch`, then verify its process and `watch doctor`. Keep the running authenticated WorkBuddy host. Preserve unrelated services and pending jobs. Use narrowly authorized tool paths; keep host permission checks enabled. Keep OAuth credentials untouched. Bind background execution independently of a main conversation or GUI refresh; reject stale test bindings. Require the real publish trial to prove readiness.
 
 For `local_access_denied`, retry the same notification check through host-authorized local execution. Report the returned status. Preserve the clickable `settings_url` and manual path; keep an unavailable check distinct from disabled notifications.
 
 Describe the order as background binding and order subscription, real sample trial, then publication and contract freezing. The publish command does not enable subscriptions. Report verified trial evidence and publication readback; keep pending work pending.
 
-After explicit approval, save representative buyer input as a UTF-8 file and prepare representative materials in a local directory. Publish only the inspected version with `--trial-input INPUT_FILE`; add `--trial-materials MATERIALS_DIRECTORY` when materials are required. The CLI runs the bound background Agent and verifies actual artifacts before publishing. For a confirmed failed trial, inspect its retained files and diagnostics, repair local execution or fulfillment Skill defects within the approved contract, and rerun the complete publish trial. Perform authorized repairs directly. Preserve price, scope, acceptance criteria, credentials and host security settings. Request user action only for missing permissions, unavailable dependencies or changes outside the approved scope. Inspect unconfirmed or unknown attempts before any retry; reconcile publication state after an uncertain publish response. Publish only after the fresh trial verifies every contractual artifact. Offline removes discovery visibility but does not erase history:
+After explicit approval, save representative buyer input as a UTF-8 file and prepare representative materials in a local directory. For a nonempty request schema, use a JSON-object sample matching the declared fields; the CLI copies its exact bytes to `inputs/request.txt`. Keep any supplied sample at that path byte-identical. Publish only the inspected version with `--trial-input INPUT_FILE`; add `--trial-materials MATERIALS_DIRECTORY` for required additional files. The CLI runs the bound background Agent and verifies actual artifacts before publishing. For a confirmed failed trial, inspect its retained files and diagnostics, repair local execution or fulfillment Skill defects within the approved contract, and rerun the complete publish trial. Perform authorized repairs directly. Preserve price, scope, acceptance criteria, credentials and host security settings. Request user action only for missing permissions, unavailable dependencies or changes outside the approved scope. Inspect unconfirmed or unknown attempts before any retry; reconcile publication state after an uncertain publish response. Publish only after the fresh trial verifies every contractual artifact. Offline removes discovery visibility but does not erase history:
 
 ```bash
 eigenflux commission get COMMISSION_ID --format json

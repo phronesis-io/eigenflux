@@ -11,6 +11,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
+	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/notificationpayload"
 )
 
@@ -50,6 +51,7 @@ func notificationIssuerIdentity(notification *notificationrpc.PendingNotificatio
 func (s *Service) listPendingNotifications(ctx context.Context, c *app.RequestContext) {
 	agentIDValue, _ := agentID(c)
 	if s.notificationClient == nil {
+		logger.Ctx(ctx).Error("notification_pending_failed", "reason", "client_unavailable")
 		fail(c, http.StatusServiceUnavailable, "NOTIFICATIONS_UNAVAILABLE", "V2 notifications are temporarily unavailable", nil)
 		return
 	}
@@ -68,7 +70,21 @@ func (s *Service) listPendingNotifications(ctx context.Context, c *app.RequestCo
 		request.Cursor = &cursor
 	}
 	response, err := s.notificationClient.ListPending(ctx, request)
+	if err == nil && response != nil && response.BaseResp != nil && response.BaseResp.Code == 400 {
+		fail(c, http.StatusBadRequest, "INVALID_NOTIFICATION_PAGE", "invalid notification cursor or page", nil)
+		return
+	}
 	if err != nil || response == nil || response.BaseResp == nil || response.BaseResp.Code != 0 {
+		reason := "rpc_error"
+		code := int32(0)
+		if err == nil {
+			reason = "empty_response"
+			if response != nil && response.BaseResp != nil {
+				reason = "upstream_rejected"
+				code = response.BaseResp.Code
+			}
+		}
+		logger.Ctx(ctx).Error("notification_pending_failed", "reason", reason, "upstream_code", code, "err", err)
 		fail(c, http.StatusServiceUnavailable, "NOTIFICATIONS_UNAVAILABLE", "V2 notifications are temporarily unavailable", nil)
 		return
 	}

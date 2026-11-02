@@ -91,9 +91,11 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 		for index, status := range []string{"restarted", "current"} {
 			command := exec.Command(bin, "--homedir", home, "update", "--format", "json")
 			command.Env = append(os.Environ(), "EIGENFLUX_UPDATE_REEXEC=0", "EIGENFLUX_CDN_URL="+server.URL)
-			out, err := command.CombinedOutput()
+			var diagnostics bytes.Buffer
+			command.Stderr = &diagnostics
+			out, err := command.Output()
 			if err != nil {
-				t.Fatalf("manual update failed: %s %v", out, err)
+				t.Fatalf("manual update failed: stdout=%s stderr=%s err=%v", out, diagnostics.String(), err)
 			}
 			var report cliUpdateOutput
 			if err := json.Unmarshal(out, &report); err != nil {
@@ -101,6 +103,9 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 			}
 			if report.CLIVersion != "0.0.48" || report.CLIUpdate.Status != status || report.Home != home || report.PID <= 0 {
 				t.Fatalf("missing running-process evidence: %+v", report)
+			}
+			if !strings.Contains(diagnostics.String(), "[eigenflux:outer-loop] component=watch phase=preflight result=skipped error_code=user_disabled") || !strings.Contains(diagnostics.String(), "observation=local_only") {
+				t.Fatalf("missing unauthenticated recovery diagnostic: %s", diagnostics.String())
 			}
 			if index == 0 && report.PID == command.ProcessState.Pid() {
 				t.Fatal("old CLI claimed to be the replacement process")
