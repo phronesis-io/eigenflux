@@ -41,3 +41,5 @@ Insights SQL fixtures, independent D1 aggregate reconciliation and browser tests
 Never write synthetic events to production to demonstrate collection.
 
 A generated plan contributes environment evidence only. The first valid stage receipt records execution with its observation timestamp. Cycle failure requires a failed stage receipt. Interrupted or missing stages remain unresolved.
+
+CLI 1.0.4 is the first release containing cycle-report. The 1.0.3 build started from the preceding main revision.

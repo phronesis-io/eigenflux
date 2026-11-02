@@ -91,6 +91,14 @@ must advertise the EigenFlux hidden-main extension, then exact inspect and notif
 receipts must agree. The probe never sends business data or starts a model turn.
 See the bridge contract for methods and the host-specific acceptance boundary.
 
+Hermes keeps native quiet-chat execution and a separate built-in main bridge.
+Binding validation rejects `watch acp-bridge` as an ordinary execution command,
+including argv split between `command` and `args`. The main-notice override uses
+`main_command` only. See [Hermes configuration](../../../docs/dev/agent-dispatch.md#hermes-execution-and-main-notifications)
+for exact URL, raw-token file, opaque session ID and canonical-workspace rules.
+Plain `acp_extension_required` is a static protocol category; `--probe-main`
+checks only the main route and cannot replace the actual publication trial.
+
 1. Bind canonical Home/server/endpoint/Agent/principal/scope/revision from the current account; configuration cannot replace identity. `watch --dispatch` acquires the Home/server lock and validates signed Skills. Plain `watch` only emits events.
 2. Only bindings owning PM open its WS and HTTP consumers; other bindings leave PM to the companion. WS and minute-spaced HTTP polls enter `deliverPM`; emitted `pm_push.data` adds locally assigned `transport` (`socket` / `http_poll`) and UTC `received_at`, including empty polls. These fields describe reception, not successful execution or first intake; journal deduplication remains unchanged. Each poll pass fetches at most 32 pages, one message each. Validate credentials and persist intake under the credential lock. Advance the socket cursor only after delivery succeeds; journal failure stops reception.
 3. Accept only inbound messages for the bound Agent; ignore outbound and `history_messages`. Deduplicate by scope/revision/conversation/message ID. Keep execution state separate from the history cache.
@@ -412,8 +420,8 @@ desktop lifecycle remain unverified. Fixtures do not prove a live PM receipt.
 
 | Area | Tests |
 |---|---|
-| Binding / decisions / journal | `binding_test.go`, `types_test.go`, `journal_test.go`, `../../cmd/watch_binding_test.go` |
-| Host / ACP / cancellation | `runner_test.go`, `acp_test.go`, `process_windows_test.go` |
+| Binding / decisions / journal | `binding_test.go`, `execution_binding_test.go`, `types_test.go`, `journal_test.go`, `../../cmd/watch_binding_test.go` |
+| Host / ACP / cancellation | `runner_test.go`, `acp_test.go`, `bridge_diagnostic_test.go`, `../mainbridge/hermes_runner_test.go`, `process_windows_test.go` |
 | Main target / Desktop IPC / hidden receipts | `main_notice_test.go`, `main_notice_codex_test.go`, `main_notice_probe_test.go`, `codex_owner_ipc*_test.go`; opt-in real host: `main_notice_native_test.go` |
 | Intake → Agent → reply / identity / permission | `../../cmd/watch_dispatch_test.go`, `../../cmd/watch_test.go` |
 | Commission intake / inspection / materials / ownership | `journal_commission_test.go`, `commission_intake_test.go`, `commission_fulfillment_test.go`, `../../cmd/watch_commission*_test.go`, `../../cmd/order_notifications_test.go`, `../../cmd/order_result_notifications_test.go`, `../skills/read_signed_test.go` |
@@ -753,8 +761,13 @@ implementation with Skills; named report locks keep their bounded wait.
 ## Safe diagnostics
 
 `diagnostic.go` retains fixed runner-failure and ACP permission-operation
-categories while preserving `errors.Is` decisions. Never retain tool inputs,
-paths, stderr or permission explanations. The caller hashes host receipts and
+categories while preserving `errors.Is` decisions. ACP also preserves
+allowlisted fixed bridge codes and field guidance from process stderr and RPC
+errors, including Hermes configuration failures before initialize.
+Probe results expose the same safe message in optional `diagnostic`, retaining
+the existing probe code. Reject
+unrecognized text and retain no raw stderr, supplied URLs, paths, tokens, tool
+inputs or permission explanations. The caller hashes host receipts and
 reuses [maintenance observations](../maintenance/README.md); failed telemetry
 must not authorize, retry or fail a business action. Synchronize these documents
 when changing diagnostic categories or receipt semantics.

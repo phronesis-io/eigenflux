@@ -44,6 +44,14 @@ func fakeACP(scenario string) {
 		response := func(result any) { send(map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": result}) }
 		switch m.Method {
 		case "initialize":
+			if strings.HasPrefix(scenario, "acp-stderr-diagnostic") {
+				fmt.Fprint(os.Stderr, os.Getenv("EF_ACP_DIAGNOSTIC"))
+				os.Exit(8)
+			}
+			if scenario == "acp-rpc-diagnostic" {
+				send(map[string]any{"jsonrpc": "2.0", "id": m.ID, "error": map[string]any{"code": -32000, "message": os.Getenv("EF_ACP_DIAGNOSTIC"), "data": "private-secret"}})
+				continue
+			}
 			var p struct {
 				ProtocolVersion int            `json:"protocolVersion"`
 				Capabilities    map[string]any `json:"clientCapabilities"`
