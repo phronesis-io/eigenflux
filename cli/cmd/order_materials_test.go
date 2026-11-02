@@ -38,6 +38,17 @@ func materialTestServer(t *testing.T, handler http.HandlerFunc) *httptest.Server
 }
 func materialFlag(t *testing.T, c *cobra.Command, name, value string) {
 	t.Helper()
+	if slice, ok := c.Flags().Lookup(name).Value.(interface {
+		Replace([]string) error
+		GetSlice() []string
+	}); ok {
+		previous := append([]string(nil), slice.GetSlice()...)
+		if err := slice.Replace([]string{value}); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = slice.Replace(previous) })
+		return
+	}
 	if err := c.Flags().Set(name, value); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +91,7 @@ func TestCreateOrderUploadsLongTextAndResumesFinalizedPreparation(t *testing.T) 
 			if finalized {
 				fmt.Fprint(w, `{"code":0,"data":{"preparation_id":51,"order":{"order_id":51}}}`)
 			} else {
-				fmt.Fprint(w, `{"code":0,"data":{"preparation_id":51}}`)
+				fmt.Fprint(w, `{"code":0,"data":{"preparation_id":51,"contract":{"request_spec_schema":"{}"}}}`)
 			}
 		case "/api/v1/order-preparations/51/uploads":
 			fmt.Fprintf(w, `{"code":0,"data":{"grant":{"object_id":71,"method":"PUT","url":%q}}}`, server.URL+"/object")
@@ -121,7 +132,7 @@ func TestCreateOrderDoesNotFinalizeFailedUpload(t *testing.T) {
 	materialTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/order-preparations":
-			fmt.Fprint(w, `{"code":0,"data":{"preparation_id":51}}`)
+			fmt.Fprint(w, `{"code":0,"data":{"preparation_id":51,"contract":{"request_spec_schema":"{}"}}}`)
 		case "/api/v1/order-preparations/51/uploads":
 			fmt.Fprint(w, `{"code":409,"msg":"upload rejected"}`)
 		default:

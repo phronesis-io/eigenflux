@@ -622,7 +622,7 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 	}
 	modelBrief := map[string]interface{}{"state": "unavailable", "language": briefLanguage}
 	if participationCursor.AttentionID == 0 && focusCursor.AttentionID == 0 {
-		modelBrief = s.prepareTodayBrief(agentIDValue, briefFacts, briefLanguage, now)
+		modelBrief = s.prepareTodayBrief(agentIDValue, briefFacts, briefLanguage, now, todayStart)
 	}
 	reply(c, http.StatusOK, map[string]interface{}{
 		"schema_version": "console_today.v2",

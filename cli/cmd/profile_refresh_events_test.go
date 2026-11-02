@@ -1,10 +1,16 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +21,74 @@ import (
 	"github.com/spf13/cobra"
 	"reflect"
 )
+
+func TestProfileFunnelFailureReasons(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{nil, ""},
+		{errors.New("private text at /Users/private?token=secret"), "client_other"},
+		{&client.APIError{StatusCode: 409}, "version_conflict"},
+		{errors.New("profile changed since version 1"), "version_conflict"},
+		{&client.APIError{StatusCode: 401}, "api_unauthorized"},
+		{&client.APIError{StatusCode: 403}, "api_forbidden"},
+		{&client.APIError{StatusCode: 404}, "api_not_found"},
+		{&client.APIError{StatusCode: 429}, "api_rate_limited"},
+		{&client.APIError{StatusCode: 500}, "api_server"},
+		{&client.APIError{StatusCode: 400, ErrorCode: "private-token"}, "api_other"},
+		{&client.APIError{StatusCode: 503, ErrorCode: "FEED_CONTEXT_READ_FAILED"}, "api_feed_context_read_failed"},
+		{fmt.Errorf("wrapped: %w", context.DeadlineExceeded), "transport_timeout"},
+		{&url.Error{Op: "Get", URL: "https://private?token=secret", Err: &net.DNSError{Err: "private host"}}, "transport_network"},
+		{fmt.Errorf("parse response: %w", &json.SyntaxError{Offset: 1}), "response_decode"},
+		{&os.PathError{Op: "read", Path: "/Users/private", Err: os.ErrPermission}, "local_storage"},
+		{fmt.Errorf("wrapped: %w", feedDiagnostic("baseline_formal_context", errors.New("baseline Feed V2 must not contain formal control context"))), "baseline_formal_context"},
+	} {
+		if got := profileFailureReason(tc.err); got != tc.want {
+			t.Errorf("reason=%q want=%q", got, tc.want)
+		}
+	}
+}
+
+func TestFeedV2ValidationFailureReasons(t *testing.T) {
+	t.Setenv("EIGENFLUX_HOME", t.TempDir())
+	for _, tc := range []struct{ payload, want string }{
+		{`{"schema_version":"wrong"}`, "feed_schema_invalid"},
+		{`{"schema_version":"feed.v2","personalization":{"mode":"baseline","context_revision":1}}`, "baseline_formal_context"},
+		{`{"schema_version":"feed.v2","personalization":{"mode":"baseline"},"control_context_snapshot":{}}`, "baseline_formal_context"},
+		{`{"schema_version":"feed.v2","personalization":{"mode":"unknown"}}`, "personalization_invalid"},
+		{`{"schema_version":"feed.v2","personalization":{"mode":"intent_aligned","context_revision":1},"control_context_snapshot":{"context_revision":2}}`, "context_snapshot_mismatch"},
+		{`{"schema_version":"feed.v2","personalization":{"mode":"intent_aligned","context_revision":1}}`, "context_snapshot_unavailable"},
+	} {
+		_, _, err := hydrateFeedV2ControlContext("test-server", "owner", json.RawMessage(tc.payload))
+		if err == nil || profileFailureReason(err) != tc.want || profileFailureCode(err) != "client_error" {
+			t.Errorf("payload=%s error=%v reason=%q", tc.payload, err, profileFailureReason(err))
+		}
+	}
+}
+
+func TestProfileFunnelFailureReasonSentWithoutPrivateText(t *testing.T) {
+	var body string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var received profileFunnelEvent
+		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+			t.Error(err)
+		}
+		encoded, _ := json.Marshal(received)
+		body = string(encoded)
+		if received.FailureCode != "client_error" || received.FailureReason != "transport_network" {
+			t.Errorf("event=%+v", received)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	runtimeTestConfig(t, server.URL, true)
+	err := &url.Error{Op: "Get", URL: "https://private?token=secret", Err: &net.DNSError{Err: "private host"}}
+	reportProfileFunnel(activeServerName(), profileFunnelEvent{Stage: "poll_failed", PollID: newProfileRunID(), Cause: "feed_poll", FailureCode: profileFailureCode(err), FailureReason: profileFailureReason(err)})
+	if body == "" || strings.Contains(body, "private") || strings.Contains(body, "secret") {
+		t.Fatalf("unsafe/missing event %q", body)
+	}
+}
 
 func TestProfileFunnelFailureClassification(t *testing.T) {
 	for _, tc := range []struct {

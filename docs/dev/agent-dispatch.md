@@ -58,7 +58,11 @@ eigenflux watch --dispatch
 
 ## Codex main conversation
 
-Windows native PM dispatch uses the existing Desktop owner's hidden-input
+The hidden transport still displays each final reply in the bound main conversation.
+It does not implement silent background handling or aggregated owner summaries.
+See the [proposed background PM digest](../design/pm-background-digest.md).
+
+macOS and Windows native PM dispatch use the existing Desktop owner's hidden-input
 transport rather than visible `codex queue --message`. It preserves the pinned
 main thread and separates application rules from untrusted message data. Busy
 owners wait before submission; uncertain submissions are never replayed. A
@@ -252,6 +256,68 @@ Use the same Commission execution binding for listing trials and paid fulfillmen
 fix reported blockers before retrying. Inspect retained trial files after a timeout
 or unconfirmed result. Passing a sample does not replace per-order input checks.
 
+## Hermes execution and main notifications
+
+Use `mode=native`, `host=hermes` and the absolute Hermes executable for ordinary
+execution. The adapter invokes `hermes chat --quiet` for seller input checks,
+publication trials, paid fulfillment and PM decisions. Configure the optional
+main notification bridge separately in `main_command`. The built-in
+`watch acp-bridge` command is rejected as an execution adapter, including argv
+split across `command` and `args`; it implements only the hidden-main extension.
+
+For execution plus main notifications, replace the executable paths, live owner
+session ID, workspace, port and token-file path in this binding configuration:
+
+```json
+{
+  "mode": "native",
+  "host": "hermes",
+  "command": ["/absolute/path/to/hermes"],
+  "workdir": "/absolute/path/to/workspace",
+  "skills_dir": "/absolute/path/to/signed-skills",
+  "events": ["commission_order"],
+  "main_session_id": "EXISTING_HERMES_SESSION_ID",
+  "main_command": [
+    "/absolute/path/to/eigenflux", "watch", "acp-bridge",
+    "--host", "hermes",
+    "--owner-url", "ws://127.0.0.1:9000/api/ws",
+    "--main-session-id", "EXISTING_HERMES_SESSION_ID",
+    "--workdir", "/absolute/path/to/workspace",
+    "--token-file", "/absolute/path/to/gateway-token"
+  ]
+}
+```
+
+Use the same canonical workspace and exact live session ID in both places.
+The session ID is opaque and is not required to be a Codex UUID. Omit
+`main_session_id` and `main_command` together when only execution is needed.
+Omit the token-file pair when the local gateway does not require authentication.
+
+`--owner-url` accepts only `ws` or `wss`, `localhost` or a loopback IP, an
+explicit port from 1 through 65535 and exactly `/api/ws`. Supply no query,
+user information, fragment or encoded alternative path. Supply the gateway token
+through an absolute `--token-file` path: a regular file of at most 8192 bytes
+containing the raw token, with optional surrounding whitespace. JSON token
+objects are not decoded. `--workdir` must be absolute and clean, without a
+trailing separator or `.`/`..` components. Match the actual existing owner's
+canonical path.
+
+Bind with the intended EigenFlux Home/server, then run `watch doctor` and, when
+main notices are configured, `watch doctor --probe-main`. The plain
+`acp_extension_required` category describes the non-Codex main-notice protocol;
+it does not establish a missing Hermes dependency. The main probe negotiates and
+inspects the exact owner without submitting a prompt. It does not verify the
+execution adapter, model authentication or deliverable production. Run the real
+`commission publish --trial-input` trial for publication readiness.
+
+Configuration errors retain `hermes_main_invalid_config` with fixed field
+guidance, without echoing supplied values. The runner preserves allowlisted
+bridge diagnostics from stderr and RPC errors; unrelated process output and
+arbitrary error messages remain private. Fix the named field before retrying.
+Hermes main notifications remain experimental and untested with a real host;
+fixture success and a successful probe do not establish complete live publication
+or Desktop/TUI acceptance.
+
 ## Test main conversation transaction notices
 
 See commission-main-conversation.md for role/stage differences and limits.
@@ -363,3 +429,21 @@ host Skills directory. A prompt failure after ACP session creation preserves its
 session ID. `acp_extension_required` describes unavailable original Desktop
 conversation notices; it does not mean isolated background ACP execution is
 unavailable. Do not replay a stale intake after its order advances to payment.
+
+## Outer-loop setup observations
+
+`watch start` and shared upgrade/post-authentication recovery report bounded
+setup phases before platform validation, including unsupported Linux desktop-watch
+attempts. Automatic recovery and heartbeat-origin readback are classified as
+`auto`; owner-requested commands are `manual`. Existing account/endpoint fencing and
+offline maintenance delivery apply; missing authentication remains local-only.
+Original command outcomes, user-disabled tasks and admission stay unchanged.
+
+After a native scheduler API readback, submit its complete normalized inventory
+and UTC Unix-millisecond `observed_at` through `heartbeat scheduler-report --stdin`.
+The CLI checks freshness, scope and unique task ownership, then reports only
+state, scoped task/schedule hashes and bounded process-environment evidence.
+Missing or paused tasks remain missing or paused. This host-reported receipt
+proves neither unattended execution nor model work. Skills check command
+availability and preserve older CLIs with unknown receipt coverage.
+See [the wire and rollout contract](../../cli/cmd/OBSERVABILITY.md#outer-loop-setup-and-native-scheduler-readback).

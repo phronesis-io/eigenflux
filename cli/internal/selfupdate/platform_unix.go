@@ -3,6 +3,7 @@
 package selfupdate
 
 import (
+	"context"
 	"errors"
 	"golang.org/x/sys/unix"
 	"os"
@@ -15,8 +16,9 @@ func tryLock(f *os.File) (bool, error) {
 	}
 	return err == nil, err
 }
-func unlock(f *os.File)             { _ = unix.Flock(int(f.Fd()), unix.LOCK_UN) }
-func replace(from, to string) error { return os.Rename(from, to) }
+func unlock(f *os.File)                                      { _ = unix.Flock(int(f.Fd()), unix.LOCK_UN) }
+func replace(from, to string) error                          { return os.Rename(from, to) }
+func renamePackage(_ context.Context, from, to string) error { return os.Rename(from, to) }
 
 func syncDirectory(path string) error {
 	f, err := os.Open(path)

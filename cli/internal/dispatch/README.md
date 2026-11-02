@@ -68,7 +68,7 @@ return `needs_user`, without switching to a permission-bypass mode.
 | [binding.go](binding.go), [types.go](types.go) | Binding validation, atomic writes, `ParseDecision` |
 | [journal.go](journal.go) | `AddMessages`, `AddHint`, `AddCommissionNotification`, `Next` / `NextKind`, `Update`: persistence, deduplication, sessions, recovery |
 | [desktop.go](desktop.go), [desktop queue](../desktopqueue/README.md) | `CommissionBlockers`: validated routing metadata for unresolved local work; desktop delivery remains separate from execution |
-| [runner.go](runner.go), [acp.go](acp.go), [codex_hidden_pm.go](codex_hidden_pm.go) | `Runner.Run`, `RunCommand`, `runACP`: host execution, Windows hidden main-session PM decisions and result parsing |
+| [runner.go](runner.go), [acp.go](acp.go), [codex_hidden_pm.go](codex_hidden_pm.go) | `Runner.Run`, `RunCommand`, `runACP`: host execution, macOS/Windows hidden main-session PM decisions and result parsing |
 | [process_unix.go](process_unix.go), [process_windows.go](process_windows.go) | Process-group / Windows Job Object cancellation |
 | [replace_unix.go](replace_unix.go), [replace_windows.go](replace_windows.go) | Atomic file replacement |
 | [heartbeat.go](../../cmd/heartbeat.go) | Companion stages and `--watch-managed` launcher |
@@ -84,12 +84,20 @@ policy failure causes; classification does not change dispatch or admission.
 CLI 1.0.2 accepts explicit ACP `main_session_id` and optional `main_command`
 for the separate main-notice lane. The bridge override uses a copied binding
 and clears ordinary args; seller checks, fulfillment and PMs keep their original
-execution entry. Native Codex alone routes PMs through its bound main queue; ACP PMs retain
+execution entry. Native Codex routes PMs to its bound main thread, using hidden owner input on macOS/Windows; ACP PMs retain
 their per-conversation sessions. Do not route an ACP main ID into Codex execution.
 `MainNoticeBindingEnabled` admits ACP negotiation, not host acceptance. Initialize
 must advertise the EigenFlux hidden-main extension, then exact inspect and notify
 receipts must agree. The probe never sends business data or starts a model turn.
 See the bridge contract for methods and the host-specific acceptance boundary.
+
+Hermes keeps native quiet-chat execution and a separate built-in main bridge.
+Binding validation rejects `watch acp-bridge` as an ordinary execution command,
+including argv split between `command` and `args`. The main-notice override uses
+`main_command` only. See [Hermes configuration](../../../docs/dev/agent-dispatch.md#hermes-execution-and-main-notifications)
+for exact URL, raw-token file, opaque session ID and canonical-workspace rules.
+Plain `acp_extension_required` is a static protocol category; `--probe-main`
+checks only the main route and cannot replace the actual publication trial.
 
 1. Bind canonical Home/server/endpoint/Agent/principal/scope/revision from the current account; configuration cannot replace identity. `watch --dispatch` acquires the Home/server lock and validates signed Skills. Plain `watch` only emits events.
 2. Only bindings owning PM open its WS and HTTP consumers; other bindings leave PM to the companion. WS and minute-spaced HTTP polls enter `deliverPM`; emitted `pm_push.data` adds locally assigned `transport` (`socket` / `http_poll`) and UTC `received_at`, including empty polls. These fields describe reception, not successful execution or first intake; journal deduplication remains unchanged. Each poll pass fetches at most 32 pages, one message each. Validate credentials and persist intake under the credential lock. Advance the socket cursor only after delivery succeeds; journal failure stops reception.
@@ -138,8 +146,11 @@ every minute while desktop notifications are enabled. Startup, changes and
 five-minute renewals add an installation-scoped `device_id` and sanitized
 `device_name` to status observations in the same bounded maintenance lane.
 Checks never register, prompt or display a notification; Windows first-use
-registration remains unknown. Delayed uploads retain their observation time,
-so the server can mark offline devices stale. This lane adds no PM notifications.
+registration remains unknown. The shared CLI observer also adds device fields
+to new manual, heartbeat and provider status checks; setup/send and historic
+records remain distinct. Delayed uploads retain their observation time, so the
+server selects each device's latest reported state. Elapsed time does not
+replace that state with unknown. This lane adds no PM notifications.
 Setup's `desktop_notification_status` keeps
 the existing status and adds fixed `code`/`action` on failure: missing helper,
 unrequested permission, denied permission, timeout, unsupported platform or
@@ -291,6 +302,11 @@ Limits: journal 16 MiB, 256 unresolved jobs, latest 1024 completed jobs (includi
 
 ### Opt-in Codex PM main session
 
+Hidden input removes prompt/protocol bubbles, not the final reply from the main
+conversation. This adapter is not silent background PM execution or a periodic
+digest. The proposed split is in [background PM digests](../../../docs/design/pm-background-digest.md);
+it is not enabled by this transport fix.
+
 The canonical onboarding scheduler entry is now `skills/ef-onboarding/references/host-setup.md`;
 its Codex PM setup retains the main-session preflight, scheduler readback and
 unchanged-route recovery contract. `recurring-trigger.md` is a compatibility entry.
@@ -358,12 +374,12 @@ and binding revision. `dispatch_status` includes the returned session ID and
 existing decision/send receipt. A returned session mismatch is `unknown` and is
 never sent or automatically retried. Missing metadata yields `needs_user`.
 
-On Windows, native Codex PM jobs with an explicit main session use the existing
+On macOS and Windows, native Codex PM jobs with an explicit main session use the existing
 Desktop-owner hidden-input IPC lane, never `queue --message`. The input array
 is empty; application rules and untrusted PM data remain separate. An idle-only
 preflight waits while the owner is busy. No visible-input fallback, second
 writer, or automatic replay after an uncertain owner write is allowed.
-The Windows invocation replaces only the synchronized Output Contract section
+The Desktop invocation replaces only the synchronized Output Contract section
 with a content-only transport contract, preserving all authority and later rules.
 The final answer contains only the reply body for `reply`, is empty for `no_reply`,
 or starts with the owner-facing `EigenFlux 需要你确认：` explanation for `needs_user`.
@@ -375,8 +391,9 @@ only an exact, newly admitted, completed, error-free turn with an explicit items
 array and no user message or commentary can yield this silent decision. The CLI
 converts it to the ordinary request-correlated JSON before decision validation.
 The downstream decision/send API retains its JSON contract; Commission notices
-still require a nonempty final. Native Windows UI acceptance is distinct from fixture
-coverage. See `codex_hidden_pm*.go` and the named-pipe regression tests.
+still require a nonempty final. Native UI acceptance is distinct from fixture
+coverage. See `codex_hidden_pm*.go`, the macOS Unix-socket tests and Windows
+named-pipe regression tests. Other platforms retain the queue adapter.
 
 On other platforms, native Codex PM jobs with an explicit main session use `codex queue --thread`
 against the pinned Codex store. The host serializes the queued turn with desktop
@@ -403,8 +420,8 @@ desktop lifecycle remain unverified. Fixtures do not prove a live PM receipt.
 
 | Area | Tests |
 |---|---|
-| Binding / decisions / journal | `binding_test.go`, `types_test.go`, `journal_test.go`, `../../cmd/watch_binding_test.go` |
-| Host / ACP / cancellation | `runner_test.go`, `acp_test.go`, `process_windows_test.go` |
+| Binding / decisions / journal | `binding_test.go`, `execution_binding_test.go`, `types_test.go`, `journal_test.go`, `../../cmd/watch_binding_test.go` |
+| Host / ACP / cancellation | `runner_test.go`, `acp_test.go`, `bridge_diagnostic_test.go`, `../mainbridge/hermes_runner_test.go`, `process_windows_test.go` |
 | Main target / Desktop IPC / hidden receipts | `main_notice_test.go`, `main_notice_codex_test.go`, `main_notice_probe_test.go`, `codex_owner_ipc*_test.go`; opt-in real host: `main_notice_native_test.go` |
 | Intake → Agent → reply / identity / permission | `../../cmd/watch_dispatch_test.go`, `../../cmd/watch_test.go` |
 | Commission intake / inspection / materials / ownership | `journal_commission_test.go`, `commission_intake_test.go`, `commission_fulfillment_test.go`, `../../cmd/watch_commission*_test.go`, `../../cmd/order_notifications_test.go`, `../../cmd/order_result_notifications_test.go`, `../skills/read_signed_test.go` |
@@ -417,8 +434,26 @@ Setup, recovery commands, delivery limitations and unverified hosts: [operator g
 ## Listing publish trial
 
 `commission publish` requires `--trial-input` (a nonempty UTF-8 buyer-input file)
-and `--trial-materials` (a local input directory) when the draft requires files.
-Each invocation reads the owned expected draft, verifies the Commission execution
+and `--trial-materials` for required additional files. Each invocation reads the
+owned expected draft and validates its request-path convention before Agent work.
+Contract path checks retain complete quoted and whitespace-delimited filenames,
+so alternate names with `+`, Unicode or quoted space suffixes cannot match a
+canonical substring. These publication rules do not revalidate frozen buyer
+preparation text; missing request documents remain governed by Order's original
+Schema, including optional historical JSON attachments.
+A nonempty request-schema object requires a specification declaring
+`inputs/request.txt` and a UTF-8 JSON-object sample of at most 1 MiB. The CLI copies
+the exact `--trial-input` bytes to that path in the isolated `local_files` manifest;
+an existing material there must match byte for byte. A conflicting contract
+`inputs/request.json` declaration stops the trial before execution or publication.
+Sample materials containing `inputs/request.json` without the canonical request
+are rejected before request-file generation. A legacy `inputs/request.json`
+attachment may coexist with a valid canonical sample. Empty `{}` schemas retain ordinary text and
+file-only behavior.
+The trial checks paths, document format and artifacts; the Order service remains
+authoritative for complete JSON Schema rules.
+
+Each invocation verifies the Commission execution
 binding and signed `publish-trial.md`, and runs a fresh `commission_publish_trial`
 request using the fulfillment runner's binding, workdir, permissions and timeout.
 It uses an isolated session and never creates an Order or uploads artifacts.
@@ -726,8 +761,13 @@ implementation with Skills; named report locks keep their bounded wait.
 ## Safe diagnostics
 
 `diagnostic.go` retains fixed runner-failure and ACP permission-operation
-categories while preserving `errors.Is` decisions. Never retain tool inputs,
-paths, stderr or permission explanations. The caller hashes host receipts and
+categories while preserving `errors.Is` decisions. ACP also preserves
+allowlisted fixed bridge codes and field guidance from process stderr and RPC
+errors, including Hermes configuration failures before initialize.
+Probe results expose the same safe message in optional `diagnostic`, retaining
+the existing probe code. Reject
+unrecognized text and retain no raw stderr, supplied URLs, paths, tokens, tool
+inputs or permission explanations. The caller hashes host receipts and
 reuses [maintenance observations](../maintenance/README.md); failed telemetry
 must not authorize, retry or fail a business action. Synchronize these documents
 when changing diagnostic categories or receipt semantics.
@@ -745,3 +785,14 @@ Persistent heartbeat launchers, CLI prefixes and new notification/WorkBuddy watc
 services resolve the validated stable installation entry. WorkBuddy bindings use
 the same entry; dispatch maps its own bridge to the running release for each
 invocation. Resource lookup and installer-source copies retain the running path.
+
+## Outer-loop setup and scheduler receipts
+
+`watch start` and shared upgrade/post-authentication recovery record attempts
+before platform checks and preserve bounded failure stages through host
+discovery, task preparation and startup. Automatic recovery and heartbeat-origin
+readback use `trigger: auto`; owner-requested commands use `trigger: manual`.
+`heartbeat scheduler-report --stdin` projects fresh host-native task readback
+after authentication; verified migrations also attach environment and task-state
+hashes. These observations never install, enable or restart a task, assert
+current runtime health, or change dispatch. See [outer-loop observations](../../cmd/OBSERVABILITY.md#outer-loop-setup-and-native-scheduler-readback).

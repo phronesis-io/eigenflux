@@ -1,0 +1,434 @@
+[
+  {
+    "name": "platform rejection before setup",
+    "valid": true,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "watch",
+      "trigger": "manual",
+      "phase": "preflight",
+      "result": "blocked",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "unsupported_platform",
+      "outer_loop": {
+        "environment": {
+          "os": "linux",
+          "arch": "amd64",
+          "container": "detected",
+          "wsl": "unknown"
+        }
+      }
+    }
+  },
+  {
+    "name": "setup started",
+    "valid": true,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "watch",
+      "trigger": "manual",
+      "phase": "preflight",
+      "result": "started",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "",
+      "outer_loop": {
+        "environment": {
+          "os": "linux",
+          "arch": "amd64",
+          "container": "detected",
+          "wsl": "unknown"
+        }
+      }
+    }
+  },
+  {
+    "name": "paused native task",
+    "valid": true,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "scheduler",
+      "trigger": "manual",
+      "phase": "readback",
+      "result": "verified",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "",
+      "outer_loop": {
+        "environment": {
+          "os": "linux",
+          "arch": "amd64",
+          "container": "detected",
+          "wsl": "unknown"
+        },
+        "scheduler": {
+          "observed_at": 1793399999000,
+          "state": "paused",
+          "task_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "schedule_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      }
+    }
+  },
+  {
+    "name": "WSL and container together",
+    "valid": true,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "scheduler",
+      "trigger": "manual",
+      "phase": "readback",
+      "result": "verified",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "",
+      "outer_loop": {
+        "environment": {
+          "os": "linux",
+          "arch": "amd64",
+          "container": "detected",
+          "wsl": "detected"
+        },
+        "scheduler": {
+          "observed_at": 1793399999000,
+          "state": "paused",
+          "task_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "schedule_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      }
+    }
+  },
+  {
+    "name": "existing migration receipt",
+    "valid": true,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "scheduler",
+      "trigger": "auto",
+      "phase": "migration",
+      "result": "verified",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "",
+      "outer_loop": {
+        "environment": {
+          "os": "linux",
+          "arch": "amd64",
+          "container": "detected",
+          "wsl": "detected"
+        },
+        "scheduler": {
+          "observed_at": 1793399999000,
+          "state": "paused",
+          "task_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "schedule_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "to_version": "1"
+    }
+  },
+  {
+    "name": "complete inventory with missing task",
+    "valid": true,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "scheduler",
+      "trigger": "manual",
+      "phase": "readback",
+      "result": "verified",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "",
+      "outer_loop": {
+        "environment": {
+          "os": "linux",
+          "arch": "amd64",
+          "container": "detected",
+          "wsl": "detected"
+        },
+        "scheduler": {
+          "observed_at": 1793400000000,
+          "state": "missing"
+        }
+      }
+    }
+  },
+  {
+    "name": "raw kernel metadata",
+    "valid": false,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "watch",
+      "trigger": "manual",
+      "phase": "preflight",
+      "result": "started",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "",
+      "outer_loop": {
+        "environment": {
+          "os": "linux",
+          "arch": "amd64",
+          "container": "detected",
+          "wsl": "unknown",
+          "kernel": "private kernel text"
+        }
+      }
+    }
+  },
+  {
+    "name": "raw error text",
+    "valid": false,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "watch",
+      "trigger": "manual",
+      "phase": "preflight",
+      "result": "started",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "permission denied at /private/path",
+      "outer_loop": {
+        "environment": {
+          "os": "linux",
+          "arch": "amd64",
+          "container": "detected",
+          "wsl": "unknown"
+        }
+      }
+    }
+  },
+  {
+    "name": "invalid environment",
+    "valid": false,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "watch",
+      "trigger": "manual",
+      "phase": "preflight",
+      "result": "started",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "",
+      "outer_loop": {
+        "environment": {
+          "os": "linux",
+          "arch": "amd64",
+          "container": "/proc/private/path",
+          "wsl": "unknown"
+        }
+      }
+    }
+  },
+  {
+    "name": "wrong component",
+    "valid": false,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "skills",
+      "trigger": "manual",
+      "phase": "preflight",
+      "result": "started",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "",
+      "outer_loop": {
+        "environment": {
+          "os": "linux",
+          "arch": "amd64",
+          "container": "detected",
+          "wsl": "unknown"
+        }
+      }
+    }
+  },
+  {
+    "name": "unproven runtime readiness",
+    "valid": false,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "watch",
+      "trigger": "manual",
+      "phase": "preflight",
+      "result": "runtime_ready",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "",
+      "outer_loop": {
+        "environment": {
+          "os": "linux",
+          "arch": "amd64",
+          "container": "detected",
+          "wsl": "unknown"
+        }
+      }
+    }
+  },
+  {
+    "name": "unhashed task ID",
+    "valid": false,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "scheduler",
+      "trigger": "manual",
+      "phase": "readback",
+      "result": "verified",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "",
+      "outer_loop": {
+        "environment": {
+          "os": "linux",
+          "arch": "amd64",
+          "container": "detected",
+          "wsl": "unknown"
+        },
+        "scheduler": {
+          "observed_at": 1793399999000,
+          "state": "paused",
+          "task_hash": "raw-task-id",
+          "schedule_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      }
+    }
+  },
+  {
+    "name": "stale readback",
+    "valid": false,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "scheduler",
+      "trigger": "manual",
+      "phase": "readback",
+      "result": "verified",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "",
+      "outer_loop": {
+        "environment": {
+          "os": "linux",
+          "arch": "amd64",
+          "container": "detected",
+          "wsl": "unknown"
+        },
+        "scheduler": {
+          "observed_at": 1793399638999,
+          "state": "paused",
+          "task_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "schedule_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      }
+    }
+  },
+  {
+    "name": "WSL claim from Windows process",
+    "valid": false,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "scheduler",
+      "trigger": "manual",
+      "phase": "readback",
+      "result": "verified",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "",
+      "outer_loop": {
+        "environment": {
+          "os": "windows",
+          "arch": "amd64",
+          "container": "detected",
+          "wsl": "detected"
+        },
+        "scheduler": {
+          "observed_at": 1793399999000,
+          "state": "paused",
+          "task_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "schedule_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      }
+    }
+  },
+  {
+    "name": "missing task with hash",
+    "valid": false,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "scheduler",
+      "trigger": "manual",
+      "phase": "readback",
+      "result": "verified",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "",
+      "outer_loop": {
+        "environment": {
+          "os": "linux",
+          "arch": "amd64",
+          "container": "detected",
+          "wsl": "unknown"
+        },
+        "scheduler": {
+          "observed_at": 1793399999000,
+          "state": "missing",
+          "task_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "schedule_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      }
+    }
+  },
+  {
+    "name": "verified without readback",
+    "valid": false,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "scheduler",
+      "trigger": "manual",
+      "phase": "readback",
+      "result": "verified",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "",
+      "outer_loop": {
+        "environment": {
+          "os": "linux",
+          "arch": "amd64",
+          "container": "detected",
+          "wsl": "unknown"
+        }
+      }
+    }
+  }
+]
