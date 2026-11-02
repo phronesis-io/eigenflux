@@ -9,8 +9,6 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 )
 
-const notificationDeviceFreshness = 10 * time.Minute
-
 type notificationDevice struct {
 	CLIVersion      string `json:"cli_version"`
 	DeviceID        string `json:"device_id"`
@@ -18,7 +16,7 @@ type notificationDevice struct {
 	Platform        string `json:"platform"`
 	PermissionState string `json:"permission_state"`
 	ObservedAt      int64  `json:"observed_at"`
-	Stale           bool   `json:"stale"`
+	Stale           bool   `json:"stale"` // Retained for existing clients; latest observations do not age out.
 }
 
 type notificationDeviceRow struct {
@@ -42,19 +40,15 @@ const notificationDevicesQuery = `SELECT device_id, device_name, cli_version, pl
  properties->>'error_code' AS error_code, event_at
  FROM telemetry_events_v2
  WHERE agent_id = ? AND event_type = 'maintenance_attempt'
- AND event_at >= ? AND expires_at > ?
+ AND expires_at > ?
  AND properties->>'phase' = 'notification' AND properties->>'component' = 'notifier'
  AND properties->'notification'->>'action' = 'status'
  AND properties->'notification'->>'device_id' ~ '^[a-f0-9]{32}$'
  ORDER BY properties->'notification'->>'device_id', event_at DESC, created_at DESC, event_id DESC
 ) latest ORDER BY event_at DESC, device_id LIMIT 50`
 
-func projectNotificationDevice(row notificationDeviceRow, now time.Time) notificationDevice {
+func projectNotificationDevice(row notificationDeviceRow) notificationDevice {
 	d := notificationDevice{CLIVersion: row.CLIVersion, DeviceID: row.DeviceID, DeviceName: row.DeviceName, Platform: row.Platform, ObservedAt: row.EventAt, PermissionState: "unknown"}
-	d.Stale = row.EventAt < now.Add(-notificationDeviceFreshness).UnixMilli() || row.EventAt > now.Add(time.Minute).UnixMilli()
-	if d.Stale {
-		return d
-	}
 	switch {
 	case row.Result == "ready" && row.ErrorCode == "":
 		d.PermissionState = "ready"
@@ -82,7 +76,7 @@ func (s *Service) listNotificationDevices(ctx context.Context, c *app.RequestCon
 	}
 	now := time.Now()
 	var rows []notificationDeviceRow
-	if s.db == nil || s.db.WithContext(ctx).Raw(notificationDevicesQuery, id, now.Add(-7*24*time.Hour).UnixMilli(), now.UnixMilli()).Scan(&rows).Error != nil {
+	if s.db == nil || s.db.WithContext(ctx).Raw(notificationDevicesQuery, id, now.UnixMilli()).Scan(&rows).Error != nil {
 		fail(c, http.StatusServiceUnavailable, "NOTIFICATION_DEVICES_UNAVAILABLE", "Notification device status is temporarily unavailable", nil)
 		return
 	}
@@ -91,7 +85,7 @@ func (s *Service) listNotificationDevices(ctx context.Context, c *app.RequestCon
 		if !notificationDeviceID.MatchString(row.DeviceID) || !validNotificationDeviceName(row.DeviceName) || !maintenanceOneOf(row.Platform, "darwin", "windows") {
 			continue
 		}
-		devices = append(devices, projectNotificationDevice(row, now))
+		devices = append(devices, projectNotificationDevice(row))
 	}
 	accountCLIVersion := ""
 	if len(devices) == 0 {

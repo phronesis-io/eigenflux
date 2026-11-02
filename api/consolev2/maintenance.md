@@ -88,16 +88,17 @@ The identity is installation generated, never a hardware identifier.
 
 `GET /api/v2/console/notification-devices` uses the active Console cookie
 session and returns `devices` plus `checked_at` in Unix milliseconds. Select
-the latest status per device for that authenticated Agent from seven days of
-maintenance observations, ordered by observation time, not upload time. Return
+the latest retained status per device for that authenticated Agent, ordered
+by observation time, not upload time. The existing 30-day telemetry retention applies. Return
 at most 50 devices and never cache the response. A send receipt or old CLI
 event without device metadata cannot establish current device permission.
 
 Each device contains `device_id`, `device_name`, `platform`, `permission_state`,
 `observed_at` and `stale`. Permission states are `ready`, `denied`,
 `not_requested`, `unavailable`, or `unknown`. Windows first-use registration
-is unknown. After ten minutes without an observation, or with more than one
-minute of future clock skew, return stale/unknown instead of a denied claim.
+is unknown. Preserve the latest reported permission regardless of observation
+age; absence of a new report does not change permission. Retain `stale=false`
+for existing clients. `observed_at` is the last observation, not proof of a live device.
 The device name is account-private display text; never insert it into markup.
 The API does not identify the browser's current machine or control remote OS
 settings. Deploy API support before the matching CLI/web; no migration.
@@ -107,7 +108,7 @@ settings. Deploy API support before the matching CLI/web; no migration.
 Accept phase=uninstall with trigger=manual and results started, removed, partial, failed or blocked. Sources are agent/manual; platforms darwin/windows/linux. Require reason_category: not_provided, other, usability, cost, performance, privacy or no_longer_needed. Reject this metadata outside uninstall; reject free-text reasons, paths and client-selected account identity. Count distinct attempt_id across accounts; only removed counts toward the reason pie chart. No CLI, Skill or other business behavior changes are included in this backend contract.
 
 Notification device projections include `cli_version` from the same device status
-event’s `from_version`, including stale observations. Missing versions stay empty;
+event’s `from_version`, regardless of observation age. Missing versions stay empty;
 never substitute another device’s or the account’s version. No migration is needed.
 
 When no valid device records exist, return `account_cli_version` from the signed-in
