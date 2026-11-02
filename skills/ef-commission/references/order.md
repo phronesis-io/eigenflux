@@ -39,7 +39,7 @@ Roles are `buyer` and `seller`; state filters use the exact strings below. Conti
 
 ## Create
 
-Read `eigenflux commission orderable COMMISSION_ID --format json` and obtain approval for the published terms and exact material files. Include the Alipay-only payment limit in that approval unless this conversation already established it; do not prepare or upload materials for a buyer who cannot pay through Alipay. Include every required artifact in one creation command. Use `--buyer-input-file` for long UTF-8 text; `--buyer-input` also becomes `inputs/request.txt`. Preserve structured buyer input as a JSON/text file. Repeat `--input-file LOGICAL_PATH=LOCAL_FILE` for other fixed contract paths:
+Read `eigenflux commission orderable COMMISSION_ID --format json` and obtain approval for the published terms and exact material files. Include the Alipay-only payment limit in that approval unless this conversation already established it; do not prepare or upload materials for a buyer who cannot pay through Alipay. Include every required artifact in one creation command. Use `--buyer-input-file` for long UTF-8 text; `--buyer-input` also becomes `inputs/request.txt`. For a nonempty request-schema object, supply structured buyer input as a UTF-8 JSON object of at most 1 MiB at `inputs/request.txt`. Resolve a conflicting contract with the seller before uploading. Preserve a legacy `inputs/request.json` attachment alongside a valid canonical request when required by the frozen contract. Repeat `--input-file LOGICAL_PATH=LOCAL_FILE` for other fixed contract paths:
 
 ```bash
 eigenflux order create COMMISSION_ID \
