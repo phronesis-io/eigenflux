@@ -21,6 +21,11 @@ func TestRuntimeObservationContract(t *testing.T) {
 	if err := validateMaintenanceEvent(e, time.Now()); err != nil {
 		t.Fatal(err)
 	}
+	e.OuterLoop = &outerLoopObservation{}
+	if validateMaintenanceEvent(e, time.Now()) == nil {
+		t.Fatal("mixed setup and runtime observation accepted")
+	}
+	e.OuterLoop = nil
 	e.Phase = "cycle"
 	e.Runtime.Stage = "cycle"
 	e.Runtime.PlanMode = "full"

@@ -25,26 +25,27 @@ var idValue = regexp.MustCompile(`^[a-f0-9]{32,64}$`)
 
 type Scope struct{ Home, Server, AgentID string }
 type Event struct {
-	Runtime        *RuntimeObservation `json:"runtime,omitempty"`
-	Commission     *Commission         `json:"commission,omitempty"`
-	Notification   *Notification       `json:"notification,omitempty"`
-	EventID        string              `json:"event_id"`
-	EventAt        int64               `json:"event_at"`
-	AttemptID      string              `json:"attempt_id"`
-	Component      string              `json:"component"`
-	Trigger        string              `json:"trigger"`
-	Phase          string              `json:"phase"`
-	Result         string              `json:"result"`
-	Host           string              `json:"host,omitempty"`
-	Mode           string              `json:"mode,omitempty"`
-	FromVersion    string              `json:"from_version,omitempty"`
-	ToVersion      string              `json:"to_version,omitempty"`
-	RunningVersion string              `json:"running_version,omitempty"`
-	ErrorCode      string              `json:"error_code,omitempty"`
-	DurationMS     int64               `json:"duration_ms,omitempty"`
-	Source         string              `json:"source,omitempty"`
-	Platform       string              `json:"platform,omitempty"`
-	ReasonCategory string              `json:"reason_category,omitempty"`
+	Runtime        *RuntimeObservation   `json:"runtime,omitempty"`
+	OuterLoop      *OuterLoopObservation `json:"outer_loop,omitempty"`
+	Commission     *Commission           `json:"commission,omitempty"`
+	Notification   *Notification         `json:"notification,omitempty"`
+	EventID        string                `json:"event_id"`
+	EventAt        int64                 `json:"event_at"`
+	AttemptID      string                `json:"attempt_id"`
+	Component      string                `json:"component"`
+	Trigger        string                `json:"trigger"`
+	Phase          string                `json:"phase"`
+	Result         string                `json:"result"`
+	Host           string                `json:"host,omitempty"`
+	Mode           string                `json:"mode,omitempty"`
+	FromVersion    string                `json:"from_version,omitempty"`
+	ToVersion      string                `json:"to_version,omitempty"`
+	RunningVersion string                `json:"running_version,omitempty"`
+	ErrorCode      string                `json:"error_code,omitempty"`
+	DurationMS     int64                 `json:"duration_ms,omitempty"`
+	Source         string                `json:"source,omitempty"`
+	Platform       string                `json:"platform,omitempty"`
+	ReasonCategory string                `json:"reason_category,omitempty"`
 }
 
 type State struct {
@@ -80,6 +81,9 @@ func Validate(e Event) error {
 	}
 	if e.Runtime != nil {
 		return fmt.Errorf("runtime metadata requires runtime phase")
+	}
+	if e.OuterLoop != nil {
+		return validateOuterLoop(e)
 	}
 	if e.Phase == "commission" {
 		return ValidateCommission(e)

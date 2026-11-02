@@ -88,6 +88,11 @@ func TestRuntimeObservationRejectsPrivateFreeTextAndForeignMetadata(t *testing.T
 	if err := Validate(e); err != nil {
 		t.Fatal(err)
 	}
+	e.OuterLoop = &OuterLoopObservation{}
+	if Validate(e) == nil {
+		t.Fatal("mixed setup and runtime observation accepted")
+	}
+	e.OuterLoop = nil
 	e.Runtime.Model = "my secret text"
 	if Validate(e) == nil {
 		t.Fatal("free text accepted")

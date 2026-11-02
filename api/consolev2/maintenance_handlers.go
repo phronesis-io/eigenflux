@@ -19,6 +19,7 @@ import (
 
 type maintenanceEvent struct {
 	Runtime        *runtimeObservation          `json:"runtime,omitempty"`
+	OuterLoop      *outerLoopObservation        `json:"outer_loop,omitempty"`
 	Commission     *commissionMaintenanceData   `json:"commission,omitempty"`
 	Notification   *notificationMaintenanceData `json:"notification,omitempty"`
 	EventID        string                       `json:"event_id"`
@@ -63,6 +64,9 @@ func validateMaintenanceEvent(e maintenanceEvent, now time.Time) error {
 	}
 	if e.Runtime != nil {
 		return fmt.Errorf("runtime metadata requires runtime phase")
+	}
+	if e.OuterLoop != nil {
+		return validateOuterLoopObservation(e)
 	}
 	if e.Phase == "commission" {
 		return validateCommissionMaintenance(e)

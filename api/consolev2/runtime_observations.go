@@ -26,7 +26,7 @@ func validateRuntimeObservation(e maintenanceEvent) error {
 	if r == nil || e.Component != "runtime" || (e.Trigger != "auto" && e.Trigger != "manual") || (e.Mode != "" && e.Mode != "skill" && e.Mode != "plugin") {
 		return fmt.Errorf("invalid runtime observation")
 	}
-	if e.Commission != nil || e.Notification != nil || e.Source != "" || e.Platform != "" || e.ReasonCategory != "" || e.ToVersion != "" || e.FromVersion != "" || e.RunningVersion != "" || e.ErrorCode != "" || e.DurationMS != 0 {
+	if e.OuterLoop != nil || e.Commission != nil || e.Notification != nil || e.Source != "" || e.Platform != "" || e.ReasonCategory != "" || e.ToVersion != "" || e.FromVersion != "" || e.RunningVersion != "" || e.ErrorCode != "" || e.DurationMS != 0 {
 		return fmt.Errorf("unexpected runtime metadata")
 	}
 	for _, v := range []string{e.Host, r.Mode, r.Product, r.ProductVersion, r.OS, r.Arch, r.Model, r.CLI, r.Skills, r.Stage, r.PlanMode} {
