@@ -367,3 +367,19 @@ host Skills directory. A prompt failure after ACP session creation preserves its
 session ID. `acp_extension_required` describes unavailable original Desktop
 conversation notices; it does not mean isolated background ACP execution is
 unavailable. Do not replay a stale intake after its order advances to payment.
+
+## Outer-loop setup observations
+
+`watch start` reports bounded setup phases before platform validation, including
+unsupported Linux desktop-watch attempts. Existing account/endpoint fencing and
+offline maintenance delivery apply; missing authentication remains local-only.
+Original command outcomes, user-disabled tasks and admission stay unchanged.
+
+After a native scheduler API readback, submit its complete normalized inventory
+and UTC Unix-millisecond `observed_at` through `heartbeat scheduler-report --stdin`.
+The CLI checks freshness, scope and unique task ownership, then reports only
+state, scoped task/schedule hashes and bounded process-environment evidence.
+Missing or paused tasks remain missing or paused. This host-reported receipt
+proves neither unattended execution nor model work. Skills check command
+availability and preserve older CLIs with unknown receipt coverage.
+See [the wire and rollout contract](../../cli/cmd/OBSERVABILITY.md#outer-loop-setup-and-native-scheduler-readback).

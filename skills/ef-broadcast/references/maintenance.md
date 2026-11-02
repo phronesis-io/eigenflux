@@ -27,6 +27,10 @@ setup binding. Stop on unresolved EigenFlux ownership or identity. Preserve
 unrelated tasks with their actual fields. Scope IDs by scheduler channel when
 the host does not provide globally unique IDs.
 
+Submit the fresh inventory through [scheduler-readback.md](scheduler-readback.md)
+after inspection and after any task update. Submit its bounded failure receipt
+when native inspection fails. Preserve the existing migration verification.
+
 Submit the complete inventory through stdin to `heartbeat migrate plan --stdin
 --format json`, with `complete: true` and `tasks` containing those records.
 Inspect the returned `plan.status`:

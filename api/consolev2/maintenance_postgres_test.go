@@ -332,6 +332,29 @@ FROM telemetry_events_v2 WHERE properties->>'component'='dispatch' ORDER BY agen
 		t.Fatalf("upgraded account version not refreshed: %v", payload)
 	}
 
+	// Setup failures and fresh scheduler readback share identity-scoped,
+	// replay-safe JSONB storage without modifying task or business state.
+	now := time.Now().UnixMilli()
+	environment := outerLoopEnvironment{OS: "linux", Arch: "amd64", Container: "detected", WSL: "detected"}
+	for i, observation := range []maintenanceEvent{
+		{Component: "watch", Trigger: "manual", Phase: "preflight", Result: "blocked", ErrorCode: "unsupported_platform", OuterLoop: &outerLoopObservation{Environment: environment}},
+		{Component: "scheduler", Trigger: "manual", Phase: "readback", Result: "verified", OuterLoop: &outerLoopObservation{Environment: environment, Scheduler: &schedulerReadbackObservation{ObservedAt: now - 1000, State: "paused", TaskHash: strings.Repeat("a", 64), ScheduleHash: strings.Repeat("b", 64)}}},
+	} {
+		observation.EventID, observation.AttemptID, observation.EventAt = fmt.Sprintf("%064x", 8000+i), fmt.Sprintf("%032x", 9000+i), now
+		body = map[string]interface{}{"events": []maintenanceEvent{observation}}
+		for _, id := range []int64{42, 42, 43} {
+			if status := send(id); status != 202 {
+				t.Fatalf("outer-loop ingestion: %d", status)
+			}
+		}
+	}
+	var outerCount, pausedCount int64
+	tx.Table("telemetry_events_v2").Where("properties ? 'outer_loop'").Count(&outerCount)
+	tx.Table("telemetry_events_v2").Where("properties->'outer_loop'->'scheduler'->>'state' = 'paused'").Count(&pausedCount)
+	if outerCount != 4 || pausedCount != 2 {
+		t.Fatalf("outer-loop identity/idempotency/readback lost: %d %d", outerCount, pausedCount)
+	}
+
 	exec(`UPDATE agent_credential_sessions SET scopes=ARRAY['feed:read'] WHERE principal_id=42`)
 	if status := send(42); status != 403 {
 		t.Fatalf("missing settings scope: %d", status)
