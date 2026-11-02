@@ -244,10 +244,25 @@ func TestCommissionCommandsRouteAuthAndAttribution(t *testing.T) {
 func TestCommissionOrderableUsesCommissionOriginAndAuthenticatedRoute(t *testing.T) {
 	var requestPath string
 	var authorization string
+	requestSchema := `{"type":"object","properties":{"topic":{"type":"string"}}}`
+	deliverySchema := `{"type":"object","required":["report_path"]}`
 	commission := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestPath = r.URL.Path
 		authorization = r.Header.Get("Authorization")
-		writeTestEnvelope(w)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 0, "msg": "ok",
+			"data": map[string]any{
+				"definition": map[string]any{"commission_id": int64(356338934101311488), "seller_agent_id": int64(77), "status": "active", "public_revision": int64(2)},
+				"revision": map[string]any{
+					"commission_id": int64(356338934101311488), "seller_agent_id": int64(77), "revision": int64(2), "commission_version": int64(3),
+					"content": map[string]any{
+						"title": "Free document review", "price_fen": int64(0), "currency": "CNY", "promised_delivery_ms": int64(86400000),
+						"request_spec_schema": requestSchema, "delivery_spec_schema": deliverySchema,
+						"fulfillment_skill": "document-review", "requires_materials": true,
+					},
+				},
+			},
+		})
 	}))
 	defer commission.Close()
 
@@ -267,7 +282,13 @@ func TestCommissionOrderableUsesCommissionOriginAndAuthenticatedRoute(t *testing
 		t.Fatal(err)
 	}
 
-	if err := commissionOrderableCmd.RunE(commissionOrderableCmd, []string{"356338934101311488"}); err != nil {
+	previousFormat := formatFlag
+	formatFlag = "json"
+	t.Cleanup(func() { formatFlag = previousFormat })
+	stdout, err := captureHeartbeatStdout(t, func() error {
+		return commissionOrderableCmd.RunE(commissionOrderableCmd, []string{"356338934101311488"})
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 	if requestPath != "/api/v1/commissions/356338934101311488/orderable" {
@@ -275,6 +296,32 @@ func TestCommissionOrderableUsesCommissionOriginAndAuthenticatedRoute(t *testing
 	}
 	if authorization != "Bearer test-token" {
 		t.Fatalf("authorization = %q", authorization)
+	}
+	var output map[string]any
+	decoder := json.NewDecoder(strings.NewReader(stdout))
+	decoder.UseNumber()
+	if err := decoder.Decode(&output); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"code", "msg", "data", "commission"} {
+		if _, wrapped := output[key]; wrapped {
+			t.Fatalf("CLI did not unwrap orderable data: %s", stdout)
+		}
+	}
+	definition, ok := output["definition"].(map[string]any)
+	if !ok || definition["commission_id"] != json.Number("356338934101311488") || definition["seller_agent_id"] != json.Number("77") {
+		t.Fatalf("definition path or exact numeric IDs changed: %s", stdout)
+	}
+	revision, ok := output["revision"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing revision at CLI root: %s", stdout)
+	}
+	content, ok := revision["content"].(map[string]any)
+	if !ok || content["price_fen"] != json.Number("0") || content["currency"] != "CNY" || content["promised_delivery_ms"] != json.Number("86400000") {
+		t.Fatalf("published price/duration fields flattened, omitted or converted: %s", stdout)
+	}
+	if content["request_spec_schema"] != requestSchema || content["delivery_spec_schema"] != deliverySchema || content["fulfillment_skill"] != "document-review" || content["requires_materials"] != true {
+		t.Fatalf("published schema strings or typed execution terms changed: %s", stdout)
 	}
 }
 

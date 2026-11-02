@@ -95,7 +95,7 @@ func validateHermesConfig(config HermesConfig) (*url.URL, error) {
 	}
 	host := u.Hostname()
 	if host != "localhost" && (net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback()) {
-		return nil, errors.New("hermes_main_requires_loopback")
+		return nil, errors.New(invalidOwnerHost)
 	}
 	if port, err := strconv.Atoi(u.Port()); err != nil || port < 1 || port > 65535 {
 		return nil, errors.New(invalidOwnerPort)
@@ -106,7 +106,7 @@ func validateHermesConfig(config HermesConfig) (*url.URL, error) {
 		}
 		file, err := os.Open(config.TokenFile)
 		if err != nil {
-			return nil, errors.New("hermes_main_token_unavailable")
+			return nil, errors.New(unavailableTokenFile)
 		}
 		defer file.Close()
 		info, err := file.Stat()
@@ -320,8 +320,14 @@ func (p *hermesPeer) inspect(ctx context.Context) (string, error) {
 			DesktopContract int `json:"desktop_contract"`
 		} `json:"info"`
 	}
-	if json.Unmarshal(raw, &activated) != nil || activated.SessionID != p.config.SessionID || activated.Info.Cwd != p.config.Cwd ||
-		activated.Info.DesktopContract != hermesDesktopContract || !activated.MessagesOmitted || len(activated.Messages) != 0 ||
+	if json.Unmarshal(raw, &activated) != nil {
+		return "", errors.New("hermes_main_unsupported_protocol")
+	}
+	if activated.Info.DesktopContract != hermesDesktopContract {
+		return "", errors.New(invalidDesktopContract)
+	}
+	if activated.SessionID != p.config.SessionID || activated.Info.Cwd != p.config.Cwd ||
+		!activated.MessagesOmitted || len(activated.Messages) != 0 ||
 		activated.Running == nil || !validHermesStatus(activated.Status) || (activated.Status == "idle" && *activated.Running) {
 		return "", errors.New("hermes_main_unsupported_protocol")
 	}

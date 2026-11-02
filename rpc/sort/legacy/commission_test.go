@@ -29,7 +29,7 @@ func (f commissionSearchRoundTripFunc) RoundTrip(req *http.Request) (*http.Respo
 func TestSearchCommissionsByIDSkipsEmbedding(t *testing.T) {
 	s := &Service{redis: redis.NewClient(&redis.Options{Addr: miniredis.RunT(t).Addr()})}
 	t.Cleanup(func() { s.redis.Close() })
-	if err := (featureindex.CommissionIndex{Redis: s.redis, IndexName: "commissions-v1"}).Write(context.Background(), featureindex.CommissionDocument{CommissionID: 42, CatalogueVersion: 1, Active: true}); err != nil {
+	if err := (featureindex.CommissionIndex{Redis: s.redis, IndexName: "commissions-v1"}).Write(context.Background(), featureindex.CommissionDocument{CommissionID: 42, CatalogueVersion: 1, Active: true, Title: "Free audit", PriceFen: 0, Currency: "CNY", PromisedDeliveryMS: 86400000}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -56,7 +56,10 @@ func TestSearchCommissionsByIDSkipsEmbedding(t *testing.T) {
 		if !strings.Contains(string(body), `"commission_id":42`) || strings.Contains(string(body), `"knn"`) {
 			t.Fatalf("unexpected exact search request: %s", body)
 		}
-		response := `{"hits":{"hits":[{"_index":"commissions-v1","_score":1,"_source":{"commission_id":42,"catalogue_version":1}}]}}`
+		if !strings.Contains(string(body), `"title"`) {
+			t.Fatalf("search omitted display title: %s", body)
+		}
+		response := `{"hits":{"hits":[{"_index":"commissions-v1","_score":1,"_source":{"commission_id":42,"catalogue_version":1,"title":"Free audit"}}]}}`
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"X-Elastic-Product": []string{"Elasticsearch"}}, Body: io.NopCloser(strings.NewReader(response))}, nil
 	})})
 	if err != nil {
@@ -72,6 +75,16 @@ func TestSearchCommissionsByIDSkipsEmbedding(t *testing.T) {
 	}
 	if embeddingCalls.Load() != 0 {
 		t.Fatalf("exact ID lookup made %d embedding calls", embeddingCalls.Load())
+	}
+	candidate := response.Candidates[0]
+	if candidate.GetTitle() != "Free audit" || candidate.PriceFen == nil || *candidate.PriceFen != 0 || candidate.GetCurrency() != "CNY" || candidate.GetPromisedDeliveryMs() != 86400000 {
+		t.Fatalf("catalogue summary missing: %+v", candidate)
+	}
+	encoded := make([]byte, candidate.BLength())
+	candidate.FastWriteNocopy(encoded, nil)
+	var decoded sortmodel.CommissionCandidate
+	if _, err := decoded.FastRead(encoded); err != nil || decoded.PriceFen == nil || *decoded.PriceFen != 0 || decoded.GetTitle() != candidate.GetTitle() || decoded.GetCurrency() != candidate.GetCurrency() || decoded.GetPromisedDeliveryMs() != candidate.GetPromisedDeliveryMs() {
+		t.Fatalf("optional summary lost on RPC wire: %+v / %v", decoded, err)
 	}
 }
 
