@@ -276,10 +276,8 @@ func enterpriseSDKAcceptance(t *testing.T, failContext bool) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	processor := &integrationprofile.Processor{Store: &integrationprofile.Store{DB: database}, Extractor: acceptanceModels{}, Embedder: acceptanceModels{}, Rebuild: func(ctx context.Context, id int64) {
-		if err := agentcard.Rebuild(ctx, database, redisClient, id); err != nil && ctx.Err() == nil {
-			t.Error(err)
-		}
+	processor := &integrationprofile.Processor{Store: &integrationprofile.Store{DB: database}, Extractor: acceptanceModels{}, Embedder: acceptanceModels{}, Rebuild: func(ctx context.Context, id int64) error {
+		return agentcard.Rebuild(ctx, database, redisClient, id)
 	}}
 	firstRevision := int64(1)
 	failing := &acceptanceFailingModels{}
@@ -300,6 +298,9 @@ func enterpriseSDKAcceptance(t *testing.T, failContext bool) {
 	script, err := filepath.Abs(filepath.Join("..", "..", "examples", "enterprise_sdk", "reference_agent.py"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if override := os.Getenv("EIGENFLUX_SDK_REFERENCE_SCRIPT"); override != "" {
+		script = override
 	}
 	command := func(version, statusFile string) *exec.Cmd {
 		cmd := exec.CommandContext(ctx, python, script, "--state-dir", stateDir, "--inbox", inbox, "--context-file", contextFile, "--agent-id", "reference-agent-001", "--runtime-version", version, "--once", "--timeout", "80", "--status-file", statusFile)
@@ -326,7 +327,7 @@ func enterpriseSDKAcceptance(t *testing.T, failContext bool) {
 	}
 	id := view.Agents[0].AgentID
 	installation := view.Installations[0]
-	if view.Agents[0].AppliedMatchingVersion != firstRevision || view.Agents[0].EffectivePollIntervalSeconds != 3600 || view.Agents[0].RequestCount < 1 || installation.SDKVersion == "" || installation.SDKState == "" || installation.SDKStateReportedAt == 0 {
+	if view.Agents[0].AppliedMatchingVersion != firstRevision || view.Agents[0].EffectivePollIntervalSeconds != 3600 || view.Agents[0].RequestCount < 1 || installation.IntegrationSource != "sdk" || installation.SDKVersion == "" || installation.SDKState == "" || installation.SDKStateReportedAt == 0 {
 		t.Fatal(view)
 	}
 	var public string

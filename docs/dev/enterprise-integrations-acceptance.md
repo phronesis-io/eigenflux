@@ -57,3 +57,9 @@ failures exhaust revision 1, unchanged provider input recovers as revision 2 aft
 the persisted SDK backoff, and the next changed context applies revision 3.
 SDK unit coverage separately verifies restart backoff and a lost response retry
 using the same new revision.
+
+Card recovery also covers a failed rebuild, persisted backoff, worker restart,
+a commit with no rebuild callback, and repair without repeating model calls.
+Card reads return 503 while their source version trails applied matching facts.
+Registration records `sdk`/`http`/`unknown` per installation; the real SDK reports
+`sdk`, older clients remain `unknown`, and labels do not affect permission checks.

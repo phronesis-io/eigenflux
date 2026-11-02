@@ -108,6 +108,38 @@ func TestManagedHTTPRegistrationAndLiveControls(t *testing.T) {
 	if err := json.Unmarshal(raw, &response); err != nil {
 		t.Fatal(err)
 	}
+	// Matching readiness must not expose a stale Card while rebuild retries.
+	for _, q := range []string{
+		`CREATE TABLE agent_cards(agent_id INTEGER PRIMARY KEY,public_card TEXT,private_card TEXT,card_version INTEGER,source_version INTEGER)`,
+		`CREATE TABLE integration_matching_profiles(agent_id INTEGER PRIMARY KEY,profile_version INTEGER)`,
+	} {
+		if err := database.Exec(q).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	agentID := response.Data.Agent.AgentID
+	if err := database.Exec(`INSERT INTO agent_cards VALUES(?,'{}','{}',1,1)`, agentID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Exec(`INSERT INTO integration_matching_profiles VALUES(?,2)`, agentID).Error; err != nil {
+		t.Fatal(err)
+	}
+	cardRequest := func() int {
+		return ut.PerformRequest(h.Engine, "GET", "/api/v2/integrations/agents/me/card", nil,
+			ut.Header{Key: "Authorization", Value: "Bearer " + secret},
+			ut.Header{Key: "X-EigenFlux-Installation-ID", Value: response.Data.Installation.InstallationID},
+			ut.Header{Key: "X-EigenFlux-Runtime-Instance-ID", Value: "first"}).Result().StatusCode()
+	}
+	if status := cardRequest(); status != 503 {
+		t.Fatal("stale Card returned as ready", status)
+	}
+	if err := database.Exec(`UPDATE agent_cards SET source_version=2 WHERE agent_id=?`, agentID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if status := cardRequest(); status != 200 {
+		t.Fatal("fresh Card unavailable", status)
+	}
+
 	registered := response.Data
 	if registered.Agent.AgentID == 0 || registered.Installation.InstallationID == "" || registered.Agent.AppID != "partner" {
 		t.Fatalf("binding incomplete %+v", registered)
