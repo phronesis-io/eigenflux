@@ -256,6 +256,68 @@ Use the same Commission execution binding for listing trials and paid fulfillmen
 fix reported blockers before retrying. Inspect retained trial files after a timeout
 or unconfirmed result. Passing a sample does not replace per-order input checks.
 
+## Hermes execution and main notifications
+
+Use `mode=native`, `host=hermes` and the absolute Hermes executable for ordinary
+execution. The adapter invokes `hermes chat --quiet` for seller input checks,
+publication trials, paid fulfillment and PM decisions. Configure the optional
+main notification bridge separately in `main_command`. The built-in
+`watch acp-bridge` command is rejected as an execution adapter, including argv
+split across `command` and `args`; it implements only the hidden-main extension.
+
+For execution plus main notifications, replace the executable paths, live owner
+session ID, workspace, port and token-file path in this binding configuration:
+
+```json
+{
+  "mode": "native",
+  "host": "hermes",
+  "command": ["/absolute/path/to/hermes"],
+  "workdir": "/absolute/path/to/workspace",
+  "skills_dir": "/absolute/path/to/signed-skills",
+  "events": ["commission_order"],
+  "main_session_id": "EXISTING_HERMES_SESSION_ID",
+  "main_command": [
+    "/absolute/path/to/eigenflux", "watch", "acp-bridge",
+    "--host", "hermes",
+    "--owner-url", "ws://127.0.0.1:9000/api/ws",
+    "--main-session-id", "EXISTING_HERMES_SESSION_ID",
+    "--workdir", "/absolute/path/to/workspace",
+    "--token-file", "/absolute/path/to/gateway-token"
+  ]
+}
+```
+
+Use the same canonical workspace and exact live session ID in both places.
+The session ID is opaque and is not required to be a Codex UUID. Omit
+`main_session_id` and `main_command` together when only execution is needed.
+Omit the token-file pair when the local gateway does not require authentication.
+
+`--owner-url` accepts only `ws` or `wss`, `localhost` or a loopback IP, an
+explicit port from 1 through 65535 and exactly `/api/ws`. Supply no query,
+user information, fragment or encoded alternative path. Supply the gateway token
+through an absolute `--token-file` path: a regular file of at most 8192 bytes
+containing the raw token, with optional surrounding whitespace. JSON token
+objects are not decoded. `--workdir` must be absolute and clean, without a
+trailing separator or `.`/`..` components. Match the actual existing owner's
+canonical path.
+
+Bind with the intended EigenFlux Home/server, then run `watch doctor` and, when
+main notices are configured, `watch doctor --probe-main`. The plain
+`acp_extension_required` category describes the non-Codex main-notice protocol;
+it does not establish a missing Hermes dependency. The main probe negotiates and
+inspects the exact owner without submitting a prompt. It does not verify the
+execution adapter, model authentication or deliverable production. Run the real
+`commission publish --trial-input` trial for publication readiness.
+
+Configuration errors retain `hermes_main_invalid_config` with fixed field
+guidance, without echoing supplied values. The runner preserves allowlisted
+bridge diagnostics from stderr and RPC errors; unrelated process output and
+arbitrary error messages remain private. Fix the named field before retrying.
+Hermes main notifications remain experimental and untested with a real host;
+fixture success and a successful probe do not establish complete live publication
+or Desktop/TUI acceptance.
+
 ## Test main conversation transaction notices
 
 See commission-main-conversation.md for role/stage differences and limits.

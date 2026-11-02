@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"cli.eigenflux.ai/internal/mainbridge"
 )
 
 type acpMessage struct {
@@ -41,7 +43,7 @@ func (r Runner) runACP(ctx context.Context, req Request) (Result, error) {
 }
 
 // withACP owns only the explicitly bound stdio bridge, never its host session.
-func (r Runner) withACP(ctx context.Context, use func(*acpClient) (Result, error)) (Result, error) {
+func (r Runner) withACP(ctx context.Context, use func(*acpClient) (Result, error)) (result Result, resultErr error) {
 	r = r.withCurrentWorkBuddyBridge()
 	cmd, err := r.command(r.Binding.Args)
 	if err != nil {
@@ -56,7 +58,8 @@ func (r Runner) withACP(ctx context.Context, use func(*acpClient) (Result, error
 		stdin.Close()
 		return Result{}, errors.New("acp_pipe_failed")
 	}
-	cmd.Stderr = io.Discard
+	stderr := &bridgeDiagnosticWriter{}
+	cmd.Stderr = stderr
 	guard, err := startManaged(cmd)
 	if err != nil {
 		stdin.Close()
@@ -84,6 +87,9 @@ func (r Runner) withACP(ctx context.Context, use func(*acpClient) (Result, error
 		}
 		stdout.Close()
 		guard.close()
+		if message := stderr.message(); resultErr != nil && message != "" {
+			resultErr = &bridgeDiagnosticError{cause: resultErr, message: message}
+		}
 	}()
 	go c.read(stdout)
 	return use(c)
@@ -281,6 +287,14 @@ func (c *acpClient) call(method string, params any, collect bool) (json.RawMessa
 				return nil, errors.New("acp_response_id_mismatch")
 			}
 			if len(msg.Error) > 0 && string(msg.Error) != "null" {
+				var problem struct {
+					Message string `json:"message"`
+				}
+				if json.Unmarshal(msg.Error, &problem) == nil {
+					if message := mainbridge.DiagnosticMessage(problem.Message); message != "" {
+						return nil, &bridgeDiagnosticError{cause: errors.New("acp_rpc_error"), message: message}
+					}
+				}
 				return nil, errors.New("acp_rpc_error")
 			}
 			if len(msg.Result) == 0 {

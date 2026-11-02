@@ -136,6 +136,9 @@ func (b *Binding) Validate() error {
 			return errors.New("NUL in command argv")
 		}
 	}
+	if err := b.validateExecutionCommand(); err != nil {
+		return err
+	}
 	if strings.ContainsRune(b.HostAgent, 0) || strings.HasPrefix(b.HostAgent, "-") {
 		return errors.New("invalid host_agent")
 	}
