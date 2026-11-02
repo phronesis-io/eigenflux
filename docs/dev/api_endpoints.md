@@ -102,7 +102,11 @@ API startup.
 session and returns `data.devices` and `data.checked_at` (Unix milliseconds).
 Devices expose `device_id`, `device_name`, `platform`, `permission_state`,
 `observed_at`, and `stale`. State is `ready`, `denied`, `not_requested`,
-`unavailable`, or `unknown`; ten-minute-old observations become stale/unknown.
+`unavailable`, or `unknown`. Use the latest retained observation per device
+regardless of its age. Only observations more than one minute ahead of server
+time return `unknown` with `stale=true`; other retained observations have
+`stale=false`. `observed_at` records the last check and does not establish that
+the device is online.
 No data from old clients means an empty list, not denied permission. Responses
 are account scoped and `Cache-Control: no-store`.
 

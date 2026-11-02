@@ -138,8 +138,11 @@ every minute while desktop notifications are enabled. Startup, changes and
 five-minute renewals add an installation-scoped `device_id` and sanitized
 `device_name` to status observations in the same bounded maintenance lane.
 Checks never register, prompt or display a notification; Windows first-use
-registration remains unknown. Delayed uploads retain their observation time,
-so the server can mark offline devices stale. This lane adds no PM notifications.
+registration remains unknown. The shared CLI observer also adds device fields
+to new manual, heartbeat and provider status checks; setup/send and historic
+records remain distinct. Delayed uploads retain their observation time, so the
+server selects each device's latest reported state. Elapsed time does not
+replace that state with unknown. This lane adds no PM notifications.
 Setup's `desktop_notification_status` keeps
 the existing status and adds fixed `code`/`action` on failure: missing helper,
 unrequested permission, denied permission, timeout, unsupported platform or

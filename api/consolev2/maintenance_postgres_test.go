@@ -309,12 +309,54 @@ FROM telemetry_events_v2 WHERE properties->>'component'='dispatch' ORDER BY agen
 	if device["cli_version"] != "0.7.7" || device["device_name"] != "我的电脑" || device["permission_state"] != "denied" || device["stale"] != false {
 		t.Fatalf("late upload or other account replaced current permission: %v", device)
 	}
-	exec(`UPDATE telemetry_events_v2 SET event_at=? WHERE agent_id=42 AND properties->'notification'->>'device_id'=?`, time.Now().Add(-11*time.Minute).UnixMilli(), deviceID)
+	for _, age := range []time.Duration{11 * time.Minute, 8 * 24 * time.Hour} {
+		exec(`UPDATE telemetry_events_v2 SET event_at=event_at-? WHERE agent_id=42 AND properties->'notification'->>'device_id'=?`, age.Milliseconds(), deviceID)
+		status, payload, _ = performJSON(t, h, "GET", "/devices", nil)
+		if status != 200 {
+			t.Fatalf("older observation projection: %d %v", status, payload)
+		}
+		devices = payload["data"].(map[string]interface{})["devices"].([]interface{})
+		if len(devices) != 1 {
+			t.Fatalf("latest observation dropped after %s: %v", age, payload)
+		}
+		device = devices[0].(map[string]interface{})
+		if device["permission_state"] != "denied" || device["stale"] != false {
+			t.Fatalf("latest observation changed after %s: %v", age, payload)
+		}
+	}
+
+	// A fast-clock ready observation must not become trusted permission when a
+	// later real check reports denial after the local clock has been corrected.
+	svc.telemetryRates = map[string]telemetryRateState{}
+	futureAt := time.Now().Add(4 * time.Minute).UnixMilli()
+	for i, row := range []struct {
+		at                 int64
+		result, code, name string
+	}{
+		{futureAt, "ready", "", "fast-clock ready"},
+		{time.Now().UnixMilli(), "disabled", "permission_denied", "corrected-clock denied"},
+	} {
+		e := validNotificationMaintenance()
+		e.EventID, e.AttemptID = fmt.Sprintf("%064x", 7000+i), fmt.Sprintf("%032x", 8000+i)
+		e.EventAt, e.Result, e.ErrorCode = row.at, row.result, row.code
+		e.Notification.Action, e.Notification.IDHash = "status", ""
+		e.Notification.DeviceID, e.Notification.DeviceName = deviceID, row.name
+		body = map[string]interface{}{"events": []maintenanceEvent{e}}
+		if status := send(42); status != 202 {
+			t.Fatalf("clock-skew status ingestion: %d", status)
+		}
+	}
 	status, payload, _ = performJSON(t, h, "GET", "/devices", nil)
+	if status != 200 {
+		t.Fatalf("clock-skew projection: %d %v", status, payload)
+	}
 	devices = payload["data"].(map[string]interface{})["devices"].([]interface{})
+	if len(devices) != 1 {
+		t.Fatalf("clock-skew device scope: %v", devices)
+	}
 	device = devices[0].(map[string]interface{})
-	if status != 200 || device["permission_state"] != "unknown" || device["stale"] != true {
-		t.Fatalf("offline observation reported as disabled: %v", payload)
+	if device["observed_at"] != float64(futureAt) || device["permission_state"] != "unknown" || device["stale"] != true {
+		t.Fatalf("future ready hid a later denied check: %v", device)
 	}
 
 	// Legacy CLI installations have no notification device events.
