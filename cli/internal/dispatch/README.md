@@ -428,6 +428,11 @@ Setup, recovery commands, delivery limitations and unverified hosts: [operator g
 `commission publish` requires `--trial-input` (a nonempty UTF-8 buyer-input file)
 and `--trial-materials` for required additional files. Each invocation reads the
 owned expected draft and validates its request-path convention before Agent work.
+Contract path checks retain complete quoted and whitespace-delimited filenames,
+so alternate names with `+`, Unicode or quoted space suffixes cannot match a
+canonical substring. These publication rules do not revalidate frozen buyer
+preparation text; missing request documents remain governed by Order's original
+Schema, including optional historical JSON attachments.
 A nonempty request-schema object requires a specification declaring
 `inputs/request.txt` and a UTF-8 JSON-object sample of at most 1 MiB. The CLI copies
 the exact `--trial-input` bytes to that path in the isolated `local_files` manifest;

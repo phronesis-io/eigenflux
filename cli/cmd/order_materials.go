@@ -183,7 +183,6 @@ func createOrderWithMaterials(cmd *cobra.Command, args []string) error {
 	var data struct {
 		PreparationID int64 `json:"preparation_id"`
 		Contract      *struct {
-			RequestSpecText   string `json:"request_spec_text"`
 			RequestSpecSchema string `json:"request_spec_schema"`
 		} `json:"contract"`
 		Order *struct {
@@ -205,7 +204,7 @@ func createOrderWithMaterials(cmd *cobra.Command, args []string) error {
 		if data.Contract == nil {
 			return fmt.Errorf("preparation %d: missing frozen request contract; no materials uploaded", preparationID)
 		}
-		if err := validateOrderRequestMaterials(data.Contract.RequestSpecText, data.Contract.RequestSpecSchema, files); err != nil {
+		if err := validateOrderRequestMaterials(data.Contract.RequestSpecSchema, files); err != nil {
 			return fmt.Errorf("preparation %d: %w; no materials uploaded", preparationID, err)
 		}
 		for _, file := range files {

@@ -19,30 +19,22 @@ const maxRequestDocumentBytes = 1 << 20
 
 // The server remains authoritative for JSON Schema rules and the admitted bytes.
 // Local checks stop path and document mistakes before transferring materials.
-func validateOrderRequestMaterials(text, schema string, files []materialFile) error {
-	if err := requestcontract.ValidateSpec(text, schema); err != nil {
-		return err
-	}
+func validateOrderRequestMaterials(schema string, files []materialFile) error {
 	structured, err := requestcontract.Structured(schema)
 	if err != nil || !structured {
 		return err
 	}
 	var request *materialFile
-	alias := false
 	for i := range files {
-		if files[i].LogicalPath == "inputs/request.json" {
-			alias = true
-		}
 		if files[i].LogicalPath == requestcontract.Path {
 			request = &files[i]
 		}
 	}
 	if request == nil {
-		if alias {
-			return fmt.Errorf("structured requests must use %s; correct the contract and material path", requestcontract.Path)
-		}
 		// Optional structured fields may accept an absent document as {}. Let the
-		// server evaluate that against the complete frozen schema.
+		// server evaluate that against the complete frozen schema, even when an
+		// old order has a request.json attachment. Publish-time text rules do not
+		// apply retroactively to immutable preparation contracts.
 		return nil
 	}
 	data, err := readRequestMaterial(*request)

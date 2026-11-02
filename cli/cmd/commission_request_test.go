@@ -22,52 +22,72 @@ const scenarioSchema = `{"type":"object","required":["scenario"],"properties":{"
 const scenarioInput = "  {\"scenario\":\"My alarm did not ring\"}\n"
 
 func TestCreateOrderUploadsCanonicalJSONBytes(t *testing.T) {
-	local := filepath.Join(t.TempDir(), "request.json")
-	if err := os.WriteFile(local, []byte(scenarioInput), 0600); err != nil {
-		t.Fatal(err)
-	}
-	puts, creates := 0, 0
-	var server *httptest.Server
-	server = materialTestServer(t, func(out http.ResponseWriter, r *http.Request) {
-		switch r.Method + " " + r.URL.Path {
-		case "POST /api/v1/order-preparations":
-			materialTestResponse(out, map[string]any{"preparation_id": 51, "contract": map[string]string{"request_spec_text": "Upload inputs/request.txt", "request_spec_schema": scenarioSchema}})
-		case "POST /api/v1/order-preparations/51/uploads":
-			var body struct {
-				Logical string `json:"logical_path"`
+	for _, tc := range []struct {
+		name, text, schema, logical string
+		resume                      bool
+	}{
+		{name: "canonical", text: "Upload inputs/request.txt", schema: scenarioSchema, logical: requestcontract.Path},
+		{name: "legacy text without path", text: "Describe the everyday scenario", schema: scenarioSchema, logical: requestcontract.Path},
+		{name: "resume legacy frozen preparation", text: "Describe the everyday scenario", schema: scenarioSchema, logical: requestcontract.Path, resume: true},
+		{name: "legacy conflicting text", text: "Upload inputs/request.json", schema: scenarioSchema, logical: requestcontract.Path, resume: true},
+		{name: "legacy optional JSON attachment", text: "Provide Input", schema: `{"type":"object","properties":{"scenario":{"type":"string"}}}`, logical: "inputs/request.json", resume: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			local := filepath.Join(t.TempDir(), "request.json")
+			if err := os.WriteFile(local, []byte(scenarioInput), 0600); err != nil {
+				t.Fatal(err)
 			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Logical != requestcontract.Path {
-				t.Errorf("wrong upload path: %+v %v", body, err)
+			puts, creates := 0, 0
+			var server *httptest.Server
+			server = materialTestServer(t, func(out http.ResponseWriter, r *http.Request) {
+				switch r.Method + " " + r.URL.Path {
+				case "POST /api/v1/order-preparations", "GET /api/v1/order-preparations/51":
+					materialTestResponse(out, map[string]any{"preparation_id": 51, "contract": map[string]string{"request_spec_text": tc.text, "request_spec_schema": tc.schema}})
+				case "POST /api/v1/order-preparations/51/uploads":
+					var body struct {
+						Logical string `json:"logical_path"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Logical != tc.logical {
+						t.Errorf("wrong upload path: %+v %v", body, err)
+					}
+					materialTestResponse(out, map[string]any{"grant": map[string]any{"object_id": 71, "method": "PUT", "url": server.URL + "/object"}})
+				case "PUT /object":
+					data, _ := io.ReadAll(r.Body)
+					if string(data) != scenarioInput {
+						t.Errorf("JSON bytes changed: %q", data)
+					}
+					puts++
+				case "POST /api/v1/order-preparations/51/uploads/confirm":
+					materialTestResponse(out, map[string]any{})
+				case "POST /api/v1/orders":
+					var body struct {
+						Files []materialFile `json:"input_files"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Files) != 1 || body.Files[0].LogicalPath != tc.logical {
+						t.Errorf("wrong final manifest: %+v %v", body, err)
+					}
+					creates++
+					materialTestResponse(out, map[string]any{"order": map[string]any{"order_id": 51, "state": "awaiting_seller", "version": 1}})
+				default:
+					t.Errorf("unexpected route %s %s", r.Method, r.URL.Path)
+					out.WriteHeader(http.StatusNotFound)
+				}
+			})
+			if tc.logical == requestcontract.Path {
+				materialFlag(t, orderCreateCmd, "buyer-input-file", local)
+			} else {
+				materialFlag(t, orderCreateCmd, "input-file", tc.logical+"="+local)
 			}
-			materialTestResponse(out, map[string]any{"grant": map[string]any{"object_id": 71, "method": "PUT", "url": server.URL + "/object"}})
-		case "PUT /object":
-			data, _ := io.ReadAll(r.Body)
-			if string(data) != scenarioInput {
-				t.Errorf("JSON bytes changed: %q", data)
+			if tc.resume {
+				materialFlag(t, orderCreateCmd, "preparation-id", "51")
 			}
-			puts++
-		case "POST /api/v1/order-preparations/51/uploads/confirm":
-			materialTestResponse(out, map[string]any{})
-		case "POST /api/v1/orders":
-			var body struct {
-				Files []materialFile `json:"input_files"`
+			if err := orderCreateCmd.RunE(orderCreateCmd, []string{"77"}); err != nil {
+				t.Fatal(err)
 			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Files) != 1 || body.Files[0].LogicalPath != requestcontract.Path {
-				t.Errorf("wrong final manifest: %+v %v", body, err)
+			if puts != 1 || creates != 1 {
+				t.Fatalf("puts=%d creates=%d", puts, creates)
 			}
-			creates++
-			materialTestResponse(out, map[string]any{"order": map[string]any{"order_id": 51, "state": "awaiting_seller", "version": 1}})
-		default:
-			t.Errorf("unexpected route %s %s", r.Method, r.URL.Path)
-			out.WriteHeader(http.StatusNotFound)
-		}
-	})
-	materialFlag(t, orderCreateCmd, "buyer-input-file", local)
-	if err := orderCreateCmd.RunE(orderCreateCmd, []string{"77"}); err != nil {
-		t.Fatal(err)
-	}
-	if puts != 1 || creates != 1 {
-		t.Fatalf("puts=%d creates=%d", puts, creates)
+		})
 	}
 }
 
@@ -77,8 +97,6 @@ func TestCreateOrderChecksFrozenRequestBeforeUpload(t *testing.T) {
 		missingContract                      bool
 		want                                 string
 	}{
-		{name: "published path conflict", text: "Upload inputs/request.json", schema: scenarioSchema, logical: "inputs/request.json", content: scenarioInput, want: "must use inputs/request.txt"},
-		{name: "wrong material path", text: "Upload inputs/request.txt", schema: scenarioSchema, logical: "inputs/request.json", content: scenarioInput, want: "structured requests must use"},
 		{name: "non JSON request", text: "Upload inputs/request.txt", schema: scenarioSchema, logical: requestcontract.Path, content: "ordinary text", want: "UTF-8 JSON object"},
 		{name: "null request", text: "Upload inputs/request.txt", schema: scenarioSchema, logical: requestcontract.Path, content: "null", want: "UTF-8 JSON object"},
 		{name: "missing frozen contract", missingContract: true, logical: requestcontract.Path, content: scenarioInput, want: "missing frozen request contract"},
@@ -110,11 +128,18 @@ func TestCreateOrderChecksFrozenRequestBeforeUpload(t *testing.T) {
 }
 
 func TestRequestMaterialValidationPreservesAttachmentsAndOptionalFields(t *testing.T) {
-	if err := validateOrderRequestMaterials("Upload inputs/request.txt; optional fields", `{"type":"object"}`, nil); err != nil {
+	if err := validateOrderRequestMaterials(`{"type":"object"}`, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateOrderRequestMaterials("Upload any attachments", `{}`, []materialFile{{LogicalPath: "inputs/request.json"}}); err != nil {
+	if err := validateOrderRequestMaterials(`{}`, []materialFile{{LogicalPath: "inputs/request.json"}}); err != nil {
 		t.Fatal(err)
+	}
+	// The complete frozen schema is evaluated by Order. A path-only client
+	// check must not turn optional historical attachments into required input.
+	for _, schema := range []string{`{"type":"object"}`, scenarioSchema} {
+		if err := validateOrderRequestMaterials(schema, []materialFile{{LogicalPath: "inputs/request.json"}}); err != nil {
+			t.Fatalf("absent request must be decided by frozen schema: %v", err)
+		}
 	}
 	local := filepath.Join(t.TempDir(), "request.json")
 	if err := os.WriteFile(local, []byte(scenarioInput), 0600); err != nil {
@@ -124,25 +149,46 @@ func TestRequestMaterialValidationPreservesAttachmentsAndOptionalFields(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = validateOrderRequestMaterials("Upload inputs/request.txt", scenarioSchema, []materialFile{file, {LogicalPath: "inputs/data.json"}, {LogicalPath: "inputs/request.json"}}); err != nil {
+	if err = validateOrderRequestMaterials(scenarioSchema, []materialFile{file, {LogicalPath: "inputs/data.json"}, {LogicalPath: "inputs/request.json"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err = os.WriteFile(local, []byte(`{"scenario":"changed"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err = validateOrderRequestMaterials("Upload inputs/request.txt", scenarioSchema, []materialFile{file}); err == nil || !strings.Contains(err.Error(), "changed after material inspection") {
+	if err = validateOrderRequestMaterials(scenarioSchema, []materialFile{file}); err == nil || !strings.Contains(err.Error(), "changed after material inspection") {
 		t.Fatalf("changed bytes accepted: %v", err)
 	}
 }
 
 func TestStructuredPublishTrialUsesCanonicalRequestAndRejectsMismatch(t *testing.T) {
-	for _, scenario := range []string{"ready", "bad_contract", "undeclared_path", "bad_json", "null", "wrong_material_path", "conflicting_sample", "matching_sample", "legacy_attachment"} {
+	for _, scenario := range []string{"ready", "bad_contract", "plus_suffix_contract", "Unicode_suffix_contract", "quoted_space_contract", "quoted_plus_contract", "quoted_word_contract", "apostrophe_contract", "Chinese_contract", "undeclared_path", "bad_json", "null", "wrong_material_path", "conflicting_sample", "matching_sample", "legacy_attachment"} {
 		t.Run(scenario, func(t *testing.T) {
 			ran, published := false, false
 			draft := commissionTrialDraft{Version: 3, Draft: commissionapi.CommissionInput{FulfillmentSkill: "input-review", RequestSpecText: "Upload a UTF-8 JSON object at inputs/request.txt", RequestSpecSchema: scenarioSchema, RequiresMaterials: true, DeliverySpecText: "report.txt"}}
 			draft.Definition.ID, draft.Definition.Seller = 901, 42
 			if scenario == "bad_contract" {
 				draft.Draft.RequestSpecText = "Upload inputs/request.json"
+			}
+			if scenario == "plus_suffix_contract" {
+				draft.Draft.RequestSpecText = "Upload inputs/request.txt+v2"
+			}
+			if scenario == "Unicode_suffix_contract" {
+				draft.Draft.RequestSpecText = "Upload inputs/request.txt备份"
+			}
+			if scenario == "quoted_space_contract" {
+				draft.Draft.RequestSpecText = "Upload `inputs/request.txt backup`"
+			}
+			if scenario == "quoted_plus_contract" {
+				draft.Draft.RequestSpecText = `Upload "inputs/request.txt"+v2`
+			}
+			if scenario == "quoted_word_contract" {
+				draft.Draft.RequestSpecText = "Upload `inputs/request.txt`backup"
+			}
+			if scenario == "apostrophe_contract" {
+				draft.Draft.RequestSpecText = "Buyer's input: inputs/request.txt. It's JSON."
+			}
+			if scenario == "Chinese_contract" {
+				draft.Draft.RequestSpecText = "请上传`inputs/request.txt`，内容为 JSON 对象。"
 			}
 			if scenario == "undeclared_path" {
 				draft.Draft.RequestSpecText = "Describe your scenario"
@@ -242,7 +288,7 @@ func TestStructuredPublishTrialUsesCanonicalRequestAndRejectsMismatch(t *testing
 				}
 			}
 			err := w.publishWithTrial(command, 901, 3, input)
-			wantSuccess := scenario == "ready" || scenario == "matching_sample" || scenario == "legacy_attachment"
+			wantSuccess := scenario == "ready" || scenario == "matching_sample" || scenario == "legacy_attachment" || scenario == "apostrophe_contract" || scenario == "Chinese_contract"
 			if wantSuccess {
 				if err != nil || !ran || !published {
 					t.Fatalf("valid trial rejected: %v ran=%t published=%t", err, ran, published)

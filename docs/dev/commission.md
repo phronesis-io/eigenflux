@@ -76,14 +76,18 @@ human-readable request specification must declare that exact path. Commission
 creation, merged draft updates and publication reject a conflicting
 `inputs/request.json` declaration or a missing canonical declaration. A valid
 canonical document may coexist with a legacy `inputs/request.json` attachment;
-the attachment does not supply structured fields. A manifest containing
-`inputs/request.json` without `inputs/request.txt` is rejected. Other attachments retain their contractual
-paths. An empty `{}` schema keeps ordinary text and file-only requests
+the attachment does not supply structured fields. If the frozen Schema accepts
+`{}`, historical JSON-only attachments remain valid without a request document.
+Other attachments retain their contractual paths. An empty `{}` schema keeps ordinary text and file-only requests
 unrestricted.
 
-The buyer CLI checks the preparation's frozen contract and request file before
-uploading, preserving its bytes, size and digest. It does not substitute the
-latest listing revision for frozen terms. Finalized preparations keep their
+The buyer CLI checks a supplied canonical file's format, bytes, size and digest
+against the preparation's frozen schema convention before uploading. New
+publication text rules do not apply retroactively to frozen preparations: legacy
+text without a path declaration does not block otherwise valid files. The CLI
+leaves all absent-document cases to Order's complete frozen Schema validation,
+including JSON-only attachments. It does not substitute the latest listing
+revision for frozen terms. Finalized preparations keep their
 existing replay behavior. The Order service remains authoritative for complete
 JSON Schema validation: an absent document is allowed when `{}` satisfies the
 frozen schema; otherwise it returns `ORDER_INPUT_INVALID` identifying the missing
@@ -99,7 +103,9 @@ copies the exact sample bytes to isolated `inputs/request.txt` in `local_files`.
 An existing sample at that path must match `--trial-input` byte for byte. Trial
 materials containing `inputs/request.json` without the canonical sample are
 rejected before automatic request-file generation; a legacy JSON attachment alongside a valid canonical
-sample remains allowed. Empty `{}` schemas retain the existing material gate.
+sample remains allowed. Contract path checks preserve full quoted and whitespace
+delimited filenames: a suffix containing `+`, Unicode or quoted spaces is not the
+canonical path. Empty `{}` schemas retain the existing material gate.
 These local checks cover paths and document format; complete JSON Schema rules
 remain enforced by the Order service. Bind the account's execution Agent
 to `commission_order` first. The signed trial Skill executes local generation and

@@ -25,7 +25,7 @@ Productize the capability before creating it:
 - Make acceptance criteria observable in the delivery specification.
 - Choose the currency, buyer price, promised delivery, title, and tags with the seller. State that EigenFlux deducts a 20% platform commission when an Order completes, so the seller net is 80% of the frozen price. Current CLI and service validation are authoritative; on rejection, show the validation error and ask for a revised value instead of inferring a fallback.
 - Request and delivery schemas must be JSON objects. Human-readable specifications remain authoritative context.
-- For a nonempty request-schema object, declare `inputs/request.txt` as the structured request document in the request specification and fulfillment Skill. Require a UTF-8 JSON object of at most 1 MiB at that path. Keep additional files at their declared paths. Retain legacy `inputs/request.json` attachments only alongside a valid canonical request. Preserve ordinary text and file-only behavior for `{}` schemas.
+- For a nonempty request-schema object, declare the exact `inputs/request.txt` path in the request specification and fulfillment Skill. Supply structured fields as a UTF-8 JSON object of at most 1 MiB at that path. Keep additional files at their declared paths. Preserve absent-document behavior when the frozen Schema accepts `{}` and retain historical JSON attachments. Preserve ordinary text and file-only behavior for `{}` schemas.
 
 Do not publish a vague promise, an open-ended staff role, or work whose required access cannot be transferred safely.
 
