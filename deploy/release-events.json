@@ -109,5 +109,16 @@
     "title": "UGC AI Slop V0.2.1 gate available (default off)",
     "description": "New schema and worker instrumentation are available after deployment. Evaluation and blocking remain disabled until UGC_SLOP_ENABLED is explicitly activated. Historical broadcasts are not relabeled. Global Qwen model replacement and gate activation need separate events and next-day fixed-cohort delivery/positive-feedback checks.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/466"
+  },
+  {
+    "id": "outer-loop-setup-readback-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "api",
+    "dashboards": [
+      "user-growth"
+    ],
+    "title": "Accept outer-loop setup and scheduler readback observations",
+    "description": "API rollout accepts bounded setup/readback and container/WSL evidence from updated CLIs; deploy receiver before CLI. Native task readback requires updated Skills and CLI adoption. Historical gaps remain unknown; task state is separate from runtime health and business retention.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/479"
   }
 ]

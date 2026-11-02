@@ -130,4 +130,7 @@ func TestMigrationCommandsPersistOnlyAfterVerifiedReadback(t *testing.T) {
 	if observation.AttemptID != record.ID || observation.Result != "verified" || observation.Phase != "migration" {
 		t.Fatalf("missing successful scheduler observation: %+v", observation)
 	}
+	if observation.OuterLoop == nil || observation.OuterLoop.Scheduler == nil || observation.OuterLoop.Scheduler.State != "paused" {
+		t.Fatalf("migration lost task state/environment: %+v", observation)
+	}
 }
