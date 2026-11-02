@@ -37,27 +37,28 @@ func runtimeObservation(meta client.Meta, revision string) maintenance.RuntimeOb
 	return maintenance.RuntimeObservation{Mode: observationValue(meta.Mode), Product: observationValue(product), ProductVersion: observationValue(productVersion), OS: runtime.GOOS, Arch: runtime.GOARCH, Model: observationValue(meta.Model), CLI: observationValue(version), Skills: observationValue(revision)}
 }
 func runtimeObservationsEnabled() bool { return os.Getenv("EIGENFLUX_RUNTIME_OBSERVATIONS") != "0" }
-func observeRuntimeEnvironment(meta client.Meta) {
+func observeRuntimeEnvironment(scope maintenance.Scope, meta client.Meta) {
 	if !runtimeObservationsEnabled() {
 		return
 	}
-	scope, err := maintenanceScope(activeServerName())
-	if err != nil {
-		return
-	}
-	revision := ""
-	r := runtimeObservation(meta, revision)
-	key := sha256.Sum256([]byte(fmt.Sprintf("%s:%+v", time.Now().UTC().Format("2006-01-02"), r)))
-	e := maintenance.NewEvent(hex.EncodeToString(key[:]), "runtime", "auto", "environment", "observed")
-	e.Runtime = &r
-	_ = recordMaintenanceEventAtScope(scope, e)
+	_ = recordMaintenanceEventAtScope(scope, runtimeEnvironmentEvent(meta, time.Now()))
 }
-func attachCycleObservation(plan *heartbeatPlan) {
+
+func runtimeEnvironmentEvent(meta client.Meta, now time.Time) maintenance.Event {
+	r := runtimeObservation(meta, "")
+	key := sha256.Sum256([]byte(fmt.Sprintf("%s:%+v", now.In(time.FixedZone("UTC+8", 8*60*60)).Format("2006-01-02"), r)))
+	e := maintenance.NewEvent(hex.EncodeToString(key[:]), "runtime", "auto", "environment", "observed")
+	e.EventAt = now.UnixMilli()
+	e.Runtime = &r
+	return e
+}
+
+func attachCycleObservation(plan *heartbeatPlan, scope maintenance.Scope) {
 	if !runtimeObservationsEnabled() || len(plan.ExecutionOrder) == 0 {
 		return
 	}
-	scope, err := maintenanceScope(activeServerName())
-	if err != nil {
+	current, err := maintenanceScope(scope.Server)
+	if err != nil || current.AgentID != scope.AgentID || current.Home != scope.Home {
 		return
 	}
 	env := runtimeObservation(clientMetaForServerName(scope.Server), plan.SkillRevision)
@@ -87,7 +88,9 @@ func init() {
 			return err
 		}
 		// Queue receipt is durable even when offline; existing uploader bounds and retries apply.
-		_ = flushMaintenanceEventsAtScope(scope)
+		if stage == "cycle" {
+			_ = flushMaintenanceEventsAtScope(scope)
+		}
 		fmt.Fprintln(cmd.OutOrStdout(), "Cycle observation recorded; upload is best effort.")
 		return nil
 	}}

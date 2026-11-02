@@ -13,6 +13,7 @@ import (
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/feedevent"
+	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/output"
 	"cli.eigenflux.ai/internal/profilestate"
 
@@ -384,7 +385,7 @@ func reportRuntimeSettings(cfg *config.Config, mode, model, runtimeName, runtime
 	if err != nil {
 		return result, err
 	}
-	observeRuntimeEnvironment(meta)
+	observeRuntimeEnvironment(maintenance.Scope{Home: config.HomeDir(), Server: serverName, AgentID: agentID}, meta)
 	result.Status = "reported"
 	return result, nil
 }

@@ -114,3 +114,70 @@ func TestCycleCapacityReclaimsCompletedWithoutDroppingQueuedReceipts(t *testing.
 		t.Fatal("capacity recovery lost state")
 	}
 }
+
+func TestRuntimeUploadRejectionDoesNotBlockLegacyMaintenance(t *testing.T) {
+	s := Scope{Home: t.TempDir(), Server: "test", AgentID: "1"}
+	c, err := StartCycle(s, "full", []string{"feed"}, RuntimeObservation{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := Flush(s, now, func(batch []Event) error {
+		if len(batch) != 1 || batch[0].Runtime == nil {
+			t.Fatal("wrong runtime batch")
+		}
+		return fmt.Errorf("old API rejects runtime")
+	}); err == nil {
+		t.Fatal("missing rejection")
+	}
+	legacy := NewEvent(NewID(), "skills", "auto", "read", "rules_read")
+	legacy.ToVersion = "revision"
+	if err := Record(s, legacy); err != nil {
+		t.Fatal(err)
+	}
+	if err := Flush(s, now, func(batch []Event) error {
+		if len(batch) != 1 || batch[0].EventID != legacy.EventID {
+			t.Fatal("runtime mixed into legacy batch")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := Snapshot(s)
+	if len(st.Events) != 1 || st.Events[0].AttemptID != c.ID || st.RuntimeFailures != 1 || st.Failures != 0 {
+		t.Fatalf("lost isolated retry state: %+v", st)
+	}
+	called := false
+	if err := Flush(s, now, func([]Event) error { called = true; return nil }); err != nil || called {
+		t.Fatal("runtime backoff ignored")
+	}
+	if err := Flush(s, now.Add(time.Minute), func(batch []Event) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	st, _ = Snapshot(s)
+	if len(st.Events) != 0 || st.RuntimeFailures != 0 {
+		t.Fatal("runtime retry failed")
+	}
+}
+
+func TestRuntimeOverflowPreservesExistingMaintenance(t *testing.T) {
+	s := Scope{Home: t.TempDir(), Server: "test", AgentID: "1"}
+	legacy := NewEvent(NewID(), "skills", "auto", "read", "rules_read")
+	legacy.ToVersion = "revision"
+	err := update(s, func(st *State) error {
+		st.Events = append(st.Events, legacy)
+		for i := 0; i < MaxEvents; i++ {
+			e := NewEvent(NewID(), "runtime", "auto", "environment", "observed")
+			e.Runtime = &RuntimeObservation{}
+			st.Events = append(st.Events, e)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := Snapshot(s)
+	if err != nil || len(st.Events) != MaxEvents || st.Events[0].EventID != legacy.EventID || st.Dropped != 1 {
+		t.Fatal("runtime backlog evicted maintenance")
+	}
+}

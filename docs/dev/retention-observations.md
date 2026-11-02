@@ -12,7 +12,14 @@ semantics do not change. No Skills update is required: only upgraded CLIs issue
 the new commands. `heartbeat cycle-report --cycle ID --stage STAGE --result
 completed|failed` records an account-scoped receipt; `--stage cycle` completion
 requires all stages. The queue is bounded, locked and retained for seven days.
-Offline uploads retry through existing maintenance backoff; a failed upload is
+Stage commands only persist locally; the terminal cycle command attempts one
+bounded upload, avoiding a network round trip after every business stage.
+Runtime backlog is evicted before existing maintenance when queue capacity is
+exceeded. Runtime uploads use isolated batches/backoff, so API rollback cannot poison
+existing maintenance batches. Environment and plan observations retain the
+identity captured before network work; an account switch discards the stale
+observation. Environment deduplication uses UTC+8 dates.
+Offline uploads retry through bounded maintenance backoff; a failed upload is
 not a failed business stage. Old clients remain unobserved, not failed.
 
 API uses the existing authenticated maintenance endpoint and 30-day table. No

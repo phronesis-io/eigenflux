@@ -350,7 +350,7 @@ var heartbeatPlanCmd = &cobra.Command{
 			}
 		}
 
-		attachCycleObservation(&plan)
+		attachCycleObservation(&plan, skillsScope)
 		plan.AgentPrompt = renderHeartbeatPlanForAgent(plan)
 		if resolveFormat() == "agent" {
 			fmt.Fprint(cmd.OutOrStdout(), plan.AgentPrompt)
