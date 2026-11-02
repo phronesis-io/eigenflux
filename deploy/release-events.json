@@ -154,5 +154,16 @@
     "title": "Runtime and external-loop observations available",
     "description": "API accepts environment and cycle stage receipts. Coverage begins only after CLI 1.0.3 adoption; D0 snapshots are not backfilled and missing receipts are not failures. Telemetry does not count as activity. Hardware means CPU architecture only.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/477"
+  },
+  {
+    "id": "feed-context-budget-health-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "full",
+    "dashboards": [
+      "feedback-compliance"
+    ],
+    "title": "Feed batch and detail-fetch health available",
+    "description": "Requires migration and API rollout. Byte usage, detail fetches, batch completion and backlog expiry are reported only after CLI 1.0.3 adoption; older clients report zeros. Server activation does not mark the CLI/Skills adoption time, and bytes are not model tokens. Compare matching host, mode, CLI and heartbeat-contract cohorts before changing supply.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/481"
   }
 ]
