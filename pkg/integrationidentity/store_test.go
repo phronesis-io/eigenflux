@@ -210,3 +210,35 @@ func TestOperatorApplicationCreationAndCredentialRotation(t *testing.T) {
 		t.Fatal("separate app cannot reuse an external identifier", err)
 	}
 }
+
+func TestIntegrationSourceIsReportedWithoutGrantingPermissions(t *testing.T) {
+	s, _ := testStore(t)
+	ctx := context.Background()
+	req := registration()
+	first, err := s.Register(ctx, "partner", req)
+	if err != nil || first.Installation.IntegrationSource != "unknown" {
+		t.Fatal(first, err)
+	}
+	req.InstallationID = first.Installation.InstallationID
+	req.IntegrationSource = "http"
+	req.SDKVersion = ""
+	result, err := s.Register(ctx, "partner", req)
+	if err != nil || result.Installation.IntegrationSource != "http" {
+		t.Fatal(result, err)
+	}
+	req.IntegrationSource = "sdk"
+	req.SDKVersion = "1.0.0"
+	result, err = s.Register(ctx, "partner", req)
+	if err != nil || result.Installation.IntegrationSource != "sdk" {
+		t.Fatal(result, err)
+	}
+	req.IntegrationSource = "official"
+	_, err = s.Register(ctx, "partner", req)
+	requireCode(t, err, 400, "INVALID_INTEGRATION_SOURCE")
+	if err := s.SetEnabled(ctx, "partner", 0, false, "test", "disable"); err != nil {
+		t.Fatal(err)
+	}
+	req.IntegrationSource = "sdk"
+	_, err = s.Register(ctx, "partner", req)
+	requireCode(t, err, 403, "APP_DISABLED")
+}
