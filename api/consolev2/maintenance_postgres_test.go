@@ -309,20 +309,12 @@ FROM telemetry_events_v2 WHERE properties->>'component'='dispatch' ORDER BY agen
 	if device["cli_version"] != "0.7.7" || device["device_name"] != "我的电脑" || device["permission_state"] != "denied" || device["stale"] != false {
 		t.Fatalf("late upload or other account replaced current permission: %v", device)
 	}
-	for _, age := range []time.Duration{11 * time.Minute, 8 * 24 * time.Hour} {
-		exec(`UPDATE telemetry_events_v2 SET event_at=event_at-? WHERE agent_id=42 AND properties->'notification'->>'device_id'=?`, age.Milliseconds(), deviceID)
-		status, payload, _ = performJSON(t, h, "GET", "/devices", nil)
-		if status != 200 {
-			t.Fatalf("older observation projection: %d %v", status, payload)
-		}
-		devices = payload["data"].(map[string]interface{})["devices"].([]interface{})
-		if len(devices) != 1 {
-			t.Fatalf("latest observation dropped after %s: %v", age, payload)
-		}
-		device = devices[0].(map[string]interface{})
-		if device["permission_state"] != "denied" || device["stale"] != false {
-			t.Fatalf("latest observation changed after %s: %v", age, payload)
-		}
+	exec(`UPDATE telemetry_events_v2 SET event_at=? WHERE agent_id=42 AND properties->'notification'->>'device_id'=?`, time.Now().Add(-11*time.Minute).UnixMilli(), deviceID)
+	status, payload, _ = performJSON(t, h, "GET", "/devices", nil)
+	devices = payload["data"].(map[string]interface{})["devices"].([]interface{})
+	device = devices[0].(map[string]interface{})
+	if status != 200 || device["permission_state"] != "unknown" || device["stale"] != true {
+		t.Fatalf("offline observation reported as disabled: %v", payload)
 	}
 
 	// Legacy CLI installations have no notification device events.
