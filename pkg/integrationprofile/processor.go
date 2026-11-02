@@ -27,6 +27,7 @@ type Embedder interface {
 }
 
 type MatchingProfile struct {
+	CardRetryAt    int64
 	AgentID        int64 `gorm:"primaryKey"`
 	SourceRevision int64
 	ProfileVersion int64
@@ -45,7 +46,7 @@ type Processor struct {
 	Store     *Store
 	Extractor KeywordExtractor
 	Embedder  Embedder
-	Rebuild   func(context.Context, int64)
+	Rebuild   func(context.Context, int64) error
 }
 
 func (p *Processor) Process(ctx context.Context, agentID int64) error {
@@ -198,7 +199,7 @@ func (p *Processor) Process(ctx context.Context, agentID int64) error {
 	}
 	committed = applied
 	if applied && p.Rebuild != nil {
-		p.Rebuild(ctx, agentID)
+		_ = p.repairCard(ctx, agentID)
 	}
 	return nil
 }
@@ -261,6 +262,7 @@ func (p *Processor) Run(ctx context.Context) {
 				Order("integration_contexts.accepted_at").Limit(20).Pluck("integration_contexts.agent_id", &ids).Error; err != nil {
 				continue
 			}
+			_ = p.RepairCards(ctx)
 			for _, id := range ids {
 				if ctx.Err() != nil {
 					return
@@ -283,4 +285,56 @@ func LoadMatching(ctx context.Context, db *gorm.DB, agentID int64) (*MatchingPro
 		return nil, err
 	}
 	return &row, nil
+}
+
+// RepairCards uses committed matching versions as a durable rebuild queue.
+// A lost event or process crash cannot erase the outstanding projection work.
+func (p *Processor) RepairCards(ctx context.Context) error {
+	if p.Rebuild == nil {
+		return nil
+	}
+	now, err := clock(p.Store.database(ctx))
+	if err != nil {
+		return err
+	}
+	var ids []int64
+	err = p.Store.database(ctx).Table("integration_matching_profiles m").
+		Joins("JOIN integration_agents a ON a.agent_id=m.agent_id AND a.enabled=true").
+		Joins("JOIN integration_apps p ON p.app_id=a.app_id AND p.enabled=true").
+		Joins("LEFT JOIN agent_cards c ON c.agent_id=m.agent_id").
+		Where("m.card_retry_at <= ? AND (c.agent_id IS NULL OR c.source_version < m.profile_version)", now).
+		Order("m.card_retry_at,m.updated_at").Limit(20).Pluck("m.agent_id", &ids).Error
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		_ = p.repairCard(ctx, id)
+	}
+	return nil
+}
+func (p *Processor) repairCard(ctx context.Context, id int64) error {
+	bound, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	claimed := false
+	err := p.Store.database(bound).Transaction(func(tx *gorm.DB) error {
+		if err := lockManaged(tx, id); err != nil {
+			return err
+		}
+		now, err := clock(tx)
+		if err != nil {
+			return err
+		}
+		result := tx.Model(&MatchingProfile{}).Where("agent_id=? AND card_retry_at<=?", id, now).Update("card_retry_at", now+30000)
+		claimed = result.RowsAffected == 1
+		return result.Error
+	})
+	if err != nil || !claimed {
+		return err
+	}
+	// On failure or crash the reservation expires. Success is detected from the
+	// Card source version, including a concurrent newer context commit.
+	return p.Rebuild(bound, id)
 }

@@ -210,3 +210,8 @@ Registration accepts `integration_source`: `sdk` or `http`; omitted values remai
 `unknown` for older clients. HTTP callers may omit `sdk_version`. The installation
 records the latest declared source, independently of application ownership. This
 self-reported label is diagnostic and never grants permissions or proves a binary.
+
+Enterprise Card rebuild runs directly after matching commit and is reconciled
+every two seconds from durable matching/Card source-version differences. Failures
+retry after a persisted 30-second reservation, including after restart. No model
+call or profile write is repeated for Card repair. Disabled subjects are skipped.

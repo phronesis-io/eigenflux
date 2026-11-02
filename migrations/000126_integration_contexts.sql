@@ -19,6 +19,7 @@ CREATE TABLE integration_contexts (
 CREATE INDEX integration_contexts_pending ON integration_contexts(status,retry_at,lease_until);
 
 CREATE TABLE integration_matching_profiles (
+    card_retry_at BIGINT NOT NULL DEFAULT 0,
     agent_id BIGINT PRIMARY KEY REFERENCES integration_agents(agent_id),
     source_revision BIGINT NOT NULL,
     profile_version BIGINT NOT NULL,
