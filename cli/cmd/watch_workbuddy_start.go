@@ -39,12 +39,7 @@ func workBuddyBinding(expected dispatch.Binding, cli, workdir, rules string, cfg
 }
 
 func startWorkBuddyWatch(cmd *cobra.Command) error {
-	return startWorkBuddyWatchOnPlatform(cmd, runtime.GOOS)
-}
-
-func startWorkBuddyWatchOnPlatform(cmd *cobra.Command, goos string) error {
-	if goos != "windows" && goos != "darwin" {
-		watchSetupOutcome(cmd, "blocked", "unsupported_platform")
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
 		return errors.New("automatic WorkBuddy watch setup supports macOS and Windows")
 	}
 	return setupWorkBuddyWatch(cmd, workBuddySetupDeps{discover: workbuddy.Discover, probe: workbuddy.Probe, start: watchservice.StartNotifications, rules: func() (string, error) {
@@ -64,7 +59,6 @@ type workBuddySetupDeps struct {
 }
 
 func setupWorkBuddyWatch(cmd *cobra.Command, deps workBuddySetupDeps) error {
-	watchSetupStage(cmd, "identity")
 	expected, err := watchBindingIdentity()
 	if err != nil {
 		return err
@@ -96,12 +90,10 @@ func setupWorkBuddyWatch(cmd *cobra.Command, deps workBuddySetupDeps) error {
 	} else if !os.IsNotExist(readErr) {
 		return readErr
 	}
-	watchSetupStage(cmd, "skills")
 	rules, err := deps.rules()
 	if err != nil {
 		return fmt.Errorf("WorkBuddy setup requires synchronized signed Skills: %w", err)
 	}
-	watchSetupStage(cmd, "host_discovery")
 	cfg, err := deps.discover(workbuddy.Config{})
 	if err != nil {
 		return err
@@ -118,7 +110,6 @@ func setupWorkBuddyWatch(cmd *cobra.Command, deps workBuddySetupDeps) error {
 		return err
 	}
 	cfg.AllowedTools = workbuddy.DefaultAllowedTools()
-	watchSetupStage(cmd, "host_probe")
 	probeCtx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
 	err = deps.probe(probeCtx, cfg, workdir)
 	cancel()
@@ -144,8 +135,6 @@ func setupWorkBuddyWatch(cmd *cobra.Command, deps workBuddySetupDeps) error {
 			expected.Revision = old.Revision
 			live := readWatchLiveStatus(expected, false, time.Now())
 			if live.Running && slices.Equal(old.Command, b.Command) && slices.Equal(old.Events, b.Events) && old.WorkDir == b.WorkDir && old.SkillsDir == b.SkillsDir && len(old.Args) == 0 && len(old.Env) == 0 {
-				watchSetupStage(cmd, "task_start")
-				watchSetupOutcome(cmd, "installed", "")
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"status": "already_running", "mode": "dispatch", "host": "workbuddy", "agent_id": expected.AgentID, "host_protocol_verified": true, "runtime": live, "business_verified": false})
 			}
 			return errors.New("existing WorkBuddy watch is running from another configuration; preserve paid work, stop the owned task at a safe maintenance point, then rerun watch start --host workbuddy (upgrade not applied)")
@@ -158,13 +147,11 @@ func setupWorkBuddyWatch(cmd *cobra.Command, deps workBuddySetupDeps) error {
 	// Stop only an enabled task owned by this user after the host probe succeeds.
 	prepare := task
 	prepare.PrepareOnly = true
-	watchSetupStage(cmd, "task_prepare")
 	prepared, err := deps.start(cmd.Context(), prepare)
 	if err != nil {
 		return err
 	}
 	if prepared.Status == "skipped_disabled" {
-		watchSetupOutcome(cmd, "skipped", "user_disabled")
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(prepared)
 	}
 	if ownerRelease == nil {
@@ -173,7 +160,6 @@ func setupWorkBuddyWatch(cmd *cobra.Command, deps workBuddySetupDeps) error {
 			return err
 		}
 	}
-	watchSetupStage(cmd, "binding")
 	err = auth.WithV2CredentialsLockContext(cmd.Context(), expected.Server, 35*time.Second, func() error {
 		current, err := watchBindingIdentity()
 		if err != nil {
@@ -197,15 +183,9 @@ func setupWorkBuddyWatch(cmd *cobra.Command, deps workBuddySetupDeps) error {
 	if err != nil {
 		return err
 	}
-	watchSetupStage(cmd, "task_start")
 	result, err := deps.start(cmd.Context(), task)
 	if err != nil {
 		return fmt.Errorf("WorkBuddy binding saved; retry watch start --host workbuddy to start its task: %w", err)
-	}
-	if result.Status == "skipped_disabled" {
-		watchSetupOutcome(cmd, "skipped", "user_disabled")
-	} else {
-		watchSetupOutcome(cmd, "installed", "")
 	}
 	return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"status": result.Status, "mode": "dispatch", "host": "workbuddy", "agent_id": expected.AgentID, "target": result.Target, "binding_revision": b.Revision, "host_protocol_verified": true, "agent_call_verified": false, "business_verified": false, "action": "check watch status and fresh runtime_ready; validate a real order separately"})
 }

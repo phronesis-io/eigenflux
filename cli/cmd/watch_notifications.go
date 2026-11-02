@@ -99,24 +99,14 @@ func newWatchStartCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use: "start", Short: "Install and start this account's desktop watch",
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) (resultErr error) {
-			observation := newOuterLoopRecorder(cmd, "watch", "preflight")
-			previous := cmd.Context()
-			ctx := previous
-			if ctx == nil {
-				ctx = context.Background()
-			}
-			cmd.SetContext(context.WithValue(ctx, watchSetupObservationKey{}, observation))
-			defer func() { observation.finish(resultErr); cmd.SetContext(previous) }()
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			host, _ := cmd.Flags().GetString("host")
 			if host != "" {
 				if host != "workbuddy" {
-					watchSetupOutcome(cmd, "failed", "unsupported_host")
 					return errors.New("automatic watch setup currently supports --host workbuddy")
 				}
 				return startWorkBuddyWatch(cmd)
 			}
-			watchSetupStage(cmd, "identity")
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -130,7 +120,6 @@ func newWatchStartCommand() *cobra.Command {
 				return err
 			}
 			if !hasAuth {
-				watchSetupOutcome(cmd, "skipped", "pending_auth")
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"status": "pending_auth", "action": "run watch start after Agent authentication"})
 			}
 			expected, err := watchBindingIdentity()
@@ -141,7 +130,6 @@ func newWatchStartCommand() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				watchSetupOutcome(cmd, "skipped", "host_managed")
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"status": "host_managed", "action": "verify the existing watch --dispatch task"})
 			}
 			if previous, err := readNotificationWatch(expected.Home, expected.Server); err == nil {
@@ -155,21 +143,12 @@ func newWatchStartCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			watchSetupStage(cmd, "task_start")
 			result, err := watchservice.StartNotifications(cmd.Context(), watchservice.NotificationTask{
 				CLI: cli, Home: expected.Home, Server: expected.Server, Scope: expected.Scope,
 				AgentID: expected.AgentID, PrincipalID: expected.PrincipalID,
 			})
 			if err != nil {
-				if observation.environment.OS != "windows" && observation.environment.OS != "darwin" {
-					watchSetupOutcome(cmd, "blocked", "unsupported_platform")
-				}
 				return err
-			}
-			if result.Status == "skipped_disabled" {
-				watchSetupOutcome(cmd, "skipped", "user_disabled")
-			} else {
-				watchSetupOutcome(cmd, "installed", "")
 			}
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
 		},

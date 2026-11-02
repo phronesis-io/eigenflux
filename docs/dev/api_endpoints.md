@@ -961,22 +961,3 @@ The [client feedback contract](feedback_clients.md) defines local report state,
 durable keyed retries and the `feedback_health` settings report.
 Baseline Feed remains read-only. The server's feedback wire schema is unchanged;
 `contract_version=feedback.v2` is a batch field and `surfaced` remains optional.
-
-### Outer-loop maintenance observations
-
-`POST /api/v2/maintenance/events:batch` accepts optional `outer_loop` metadata
-for watch setup and scheduler readback. Its environment has bounded `os`,
-`arch`, `container` and `wsl` enums; detection describes the CLI process, not
-physical host identity. Container and WSL evidence are independent. The
-scheduler projection includes `observed_at`, `state` and scoped SHA-256 task
-and schedule hashes. Readback time is checked against event time so valid
-offline replay retains the original observation. Unknown nested properties,
-raw diagnostic values and incompatible component/phase claims are rejected.
-Old observations without `outer_loop` retain their existing validation.
-
-Agent identity still comes exclusively from authentication, and event IDs
-remain namespaced by that Agent. `verified` means host-reported task metadata
-passed readback validation; it does not prove a recurring execution or a
-completed model call. Deploy this receiver before the new CLI. No schema
-migration or historical backfill is required. Shared sender/receiver fixtures
-live in `contracts/outer_loop_observations.json`.

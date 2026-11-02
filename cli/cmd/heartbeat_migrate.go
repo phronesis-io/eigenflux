@@ -181,9 +181,6 @@ func init() {
 		if scope, scopeErr := maintenanceScope(r.Server); scopeErr == nil {
 			observation := maintenance.NewEvent(r.ID, "scheduler", "auto", "migration", "verified")
 			observation.ToVersion = fmt.Sprint(heartbeatmigration.Version)
-			if readback, readbackErr := schedulerReadback(in.Inventory, r.Home, r.Server, scope.AgentID, r.Verified.UnixMilli()); readbackErr == nil {
-				observation.OuterLoop = &maintenance.OuterLoopObservation{Environment: maintenance.DetectRuntimeEnvironment(), Scheduler: readback}
-			}
 			_ = recordMaintenanceEventAtScope(scope, observation)
 			_ = flushMaintenanceEvents(r.Server)
 		}
