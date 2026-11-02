@@ -12,13 +12,14 @@ import (
 func TestFeedPreviewSourceAndTruncation(t *testing.T) {
 	short := "summary differs from original"
 	long := strings.Repeat("原", 900)
+	empty := ""
 	for _, tc := range []struct {
 		summary   *string
 		content   string
 		source    string
 		truncated bool
 	}{
-		{&short, long, "summary", false}, {nil, short, "content", false}, {nil, long, "content", true}, {&long, short, "summary", true},
+		{&short, long, "summary", false}, {nil, short, "content", false}, {nil, long, "content", true}, {&long, short, "summary", true}, {&empty, short, "content", false},
 	} {
 		items, _, err := (&Service{}).buildFeedPayloads(1, "baseline", nil, []*feedrpc.FeedItem{{ItemId: 1, Summary: tc.summary, RawContent: &tc.content}}, nil)
 		if err != nil {

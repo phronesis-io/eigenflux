@@ -279,10 +279,10 @@ func TestFeedCoreContractAndPreviewSemantics(t *testing.T) {
 		}
 	}
 	_, server := runtimeTestConfig(t, "http://127.0.0.1:1", true)
-	if got := feedBatchContract(server, "legacy full contract"); got != "legacy full contract" {
+	if got := feedBatchContractText(server, "legacy full contract", false); got != "legacy full contract" {
 		t.Fatal(got)
 	}
-	got := feedBatchContract(server, string(contract))
+	got := feedBatchContractText(server, string(contract), false)
 	if !strings.Contains(got, "OUTPUT CONTRACT CORE") || strings.Contains(got, "## Contract details") || !strings.Contains(got, "[EIGENFLUX OUTPUT CONTRACT]") {
 		t.Fatal("core extraction failed")
 	}

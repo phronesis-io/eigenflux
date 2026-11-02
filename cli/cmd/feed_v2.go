@@ -185,7 +185,7 @@ func pollFeedV2(cmd *cobra.Command, serverName, limit string) error {
 		open, backlog := batchCandidates(ledger, state, now)
 		action, _ := cmd.Flags().GetString("action")
 		if readErr == nil && !shouldFetchFeedBatch(action, originFlag, state, len(open), len(backlog), now) {
-			payload, meta, localErr := localFeedBatchPayload(serverName, ledger, batch, true)
+			payload, meta, localErr := localFeedBatchPayload(serverName, ledger, batch, true, "")
 			warnReportLedger(localErr)
 			if localErr == nil && meta != nil {
 				return renderFeedV2Batch(cmd, serverName, payload, meta)
@@ -228,7 +228,7 @@ func renderFeedV2(cmd *cobra.Command, payload json.RawMessage) error {
 func renderFeedV2Batch(cmd *cobra.Command, server string, payload json.RawMessage, batch *localFeedBatch) error {
 	if batch != nil && len(batch.body) > 0 {
 		if batch.OversizeBytes > 0 {
-			fmt.Fprintf(cmd.ErrOrStderr(), "EigenFlux Feed batch exceeds 32 KiB: %d bytes (one item).\n", batch.OversizeBytes)
+			fmt.Fprintf(cmd.ErrOrStderr(), "EigenFlux Feed batch exceeds %d KiB: %d bytes (one item).\n", feedBatchOutputBudget>>10, batch.OversizeBytes)
 		}
 		if resolveFormat() != "agent" {
 			_, err := os.Stdout.Write(batch.body)

@@ -23,14 +23,14 @@ func warnReportLedger(err error) {
 func recordFeedPull(server string, data json.RawMessage) error {
 	now := time.Now().UnixMilli()
 	var recordErr error
-	err := feedReportStore(server).Update(now, func(r *feedevent.Reports) { _, recordErr = recordFeedPage(r, data, now, 0) })
+	err := feedReportStore(server).Update(now, func(r *feedevent.Reports) { _, recordErr = recordFeedPage(r, data, now, 0, false) })
 	if err != nil {
 		return err
 	}
 	return recordErr
 }
 
-func recordFeedPage(r *feedevent.Reports, data json.RawMessage, now int64, batch int, deferHand ...bool) ([]feedevent.Entry, error) {
+func recordFeedPage(r *feedevent.Reports, data json.RawMessage, now int64, batch int, deferred bool) ([]feedevent.Entry, error) {
 	var feed struct {
 		ImpressionID    string `json:"impression_id"`
 		Personalization struct {
@@ -45,7 +45,6 @@ func recordFeedPage(r *feedevent.Reports, data json.RawMessage, now int64, batch
 		return nil, err
 	}
 	baseline := feed.Personalization.Mode == "baseline"
-	deferred := len(deferHand) > 0 && deferHand[0]
 	selected := []feedevent.Entry{}
 	for position, item := range feed.Items {
 		key := feed.ImpressionID + "\x00" + item.ItemID
@@ -107,11 +106,11 @@ func buildFeedStatus(pending []feedevent.PendingItem) feedStatus {
 	return status
 }
 
-func surfaceUnreported(ledger *feedevent.Ledger, state feedevent.Reports, now int64, cycle ...string) []feedevent.PendingItem {
+func surfaceUnreported(ledger *feedevent.Ledger, state feedevent.Reports, now int64, cycle string) []feedevent.PendingItem {
 	items := []feedevent.PendingItem{}
 	for _, e := range ledger.ReportEntries(state) {
 		r := state.Exposure(e)
-		if len(cycle) > 0 && cycle[0] != "" && r.CycleID != cycle[0] {
+		if cycle != "" && r.CycleID != cycle {
 			continue
 		}
 		if !e.Feed || r.Baseline || r.HandedTime() == 0 || r.ScoredAt <= now-feedSurfaceReminderWindow.Milliseconds() || r.ScoredAt > now ||
@@ -131,17 +130,17 @@ func surfaceUnreported(ledger *feedevent.Ledger, state feedevent.Reports, now in
 
 // The post-push check claims reminders under the report lock so each exposure is
 // listed once. A busy ledger still lists them, without claiming.
-func claimSurfaceReminders(store *feedevent.ReportStore, ledger *feedevent.Ledger, now int64, cycle ...string) ([]feedevent.PendingItem, error) {
+func claimSurfaceReminders(store *feedevent.ReportStore, ledger *feedevent.Ledger, now int64, cycle string) ([]feedevent.PendingItem, error) {
 	var items []feedevent.PendingItem
 	var cycleErr error
 	err := store.Update(now, func(state *feedevent.Reports) {
-		if len(cycle) > 0 && cycle[0] != "" {
-			if _, exists := state.Cycles[cycle[0]]; !exists {
-				cycleErr = fmt.Errorf("Feed cycle %q is unavailable", cycle[0])
+		if cycle != "" {
+			if _, exists := state.Cycles[cycle]; !exists {
+				cycleErr = fmt.Errorf("Feed cycle %q is unavailable", cycle)
 				return
 			}
 		}
-		items = surfaceUnreported(ledger, *state, now, cycle...)
+		items = surfaceUnreported(ledger, *state, now, cycle)
 		for _, item := range items {
 			key := item.ImpressionID + "\x00" + item.ItemID
 			r := state.Entries[key]
@@ -149,18 +148,18 @@ func claimSurfaceReminders(store *feedevent.ReportStore, ledger *feedevent.Ledge
 			state.Entries[key] = r
 		}
 		state.Count(now, map[string]int64{"surface_reminders": int64(len(items))})
-		if len(cycle) > 0 && cycle[0] != "" {
-			c := state.Cycles[cycle[0]]
+		if cycle != "" {
+			c := state.Cycles[cycle]
 			if c.ClosedAt == 0 {
 				c.ClosedAt = now
 			}
-			state.Cycles[cycle[0]] = c
+			state.Cycles[cycle] = c
 		}
 	})
 	if err == nil {
 		return items, cycleErr
 	}
-	if len(cycle) > 0 && cycle[0] != "" {
+	if cycle != "" {
 		return nil, err
 	}
 	warnReportLedger(err)
@@ -168,7 +167,7 @@ func claimSurfaceReminders(store *feedevent.ReportStore, ledger *feedevent.Ledge
 	if readErr != nil {
 		return nil, readErr
 	}
-	return surfaceUnreported(ledger, state, now, cycle...), nil
+	return surfaceUnreported(ledger, state, now, cycle), nil
 }
 
 var feedStatusCmd = &cobra.Command{Use: "status", Short: "List unscored Feed exposures from the last 48 hours", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {

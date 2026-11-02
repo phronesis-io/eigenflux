@@ -15,6 +15,7 @@ import (
 const PendingWindowMs int64 = 48 * 60 * 60 * 1000
 const HealthWindowMs int64 = 24 * 60 * 60 * 1000
 const FeedbackContractVersion = "feedback.v2"
+const CycleTTLMs int64 = 2 * 60 * 60 * 1000
 
 type Cycle struct {
 	Origin   string `json:"origin"`
@@ -25,7 +26,7 @@ type Cycle struct {
 }
 
 func (c Cycle) Active(now int64) bool {
-	return c.OpenedAt > 0 && c.OpenedAt <= now && c.ClosedAt == 0 && now-c.OpenedAt < 2*60*60*1000
+	return c.OpenedAt > 0 && c.OpenedAt <= now && c.ClosedAt == 0 && now-c.OpenedAt < CycleTTLMs
 }
 
 type Report struct {

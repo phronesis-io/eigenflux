@@ -516,7 +516,7 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 	completion := ""
 	if plan.FeedCompletionCheck {
 		completion = "\nBefore leaving the Feed stage, run " + plan.CLIPrefix + " feed status --cycle <id>. Score every item it lists, then continue. Without a cycle use unscoped status."
-		completion += "\nAfter the Feed push, run " + plan.CLIPrefix + " feed status --after-push --cycle <id> to close the cycle after recording surface for items actually shown. Without a cycle use unscoped status."
+		completion += "\nAfter the Feed push, run " + plan.CLIPrefix + " feed status --after-push --cycle <id> to close the cycle after recording surface for items actually shown; close it the same way when nothing is pushed. Without a cycle use unscoped status."
 	}
 	executorNotice := ""
 	if plan.PluginMaintenance.Executor == "cli" {

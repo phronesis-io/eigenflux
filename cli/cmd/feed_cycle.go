@@ -25,7 +25,7 @@ func latestFeedCycle(state feedevent.Reports, now int64, origin string) string {
 	return latest
 }
 
-func selectFeedCycle(state feedevent.Reports, now int64, poll bool, requested []string) (string, string, error) {
+func selectFeedCycle(state feedevent.Reports, now int64, poll bool, requested string) (string, string, error) {
 	if poll {
 		var suffix [2]byte
 		if _, err := rand.Read(suffix[:]); err != nil {
@@ -33,11 +33,11 @@ func selectFeedCycle(state feedevent.Reports, now int64, poll bool, requested []
 		}
 		return fmt.Sprintf("cyc_%d_%x", now, suffix), latestFeedCycle(state, now, feedCycleOrigin()), nil
 	}
-	if len(requested) > 0 && requested[0] != "" {
-		if !state.Cycles[requested[0]].Active(now) {
-			return "", "", fmt.Errorf("Feed cycle %q is unavailable, closed or expired", requested[0])
+	if requested != "" {
+		if !state.Cycles[requested].Active(now) {
+			return "", "", fmt.Errorf("Feed cycle %q is unavailable, closed or expired", requested)
 		}
-		return requested[0], "", nil
+		return requested, "", nil
 	}
 	return latestFeedCycle(state, now, feedCycleOrigin()), "", nil
 }

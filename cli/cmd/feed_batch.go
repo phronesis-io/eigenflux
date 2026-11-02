@@ -125,10 +125,10 @@ func feedCommandPrefix(server string) string {
 	return prefix
 }
 
-func batchNextCommand(server string, n int, cycle ...string) string {
+func batchNextCommand(server string, n int, cycle string) string {
 	command := fmt.Sprintf("%s feed next --batch %d", feedCommandPrefix(server), n)
-	if len(cycle) > 0 && cycle[0] != "" {
-		command += " --cycle " + shellQuote(cycle[0])
+	if cycle != "" {
+		command += " --cycle " + shellQuote(cycle)
 	}
 	if resolveFormat() == "agent" {
 		command += " --format agent"
@@ -268,7 +268,7 @@ func sameFeedPreview(discoveryRaw, itemRaw json.RawMessage) bool {
 
 // Select and persist under the existing report lock. Revalidate the invocation's
 // snapshot so a competing caller cannot turn newly handed items into its retries.
-func localFeedBatchPayload(server string, ledger *feedevent.Ledger, n int, poll bool, requestedCycle ...string) (json.RawMessage, *localFeedBatch, error) {
+func localFeedBatchPayload(server string, ledger *feedevent.Ledger, n int, poll bool, requestedCycle string) (json.RawMessage, *localFeedBatch, error) {
 	now := time.Now().UnixMilli()
 	store := feedReportStore(server)
 	before, err := store.Read()
@@ -364,7 +364,7 @@ func saveAndBatchFeed(cmd *cobra.Command, server string, payload json.RawMessage
 			batchErr = recordErr
 			return
 		}
-		cycle, overlap, cycleErr := selectFeedCycle(*state, now, true, nil)
+		cycle, overlap, cycleErr := selectFeedCycle(*state, now, true, "")
 		if cycleErr != nil {
 			batchErr = cycleErr
 			return

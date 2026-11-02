@@ -123,7 +123,7 @@ func TestFeedBatchPollAndNextKeepExposureAndRuntime(t *testing.T) {
 	}
 	scoreBatch(t, server, "1", "1", "2")
 	for _, ids := range [][]string{{"3", "4"}, {"5", "6"}} {
-		payload, meta, err := localFeedBatchPayload(server, feedLedger(server), 2, false)
+		payload, meta, err := localFeedBatchPayload(server, feedLedger(server), 2, false, "")
 		if err != nil || meta == nil {
 			t.Fatal(meta, err)
 		}
@@ -199,7 +199,9 @@ func TestFeedBatchRehandOrderExpiryAndAttribution(t *testing.T) {
 		if err := cache.SaveFeedResponse(server, batchTestPage(imp, 4)); err != nil {
 			t.Fatal(err)
 		}
-		if err := feedReportStore(server).Update(now, func(r *feedevent.Reports) { _, _ = recordFeedPage(r, batchTestPage(imp, 4), now-int64(100-index), 1) }); err != nil {
+		if err := feedReportStore(server).Update(now, func(r *feedevent.Reports) {
+			_, _ = recordFeedPage(r, batchTestPage(imp, 4), now-int64(100-index), 1, false)
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -214,17 +216,17 @@ func TestFeedBatchRehandOrderExpiryAndAttribution(t *testing.T) {
 		t.Fatal(events, err)
 	}
 	for count := 2; count <= 3; count++ {
-		payload, _, err := localFeedBatchPayload(server, feedLedger(server), 1, false)
+		payload, _, err := localFeedBatchPayload(server, feedLedger(server), 1, false, "")
 		if err != nil || decodeBatch(t, payload).LocalBatch.ImpressionID != "old" || decodeBatch(t, payload).Items[0].ItemID != "1" {
 			t.Fatal(string(payload), err)
 		}
 	}
-	payload, _, err := localFeedBatchPayload(server, feedLedger(server), 1, false)
+	payload, _, err := localFeedBatchPayload(server, feedLedger(server), 1, false, "")
 	if err != nil || decodeBatch(t, payload).LocalBatch.ImpressionID != "new" {
 		t.Fatal(string(payload), err)
 	}
 	scoreBatch(t, server, "new", "1")
-	payload, _, err = localFeedBatchPayload(server, feedLedger(server), 2, false)
+	payload, _, err = localFeedBatchPayload(server, feedLedger(server), 2, false, "")
 	page := decodeBatch(t, payload)
 	if err != nil || page.LocalBatch.ImpressionID != "old" || page.Items[0].ItemID != "2" || page.Items[1].ItemID != "3" {
 		t.Fatal(string(payload), err)
@@ -301,7 +303,7 @@ func TestFeedBatchStatusSurfaceReminderOnceAndCurrentContext(t *testing.T) {
 	}
 	now := time.Now().UnixMilli()
 	if err := feedReportStore(server).Update(now, func(r *feedevent.Reports) {
-		_, _ = recordFeedPage(r, page, now-1000, 5)
+		_, _ = recordFeedPage(r, page, now-1000, 5, false)
 		for i := 1; i <= 4; i++ {
 			r.RecordFeedback(feedevent.Event{"item_id": fmt.Sprint(i), "impression_id": "status", "score": i % 3, "client_key": fmt.Sprint(i)}, now, "queued")
 		}
@@ -353,7 +355,7 @@ func TestFeedBatchStatusSurfaceReminderOnceAndCurrentContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	scoreBatch(t, server, "status", "5")
-	payload, meta, err := localFeedBatchPayload(server, feedLedger(server), 5, false)
+	payload, meta, err := localFeedBatchPayload(server, feedLedger(server), 5, false, "")
 	if err != nil || meta == nil {
 		t.Fatal(meta, err)
 	}
@@ -455,7 +457,7 @@ func TestFeedBatchBaselineAndNoFlagKeepWholeOutput(t *testing.T) {
 
 func TestFeedNextConcurrentProcesses(t *testing.T) {
 	if server := os.Getenv("EF_BATCH_CHILD_SERVER"); server != "" {
-		payload, _, err := localFeedBatchPayload(server, feedLedger(server), 2, false)
+		payload, _, err := localFeedBatchPayload(server, feedLedger(server), 2, false, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -472,7 +474,7 @@ func TestFeedNextConcurrentProcesses(t *testing.T) {
 	}
 	now := time.Now().UnixMilli()
 	store := feedReportStore(server)
-	if err := store.Update(now, func(r *feedevent.Reports) { _, _ = recordFeedPage(r, page, now, 1) }); err != nil {
+	if err := store.Update(now, func(r *feedevent.Reports) { _, _ = recordFeedPage(r, page, now, 1, false) }); err != nil {
 		t.Fatal(err)
 	}
 	scoreBatch(t, server, "parallel", "1")
@@ -528,7 +530,7 @@ func TestFeedStatusBusyLedgerStillReports(t *testing.T) {
 	now := time.Now().UnixMilli()
 	store := feedReportStore(server)
 	if err := store.Update(now, func(r *feedevent.Reports) {
-		_, _ = recordFeedPage(r, page, now-1000, 0)
+		_, _ = recordFeedPage(r, page, now-1000, 0, false)
 		r.RecordFeedback(feedevent.Event{"item_id": "1", "impression_id": "busy", "score": 2, "client_key": "k1"}, now, "queued")
 	}); err != nil {
 		t.Fatal(err)

@@ -163,7 +163,7 @@
       "feedback-compliance"
     ],
     "title": "Feed batch and detail-fetch health available",
-    "description": "Requires migration and API rollout. Byte usage, detail fetches, batch completion and backlog expiry are reported only after CLI 1.0.3 adoption; older clients report zeros. Server activation does not mark the CLI/Skills adoption time, and bytes are not model tokens. Compare matching host, mode, CLI and heartbeat-contract cohorts before changing supply.",
+    "description": "Only CLI 1.0.3 and later report these counters; older clients report zeros, so compare matching CLI cohorts.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/481"
   }
 ]

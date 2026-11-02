@@ -385,7 +385,7 @@ func (s *Service) buildFeedPayloads(viewerID int64, mode string, contextRevision
 		}
 		previewText := ""
 		previewSource := "content"
-		if item.Summary != nil {
+		if item.Summary != nil && *item.Summary != "" {
 			previewText = *item.Summary
 			previewSource = "summary"
 		} else if item.RawContent != nil {

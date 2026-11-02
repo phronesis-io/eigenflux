@@ -51,10 +51,6 @@ func referenceFeedInstructions(feed map[string]any) {
 }
 
 // A failed local write keeps the served contract inline.
-func feedBatchContract(server, contract string) string {
-	return feedBatchContractText(server, contract, false)
-}
-
 func feedBatchContractText(server, contract string, readOnly bool) string {
 	core, _, found := strings.Cut(contract, "\n"+feedContractDetailsMarker+"\n")
 	if !found || strings.TrimSpace(core) == "" {
@@ -66,13 +62,11 @@ func feedBatchContractText(server, contract string, readOnly bool) string {
 		return contract
 	}
 	path := filepath.Join(dir, digest+".md")
-	if readOnly {
-		data, err := os.ReadFile(path)
-		if err != nil || string(data) != contract {
+	// Budget retries render this repeatedly under the report lock; rewrite only on change.
+	if data, err := os.ReadFile(path); err != nil || string(data) != contract {
+		if readOnly || writeFileAtomic(path, []byte(contract)) != nil {
 			return contract
 		}
-	} else if err := writeFileAtomic(path, []byte(contract)); err != nil {
-		return contract
 	}
 	entries, _ := os.ReadDir(dir)
 	cutoff := time.Now().AddDate(0, 0, -cache.BroadcastRetentionDays)
