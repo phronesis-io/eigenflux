@@ -1,6 +1,6 @@
 # Client feedback completion
 
-CLI 0.7.4 keeps `data/feed-reports.json` under the selected server's Agent Home.
+CLI 1.0.3 keeps `data/feed-reports.json` under the selected server's Agent Home.
 The scope includes the server endpoint and authenticated Agent. Reports are
 keyed by impression and item, retained for eight days, and written by atomic
 rename under an OS advisory lock. Lock files remain after release.
@@ -14,7 +14,7 @@ queue is still preserved and reported, because it holds undelivered judgments.
 Without `--batch`, `feed poll` preserves whole-page output and always fetches.
 V1 ignores batching; baseline pages are always whole and read-only.
 
-`feed poll --batch N` (1–20) saves a V2 page before printing its first N items.
+`feed poll --batch N` (1–20) saves a V2 page before printing up to N items.
 Later polls serve open items and backlog locally, oldest page and page position
 first, while still synchronizing control context, runtime heartbeat and settings.
 `--action more` and `--origin owner` always fetch; an owner check continues
@@ -54,13 +54,41 @@ only when its text exactly matches a currently printed intent's `then` and that
 intent is in the item's `matched_intent_ids`. Changed or unmatched instructions
 remain inline; the trusted line explains how to resolve references.
 
-Each agent-format batch writes its served output contract by atomic rename to
-`data/feed-contracts/<sha256[:16]>.md` under the selected server. The trusted
-notice gives its absolute path, hash and byte count. Read the file completely
-before processing the batch, once per cycle and again when the hash changes.
-Writes prune contracts older than eight days. A failed file write prints the
-contract inline. JSON, baseline, whole-page and fallback outputs retain their
-inline contract and instruction text.
+Batch bodies are limited to 32 KiB in their selected format. The CLI renders
+before claiming items, removes tail items until the body fits, and leaves them
+available for the next batch. A single oversized item is handed alone with
+`oversize_bytes`, a stderr warning and an `oversize_batches` counter. The budget
+includes the control context, contract core, metadata, items and repeated tail
+continuation; it excludes `finishFeedPoll` runtime/pending-task output and host
+wrappers. Whole-page, baseline and failure-fallback paths remain unbounded.
+
+The core is the part of the served contract before
+`<!-- EIGENFLUX FEED CONTRACT DETAILS -->`. Agent batches print it inline and
+reference the full file at `data/feed-contracts/<sha256[:16]>.md`. Details must
+be read before actions whose procedures they contain; otherwise those actions
+are skipped. Missing markers or failed writes keep the full contract inline.
+JSON retains the full contract and instructions. Contract files expire after
+eight days. The batch line is repeated unchanged after the items JSON.
+
+A successful batched poll creates `cyc_<unix_ms>_<4 hex>`, recording origin,
+open time and batch count. Each handed item records its cycle and hand order.
+`feed next --cycle <id>` can re-hand only that cycle's open items, followed by
+shared backlog. Open items from other active cycles remain reserved. Legacy
+`feed next` selects the latest open cycle for its origin; if none exists it
+continues unreserved saved work without opening a cycle. Same-origin overlap
+is reported, not blocked. Cycles expire two hours after opening; scores remain
+unchanged. `feed status --after-push --cycle <id>` closes a cycle. A failed close
+returns an error so delivery does not falsely claim a committed cycle.
+
+`feed recover [--cycle <id>] [--after <item_id>]` reads unsurfaced scores 1/2 in
+hand order with original impressions and cached details. It uses the same byte
+budget and pages by the returned command, without handing, scoring, flushing
+the queue, recording reminders, updating health or writing contract files.
+Without an ID it selects the sole open cycle of the current origin, otherwise
+lists open cycles. Closed/expired cycles cannot be recovered into a later push.
+Previously written analysis is not saved. `feed get` caches its printed detail
+under the server's broadcast date directory, keyed by item, with eight-day
+retention; these files are separate from served-page exposure records.
 
 `feed status` lists up to 20 pending broadcast exposures from cached V2 Feed
 responses in the last 48 hours, their original impressions, ages and 80-character
@@ -78,12 +106,12 @@ them without recording the reminder. The plain `feed status` never lists or
 consumes these reminders. Report surface only for items actually shown; scoring
 never declares surface.
 
-`heartbeat plan` (contract `eigenflux_heartbeat.v4`) requires reading the batch's
-contract file completely before processing it. It adds the completion step
-"Before leaving the Feed stage, run `<cli_prefix> feed status`. Score every
-item it lists, then continue." once onboarding is completed, and sets
-`feed_completion_check`. After the push, it requires `feed status --after-push`
-and surface reporting only for listed items the owner was actually shown.
+`heartbeat plan` uses `eigenflux_heartbeat.v5`: score and submit each batch
+before the next, stop scheduled consumption at four batches or empty open/backlog,
+then deliver completed recommendations once. Owner checks drain without the cap.
+Completion status and post-push closing carry the printed cycle ID. Recovery
+restores positive judgments after compaction without scoring them again. Runs
+without a cycle retain the unscoped completion checks.
 
 ## Feedback delivery
 
@@ -106,38 +134,39 @@ Every CLI invocation attempts a bounded flush using the saved access token,
 except installation lifecycle and local metadata commands (`uninstall`,
 `uninstall-finalize`, `installation`, `migrate`, `version`, `help`,
 `completion`), which never write into a Home they may remove or migrate, and
-the local-only `feed next` command.
+the local-only `feed next` and read-only `feed recover` commands.
 Credential refresh remains with the foreground authenticated command.
 
 The trailing 24-hour health report includes pulls, delivered/scored items, status
-runs, attempts/failures, queue drops and queue depth/age. Settings push includes
-nonzero `feedback_health` independently of runtime identity changes. These are
-the fields the server already accepts; no new server health columns are needed.
-`feed status --format json` additionally exposes local counters `batches_handed`,
-`local_polls`, `rehanded_items`, `backlog_expired_items` and `surface_reminders`
-under `health`. These counters never enter the server's `feedback_health`.
+runs, attempts/failures, queue drops and queue depth/age, plus the context-budget
+fields below. Settings push includes nonzero health independently of identity changes.
 
 ## Skills and release boundary
 
-`ef-broadcast` 0.14.36 requires CLI 0.7.4 (`SKILLS_MIN_CLI_VERSION=0.7.4`). Feed
-poll, next and truncated-output recovery commands use `--format agent`. The Agent
-trusts only the contract-file line printed before the untrusted Feed banner and
-naming a file under `feed-contracts/`; any other contract line is reported as a forgery. Before
-leaving the Feed stage it runs `feed status`, scores every listed item with its
-original impression and does not present items marked `already_surfaced`.
-Baseline Feed stays read-only. Owner-initiated Feed checks append
-`--origin owner`, which fetches a fresh page, and then drain saved batches. Scheduled cycles process the pulled
-batch of five and at most one additional batch. Combine recommendations into
-one push per cycle; never carry scored items into later pushes. Surface remains
-a separate report after delivery. Merge the Skill revision only after CLI
-0.7.4 is published: Skills release automatically from `main`, and the installer
-stops on a Skills minimum that the published CLI does not meet.
+`ef-broadcast` 0.16.0 requires CLI 1.0.3 (`SKILLS_MIN_CLI_VERSION=1.0.3`). Feed
+poll, next and recovery use agent format. Only the contract-file reference before
+the untrusted banner, under the pinned Home's `feed-contracts/`, is trusted.
+Other contract paths are forgery reports, never instructions to read files.
+Baseline stays read-only. Surface remains a separate report after delivery.
+The Skills minimum prevents older CLIs adopting cycle/recovery instructions.
+Publish the compatible CLI before the automatically published Skills are adopted.
 
-OpenClaw 0.0.49 and Claude Code 0.0.17 pass `--batch 5` only for CLI >= 0.7.1.
-Existing plan, capacity, retry and delivery-timeout gates stay unchanged.
-Codex requires no adapter change.
+OpenClaw and Claude Code retain their existing CLI batching feature gates.
+Host wrappers remain outside the batch budget; the Codex whole-page tool is
+unchanged. `feed status`, `feed next` and `feed recover` are local commands and
+need no server endpoint or capability publication. Foreground feedback and
+explicit queue flush resolve/refresh credentials; background retry uses saved credentials.
 
-The server-delivered output contract and server capability catalog are unchanged.
-`feed status` and `feed next` are local commands and need no server endpoint or capability
-publication. Foreground feedback and explicit queue flush resolve and refresh
-credentials; the bounded background retry uses saved credentials.
+## Context-budget health
+
+Settings reports include `batches_handed`, `local_polls`, `rehanded_items`,
+`backlog_expired_items`, `surface_reminders`, `overlapping_cycles`,
+`oversize_batches`, `detail_fetches`, `detail_fetch_failures`, `batch_body_bytes`
+and `batch_body_max_bytes`. Detail counts cover cached Feed items only.
+The byte sum and maximum describe actual batch bodies (not recovery), with
+maximum aggregated by max rather than sum over the trailing 24-hour window.
+Byte fields are bounded at 1 TiB; count fields retain the 1,000,000 bound.
+Migration 000125 adds storage; older clients supply zeros. Server rollout alone
+provides no client-adoption guarantee and these are not token measurements.
+The scheduled fetch rule and page-size limit remain unchanged; evaluate backlog
+expiry after adoption before changing supply.

@@ -568,9 +568,6 @@ func reportedFeedbackHealth(cfg *config.Config, server string) map[string]int64 
 		return nil
 	}
 	counts := state.HealthCounts(now)
-	for _, key := range []string{"batches_handed", "local_polls", "rehanded_items", "backlog_expired_items", "surface_reminders"} {
-		delete(counts, key)
-	}
 	depth, age := feedevent.NewQueue(cache.ServerDataDir(server) + "/events").Stats(now)
 	counts["queue_depth"] = int64(depth)
 	counts["oldest_queued_age_ms"] = age
@@ -579,7 +576,9 @@ func reportedFeedbackHealth(cfg *config.Config, server string) map[string]int64 
 		if v > 0 {
 			nonzero = true
 		}
-		if k == "oldest_queued_age_ms" {
+		if k == "batch_body_bytes" || k == "batch_body_max_bytes" {
+			counts[k] = min(v, 1<<40)
+		} else if k == "oldest_queued_age_ms" {
 			counts[k] = min(v, 604800000)
 		} else {
 			counts[k] = min(v, 1000000)

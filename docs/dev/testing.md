@@ -329,7 +329,7 @@ status output and local health-counter isolation. Run `go test -race ./cmd ./int
 `cli/cmd/feed_batch_output_test.go` models a large page with ten authors, ten
 discovery entries, eight Chinese intent instructions and five actions per item.
 Its five-item agent batch must stay within 32 KiB, omit foreign cards, duplicate
-discovery previews and inline contract text, and carry instruction references.
+discovery previews and contract details, and carry instruction references.
 The suite also checks exact-text matching against current intents, unchanged
 JSON rendering, contract hashes/content/retention/write-failure fallback and
 160 pre-upgrade exposures that remain pending without being re-handed.
@@ -362,3 +362,12 @@ the old release and pointer. Existing native real-CLI tests cover consecutive
 complete updates through the stable entry. macOS runners verify bounded local
 tool diagnostics, plist errors, helper version mismatch and invalid helper
 signatures; every validation failure leaves the package unactivated.
+
+Feed context-budget regressions in `cli/cmd/feed_context_budget_test.go` cover
+exact rendered bytes for agent/JSON, dropped-candidate hand state, explicit
+oversize reporting, cycle isolation/expiry/close and read-only recovery of cached
+details. Run `go test -short ./cmd ./internal/feedevent ./internal/cache` from
+`cli/`; the short flag excludes native self-update packaging, not Feed coverage.
+API preview provenance and health snapshots are covered by
+`go test ./api/consolev2 ./api/dal ./pkg/feedcontract`. Apply migration 000125
+before validating settings against a real local database.

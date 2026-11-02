@@ -144,11 +144,10 @@ func TestFeedBatchPollAndNextKeepExposureAndRuntime(t *testing.T) {
 	if flushesFeedQueue(feedNextCmd) {
 		t.Fatal("feed next must stay local")
 	}
-	for key := range reportedFeedbackHealth(cfg, server) {
-		if key == "batches_handed" || key == "local_polls" || key == "rehanded_items" || key == "backlog_expired_items" || key == "surface_reminders" {
-			t.Fatalf("local health leaked: %s", key)
-		}
+	if health := reportedFeedbackHealth(cfg, server); health["batches_handed"] != 4 || health["batch_body_bytes"] == 0 {
+		t.Fatal(health)
 	}
+
 	oldOrigin := originFlag
 	originFlag = publishOriginOwner
 	raw, err = captureHeartbeatStdout(t, func() error { return pollFeedV2(cmd, server, "20") })
@@ -156,7 +155,7 @@ func TestFeedBatchPollAndNextKeepExposureAndRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if page = decodeBatch(t, []byte(raw)); pulls != 2 || page.LocalBatch.Source != "server" || page.LocalBatch.ImpressionID != "2" || page.LocalBatch.Backlog != 6 || page.LocalBatch.Open != 2 {
+	if page = decodeBatch(t, []byte(raw)); pulls != 2 || page.LocalBatch.Source != "server" || page.LocalBatch.ImpressionID != "2" || page.LocalBatch.Backlog != 6 || page.LocalBatch.Open != 0 {
 		t.Fatal(pulls, raw)
 	}
 	_ = cmd.Flags().Set("action", "more")
@@ -378,10 +377,11 @@ func TestFeedBatchStatusSurfaceReminderOnceAndCurrentContext(t *testing.T) {
 	cmd := batchTestCommand(5)
 	cmd.SetOut(&buf)
 	formatFlag = "agent"
+	meta.body = nil
 	if err := renderFeedV2Batch(cmd, server, payload, meta); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(buf.String(), "test contract") || !strings.Contains(buf.String(), "[EIGENFLUX OUTPUT CONTRACT] Read ") || strings.Index(buf.String(), "[EIGENFLUX LOCAL BATCH]") > strings.Index(buf.String(), "[EIGENFLUX NETWORK FEED") {
+	if !strings.Contains(buf.String(), "test contract") || strings.Contains(buf.String(), "[EIGENFLUX OUTPUT CONTRACT] Read ") || strings.Index(buf.String(), "[EIGENFLUX LOCAL BATCH]") > strings.Index(buf.String(), "[EIGENFLUX NETWORK FEED") {
 		t.Fatal(buf.String())
 	}
 }

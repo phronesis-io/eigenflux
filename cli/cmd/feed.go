@@ -165,18 +165,23 @@ Examples:
 		c := newClient()
 		resp, err := c.Get("/items/"+itemID, nil)
 		if err != nil {
+			recordFeedDetail(activeServerName(), itemID, nil, err)
 			return err
 		}
 		if resp.Code != 0 {
-			return fmt.Errorf("%s", resp.Msg)
+			err := fmt.Errorf("%s", resp.Msg)
+			recordFeedDetail(activeServerName(), itemID, nil, err)
+			return err
 		}
 		data := json.RawMessage(resp.Data)
 		if contentLimit > 0 {
 			data, err = limitItemDetailContent(data, contentLimit)
 			if err != nil {
+				recordFeedDetail(activeServerName(), itemID, nil, err)
 				return err
 			}
 		}
+		recordFeedDetail(activeServerName(), itemID, data, nil)
 		output.PrintData(data, resolveFormat())
 		return nil
 	},

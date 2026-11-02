@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"sort"
 	"time"
@@ -18,6 +19,7 @@ import (
 
 const (
 	feedBatchMax              = 20
+	feedBatchOutputBudget     = 32 << 10
 	feedBacklogAge            = 24 * time.Hour
 	feedRehandLimit           = 3
 	feedLocalPollLimit        = 2
@@ -26,6 +28,14 @@ const (
 )
 
 type localFeedBatch struct {
+	CycleID       string `json:"cycle_id,omitempty"`
+	Batch         int    `json:"batch,omitempty"`
+	Overlap       string `json:"overlap,omitempty"`
+	OversizeBytes int    `json:"oversize_bytes,omitempty"`
+	Recovered     bool   `json:"recovered,omitempty"`
+	Remaining     int    `json:"remaining,omitempty"`
+	body          []byte
+
 	Source       string `json:"source"`
 	ImpressionID string `json:"impression_id"`
 	Handed       int    `json:"handed"`
@@ -47,8 +57,15 @@ func feedBatchSize(cmd *cobra.Command) (int, error) {
 }
 
 func batchCandidates(ledger *feedevent.Ledger, state feedevent.Reports, now int64) (open, backlog []feedevent.Entry) {
+	return cycleBatchCandidates(ledger, state, now, "", false)
+}
+
+func cycleBatchCandidates(ledger *feedevent.Ledger, state feedevent.Reports, now int64, cycle string, isolate bool) (open, backlog []feedevent.Entry) {
 	for _, e := range ledger.Entries() {
 		r := state.Exposure(e)
+		if isolate && r.CycleID != cycle && state.Cycles[r.CycleID].Active(now) {
+			continue
+		}
 		if !e.Feed || r.Baseline || r.ServedAt <= now-feedBacklogAge.Milliseconds() || r.ServedAt > now {
 			continue
 		}
@@ -94,7 +111,7 @@ func expireFeedBacklog(ledger *feedevent.Ledger, state *feedevent.Reports, now i
 	}
 }
 
-func batchNextCommand(server string, n int) string {
+func feedCommandPrefix(server string) string {
 	prefix := "eigenflux --homedir " + shellQuote(config.HomeDir()) + " --server " + shellQuote(server)
 	if clientMeta.Mode != "" {
 		prefix += " --runtime-mode " + shellQuote(clientMeta.Mode)
@@ -105,7 +122,14 @@ func batchNextCommand(server string, n int) string {
 	if originFlag != "" {
 		prefix += " --origin " + shellQuote(originFlag)
 	}
-	command := fmt.Sprintf("%s feed next --batch %d", prefix, n)
+	return prefix
+}
+
+func batchNextCommand(server string, n int, cycle ...string) string {
+	command := fmt.Sprintf("%s feed next --batch %d", feedCommandPrefix(server), n)
+	if len(cycle) > 0 && cycle[0] != "" {
+		command += " --cycle " + shellQuote(cycle[0])
+	}
 	if resolveFormat() == "agent" {
 		command += " --format agent"
 	}
@@ -123,7 +147,7 @@ func makeFeedBatch(server string, payload json.RawMessage, selected []feedevent.
 	}
 	batch := make([]map[string]json.RawMessage, 0, len(selected))
 	for _, e := range selected {
-		if e.Position >= len(items) {
+		if e.Position < 0 || e.Position >= len(items) {
 			return nil, fmt.Errorf("cached Feed position is unavailable")
 		}
 		item := items[e.Position]
@@ -132,6 +156,11 @@ func makeFeedBatch(server string, payload json.RawMessage, selected []feedevent.
 			return nil, fmt.Errorf("cached Feed item does not match its exposure")
 		}
 		item["already_surfaced"], _ = json.Marshal(state.Surfaced(e.ItemID))
+		if meta.Recovered {
+			if err := addRecoveredContent(server, item, state.Exposure(e)); err != nil {
+				return nil, err
+			}
+		}
 		batch = append(batch, item)
 	}
 	page["items"], _ = json.Marshal(batch)
@@ -239,7 +268,7 @@ func sameFeedPreview(discoveryRaw, itemRaw json.RawMessage) bool {
 
 // Select and persist under the existing report lock. Revalidate the invocation's
 // snapshot so a competing caller cannot turn newly handed items into its retries.
-func localFeedBatchPayload(server string, ledger *feedevent.Ledger, n int, poll bool) (json.RawMessage, *localFeedBatch, error) {
+func localFeedBatchPayload(server string, ledger *feedevent.Ledger, n int, poll bool, requestedCycle ...string) (json.RawMessage, *localFeedBatch, error) {
 	now := time.Now().UnixMilli()
 	store := feedReportStore(server)
 	before, err := store.Read()
@@ -250,8 +279,13 @@ func localFeedBatchPayload(server string, ledger *feedevent.Ledger, n int, poll 
 	var meta *localFeedBatch
 	var selectionErr error
 	err = store.Update(now, func(state *feedevent.Reports) {
+		cycle, overlap, cycleErr := selectFeedCycle(*state, now, poll, requestedCycle)
+		if cycleErr != nil {
+			selectionErr = cycleErr
+			return
+		}
 		expireFeedBacklog(ledger, state, now)
-		open, backlog := batchCandidates(ledger, *state, now)
+		open, backlog := cycleBatchCandidates(ledger, *state, now, cycle, true)
 		selected := []feedevent.Entry{}
 		for _, e := range append(open, backlog...) {
 			r, prior := state.Exposure(e), before.Exposure(e)
@@ -277,26 +311,14 @@ func localFeedBatchPayload(server string, ledger *feedevent.Ledger, n int, poll 
 			selectionErr = loadErr
 			return
 		}
-		meta = &localFeedBatch{Source: "local", ImpressionID: selected[0].ImpressionID, Handed: len(selected), Open: len(open), Backlog: len(backlog), NextCommand: batchNextCommand(server, n)}
-		var rehanded int64
-		for _, e := range selected {
-			if state.Exposure(e).HandedTime() == 0 {
-				meta.Backlog--
-			} else {
-				meta.Open--
-				rehanded++
-			}
-		}
-		payload, selectionErr = makeFeedBatch(server, page, selected, *state, *meta)
+		meta = &localFeedBatch{Source: "local", ImpressionID: selected[0].ImpressionID, Open: len(open), Backlog: len(backlog), CycleID: cycle, Batch: state.Cycles[cycle].Batches + 1, Overlap: overlap, NextCommand: batchNextCommand(server, n, cycle)}
+		selected, payload, selectionErr = fitFeedBatch(server, page, selected, *state, meta)
 		if selectionErr != nil {
+			meta = nil
 			return
 		}
-		for _, e := range selected {
-			r := state.Exposure(e)
-			r.Hand(now)
-			state.Entries[r.ImpressionID+"\x00"+r.ItemID] = r
-		}
-		counts := map[string]int64{"batches_handed": 1, "rehanded_items": rehanded}
+		counts := handFeedBatch(state, selected, meta, now)
+
 		if poll {
 			state.LocalPolls++
 			counts["local_polls"] = 1
@@ -317,34 +339,65 @@ func saveAndBatchFeed(cmd *cobra.Command, server string, payload json.RawMessage
 		return renderFeedV2(cmd, payload)
 	}
 	cache.Cleanup(server, "broadcasts")
+	var fetched struct {
+		Items []json.RawMessage `json:"items"`
+	}
+	if json.Unmarshal(payload, &fetched) == nil && len(fetched.Items) == 0 {
+		warnReportLedger(recordFeedPull(server, payload))
+		return renderFeedV2(cmd, payload)
+	}
 	now := time.Now().UnixMilli()
 	ledger := feedLedger(server)
 	var batch json.RawMessage
 	var meta localFeedBatch
 	var batchErr error
 	err := feedReportStore(server).Update(now, func(state *feedevent.Reports) {
-		entries, recordErr := recordFeedPage(state, payload, now, n)
+		original := state
+		staged := *state
+		staged.Entries = maps.Clone(state.Entries)
+		staged.Cycles = maps.Clone(state.Cycles)
+		staged.Health = append([]feedevent.HealthEvent(nil), state.Health...)
+		state = &staged
+
+		entries, recordErr := recordFeedPage(state, payload, now, n, true)
 		if recordErr != nil {
 			batchErr = recordErr
 			return
 		}
+		cycle, overlap, cycleErr := selectFeedCycle(*state, now, true, nil)
+		if cycleErr != nil {
+			batchErr = cycleErr
+			return
+		}
 		expireFeedBacklog(ledger, state, now)
-		open, backlog := batchCandidates(ledger, *state, now)
-		meta = localFeedBatch{Source: "server", Handed: len(entries), Open: len(open), Backlog: len(backlog), NextCommand: batchNextCommand(server, n)}
+		open, backlog := cycleBatchCandidates(ledger, *state, now, cycle, true)
+		available := map[string]bool{}
+		for _, e := range append(open, backlog...) {
+			available[e.ImpressionID+"\x00"+e.ItemID] = true
+		}
+		filtered := entries[:0]
+		for _, e := range entries {
+			if available[e.ImpressionID+"\x00"+e.ItemID] {
+				filtered = append(filtered, e)
+				if len(filtered) == n {
+					break
+				}
+			}
+		}
+		entries = filtered
+
+		meta = localFeedBatch{Source: "server", Open: len(open), Backlog: len(backlog), CycleID: cycle, Batch: 1, Overlap: overlap, NextCommand: batchNextCommand(server, n, cycle)}
 		var page struct {
 			ImpressionID string `json:"impression_id"`
 		}
 		_ = json.Unmarshal(payload, &page)
 		meta.ImpressionID = page.ImpressionID
-		for _, e := range open {
-			for _, selected := range entries {
-				if e.ImpressionID == selected.ImpressionID && e.ItemID == selected.ItemID {
-					meta.Open--
-					break
-				}
-			}
+		entries, batch, batchErr = fitFeedBatch(server, payload, entries, *state, &meta)
+		if batchErr == nil {
+			state.Count(now, handFeedBatch(state, entries, &meta, now))
+			*original = *state
 		}
-		batch, batchErr = makeFeedBatch(server, payload, entries, *state, meta)
+
 	})
 	if err != nil || batchErr != nil {
 		warnReportLedger(err)
@@ -367,7 +420,8 @@ var feedNextCmd = &cobra.Command{Use: "next", Short: "Read the next batch of a s
 	if _, err := auth.LoadV2Credentials(server); err != nil {
 		return err
 	}
-	payload, meta, err := localFeedBatchPayload(server, feedLedger(server), n, false)
+	cycle, _ := cmd.Flags().GetString("cycle")
+	payload, meta, err := localFeedBatchPayload(server, feedLedger(server), n, false, cycle)
 	if err != nil {
 		return err
 	}
@@ -384,6 +438,7 @@ var feedNextCmd = &cobra.Command{Use: "next", Short: "Read the next batch of a s
 
 func init() {
 	feedPollCmd.Flags().Int("batch", 0, "save V2 pages and hand out 1–20 items at a time")
+	feedNextCmd.Flags().String("cycle", "", "continue this open Feed cycle")
 	feedNextCmd.Flags().Int("batch", 5, "max saved items to hand out (1–20)")
 	feedCmd.AddCommand(feedNextCmd)
 }

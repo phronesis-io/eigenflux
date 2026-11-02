@@ -71,6 +71,7 @@ func TestFeedCLISavedBatchesKeepOneExposureSet(t *testing.T) {
 			ItemID string `json:"item_id"`
 		} `json:"items"`
 		LocalBatch struct {
+			CycleID string `json:"cycle_id"`
 			Source  string `json:"source"`
 			Backlog int    `json:"backlog"`
 		} `json:"local_batch"`
@@ -90,19 +91,45 @@ func TestFeedCLISavedBatchesKeepOneExposureSet(t *testing.T) {
 		id := current.Items[0].ItemID
 		require.False(t, seen[id])
 		seen[id] = true
+		score := 0
+		if i == 0 {
+			score = 1
+		}
 		// Omit the impression to exercise the handed-exposure attribution path.
-		run("feed", "feedback", "--items", fmt.Sprintf(`[{"item_id":%q,"score":0}]`, id))
+		run("feed", "feedback", "--items", fmt.Sprintf(`[{"item_id":%q,"score":%d}]`, id, score))
 		if i < 2 {
-			current = decode[batch](t, run("feed", "next", "--batch", "1"))
+			current = decode[batch](t, run("feed", "next", "--batch", "1", "--cycle", first.LocalBatch.CycleID))
 			require.Equal(t, "local", current.LocalBatch.Source)
 		}
 	}
+
+	run("feed", "get", "--item-id", first.Items[0].ItemID, "--content-limit", "4000")
+	reportPath := filepath.Join(home, "servers", "eigenflux", "data", "feed-reports.json")
+	beforeRecovery, err := os.ReadFile(reportPath)
+	require.NoError(t, err)
+	recovered := decode[struct {
+		Items []struct {
+			ItemID       string          `json:"item_id"`
+			ImpressionID string          `json:"impression_id"`
+			Score        int             `json:"score"`
+			Detail       json.RawMessage `json:"fetched_detail"`
+		} `json:"items"`
+	}](t, run("feed", "recover", "--cycle", first.LocalBatch.CycleID))
+	require.Len(t, recovered.Items, 1)
+	require.Equal(t, first.Items[0].ItemID, recovered.Items[0].ItemID)
+	require.Equal(t, first.ImpressionID, recovered.Items[0].ImpressionID)
+	require.Equal(t, 1, recovered.Items[0].Score)
+	require.NotEmpty(t, recovered.Items[0].Detail)
+	afterRecovery, err := os.ReadFile(reportPath)
+	require.NoError(t, err)
+	require.Equal(t, beforeRecovery, afterRecovery, "recovery wrote the ledger")
 	local := decode[batch](t, run("feed", "poll", "--batch", "1"))
 	require.Equal(t, "local", local.LocalBatch.Source)
+	require.NotEqual(t, first.LocalBatch.CycleID, local.LocalBatch.CycleID)
 	require.Equal(t, first.ImpressionID, local.ImpressionID)
 	require.Len(t, local.Items, 1)
 	require.False(t, seen[local.Items[0].ItemID])
-	agentOutput := string(run("feed", "next", "--batch", "1", "--format", "agent"))
+	agentOutput := string(run("feed", "next", "--batch", "1", "--cycle", local.LocalBatch.CycleID, "--format", "agent"))
 	contract := strings.TrimSpace(first.OutputContract)
 	require.NotEmpty(t, contract)
 	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(contract)))[:16]
@@ -113,7 +140,9 @@ func TestFeedCLISavedBatchesKeepOneExposureSet(t *testing.T) {
 	require.Contains(t, agentOutput, fmt.Sprintf("Read %s (sha256 %s, %d bytes) completely", contractPath, digest, len(contract)))
 	require.NotContains(t, agentOutput, contract)
 	lines := strings.Split(strings.TrimSpace(agentOutput), "\n")
-	rehanded := decode[batch](t, []byte(lines[len(lines)-1]))
+	require.Contains(t, lines[len(lines)-1], "[EIGENFLUX LOCAL BATCH]")
+	require.LessOrEqual(t, len(agentOutput), 32<<10)
+	rehanded := decode[batch](t, []byte(lines[len(lines)-2]))
 	require.Equal(t, local.Items, rehanded.Items)
 	require.Equal(t, first.ImpressionID, rehanded.ImpressionID)
 	require.Eventually(t, func() bool {

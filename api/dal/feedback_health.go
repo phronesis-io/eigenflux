@@ -10,6 +10,18 @@ import (
 // FeedbackHealthReport describes a client's trailing observation window.
 // These are client-reported counters, not server feedback or delivery facts.
 type FeedbackHealthReport struct {
+	BatchesHanded       int64 `json:"batches_handed"`
+	LocalPolls          int64 `json:"local_polls"`
+	RehandedItems       int64 `json:"rehanded_items"`
+	BacklogExpiredItems int64 `json:"backlog_expired_items"`
+	SurfaceReminders    int64 `json:"surface_reminders"`
+	DetailFetches       int64 `json:"detail_fetches"`
+	DetailFetchFailures int64 `json:"detail_fetch_failures"`
+	OversizeBatches     int64 `json:"oversize_batches"`
+	OverlappingCycles   int64 `json:"overlapping_cycles"`
+	BatchBodyBytes      int64 `json:"batch_body_bytes"`
+	BatchBodyMaxBytes   int64 `json:"batch_body_max_bytes"`
+
 	WindowMS          int64 `json:"window_ms"`
 	Pulls             int64 `json:"pulls"`
 	DeliveredItems    int64 `json:"delivered_items"`
@@ -29,10 +41,13 @@ func (r *FeedbackHealthReport) Valid() bool {
 	if r.WindowMS < 1 || r.WindowMS > 172800000 || r.OldestQueuedAgeMS < 0 || r.OldestQueuedAgeMS > 604800000 {
 		return false
 	}
-	for _, count := range []int64{r.Pulls, r.DeliveredItems, r.ScoredItems, r.StatusRuns, r.FeedbackAttempts, r.QueueDrops, r.QueueDepth} {
+	for _, count := range []int64{r.Pulls, r.DeliveredItems, r.ScoredItems, r.StatusRuns, r.FeedbackAttempts, r.QueueDrops, r.QueueDepth, r.BatchesHanded, r.LocalPolls, r.RehandedItems, r.BacklogExpiredItems, r.SurfaceReminders, r.DetailFetches, r.DetailFetchFailures, r.OversizeBatches, r.OverlappingCycles} {
 		if count < 0 || count > 1000000 {
 			return false
 		}
+	}
+	if r.BatchBodyBytes < 0 || r.BatchBodyBytes > 1<<40 || r.BatchBodyMaxBytes < 0 || r.BatchBodyMaxBytes > 1<<40 || r.BatchBodyMaxBytes > r.BatchBodyBytes {
+		return false
 	}
 	return r.FeedbackFailures >= 0 && r.FeedbackFailures <= r.FeedbackAttempts
 }
@@ -62,7 +77,7 @@ func ReportFeedbackHealth(tx *gorm.DB, agentID, reportedAt int64, cliVersion str
 	row := FeedbackHealthDaily{AgentID: agentID, Day: time.UnixMilli(reportedAt).In(feedbackHealthLocation).Format("2006-01-02"), ReportedAt: reportedAt, FeedbackHealthReport: *report, CLIVersion: string(version)}
 	return tx.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "agent_id"}, {Name: "day"}},
-		DoUpdates: clause.AssignmentColumns([]string{"reported_at", "window_ms", "pulls", "delivered_items", "scored_items", "status_runs", "feedback_attempts", "feedback_failures", "queue_drops", "queue_depth", "oldest_queued_age_ms", "cli_version"}),
+		DoUpdates: clause.AssignmentColumns([]string{"reported_at", "window_ms", "pulls", "delivered_items", "scored_items", "status_runs", "feedback_attempts", "feedback_failures", "queue_drops", "queue_depth", "oldest_queued_age_ms", "cli_version", "batches_handed", "local_polls", "rehanded_items", "backlog_expired_items", "surface_reminders", "detail_fetches", "detail_fetch_failures", "oversize_batches", "overlapping_cycles", "batch_body_bytes", "batch_body_max_bytes"}),
 		Where:     clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "agent_feedback_health_daily.reported_at <= EXCLUDED.reported_at"}}},
 	}).Create(&row).Error
 }

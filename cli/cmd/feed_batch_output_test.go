@@ -32,7 +32,7 @@ func largeFeedBatchFixture(t *testing.T) json.RawMessage {
 		intents = append(intents, map[string]any{"intent_id": fmt.Sprint(i), "then": fmt.Sprint(i) + strings.Repeat("结合用户确认的目标评估此信息，核查来源并提出具体可执行的下一步。", 12)})
 	}
 	page["control_context_snapshot"] = map[string]any{"context_revision": 1, "intent_actions": intents}
-	page["output_contract"] = strings.Repeat("SERVED CONTRACT: score every item before presenting.\n", 200)
+	page["output_contract"] = "CORE RULES\n" + feedContractDetailsMarker + "\n" + strings.Repeat("SERVED CONTRACT: score every item before presenting.\n", 200)
 	cards := map[string]any{}
 	discovery := []any{}
 	for i, value := range page["items"].([]any) {
@@ -122,7 +122,7 @@ func TestFeedBatchMetadataAndOutputSize(t *testing.T) {
 				t.Fatalf("unexpected batch output (%d bytes): %s", len(out), out)
 			}
 			t.Logf("agent batch: %d bytes", len(out))
-			if !strings.Contains(out, "\n"+feedInstructionReference+"\n[EIGENFLUX OUTPUT CONTRACT]") {
+			if !strings.Contains(out, "\n"+feedInstructionReference+"\nCORE RULES\n[EIGENFLUX OUTPUT CONTRACT]") {
 				t.Fatal("instruction reference is not directly after the trusted context")
 			}
 			formatFlag = "json"
@@ -175,7 +175,7 @@ func TestFeedBatchInstructionReferencesRequireCurrentMatchedText(t *testing.T) {
 func TestFeedBatchContractFilesAndFallback(t *testing.T) {
 	_, server := runtimeTestConfig(t, "http://127.0.0.1:1", true)
 	dir := filepath.Join(cache.ServerDataDir(server), "feed-contracts")
-	for _, contract := range []string{"first 契约", "second contract"} {
+	for _, contract := range []string{"first 契约\n" + feedContractDetailsMarker + "\ndetail", "second contract\n" + feedContractDetailsMarker + "\ndetail"} {
 		line := feedBatchContract(server, contract)
 		hash := fmt.Sprintf("%x", sha256.Sum256([]byte(contract)))[:16]
 		path := filepath.Join(dir, hash+".md")
@@ -193,7 +193,7 @@ func TestFeedBatchContractFilesAndFallback(t *testing.T) {
 	if err := os.Chtimes(old, stamp, stamp); err != nil {
 		t.Fatal(err)
 	}
-	feedBatchContract(server, "third contract")
+	feedBatchContract(server, "third core\n"+feedContractDetailsMarker+"\ndetail")
 	if _, err := os.Stat(old); !os.IsNotExist(err) {
 		t.Fatal("expired contract remains", err)
 	}
