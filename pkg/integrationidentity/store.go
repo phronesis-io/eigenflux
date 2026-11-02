@@ -58,6 +58,7 @@ type Agent struct {
 func (Agent) TableName() string { return "integration_agents" }
 
 type Installation struct {
+	IntegrationSource string `gorm:"default:unknown" json:"integration_source"`
 	InstallationID    string `gorm:"primaryKey" json:"installation_id"`
 	AgentID           int64  `json:"agent_id,string"`
 	Enabled           bool   `json:"enabled"`
@@ -95,6 +96,7 @@ func (s *Store) Authenticate(ctx context.Context, secret string) (App, error) {
 }
 
 type Registration struct {
+	IntegrationSource       string `json:"integration_source,omitempty"`
 	ExternalAgentID         string `json:"external_agent_id"`
 	RuntimeName             string `json:"runtime_name"`
 	RuntimeVersion          string `json:"runtime_version"`
@@ -105,8 +107,14 @@ type Registration struct {
 }
 
 func (r Registration) validate() error {
+	if r.IntegrationSource != "" && r.IntegrationSource != "unknown" && r.IntegrationSource != "sdk" && r.IntegrationSource != "http" {
+		return &Error{400, "INVALID_INTEGRATION_SOURCE"}
+	}
+	if r.IntegrationSource == "sdk" && r.SDKVersion == "" {
+		return &Error{400, "INVALID_SDK_VERSION"}
+	}
 	if r.ExternalAgentID == "" || len(r.ExternalAgentID) > 128 || strings.TrimSpace(r.ExternalAgentID) != r.ExternalAgentID ||
-		r.RuntimeInstanceID == "" || len(r.RuntimeInstanceID) > 128 || r.SDKVersion == "" || len(r.SDKVersion) > 32 ||
+		r.RuntimeInstanceID == "" || len(r.RuntimeInstanceID) > 128 || (r.SDKVersion == "" && r.IntegrationSource != "http") || len(r.SDKVersion) > 32 ||
 		r.RuntimeName == "" || r.RuntimeVersion == "" {
 		return &Error{400, "INVALID_INTEGRATION_REGISTRATION"}
 	}
@@ -115,7 +123,7 @@ func (r Registration) validate() error {
 			return &Error{400, "INVALID_INTEGRATION_REGISTRATION"}
 		}
 	}
-	if reqinfo.SafePluginVersion(r.SDKVersion) != r.SDKVersion {
+	if r.SDKVersion != "" && reqinfo.SafePluginVersion(r.SDKVersion) != r.SDKVersion {
 		return &Error{400, "INVALID_SDK_VERSION"}
 	}
 	identity, ok := runtimeidentity.Parse(r.RuntimeName + "/" + r.RuntimeVersion)
@@ -164,6 +172,9 @@ func (s *Store) Register(ctx context.Context, appID string, req Registration) (R
 	var out RegistrationResult
 	if err := req.validate(); err != nil {
 		return out, err
+	}
+	if req.IntegrationSource == "" {
+		req.IntegrationSource = "unknown"
 	}
 	if req.InstallationID != "" {
 		parsed, _ := uuid.Parse(req.InstallationID) // validate already checked it
@@ -263,7 +274,7 @@ func (s *Store) Register(ctx context.Context, appID string, req Registration) (R
 		if err := tx.Model(&agent).Updates(map[string]any{"runtime_name": req.RuntimeName, "runtime_version": req.RuntimeVersion, "requested_poll_interval_seconds": interval, "updated_at": now}).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&installation).Updates(map[string]any{"sdk_version": req.SDKVersion, "runtime_instance_id": req.RuntimeInstanceID, "last_seen_at": now}).Error; err != nil {
+		if err := tx.Model(&installation).Updates(map[string]any{"integration_source": req.IntegrationSource, "sdk_version": req.SDKVersion, "runtime_instance_id": req.RuntimeInstanceID, "last_seen_at": now}).Error; err != nil {
 			return err
 		}
 		out = RegistrationResult{agent, installation, policy(control.Enabled, control.Revision, app, agent, installation)}

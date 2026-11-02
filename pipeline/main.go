@@ -243,7 +243,7 @@ func main() {
 	go profileConsumer.Start(ctx)
 	go agentCardConsumer.Start(ctx)
 	if cfg.EnableSDKIntegrations {
-		processor := &integrationprofile.Processor{Store: &integrationprofile.Store{DB: db.DB}, Extractor: llm.NewClient(cfg, prompts), Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions), Rebuild: func(ctx context.Context, id int64) { agentcard.PublishRebuild(ctx, id, "enterprise_context") }}
+		processor := &integrationprofile.Processor{Store: &integrationprofile.Store{DB: db.DB}, Extractor: llm.NewClient(cfg, prompts), Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions), Rebuild: func(ctx context.Context, id int64) error { return agentcard.Rebuild(ctx, db.DB, mq.RDB, id) }}
 		go processor.Run(ctx)
 	}
 	if cfg.EnableNeedSearch {
