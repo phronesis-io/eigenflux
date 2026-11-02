@@ -58,6 +58,11 @@ func TestCompleteUpdateNeverFallsBackToBareBinary(t *testing.T) {
 				m.Version = "1.0.3"
 			}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/cli/v2/latest/release.json" || r.URL.Path == "/cli/v2/latest/package-release.json" {
+					http.NotFound(w, r)
+					return
+				}
+
 				switch r.URL.Path {
 				case "/cli/latest/package-release.json":
 					_ = json.NewEncoder(w).Encode(m)
@@ -92,6 +97,11 @@ func TestCompleteUpdateBootstrapBypassesOldThrottleOnlyOnce(t *testing.T) {
 	}
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/cli/v2/latest/release.json" || r.URL.Path == "/cli/v2/latest/package-release.json" {
+			http.NotFound(w, r)
+			return
+		}
+
 		requests++
 		if r.URL.Path != "/cli/latest/package-release.json" {
 			t.Errorf("unexpected path %s", r.URL.Path)

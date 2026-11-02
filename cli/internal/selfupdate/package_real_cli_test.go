@@ -66,10 +66,22 @@ func TestRealCLIConsecutiveCompleteUpdates(t *testing.T) {
 		}
 		entries := []packageEntry{{name: versionExecutableName(), content: string(binary), mode: 0755}}
 		if runtime.GOOS == "darwin" {
-			entries = append(entries, realCLITestHelper(t, directory, version, binary)...)
+			entries = append(entries, realCLITestHelper(t, directory, "9.8.7", firstBinary)...)
 		}
 		archive := testPackage(t, entries...)
 		manifest := Manifest{Version: version, Artifacts: map[string]Artifact{name: testArtifact(binary)}, Packages: map[string]Artifact{name + ".zip": testArtifact(archive)}}
+		entry := manifest
+		entry.Packages = nil
+		if err := Sign(&entry, key); err != nil {
+			t.Fatal(err)
+		}
+		payloads["/cli/"+version+"/release.json"], err = json.Marshal(entry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if version == "9.8.8" {
+			manifest.NotifierVersion = "9.8.7"
+		}
 		if err := Sign(&manifest, key); err != nil {
 			t.Fatal(err)
 		}
@@ -85,8 +97,20 @@ func TestRealCLIConsecutiveCompleteUpdates(t *testing.T) {
 	var latest atomic.Value
 	latest.Store(manifests["9.8.7"])
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/cli/v2/latest/package-release.json" {
+			var selected Manifest
+			raw := latest.Load().([]byte)
+			_ = json.Unmarshal(raw, &selected)
+			if selected.NotifierVersion == "" {
+				http.NotFound(w, r)
+				return
+			}
+			_, _ = w.Write(raw)
+			return
+		}
 		if r.URL.Path == "/cli/latest/package-release.json" {
-			_, _ = w.Write(latest.Load().([]byte))
+			// Old clients continue receiving the signed bridge while v2 moves on.
+			_, _ = w.Write(manifests["9.8.7"])
 			return
 		}
 		if payload, ok := payloads[r.URL.Path]; ok {
@@ -110,6 +134,30 @@ func TestRealCLIConsecutiveCompleteUpdates(t *testing.T) {
 	second := Check(context.Background(), options)
 	if second.Status != "updated" || second.Version != "9.8.8" {
 		t.Fatalf("second complete update from version child: %+v", second)
+	}
+	// Model the already-shipped stable entry verifier exactly: unknown v2
+	// fields are discarded before re-marshalling the v1 signature payload.
+	oldData, err := os.ReadFile(filepath.Join(root+".versions", "9.8.8", "release.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var old struct {
+		Version   string              `json:"version"`
+		Artifacts map[string]Artifact `json:"artifacts"`
+		Packages  map[string]Artifact `json:"packages,omitempty"`
+		Signature string              `json:"signature,omitempty"`
+	}
+	if err = json.Unmarshal(oldData, &old); err != nil {
+		t.Fatal(err)
+	}
+	oldSignature, err := base64.StdEncoding.DecodeString(old.Signature)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old.Signature = ""
+	oldPayload, _ := json.Marshal(old)
+	if old.Version != "9.8.8" || !ed25519.Verify(public, append([]byte(manifestDomain), oldPayload...), oldSignature) {
+		t.Fatal("old stable launcher cannot authenticate the active independent-App release")
 	}
 	active, err := ResolveInstallation(root, public)
 	if err != nil || active.Version != "9.8.8" {

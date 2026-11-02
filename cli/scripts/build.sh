@@ -185,7 +185,7 @@ if [[ $failed -eq 0 ]]; then
   fi
   python3 "$SCRIPT_DIR/cli-packages.py" generate "$BUILD_DIR" --helpers "$HELPERS_DIR"
   python3 "$SCRIPT_DIR/cli-artifacts.py" generate "$BUILD_DIR"
-  "${GO_CMD[@]}" run ./cmd/clirelease --dir "$BUILD_DIR" --version "$CLI_VERSION" \
+  "${GO_CMD[@]}" run ./cmd/clirelease --dir "$BUILD_DIR" --version "$CLI_VERSION" --notifier-version "$NOTIFIER_VERSION" \
     --signing-key-file "$EIGENFLUX_SKILLS_SIGNING_KEY_FILE"
   echo -e "${GREEN}All platforms compiled → build/cli/${NC}"
   ls -lh "$BUILD_DIR"

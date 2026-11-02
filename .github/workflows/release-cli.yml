@@ -14,6 +14,14 @@ jobs:
   release-cli:
     if: github.ref == 'refs/heads/main'
     runs-on: macos-15
+    env:
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
+      EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY: ${{ secrets.EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
@@ -33,33 +41,49 @@ jobs:
         run: |
           python3 -m unittest discover -s tests/cli_release -p 'test_cli_artifacts.py'
           python3 -m unittest discover -s tests/cli_release -p 'test_cli_packages.py'
+          python3 -m unittest discover -s tests/cli_release -p 'test_notifier*.py'
           aws s3api put-object --generate-cli-skeleton input | python3 -c 'import json,sys; assert "IfNoneMatch" in json.load(sys.stdin)'
           cd cli
-          go test ./internal/selfupdate ./cmd/clirelease
-      - name: Resolve notification App cache identity
+          go test ./internal/selfupdate ./cmd/clirelease ./cmd/notifierrelease
+      - name: Resolve notification release inputs
         id: notifier
+        env:
+          EIGENFLUX_SKILLS_SIGNING_KEY: ${{ secrets.EIGENFLUX_SKILLS_SIGNING_KEY }}
         run: |
+          set -euo pipefail
           source cli/.cli.config
+          key_file="$RUNNER_TEMP/eigenflux-skills-signing-key"
+          umask 077
+          printf '%s' "$EIGENFLUX_SKILLS_SIGNING_KEY" > "$key_file"
+          echo "EIGENFLUX_SKILLS_SIGNING_KEY_FILE=$key_file" >> "$GITHUB_ENV"
           echo "version=$NOTIFIER_VERSION" >> "$GITHUB_OUTPUT"
-      - name: Restore signed and notarized notification Apps
-        id: notifier-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: build/notifier-cache
-          key: notifier-macos-${{ steps.notifier.outputs.version }}-${{ hashFiles('cli/internal/desktopnotify/macos/**', 'cli/scripts/build-notifier-macos.sh', 'cli/scripts/notarize-notifier-macos.sh') }}
-      - name: Verify reused notification Apps
-        if: steps.notifier-cache.outputs.cache-hit == 'true'
+          source_hash=$(python3 - <<'PYHASH'
+          import hashlib, pathlib
+          files = sorted(pathlib.Path('cli/internal/desktopnotify/macos').rglob('*'))
+          files += [pathlib.Path('cli/scripts/build-notifier-macos.sh')]
+          h = hashlib.sha256()
+          for p in files:
+              if p.is_file():
+                  h.update(str(p).encode() + b'\0' + p.read_bytes() + b'\0')
+          print(h.hexdigest())
+          PYHASH
+          )
+          echo "source=$source_hash" >> "$GITHUB_OUTPUT"
+      - name: Restore immutable verified notification Apps
+        id: notifier-restore
         run: |
-          for arch in amd64 arm64; do
-            app="build/notifier-cache/darwin-$arch/EigenFlux Notifications.app"
-            codesign --verify --deep --strict "$app"
-            codesign -d --verbose=4 "$app" 2>&1 | grep -q '^Authority=Developer ID Application:'
-            xcrun stapler validate "$app"
-            spctl --assess --type execute "$app"
-            test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = '${{ steps.notifier.outputs.version }}'
-          done
+          set -euo pipefail
+          if python3 cli/scripts/notifier-release.py restore \
+              --version '${{ steps.notifier.outputs.version }}' --source '${{ steps.notifier.outputs.source }}' \
+              --helpers-dir build/notifier-formal/helpers --work-dir build/notifier-formal/work --team-id "$APPLE_TEAM_ID"; then
+            echo 'reused=true' >> "$GITHUB_OUTPUT"
+          else
+            result=$?
+            if [[ "$result" != 3 ]]; then exit "$result"; fi
+            echo 'reused=false' >> "$GITHUB_OUTPUT"
+          fi
       - name: Configure temporary Apple signing and notarization credentials
-        if: steps.notifier-cache.outputs.cache-hit != 'true'
+        if: steps.notifier-restore.outputs.reused != 'true'
         env:
           MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -87,29 +111,33 @@ jobs:
           security list-keychains -d user -s "$keychain" login.keychain-db
           xcrun notarytool store-credentials eigenflux-release --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --keychain "$keychain"
           rm -f "$certificate"
+      - name: Resume notification App notarization and publish verified Apps
+        if: steps.notifier-restore.outputs.reused != 'true'
+        env:
+          EIGENFLUX_NOTIFIER_SIGN_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          EIGENFLUX_NOTARY_PROFILE: eigenflux-release
+        run: |
+          set -euo pipefail
+          python3 cli/scripts/notifier-checkpoint.py \
+            --version '${{ steps.notifier.outputs.version }}' --source '${{ steps.notifier.outputs.source }}' \
+            --helpers-dir build/notifier-formal/helpers --work-dir build/notifier-checkpoint --team-id "$APPLE_TEAM_ID"
+          python3 cli/scripts/notifier-release.py publish \
+            --version '${{ steps.notifier.outputs.version }}' --source '${{ steps.notifier.outputs.source }}' \
+            --helpers-dir build/notifier-formal/helpers --work-dir build/notifier-formal/work --team-id "$APPLE_TEAM_ID"
       - name: Build CLI binaries and signed Skills bundle
         env:
           EIGENFLUX_SKILLS_SIGNING_KEY: ${{ secrets.EIGENFLUX_SKILLS_SIGNING_KEY }}
           EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY: ${{ secrets.EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY }}
           EIGENFLUX_NOTIFIER_SIGN_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
           EIGENFLUX_NOTARY_PROFILE: eigenflux-release
-          EIGENFLUX_NOTIFIER_REUSE: ${{ steps.notifier-cache.outputs.cache-hit == 'true' && '1' || '0' }}
-          EIGENFLUX_NOTIFIER_HELPERS_DIR: ${{ steps.notifier-cache.outputs.cache-hit == 'true' && format('{0}/build/notifier-cache', github.workspace) || '' }}
+          EIGENFLUX_NOTIFIER_REUSE: '1'
+          EIGENFLUX_NOTIFIER_HELPERS_DIR: ${{ github.workspace }}/build/notifier-formal/helpers
         run: |
           signing_key_file="$RUNNER_TEMP/eigenflux-skills-signing-key"
           printf '%s' "$EIGENFLUX_SKILLS_SIGNING_KEY" > "$signing_key_file"
           chmod 600 "$signing_key_file"
           export EIGENFLUX_SKILLS_SIGNING_KEY_FILE="$signing_key_file"
           bash cli/scripts/build.sh
-      - name: Stage newly notarized Apps for reuse
-        if: steps.notifier-cache.outputs.cache-hit != 'true'
-        run: cp -R build/cli/helpers build/notifier-cache
-      - name: Save verified notification Apps
-        if: steps.notifier-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: build/notifier-cache
-          key: ${{ steps.notifier-cache.outputs.cache-primary-key }}
       - name: Publish CLI binaries
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -123,12 +151,17 @@ jobs:
           R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
         run: |
           source cli/.cli.config
-          live_version=$(curl -fsSL "${R2_PUBLIC_URL}/cli/latest/version.txt?run=${GITHUB_RUN_ID}")
-          test "$live_version" = "$CLI_VERSION"
-          curl -fsSL "${R2_PUBLIC_URL}/cli/latest/release.json?run=${GITHUB_RUN_ID}" -o "$RUNNER_TEMP/cli-release.json"
-          cmp build/cli/release.json "$RUNNER_TEMP/cli-release.json"
-          curl -fsSL "${R2_PUBLIC_URL}/cli/latest/package-release.json?run=${GITHUB_RUN_ID}" -o "$RUNNER_TEMP/cli-package-release.json"
-          cmp build/cli/package-release.json "$RUNNER_TEMP/cli-package-release.json"
+          for lane in v2/latest latest; do
+            if [[ "$lane" == latest && "$NOTIFIER_VERSION" != "$CLI_VERSION" ]]; then continue; fi
+            suffix=""
+            if [[ "$lane" == v2/latest ]]; then suffix="-v2"; fi
+            live_version=$(curl -fsSL "${R2_PUBLIC_URL}/cli/${lane}/version.txt?run=${GITHUB_RUN_ID}")
+            test "$live_version" = "$CLI_VERSION"
+            for name in release package-release; do
+              curl -fsSL "${R2_PUBLIC_URL}/cli/${lane}/${name}.json?run=${GITHUB_RUN_ID}" -o "$RUNNER_TEMP/cli-${name}.json"
+              cmp "build/cli/${name}${suffix}.json" "$RUNNER_TEMP/cli-${name}.json"
+            done
+          done
       - name: Remove temporary signing material
         if: always()
         run: |

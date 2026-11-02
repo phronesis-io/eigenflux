@@ -27,6 +27,7 @@ class SkillsInstallation(unittest.TestCase):
         }
         self.stub("curl", '''for arg do url="$arg"; done
 case "$url" in
+  */cli/v2/latest/version.txt) printf '\\n404' ;;
   */cli/latest/version.txt) printf '%s\\n' "$TEST_VERSION" ;;
   */archive/refs/heads/main.tar.gz) cat "$TEST_ARCHIVE" ;;
   *) echo "Unexpected network request: $url" >&2; exit 1 ;;
