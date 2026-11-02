@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import shutil
+import tempfile
 
 LATEST = ("skills/latest", "cli/latest")
 ARCHIVE = "skills/releases/"
@@ -71,7 +73,16 @@ def require_transition(candidate, records, planned):
 
 def put_new(path, key):
     # R2 enforces uniqueness atomically. A collision fails before latest is touched.
-    aws("put-object", "--key", key, "--body", str(path), "--if-none-match", "*")
+    try:
+        aws("put-object", "--key", key, "--body", str(path), "--if-none-match", "*")
+    except RuntimeError as error:
+        if "PreconditionFailed" not in str(error) and "ConditionalRequestConflict" not in str(error):
+            raise
+        with tempfile.TemporaryDirectory() as directory:
+            previous = Path(directory) / "object"
+            aws("get-object", "--key", key, str(previous))
+            if previous.read_bytes() != path.read_bytes():
+                raise RuntimeError("immutable Skills object differs: " + key) from error
 
 
 def prepare(state, checker):
@@ -82,22 +93,64 @@ def prepare(state, checker):
     print(sequence)
 
 
-def reserve(state, checker, build):
-    plan = json.loads((state / "plan.json").read_text())
-    candidate = verified(build / "manifest.json", checker)
-    # Recheck the origin immediately before reserving a sequence and publishing.
-    current = snapshot(state, checker)
-    require_transition(candidate, current, plan["sequence"])
-    if current != plan["records"]:
-        raise RuntimeError("R2 release state changed during build; refusing to publish")
+def same_release(candidate, previous):
+    required = {"revision", "tar_sha256", "key_id", "skills", "managed_by"}
+    if not required.issubset(candidate) or not required.issubset(previous):
+        return False
+    # cli_version is the informational producer tag, not compatibility.
+    ignored = {"sequence", "signature", "generated_at", "cli_version"}
+    return ({k: v for k, v in candidate.items() if k not in ignored}
+            == {k: v for k, v in previous.items() if k not in ignored})
+
+
+def check_archive(build, candidate):
     digest = hashlib.sha256((build / "skills.tar.gz").read_bytes()).hexdigest()
     if digest != candidate["tar_sha256"] or digest != (build / "skills.tar.gz.sha256").read_text().strip():
         raise RuntimeError("built archive does not match signed manifest and sidecar")
+    return digest
+
+
+def verify_origin_payloads(state, expected):
+    for index, prefix in enumerate(LATEST):
+        archive = state / f"unchanged-{index}.tar.gz"
+        sidecar = state / f"unchanged-{index}.sha256"
+        aws("get-object", "--key", f"{prefix}/skills.tar.gz", str(archive))
+        aws("get-object", "--key", f"{prefix}/skills.tar.gz.sha256", str(sidecar))
+        if (hashlib.sha256(archive.read_bytes()).hexdigest() != expected["tar_sha256"]
+                or sidecar.read_text().strip() != expected["tar_sha256"]):
+            raise RuntimeError("unchanged Skills origin payload is missing or differs")
+
+
+def reserve(state, checker, build):
+    plan = json.loads((state / "plan.json").read_text())
+    candidate = verified(build / "manifest.json", checker)
+    # The shared publication lock is held here, never during preparation/tests.
+    current = snapshot(state, checker)
+    if len(current) >= 2 and current[0] == current[1] and same_release(candidate, current[0]):
+        check_archive(build, candidate)
+        verify_origin_payloads(state, current[0])
+        shutil.copyfile(state / "previous-0.json", build / "manifest.json")
+        (state / "publication.json").write_text(json.dumps({"action": "noop", "sequence": current[0]["sequence"]}))
+        print(f'unchanged signed Skills sequence {current[0]["sequence"]}; publication skipped', flush=True)
+        return
+    # Resume only the exact prepared signature, never a regenerated candidate.
+    resuming = (candidate["sequence"] == plan["sequence"] and len(current) >= 3
+                and current[-1] == candidate
+                and candidate["sequence"] == max(r["sequence"] for r in current)
+                and all(r == candidate or r in plan["records"] for r in current))
+    if resuming and (state / "archive-head.json").read_bytes() != (build / "manifest.json").read_bytes():
+        raise RuntimeError("reserved signed manifest bytes differ from prepared artifact")
+    if not resuming:
+        require_transition(candidate, current, plan["sequence"])
+        if current != plan["records"]:
+            raise RuntimeError("R2 release state changed during build; refusing to publish")
+    check_archive(build, candidate)
     prefix = f'{ARCHIVE}{candidate["sequence"]}'
-    # Reserve first: interruption must never make the same signed sequence reusable.
+    # Existing immutable bytes must match on a job retry; partial uploads resume.
     put_new(build / "manifest.json", f"{prefix}/manifest.json")
     for name in ("skills.tar.gz", "skills.tar.gz.sha256"):
         put_new(build / name, f"{prefix}/{name}")
+    (state / "publication.json").write_text(json.dumps({"action": "publish", "sequence": candidate["sequence"]}))
     print(f'reserved signed sequence {candidate["sequence"]}', flush=True)
 
 

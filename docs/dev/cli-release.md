@@ -193,3 +193,50 @@ receipt signature, version, team, archive digests and every packaged App file
 and normalized permission offline. Missing or mismatched proof stops publication;
 a Developer ID signature alone cannot authorize distribution. No extra Apple
 query or receipt format is introduced.
+
+## Release orchestration and retries
+
+CLI and Skills each serialize their own workflow using the existing GitHub
+concurrency policy.
+Preparation jobs do not hold `release-r2`: tests, compilation, native signing,
+notarization and bundle generation can proceed independently. Only publication
+jobs share that group, covering final origin checks, uploads, pointer promotion
+and delivery verification. They never cancel an in-progress publication.
+
+A push that changes `CLI_VERSION` defers Skills publication until that CLI
+workflow succeeds. Test-only changes do not trigger a Skills release. An older
+CLI success event cannot publish the Skills for a newer, still-pending CLI
+version. A Skills run selects the current main SHA once; both subsequent jobs
+check out that exact SHA. Missing history causes conservative deferral rather
+than premature publication.
+
+Release planning may reuse a successful `CLI Auth Cross-Platform` main-push run
+for the exact repository and source SHA. PR-head success, a different SHA,
+incomplete/failed results or unavailable GitHub evidence never authorize a
+skip. Uncovered release-tool tests remain mandatory; macOS native publication
+checks always run. Artifact manifests receive a fresh signature check before
+CLI publication even when earlier CI is reused.
+
+Prepared files travel as tar archives inside current-run GitHub artifacts to
+preserve executable permissions. Retention is 14 days. The CLI source marker
+and Skills prepared-source record must match the publication checkout. Signing
+keys remain in the preparation runner's temporary directory and are not archived;
+publication jobs receive verification keys and R2 credentials only.
+
+For a failed publication job, rerun failed jobs on the original workflow run.
+The successful preparation job and exact signed bytes are reused; do not rebuild
+or resign a partially published version. Existing immutable objects must match
+byte-for-byte. A Skills retry may resume its exact reserved signed manifest;
+a newer origin sequence or a conflicting artifact aborts instead of rolling back.
+
+Skills publication compares the fully verified origin aliases and prepared
+content. Identical releases retain the existing signed manifest and sequence (including
+its informational producer CLI tag),
+while still verifying payloads, client Sync and installation-document delivery.
+An inconsistent origin cannot use this no-op path.
+
+CLI preflight, immutable uploads, alias transfers and CDN verification use bounded
+parallelism (default 3, `EIGENFLUX_RELEASE_WORKERS` accepts 1 through 8).
+All preflight checks finish before any write; all started workers finish before
+failure returns. Pointer promotion remains ordered and follows complete payload
+verification. Retries skip existing identical immutable and alias payloads.

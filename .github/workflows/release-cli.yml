@@ -5,13 +5,14 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: release-r2
+  group: release-cli-main
   cancel-in-progress: false
 
 jobs:
-  release-cli:
+  prepare:
     if: github.ref == 'refs/heads/main'
     runs-on: macos-15
     env:
@@ -28,6 +29,11 @@ jobs:
         with:
           go-version-file: cli/go.mod
           cache-dependency-path: cli/go.sum
+      - name: Reuse successful CI for this exact main commit
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 cli/scripts/release-plan.py --repository "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA" --event-name "$GITHUB_EVENT_NAME" --event-path "$GITHUB_EVENT_PATH" --github-output "$GITHUB_OUTPUT"
       - name: Provide publication tools
         run: |
           brew list gnu-tar >/dev/null 2>&1 || brew install gnu-tar
@@ -36,7 +42,8 @@ jobs:
         run: |
           aws s3api put-object --generate-cli-skeleton input | python3 -c 'import json,sys; assert "IfNoneMatch" in json.load(sys.stdin)'
           cd cli
-          go test ./cmd/clirelease ./tests
+          go test ./cmd/clirelease
+          if [[ '${{ steps.plan.outputs.trusted_ci }}' != true ]]; then go test ./tests; fi
       - name: Test CLI artifact publication
         run: |
           python3 -m unittest discover -s tests/cli_release -p 'test_cli_artifacts.py'
@@ -44,7 +51,8 @@ jobs:
           python3 -m unittest discover -s tests/cli_release -p 'test_notifier*.py'
           aws s3api put-object --generate-cli-skeleton input | python3 -c 'import json,sys; assert "IfNoneMatch" in json.load(sys.stdin)'
           cd cli
-          go test ./internal/selfupdate ./cmd/clirelease ./cmd/notifierrelease
+          go test ./cmd/notifierrelease
+          if [[ '${{ steps.plan.outputs.trusted_ci }}' != true ]]; then go test ./internal/selfupdate; fi
       - name: Resolve notification release inputs
         id: notifier
         env:
@@ -138,6 +146,58 @@ jobs:
           chmod 600 "$signing_key_file"
           export EIGENFLUX_SKILLS_SIGNING_KEY_FILE="$signing_key_file"
           bash cli/scripts/build.sh
+      - name: Prepare local verification tools outside the publication lock
+        run: |
+          cd cli
+          go build -o "$GITHUB_WORKSPACE/build/cli/clirelease" ./cmd/clirelease
+          go build -o "$GITHUB_WORKSPACE/build/cli/notifierrelease" ./cmd/notifierrelease
+      - name: Archive the verified build for publication or failed-job retry
+        run: |
+          printf '%s\n' "$GITHUB_SHA" > build/cli/source-sha.txt
+          tar -cf "$RUNNER_TEMP/cli-release.tar" build/cli build/notifier-formal/work
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cli-release-${{ github.sha }}
+          path: ${{ runner.temp }}/cli-release.tar
+          compression-level: 0
+          retention-days: 14
+          overwrite: true
+          if-no-files-found: error
+      - name: Remove temporary signing material
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/eigenflux-release.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/eigenflux-signing.p12" "$RUNNER_TEMP/eigenflux-skills-signing-key"
+
+  publish:
+    needs: prepare
+    runs-on: macos-15
+    concurrency:
+      group: release-r2
+      cancel-in-progress: false
+    env:
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
+      EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY: ${{ secrets.EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      EIGENFLUX_NOTIFIER_RECEIPT_TOOL: ${{ github.workspace }}/build/cli/notifierrelease
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Provide publication tools
+        run: brew list awscli >/dev/null 2>&1 || brew install awscli
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: cli-release-${{ github.sha }}
+          path: ${{ runner.temp }}/cli-release
+      - name: Authenticate the prepared build from this run
+        run: |
+          tar -xf "$RUNNER_TEMP/cli-release/cli-release.tar"
+          test "$(cat build/cli/source-sha.txt)" = "$GITHUB_SHA"
+          source cli/.cli.config
+          build/cli/clirelease --verify-local --dir "$GITHUB_WORKSPACE/build/cli" --version "$CLI_VERSION"
       - name: Publish CLI binaries
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -162,8 +222,3 @@ jobs:
               cmp "build/cli/${name}${suffix}.json" "$RUNNER_TEMP/cli-${name}.json"
             done
           done
-      - name: Remove temporary signing material
-        if: always()
-        run: |
-          security delete-keychain "$RUNNER_TEMP/eigenflux-release.keychain-db" 2>/dev/null || true
-          rm -f "$RUNNER_TEMP/eigenflux-signing.p12" "$RUNNER_TEMP/eigenflux-skills-signing-key"
