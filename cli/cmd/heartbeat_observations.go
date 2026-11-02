@@ -1,0 +1,98 @@
+package cmd
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"os"
+	"regexp"
+	"runtime"
+	"strings"
+	"time"
+
+	"cli.eigenflux.ai/internal/client"
+	"cli.eigenflux.ai/internal/maintenance"
+	"github.com/spf13/cobra"
+)
+
+var observationToken = regexp.MustCompile(`^[A-Za-z0-9_.:/+@-]{0,128}$`)
+
+func observationValue(v string) string {
+	v = strings.TrimSpace(v)
+	if observationToken.MatchString(v) {
+		return v
+	}
+	return ""
+}
+func runtimeObservation(meta client.Meta, revision string) maintenance.RuntimeObservation {
+	parts := strings.SplitN(meta.Host, "/", 2)
+	product := runtimeProduct(meta.Host)
+	if product == "terminal" {
+		product = ""
+	}
+	productVersion := ""
+	if len(parts) > 1 {
+		productVersion = parts[1]
+	}
+	return maintenance.RuntimeObservation{Mode: observationValue(meta.Mode), Product: observationValue(product), ProductVersion: observationValue(productVersion), OS: runtime.GOOS, Arch: runtime.GOARCH, Model: observationValue(meta.Model), CLI: observationValue(version), Skills: observationValue(revision)}
+}
+func runtimeObservationsEnabled() bool { return os.Getenv("EIGENFLUX_RUNTIME_OBSERVATIONS") != "0" }
+func observeRuntimeEnvironment(meta client.Meta) {
+	if !runtimeObservationsEnabled() {
+		return
+	}
+	scope, err := maintenanceScope(activeServerName())
+	if err != nil {
+		return
+	}
+	revision := ""
+	r := runtimeObservation(meta, revision)
+	key := sha256.Sum256([]byte(fmt.Sprintf("%s:%+v", time.Now().UTC().Format("2006-01-02"), r)))
+	e := maintenance.NewEvent(hex.EncodeToString(key[:]), "runtime", "auto", "environment", "observed")
+	e.Runtime = &r
+	_ = recordMaintenanceEventAtScope(scope, e)
+}
+func attachCycleObservation(plan *heartbeatPlan) {
+	if !runtimeObservationsEnabled() || len(plan.ExecutionOrder) == 0 {
+		return
+	}
+	scope, err := maintenanceScope(activeServerName())
+	if err != nil {
+		return
+	}
+	env := runtimeObservation(clientMetaForServerName(scope.Server), plan.SkillRevision)
+	c, err := maintenance.StartCycle(scope, plan.PlanMode, plan.ExecutionOrder, env)
+	if err != nil {
+		return
+	}
+	plan.CycleID = c.ID
+}
+func cycleInstructions(plan heartbeatPlan) string {
+	if plan.CycleID == "" {
+		return ""
+	}
+	prefix := plan.CLIPrefix + " heartbeat cycle-report --cycle " + plan.CycleID
+	return "\nExecution observations (client-reported; do not change business actions): after each listed stage, run " + prefix + " --stage <exact-stage-name> --result completed only when that stage completed, or --result failed when it did not. Before the final host response, report --stage cycle --result completed only after every listed stage completed; otherwise report --stage cycle --result failed. Missing work is not success. Preserve this cycle ID across compaction. Observation/upload failure must not repeat business work or change host notifications.\n"
+}
+func init() {
+	report := &cobra.Command{Use: "cycle-report", Short: "Record a stage or completed heartbeat cycle", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		scope, err := maintenanceScope(activeServerName())
+		if err != nil {
+			return err
+		}
+		id, _ := cmd.Flags().GetString("cycle")
+		stage, _ := cmd.Flags().GetString("stage")
+		result, _ := cmd.Flags().GetString("result")
+		if err := maintenance.ReportCycle(scope, id, stage, result); err != nil {
+			return err
+		}
+		// Queue receipt is durable even when offline; existing uploader bounds and retries apply.
+		_ = flushMaintenanceEventsAtScope(scope)
+		fmt.Fprintln(cmd.OutOrStdout(), "Cycle observation recorded; upload is best effort.")
+		return nil
+	}}
+	report.Flags().String("cycle", "", "Cycle ID from heartbeat plan")
+	report.Flags().String("stage", "", "Exact planned stage or cycle")
+	report.Flags().String("result", "", "completed or failed")
+	heartbeatCmd.AddCommand(report)
+}

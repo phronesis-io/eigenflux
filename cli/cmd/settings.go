@@ -384,6 +384,7 @@ func reportRuntimeSettings(cfg *config.Config, mode, model, runtimeName, runtime
 	if err != nil {
 		return result, err
 	}
+	observeRuntimeEnvironment(meta)
 	result.Status = "reported"
 	return result, nil
 }

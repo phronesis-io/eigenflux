@@ -246,6 +246,7 @@ func capabilitySeeds() []capabilitySeed {
 		capability("notification.setup", "eigenflux notify setup", "local", "write", "启用系统通知", "Enable desktop notifications"),
 		capability("notification.status", "eigenflux notify status", "local", "read", "检查系统通知", "Check desktop notifications"),
 		capability("notification.test", "eigenflux notify test", "local", "write", "测试通知跳转", "Test a clickable desktop notification"),
+		capability("heartbeat.cycle_report", "eigenflux heartbeat cycle-report", "local", "write", "记录外循环阶段回执", "Record a heartbeat cycle stage receipt"),
 		capability("heartbeat.maintenance_report", "eigenflux heartbeat maintenance-report", "local", "write", "记录维护阶段", "Record a maintenance phase"),
 		capability("heartbeat.maintenance_status", "eigenflux heartbeat maintenance-status", "local", "read", "查看维护状态", "Inspect maintenance status"),
 		capability("heartbeat.plan", "eigenflux heartbeat plan", "runtime", "write", "生成 Heartbeat 执行计划", "Generate a Heartbeat execution plan"),
@@ -264,6 +265,9 @@ func capabilitySeeds() []capabilitySeed {
 	}
 	for index := range seeds {
 		seed := &seeds[index]
+		if seed.id == "heartbeat.cycle_report" {
+			seed.minCLI = "1.0.3"
+		}
 		if seed.category == "need" {
 			seed.minCLI = "0.0.54"
 			seed.identityRoute = "current_identity"

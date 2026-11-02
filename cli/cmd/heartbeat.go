@@ -23,6 +23,7 @@ import (
 const heartbeatContractVersion = "eigenflux_heartbeat.v4"
 
 type heartbeatPlan struct {
+	CycleID                  string                     `json:"cycle_id,omitempty"`
 	FeedCompletionCheck      bool                       `json:"feed_completion_check"`
 	MainSessionBinding       *mainSessionBindingPlan    `json:"main_session_binding,omitempty"`
 	WatchManaged             bool                       `json:"watch_managed,omitempty"`
@@ -349,6 +350,7 @@ var heartbeatPlanCmd = &cobra.Command{
 			}
 		}
 
+		attachCycleObservation(&plan)
 		plan.AgentPrompt = renderHeartbeatPlanForAgent(plan)
 		if resolveFormat() == "agent" {
 			fmt.Fprint(cmd.OutOrStdout(), plan.AgentPrompt)
@@ -458,7 +460,7 @@ func heartbeatStages(access runtimeAccess) []string {
 }
 
 func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
-	receiptText := ""
+	receiptText := cycleInstructions(plan)
 	if plan.OuterLoop != nil {
 		b, _ := json.Marshal(plan.OuterLoop)
 		receiptText += "\nOuter loop recovery: " + string(b) + ". Report unresolved recovery separately; a running notification watch does not prove Agent dispatch is ready.\n"

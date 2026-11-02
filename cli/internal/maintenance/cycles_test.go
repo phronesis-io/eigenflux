@@ -1,0 +1,116 @@
+package maintenance
+
+import (
+	"fmt"
+	"sync"
+	"testing"
+	"time"
+)
+
+func TestCycleReceiptsRequireEveryStageAndIsolateAccounts(t *testing.T) {
+	s := Scope{Home: t.TempDir(), Server: "test", AgentID: "1"}
+	env := RuntimeObservation{OS: "darwin", Arch: "arm64", Model: "model-v1"}
+	c, err := StartCycle(s, "full", []string{"feed", "communication"}, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ReportCycle(s, c.ID, "cycle", "completed") == nil {
+		t.Fatal("unperformed cycle completed")
+	}
+	if ReportCycle(s, c.ID, "made_up", "completed") == nil {
+		t.Fatal("unplanned stage accepted")
+	}
+	other := s
+	other.AgentID = "2"
+	if ReportCycle(other, c.ID, "feed", "completed") == nil {
+		t.Fatal("cross-account cycle")
+	}
+	var wg sync.WaitGroup
+	for _, stage := range []string{"feed", "communication"} {
+		wg.Add(1)
+		go func(stage string) {
+			defer wg.Done()
+			if e := ReportCycle(s, c.ID, stage, "completed"); e != nil {
+				t.Error(e)
+			}
+		}(stage)
+	}
+	wg.Wait()
+	if e := ReportCycle(s, c.ID, "cycle", "completed"); e != nil {
+		t.Fatal(e)
+	}
+	if e := ReportCycle(s, c.ID, "cycle", "completed"); e != nil {
+		t.Fatal(e)
+	}
+	if e := ReportCycle(s, c.ID, "feed", "completed"); e != nil {
+		t.Fatal(e)
+	}
+	st, _ := Snapshot(s)
+	if len(st.Events) != 4 {
+		t.Fatalf("duplicate or lost receipts: %d", len(st.Events))
+	}
+	if ReportCycle(s, c.ID, "cycle", "failed") == nil {
+		t.Fatal("terminal result overwritten")
+	}
+}
+func TestFailedStageCannotBecomeSuccessfulCycle(t *testing.T) {
+	s := Scope{Home: t.TempDir(), Server: "test", AgentID: "1"}
+	c, _ := StartCycle(s, "full", []string{"feed"}, RuntimeObservation{})
+	if e := ReportCycle(s, c.ID, "feed", "failed"); e != nil {
+		t.Fatal(e)
+	}
+	if ReportCycle(s, c.ID, "cycle", "completed") == nil {
+		t.Fatal("failure became success")
+	}
+	if e := ReportCycle(s, c.ID, "cycle", "failed"); e != nil {
+		t.Fatal(e)
+	}
+	update(s, func(st *State) error {
+		x := st.Cycles[c.ID]
+		x.StartedAt = time.Now().Add(-8 * 24 * time.Hour).UnixMilli()
+		st.Cycles[c.ID] = x
+		return nil
+	})
+	if ReportCycle(s, c.ID, "cycle", "failed") == nil {
+		t.Fatal("expired cycle accepted")
+	}
+}
+func TestRuntimeObservationRejectsPrivateFreeTextAndForeignMetadata(t *testing.T) {
+	e := NewEvent(NewID(), "runtime", "auto", "environment", "observed")
+	e.Runtime = &RuntimeObservation{Product: "codex", OS: "darwin", Arch: "arm64", Model: "provider/model"}
+	if err := Validate(e); err != nil {
+		t.Fatal(err)
+	}
+	e.Runtime.Model = "my secret text"
+	if Validate(e) == nil {
+		t.Fatal("free text accepted")
+	}
+	e.Runtime.Model = ""
+	e.Commission = &Commission{}
+	if Validate(e) == nil {
+		t.Fatal("mixed metadata accepted")
+	}
+}
+
+func TestCycleCapacityReclaimsCompletedWithoutDroppingQueuedReceipts(t *testing.T) {
+	s := Scope{Home: t.TempDir(), Server: "test", AgentID: "1"}
+	err := update(s, func(st *State) error {
+		st.Cycles = map[string]Cycle{}
+		for i := 0; i < 256; i++ {
+			id := fmt.Sprintf("%032d", i)
+			st.Cycles[id] = Cycle{ID: id, StartedAt: time.Now().UnixMilli(), Result: "completed"}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := StartCycle(s, "full", []string{"feed"}, RuntimeObservation{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, _ := Snapshot(s)
+	if len(st.Cycles) != 256 || st.Cycles[c.ID].ID != c.ID || len(st.Events) != 1 {
+		t.Fatal("capacity recovery lost state")
+	}
+}
