@@ -55,6 +55,9 @@ func TestWatchAutomaticallyUpdatesWithoutHeartbeatOrAgent(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/v2/agents/me/settings":
 			_, _ = out.Write([]byte(`{"code":0,"data":{"auto_cli_update":true}}`))
+		case "/cli/v2/latest/release.json", "/cli/v2/latest/package-release.json":
+			// This fixture models the legacy lane before the v2 channel exists.
+			http.NotFound(out, r)
 		case "/cli/latest/release.json", "/cli/latest/package-release.json":
 			manifests.Add(1)
 			_ = json.NewEncoder(out).Encode(release)

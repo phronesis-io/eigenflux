@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -188,11 +189,14 @@ func Check(ctx context.Context, o Options) (result Result) {
 	if o.CompletePackage {
 		manifestName = "package-release.json"
 	}
-	data, err := download(ctx, o.Client, strings.TrimRight(o.CDN, "/")+"/cli/latest/"+manifestName, 1<<20, o.Version)
+	data, v2, err := downloadReleaseManifest(ctx, o, manifestName)
 	if err != nil {
 		return fail(err)
 	}
 	m, err := Verify(data, o.Key)
+	if err == nil && v2 && m.NotifierVersion == "" {
+		err = fmt.Errorf("v2 release is missing signed notification version")
+	}
 	if err != nil {
 		result.Reason = "manifest_verify_failed"
 		return fail(err)
@@ -390,4 +394,20 @@ func saveState(path string, s state) error {
 		return err
 	}
 	return syncDirectory(filepath.Dir(path))
+}
+
+// Only an absent v2 endpoint permits legacy fallback. Transport or trust failures
+// must never silently select another release channel.
+func downloadReleaseManifest(ctx context.Context, o Options, name string) ([]byte, bool, error) {
+	base := strings.TrimRight(o.CDN, "/") + "/cli/"
+	data, err := download(ctx, o.Client, base+"v2/latest/"+name, 1<<20, o.Version)
+	if err == nil {
+		return data, true, nil
+	}
+	var status *downloadHTTPError
+	if !errors.As(err, &status) || status.status != http.StatusNotFound {
+		return nil, true, err
+	}
+	data, err = download(ctx, o.Client, base+"latest/"+name, 1<<20, o.Version)
+	return data, false, err
 }

@@ -139,7 +139,7 @@ func resignFixture(t *testing.T, o *Options, m *Manifest, bin []byte) {
 type artifactFailureTransport struct{}
 
 func (artifactFailureTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	if r.URL.Path != "/cli/latest/release.json" {
+	if r.URL.Path != "/cli/latest/release.json" && r.URL.Path != "/cli/v2/latest/release.json" {
 		return nil, fmt.Errorf("artifact unavailable")
 	}
 	return http.DefaultTransport.RoundTrip(r)

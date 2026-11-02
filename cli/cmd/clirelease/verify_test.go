@@ -47,6 +47,11 @@ func TestVerifyPublished(t *testing.T) {
 				t.Fatal(err)
 			}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/cli/v2/latest/release.json" || r.URL.Path == "/cli/v2/latest/package-release.json" {
+					http.NotFound(w, r)
+					return
+				}
+
 				if r.URL.Path == "/cli/latest/package-release.json" {
 					w.WriteHeader(http.StatusNotFound)
 					return
@@ -133,6 +138,11 @@ func TestVerifyPublishedCompletePackages(t *testing.T) {
 			}
 			packagesRead := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/cli/v2/latest/release.json" || r.URL.Path == "/cli/v2/latest/package-release.json" {
+					http.NotFound(w, r)
+					return
+				}
+
 				if strings.HasSuffix(r.URL.Path, "package-release.json") {
 					_, _ = w.Write(data)
 					return
@@ -159,6 +169,82 @@ func TestVerifyPublishedCompletePackages(t *testing.T) {
 			}
 			if mode == "valid" && packagesRead != 6 {
 				t.Fatalf("verified %d packages, want 6", packagesRead)
+			}
+		})
+	}
+}
+
+func TestVerifyPublishedV2IndependentFromLegacyLane(t *testing.T) {
+	public, key, _ := ed25519.GenerateKey(rand.Reader)
+	binary, archive := []byte("CLI"), []byte("independent notification package")
+	checksum := func(b []byte) selfupdate.Artifact {
+		sum := sha256.Sum256(b)
+		return selfupdate.Artifact{SHA256: hex.EncodeToString(sum[:]), Size: int64(len(b))}
+	}
+	m := selfupdate.Manifest{Version: "1.0.6", NotifierVersion: "1.0.5", Artifacts: map[string]selfupdate.Artifact{}, Packages: map[string]selfupdate.Artifact{}}
+	for _, p := range []string{"linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64.exe", "windows-arm64.exe"} {
+		m.Artifacts["eigenflux-"+p] = checksum(binary)
+		m.Packages["eigenflux-"+p+".zip"] = checksum(archive)
+	}
+	_ = selfupdate.Sign(&m, key)
+	packages, _ := json.Marshal(m)
+	m.Packages = nil
+	_ = selfupdate.Sign(&m, key)
+	bare, _ := json.Marshal(m)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/cli/v2/latest/release.json":
+			_, _ = w.Write(bare)
+		case "/cli/v2/latest/package-release.json":
+			_, _ = w.Write(packages)
+		default:
+			if !strings.HasPrefix(r.URL.Path, "/cli/1.0.6/") {
+				t.Errorf("v2 verifier used unrelated legacy lane: %s", r.URL.Path)
+				http.NotFound(w, r)
+				return
+			}
+			if strings.HasSuffix(r.URL.Path, ".zip") {
+				_, _ = w.Write(archive)
+			} else {
+				_, _ = w.Write(binary)
+			}
+		}
+	}))
+	defer server.Close()
+	if err := verifyPublished(server.URL, "1.0.6", public); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestVerifyPublishedV2FailureNeverFallsBack(t *testing.T) {
+	public, key, _ := ed25519.GenerateKey(rand.Reader)
+	for _, mode := range []string{"http_error", "invalid_signature", "legacy_payload"} {
+		t.Run(mode, func(t *testing.T) {
+			m := selfupdate.Manifest{Version: "1.0.6", NotifierVersion: "1.0.5"}
+			if mode == "legacy_payload" {
+				m.NotifierVersion = ""
+			}
+			_ = selfupdate.Sign(&m, key)
+			if mode == "invalid_signature" {
+				m.Version = "1.0.7"
+			}
+			legacyRequests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/cli/v2/latest/release.json" {
+					legacyRequests++
+					t.Errorf("unsafe fallback %s", r.URL.Path)
+					http.NotFound(w, r)
+					return
+				}
+				if mode == "http_error" {
+					w.WriteHeader(503)
+					return
+				}
+				_ = json.NewEncoder(w).Encode(m)
+			}))
+			defer server.Close()
+			if err := verifyPublished(server.URL, "1.0.5", public); err == nil || legacyRequests != 0 {
+				t.Fatalf("untrusted v2 accepted/fell back: %v %d", err, legacyRequests)
 			}
 		})
 	}

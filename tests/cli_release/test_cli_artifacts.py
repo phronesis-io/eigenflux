@@ -49,6 +49,40 @@ class ArtifactTests(unittest.TestCase):
         manifest.pop('packages')
         (self.build / 'release.json').write_text(json.dumps(manifest))
 
+    def write_v2(self, notifier):
+        for name in ('release', 'package-release'):
+            manifest = json.loads((self.build / (name + '.json')).read_text())
+            manifest['notifier_version'] = notifier
+            (self.build / (name + '-v2.json')).write_text(json.dumps(manifest))
+
+    def test_v2_reused_app_freezes_legacy_pointer(self):
+        self.write_v2('98.0.0')
+        result, calls = self.publisher(notifier='98.0.0')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(any('/cli/latest/' in call for call in calls))
+        self.assertIn('s3://bucket/cli/v2/latest/version.txt', calls)
+        public = self.root / 'public/cli/v2/latest'
+        self.assertEqual(json.loads((public / 'package-release.json').read_text())['notifier_version'], '98.0.0')
+
+    def test_v2_bridge_promotes_both_lanes(self):
+        self.write_v2('99.0.0')
+        result, calls = self.publisher()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('s3://bucket/cli/latest/version.txt', calls)
+        self.assertIn('s3://bucket/cli/v2/latest/version.txt', calls)
+
+    def test_v2_partial_or_disagreeing_notifier_metadata_rejected(self):
+        self.write_v2('98.0.0')
+        peer = self.build / 'package-release-v2.json'
+        manifest = json.loads(peer.read_text())
+        manifest['notifier_version'] = '97.0.0'
+        peer.write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, 'versions differ'):
+            artifacts.verify_release(self.build)
+        peer.unlink()
+        with self.assertRaisesRegex(ValueError, 'incomplete v2'):
+            artifacts.verify_release(self.build)
+
     def test_checksums_describe_exact_bytes_for_all_six_platforms(self):
         self.assertEqual(len(artifacts.verify(self.build)), 12)
         for name in artifacts.ARTIFACTS:
@@ -111,7 +145,7 @@ class ArtifactTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'published checksum'):
             artifacts.verify_public(self.build, url)
 
-    def publisher(self, fail_upload='', corrupt_public=False, race_mode='', get_failure=False):
+    def publisher(self, fail_upload='', corrupt_public=False, race_mode='', get_failure=False, notifier='99.0.0'):
         scripts = self.root / 'cli/scripts'
         scripts.mkdir(parents=True, exist_ok=True)
         for name in ('publish.sh', 'cli-artifacts.py'):
@@ -119,7 +153,7 @@ class ArtifactTests(unittest.TestCase):
         # Native signing/notarization is separately tested on macOS. Keep the
         # object-store integration isolated from real Apple credentials.
         (scripts / 'verify-macos-packages.sh').write_text('#!/bin/bash\nexit "${MACOS_VERIFY_EXIT:-0}"\n')
-        (self.root / 'cli/.cli.config').write_text('CLI_VERSION=99.0.0\n')
+        (self.root / 'cli/.cli.config').write_text('CLI_VERSION=99.0.0\nNOTIFIER_VERSION=' + notifier + '\n')
         bindir = self.root / 'bin'
         bindir.mkdir(exist_ok=True)
         # Stub only the external object-store client; run the real publisher and

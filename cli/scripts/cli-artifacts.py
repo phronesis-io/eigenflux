@@ -66,6 +66,16 @@ def verify_public(build, base_url):
                 raise ValueError(f"published binary differs from build: {name}")
 
 
+def manifest_files(build):
+    files = ['release.json', 'package-release.json']
+    extra = ['release-v2.json', 'package-release-v2.json']
+    if any((build / name).exists() for name in extra):
+        if not all((build / name).is_file() for name in extra):
+            raise ValueError('incomplete v2 release metadata')
+        files += extra
+    return files
+
+
 def verify_release(build):
     # The updater verifies Ed25519 authenticity; publication preflight ensures
     # the signed manifest describes the complete, final (including signed) build.
@@ -73,9 +83,16 @@ def verify_release(build):
     if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version):
         raise ValueError('invalid CLI release version')
     expected = verify(build)
-    for filename in ('release.json', 'package-release.json'):
+    for filename in manifest_files(build):
         manifest = json.loads((build / filename).read_text(encoding='utf-8'))
-        packaged = filename == 'package-release.json'
+        packaged = filename.startswith('package-release')
+        if '-v2.' in filename:
+            notifier = manifest.get('notifier_version', '')
+            if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', notifier):
+                raise ValueError('invalid signed notifier version')
+            peer = 'release-v2.json' if packaged else 'package-release-v2.json'
+            if json.loads((build / peer).read_text()).get('notifier_version') != notifier:
+                raise ValueError('v2 notifier versions differ')
         if manifest.get('version') != version or set(manifest.get('artifacts', {})) != set(BINARIES):
             raise ValueError('CLI release manifest version or platform set differs from build')
         if (packaged and set(manifest.get('packages', {})) != set(PACKAGES)) or (not packaged and 'packages' in manifest):
@@ -95,7 +112,7 @@ def verify_release(build):
 def verify_release_public(build, base_url):
     verify_release(build)
     query = '?verify=' + uuid.uuid4().hex
-    for filename in ('release.json', 'package-release.json'):
+    for filename in manifest_files(build):
         with urlopen(base_url.rstrip('/') + '/' + filename + query, timeout=30) as response:
             if response.read(1024 * 1024 + 1) != (build / filename).read_bytes():
                 raise ValueError('published CLI release manifest differs from build')

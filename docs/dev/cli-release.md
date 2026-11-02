@@ -7,16 +7,14 @@ is required by the build and publication scripts. Generate checksums after any
 operation that changes the binary, including future Authenticode signing.
 
 `publish.sh` checks all six binaries and their checksums, and requires the build
-version to match `cli/.cli.config`, before uploading anything. It uploads each
-binary and checksum to both `cli/<version>/` and `cli/latest/`. Any failed
-upload stops the script. It then downloads all binaries and checksums from the
-public CDN, compares them with the local build, and only then publishes the
-versioned `version.txt` followed by `cli/latest/version.txt`. CDN or verification
-failure prevents version promotion; inspect the failure and retry the release.
-Partial object uploads can remain after failure. The `latest/` artifact aliases
-are not atomic; installers resolve `latest/version.txt` once and download from
-the versioned directory. Use a new CLI version for a new binary release rather
-than overwriting binaries in a previously published version directory.
+version to match `cli/.cli.config`, before uploading anything. Immutable payloads,
+checksums and both manifest schemas are uploaded under `cli/<version>/` with
+conditional creation. Existing objects must match exactly. CDN verification
+precedes latest-pointer promotion. Installers resolve the v2 version pointer
+once and download from the immutable version directory; only a 404 permits
+legacy fallback. Legacy aliases advance only when CLI and notifier versions
+match. Latest aliases are not atomic. A partial upload can remain after failure;
+retry the same build, or bump the version if any published bytes changed.
 
 The Windows installer requires a valid checksum before replacing the installed
 CLI. Missing, invalid or mismatched checksums stop installation and remove the
@@ -103,6 +101,95 @@ bundle. Preserve automatic downgrade protection and the existing signing key.
 
 ## Notification App releases
 
-`NOTIFIER_VERSION` in `cli/.cli.config` must match `CLI_VERSION`: existing macOS clients verify both App version fields before activating the new CLI. The builder rejects mismatches. Keep this compatibility check until an explicit client migration supports independent App versions. Release CLI caches both signed, stapled architectures using that version and a hash of all macOS App sources and both build/notarization scripts. Exact cache hits skip Apple credential setup, compilation, signing and notarization. Reused Apps must pass codesign, Developer ID, stapler, Gatekeeper and version validation; invalid cached artifacts fail the release. Cache misses (including eviction or changed build inputs) rebuild and notarize both architectures in parallel. No prefix fallback is allowed. Skills-only releases do not build the App.
+`NOTIFIER_VERSION` is independent of `CLI_VERSION` after the signed-channel
+bridge. The bridge release must use the same CLI and notification versions;
+older CLIs validate that pair and cannot directly install independent App
+versions. Its original `release.json` and `package-release.json` remain signed
+with the unchanged v1 contract. Once independent releases begin, keep those
+legacy pointers at the bridge so older installations can adopt the new updater
+before following the v2 channel on their next check.
+
+New clients first request `/cli/v2/latest/release.json` or the complete-package
+`package-release.json`. Only HTTP 404 permits fallback to the original
+`/cli/latest/` manifest. A present v2 manifest requires the signed
+`notifier_version` field and the `eigenflux_cli_release.v2` signature domain.
+Transport errors, non-404 responses, bad signatures and malformed manifests
+fail closed without trying the legacy lane. Existing rollback protection stays
+active. Versioned artifact URLs remain `/cli/<CLI version>/<artifact>`.
+
+The original stable CLI executable remains on disk during complete-package
+upgrades and still verifies the selected version's `release.json` using v1.
+For a v2 package, the updater therefore also downloads the independently signed
+versioned `/cli/<version>/release.json`, requires a v1 bare manifest with the
+same CLI version and exact executable artifact set, and retains it as the
+installation directory's `release.json`. The signed v2 complete-package
+manifest is retained separately as `.package-release.json`; package rechecks
+validate both retained metadata files and the exact archive contents. Reject
+missing, invalid, or inconsistent stable-entry metadata before activation.
+This keeps an original v1 stable launcher able to forward to newer CLI
+versions after the bridge without weakening App package validation.
+
+
+Shell and PowerShell installers select `/cli/v2/latest/version.txt` before the
+legacy `/cli/latest/version.txt` bridge. Only HTTP 404 permits fallback; invalid
+versions, network failures and other HTTP statuses stop installation without
+replacing the installed CLI. The new bootstrap CLI then verifies its signed
+complete-package manifest through the same channel selection.
+
+`clirelease --notifier-version <version>` generates the v2 payloads as
+`release-v2.json` and `package-release-v2.json`, alongside the two unchanged v1
+files. The publisher places them at the corresponding v2 manifest URLs. The
+complete archive hash authenticates both CLI and App contents; package
+activation checks both App plist version fields against `notifier_version`
+(or the CLI version for legacy manifests), then verifies the App signature.
+
+Notification App source or build-input changes require a notification version
+bump. Exact unchanged signed/notarized notification releases are reused from
+the immutable notifier release store. CLI assembly checks archive structure,
+App signature, expected Developer ID team and manifest version locally; it does
+not run Apple online ticket or Gatekeeper queries again. `APPLE_TEAM_ID` is
+required by the publication check. The notifier publication workflow alone
+performs the full online notarization, ticket and Gatekeeper acceptance before
+making a reusable release available. Skills-only releases do not build the App.
 
 CLI cross-compilation runs in bounded batches of three platforms. Each compiler writes a separate build log. All children are waited for; any failure stops the build before Skills staging or package generation.
+
+## Durable notification checkpoints
+
+The official store is R2, not an expiring Actions cache. Its identity is
+`notifier/<NOTIFIER_VERSION>/<source SHA-256>/`. The source hash covers native
+macOS notification sources and the native build script. `ready.json` is an
+Ed25519-signed receipt binding the version, source hash, Developer ID team and
+both architecture archives. It is created after immutable archives are stored.
+Restore validates the receipt, archive hashes, safe paths, local code signatures,
+architecture and versions. Only an absent ready object is a miss; authentication,
+transport and validation errors abort rather than building a replacement.
+
+A miss builds/signs both architectures concurrently. R2 staging preserves each
+signed archive and Apple submission ID separately. Later runners reuse those
+bytes and resume `notarytool wait`, then staple. New publication performs ticket
+and Gatekeeper acceptance; only transient network failures receive bounded
+retries. Invalid signatures or rejected submissions stop immediately. A network
+loss between Apple accepting a submission and the ID being persisted remains
+an external-service ambiguity; do not claim exactly-once submission in that gap.
+
+Partial official uploads are recoverable across runners: an existing archive
+may be adopted only when every extracted member, permission and content hash
+matches the newly validated App, including ticket metadata. Container timestamps
+and compression may differ. The existing immutable bytes then enter the receipt;
+payload or permission changes fail without overwriting remote objects.
+
+For this bridge release set CLI and notifier to `1.0.5`. Later CLI-only releases
+keep the notifier version and source unchanged and restore the ready package
+without Apple credentials, ticket queries or Gatekeeper queries. Bump the native
+version whenever native source/build inputs change. Keep the legacy lane at the
+last compatible bridge after versions diverge. Existing legacy clients may need
+a second update check after installing the bridge to reach a later v2 release.
+
+Publication also requires the local `ready.json` and its two notification ZIPs
+from `build/notifier-formal/work` (`EIGENFLUX_NOTIFIER_RELEASE_DIR` overrides
+this directory for manual publication). The same pre-upload guard verifies the
+receipt signature, version, team, archive digests and every packaged App file
+and normalized permission offline. Missing or mismatched proof stops publication;
+a Developer ID signature alone cannot authorize distribution. No extra Apple
+query or receipt format is introduced.

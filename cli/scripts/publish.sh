@@ -59,6 +59,13 @@ while IFS= read -r name; do
   VERSION_FILES+=("$BUILD_DIR/$name")
 done <<< "$ARTIFACTS"
 VERSION_FILES+=("$BUILD_DIR/version.txt" "$BUILD_DIR/release.json" "$BUILD_DIR/package-release.json")
+if [[ -f "$BUILD_DIR/release-v2.json" ]]; then
+  VERSION_FILES+=("$BUILD_DIR/release-v2.json" "$BUILD_DIR/package-release-v2.json")
+fi
+PUBLISH_LEGACY=true
+if [[ -f "$BUILD_DIR/release-v2.json" && "$NOTIFIER_VERSION" != "$CLI_VERSION" ]]; then
+  PUBLISH_LEGACY=false
+fi
 for file in "${VERSION_FILES[@]}"; do
   name=$(basename "$file")
   if aws s3api get-object --bucket "$R2_BUCKET" --key "cli/$CLI_VERSION/$name" \
@@ -98,28 +105,45 @@ while IFS= read -r name; do
   echo -ne "${GREEN}v${CLI_VERSION} ${NC}"
 
   # Also upload to latest/
-  aws s3 cp "$file" "s3://$R2_BUCKET/cli/latest/$name" $S3_ARGS --quiet
+  if [[ "$PUBLISH_LEGACY" == true ]]; then
+    aws s3 cp "$file" "s3://$R2_BUCKET/cli/latest/$name" $S3_ARGS --quiet
+  fi
   echo -e "${GREEN}latest${NC}"
 done <<< "$ARTIFACTS"
 
 python3 "$SCRIPT_DIR/cli-artifacts.py" verify-public "$BUILD_DIR" \
   --base-url "$R2_PUBLIC_URL/cli/$CLI_VERSION"
-python3 "$SCRIPT_DIR/cli-artifacts.py" verify-public "$BUILD_DIR" \
-  --base-url "$R2_PUBLIC_URL/cli/latest"
+if [[ "$PUBLISH_LEGACY" == true ]]; then
+  python3 "$SCRIPT_DIR/cli-artifacts.py" verify-public "$BUILD_DIR" \
+    --base-url "$R2_PUBLIC_URL/cli/latest"
+fi
 python3 "$SCRIPT_DIR/cli-artifacts.py" verify-release-public "$BUILD_DIR" \
   --base-url "$R2_PUBLIC_URL/cli/$CLI_VERSION"
 
-# Advertise the version only after all payloads are available and verified.
-aws s3 cp "$BUILD_DIR/version.txt" "s3://$R2_BUCKET/cli/latest/version.txt" $S3_ARGS --quiet
-aws s3 cp "$BUILD_DIR/release.json" "s3://$R2_BUCKET/cli/latest/release.json" $S3_ARGS --cache-control no-store --quiet
-aws s3 cp "$BUILD_DIR/package-release.json" "s3://$R2_BUCKET/cli/latest/package-release.json" $S3_ARGS --cache-control no-store --quiet
+# Promote signed metadata after immutable payload verification. Old clients stay on
+# the bridge when native versions diverge; v2 clients download versioned payloads.
+if [[ -f "$BUILD_DIR/release-v2.json" ]]; then
+  aws s3 cp "$BUILD_DIR/release-v2.json" "s3://$R2_BUCKET/cli/v2/latest/release.json" $S3_ARGS --cache-control no-store --quiet
+  aws s3 cp "$BUILD_DIR/package-release-v2.json" "s3://$R2_BUCKET/cli/v2/latest/package-release.json" $S3_ARGS --cache-control no-store --quiet
+  aws s3 cp "$BUILD_DIR/version.txt" "s3://$R2_BUCKET/cli/v2/latest/version.txt" $S3_ARGS --cache-control no-store --quiet
+fi
+if [[ "$PUBLISH_LEGACY" == true ]]; then
+  aws s3 cp "$BUILD_DIR/version.txt" "s3://$R2_BUCKET/cli/latest/version.txt" $S3_ARGS --cache-control no-store --quiet
+  aws s3 cp "$BUILD_DIR/release.json" "s3://$R2_BUCKET/cli/latest/release.json" $S3_ARGS --cache-control no-store --quiet
+  aws s3 cp "$BUILD_DIR/package-release.json" "s3://$R2_BUCKET/cli/latest/package-release.json" $S3_ARGS --cache-control no-store --quiet
+fi
 
 # Skills use the serialized Linux Release Skills workflow after CLI publication.
 echo -e "${CYAN}skills: ${GREEN}published separately by Release Skills workflow${NC}"
 
 echo ""
 echo -e "${GREEN}Published to ${R2_PUBLIC_URL}/cli/${CLI_VERSION}/${NC}"
-echo -e "${GREEN}Latest at ${R2_PUBLIC_URL}/cli/latest/${NC}"
+if [[ -f "$BUILD_DIR/release-v2.json" ]]; then
+  echo -e "${GREEN}Latest v2 metadata at ${R2_PUBLIC_URL}/cli/v2/latest/${NC}"
+fi
+if [[ "$PUBLISH_LEGACY" == true ]]; then
+  echo -e "${GREEN}Legacy bridge at ${R2_PUBLIC_URL}/cli/latest/${NC}"
+fi
 if [[ "$PUBLISH_SKILLS_AFTER_CLI" == "true" ]]; then
   bash "$SCRIPT_DIR/release-skills.sh"
 fi
