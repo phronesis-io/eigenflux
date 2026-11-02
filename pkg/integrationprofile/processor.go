@@ -254,7 +254,11 @@ func (p *Processor) Run(ctx context.Context) {
 			if err != nil {
 				continue
 			}
-			if err := p.Store.database(ctx).Model(&State{}).Where("(status = 'pending' AND retry_at <= ?) OR (status = 'processing' AND lease_until <= ?)", now, now).Order("accepted_at").Limit(20).Pluck("agent_id", &ids).Error; err != nil {
+			if err := p.Store.database(ctx).Model(&State{}).
+				Joins("JOIN integration_agents a ON a.agent_id = integration_contexts.agent_id AND a.enabled = true").
+				Joins("JOIN integration_apps p ON p.app_id = a.app_id AND p.enabled = true").
+				Where("(status = 'pending' AND retry_at <= ?) OR (status = 'processing' AND lease_until <= ?)", now, now).
+				Order("integration_contexts.accepted_at").Limit(20).Pluck("integration_contexts.agent_id", &ids).Error; err != nil {
 				continue
 			}
 			for _, id := range ids {

@@ -382,3 +382,7 @@ work, concurrent profile edits, summary privacy in rebuilt Cards, structured
 fields, retry deduplication, disabled processing, and fail-closed storage errors.
 SQLite HTTP tests cover credentials, ownership, strict input, revision conflicts,
 and disabled reads. These checks do not establish production deployment state.
+
+The context worker excludes disabled applications and Agents before limiting its
+candidate queue. Their pending inputs remain resumable; claim and commit still
+recheck current control inside the transaction.
