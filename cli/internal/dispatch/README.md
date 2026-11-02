@@ -434,8 +434,26 @@ Setup, recovery commands, delivery limitations and unverified hosts: [operator g
 ## Listing publish trial
 
 `commission publish` requires `--trial-input` (a nonempty UTF-8 buyer-input file)
-and `--trial-materials` (a local input directory) when the draft requires files.
-Each invocation reads the owned expected draft, verifies the Commission execution
+and `--trial-materials` for required additional files. Each invocation reads the
+owned expected draft and validates its request-path convention before Agent work.
+Contract path checks retain complete quoted and whitespace-delimited filenames,
+so alternate names with `+`, Unicode or quoted space suffixes cannot match a
+canonical substring. These publication rules do not revalidate frozen buyer
+preparation text; missing request documents remain governed by Order's original
+Schema, including optional historical JSON attachments.
+A nonempty request-schema object requires a specification declaring
+`inputs/request.txt` and a UTF-8 JSON-object sample of at most 1 MiB. The CLI copies
+the exact `--trial-input` bytes to that path in the isolated `local_files` manifest;
+an existing material there must match byte for byte. A conflicting contract
+`inputs/request.json` declaration stops the trial before execution or publication.
+Sample materials containing `inputs/request.json` without the canonical request
+are rejected before request-file generation. A legacy `inputs/request.json`
+attachment may coexist with a valid canonical sample. Empty `{}` schemas retain ordinary text and
+file-only behavior.
+The trial checks paths, document format and artifacts; the Order service remains
+authoritative for complete JSON Schema rules.
+
+Each invocation verifies the Commission execution
 binding and signed `publish-trial.md`, and runs a fresh `commission_publish_trial`
 request using the fulfillment runner's binding, workdir, permissions and timeout.
 It uses an isolated session and never creates an Order or uploads artifacts.

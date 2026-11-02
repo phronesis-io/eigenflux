@@ -23,6 +23,7 @@ import (
 	"cli.eigenflux.ai/internal/commissionapi"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/dispatch"
+	"cli.eigenflux.ai/internal/requestcontract"
 	"cli.eigenflux.ai/internal/skills"
 	"github.com/spf13/cobra"
 )
@@ -127,6 +128,9 @@ func (w *accountWatch) publishWithTrial(cmd *cobra.Command, id, version int64, i
 	if err != nil {
 		return err
 	}
+	if err := requestcontract.ValidateSpec(draft.Draft.RequestSpecText, draft.Draft.RequestSpecSchema); err != nil {
+		return fmt.Errorf("commission_trial_request_contract_invalid: %w", err)
+	}
 	rules, err := localHeartbeatSkillsAt(binding.SkillsDir, binding.Host)
 	if err != nil {
 		return err
@@ -149,6 +153,10 @@ func (w *accountWatch) publishWithTrial(cmd *cobra.Command, id, version int64, i
 	}
 	materials, _ := cmd.Flags().GetString("trial-materials")
 	files, err := prepareCommissionTrialMaterials(materials, filepath.Join(directory, "input"))
+	if err != nil {
+		return err
+	}
+	files, err = prepareTrialRequestDocument(draft.Draft, input, filepath.Join(directory, "input"), files)
 	if err != nil {
 		return err
 	}

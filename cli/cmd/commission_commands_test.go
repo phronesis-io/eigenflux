@@ -20,7 +20,7 @@ func setCommissionInputFlags(t *testing.T, command *cobra.Command, fulfillmentSk
 	values := map[string]string{
 		"title":                  "Repository security review",
 		"capability-description": "Review a bounded repository revision",
-		"request-spec-text":      "Provide the revision and repository files",
+		"request-spec-text":      "Provide JSON at inputs/request.txt and repository files",
 		"delivery-spec-text":     "Write the report to outputs/report.md",
 		"tags":                   "security,code-review",
 		"price-fen":              "1000",
