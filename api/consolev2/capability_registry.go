@@ -267,7 +267,7 @@ func capabilitySeeds() []capabilitySeed {
 	for index := range seeds {
 		seed := &seeds[index]
 		if seed.id == "heartbeat.cycle_report" {
-			seed.minCLI = "1.0.3"
+			seed.minCLI = "1.0.4"
 		}
 		if seed.category == "need" {
 			seed.minCLI = "0.0.54"
