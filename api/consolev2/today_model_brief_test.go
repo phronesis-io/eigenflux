@@ -131,6 +131,10 @@ func TestTodayBriefRetriesOverLimitGenerationOnce(t *testing.T) {
 		t.Fatalf("compress attempts=%d", generator.compresses)
 	}
 	generator.compressed = strings.Repeat("仍", todayBriefChineseMaxRunes+1)
+	if got, err := generateNormalizedTodayBrief(context.Background(), generator, todayBriefFacts{}, todayBriefChinese); err != nil || got != generator.compressed {
+		t.Fatalf("wrapped sentence lost: %q %v", got, err)
+	}
+	generator.compressed = strings.Repeat("长", 91)
 	if _, err := generateNormalizedTodayBrief(context.Background(), generator, todayBriefFacts{}, todayBriefChinese); !errors.Is(err, errTodayBriefTooLong) {
 		t.Fatalf("second over-limit result err=%v", err)
 	}

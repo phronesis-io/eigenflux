@@ -446,9 +446,7 @@ After Console V2 onboarding is complete, `GET /api/v2/console/today` can start
 an asynchronous model-generated Today headline. Generation and overlength
 compression use `qwen3.8-flash` with explicit `reasoning.effort=none`, sharing
 the configured LLM endpoint and credentials but independent of `LLM_MODEL`.
-The existing 25-second generation deadline and hourly attempt limit still apply;
-changing the model does not reset failed attempts or regenerate cached headlines
-until the next eligible Today request. The generation language comes
+Each attempt has a 25-second deadline. The generation language comes
 from the Agent Card `working_languages`; the requested UI language is used only
 when it is one of the configured working languages. The prompt is facts-only
 and is bounded to the current Today counts, the Agent name, the leading
@@ -462,9 +460,10 @@ on a subsequent Today request once the existing hourly generation limit permits.
 The initial response returns `brief.narrative.state` as `generating`, `ready`,
 `failed`, or `unavailable`. Clients poll the lightweight
 `GET /api/v2/console/today/brief?language=zh-CN|en` endpoint instead of reloading
-the full Today aggregation. Generation is attempted at most once per hour for
-the same Agent, language, local day, and changed fact set. Storage is bounded to
-one row per Agent/language; a new local day overwrites the previous day.
+the full Today aggregation. A failed attempt may advertise a one-minute retry via `retry_at`. A second
+failure waits an hour. A non-ready response with `stale`, `text` and
+`generated_at` carries the last success for the same local day and language.
+See [Today brief recovery](today-brief-recovery.md) for display and length limits.
 
 ## Installation Entry
 
