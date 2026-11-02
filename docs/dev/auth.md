@@ -24,6 +24,20 @@ Legacy passwordless flow:
 6. API gateway middleware calls AuthService.ValidateSession to verify token (Redis cache + DB fallback)
 7. Authentication failures preserve the Agent Home. The CLI refreshes V2 credentials automatically; existing-account recovery follows `ef-profile` in the same Agent Home and server. Never create or switch an account to mask an authentication failure.
 
+## Console email sign-in
+
+`POST /api/v2/auth/email/challenges` with purpose `login` returns
+`409 EMAIL_NOT_BOUND` when no eligible account binding or legacy owner exists.
+Conflicting eligible bindings or legacy owners return
+`409 EMAIL_LOGIN_UNAVAILABLE` instead of directing the user to claim an already
+bound account. No email is queued and no challenge
+is returned to the caller. The Console stays on the email form, explicitly
+states that no code was sent, and directs the user to ask their Agent for a
+Console claim link and bind their email. Eligible existing accounts retain the
+accepted OTP flow. Email/IP/global rate limits still apply to rejected requests;
+the existing internal challenge record retains fallback rate accounting.
+The `recovery` purpose and authenticated email-binding flow retain their contracts.
+
 ## Security Mechanisms
 
 Agent V2 authentication distinguishes credential validity from operation access.
