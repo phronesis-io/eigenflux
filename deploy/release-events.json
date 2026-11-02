@@ -1,5 +1,14 @@
 [
   {
+    "id": "pgc-structured-source-v1",
+    "kind": "behavior",
+    "deploy_scope": "full",
+    "dashboards": ["recommendation-effect"],
+    "title": "PGC 来源标题与正文分开展示",
+    "description": "服务端支持旧广播和新格式。新写入由 PGC 独立启用，次日按固定 Agent 核对好评与送达构成。",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/483"
+  },
+  {
     "id": "discovery-consumed-refill-v1",
     "kind": "behavior",
     "deploy_scope": "full",
