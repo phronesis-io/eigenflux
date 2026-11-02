@@ -67,6 +67,18 @@ func (acceptanceModels) GetEmbedding(context.Context, string) ([]float32, error)
 }
 func (acceptanceModels) Model() string { return "acceptance-fixed-model" }
 
+type acceptanceFailingModels struct {
+	acceptanceModels
+	calls atomic.Int64
+}
+
+func (m *acceptanceFailingModels) ExtractKeywords(ctx context.Context, text string) ([]string, string, error) {
+	if m.calls.Add(1) <= 3 {
+		return nil, "", fmt.Errorf("isolated transient model failure")
+	}
+	return m.acceptanceModels.ExtractKeywords(ctx, text)
+}
+
 type acceptanceSort struct {
 	sortservice.Client
 	service *legacy.Service
@@ -152,7 +164,11 @@ func acceptanceDatabase(t *testing.T) *gorm.DB {
 // Run this opt-in test alone: it owns the Feed process's global DB/RPC adapters.
 // The actual HTTP gateway, SQL processing, ranking and Feed implementation are
 // exercised; external model/ES services and the Item RPC wire are local adapters.
-func TestEnterpriseSDKAcceptance(t *testing.T) {
+func TestEnterpriseSDKAcceptance(t *testing.T) { enterpriseSDKAcceptance(t, false) }
+
+func TestEnterpriseSDKFailedContextAcceptance(t *testing.T) { enterpriseSDKAcceptance(t, true) }
+
+func enterpriseSDKAcceptance(t *testing.T, failContext bool) {
 	python := os.Getenv("EIGENFLUX_SDK_PYTHON")
 	binary := os.Getenv("EIGENFLUX_SDK_RUNTIME")
 	if python == "" || binary == "" || os.Getenv("INTEGRATION_TEST_PG_DSN") == "" {
@@ -265,6 +281,12 @@ func TestEnterpriseSDKAcceptance(t *testing.T) {
 			t.Error(err)
 		}
 	}}
+	firstRevision := int64(1)
+	failing := &acceptanceFailingModels{}
+	if failContext {
+		processor.Extractor = failing
+		firstRevision = 2
+	}
 	workerDone := make(chan struct{})
 	go func() { defer close(workerDone); processor.Run(ctx) }()
 	defer func() { cancel(); <-workerDone }()
@@ -304,7 +326,7 @@ func TestEnterpriseSDKAcceptance(t *testing.T) {
 	}
 	id := view.Agents[0].AgentID
 	installation := view.Installations[0]
-	if view.Agents[0].AppliedMatchingVersion != 1 || view.Agents[0].EffectivePollIntervalSeconds != 3600 || view.Agents[0].RequestCount < 1 || installation.SDKVersion == "" || installation.SDKState == "" || installation.SDKStateReportedAt == 0 {
+	if view.Agents[0].AppliedMatchingVersion != firstRevision || view.Agents[0].EffectivePollIntervalSeconds != 3600 || view.Agents[0].RequestCount < 1 || installation.SDKVersion == "" || installation.SDKState == "" || installation.SDKStateReportedAt == 0 {
 		t.Fatal(view)
 	}
 	var public string
@@ -431,8 +453,11 @@ func TestEnterpriseSDKAcceptance(t *testing.T) {
 		t.Fatal("old runtime binding retained access", status)
 	}
 	view, err = identity.Inspect(ctx, "reference", id, 0)
-	if err != nil || view.Agents[0].RuntimeVersion != "2.0.1" || view.Agents[0].AppliedMatchingVersion != 2 || view.Applications[0].FeedBatchesTotal != 2 || view.Agents[0].FeedBatchesTotal != 2 {
+	if err != nil || view.Agents[0].RuntimeVersion != "2.0.1" || view.Agents[0].AppliedMatchingVersion != firstRevision+1 || view.Applications[0].FeedBatchesTotal != 2 || view.Agents[0].FeedBatchesTotal != 2 {
 		t.Fatal(view, err)
 	}
-	t.Log(fmt.Sprintf("acceptance passed: registered anonymous Agent, applied context revisions 1/2, consumed distinct Feed batches, denied hourly/disabled/stale-instance reads, and resumed SDK after re-enable; source generations=%d", sourceCalls.Load()))
+	if failContext && failing.calls.Load() != 5 {
+		t.Fatal("terminal failure did not recover with one new context revision", failing.calls.Load())
+	}
+	t.Log(fmt.Sprintf("acceptance passed: registered anonymous Agent, applied context revisions %d/%d, consumed distinct Feed batches, denied hourly/disabled/stale-instance reads, and resumed SDK after re-enable; source generations=%d", firstRevision, firstRevision+1, sourceCalls.Load()))
 }

@@ -49,3 +49,11 @@ acceptance and client auto-update are deferred, not claimed as delivered.
 
 See [contracts, operations and activation](enterprise-integrations.md) and
 [the runnable customer example](../../examples/enterprise_sdk/README.md).
+
+P1 regression coverage includes 40 disabled queue heads (both Agent and app
+controls, pending and expired processing leases) ahead of an enabled context.
+The installed-wheel acceptance also has a terminal-failure variant: three model
+failures exhaust revision 1, unchanged provider input recovers as revision 2 after
+the persisted SDK backoff, and the next changed context applies revision 3.
+SDK unit coverage separately verifies restart backoff and a lost response retry
+using the same new revision.
