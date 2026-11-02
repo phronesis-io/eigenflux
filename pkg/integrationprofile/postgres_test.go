@@ -366,3 +366,68 @@ func TestPostgresWorkerSkipsDisabledQueueHeads(t *testing.T) {
 	}
 	t.Fatal("active context starved behind disabled tasks")
 }
+
+func TestPostgresCardRepairSurvivesFailedRebuildAndRestart(t *testing.T) {
+	s, id := postgresContextStore(t)
+	ctx := context.Background()
+	models := &testModels{}
+	p := &Processor{Store: s, Extractor: models, Embedder: models, Rebuild: func(context.Context, int64) error { return errors.New("isolated rebuild failure") }}
+	if _, err := s.Accept(ctx, id, summaryInput(1, "private roadmap")); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Process(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	state, err := s.Get(ctx, id)
+	if err != nil || state.Status != "ready" {
+		t.Fatal(state, err)
+	}
+	matching, err := LoadMatching(ctx, s.DB, id)
+	if err != nil || matching.CardRetryAt == 0 {
+		t.Fatal(matching, err)
+	}
+	redisServer := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+	defer rdb.Close()
+	calls := 0
+	restarted := &Processor{Store: s, Rebuild: func(ctx context.Context, id int64) error { calls++; return agentcard.Rebuild(ctx, s.DB, rdb, id) }}
+	if err := restarted.RepairCards(ctx); err != nil || calls != 0 {
+		t.Fatal("restart bypassed retry gate", err, calls)
+	}
+	if err := s.DB.Model(&MatchingProfile{}).Where("agent_id=?", id).Update("card_retry_at", 0).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.RepairCards(ctx); err != nil || calls != 1 {
+		t.Fatal(err, calls)
+	}
+	card, err := profiledal.GetAgentCard(s.DB, id)
+	if err != nil || card.SourceVersion < state.ProfileVersion || !strings.Contains(card.PrivateCard, "private-research") {
+		t.Fatal(card, err)
+	}
+	// Fresh Cards are not rebuilt; repairing never repeats extraction/embedding.
+	if err := s.DB.Model(&MatchingProfile{}).Where("agent_id=?", id).Update("card_retry_at", 0).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.RepairCards(ctx); err != nil || calls != 1 || models.extractions != 1 || models.embeddings != 1 {
+		t.Fatal(err, calls, models)
+	}
+	// A newer commit whose process died before any rebuild is also discoverable.
+	p.Rebuild = nil
+	if _, err := s.Accept(ctx, id, summaryInput(2, "new private roadmap")); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Process(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.RepairCards(ctx); err != nil || calls != 2 {
+		t.Fatal("lost rebuild intent", err, calls)
+	}
+	state, err = s.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	card, err = profiledal.GetAgentCard(s.DB, id)
+	if err != nil || card.SourceVersion < state.ProfileVersion {
+		t.Fatal(card, err)
+	}
+}

@@ -111,7 +111,7 @@ func (s *Service) getCard(ctx context.Context, c *app.RequestContext) {
 		PrivateCard string
 		CardVersion int64
 	}
-	err = s.Store.DB.WithContext(bound).Table("agent_cards").Select("public_card,private_card,card_version").Where("agent_id = ?", agent.AgentID).First(&card).Error
+	err = s.Store.DB.WithContext(bound).Table("agent_cards c").Select("c.public_card,c.private_card,c.card_version").Joins("LEFT JOIN integration_matching_profiles m ON m.agent_id=c.agent_id").Where("c.agent_id = ? AND c.source_version >= COALESCE(m.profile_version,0)", agent.AgentID).First(&card).Error
 	if err != nil {
 		fail(c, &integrationidentity.Error{Status: 503, Code: "INTEGRATION_CARD_NOT_READY"})
 		return
