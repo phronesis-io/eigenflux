@@ -25,15 +25,15 @@ func TestNotificationDeviceProjection(t *testing.T) {
 		{"submitted", "", "unknown"},
 	} {
 		row := notificationDeviceRow{DeviceID: strings.Repeat("a", 32), DeviceName: "我的电脑", Platform: "windows", CLIVersion: "0.7.7", Result: tc.result, ErrorCode: tc.code, EventAt: now.UnixMilli()}
-		got := projectNotificationDevice(row, now)
+		got := projectNotificationDevice(row)
 		if got.PermissionState != tc.want || got.Stale || got.DeviceName != row.DeviceName || got.CLIVersion != "0.7.7" {
 			t.Fatalf("%+v: %+v", tc, got)
 		}
-		for _, at := range []time.Time{now.Add(-11 * time.Minute), now.Add(2 * time.Minute)} {
+		for _, at := range []time.Time{now.Add(-11 * time.Minute), now.Add(-8 * 24 * time.Hour), now.Add(2 * time.Minute)} {
 			row.EventAt = at.UnixMilli()
-			got = projectNotificationDevice(row, now)
-			if !got.Stale || got.PermissionState != "unknown" {
-				t.Fatalf("stale or clock-skewed observation counted as current: %+v", got)
+			got = projectNotificationDevice(row)
+			if got.Stale || got.PermissionState != tc.want || got.ObservedAt != at.UnixMilli() {
+				t.Fatalf("latest reported permission changed with observation age: %+v", got)
 			}
 		}
 	}
