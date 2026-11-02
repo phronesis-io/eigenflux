@@ -27,6 +27,6 @@ PY
   /usr/bin/codesign -d --verbose=4 "$app" 2>&1 | grep -q '^Authority=Developer ID Application:' || {
     echo 'Refusing ad-hoc or non-Developer-ID notification helper publication.' >&2; exit 1;
   }
-  /usr/bin/xcrun stapler validate "$app"
+  python3 "$script_dir/stapler-ticket.py" validate "$app"
   /usr/sbin/spctl --assess --type execute "$app"
 done

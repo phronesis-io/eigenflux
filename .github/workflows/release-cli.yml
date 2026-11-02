@@ -31,6 +31,7 @@ jobs:
           go test ./cmd/clirelease ./tests
       - name: Test CLI artifact publication
         run: |
+          python3 -m unittest discover -s tests/cli_release -p 'test_stapler_ticket.py'
           python3 -m unittest discover -s tests/cli_release -p 'test_cli_artifacts.py'
           python3 -m unittest discover -s tests/cli_release -p 'test_cli_packages.py'
           aws s3api put-object --generate-cli-skeleton input | python3 -c 'import json,sys; assert "IfNoneMatch" in json.load(sys.stdin)'
@@ -54,7 +55,7 @@ jobs:
             app="build/notifier-cache/darwin-$arch/EigenFlux Notifications.app"
             codesign --verify --deep --strict "$app"
             codesign -d --verbose=4 "$app" 2>&1 | grep -q '^Authority=Developer ID Application:'
-            xcrun stapler validate "$app"
+            python3 cli/scripts/stapler-ticket.py validate "$app"
             spctl --assess --type execute "$app"
             test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = '${{ steps.notifier.outputs.version }}'
           done
