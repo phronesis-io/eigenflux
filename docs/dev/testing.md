@@ -350,3 +350,15 @@ the local API accepts feedback but before the response reaches the client. The
 restarted CLI drains the durable queue; the real worker stores one feedback row
 and increments the score counter once. It uses an isolated Agent Home and local
 HTTP proxy, with no host delivery or production writes.
+
+## Native CLI self-update regressions
+
+From `cli/`, run `go test ./internal/selfupdate -count=1`. The CLI cross-platform
+workflow includes this package and triggers for changes to its sources. Windows
+runners exercise complete signed-package updates with real handles preventing
+staging-directory rename: temporary release permits activation, persistent
+refusal stops within the two-second retry window, and cancellation preserves
+the old release and pointer. Existing native real-CLI tests cover consecutive
+complete updates through the stable entry. macOS runners verify bounded local
+tool diagnostics, plist errors, helper version mismatch and invalid helper
+signatures; every validation failure leaves the package unactivated.
