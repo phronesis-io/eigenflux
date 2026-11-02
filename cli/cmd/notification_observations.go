@@ -49,25 +49,13 @@ func observedNotificationCLIFrom(source string) *desktopnotify.Notifier {
 
 func observedDesktopNotifierAt(home, server, agent, source string) *desktopnotify.Notifier {
 	return desktopnotify.NewWithObserver(func(e desktopnotify.Observation) {
-		if err := recordNotificationObservationAt(home, server, agent, source, e); err != nil {
+		e.EventID, e.AgentID, e.Source = maintenance.NewID(), agent, source
+		e.CLIVersion, e.CLICommit = version, commit
+		if err := appendNotificationObservation(home, server, e); err != nil {
 			// Telemetry failure must not turn a submitted notification into a retry.
 			fmt.Fprintln(os.Stderr, "Local notification observation could not be saved.")
 		}
 	})
-}
-
-func recordNotificationObservationAt(home, server, agent, source string, e desktopnotify.Observation) error {
-	e.EventID, e.AgentID, e.Source = maintenance.NewID(), agent, source
-	e.CLIVersion, e.CLICommit = version, commit
-	if e.Action == "status" && (e.Platform == "darwin" || e.Platform == "windows") {
-		device, err := notificationDeviceAt(home)
-		if err != nil {
-			return err
-		}
-		hostname, _ := os.Hostname()
-		e.DeviceID, e.DeviceName = device.ID, notificationDeviceName(hostname, e.Platform)
-	}
-	return appendNotificationObservation(home, server, e)
 }
 
 // Import only records pinned to this account. The sole unbound handoff is setup
