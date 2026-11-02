@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"eigenflux_server/pkg/agentcard"
 	"eigenflux_server/pkg/integrationidentity"
@@ -301,4 +303,66 @@ func TestPostgresDisableDuringExtractionStopsEmbedding(t *testing.T) {
 	if matching != nil || err != nil {
 		t.Fatal(matching, err)
 	}
+}
+
+// Exercise the actual worker queue against PostgreSQL, including stopped apps
+// and expired leases. Disabled tasks must remain resumable without blocking peers.
+func TestPostgresWorkerSkipsDisabledQueueHeads(t *testing.T) {
+	s, active := postgresContextStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if _, err := s.Accept(ctx, active, summaryInput(1, "active context")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB.Exec("UPDATE integration_contexts SET accepted_at = 100 WHERE agent_id = ?", active).Error; err != nil {
+		t.Fatal(err)
+	}
+	// Cloned fact tables intentionally have no FK dependencies outside this schema.
+	if err := s.DB.Exec(`INSERT INTO integration_apps(app_id,name,enabled,credential_hash,max_agents,created_at,updated_at) VALUES('disabled','Disabled',false,?,100,0,0)`, strings.Repeat("d", 64)).Error; err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 40; i++ {
+		id := active + int64(i)
+		owner := "partner"
+		enabled := false
+		if i > 20 {
+			owner = "disabled"
+			enabled = true
+		}
+		if err := s.DB.Exec(`INSERT INTO agents(agent_id,email,agent_name,bio,created_at,updated_at) VALUES(?,?,?,'',0,0)`, id, fmt.Sprintf("disabled-%d@test.invalid", id), "Disabled").Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := s.DB.Exec(`INSERT INTO integration_agents(agent_id,app_id,external_agent_id,enabled,runtime_name,runtime_version,created_at,updated_at) VALUES(?,?,?,?,'test','1',0,0)`, id, owner, fmt.Sprint(id), enabled).Error; err != nil {
+			t.Fatal(err)
+		}
+		status := "pending"
+		if i%2 == 0 {
+			status = "processing"
+		}
+		if err := s.DB.Create(&State{AgentID: id, SourceRevision: 1, Generation: 1, ContentHash: "hash", Payload: `{}`, Status: status, AcceptedAt: int64(i), LeaseUntil: 0}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Missing model dependencies fail only after a successful claim. Attempts
+	// proves the real Run loop reached the active task behind all 40 queue heads.
+	p := &Processor{Store: s}
+	done := make(chan struct{})
+	go func() { defer close(done); p.Run(ctx) }()
+	defer func() { cancel(); <-done }()
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		state, err := s.Get(ctx, active)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if state.Attempts > 0 {
+			var claimed int64
+			if err := s.DB.Model(&State{}).Where("agent_id <> ? AND attempts > 0", active).Count(&claimed).Error; err != nil || claimed != 0 {
+				t.Fatal("disabled tasks were claimed", claimed, err)
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("active context starved behind disabled tasks")
 }
