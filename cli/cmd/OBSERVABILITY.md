@@ -29,7 +29,9 @@ codes and missing evidence retain their original meaning.
 
 # Outer-loop setup and native scheduler readback
 
-`watch start` records a `watch` attempt before platform/host checks. Bounded
+`watch start` and the shared upgrade/post-authentication recovery entry record
+a `watch` attempt before platform/host checks. Recovery retains its existing
+return status while reporting unsupported platforms and setup failures. Bounded
 phases distinguish preflight, identity, Skills, host discovery/probe, task
 preparation, binding and task startup. Failures retain the original local
 error and queue only its stage/category. Disabled tasks remain skipped;
@@ -37,6 +39,13 @@ installation does not claim runtime readiness or model work. Unauthenticated
 attempts print a bounded local-only diagnostic without Agent attribution.
 Authenticated failures use the existing identity-pinned queue and offline retry;
 observation failures never change the setup result.
+
+Automatic recovery and commands invoked with `--origin heartbeat` record
+`trigger: auto`; owner-requested commands record `trigger: manual`. Recovery
+passes its recorder through WorkBuddy setup and task restoration, then restores
+the caller context. Each new phase starts a fresh outcome; earlier setup success
+cannot hide a later phase failure. A confirmed installation remains installed
+when subsequent runtime-readiness checks time out, without claiming live health.
 
 `heartbeat scheduler-report --stdin` records host-reported native API readback
 for an existing authenticated Agent. Input carries `observed_at` (Unix ms),

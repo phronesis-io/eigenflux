@@ -46,6 +46,13 @@ type updateRecoveryDeps struct {
 }
 
 func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding *dispatch.Binding, cli string, deps updateRecoveryDeps) updateWatchRecovery {
+	observation, _ := ctx.Value(watchSetupObservationKey{}).(*outerLoopRecorder)
+	stage := func(phase string) {
+		if observation != nil {
+			observation.stage(phase)
+		}
+	}
+	stage("identity")
 	r := updateWatchRecovery{Status: "blocked", Mode: "notifications_only", TargetCommit: commit}
 	if binding != nil {
 		if !sameBindingIdentity(*binding, expected) {
@@ -60,6 +67,7 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 		return r
 	}
 
+	stage("task_prepare")
 	running := deps.live(expected, binding == nil).Running
 	// Wait for admitted work without killing the owner or replacing its rules.
 	if running && deps.busy != nil {
@@ -91,6 +99,7 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 			return r
 		}
 	}
+	stage("skills")
 	if err := deps.sync(expected); err != nil {
 		r.Reason = "skills_not_ready"
 		var skillsErr *upgradeSkillsError
@@ -99,11 +108,13 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 		}
 		return r
 	}
+	stage("identity")
 	if err := deps.verify(); err != nil {
 		r.Reason = "identity_changed"
 		return r
 	}
 	r.SkillsVerified = true
+	stage("task_start")
 	if !running {
 		result, err := deps.start(ctx, watchservice.NotificationTask{CLI: cli, Home: expected.Home, Server: expected.Server, Scope: expected.Scope, AgentID: expected.AgentID, PrincipalID: expected.PrincipalID, Dispatch: binding != nil})
 		if err != nil {
@@ -111,10 +122,16 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 			return r
 		}
 		if result.Status == "skipped_disabled" {
+			if observation != nil {
+				observation.result, observation.code, observation.knownOutcome = "skipped", "user_disabled", true
+			}
 			r.Status = "skipped"
 			r.Reason = "owner_disabled"
 			return r
 		}
+	}
+	if observation != nil {
+		observation.result, observation.knownOutcome = "installed", true
 	}
 	r.Status = "starting"
 	ticker := time.NewTicker(250 * time.Millisecond)
@@ -173,14 +190,42 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 }
 
 func recoverWatchAfterUpdate(cmd *cobra.Command, cfg *config.Config, manual bool) updateWatchRecovery {
-	r := updateWatchRecovery{Status: "skipped", Reason: "platform_not_supported"}
+	return recoverWatchAfterUpdateOnPlatform(cmd, cfg, manual, runtime.GOOS)
+}
+
+func recoverWatchAfterUpdateOnPlatform(cmd *cobra.Command, cfg *config.Config, manual bool, goos string) (r updateWatchRecovery) {
+	observation := newOuterLoopRecorderWithTrigger(cmd, "watch", "preflight", outerLoopTrigger(manual))
+	previous := cmd.Context()
+	parent := previous
+	if parent == nil {
+		parent = context.Background()
+	}
+	cmd.SetContext(context.WithValue(parent, watchSetupObservationKey{}, observation))
+	defer func() {
+		switch r.Reason {
+		case "platform_not_supported":
+			watchSetupOutcome(cmd, "blocked", "unsupported_platform")
+		case "owner_setup_disabled", "owner_disabled":
+			watchSetupOutcome(cmd, "skipped", "user_disabled")
+		case "pending_auth":
+			watchSetupOutcome(cmd, "skipped", "pending_auth")
+		}
+		var err error
+		if r.Status != "ready" && !observation.knownOutcome {
+			err = errors.New("watch recovery incomplete")
+		}
+		observation.finish(err)
+		cmd.SetContext(previous)
+	}()
+	r = updateWatchRecovery{Status: "skipped", Reason: "platform_not_supported"}
 	if os.Getenv("EIGENFLUX_SKIP_AGENT_SETUP") == "1" {
 		r.Reason = "owner_setup_disabled"
 		return r
 	}
-	if runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
+	if goos != "darwin" && goos != "windows" {
 		return r
 	}
+	watchSetupStage(cmd, "identity")
 	if cfg == nil {
 		r.Reason = "pending_auth"
 		if markWatchRecoveryPending(cfg) != nil {
@@ -231,6 +276,7 @@ func recoverWatchAfterUpdate(cmd *cobra.Command, cfg *config.Config, manual bool
 		}
 		return nil
 	}
+	watchSetupStage(cmd, "binding")
 	b, err := dispatch.ReadBinding(expected.Home, expected.Server)
 	if err == nil {
 		binding = &b
@@ -240,6 +286,7 @@ func recoverWatchAfterUpdate(cmd *cobra.Command, cfg *config.Config, manual bool
 		return r
 	}
 	// A host owns its existing binding. Do not discover or rebind another installed Agent.
+	watchSetupStage(cmd, "task_prepare")
 	cli, err := stableInstalledExecutable()
 	if err != nil {
 		r.Status = "blocked"
@@ -251,6 +298,7 @@ func recoverWatchAfterUpdate(cmd *cobra.Command, cfg *config.Config, manual bool
 	if binding == nil {
 		expected.Host = clientMetaForServerName(expected.Server).Host
 		if expected.Host == "workbuddy" {
+			watchSetupStage(cmd, "skills")
 			if err := syncRules(expected); err != nil {
 				r.Status = "blocked"
 				r.Reason = "skills_not_ready"
@@ -279,6 +327,7 @@ func recoverWatchAfterUpdate(cmd *cobra.Command, cfg *config.Config, manual bool
 				r.Reason = "owner_disabled"
 				return r
 			}
+			watchSetupStage(cmd, "binding")
 			b, err = dispatch.ReadBinding(expected.Home, expected.Server)
 			if err != nil {
 				r.Status = "blocked"
@@ -288,11 +337,7 @@ func recoverWatchAfterUpdate(cmd *cobra.Command, cfg *config.Config, manual bool
 			binding = &b
 		}
 	}
-	parent := cmd.Context()
-	if parent == nil {
-		parent = context.Background()
-	}
-	ctx, cancel := context.WithTimeout(parent, 20*time.Second)
+	ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
 	defer cancel()
 	r = recoverUpdatedWatch(ctx, expected, binding, cli, updateRecoveryDeps{idle: func() error {
 		release, err := watchstate.Acquire(expected.Home, expected.Server)

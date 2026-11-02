@@ -23,7 +23,18 @@ type outerLoopRecorder struct {
 }
 
 func newOuterLoopRecorder(cmd *cobra.Command, component, phase string) *outerLoopRecorder {
-	o := &outerLoopRecorder{r: newMaintenanceRecorder(activeServerName(), component, "manual", "", cmd.ErrOrStderr()), environment: maintenance.DetectRuntimeEnvironment(), result: "installed"}
+	return newOuterLoopRecorderWithTrigger(cmd, component, phase, outerLoopTrigger(true))
+}
+
+func outerLoopTrigger(manual bool) string {
+	if !manual || originFlag == publishOriginHeartbeat {
+		return "auto"
+	}
+	return "manual"
+}
+
+func newOuterLoopRecorderWithTrigger(cmd *cobra.Command, component, phase, trigger string) *outerLoopRecorder {
+	o := &outerLoopRecorder{r: newMaintenanceRecorder(activeServerName(), component, trigger, "", cmd.ErrOrStderr()), environment: maintenance.DetectRuntimeEnvironment(), result: "installed"}
 	o.stage(phase)
 	return o
 }
@@ -38,6 +49,7 @@ func (o *outerLoopRecorder) record(result, code string, scheduler *maintenance.S
 
 func (o *outerLoopRecorder) stage(phase string) {
 	o.phase = phase
+	o.result, o.code, o.knownOutcome = "installed", "", false
 	o.record("started", "", nil)
 }
 

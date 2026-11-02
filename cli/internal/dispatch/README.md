@@ -748,8 +748,10 @@ invocation. Resource lookup and installer-source copies retain the running path.
 
 ## Outer-loop setup and scheduler receipts
 
-`watch start` records its attempt before platform checks and preserves bounded
-failure stages through host discovery, task preparation and startup.
+`watch start` and shared upgrade/post-authentication recovery record attempts
+before platform checks and preserve bounded failure stages through host
+discovery, task preparation and startup. Automatic recovery and heartbeat-origin
+readback use `trigger: auto`; owner-requested commands use `trigger: manual`.
 `heartbeat scheduler-report --stdin` projects fresh host-native task readback
 after authentication; verified migrations also attach environment and task-state
 hashes. These observations never install, enable or restart a task, assert

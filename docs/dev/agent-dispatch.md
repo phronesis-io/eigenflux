@@ -366,8 +366,10 @@ unavailable. Do not replay a stale intake after its order advances to payment.
 
 ## Outer-loop setup observations
 
-`watch start` reports bounded setup phases before platform validation, including
-unsupported Linux desktop-watch attempts. Existing account/endpoint fencing and
+`watch start` and shared upgrade/post-authentication recovery report bounded
+setup phases before platform validation, including unsupported Linux desktop-watch
+attempts. Automatic recovery and heartbeat-origin readback are classified as
+`auto`; owner-requested commands are `manual`. Existing account/endpoint fencing and
 offline maintenance delivery apply; missing authentication remains local-only.
 Original command outcomes, user-disabled tasks and admission stay unchanged.
 
