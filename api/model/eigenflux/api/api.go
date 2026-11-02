@@ -5187,6 +5187,8 @@ type FeedItem struct {
 	RawContentTruncated *bool    `thrift:"raw_content_truncated,9,optional" form:"raw_content_truncated" json:"raw_content_truncated,omitempty" query:"raw_content_truncated"`
 	CreatedAt           int64    `thrift:"created_at,10,required" form:"created_at,required" json:"created_at,required" query:"created_at,required"`
 	DisplayName         string   `thrift:"display_name,11,required" form:"display_name,required" json:"display_name,required" query:"display_name,required"`
+	SourceTitle         *string  `thrift:"source_title,12,optional" form:"source_title" json:"source_title,omitempty" query:"source_title"`
+	SourceTimestamp     *string  `thrift:"source_timestamp,13,optional" form:"source_timestamp" json:"source_timestamp,omitempty" query:"source_timestamp"`
 }
 
 func NewFeedItem() *FeedItem {
@@ -5270,6 +5272,24 @@ func (p *FeedItem) GetDisplayName() (v string) {
 	return p.DisplayName
 }
 
+var FeedItem_SourceTitle_DEFAULT string
+
+func (p *FeedItem) GetSourceTitle() (v string) {
+	if !p.IsSetSourceTitle() {
+		return FeedItem_SourceTitle_DEFAULT
+	}
+	return *p.SourceTitle
+}
+
+var FeedItem_SourceTimestamp_DEFAULT string
+
+func (p *FeedItem) GetSourceTimestamp() (v string) {
+	if !p.IsSetSourceTimestamp() {
+		return FeedItem_SourceTimestamp_DEFAULT
+	}
+	return *p.SourceTimestamp
+}
+
 var fieldIDToName_FeedItem = map[int16]string{
 	1:  "item_id",
 	2:  "summary",
@@ -5282,6 +5302,8 @@ var fieldIDToName_FeedItem = map[int16]string{
 	9:  "raw_content_truncated",
 	10: "created_at",
 	11: "display_name",
+	12: "source_title",
+	13: "source_timestamp",
 }
 
 func (p *FeedItem) IsSetSummary() bool {
@@ -5306,6 +5328,14 @@ func (p *FeedItem) IsSetRawContent() bool {
 
 func (p *FeedItem) IsSetRawContentTruncated() bool {
 	return p.RawContentTruncated != nil
+}
+
+func (p *FeedItem) IsSetSourceTitle() bool {
+	return p.SourceTitle != nil
+}
+
+func (p *FeedItem) IsSetSourceTimestamp() bool {
+	return p.SourceTimestamp != nil
 }
 
 func (p *FeedItem) Read(iprot thrift.TProtocol) (err error) {
@@ -5422,6 +5452,22 @@ func (p *FeedItem) Read(iprot thrift.TProtocol) (err error) {
 					goto ReadFieldError
 				}
 				issetDisplayName = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 12:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField12(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 13:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField13(iprot); err != nil {
+					goto ReadFieldError
+				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -5613,6 +5659,28 @@ func (p *FeedItem) ReadField11(iprot thrift.TProtocol) error {
 	p.DisplayName = _field
 	return nil
 }
+func (p *FeedItem) ReadField12(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.SourceTitle = _field
+	return nil
+}
+func (p *FeedItem) ReadField13(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.SourceTimestamp = _field
+	return nil
+}
 
 func (p *FeedItem) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -5662,6 +5730,14 @@ func (p *FeedItem) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField11(oprot); err != nil {
 			fieldId = 11
+			goto WriteFieldError
+		}
+		if err = p.writeField12(oprot); err != nil {
+			fieldId = 12
+			goto WriteFieldError
+		}
+		if err = p.writeField13(oprot); err != nil {
+			fieldId = 13
 			goto WriteFieldError
 		}
 	}
@@ -5887,6 +5963,44 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 11 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 11 end error: ", p), err)
+}
+
+func (p *FeedItem) writeField12(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSourceTitle() {
+		if err = oprot.WriteFieldBegin("source_title", thrift.STRING, 12); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.SourceTitle); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 12 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 12 end error: ", p), err)
+}
+
+func (p *FeedItem) writeField13(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSourceTimestamp() {
+		if err = oprot.WriteFieldBegin("source_timestamp", thrift.STRING, 13); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.SourceTimestamp); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 13 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 13 end error: ", p), err)
 }
 
 func (p *FeedItem) String() string {
@@ -7033,6 +7147,8 @@ type ItemDetail struct {
 	Content          *string  `thrift:"content,11,optional" form:"content" json:"content,omitempty" query:"content"`
 	URL              *string  `thrift:"url,12,optional" form:"url" json:"url,omitempty" query:"url"`
 	UpdatedAt        int64    `thrift:"updated_at,13,required" form:"updated_at,required" json:"updated_at,required" query:"updated_at,required"`
+	SourceTitle      *string  `thrift:"source_title,14,optional" form:"source_title" json:"source_title,omitempty" query:"source_title"`
+	SourceTimestamp  *string  `thrift:"source_timestamp,15,optional" form:"source_timestamp" json:"source_timestamp,omitempty" query:"source_timestamp"`
 }
 
 func NewItemDetail() *ItemDetail {
@@ -7144,6 +7260,24 @@ func (p *ItemDetail) GetUpdatedAt() (v int64) {
 	return p.UpdatedAt
 }
 
+var ItemDetail_SourceTitle_DEFAULT string
+
+func (p *ItemDetail) GetSourceTitle() (v string) {
+	if !p.IsSetSourceTitle() {
+		return ItemDetail_SourceTitle_DEFAULT
+	}
+	return *p.SourceTitle
+}
+
+var ItemDetail_SourceTimestamp_DEFAULT string
+
+func (p *ItemDetail) GetSourceTimestamp() (v string) {
+	if !p.IsSetSourceTimestamp() {
+		return ItemDetail_SourceTimestamp_DEFAULT
+	}
+	return *p.SourceTimestamp
+}
+
 var fieldIDToName_ItemDetail = map[int16]string{
 	1:  "item_id",
 	2:  "summary",
@@ -7158,6 +7292,8 @@ var fieldIDToName_ItemDetail = map[int16]string{
 	11: "content",
 	12: "url",
 	13: "updated_at",
+	14: "source_title",
+	15: "source_timestamp",
 }
 
 func (p *ItemDetail) IsSetSummary() bool {
@@ -7198,6 +7334,14 @@ func (p *ItemDetail) IsSetContent() bool {
 
 func (p *ItemDetail) IsSetURL() bool {
 	return p.URL != nil
+}
+
+func (p *ItemDetail) IsSetSourceTitle() bool {
+	return p.SourceTitle != nil
+}
+
+func (p *ItemDetail) IsSetSourceTimestamp() bool {
+	return p.SourceTimestamp != nil
 }
 
 func (p *ItemDetail) Read(iprot thrift.TProtocol) (err error) {
@@ -7326,6 +7470,22 @@ func (p *ItemDetail) Read(iprot thrift.TProtocol) (err error) {
 					goto ReadFieldError
 				}
 				issetUpdatedAt = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 14:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField14(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 15:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField15(iprot); err != nil {
+					goto ReadFieldError
+				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -7541,6 +7701,28 @@ func (p *ItemDetail) ReadField13(iprot thrift.TProtocol) error {
 	p.UpdatedAt = _field
 	return nil
 }
+func (p *ItemDetail) ReadField14(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.SourceTitle = _field
+	return nil
+}
+func (p *ItemDetail) ReadField15(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.SourceTimestamp = _field
+	return nil
+}
 
 func (p *ItemDetail) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -7598,6 +7780,14 @@ func (p *ItemDetail) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField13(oprot); err != nil {
 			fieldId = 13
+			goto WriteFieldError
+		}
+		if err = p.writeField14(oprot); err != nil {
+			fieldId = 14
+			goto WriteFieldError
+		}
+		if err = p.writeField15(oprot); err != nil {
+			fieldId = 15
 			goto WriteFieldError
 		}
 	}
@@ -7873,6 +8063,44 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 13 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 13 end error: ", p), err)
+}
+
+func (p *ItemDetail) writeField14(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSourceTitle() {
+		if err = oprot.WriteFieldBegin("source_title", thrift.STRING, 14); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.SourceTitle); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 14 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 14 end error: ", p), err)
+}
+
+func (p *ItemDetail) writeField15(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSourceTimestamp() {
+		if err = oprot.WriteFieldBegin("source_timestamp", thrift.STRING, 15); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.SourceTimestamp); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 15 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 15 end error: ", p), err)
 }
 
 func (p *ItemDetail) String() string {

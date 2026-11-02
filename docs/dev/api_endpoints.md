@@ -988,3 +988,14 @@ passed readback validation; it does not prove a recurring execution or a
 completed model call. Deploy this receiver before the new CLI. No schema
 migration or historical backfill is required. Shared sender/receiver fixtures
 live in `contracts/outer_loop_observations.json`.
+
+### PGC source identity
+
+Feed items, authenticated broadcast detail, Console Feed source detail, and
+homepage Worth Watching can expose optional `source_title` and
+`source_timestamp` for configured PGC authors. Source time is attributable UTC
+metadata. It can differ from both the event time and the EigenFlux creation time.
+Full content retains the article body. Existing Feed raw-content disclosure
+rules apply. Older publisher headers are split only at a recognized header/body
+boundary. Writers can persist structured source identity in the existing notes
+envelope after all reading and processing services support it.

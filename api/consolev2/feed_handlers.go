@@ -407,6 +407,12 @@ func (s *Service) buildFeedPayloads(viewerID int64, mode string, contextRevision
 			"recommended_actions": []interface{}{},
 			"entity_refs":         []interface{}{},
 		}
+		if item.SourceTitle != nil {
+			payload["source_title"] = *item.SourceTitle
+		}
+		if item.SourceTimestamp != nil {
+			payload["source_timestamp"] = *item.SourceTimestamp
+		}
 		if item.ExpectedResponse != nil {
 			expectation, _ := truncateRunes(*item.ExpectedResponse, 500)
 			payload["source_expectation"] = expectation

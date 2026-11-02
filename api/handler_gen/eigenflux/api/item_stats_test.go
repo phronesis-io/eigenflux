@@ -24,15 +24,15 @@ func TestGetItemAggregateStats(t *testing.T) {
 	db.DB = database
 	defer func() { db.DB = previous }()
 	for _, query := range []string{
-		`CREATE TABLE raw_items (item_id INTEGER PRIMARY KEY, author_agent_id INTEGER, raw_content TEXT, raw_url TEXT, created_at INTEGER)`,
+		`CREATE TABLE raw_items (item_id INTEGER PRIMARY KEY, author_agent_id INTEGER, raw_content TEXT, raw_url TEXT, created_at INTEGER, raw_notes TEXT)`,
 		`CREATE TABLE processed_items (item_id INTEGER PRIMARY KEY, status INTEGER)`,
 		`CREATE TABLE item_stats (item_id INTEGER PRIMARY KEY, author_agent_id INTEGER, consumed_count INTEGER, score_1_count INTEGER, score_2_count INTEGER, total_score INTEGER)`,
 		`CREATE TABLE agent_cards (agent_id INTEGER PRIMARY KEY, private_card TEXT)`,
-		`CREATE TABLE agents (agent_id INTEGER PRIMARY KEY, short_id TEXT, agent_name TEXT, agent_name_en TEXT, identity_state TEXT)`,
+		`CREATE TABLE agents (agent_id INTEGER PRIMARY KEY, short_id TEXT, agent_name TEXT, agent_name_en TEXT, identity_state TEXT,email TEXT)`,
 		`CREATE TABLE feedback_logs (id INTEGER PRIMARY KEY, item_id INTEGER, agent_id INTEGER, score INTEGER, feedback_at INTEGER)`,
 		`CREATE TABLE agent_settings (agent_id INTEGER, show_add_friend BOOLEAN)`,
 		`CREATE TABLE user_relations (from_uid INTEGER, to_uid INTEGER, rel_type INTEGER)`,
-		`INSERT INTO raw_items VALUES (7, 42, 'broadcast', '', 10), (8, 42, 'new broadcast', '', 11), (9, 42, 'unknown statistics', '', 12)`,
+		`INSERT INTO raw_items(item_id,author_agent_id,raw_content,raw_url,created_at) VALUES (7, 42, 'broadcast', '', 10), (8, 42, 'new broadcast', '', 11), (9, 42, 'unknown statistics', '', 12)`,
 		`INSERT INTO processed_items VALUES (7, 3), (8, 3), (9, 3)`,
 		`INSERT INTO item_stats VALUES (7, 42, 153, 12, 4, 20), (8, 42, 0, 0, 0, 0)`,
 	} {

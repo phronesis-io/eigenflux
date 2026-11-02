@@ -2,6 +2,8 @@ package consolev2
 
 import (
 	"context"
+	"eigenflux_server/pkg/config"
+	"eigenflux_server/pkg/pgcsource"
 	"errors"
 	"net/http"
 	"strconv"
@@ -36,13 +38,16 @@ func (s *Service) getFeedSourceItem(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	var source struct {
+		RawNotes      string
+		AuthorEmail   string
 		ContentClass  string `gorm:"column:content_class"`
 		AuthorAgentID int64  `gorm:"column:author_agent_id"`
 	}
-	if err := s.db.Raw(`SELECT exposure.content_class, raw.author_agent_id
+	if err := s.db.Raw(`SELECT exposure.content_class, raw.author_agent_id, raw.raw_notes, a.email AS author_email
 		FROM agent_feed_exposures exposure
 		JOIN raw_items raw ON raw.item_id = exposure.source_id
-		WHERE exposure.agent_id = ? AND exposure.source_type = ? AND exposure.source_id = ?
+		LEFT JOIN agents a ON a.agent_id=raw.author_agent_id
+ WHERE exposure.agent_id = ? AND exposure.source_type = ? AND exposure.source_id = ?
 		LIMIT 1`, agentIDValue, sourceType, sourceID).Scan(&source).Error; err != nil {
 		fail(c, http.StatusInternalServerError, "FEED_SOURCE_READ_FAILED", "could not authorize Feed source", nil)
 		return
@@ -60,7 +65,12 @@ func (s *Service) getFeedSourceItem(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusInternalServerError, "FEED_SOURCE_READ_FAILED", "could not read Feed source", nil)
 		return
 	}
-	content, truncated := truncateRunes(item.RawContent, 120_000)
+	body := item.RawContent
+	var fields pgcsource.Fields
+	if config.EmailMatchesAnySuffix(source.AuthorEmail, s.pgcEmailSuffixes) {
+		body, fields = pgcsource.Read(body, source.RawNotes)
+	}
+	content, truncated := truncateRunes(body, 120_000)
 	var authorIdentity interface{}
 	if source.ContentClass == "ugc" && source.AuthorAgentID > 0 {
 		identities, identityErr := s.resolveIdentityAssertions([]int64{source.AuthorAgentID})
@@ -75,7 +85,7 @@ func (s *Service) getFeedSourceItem(_ context.Context, c *app.RequestContext) {
 			}
 		}
 	}
-	reply(c, http.StatusOK, map[string]interface{}{
+	payload := map[string]interface{}{
 		"source_ref":    map[string]interface{}{"type": sourceType, "id": strconv.FormatInt(sourceID, 10)},
 		"content_class": source.ContentClass, "author_identity": authorIdentity,
 		"content": content, "content_truncated": truncated, "url": item.RawURL,
@@ -83,5 +93,12 @@ func (s *Service) getFeedSourceItem(_ context.Context, c *app.RequestContext) {
 		"domains": splitMetadataValues(item.Domains), "keywords": splitMetadataValues(item.Keywords),
 		"source_type": item.SourceType, "expected_response": item.ExpectedResponse,
 		"updated_at": item.UpdatedAt,
-	})
+	}
+	if fields.Title != "" {
+		payload["source_title"] = fields.Title
+	}
+	if fields.Timestamp != "" {
+		payload["source_timestamp"] = fields.Timestamp
+	}
+	reply(c, http.StatusOK, payload)
 }

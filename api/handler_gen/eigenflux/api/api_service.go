@@ -4,6 +4,7 @@ import (
 	"context"
 	"eigenflux_server/pkg/cache"
 	"eigenflux_server/pkg/cache/keys"
+	"eigenflux_server/pkg/pgcsource"
 	"errors"
 	"fmt"
 	"net"
@@ -844,6 +845,12 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 		if it.RawContentTruncated != nil {
 			item["raw_content_truncated"] = *it.RawContentTruncated
 		}
+		if it.SourceTitle != nil {
+			item["source_title"] = *it.SourceTitle
+		}
+		if it.SourceTimestamp != nil {
+			item["source_timestamp"] = *it.SourceTimestamp
+		}
 		applyFeedItemProvenance(item, it)
 		items = append(items, item)
 	}
@@ -964,9 +971,12 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 		CreatedAt         int64  `gorm:"column:created_at"`
 		CountryCode       string `gorm:"column:country_code"`
 		ViewerCountryCode string `gorm:"column:viewer_country_code"`
+		RawNotes          string
+		AuthorEmail       string
 	}
 	if err := db.DB.Table("raw_items AS raw").
-		Select("raw.created_at, COALESCE(card.private_card->>'geo', '') AS country_code, COALESCE(viewer_card.private_card->>'geo', '') AS viewer_country_code").
+		Select("raw.created_at, raw.raw_notes, author.email AS author_email, COALESCE(card.private_card->>'geo', '') AS country_code, COALESCE(viewer_card.private_card->>'geo', '') AS viewer_country_code").
+		Joins("LEFT JOIN agents author ON author.agent_id = raw.author_agent_id").
 		Joins("LEFT JOIN agent_cards card ON card.agent_id = raw.author_agent_id").
 		Joins("LEFT JOIN agent_cards viewer_card ON viewer_card.agent_id = ?", agentID).
 		Where("raw.item_id = ?", req.ItemID).Scan(&metadata).Error; err != nil {
@@ -994,6 +1004,16 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 		"content":             item.RawContent,
 		"url":                 item.RawURL,
 		"updated_at":          item.UpdatedAt,
+	}
+	if config.EmailMatchesAnySuffix(metadata.AuthorEmail, config.PGCPublisherSuffixes()) {
+		body, fields := pgcsource.Read(item.RawContent, metadata.RawNotes)
+		detail["content"] = body
+		if fields.Title != "" {
+			detail["source_title"] = fields.Title
+		}
+		if fields.Timestamp != "" {
+			detail["source_timestamp"] = fields.Timestamp
+		}
 	}
 	if identity, identityErr := agentidentity.Get(ctx, db.DB, item.AuthorAgentID); identityErr == nil {
 		detail["author_short_id"] = identity.ShortID

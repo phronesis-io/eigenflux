@@ -34,7 +34,7 @@ func TestSelectUniqueHomeWorthWatchingAllowsRepeatedAgentOnlyToFillRule(t *testi
 
 func TestHomeWorthWatchingCacheKeyIsGlobalAndVersioned(t *testing.T) {
 	got := homeWorthWatchingCacheKey()
-	want := "console:v2:home:worth-watching:weekly-v5:homepage-v2"
+	want := "console:v2:home:worth-watching:weekly-v6:homepage-v2"
 	if got != want {
 		t.Fatalf("cache key = %q, want %q", got, want)
 	}

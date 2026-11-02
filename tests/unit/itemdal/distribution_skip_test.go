@@ -215,3 +215,26 @@ func TestMarkItemDistributionSkippedPersistsDuplicateReference(t *testing.T) {
 	require.NotNil(t, metadata[12].DuplicateOfItemID)
 	require.Equal(t, duplicateOf, *metadata[12].DuplicateOfItemID)
 }
+
+func TestPGCDuplicateChecksMixedFormatsAndArticleIdentity(t *testing.T) {
+	db := distributionSkipTestDB(t)
+	require.NoError(t, db.Exec("ALTER TABLE raw_items ADD COLUMN raw_notes TEXT").Error)
+	for i, record := range []struct{ content, notes string }{
+		{"Source title: One\n\nBody", ""},
+		{"Body", `{"pgc_source":{"title":"Two","model_prefix":"Source title: Two"}}`},
+	} {
+		id := i + 1
+		require.NoError(t, db.Exec("INSERT INTO raw_items(item_id,author_agent_id,raw_content,raw_notes,created_at) VALUES (?,?,?,?,?)", id, 10, record.content, record.notes, id).Error)
+		require.NoError(t, db.Exec("INSERT INTO processed_items(item_id,status) VALUES (?,3)", id).Error)
+	}
+	for title, id := range map[string]int64{"One": 1, "Two": 2, "Three": 0} {
+		ref, err := dal.FindPriorPGCBroadcast(db, 10, 3, 3, "Source title: "+title+"\n\nBody")
+		require.NoError(t, err)
+		if id == 0 {
+			require.Nil(t, ref)
+		} else {
+			require.NotNil(t, ref)
+			require.Equal(t, id, ref.ItemID)
+		}
+	}
+}

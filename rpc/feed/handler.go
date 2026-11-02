@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"eigenflux_server/pkg/pgcsource"
 	"fmt"
 
 	"eigenflux_server/kitex_gen/eigenflux/base"
@@ -436,6 +437,15 @@ func (s *FeedServiceImpl) buildFeedItems(ctx context.Context, agentID int64, gro
 			var pgcEmailSuffixes []string
 			if s.config != nil {
 				pgcEmailSuffixes = s.config.PGCEmailSuffixes
+			}
+			if config.EmailMatchesAnySuffix(info.AuthorEmail, pgcEmailSuffixes) {
+				_, fields := pgcsource.Read(info.RawContent, info.RawNotes)
+				if fields.Title != "" {
+					feedItem.SourceTitle = &fields.Title
+				}
+				if fields.Timestamp != "" {
+					feedItem.SourceTimestamp = &fields.Timestamp
+				}
 			}
 			applyRawContentDisclosure(feedItem, info, pgcEmailSuffixes)
 		}

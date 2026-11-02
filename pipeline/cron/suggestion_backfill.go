@@ -10,6 +10,7 @@ import (
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/pgcsource"
 	itemDal "eigenflux_server/rpc/item/dal"
 
 	"github.com/redis/go-redis/v9"
@@ -66,6 +67,7 @@ func suggestionBackfillSettingsFromConfig(cfg *config.Config) suggestionBackfill
 }
 
 type backfillItem struct {
+	AuthorEmail      string
 	ItemID           int64
 	RawContent       string
 	RawNotes         string
@@ -119,8 +121,9 @@ func runSuggestionBackfill(ctx context.Context, rdb *redis.Client, llmClient *ll
 	var items []backfillItem
 	if err := db.DB.
 		Table("processed_items").
-		Select("processed_items.item_id, raw_items.raw_content, raw_items.raw_notes, processed_items.summary, processed_items.broadcast_type, processed_items.domains, processed_items.keywords, processed_items.geo, processed_items.timeliness, processed_items.expected_response").
+		Select("authors.email AS author_email, processed_items.item_id, raw_items.raw_content, raw_items.raw_notes, processed_items.summary, processed_items.broadcast_type, processed_items.domains, processed_items.keywords, processed_items.geo, processed_items.timeliness, processed_items.expected_response").
 		Joins("JOIN raw_items ON raw_items.item_id = processed_items.item_id").
+		Joins("LEFT JOIN agents authors ON authors.agent_id=raw_items.author_agent_id").
 		Where("processed_items.status = ? AND processed_items.suggestion IS NULL", itemDal.StatusCompleted).
 		Limit(settings.batchSize).
 		Find(&items).Error; err != nil {
@@ -178,6 +181,11 @@ func processSuggestionBackfillItem(ctx context.Context, item backfillItem, llmCl
 		return suggestionBackfillSkipped
 	}
 
+	if config.EmailMatchesAnySuffix(item.AuthorEmail, config.PGCPublisherSuffixes()) {
+		if source, ok := pgcsource.FromNotes(item.RawNotes); ok {
+			item.RawContent, item.RawNotes = source.ModelInput(item.RawContent, item.RawNotes)
+		}
+	}
 	input := llm.SuggestActionInput{
 		Content:          item.RawContent,
 		Notes:            item.RawNotes,

@@ -4,6 +4,8 @@ import (
 	"context"
 	"eigenflux_server/pkg/cache"
 	"eigenflux_server/pkg/cache/keys"
+	"eigenflux_server/pkg/config"
+	"eigenflux_server/pkg/pgcsource"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,7 +21,7 @@ import (
 const (
 	homeWorthWatchingCacheTTL     = 2 * time.Minute
 	homeWorthWatchingCandidateMax = 32
-	homeWorthWatchingCacheVersion = "weekly-v5"
+	homeWorthWatchingCacheVersion = "weekly-v6"
 	homepageEvaluationVersion     = "homepage-v2"
 )
 
@@ -30,6 +32,8 @@ type homeWorthWatchingMetric struct {
 }
 
 type homeWorthWatchingItem struct {
+	SourceTitle      string                  `json:"source_title,omitempty"`
+	SourceTimestamp  string                  `json:"source_timestamp,omitempty"`
 	RuleKey          string                  `json:"rule_key"`
 	ItemID           string                  `json:"item_id"`
 	Content          string                  `json:"content"`
@@ -71,6 +75,8 @@ type homeWorthWatchingRule struct {
 }
 
 type homeWorthWatchingContentRow struct {
+	RawNotes        string
+	AuthorEmail     string
 	ItemID          int64   `gorm:"column:item_id"`
 	AgentID         int64   `gorm:"column:agent_id"`
 	Content         string  `gorm:"column:content"`
@@ -367,7 +373,7 @@ func (s *Service) hydrateHomeWorthWatching(ctx context.Context, selected []homeW
 		ids = append(ids, rule.Rows[0].ItemID)
 	}
 	var rows []homeWorthWatchingContentRow
-	if err := s.db.WithContext(ctx).Raw(`SELECT r.item_id, r.author_agent_id AS agent_id, r.raw_content AS content,
+	if err := s.db.WithContext(ctx).Raw(`SELECT r.item_id, r.author_agent_id AS agent_id, r.raw_content AS content,r.raw_notes,a.email AS author_email,
 		COALESCE(p.summary,'') AS summary, COALESCE(p.lang,'') AS language,
 		COALESCE(p.broadcast_type,'') AS broadcast_type, r.created_at,
 		COALESCE(a.short_id,'') AS short_id, a.agent_name, COALESCE(a.agent_name_en,'') AS agent_name_en,
@@ -394,7 +400,12 @@ func (s *Service) hydrateHomeWorthWatching(ctx context.Context, selected []homeW
 		}
 		card := map[string]interface{}{}
 		_ = json.Unmarshal([]byte(row.PublicCard), &card)
+		var fields pgcsource.Fields
+		if config.EmailMatchesAnySuffix(row.AuthorEmail, s.pgcEmailSuffixes) {
+			row.Content, fields = pgcsource.Read(row.Content, row.RawNotes)
+		}
 		result = append(result, homeWorthWatchingItem{
+			SourceTitle: fields.Title, SourceTimestamp: fields.Timestamp,
 			RuleKey: rule.Key, ItemID: strconv.FormatInt(row.ItemID, 10), Content: row.Content,
 			Summary: row.Summary, Language: row.Language, BroadcastType: row.BroadcastType, CreatedAt: row.CreatedAt,
 			AgentID: strconv.FormatInt(row.AgentID, 10), AgentShortID: row.ShortID, AgentSharePath: "/agent/" + row.ShortID,

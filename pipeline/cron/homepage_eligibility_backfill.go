@@ -6,8 +6,10 @@ import (
 	"time"
 
 	"eigenflux_server/pipeline/llm"
+	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/pgcsource"
 	itemDal "eigenflux_server/rpc/item/dal"
 
 	"github.com/redis/go-redis/v9"
@@ -26,9 +28,10 @@ const (
 )
 
 type homepageEligibilityBackfillItem struct {
-	ItemID     int64  `gorm:"column:item_id"`
-	RawContent string `gorm:"column:raw_content"`
-	RawNotes   string `gorm:"column:raw_notes"`
+	AuthorEmail string
+	ItemID      int64  `gorm:"column:item_id"`
+	RawContent  string `gorm:"column:raw_content"`
+	RawNotes    string `gorm:"column:raw_notes"`
 }
 
 func StartHomepageEligibilityBackfill(ctx context.Context, rdb *redis.Client, llmClient *llm.Client) {
@@ -69,8 +72,9 @@ func runHomepageEligibilityBackfill(ctx context.Context, rdb *redis.Client, llmC
 	now := time.Now()
 	var items []homepageEligibilityBackfillItem
 	if err := db.DB.WithContext(runCtx).Table("processed_items AS p").
-		Select("p.item_id, r.raw_content, r.raw_notes").
+		Select("authors.email AS author_email, p.item_id, r.raw_content, r.raw_notes").
 		Joins("JOIN raw_items r ON r.item_id=p.item_id").
+		Joins("LEFT JOIN agents authors ON authors.agent_id=r.author_agent_id").
 		Where(`p.status = ? AND r.created_at >= ?
 			AND (p.homepage_evaluation_version <> ? OR p.homepage_evaluation_version IS NULL)
 			AND (p.homepage_evaluation_retry_at IS NULL OR p.homepage_evaluation_retry_at <= ?)`,
@@ -100,6 +104,11 @@ func runHomepageEligibilityBackfill(ctx context.Context, rdb *redis.Client, llmC
 				case <-rateLimiter.C:
 				}
 				itemCtx, cancelItem := context.WithTimeout(runCtx, homepageEligibilityItemTimeout)
+				if config.EmailMatchesAnySuffix(item.AuthorEmail, config.PGCPublisherSuffixes()) {
+					if source, ok := pgcsource.FromNotes(item.RawNotes); ok {
+						item.RawContent, item.RawNotes = source.ModelInput(item.RawContent, item.RawNotes)
+					}
+				}
 				result, err := llmClient.ProcessItem(itemCtx, item.RawContent, item.RawNotes)
 				cancelItem()
 				if runCtx.Err() != nil {

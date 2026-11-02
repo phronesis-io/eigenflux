@@ -452,7 +452,7 @@ func Load() *Config {
 		EnableSwingI2IRecall:         getEnvBool("ENABLE_SWING_I2I_RECALL", false),
 		SwingI2IRecallSeeds:          getEnvInt("SWING_I2I_RECALL_SEEDS", 20),
 		SwingI2IRecallK:              getEnvInt("SWING_I2I_RECALL_K", 100),
-		PGCEmailSuffixes:             getEnvStringList("PGC_EMAIL_SUFFIXES", []string{"@bot.eigenflux.one", "@pgc.eigenflux.one"}),
+		PGCEmailSuffixes:             PGCPublisherSuffixes(),
 		BlockedAgentEmails:           getEnvStringList("BLOCKED_AGENT_EMAILS", []string{"fmw19990718@gmail.com"}),
 		LRRankerEnabled:              getEnvBool("LR_RANKER_ENABLED", false),
 		LRRankerModelPath:            getEnv("LR_RANKER_MODEL_PATH", "/data/models/eigenflux/lr-ranker/current/model.json"),
@@ -765,4 +765,8 @@ func getEnvStringList(key string, fallback []string) []string {
 		return fallback
 	}
 	return result
+}
+
+func PGCPublisherSuffixes() []string {
+	return getEnvStringList("PGC_EMAIL_SUFFIXES", []string{"@bot.eigenflux.one", "@pgc.eigenflux.one"})
 }

@@ -3,6 +3,7 @@ package consumer
 import (
 	"context"
 	"eigenflux_server/pkg/json"
+	"eigenflux_server/pkg/pgcsource"
 	searchindex "eigenflux_server/rpc/sort/discovery/index"
 
 	"fmt"
@@ -160,6 +161,17 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 		logger.Default().Warn("raw item not found", "itemID", itemID, "err", err)
 		return HandleRetry
 	}
+	source, hasSource := pgcsource.FromNotes(raw.RawNotes)
+	var pgc bool
+	if hasSource || strings.HasPrefix(raw.RawContent, "Source title: ") || strings.HasPrefix(raw.RawContent, "Source timestamp (UTC): ") || (processed.Status != itemDal.StatusCompleted && (c.ugcSlopEnabled || c.summaryFidelity || c.pgcPublisherSummary)) {
+		pgc, err = pgcSummaryPublisher(itemDB, raw.AuthorAgentID, c.pgcEmailSuffixes)
+		if err != nil {
+			return HandleRetry
+		}
+	}
+	if pgc && hasSource {
+		raw.RawContent, raw.RawNotes = source.ModelInput(raw.RawContent, raw.RawNotes)
+	}
 	if processed.Status == itemDal.StatusCompleted {
 		return c.resumeCompletedItem(ctx, raw, processed)
 	}
@@ -185,9 +197,13 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 	logger.Default().Debug("ItemConsumer content hash", "itemID", itemID, "hash", contentHash)
 
 	if hashExists, err := dedup.HashExists(ctx, mq.RDB, contentHash); err == nil && hashExists {
-		prior, priorErr := itemDal.FindPriorExactBroadcast(
-			itemDB, raw.AuthorAgentID, itemID, raw.CreatedAt, contentHash, raw.RawContent,
-		)
+		var prior *itemDal.DuplicateBroadcastReference
+		var priorErr error
+		if pgc {
+			prior, priorErr = itemDal.FindPriorPGCBroadcast(itemDB, raw.AuthorAgentID, itemID, raw.CreatedAt, raw.RawContent)
+		} else {
+			prior, priorErr = itemDal.FindPriorExactBroadcast(itemDB, raw.AuthorAgentID, itemID, raw.CreatedAt, contentHash, raw.RawContent)
+		}
 		if priorErr != nil {
 			logger.Default().Warn("ItemConsumer failed to resolve prior duplicate, continuing", "itemID", itemID, "err", priorErr)
 		} else if decision := resolveExactDuplicateSkip(prior); decision.Discard {
@@ -281,13 +297,6 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 		return HandleSuccess
 	}
 
-	var pgc bool
-	if c.ugcSlopEnabled || c.summaryFidelity || c.pgcPublisherSummary {
-		pgc, err = pgcSummaryPublisher(itemDB, raw.AuthorAgentID, c.pgcEmailSuffixes)
-		if err != nil {
-			return HandleRetry
-		}
-	}
 	slopEnabled := c.ugcSlopEnabled && !pgc && config.SlopAuthorInRollout(raw.AuthorAgentID, c.ugcSlopRolloutBPS)
 	// A pending item has no projection. Retries may carry a draft from an older
 	// worker; remove it before evaluating, including when the model later fails.

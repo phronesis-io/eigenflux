@@ -515,6 +515,18 @@ func testConsoleCountrySources(t *testing.T, db *gorm.DB, svc *Service, h *serve
 	if len(worth) != 2 || worth[0].AgentCountryCode != "CN" || worth[1].AgentCountryCode != "" {
 		t.Fatalf("worth watching countries=%#v", worth)
 	}
+	// Exercise the homepage SQL projection on a historical PGC record.
+	const title = "Election ‘war rooms’ enter the AI age"
+	const ts = "2026-11-02T09:45:37+00:00"
+	exec("UPDATE agents SET email=? WHERE agent_id=?", fmt.Sprintf("grace-%d@pgc.example.test", actorID), actorID)
+	oldSuffixes := svc.pgcEmailSuffixes
+	svc.pgcEmailSuffixes = []string{"@pgc.example.test"}
+	defer func() { svc.pgcEmailSuffixes = oldSuffixes }()
+	exec("UPDATE raw_items SET raw_content=? WHERE item_id=?", "Source title: "+title+"\nSource timestamp (UTC): "+ts+"\n\nBoth companies confirmed.", itemID)
+	projected, err := svc.hydrateHomeWorthWatching(context.Background(), selected[:1])
+	if err != nil || len(projected) != 1 || projected[0].SourceTitle != title || projected[0].SourceTimestamp != ts || projected[0].Content != "Both companies confirmed." {
+		t.Fatalf("source projection: %+v, %v", projected, err)
+	}
 	status, payload, _ := performJSON(t, h, http.MethodGet, "/api/v2/console/today", map[string]interface{}{}, cookie)
 	if status != http.StatusOK {
 		t.Fatalf("Today status=%d payload=%#v", status, payload)

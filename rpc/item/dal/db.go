@@ -1,6 +1,7 @@
 package dal
 
 import (
+	"eigenflux_server/pkg/pgcsource"
 	"errors"
 	"strings"
 	"time"
@@ -272,6 +273,35 @@ func FindPriorExactBroadcast(db *gorm.DB, authorAgentID, currentItemID, currentC
 	}
 	ref.Title = compactBroadcastTitle(ref.Title, 80)
 	return &ref, nil
+}
+
+// FindPriorPGCBroadcast checks both persisted formats against the same legacy
+// identity. Both probes use the existing author/content MD5 index.
+func FindPriorPGCBroadcast(db *gorm.DB, authorID, itemID, createdAt int64, modelBody string) (*DuplicateBroadcastReference, error) {
+	body, _ := pgcsource.Read(modelBody, "")
+	var candidates []struct {
+		DuplicateBroadcastReference
+		RawContent string
+		RawNotes   string
+	}
+	err := db.Table("processed_items AS p").Select("p.item_id, r.created_at, COALESCE(NULLIF(p.summary,''), r.raw_content) AS title, r.raw_content, r.raw_notes").
+		Joins("JOIN raw_items AS r ON r.item_id=p.item_id").
+		Where("r.author_agent_id=? AND md5(r.raw_content) IN ? AND r.raw_content IN ? AND p.status=? AND r.created_at>=? AND (r.created_at<? OR (r.created_at=? AND r.item_id<?))", authorID, []string{dedup.ComputeContentHash(body), dedup.ComputeContentHash(modelBody)}, []string{body, modelBody}, StatusCompleted, createdAt-dedup.ContentHashTTL.Milliseconds(), createdAt, createdAt, itemID).
+		Order("r.created_at DESC, p.item_id DESC").Find(&candidates).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range candidates {
+		identity := c.RawContent
+		if f, ok := pgcsource.FromNotes(c.RawNotes); ok {
+			identity, _ = f.ModelInput(identity, c.RawNotes)
+		}
+		if identity == modelBody {
+			c.Title = compactBroadcastTitle(c.Title, 80)
+			return &c.DuplicateBroadcastReference, nil
+		}
+	}
+	return nil, nil
 }
 
 // FindPriorExactBroadcastInGroup preserves the former group-scoped lookup for
@@ -788,6 +818,7 @@ type RawItemInfo struct {
 	AuthorAgentID int64
 	RawURL        string // empty string when no URL was provided at publish time
 	RawContent    string
+	RawNotes      string
 	CreatedAt     int64
 	DisplayName   string
 	AuthorEmail   string
@@ -809,6 +840,7 @@ func BatchGetRawItemInfo(db *gorm.DB, itemIDs []int64) (map[int64]RawItemInfo, e
 		ItemID        int64  `gorm:"column:item_id"`
 		AuthorAgentID int64  `gorm:"column:author_agent_id"`
 		RawURL        string `gorm:"column:raw_url"`
+		RawNotes      string
 		RawContent    string `gorm:"column:raw_content"`
 		CreatedAt     int64  `gorm:"column:created_at"`
 		AgentName     string `gorm:"column:agent_name"`
@@ -819,7 +851,7 @@ func BatchGetRawItemInfo(db *gorm.DB, itemIDs []int64) (map[int64]RawItemInfo, e
 	}
 
 	err := db.Table("raw_items AS r").
-		Select(`r.item_id, r.author_agent_id, r.raw_url, LEFT(r.raw_content, 1001) AS raw_content,
+		Select(`r.item_id, r.author_agent_id, r.raw_url, r.raw_notes, LEFT(r.raw_content, 1001) AS raw_content,
 		        r.created_at, COALESCE(a.agent_name, '') AS agent_name, COALESCE(a.short_id, '') AS short_id,
 		        COALESCE(a.email, '') AS author_email,
 		        a.agent_id IS NOT NULL AS author_exists,
@@ -839,6 +871,7 @@ func BatchGetRawItemInfo(db *gorm.DB, itemIDs []int64) (map[int64]RawItemInfo, e
 			AuthorAgentID: r.AuthorAgentID,
 			RawURL:        r.RawURL,
 			RawContent:    r.RawContent,
+			RawNotes:      r.RawNotes,
 			CreatedAt:     r.CreatedAt,
 			DisplayName:   agentidentity.DisplayName(r.AgentName, r.ShortID),
 			AuthorEmail:   r.AuthorEmail,

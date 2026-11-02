@@ -139,6 +139,21 @@ func TestPostgresBroadcastDetailOwnerAndGuest(t *testing.T) {
 			t.Fatalf("another viewer's feedback leaked: %#v", item)
 		}
 	}
+	const prefix = "Source title: Election news\nSource timestamp (UTC): 2026-11-02T09:45:37+00:00\n\n"
+	exec("UPDATE raw_items SET raw_content=? WHERE item_id=?", prefix+"Article body", itemID)
+	if got := request(guest, http.StatusOK); got["content"] != prefix+"Article body" || got["source_title"] != nil {
+		t.Fatal("UGC interpreted as PGC", got)
+	}
+	t.Setenv("PGC_EMAIL_SUFFIXES", "@trusted.test")
+	exec("UPDATE agents SET email=? WHERE agent_id=?", fmt.Sprintf("author-%d@trusted.test", owner), owner)
+	for _, n := range []string{"", `{"pgc_source":{"title":"Election news","timestamp":"2026-11-02T09:45:37+00:00","model_prefix":""}}`} {
+		if n != "" {
+			exec("UPDATE raw_items SET raw_content=?,raw_notes=? WHERE item_id=?", "Article body", n, itemID)
+		}
+		if got := request(guest, http.StatusOK); got["content"] != "Article body" || got["source_title"] != "Election news" || got["source_timestamp"] != "2026-11-02T09:45:37+00:00" {
+			t.Fatal("missing source fields", got)
+		}
+	}
 	assertRatedCountry := func(want string) {
 		t.Helper()
 		c := app.NewContext(1)

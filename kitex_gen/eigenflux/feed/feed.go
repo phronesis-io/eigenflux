@@ -29,6 +29,8 @@ type FeedItem struct {
 	RawContentTruncated *bool    `thrift:"raw_content_truncated,17,optional" frugal:"17,optional,bool" json:"raw_content_truncated,omitempty"`
 	CreatedAt           *int64   `thrift:"created_at,18,optional" frugal:"18,optional,i64" json:"created_at,omitempty"`
 	DisplayName         *string  `thrift:"display_name,19,optional" frugal:"19,optional,string" json:"display_name,omitempty"`
+	SourceTitle         *string  `thrift:"source_title,20,optional" frugal:"20,optional,string" json:"source_title,omitempty"`
+	SourceTimestamp     *string  `thrift:"source_timestamp,21,optional" frugal:"21,optional,string" json:"source_timestamp,omitempty"`
 }
 
 func NewFeedItem() *FeedItem {
@@ -193,6 +195,24 @@ func (p *FeedItem) GetDisplayName() (v string) {
 	}
 	return *p.DisplayName
 }
+
+var FeedItem_SourceTitle_DEFAULT string
+
+func (p *FeedItem) GetSourceTitle() (v string) {
+	if !p.IsSetSourceTitle() {
+		return FeedItem_SourceTitle_DEFAULT
+	}
+	return *p.SourceTitle
+}
+
+var FeedItem_SourceTimestamp_DEFAULT string
+
+func (p *FeedItem) GetSourceTimestamp() (v string) {
+	if !p.IsSetSourceTimestamp() {
+		return FeedItem_SourceTimestamp_DEFAULT
+	}
+	return *p.SourceTimestamp
+}
 func (p *FeedItem) SetItemId(val int64) {
 	p.ItemId = val
 }
@@ -249,6 +269,12 @@ func (p *FeedItem) SetCreatedAt(val *int64) {
 }
 func (p *FeedItem) SetDisplayName(val *string) {
 	p.DisplayName = val
+}
+func (p *FeedItem) SetSourceTitle(val *string) {
+	p.SourceTitle = val
+}
+func (p *FeedItem) SetSourceTimestamp(val *string) {
+	p.SourceTimestamp = val
 }
 
 func (p *FeedItem) IsSetSummary() bool {
@@ -315,6 +341,14 @@ func (p *FeedItem) IsSetDisplayName() bool {
 	return p.DisplayName != nil
 }
 
+func (p *FeedItem) IsSetSourceTitle() bool {
+	return p.SourceTitle != nil
+}
+
+func (p *FeedItem) IsSetSourceTimestamp() bool {
+	return p.SourceTimestamp != nil
+}
+
 func (p *FeedItem) String() string {
 	if p == nil {
 		return "<nil>"
@@ -342,6 +376,8 @@ var fieldIDToName_FeedItem = map[int16]string{
 	17: "raw_content_truncated",
 	18: "created_at",
 	19: "display_name",
+	20: "source_title",
+	21: "source_timestamp",
 }
 
 type FetchFeedReq struct {

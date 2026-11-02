@@ -81,6 +81,7 @@ type Service struct {
 	idgen                    IDGenerator
 	bootstrapSecret          string
 	otpPepper                string
+	pgcEmailSuffixes         []string
 	testEmailPatterns        []string
 	testOTP                  string
 	publicURL                string
@@ -196,6 +197,7 @@ func NewService(gdb *gorm.DB, idgen IDGenerator, cfg *config.Config) (*Service, 
 		idgen:                    idgen,
 		bootstrapSecret:          cfg.ConsoleV2BootstrapSecret,
 		otpPepper:                cfg.ConsoleV2OTPPepper,
+		pgcEmailSuffixes:         cfg.PGCEmailSuffixes,
 		testEmailPatterns:        append([]string(nil), cfg.OfficialTestEmailSuffixes...),
 		testOTP:                  strings.TrimSpace(cfg.OfficialTestOTP),
 		publicURL:                publicURL,
