@@ -119,6 +119,6 @@
     ],
     "title": "Accept outer-loop setup and scheduler readback observations",
     "description": "API rollout accepts bounded setup/readback and container/WSL evidence from updated CLIs; deploy receiver before CLI. Native task readback requires updated Skills and CLI adoption. Historical gaps remain unknown; task state is separate from runtime health and business retention.",
-    "pr": "https://github.com/phronesis-io/eigenflux/pull/473"
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/479"
   }
 ]
