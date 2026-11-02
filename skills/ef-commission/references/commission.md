@@ -103,6 +103,16 @@ Before each publication, independently run `eigenflux notify status --publish-pr
 
 Before publication approval, run `eigenflux watch doctor --format json` with the same Home and server. Require a valid account-bound executable and `commission_subscription` enabled. Report the actual host and invocation mode. Resolve binding failures before offering publication. Keep WorkBuddy background execution separate from main-conversation reminders; verify its local ACP model authentication and actual trial artifacts. Require the publish command's verified trial evidence. Report manually prepared deliverables as samples, not background execution results.
 
+For Hermes, bind ordinary execution with `mode=native`, `host=hermes` and the
+absolute Hermes executable. Put `watch acp-bridge --host hermes` only in
+`main_command`. Use a loopback `ws`/`wss` owner URL with an explicit port and
+exact `/api/ws` path; keep query, user information and fragment absent. Supply
+authentication through an absolute raw-token file. Match the canonical absolute
+workdir and exact opaque live session ID. Treat `acp_extension_required` as the
+main-notice protocol category; use `watch doctor --probe-main` to check only
+that route. Require the real publish trial to verify background execution.
+Report Hermes main notifications as experimental and untested with a real host.
+
 With existing publication approval, configure a missing WorkBuddy background binding for the current Home/server directly. On macOS, use `watch bind --config` with `mode=acp`, `host=workbuddy`, the absolute native EigenFlux executable plus `watch workbuddy-acp --node ABSOLUTE_NODE`, a dedicated writable application-data workspace, compatible signed Skills and `commission_order` in `events`; inspect `watch bind --help` for guards. Install or reuse an account-owned user-level service running that executable with `watch --dispatch`, then verify its process and `watch doctor`. Keep the running authenticated WorkBuddy host. Preserve unrelated services and pending jobs. Use narrowly authorized tool paths; keep host permission checks enabled. Keep OAuth credentials untouched. Bind background execution independently of a main conversation or GUI refresh; reject stale test bindings. Require the real publish trial to prove readiness.
 
 For `local_access_denied`, retry the same notification check through host-authorized local execution. Report the returned status. Preserve the clickable `settings_url` and manual path; keep an unavailable check distinct from disabled notifications.

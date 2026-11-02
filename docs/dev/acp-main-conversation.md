@@ -15,6 +15,12 @@ ID and revision and retain the execution journal. Codex keeps native owner IPC.
 ACP PM workers keep their per-conversation sessions; this bridge handles the
 separate result-only main-notice lane, not seller execution or PM decisions.
 
+Hermes uses native `hermes chat --quiet` execution and the separate CLI
+`watch acp-bridge --host hermes` main bridge. Binding that built-in main-only
+bridge as ordinary `command` is rejected, including split `command`/`args` argv.
+Use the [Hermes configuration](agent-dispatch.md#hermes-execution-and-main-notifications)
+for the exact owner URL, token-file and path requirements.
+
 The bridge attaches to an existing host owner. Standard ACP `session/load`
 only restores history and does not prove that owner or hide user input.
 The client never sends `session/new`, `session/load`, `session/prompt` or
@@ -27,6 +33,8 @@ Use ACP v1 newline-delimited JSON-RPC. `initialize.agentCapabilities._meta`
 must contain `ai.eigenflux.mainConversation` with `version=1`, the exact `host`
 and `existingSession=true`, `hiddenInput=true`, `resultOnly=true`.
 The client advertises extension version 1 in `clientCapabilities._meta`.
+The Hermes bridge rejects clients without that version before connecting to the
+host, returning `hermes_main_execution_adapter_required` with binding guidance.
 
 | Method | Request | Required reply |
 |---|---|---|
@@ -46,6 +54,15 @@ data is sent. Mismatched targets/receipts and incomplete results are failures.
 availability means negotiation can run; only a successful probe establishes
 current reachability. `host_verified` remains false for all non-Codex adapters.
 Timeout after host admission is uncertain: an already started turn may finish.
+
+`acp_extension_required` in plain doctor output is a static capability category
+for non-Codex hosts, not proof of a missing Hermes installation or a failed
+execution adapter. A successful `--probe-main` verifies only the negotiated main
+notification route. Publication still requires its separate real artifact trial.
+On a bridge failure, `main_notice_probe.diagnostic` carries an optional fixed
+allowlisted message while the existing probe `code` retains its meaning.
+Allowlisted bridge errors retain fixed field guidance; arbitrary RPC error text,
+stderr, URLs, paths and tokens are not returned to the caller.
 
 ## Host acceptance
 

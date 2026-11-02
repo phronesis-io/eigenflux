@@ -75,20 +75,34 @@ func validID(value string) bool {
 
 func validateHermesConfig(config HermesConfig) (*url.URL, error) {
 	u, err := url.Parse(config.URL)
-	if err != nil || (u.Scheme != "ws" && u.Scheme != "wss") || u.User != nil || u.Fragment != "" || u.RawQuery != "" ||
-		u.Path != "/api/ws" || u.RawPath != "" || !validID(config.SessionID) || !filepath.IsAbs(config.Cwd) || filepath.Clean(config.Cwd) != config.Cwd {
-		return nil, errors.New("hermes_main_invalid_config")
+	if err != nil {
+		return nil, errors.New(invalidOwnerURL)
+	}
+	if u.Scheme != "ws" && u.Scheme != "wss" {
+		return nil, errors.New(invalidOwnerScheme)
+	}
+	if u.User != nil || u.Fragment != "" || u.RawQuery != "" || u.ForceQuery {
+		return nil, errors.New(invalidOwnerCredentials)
+	}
+	if u.Path != "/api/ws" || u.RawPath != "" {
+		return nil, errors.New(invalidOwnerPath)
+	}
+	if !validID(config.SessionID) {
+		return nil, errors.New(invalidMainSession)
+	}
+	if !filepath.IsAbs(config.Cwd) || filepath.Clean(config.Cwd) != config.Cwd {
+		return nil, errors.New(invalidOwnerWorkdir)
 	}
 	host := u.Hostname()
 	if host != "localhost" && (net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback()) {
 		return nil, errors.New("hermes_main_requires_loopback")
 	}
 	if port, err := strconv.Atoi(u.Port()); err != nil || port < 1 || port > 65535 {
-		return nil, errors.New("hermes_main_invalid_config")
+		return nil, errors.New(invalidOwnerPort)
 	}
 	if config.TokenFile != "" {
 		if !filepath.IsAbs(config.TokenFile) {
-			return nil, errors.New("hermes_main_invalid_token_file")
+			return nil, errors.New(invalidTokenPath)
 		}
 		file, err := os.Open(config.TokenFile)
 		if err != nil {
@@ -97,12 +111,12 @@ func validateHermesConfig(config HermesConfig) (*url.URL, error) {
 		defer file.Close()
 		info, err := file.Stat()
 		if err != nil || !info.Mode().IsRegular() || info.Size() > 8192 {
-			return nil, errors.New("hermes_main_invalid_token_file")
+			return nil, errors.New(invalidTokenContent)
 		}
 		token, err := io.ReadAll(io.LimitReader(file, 8193))
 		value := strings.TrimSpace(string(token))
 		if err != nil || len(token) > 8192 || !validID(value) {
-			return nil, errors.New("hermes_main_invalid_token_file")
+			return nil, errors.New(invalidTokenContent)
 		}
 		query := u.Query()
 		query.Set("token", value)
@@ -444,10 +458,19 @@ func ServeHermes(ctx context.Context, in io.Reader, out io.Writer, config Hermes
 		}
 		if request.Method == "initialize" && peer == nil {
 			var init struct {
-				ProtocolVersion int `json:"protocolVersion"`
+				ProtocolVersion    int `json:"protocolVersion"`
+				ClientCapabilities struct {
+					Meta map[string]json.RawMessage `json:"_meta"`
+				} `json:"clientCapabilities"`
 			}
 			if json.Unmarshal(request.Params, &init) != nil || init.ProtocolVersion != 1 {
 				return respond(request.ID, nil, errors.New("hermes_main_unsupported_protocol"))
+			}
+			var clientCapability struct {
+				Version int `json:"version"`
+			}
+			if json.Unmarshal(init.ClientCapabilities.Meta[mainExtension], &clientCapability) != nil || clientCapability.Version != 1 {
+				return respond(request.ID, nil, errors.New(mainOnlyBridge))
 			}
 			setupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			var err error

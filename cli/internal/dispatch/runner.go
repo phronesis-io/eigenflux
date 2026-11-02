@@ -36,6 +36,9 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
+	if err := r.Binding.validateExecutionCommand(); err != nil {
+		return Result{}, err
+	}
 	boundMain := req.Kind == "pm_push" && r.Binding.Host == "codex" && r.Binding.Mode == "native" && r.Binding.MainSessionID != ""
 	if boundMain {
 		if req.SessionID != r.Binding.MainSessionID {
