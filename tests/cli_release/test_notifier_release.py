@@ -1,3 +1,4 @@
+import base64
 import importlib.util
 import json
 import os
@@ -17,6 +18,38 @@ spec.loader.exec_module(release)
 
 
 class NotifierReleaseTests(unittest.TestCase):
+    def test_real_receipt_tool_accepts_workflow_relative_paths(self):
+        # Public RFC 8032 vector, never a production credential.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            tool = root / 'notifierrelease'
+            subprocess.run(['go', 'build', '-o', str(tool), './cmd/notifierrelease'],
+                           cwd=release.CLI, check=True, capture_output=True)
+            key = root / 'key'
+            key.write_text(base64.b64encode(bytes.fromhex(
+                '9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60')).decode())
+            candidate = root / 'build/notifier-formal/work/candidate.json'
+            candidate.parent.mkdir(parents=True)
+            candidate.write_text(json.dumps({
+                'schema': 1, 'version': '1.0.5', 'source': 'b' * 64,
+                'team_id': 'ABCDEFGHIJ', 'validation': 'codesign_stapler_gatekeeper',
+                'artifacts': {arch: {'sha256': 'a' * 64, 'size': 1} for arch in release.ARCHES}}))
+            env = {'EIGENFLUX_NOTIFIER_RECEIPT_TOOL': str(tool),
+                   'EIGENFLUX_SKILLS_SIGNING_KEY_FILE': 'key',
+                   'EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY': base64.b64encode(bytes.fromhex(
+                       'd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a')).decode()}
+            previous = Path.cwd()
+            try:
+                os.chdir(root)
+                relative = Path('build/notifier-formal/work/candidate.json')
+                with patch.dict(os.environ, env):
+                    candidate.write_text(release.receipt_tool('sign', relative))
+                    verified = json.loads(release.receipt_tool('verify', relative))
+                self.assertEqual(verified['version'], '1.0.5')
+                self.assertTrue(verified['signature'])
+            finally:
+                os.chdir(previous)
+
     def archive(self, path, extra=None):
         with zipfile.ZipFile(path, 'w') as z:
             z.writestr(release.APP + '/Contents/Info.plist', '<plist/>')

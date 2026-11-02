@@ -34,6 +34,10 @@ func watchCLIUpdateFixture(t *testing.T) (*accountWatch, selfupdate.Options, *at
 			return
 		}
 		calls.Add(1)
+		if r.URL.Path == "/cli/v2/latest/release.json" {
+			http.NotFound(out, r)
+			return
+		}
 		if r.URL.Path != "/cli/latest/release.json" {
 			t.Errorf("unrelated request: %s", r.URL.Path)
 		}
@@ -63,7 +67,7 @@ func TestWatchCLIUpdateIgnoresLegacySwitchAndSharesThrottle(t *testing.T) {
 			t.Fatalf("check: done=%v err=%v", done, err)
 		}
 	}
-	if calls.Load() != 1 {
+	if calls.Load() != 2 {
 		t.Fatalf("legacy switch or throttle: calls=%d", calls.Load())
 	}
 	snapshot, err := maintenance.Snapshot(w.maintenanceScope())
@@ -128,7 +132,7 @@ func TestWatchCLIUpdateFailureLeavesBusinessAdmissionOpen(t *testing.T) {
 	if done, err := w.checkCLIUpdate(context.Background(), options); err != nil || done {
 		t.Fatalf("update failure stopped watch: %v", err)
 	}
-	if calls.Load() != 1 || !w.handoff.begin() {
+	if calls.Load() != 2 || !w.handoff.begin() {
 		t.Fatal("failed update closed business admission")
 	}
 	w.handoff.end()
@@ -148,7 +152,7 @@ func TestNotificationOnlyWatchChecksCLIWithoutAgentBinding(t *testing.T) {
 	if done, err := w.checkCLIUpdate(context.Background(), options); err != nil || done {
 		t.Fatalf("notification-only update check failed: %v", err)
 	}
-	if calls.Load() != 1 {
+	if calls.Load() != 2 {
 		t.Fatal("notification-only watch did not check the CDN")
 	}
 }
@@ -175,7 +179,7 @@ func TestWatchCLIUpdateExplainsFiveMinuteRetryWithoutRepeatedLogs(t *testing.T) 
 			t.Fatal(err)
 		}
 	}
-	if calls.Load() != 1 || len(events) != 2 || events[1]["reason"] != "retry_interval" || events[1]["next_check_at"] == "" {
+	if calls.Load() != 2 || len(events) != 2 || events[1]["reason"] != "retry_interval" || events[1]["next_check_at"] == "" {
 		t.Fatalf("retry decision is missing or repeated: calls=%d events=%+v", calls.Load(), events)
 	}
 	if _, exists := events[1]["error"]; exists {
@@ -185,7 +189,7 @@ func TestWatchCLIUpdateExplainsFiveMinuteRetryWithoutRepeatedLogs(t *testing.T) 
 	if _, err := w.checkCLIUpdate(context.Background(), options); err != nil {
 		t.Fatal(err)
 	}
-	if calls.Load() != 2 || len(events) != 3 || events[2]["status"] != "current" {
+	if calls.Load() != 4 || len(events) != 3 || events[2]["status"] != "current" {
 		t.Fatalf("update did not retry at five minutes: %+v", events)
 	}
 }

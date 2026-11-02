@@ -14,9 +14,15 @@ class WindowsReleaseLane(unittest.TestCase):
         shell = shutil.which('powershell') or shutil.which('pwsh')
         if not shell:
             self.skipTest('PowerShell required')
-        source = (ROOT / 'static/install.ps1').read_text()
-        function = source[source.index('function Get-LatestCliVersion {'):source.index('# ── Step 1: Install CLI binary')]
+        source = (ROOT / 'static/install.ps1').read_text(encoding='utf-8')
+        function = source[source.index('function Get-LatestCliVersion {'):source.index('function Install-Cli {')]
         fixture = function + '''
+class ReleaseLaneHttpException : System.Exception {
+ [object]$Response
+ ReleaseLaneHttpException([int]$code) : base('HTTP failure') {
+  $this.Response = [pscustomobject]@{StatusCode=$code}
+ }
+}
 $script:calls = @()
 function Invoke-RestMethod {
  param($Uri, $TimeoutSec)
@@ -27,10 +33,8 @@ function Invoke-RestMethod {
    malformed { return '<html>' }
    network_error { throw 'network error' }
    default {
-    $failure = [System.Exception]::new('HTTP failure')
     $code = if ($env:MODE -eq 'absent') { 404 } else { 503 }
-    $failure | Add-Member -NotePropertyName Response -NotePropertyValue ([pscustomobject]@{StatusCode=$code})
-    throw $failure
+    throw [ReleaseLaneHttpException]::new($code)
    }
   }
  }

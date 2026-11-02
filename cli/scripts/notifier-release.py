@@ -54,9 +54,9 @@ def immutable_upload(key, path):
 
 def receipt_tool(mode, path):
     args = [os.environ['EIGENFLUX_NOTIFIER_RECEIPT_TOOL']] if os.environ.get('EIGENFLUX_NOTIFIER_RECEIPT_TOOL') else ['go', 'run', './cmd/notifierrelease']
-    args += ['--mode', mode, '--receipt', str(path)]
+    args += ['--mode', mode, '--receipt', str(path.resolve())]
     if mode == 'sign':
-        args += ['--key-file', os.environ['EIGENFLUX_SKILLS_SIGNING_KEY_FILE']]
+        args += ['--key-file', str(Path(os.environ['EIGENFLUX_SKILLS_SIGNING_KEY_FILE']).resolve())]
     return command(args, cwd=CLI).stdout
 
 
