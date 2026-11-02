@@ -92,7 +92,7 @@ def validate_identity(app, version, team, *, online=False):
     arch = app.parent.name.removeprefix('darwin-')
     if arch not in ARCHES:
         raise RuntimeError('notification architecture scope missing')
-    command(['/usr/bin/lipo', '-verify_arch', 'x86_64' if arch == 'amd64' else 'arm64', str(app / 'Contents/MacOS/EigenFluxNotifications')])
+    command(['/usr/bin/lipo', str(app / 'Contents/MacOS/EigenFluxNotifications'), '-verify_arch', 'x86_64' if arch == 'amd64' else 'arm64'])
     if online:
         retry_online(['/usr/bin/xcrun', 'stapler', 'validate', str(app)])
         retry_online(['/usr/sbin/spctl', '--assess', '--type', 'execute', str(app)])

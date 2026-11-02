@@ -2,6 +2,7 @@ import base64
 import importlib.util
 import json
 import os
+import shutil
 from pathlib import Path
 import stat
 import subprocess
@@ -88,6 +89,32 @@ class NotifierReleaseTests(unittest.TestCase):
                 release.validate_identity(app, '1.0.0', 'OTHERTEAM1X')
         self.assertFalse(any('stapler' in a or 'spctl' in a[0] for a in calls))
         self.assertTrue(any(a[0] == '/usr/bin/lipo' for a in calls))
+
+    @unittest.skipUnless(Path('/usr/bin/lipo').exists(), 'macOS lipo required')
+    def test_identity_uses_real_lipo_for_native_architecture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            # Compile tiny Mach-O objects; do not execute either architecture.
+            for arch, native in (('amd64', 'x86_64'), ('arm64', 'arm64')):
+                app = root / ('darwin-' + arch) / release.APP
+                binary = app / 'Contents/MacOS/EigenFluxNotifications'
+                binary.parent.mkdir(parents=True, exist_ok=True)
+                subprocess.run(['/usr/bin/xcrun', 'clang', '-target', native + '-apple-macos11', '-x', 'c', '-c', '-o', str(binary), '-'], input='int fixture(void) { return 0; }\n', text=True, check=True, capture_output=True)
+                def command(args):
+                    if args[0] == '/usr/bin/lipo':
+                        return subprocess.run(args, check=True, capture_output=True, text=True)
+                    if args[0] == '/usr/libexec/PlistBuddy':
+                        value = 'ai.eigenflux.notifications' if args[2].endswith('CFBundleIdentifier') else '1.0.5'
+                        return subprocess.CompletedProcess(args, 0, value, '')
+                    return subprocess.CompletedProcess(args, 0, '', 'Authority=Developer ID Application: Fixture\nTeamIdentifier=ABCDEFGHIJ\n')
+                with patch.object(release, 'command', side_effect=command):
+                    release.validate_identity(app, '1.0.5', 'ABCDEFGHIJ')
+                    other = root / ('darwin-' + ('arm64' if arch == 'amd64' else 'amd64')) / release.APP
+                    wrong_binary = other / 'Contents/MacOS/EigenFluxNotifications'
+                    wrong_binary.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(binary, wrong_binary)
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        release.validate_identity(other, '1.0.5', 'ABCDEFGHIJ')
 
     def test_storage_only_missing_is_miss(self):
         env = {'R2_ENDPOINT': 'https://storage.test', 'R2_BUCKET': 'test'}
