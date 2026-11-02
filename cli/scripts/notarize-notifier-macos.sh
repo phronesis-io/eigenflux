@@ -4,6 +4,7 @@ if [[ $# != 1 || "$(uname -s)" != Darwin || -z "${EIGENFLUX_NOTARY_PROFILE:-}" ]
   echo 'usage (macOS): EIGENFLUX_NOTARY_PROFILE=<keychain profile> notarize-notifier-macos.sh <helpers-directory>' >&2
   exit 1
 fi
+script_dir="$(cd "$(dirname "$0")" && pwd)"
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 notarize_arch() {
@@ -15,8 +16,8 @@ notarize_arch() {
   }
   /usr/bin/ditto -c -k --keepParent "$app" "$stage/notifier-$arch.zip"
   /usr/bin/xcrun notarytool submit "$stage/notifier-$arch.zip" --keychain-profile "$EIGENFLUX_NOTARY_PROFILE" --wait --timeout 20m
-  /usr/bin/xcrun stapler staple "$app"
-  /usr/bin/xcrun stapler validate "$app"
+  python3 "$script_dir/stapler-ticket.py" staple "$app"
+  python3 "$script_dir/stapler-ticket.py" validate "$app"
   /usr/sbin/spctl --assess --type execute "$app"
 }
 
