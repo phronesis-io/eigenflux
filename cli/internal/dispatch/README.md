@@ -138,8 +138,11 @@ every minute while desktop notifications are enabled. Startup, changes and
 five-minute renewals add an installation-scoped `device_id` and sanitized
 `device_name` to status observations in the same bounded maintenance lane.
 Checks never register, prompt or display a notification; Windows first-use
-registration remains unknown. Delayed uploads retain their observation time,
-so the server can mark offline devices stale. This lane adds no PM notifications.
+registration remains unknown. The shared CLI observer also adds device fields
+to new manual, heartbeat and provider status checks; setup/send and historic
+records remain distinct. Delayed uploads retain their observation time, so the
+server selects each device's latest reported state. Elapsed time does not
+replace that state with unknown. This lane adds no PM notifications.
 Setup's `desktop_notification_status` keeps
 the existing status and adds fixed `code`/`action` on failure: missing helper,
 unrequested permission, denied permission, timeout, unsupported platform or
@@ -751,3 +754,14 @@ Persistent heartbeat launchers, CLI prefixes and new notification/WorkBuddy watc
 services resolve the validated stable installation entry. WorkBuddy bindings use
 the same entry; dispatch maps its own bridge to the running release for each
 invocation. Resource lookup and installer-source copies retain the running path.
+
+## Outer-loop setup and scheduler receipts
+
+`watch start` and shared upgrade/post-authentication recovery record attempts
+before platform checks and preserve bounded failure stages through host
+discovery, task preparation and startup. Automatic recovery and heartbeat-origin
+readback use `trigger: auto`; owner-requested commands use `trigger: manual`.
+`heartbeat scheduler-report --stdin` projects fresh host-native task readback
+after authentication; verified migrations also attach environment and task-state
+hashes. These observations never install, enable or restart a task, assert
+current runtime health, or change dispatch. See [outer-loop observations](../../cmd/OBSERVABILITY.md#outer-loop-setup-and-native-scheduler-readback).

@@ -43,3 +43,50 @@ and remain accepted. Older receivers reject new properties, and historical
 coarse errors cannot be reconstructed. Observation failure never changes Feed
 output, retries a business request or changes its outcome. See the
 [refresh funnel contract](../../docs/dev/api_endpoints.md#refresh-funnel-observations).
+
+# Outer-loop setup and native scheduler readback
+
+`watch start` and the shared upgrade/post-authentication recovery entry record
+a `watch` attempt before platform/host checks. Recovery retains its existing
+return status while reporting unsupported platforms and setup failures. Bounded
+phases distinguish preflight, identity, Skills, host discovery/probe, task
+preparation, binding and task startup. Failures retain the original local
+error and queue only its stage/category. Disabled tasks remain skipped;
+installation does not claim runtime readiness or model work. Unauthenticated
+attempts print a bounded local-only diagnostic without Agent attribution.
+Authenticated failures use the existing identity-pinned queue and offline retry;
+observation failures never change the setup result.
+
+Automatic recovery and commands invoked with `--origin heartbeat` record
+`trigger: auto`; owner-requested commands record `trigger: manual`. Recovery
+passes its recorder through WorkBuddy setup and task restoration, then restores
+the caller context. Each new phase starts a fresh outcome; earlier setup success
+cannot hide a later phase failure. A confirmed installation remains installed
+when subsequent runtime-readiness checks time out, without claiming live health.
+
+`heartbeat scheduler-report --stdin` records host-reported native API readback
+for an existing authenticated Agent. Input carries `observed_at` (Unix ms),
+`complete` and `tasks` using the migration inventory contract. Readback must be
+at most five minutes old and no more than 30 seconds in the future. Incomplete
+inventories, duplicate IDs and ambiguous owned tasks fail closed. Inspection
+failures use `scheduler_api_unavailable`, `scheduler_readback_denied` or
+`scheduler_readback_failed` instead of an inventory. Only the matching
+Home/server task is projected. State is `enabled`, `paused`, `disabled`,
+`missing` or `unknown`; task/schedule values use account-scoped SHA-256 hashes.
+Names, prompts, raw IDs, schedules and Home paths are not uploaded. `verified`
+verifies the readback contract, not live health, prompt correctness, scheduler
+execution or Agent work. Existing verified migrations attach the same projection.
+
+Both observations carry the CLI process OS/architecture and independent
+container/WSL evidence states. Linux detection reads container marker presence,
+cgroup categories, kernel WSL markers and presence of WSL environment markers.
+Only fixed enums leave the process. Probe denial stays `unknown`; absent
+recognized evidence is `not_detected`. Unsupported probes make no claim about
+the physical host. Container and WSL evidence can coexist. Raw kernel text,
+hostnames, environment values, task content and credentials are excluded.
+
+Deploy the receiver before the CLI. Older receivers reject `outer_loop`; their
+queue remains pending. Skills capability-check the receipt command, so older
+CLIs retain their established flow with unknown coverage. There is no historical
+backfill or business-retention change. Local five-second watch pulses and
+notification-only loops remain separate from setup/readback observations.

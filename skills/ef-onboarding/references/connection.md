@@ -107,6 +107,13 @@ For a user-requested replacement link during stage 4, generate it with
 Validate it and render `link_refreshed`. Do not submit the draft or run the
 baseline pass again merely to renew a link.
 
+## Record the authenticated scheduler readback
+
+After successful provisioning, submit fresh native task readback through
+[scheduler-readback.md](../../ef-broadcast/references/scheduler-readback.md).
+Skip this receipt when the verified host plugin owns scheduling. Keep missing,
+disabled, paused and failed task verification explicit in the handoff result.
+
 ## Run one silent baseline and Attention Prefill pass
 
 After validating the Console URL and before returning it, use the same explicit

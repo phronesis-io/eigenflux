@@ -132,6 +132,10 @@ not proof of server acknowledgement. `notify flush` reports upload state.
 The backend contract and statistics queries are in `docs/dev/maintenance-observability.md`.
 Recording
 failure is reported separately and cannot retry an already submitted message.
+Foreground `notify status` and `notify setup` return `telemetry=record_failed`
+when this invocation could not persist an observation, even if the queue is
+empty or older receipts upload successfully. The OS permission result remains
+independent. A later invocation starts with its own recording outcome.
 
 While desktop notifications are enabled, watch checks the OS setting every
 minute in an independent read-only lane, including while there are no orders.
@@ -143,10 +147,17 @@ remains unknown. Device-bearing status records add a random 32-hex installation
 The ID is stored in `notifications/device.json` and survives CLI upgrades;
 copying the entire Home also copies this installation identity. No hardware
 identifier is collected. Old events without device fields remain compatible.
+Every newly observed status from `notify status`, automatic heartbeat checks,
+or a watch provider check adds the same Home-scoped device fields before it is
+saved. Setup and send receipts do not establish device permission. An unreadable
+device identity reports a recording failure without changing the OS operation's
+result; never replace that identity or backfill historical observations.
 Upload uses the existing minute lane and retry backoff; an online state change
-can take about two minutes to reach the server, and offline data must become
-stale rather than claiming current permission. The server uses `event_at` for
-freshness, not the time a delayed upload arrives.
+can take about two minutes to reach the server. The server selects each device's
+latest reported state by `event_at`, independently of upload delay or elapsed
+time since the observation. Observations more than one minute ahead of the
+server clock remain unknown until the clock-skew guard clears. The reported
+state does not establish connectivity.
 
 Setup displays `EigenFlux`, writes the embedded brand PNG into
 `%LOCALAPPDATA%\EigenFlux\Notifications`, sets the notification registration's

@@ -248,6 +248,7 @@ func capabilitySeeds() []capabilitySeed {
 		capability("notification.test", "eigenflux notify test", "local", "write", "测试通知跳转", "Test a clickable desktop notification"),
 		capability("heartbeat.maintenance_report", "eigenflux heartbeat maintenance-report", "local", "write", "记录维护阶段", "Record a maintenance phase"),
 		capability("heartbeat.maintenance_status", "eigenflux heartbeat maintenance-status", "local", "read", "查看维护状态", "Inspect maintenance status"),
+		capability("heartbeat.scheduler_report", "eigenflux heartbeat scheduler-report", "local", "write", "记录原生调度任务读回", "Record native scheduler readback"),
 		capability("heartbeat.plan", "eigenflux heartbeat plan", "runtime", "write", "生成 Heartbeat 执行计划", "Generate a Heartbeat execution plan"),
 		capability("heartbeat.migrate.plan", "eigenflux heartbeat migrate plan", "local", "write", "规划现有定时器迁移", "Plan an existing scheduler migration"),
 		capability("heartbeat.migrate.verify", "eigenflux heartbeat migrate verify", "local", "write", "核验定时器迁移结果", "Verify scheduler migration readback"),
@@ -282,6 +283,9 @@ func capabilitySeeds() []capabilitySeed {
 		}
 		if strings.HasPrefix(seed.id, "heartbeat.migrate.") {
 			seed.minCLI, seed.confirmation = "1.0.0", "policy_governed"
+		}
+		if seed.id == "heartbeat.scheduler_report" {
+			seed.minCLI, seed.confirmation, seed.identityRoute = "1.0.3", "policy_governed", "current_identity"
 		}
 		if seed.id == "heartbeat.plugin_check" {
 			seed.confirmation = "policy_governed"
