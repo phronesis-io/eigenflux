@@ -185,3 +185,11 @@ without Apple credentials, ticket queries or Gatekeeper queries. Bump the native
 version whenever native source/build inputs change. Keep the legacy lane at the
 last compatible bridge after versions diverge. Existing legacy clients may need
 a second update check after installing the bridge to reach a later v2 release.
+
+Publication also requires the local `ready.json` and its two notification ZIPs
+from `build/notifier-formal/work` (`EIGENFLUX_NOTIFIER_RELEASE_DIR` overrides
+this directory for manual publication). The same pre-upload guard verifies the
+receipt signature, version, team, archive digests and every packaged App file
+and normalized permission offline. Missing or mismatched proof stops publication;
+a Developer ID signature alone cannot authorize distribution. No extra Apple
+query or receipt format is introduced.

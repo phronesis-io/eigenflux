@@ -21,6 +21,10 @@ else:
     print((root/'version.txt').read_text().strip())
 PYVERSION
 )
+# This guard runs for workflow and manual publication before any remote writes.
+python3 "$script_dir/notifier-release.py" verify-packages \
+  --version "$version" --team-id "$APPLE_TEAM_ID" --build-dir "$1" \
+  --work-dir "${EIGENFLUX_NOTIFIER_RELEASE_DIR:-$script_dir/../../build/notifier-formal/work}"
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 for arch in amd64 arm64; do

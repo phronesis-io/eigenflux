@@ -238,17 +238,62 @@ def publish(args):
     return 0
 
 
+def verify_packages(args):
+    # Reuse the existing signed receipt; never infer notarization from codesign.
+    ready = args.work_dir / 'ready.json'
+    record = json.loads(receipt_tool('verify', ready))
+    if record['version'] != args.version or record['team_id'] != args.team_id:
+        raise RuntimeError('notifier publication proof identity mismatch')
+    for arch in ARCHES:
+        native = args.work_dir / (arch + '.zip')
+        expected = record['artifacts'][arch]
+        if native.stat().st_size != expected['size'] or digest(native) != expected['sha256']:
+            raise RuntimeError('notifier publication proof archive mismatch')
+        inspect_archive(native)
+        with zipfile.ZipFile(native) as original:
+            files = {e.filename: e for e in original.infolist()
+                     if e.filename.startswith(APP + '/') and not e.is_dir()}
+            # ditto may store AppleDouble inside the App, not only __MACOSX.
+            # Restoring consumes these as metadata; CLI packages contain files.
+            for name in tuple(files):
+                if PurePosixPath(name).name.startswith('._'):
+                    with original.open(files[name]) as stream:
+                        if stream.read(4) == b'\x00\x05\x16\x07':
+                            del files[name]
+            with zipfile.ZipFile(args.build_dir / ('eigenflux-darwin-' + arch + '.zip')) as package:
+                entries = [e for e in package.infolist() if e.filename.startswith(APP + '/')]
+                if len(entries) != len(files) or {e.filename for e in entries} != set(files):
+                    raise RuntimeError('packaged notifier differs from notarization proof')
+                for entry in entries:
+                    source = files[entry.filename]
+                    mode = entry.external_attr >> 16
+                    expected_mode = 0o755 if (source.external_attr >> 16) & 0o111 else 0o644
+                    if (not stat.S_ISREG(mode) or stat.S_IMODE(mode) != expected_mode
+                            or entry.file_size != source.file_size
+                            or package.read(entry) != original.read(source)):
+                        raise RuntimeError('packaged notifier differs from notarization proof')
+    print('Verified offline notarization proof for both packaged notification Apps')
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=('restore', 'publish'))
+    parser.add_argument('mode', choices=('restore', 'publish', 'verify-packages'))
     parser.add_argument('--version', required=True)
-    parser.add_argument('--source', required=True)
+    parser.add_argument('--source')
     parser.add_argument('--team-id', required=True)
-    parser.add_argument('--helpers-dir', required=True, type=Path)
+    parser.add_argument('--helpers-dir', type=Path)
+    parser.add_argument('--build-dir', type=Path)
     parser.add_argument('--work-dir', required=True, type=Path)
     args = parser.parse_args()
-    if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', args.version) or not re.fullmatch(r'[0-9a-f]{64}', args.source) or not re.fullmatch(r'[A-Z0-9]{10}', args.team_id):
+    if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', args.version) or (args.mode != 'verify-packages' and not re.fullmatch(r'[0-9a-f]{64}', args.source or '')) or not re.fullmatch(r'[A-Z0-9]{10}', args.team_id):
         raise RuntimeError('invalid notifier release identity')
+    if args.mode == 'verify-packages':
+        if args.build_dir is None:
+            parser.error('verify-packages requires --build-dir')
+        return verify_packages(args)
+    if args.helpers_dir is None:
+        parser.error('restore and publish require --helpers-dir')
     os.environ['AWS_ACCESS_KEY_ID'] = os.environ['R2_ACCESS_KEY_ID']
     os.environ['AWS_SECRET_ACCESS_KEY'] = os.environ['R2_SECRET_ACCESS_KEY']
     return restore(args) if args.mode == 'restore' else publish(args)

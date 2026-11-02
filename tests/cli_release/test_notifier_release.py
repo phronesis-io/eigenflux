@@ -179,6 +179,96 @@ class NotifierReleaseTests(unittest.TestCase):
                 info.external_attr = permissions << 16
                 archive.writestr(info, contents)
 
+    @unittest.skipUnless(Path('/usr/bin/ditto').exists(), 'macOS ditto required')
+    def test_real_ditto_archives_match_existing_cli_packager(self):
+        spec = importlib.util.spec_from_file_location('proof_packages', ROOT / 'cli/scripts/cli-packages.py')
+        packages = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(packages)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            build, helpers = root / 'build', root / 'helpers'
+            build.mkdir()
+            record = {'version': '1.0.5', 'team_id': 'ABCDEFGHIJ', 'artifacts': {}}
+            for os_name, arch in packages.PLATFORMS:
+                (build / packages.binary_name(os_name, arch)).write_bytes(b'fixture CLI')
+            for arch in release.ARCHES:
+                app = helpers / ('darwin-' + arch) / release.APP
+                for name in ('Info.plist', 'MacOS/EigenFluxNotifications', 'Resources/EigenFlux.icns'):
+                    target = app / 'Contents' / name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(name.encode())
+                    target.chmod(0o755 if name.startswith('MacOS/') else 0o644)
+                archive = root / (arch + '.zip')
+                subprocess.run(['/usr/bin/ditto', '-c', '-k', '--keepParent', str(app), str(archive)], check=True)
+                record['artifacts'][arch] = {'size': archive.stat().st_size, 'sha256': release.digest(archive)}
+            packages.generate(build, helpers)
+            packages.verify(build)
+            args = SimpleNamespace(work_dir=root, build_dir=build, version='1.0.5', team_id='ABCDEFGHIJ')
+            with patch.object(release, 'receipt_tool', return_value=json.dumps(record)):
+                self.assertEqual(release.verify_packages(args), 0)
+
+    def test_packaged_helpers_require_matching_offline_proof(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            build = root / 'cli'
+            build.mkdir()
+            args = SimpleNamespace(work_dir=root, build_dir=build, version='1.0.5', team_id='ABCDEFGHIJ')
+            record = {'version': args.version, 'team_id': args.team_id, 'artifacts': {}}
+            originals = {}
+            for arch in release.ARCHES:
+                native = root / (arch + '.zip')
+                self.native_archive(native, (2020, 1, 1, 0, 0, 0), body=arch.encode())
+                record['artifacts'][arch] = {'size': native.stat().st_size, 'sha256': release.digest(native)}
+                package = build / ('eigenflux-darwin-' + arch + '.zip')
+                with zipfile.ZipFile(native) as source, zipfile.ZipFile(package, 'w') as target:
+                    for entry in source.infolist():
+                        if entry.filename.startswith(release.APP + '/'):
+                            target.writestr(entry, source.read(entry))
+                originals[arch] = package.read_bytes()
+            # Real ditto also emits in-App AppleDouble entries; they are not files
+            # in the restored bundle and must not enter the CLI payload projection.
+            for arch in release.ARCHES:
+                native = root / (arch + '.zip')
+                with zipfile.ZipFile(native, 'a') as archive:
+                    archive.writestr(release.APP + '/Contents/._Info.plist', b'\x00\x05\x16\x07metadata')
+                record['artifacts'][arch] = {'size': native.stat().st_size, 'sha256': release.digest(native)}
+            with patch.object(release, 'receipt_tool', return_value=json.dumps(record)) as verify, patch.object(release, 'command') as commands, patch.object(release, 'download') as downloads:
+                self.assertEqual(release.verify_packages(args), 0)
+                verify.assert_called_once_with('verify', root / 'ready.json')
+                commands.assert_not_called()  # No Apple/native command on proof validation.
+                downloads.assert_not_called()
+                for kind in ('contents', 'permissions', 'extra', 'missing'):
+                    with self.subTest(kind=kind):
+                        package = build / 'eigenflux-darwin-arm64.zip'
+                        with zipfile.ZipFile(root / 'arm64.zip') as source, zipfile.ZipFile(package, 'w') as target:
+                            for entry in source.infolist():
+                                if not entry.filename.startswith(release.APP + '/') or '/._' in entry.filename:
+                                    continue
+                                if kind == 'missing' and entry.filename.endswith('Info.plist'):
+                                    continue
+                                contents = source.read(entry)
+                                if entry.filename.endswith('EigenFluxNotifications'):
+                                    if kind == 'contents': contents = b'changed'
+                                    if kind == 'permissions': entry.external_attr = 0o100644 << 16
+                                target.writestr(entry, contents)
+                            if kind == 'extra': target.writestr(release.APP + '/extra', b'extra')
+                        with self.assertRaisesRegex(RuntimeError, 'differs'):
+                            release.verify_packages(args)
+                        package.write_bytes(originals['arm64'])
+                record['team_id'] = 'OTHERTEAM1'
+                verify.return_value = json.dumps(record)
+                with self.assertRaisesRegex(RuntimeError, 'identity mismatch'):
+                    release.verify_packages(args)
+                record['team_id'] = args.team_id
+                verify.return_value = json.dumps(record)
+                (root / 'arm64.zip').write_bytes(b'not the proven archive')
+                with self.assertRaisesRegex(RuntimeError, 'archive mismatch'):
+                    release.verify_packages(args)
+            for failure in (FileNotFoundError('missing proof'), RuntimeError('untrusted notifier receipt')):
+                with self.subTest(failure=str(failure)), patch.object(release, 'receipt_tool', side_effect=failure):
+                    with self.assertRaises(type(failure)):
+                        release.verify_packages(args)
+
     def test_partial_upload_adopts_existing_bytes_when_only_zip_metadata_differs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
