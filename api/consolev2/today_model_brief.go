@@ -24,7 +24,8 @@ const (
 	todayBriefChineseMaxRunes = 60
 	todayBriefEnglishMaxRunes = 120
 	todayBriefMaxRunes        = todayBriefEnglishMaxRunes
-	todayBriefSchemaVersion   = "console_today_brief.v3-preserve-names"
+	todayBriefModel           = "qwen3.8-flash"
+	todayBriefSchemaVersion   = "console_today_brief.v4-qwen38-nonthinking"
 	todayBriefLease           = 2 * time.Minute
 	todayBriefMinGeneration   = time.Hour
 	todayBriefTimeout         = 25 * time.Second

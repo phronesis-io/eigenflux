@@ -439,7 +439,12 @@ switch. Final onboarding activates their limited scopes without repeating the
 completed switch; existing incomplete targets still finalize their pending switch.
 
 After Console V2 onboarding is complete, `GET /api/v2/console/today` can start
-an asynchronous model-generated Today headline. The generation language comes
+an asynchronous model-generated Today headline. Generation and overlength
+compression use `qwen3.8-flash` with explicit `reasoning.effort=none`, sharing
+the configured LLM endpoint and credentials but independent of `LLM_MODEL`.
+The existing 25-second generation deadline and hourly attempt limit still apply;
+changing the model does not reset failed attempts or regenerate cached headlines
+until the next eligible Today request. The generation language comes
 from the Agent Card `working_languages`; the requested UI language is used only
 when it is one of the configured working languages. The prompt is facts-only
 and is bounded to the current Today counts, the Agent name, the leading
