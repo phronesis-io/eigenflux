@@ -130,3 +130,5 @@ observations without affecting business operations or other maintenance events.
 Deploy collection before CLI adoption; rollback can disable collection without
 schema changes. A client completion receipt is an assertion, not a server-side
 proof of every business effect. Analysis requires a matching start receipt.
+
+A generated plan contributes environment evidence only. The first valid stage receipt records execution with its observation timestamp. Cycle failure requires a failed stage receipt. Interrupted or missing stages remain unresolved.

@@ -8,26 +8,26 @@ import (
 )
 
 type Cycle struct {
-	ID          string             `json:"id"`
-	StartedAt   int64              `json:"started_at"`
-	Mode        string             `json:"mode"`
-	Stages      map[string]string  `json:"stages"`
-	Result      string             `json:"result,omitempty"`
-	Environment RuntimeObservation `json:"environment"`
+	ID                string            `json:"id"`
+	StartedAt         int64             `json:"started_at"`
+	Mode              string            `json:"mode"`
+	Stages            map[string]string `json:"stages"`
+	Result            string            `json:"result,omitempty"`
+	ExecutionObserved bool              `json:"execution_observed,omitempty"`
 }
 
 func cycleEvent(c Cycle, stage, result string) Event {
 	e := NewEvent(c.ID, "runtime", "auto", "cycle", result)
 	key := sha256.Sum256([]byte(c.ID + "\x00" + stage + "\x00" + result))
 	e.EventID = hex.EncodeToString(key[:])
-	r := c.Environment
+	var r RuntimeObservation
 	r.Stage = stage
 	r.PlanMode = c.Mode
 	e.Runtime = &r
 	return e
 }
 func StartCycle(scope Scope, mode string, stages []string, env RuntimeObservation) (Cycle, error) {
-	c := Cycle{ID: NewID(), StartedAt: time.Now().UnixMilli(), Mode: mode, Stages: map[string]string{}, Environment: env}
+	c := Cycle{ID: NewID(), StartedAt: time.Now().UnixMilli(), Mode: mode, Stages: map[string]string{}}
 	if len(stages) == 0 || len(stages) > 32 {
 		return c, fmt.Errorf("cycle requires 1–32 stages")
 	}
@@ -37,7 +37,11 @@ func StartCycle(scope Scope, mode string, stages []string, env RuntimeObservatio
 		}
 		c.Stages[stage] = ""
 	}
-	e := cycleEvent(c, "cycle", "started")
+	if err := Validate(cycleEvent(c, "cycle", "started")); err != nil {
+		return c, err
+	}
+	e := NewEvent(c.ID, "runtime", "auto", "environment", "observed")
+	e.Runtime = &env
 	if err := Validate(e); err != nil {
 		return c, err
 	}
@@ -83,6 +87,18 @@ func ReportCycle(scope Scope, id, stage, result string) error {
 			return fmt.Errorf("cycle already ended")
 		}
 		if stage == "cycle" {
+			if result == "failed" {
+				failed := false
+				for _, outcome := range c.Stages {
+					if outcome == "failed" {
+						failed = true
+						break
+					}
+				}
+				if !failed {
+					return fmt.Errorf("cycle failure requires a failed stage receipt")
+				}
+			}
 			if result == "completed" {
 				for _, v := range c.Stages {
 					if v != "completed" {
@@ -107,6 +123,12 @@ func ReportCycle(scope Scope, id, stage, result string) error {
 		e := cycleEvent(c, stage, result)
 		if err := Validate(e); err != nil {
 			return err
+		}
+		if !c.ExecutionObserved {
+			start := cycleEvent(c, "cycle", "started")
+			start.EventAt = e.EventAt // First execution evidence, not plan creation time.
+			st.Events = append(st.Events, start)
+			c.ExecutionObserved = true
 		}
 		st.Cycles[id] = c
 		st.Events = append(st.Events, e)

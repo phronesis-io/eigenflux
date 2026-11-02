@@ -57,3 +57,5 @@ terminal failures cannot be rewritten as success. Missing receipts remain
 unknown. `EIGENFLUX_RUNTIME_OBSERVATIONS=0` disables creation. Upload errors never
 repeat business actions. OS/architecture come from the running binary; model
 and host are reported evidence, not inferred hardware or user participation.
+
+A generated plan contributes environment evidence only. The first valid stage receipt records execution with its observation timestamp. Cycle failure requires a failed stage receipt. Interrupted or missing stages remain unresolved.

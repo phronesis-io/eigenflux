@@ -5,7 +5,7 @@ included) and reports cycle execution separately. The product PRD lives in
 `eigenflux-insights/docs/prd/retention-environment-analysis.md`.
 
 A successful runtime settings report queues a daily environment snapshot. A
-heartbeat plan queues a cycle start with its exact stage set and puts the cycle
+heartbeat plan captures its environment and stores its exact stage set locally and puts the cycle
 ID and receipt instructions in both JSON/agent output. The persistent scheduler
 prompt, scheduling frequency, business stages, content selection and notification
 semantics do not change. No Skills update is required: only upgraded CLIs issue
@@ -39,3 +39,5 @@ Verification: runtime validator/HTTP identity tests, real loopback PostgreSQL
 deduplication, queue concurrent stage/retry tests, CLI plan/metadata regressions,
 Insights SQL fixtures, independent D1 aggregate reconciliation and browser tests.
 Never write synthetic events to production to demonstrate collection.
+
+A generated plan contributes environment evidence only. The first valid stage receipt records execution with its observation timestamp. Cycle failure requires a failed stage receipt. Interrupted or missing stages remain unresolved.

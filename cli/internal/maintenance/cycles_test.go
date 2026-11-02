@@ -14,6 +14,13 @@ func TestCycleReceiptsRequireEveryStageAndIsolateAccounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	initial, _ := Snapshot(s)
+	if len(initial.Events) != 1 || initial.Events[0].Phase != "environment" {
+		t.Fatal("plan creation counted as execution")
+	}
+	if ReportCycle(s, c.ID, "cycle", "failed") == nil {
+		t.Fatal("missing evidence counted as failure")
+	}
 	if ReportCycle(s, c.ID, "cycle", "completed") == nil {
 		t.Fatal("unperformed cycle completed")
 	}
@@ -46,7 +53,7 @@ func TestCycleReceiptsRequireEveryStageAndIsolateAccounts(t *testing.T) {
 		t.Fatal(e)
 	}
 	st, _ := Snapshot(s)
-	if len(st.Events) != 4 {
+	if len(st.Events) != 5 || st.Events[1].Result != "started" || st.Events[1].EventAt != st.Events[2].EventAt {
 		t.Fatalf("duplicate or lost receipts: %d", len(st.Events))
 	}
 	if ReportCycle(s, c.ID, "cycle", "failed") == nil {
