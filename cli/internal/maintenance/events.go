@@ -25,6 +25,7 @@ var idValue = regexp.MustCompile(`^[a-f0-9]{32,64}$`)
 
 type Scope struct{ Home, Server, AgentID string }
 type Event struct {
+	Runtime        *RuntimeObservation   `json:"runtime,omitempty"`
 	OuterLoop      *OuterLoopObservation `json:"outer_loop,omitempty"`
 	Commission     *Commission           `json:"commission,omitempty"`
 	Notification   *Notification         `json:"notification,omitempty"`
@@ -48,13 +49,16 @@ type Event struct {
 }
 
 type State struct {
-	ReadAttempts map[string]Event `json:"read_attempts,omitempty"`
-	Events       []Event          `json:"events"`
-	Dropped      uint64           `json:"dropped"`
-	LastAttempt  int64            `json:"last_attempt"`
-	NextFlush    int64            `json:"next_flush"`
-	Failures     int              `json:"failures"`
-	Attempts     map[string]Event `json:"attempts,omitempty"`
+	RuntimeNextFlush int64            `json:"runtime_next_flush,omitempty"`
+	RuntimeFailures  uint             `json:"runtime_failures,omitempty"`
+	Cycles           map[string]Cycle `json:"cycles,omitempty"`
+	ReadAttempts     map[string]Event `json:"read_attempts,omitempty"`
+	Events           []Event          `json:"events"`
+	Dropped          uint64           `json:"dropped"`
+	LastAttempt      int64            `json:"last_attempt"`
+	NextFlush        int64            `json:"next_flush"`
+	Failures         int              `json:"failures"`
+	Attempts         map[string]Event `json:"attempts,omitempty"`
 }
 
 func NewID() string {
@@ -71,6 +75,12 @@ func NewEvent(attempt, component, trigger, phase, result string) Event {
 func Validate(e Event) error {
 	if !idValue.MatchString(e.EventID) || !idValue.MatchString(e.AttemptID) {
 		return errors.New("invalid maintenance identity")
+	}
+	if e.Phase == "environment" || e.Phase == "cycle" {
+		return ValidateRuntime(e)
+	}
+	if e.Runtime != nil {
+		return fmt.Errorf("runtime metadata requires runtime phase")
 	}
 	if e.OuterLoop != nil {
 		return validateOuterLoop(e)
@@ -149,6 +159,11 @@ func (s Scope) path() (string, error) {
 	return filepath.Join(s.Home, "maintenance", hex.EncodeToString(sum[:16])+"-events.json"), nil
 }
 func prune(st *State, now time.Time) {
+	for id, c := range st.Cycles {
+		if c.StartedAt < now.Add(-Retention).UnixMilli() {
+			delete(st.Cycles, id)
+		}
+	}
 	var receipts []Event
 	for id, e := range st.ReadAttempts {
 		if e.EventAt < now.Add(-Retention).UnixMilli() {
@@ -173,8 +188,22 @@ func prune(st *State, now time.Time) {
 	}
 	st.Events = kept
 	if len(st.Events) > MaxEvents {
-		st.Dropped += uint64(len(st.Events) - MaxEvents)
-		st.Events = st.Events[len(st.Events)-MaxEvents:]
+		// New runtime telemetry must not evict pre-existing maintenance evidence.
+		excess := len(st.Events) - MaxEvents
+		kept := st.Events[:0]
+		for _, event := range st.Events {
+			if excess > 0 && event.Runtime != nil {
+				excess--
+				st.Dropped++
+				continue
+			}
+			kept = append(kept, event)
+		}
+		st.Events = kept
+		if excess > 0 {
+			st.Dropped += uint64(excess)
+			st.Events = st.Events[excess:]
+		}
 	}
 }
 func update(s Scope, fn func(*State) error) error {
@@ -306,11 +335,28 @@ func FlushUninstall(s Scope, now time.Time, attempt string, send func([]Event) e
 
 func flush(s Scope, now time.Time, uninstallAttempt string, send func([]Event) error) error {
 	var batch []Event
+	runtimeBatch := false
 	if err := update(s, func(st *State) error {
-		if uninstallAttempt == "" && now.UnixMilli() < st.NextFlush {
+		// Older servers reject unknown runtime fields. Never mix them with existing
+		// maintenance events or let runtime backoff block legacy observations.
+		runtimeBatch = uninstallAttempt == "" && len(st.Events) > 0
+		for _, event := range st.Events {
+			if event.Runtime == nil {
+				runtimeBatch = false
+				break
+			}
+		}
+		nextFlush := st.NextFlush
+		if runtimeBatch {
+			nextFlush = st.RuntimeNextFlush
+		}
+		if uninstallAttempt == "" && now.UnixMilli() < nextFlush {
 			return nil
 		}
 		for _, event := range st.Events {
+			if uninstallAttempt == "" && (event.Runtime != nil) != runtimeBatch {
+				continue
+			}
 			if uninstallAttempt != "" && (event.Phase != "uninstall" || event.AttemptID != uninstallAttempt) {
 				continue
 			}
@@ -329,6 +375,14 @@ func flush(s Scope, now time.Time, uninstallAttempt string, send func([]Event) e
 	sendErr := send(batch)
 	err := update(s, func(st *State) error {
 		if sendErr != nil {
+			if runtimeBatch {
+				st.RuntimeFailures++
+				if st.RuntimeFailures > 8 {
+					st.RuntimeFailures = 8
+				}
+				st.RuntimeNextFlush = now.Add(time.Duration(1<<st.RuntimeFailures) * time.Second).UnixMilli()
+				return nil
+			}
 			st.Failures++
 			if st.Failures > 8 {
 				st.Failures = 8
@@ -347,8 +401,13 @@ func flush(s Scope, now time.Time, uninstallAttempt string, send func([]Event) e
 			}
 		}
 		st.Events = kept
-		st.NextFlush = 0
-		st.Failures = 0
+		if runtimeBatch {
+			st.RuntimeNextFlush = 0
+			st.RuntimeFailures = 0
+		} else {
+			st.NextFlush = 0
+			st.Failures = 0
+		}
 		return nil
 	})
 	if err != nil {

@@ -143,5 +143,16 @@
     "title": "Accept outer-loop setup and scheduler readback observations",
     "description": "API rollout accepts bounded setup/readback and container/WSL evidence from updated CLIs; deploy receiver before CLI. Native task readback requires updated Skills and CLI adoption. Historical gaps remain unknown; task state is separate from runtime health and business retention.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/479"
+  },
+  {
+    "id": "runtime-cycle-observations-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "api",
+    "dashboards": [
+      "user-growth"
+    ],
+    "title": "Runtime and external-loop observations available",
+    "description": "API accepts environment and cycle stage receipts. Coverage begins only after CLI 1.0.3 adoption; D0 snapshots are not backfilled and missing receipts are not failures. Telemetry does not count as activity. Hardware means CPU architecture only.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/477"
   }
 ]

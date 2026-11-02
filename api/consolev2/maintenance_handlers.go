@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"time"
@@ -17,6 +18,7 @@ import (
 )
 
 type maintenanceEvent struct {
+	Runtime        *runtimeObservation          `json:"runtime,omitempty"`
 	OuterLoop      *outerLoopObservation        `json:"outer_loop,omitempty"`
 	Commission     *commissionMaintenanceData   `json:"commission,omitempty"`
 	Notification   *notificationMaintenanceData `json:"notification,omitempty"`
@@ -56,6 +58,12 @@ func validateMaintenanceEvent(e maintenanceEvent, now time.Time) error {
 	}
 	if e.EventAt < now.Add(-7*24*time.Hour).UnixMilli() || e.EventAt > now.Add(5*time.Minute).UnixMilli() {
 		return fmt.Errorf("maintenance event outside retention window")
+	}
+	if e.Phase == "environment" || e.Phase == "cycle" {
+		return validateRuntimeObservation(e)
+	}
+	if e.Runtime != nil {
+		return fmt.Errorf("runtime metadata requires runtime phase")
 	}
 	if e.OuterLoop != nil {
 		return validateOuterLoopObservation(e)
@@ -151,6 +159,9 @@ func (s *Service) recordMaintenanceBatch(_ context.Context, c *app.RequestContex
 		if err := validateMaintenanceEvent(event, now); err != nil {
 			fail(c, http.StatusBadRequest, "INVALID_MAINTENANCE_EVENT", err.Error(), nil)
 			return
+		}
+		if event.Runtime != nil && os.Getenv("ENABLE_RUNTIME_OBSERVATIONS") == "false" {
+			continue
 		}
 		raw, _ := json.Marshal(event)
 		properties := map[string]interface{}{}

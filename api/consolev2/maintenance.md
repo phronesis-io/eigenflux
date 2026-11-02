@@ -117,3 +117,21 @@ When no valid device records exist, return `account_cli_version` from the signed
 Agent’s `agent_settings.cli_version`. This is the last account observation, not a
 device version or OS permission claim. Missing settings remain empty; query failures
 return 503. When devices exist, leave the account fallback empty.
+
+## Runtime and cycle observations
+
+The same authenticated batch accepts `component=runtime`, phase `environment`
+with result `observed`, or phase `cycle` with started/completed/failed. The bounded
+`runtime` object contains product/version, OS, CPU architecture, reported model,
+CLI/Skills revision and (for cycles) stage/plan mode. No device names, physical
+hardware identifiers, raw errors or business payloads. Existing agent-derived
+idempotency, rate limits, timestamps and 30-day retention apply. These events
+never enter agent_activity_log and cannot inflate activity retention.
+
+Set `ENABLE_RUNTIME_OBSERVATIONS=false` to acknowledge and discard only these
+observations without affecting business operations or other maintenance events.
+Deploy collection before CLI adoption; rollback can disable collection without
+schema changes. A client completion receipt is an assertion, not a server-side
+proof of every business effect. Analysis requires a matching start receipt.
+
+A generated plan contributes environment evidence only. The first valid stage receipt records execution with its observation timestamp. Cycle failure requires a failed stage receipt. Interrupted or missing stages remain unresolved.

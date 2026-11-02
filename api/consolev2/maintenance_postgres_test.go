@@ -104,6 +104,30 @@ func TestMaintenancePostgresAgentAuthIdentityAndIdempotency(t *testing.T) {
 			t.Fatal("browser telemetry can reserve an internal maintenance event key")
 		}
 	}
+	runtimeEvent := validMaintenanceEvent()
+	runtimeEvent.EventID = fmt.Sprintf("%064x", 789)
+	runtimeEvent.Component = "runtime"
+	runtimeEvent.Phase = "environment"
+	runtimeEvent.Result = "observed"
+	runtimeEvent.FromVersion = ""
+	runtimeEvent.ToVersion = ""
+	runtimeEvent.RunningVersion = ""
+	runtimeEvent.ErrorCode = ""
+	runtimeEvent.DurationMS = 0
+	runtimeEvent.Runtime = &runtimeObservation{Product: "codex", OS: "darwin", Arch: "arm64"}
+	body = map[string]interface{}{"events": []maintenanceEvent{runtimeEvent}}
+	for _, id := range []int64{42, 42, 43} {
+		if status := send(id); status != 202 {
+			t.Fatalf("runtime ingestion: %d", status)
+		}
+	}
+	var runtimeCount int64
+	if err := tx.Raw(`SELECT count(*) FROM telemetry_events_v2 WHERE properties->>'phase'='environment' AND properties->'runtime'->>'os'='darwin'`).Scan(&runtimeCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if runtimeCount != 2 {
+		t.Fatalf("runtime identity/dedup: %d", runtimeCount)
+	}
 	uninstall := maintenanceEvent{EventID: fmt.Sprintf("%064x", 123), AttemptID: fmt.Sprintf("%032x", 456), EventAt: time.Now().UnixMilli(), Component: "cli", Trigger: "manual", Phase: "uninstall", Result: "removed", Source: "agent", Platform: "darwin", ReasonCategory: "privacy"}
 	body = map[string]interface{}{"events": []maintenanceEvent{uninstall}}
 	for _, id := range []int64{42, 42, 43} {
