@@ -325,6 +325,40 @@ FROM telemetry_events_v2 WHERE properties->>'component'='dispatch' ORDER BY agen
 		}
 	}
 
+	// A fast-clock ready observation must not become trusted permission when a
+	// later real check reports denial after the local clock has been corrected.
+	svc.telemetryRates = map[string]telemetryRateState{}
+	futureAt := time.Now().Add(4 * time.Minute).UnixMilli()
+	for i, row := range []struct {
+		at                 int64
+		result, code, name string
+	}{
+		{futureAt, "ready", "", "fast-clock ready"},
+		{time.Now().UnixMilli(), "disabled", "permission_denied", "corrected-clock denied"},
+	} {
+		e := validNotificationMaintenance()
+		e.EventID, e.AttemptID = fmt.Sprintf("%064x", 7000+i), fmt.Sprintf("%032x", 8000+i)
+		e.EventAt, e.Result, e.ErrorCode = row.at, row.result, row.code
+		e.Notification.Action, e.Notification.IDHash = "status", ""
+		e.Notification.DeviceID, e.Notification.DeviceName = deviceID, row.name
+		body = map[string]interface{}{"events": []maintenanceEvent{e}}
+		if status := send(42); status != 202 {
+			t.Fatalf("clock-skew status ingestion: %d", status)
+		}
+	}
+	status, payload, _ = performJSON(t, h, "GET", "/devices", nil)
+	if status != 200 {
+		t.Fatalf("clock-skew projection: %d %v", status, payload)
+	}
+	devices = payload["data"].(map[string]interface{})["devices"].([]interface{})
+	if len(devices) != 1 {
+		t.Fatalf("clock-skew device scope: %v", devices)
+	}
+	device = devices[0].(map[string]interface{})
+	if device["observed_at"] != float64(futureAt) || device["permission_state"] != "unknown" || device["stale"] != true {
+		t.Fatalf("future ready hid a later denied check: %v", device)
+	}
+
 	// Legacy CLI installations have no notification device events.
 	exec(`CREATE TEMP TABLE agent_settings (agent_id BIGINT PRIMARY KEY, cli_version TEXT) ON COMMIT DROP`)
 	exec(`INSERT INTO agent_settings VALUES (42,'0.7.7'), (43,'1.0.0')`)

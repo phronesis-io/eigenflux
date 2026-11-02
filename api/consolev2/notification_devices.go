@@ -16,7 +16,7 @@ type notificationDevice struct {
 	Platform        string `json:"platform"`
 	PermissionState string `json:"permission_state"`
 	ObservedAt      int64  `json:"observed_at"`
-	Stale           bool   `json:"stale"` // Retained for existing clients; latest observations do not age out.
+	Stale           bool   `json:"stale"` // Only future clock skew; historical observations do not age out.
 }
 
 type notificationDeviceRow struct {
@@ -47,8 +47,12 @@ const notificationDevicesQuery = `SELECT device_id, device_name, cli_version, pl
  ORDER BY properties->'notification'->>'device_id', event_at DESC, created_at DESC, event_id DESC
 ) latest ORDER BY event_at DESC, device_id LIMIT 50`
 
-func projectNotificationDevice(row notificationDeviceRow) notificationDevice {
+func projectNotificationDevice(row notificationDeviceRow, now time.Time) notificationDevice {
 	d := notificationDevice{CLIVersion: row.CLIVersion, DeviceID: row.DeviceID, DeviceName: row.DeviceName, Platform: row.Platform, ObservedAt: row.EventAt, PermissionState: "unknown"}
+	if row.EventAt > now.Add(time.Minute).UnixMilli() {
+		d.Stale = true
+		return d
+	}
 	switch {
 	case row.Result == "ready" && row.ErrorCode == "":
 		d.PermissionState = "ready"
@@ -85,7 +89,7 @@ func (s *Service) listNotificationDevices(ctx context.Context, c *app.RequestCon
 		if !notificationDeviceID.MatchString(row.DeviceID) || !validNotificationDeviceName(row.DeviceName) || !maintenanceOneOf(row.Platform, "darwin", "windows") {
 			continue
 		}
-		devices = append(devices, projectNotificationDevice(row))
+		devices = append(devices, projectNotificationDevice(row, now))
 	}
 	accountCLIVersion := ""
 	if len(devices) == 0 {

@@ -97,8 +97,10 @@ Each device contains `device_id`, `device_name`, `platform`, `permission_state`,
 `observed_at` and `stale`. Permission states are `ready`, `denied`,
 `not_requested`, `unavailable`, or `unknown`. Windows first-use registration
 is unknown. Preserve the latest reported permission regardless of observation
-age; absence of a new report does not change permission. Retain `stale=false`
-for existing clients. `observed_at` is the last observation, not proof of a live device.
+age; absence of a new report does not change permission. An observation more
+than one minute ahead of server time returns `unknown` and `stale=true` until
+it is within that clock-skew tolerance. Other observations return `stale=false`.
+`observed_at` is the last observation, not proof of a live device.
 The device name is account-private display text; never insert it into markup.
 The API does not identify the browser's current machine or control remote OS
 settings. Deploy API support before the matching CLI/web; no migration.
