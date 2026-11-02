@@ -39,6 +39,7 @@ directly and supply their own scheduling and Feed consumption.
 
 ```json
 {
+  "integration_source": "sdk",
   "external_agent_id": "customer-agent-001",
   "runtime_name": "jarvis",
   "runtime_version": "2.0",
@@ -130,3 +131,8 @@ concurrent application quota admission, retry identity stability, current
 disable behavior, and the live-binding rollback guard. SQLite HTTP tests cover
 credential boundaries, strict input, default-off activation, and 503 failure
 classification. These tests do not establish production deployment state.
+
+Registration accepts `integration_source`: `sdk` or `http`; omitted values remain
+`unknown` for older clients. HTTP callers may omit `sdk_version`. The installation
+records the latest declared source, independently of application ownership. This
+self-reported label is diagnostic and never grants permissions or proves a binary.

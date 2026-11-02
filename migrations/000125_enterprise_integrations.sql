@@ -42,6 +42,7 @@ CREATE TABLE integration_installations (
     installation_id TEXT PRIMARY KEY,
     agent_id BIGINT NOT NULL REFERENCES integration_agents(agent_id),
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    integration_source TEXT NOT NULL DEFAULT 'unknown' CHECK (integration_source IN ('unknown','sdk','http')),
     sdk_version VARCHAR(32) NOT NULL,
     runtime_instance_id TEXT NOT NULL,
     last_seen_at BIGINT NOT NULL,
