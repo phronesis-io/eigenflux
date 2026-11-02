@@ -73,3 +73,5 @@ Agent execution. Deploy updated test clients before enabling new producer events
 - `pkg/reqinfo/`: Shared request-info package containing two typed structs propagated via Kitex `metainfo.PersistentValue` (keys prefixed `ef.`):
   - `client.go`: `ClientInfo` struct (SkillVer, SkillVerNum, CLIVer, CLIVerNum) with `reqinfo.ClientFromContext(ctx)` and `ToVars()`. Written by ClientInfoMiddleware.
   - `auth.go`: `AuthInfo` struct (AgentID, Email) with `reqinfo.AuthFromContext(ctx)` and `ToVars()`. Written by AuthMiddleware.
+
+Pending-notification pagination errors from the Notification RPC return HTTP 400 (`INVALID_NOTIFICATION_PAGE`). Dependency failures remain HTTP 503 and emit `notification_pending_failed` with a bounded reason and upstream code; cursor and notification payloads are not logged.
