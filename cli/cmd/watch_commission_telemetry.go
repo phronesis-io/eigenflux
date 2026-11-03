@@ -70,7 +70,7 @@ func commissionJobObservation(job dispatch.Job) maintenance.Commission {
 }
 
 func (w *accountWatch) recordCommissionObservation(c maintenance.Commission, result, code string, started time.Time, receipt dispatch.Result, cause error, fixedAttempt ...string) (recorded bool) {
-	if w.binding == nil || c.OrderID == "" {
+	if w.manualCommission || w.binding == nil || c.OrderID == "" {
 		return
 	}
 	if w.journal != nil && c.Stage != "diagnostic_snapshot" {

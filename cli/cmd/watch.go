@@ -73,6 +73,7 @@ type accountWatch struct {
 	desktop               *desktopqueue.Queue
 	desktopProvider       desktopProvider
 	desktopDisabledReason string
+	manualCommission      bool // Synchronous operator inspection; no automatic watch telemetry.
 	notificationsOnly     bool
 	notificationsReady    atomic.Bool
 	handoff               *watchHandoff
