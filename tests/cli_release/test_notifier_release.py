@@ -177,6 +177,8 @@ class NotifierReleaseTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'second'):
                     release.restore(args)
             self.assertFalse(args.helpers_dir.exists())
+            for arch in release.ARCHES:
+                self.assertFalse((args.work_dir / (arch + '.zip')).exists())
 
     def test_publish_resumes_signed_local_validation_and_receipt_is_last(self):
         with tempfile.TemporaryDirectory() as d:
@@ -207,7 +209,7 @@ class NotifierReleaseTests(unittest.TestCase):
                 archive.writestr(info, contents)
 
     @unittest.skipUnless(Path('/usr/bin/ditto').exists(), 'macOS ditto required')
-    def test_real_ditto_archives_match_existing_cli_packager(self):
+    def test_restored_ditto_archives_authorize_existing_cli_packager(self):
         spec = importlib.util.spec_from_file_location('proof_packages', ROOT / 'cli/scripts/cli-packages.py')
         packages = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(packages)
@@ -215,7 +217,7 @@ class NotifierReleaseTests(unittest.TestCase):
             root = Path(directory)
             build, helpers = root / 'build', root / 'helpers'
             build.mkdir()
-            record = {'version': '1.0.5', 'team_id': 'ABCDEFGHIJ', 'artifacts': {}}
+            record = {'version': '1.0.5', 'source': 'a' * 64, 'team_id': 'ABCDEFGHIJ', 'artifacts': {}}
             for os_name, arch in packages.PLATFORMS:
                 (build / packages.binary_name(os_name, arch)).write_bytes(b'fixture CLI')
             for arch in release.ARCHES:
@@ -228,9 +230,25 @@ class NotifierReleaseTests(unittest.TestCase):
                 archive = root / (arch + '.zip')
                 subprocess.run(['/usr/bin/ditto', '-c', '-k', '--keepParent', str(app), str(archive)], check=True)
                 record['artifacts'][arch] = {'size': archive.stat().st_size, 'sha256': release.digest(archive)}
-            packages.generate(build, helpers)
+            restored = SimpleNamespace(work_dir=root / 'restored-proof', helpers_dir=root / 'restored-helpers',
+                                       version=record['version'], source=record['source'], team_id=record['team_id'])
+            prefix = f'notifier/{restored.version}/{restored.source}'
+            stored = {prefix + '/ready.json': json.dumps(record).encode()}
+            stored.update({prefix + '/' + arch + '.zip': (root / (arch + '.zip')).read_bytes()
+                           for arch in release.ARCHES})
+            def download(key, path, **kwargs):
+                path.write_bytes(stored[key])
+                return True
+            with patch.object(release, 'download', side_effect=download), patch.object(release, 'receipt_tool', return_value=json.dumps(record)), patch.object(release, 'validate_identity'):
+                self.assertEqual(release.restore(restored), 0)
+            # Restoration must retain the exact signed archives after its temporary
+            # extraction directory is removed; packaging consumes that same proof.
+            for arch in release.ARCHES:
+                self.assertEqual((restored.work_dir / (arch + '.zip')).read_bytes(),
+                                 stored[prefix + '/' + arch + '.zip'])
+            packages.generate(build, restored.helpers_dir)
             packages.verify(build)
-            args = SimpleNamespace(work_dir=root, build_dir=build, version='1.0.5', team_id='ABCDEFGHIJ')
+            args = SimpleNamespace(work_dir=restored.work_dir, build_dir=build, version='1.0.5', team_id='ABCDEFGHIJ')
             with patch.object(release, 'receipt_tool', return_value=json.dumps(record)):
                 self.assertEqual(release.verify_packages(args), 0)
 
