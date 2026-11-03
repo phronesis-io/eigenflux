@@ -191,7 +191,8 @@ func TestSyncPreservesHostSymlinksWithoutFollowing(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(opts.Into, ".hub"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("../.host-link", filepath.Join(opts.Into, ".hub", "nested-link")); err != nil {
+	relative := filepath.Join("..", ".host-link")
+	if err := os.Symlink(relative, filepath.Join(opts.Into, ".hub", "nested-link")); err != nil {
 		t.Fatal(err)
 	}
 	source := stageSkills(t, map[string]map[string]string{"ef-broadcast": {"SKILL.md": "new"}})
@@ -200,7 +201,7 @@ func TestSyncPreservesHostSymlinksWithoutFollowing(t *testing.T) {
 	if result, err := Sync(opts); err != nil || !result.VerifiedManifest {
 		t.Fatalf("sync failed: %+v %v", result, err)
 	}
-	for name, want := range map[string]string{".host-link": external, ".hub/nested-link": "../.host-link"} {
+	for name, want := range map[string]string{".host-link": external, ".hub/nested-link": relative} {
 		if got, err := os.Readlink(filepath.Join(opts.Into, name)); err != nil || got != want {
 			t.Fatalf("symlink changed: %s %q %v", name, got, err)
 		}
