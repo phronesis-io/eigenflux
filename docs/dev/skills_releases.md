@@ -179,8 +179,9 @@ remote manifest is unavailable).
 
 ## Automatic bridge continuation
 
-A newly adopted CLI may continue an automatic update in the same heartbeat
-invocation. Only a strictly newer running version with a valid handoff bypasses
+A CLI adopted from a version older than the 1.0.10 bridge may continue an
+automatic update in the same heartbeat invocation. Only a strictly newer
+running version at least 1.0.10 with a valid handoff bypasses
 the daily check interval, with at most two continuation handoffs. Identity,
 server update policy, signatures, rollback protection and shared installation
 locking remain required. Ordinary subsequent invocations retain the daily

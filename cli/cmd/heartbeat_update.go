@@ -29,6 +29,7 @@ const updateAttemptEnv = "EIGENFLUX_UPDATE_ATTEMPT"
 const updateIdentityEnv = "EIGENFLUX_UPDATE_IDENTITY"
 const updateHopsEnv = "EIGENFLUX_UPDATE_HANDOFFS"
 const maxUpdateHops = 2
+const sameCycleBridgeVersion = "1.0.10"
 
 func updateHops() int {
 	value := os.Getenv(updateHopsEnv)
@@ -45,7 +46,8 @@ func updateHops() int {
 func continueAutomaticCLIUpdate() bool {
 	from := os.Getenv(updateFromVersionEnv)
 	return os.Getenv(updateReexecEnv) == "1" && updateHops() < maxUpdateHops &&
-		selfupdate.ValidVersion(from) && selfupdate.Compare(from, version) < 0
+		selfupdate.ValidVersion(from) && selfupdate.Compare(from, version) < 0 &&
+		selfupdate.Compare(from, sameCycleBridgeVersion) < 0 && selfupdate.Compare(version, sameCycleBridgeVersion) >= 0
 }
 
 // The process handoff is pinned independently of optional maintenance receipts.

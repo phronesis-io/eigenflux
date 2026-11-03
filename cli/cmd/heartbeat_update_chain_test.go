@@ -25,3 +25,20 @@ func TestAutomaticUpdateContinuationIsBoundedAndForwardOnly(t *testing.T) {
 		})
 	}
 }
+
+func TestOrdinaryReleaseDoesNotContinueMigration(t *testing.T) {
+	old := version
+	version = "1.0.11"
+	t.Cleanup(func() { version = old })
+	t.Setenv(updateReexecEnv, "1")
+	t.Setenv(updateFromVersionEnv, "1.0.10")
+	t.Setenv(updateHopsEnv, "")
+	if continueAutomaticCLIUpdate() {
+		t.Fatal("ordinary release restarted migration")
+	}
+	version = "0.0.48"
+	t.Setenv(updateFromVersionEnv, "0.0.47")
+	if continueAutomaticCLIUpdate() {
+		t.Fatal("historical release restarted unsupported continuation")
+	}
+}

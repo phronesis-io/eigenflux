@@ -230,7 +230,7 @@ func TestRealCLIConsecutiveCompleteUpdates(t *testing.T) {
 	}
 	chainEnv = append(chainEnv, "EIGENFLUX_HOME="+chainHome, "EIGENFLUX_MODE=skill", "EIGENFLUX_HOST=codex", "EIGENFLUX_CDN_URL="+server.URL, "EIGENFLUX_SKIP_AGENT_SETUP=1", "EIGENFLUX_SKILLS_DIR="+filepath.Join(chain, "absent-skills"))
 	runChain := exec.Command(chainRoot, "--homedir", chainHome, "--server", "audit", "heartbeat", "plan", "--format", "json")
-	runChain.Env = append(append([]string(nil), chainEnv...), "EIGENFLUX_UPDATE_REEXEC=1", "EIGENFLUX_UPDATE_FROM_VERSION=9.8.6", "EIGENFLUX_UPDATE_ATTEMPT=11111111111111111111111111111111")
+	runChain.Env = append(append([]string(nil), chainEnv...), "EIGENFLUX_UPDATE_REEXEC=1", "EIGENFLUX_UPDATE_FROM_VERSION=1.0.0", "EIGENFLUX_UPDATE_ATTEMPT=11111111111111111111111111111111")
 	chainOutput, _ := runChain.CombinedOutput() // Missing Skills may fail the resumed business plan.
 	checkChain := exec.Command(chainRoot, "--homedir", chainHome, "version", "--short")
 	checkChain.Env = chainEnv
