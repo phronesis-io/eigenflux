@@ -176,5 +176,16 @@
     "title": "Record broadcast detail inspections separately from display",
     "description": "Successful non-author detail reads produce weak inspection signals. Exact exposure attribution needs CLI 1.0.8 or an explicit impression; older clients remain unattributed. No historical backfill, human-click inference or ranking-weight change.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/481"
+  },
+  {
+    "id": "pgc-surface-agent-reporters-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "full",
+    "dashboards": [
+      "recommendation-effect"
+    ],
+    "title": "Exclude server-only detail readers from surface reporters",
+    "description": "Migration 000126 must precede detail-event collection. The rolling seven-day view counts only Agent-reported follow-up kinds; existing event rows are unchanged and historical aggregates are recomputed. API-only rollout does not apply this correction.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/481"
   }
 ]
