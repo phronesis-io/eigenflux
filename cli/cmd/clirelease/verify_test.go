@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -247,5 +249,39 @@ func TestVerifyPublishedV2FailureNeverFallsBack(t *testing.T) {
 				t.Fatalf("untrusted v2 accepted/fell back: %v %d", err, legacyRequests)
 			}
 		})
+	}
+}
+
+func TestPreparedManifestSignatures(t *testing.T) {
+	pub, key, _ := ed25519.GenerateKey(rand.Reader)
+	dir := t.TempDir()
+	for _, name := range []string{"release.json", "package-release.json", "release-v2.json", "package-release-v2.json"} {
+		m := selfupdate.Manifest{Version: "1.0.6", Artifacts: map[string]selfupdate.Artifact{}}
+		if strings.Contains(name, "-v2.") {
+			m.NotifierVersion = "1.0.5"
+		}
+		if err := selfupdate.Sign(&m, key); err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.Marshal(m)
+		if err := os.WriteFile(filepath.Join(dir, name), raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := verifyLocalSignatures(dir, "1.0.6", pub); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyLocalSignatures(dir, "1.0.7", pub); err == nil {
+		t.Fatal("wrong version accepted")
+	}
+	_, wrong, _ := ed25519.GenerateKey(rand.Reader)
+	if err := verifyLocalSignatures(dir, "1.0.6", wrong.Public().(ed25519.PublicKey)); err == nil {
+		t.Fatal("wrong trust root accepted")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "release.json"), []byte(`{"version":"1.0.6","artifacts":{}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyLocalSignatures(dir, "1.0.6", pub); err == nil {
+		t.Fatal("unsigned transferred manifest accepted")
 	}
 }

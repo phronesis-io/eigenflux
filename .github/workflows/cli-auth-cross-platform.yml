@@ -141,3 +141,33 @@ jobs:
           go build -o ../build/eigenflux.exe .
       - name: Test Windows installer downloads and existing installation registration
         run: python -m unittest discover -s tests/cli_release -p 'test_windows_*.py'
+
+  release-artifact-handoff:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare an executable without release credentials
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-handoff-source"
+          printf '#!/bin/sh\nprintf "handoff-ok\\n"\n' > "$RUNNER_TEMP/release-handoff-source/releasecheck"
+          chmod 755 "$RUNNER_TEMP/release-handoff-source/releasecheck"
+          printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/release-handoff-source/source-sha.txt"
+          tar -C "$RUNNER_TEMP/release-handoff-source" -cf "$RUNNER_TEMP/release-handoff.tar" .
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-handoff-${{ github.sha }}
+          path: ${{ runner.temp }}/release-handoff.tar
+          compression-level: 0
+          retention-days: 1
+          overwrite: true
+          if-no-files-found: error
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-handoff-${{ github.sha }}
+          path: ${{ runner.temp }}/release-handoff-download
+      - name: Verify the downloaded artifact source and executable permissions
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-handoff-restored"
+          tar -C "$RUNNER_TEMP/release-handoff-restored" -xf "$RUNNER_TEMP/release-handoff-download/release-handoff.tar"
+          test "$(cat "$RUNNER_TEMP/release-handoff-restored/source-sha.txt")" = "$GITHUB_SHA"
+          test -x "$RUNNER_TEMP/release-handoff-restored/releasecheck"
+          test "$("$RUNNER_TEMP/release-handoff-restored/releasecheck")" = handoff-ok

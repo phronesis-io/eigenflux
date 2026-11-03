@@ -24,12 +24,19 @@ func main() {
 	notifierVersion := flag.String("notifier-version", "", "independent macOS notification version for v2 manifests")
 	keyFile := flag.String("signing-key-file", "", "Ed25519 private key file")
 	cdn := flag.String("verify-cdn", "", "verify the published CLI and all platform artifacts")
+	verifyLocal := flag.Bool("verify-local", false, "verify signatures of a prepared release before publication")
 	minimum := flag.String("min-version", "", "minimum compatible CLI version")
 	flag.Parse()
-	if *cdn != "" {
+	if *cdn != "" || *verifyLocal {
 		key, err := base64.StdEncoding.DecodeString(os.Getenv("EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY"))
 		if err != nil {
 			log.Fatal(err)
+		}
+		if *verifyLocal {
+			if err := verifyLocalSignatures(*dir, *version, key); err != nil {
+				log.Fatal(err)
+			}
+			return
 		}
 		if err := verifyPublished(*cdn, *minimum, key); err != nil {
 			log.Fatal(err)

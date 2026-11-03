@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
@@ -124,5 +126,32 @@ func verifyPublished(cdn, minimum string, key ed25519.PublicKey) error {
 		}
 	}
 
+	return nil
+}
+
+// Prepared artifacts cross jobs; authenticate their manifests before any upload.
+func verifyLocalSignatures(dir, version string, key ed25519.PublicKey) error {
+	if dir == "" || !selfupdate.ValidVersion(version) {
+		return fmt.Errorf("valid --dir and --version required")
+	}
+	names := []string{"release.json", "package-release.json"}
+	_, bareV2 := os.Stat(filepath.Join(dir, "release-v2.json"))
+	_, packageV2 := os.Stat(filepath.Join(dir, "package-release-v2.json"))
+	if !os.IsNotExist(bareV2) || !os.IsNotExist(packageV2) {
+		names = append(names, "release-v2.json", "package-release-v2.json")
+	}
+	for _, name := range names {
+		raw, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return err
+		}
+		m, err := selfupdate.Verify(raw, key)
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		if m.Version != version || (strings.Contains(name, "-v2.") != (m.NotifierVersion != "")) {
+			return fmt.Errorf("prepared release identity mismatch: %s", name)
+		}
+	}
 	return nil
 }

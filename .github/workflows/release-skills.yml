@@ -24,12 +24,7 @@ on:
       - 'cli/scripts/release-skills.sh'
       - 'cli/scripts/skills-release-state.py'
       - 'cli/scripts/publish-install-doc.py'
-      - 'cli/cmd/manifestcheck/**'
-      - 'cli/cmd/releaseverify/**'
-      - 'cli/cmd/clirelease/**'
       - 'cli/internal/skills/release.go'
-      - 'tests/cli_release/**'
-      - 'cli/tests/skills_release_test.go'
       - '.github/workflows/release-skills.yml'
       - 'cli/.cli.config'              # SKILLS_MIN_CLI_VERSION / SKILLS_REVISION
   workflow_dispatch:                   # manual "Run workflow" button
@@ -37,51 +32,65 @@ on:
 # contents: write — the sync step commits static/feed_contract.md back to main,
 # or to a chore/ branch when branch protection rejects the direct push.
 permissions:
-  contents: write
+  contents: read
+  actions: read
 
 # One publish at a time — the job overwrites the same skills/latest objects.
 concurrency:
-  group: release-r2
+  group: release-skills-main
   cancel-in-progress: false
 
 jobs:
-  release-skills:
+  plan:
     if: github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+      trusted_ci: ${{ steps.plan.outputs.trusted_ci }}
+      defer_to_cli: ${{ steps.plan.outputs.defer_to_cli }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: main
+          fetch-depth: 0
+      - id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 cli/scripts/release-plan.py --repository "$GITHUB_REPOSITORY" --sha '${{ steps.source.outputs.sha }}' --event-name "$GITHUB_EVENT_NAME" --event-path "$GITHUB_EVENT_PATH" --github-output "$GITHUB_OUTPUT"
+      - name: Explain a combined CLI release
+        if: steps.plan.outputs.defer_to_cli == 'true'
+        run: echo 'Skills publication deferred until the matching CLI release succeeds.' >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+  prepare:
+    needs: plan
+    if: needs.plan.outputs.defer_to_cli != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version-file: cli/go.mod
           cache-dependency-path: cli/go.sum
-
-      # release-skills.sh calls `gtar`; on Ubuntu the default `tar` IS GNU tar.
       - name: Provide gtar
         run: sudo ln -sf "$(command -v tar)" /usr/local/bin/gtar
-
-      - name: Verify toolchain (gtar / aws / shasum / go)
+      - name: Test release-specific safeguards
         run: |
-          gtar --version | head -1
-          aws --version
           aws s3api put-object --generate-cli-skeleton input | python3 -c 'import json,sys; assert "IfNoneMatch" in json.load(sys.stdin)'
-          shasum -a 256 /dev/null >/dev/null && echo "shasum: ok"
-          go version
-
-      - name: Test signed release and upgrade safeguards
+          cd cli
+          go test ./cmd/manifestcheck ./cmd/releaseverify ./cmd/clirelease
+      - name: Run uncovered tests when matching main CI is unavailable
+        if: needs.plan.outputs.trusted_ci != 'true'
         run: |
           python3 -m unittest discover -s tests/cli_release -p 'test_*.py'
           cd cli
-          go test ./internal/skills ./internal/selfupdate ./cmd ./cmd/manifestcheck ./cmd/releaseverify ./cmd/clirelease ./tests
-
-      - name: Test installation entry routing
-        run: go test ./api/install -run 'TestJoinDocument|TestServeRef' -count=1
-
-      - name: Publish skills to R2
+          go test ./internal/skills ./internal/selfupdate ./cmd ./tests
+          cd ..
+          go test ./api/install -run 'TestJoinDocument|TestServeRef' -count=1
+      - name: Prepare and verify signed Skills without reserving a release
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -92,10 +101,51 @@ jobs:
           EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY: ${{ secrets.EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY }}
         run: |
           signing_key_file="$RUNNER_TEMP/eigenflux-skills-signing-key"
-          printf '%s' "$EIGENFLUX_SKILLS_SIGNING_KEY" > "$signing_key_file"
-          chmod 600 "$signing_key_file"
+          (umask 077; printf '%s' "$EIGENFLUX_SKILLS_SIGNING_KEY" > "$signing_key_file")
           export EIGENFLUX_SKILLS_SIGNING_KEY_FILE="$signing_key_file"
-          bash cli/scripts/release-skills.sh
+          bash cli/scripts/release-skills.sh --prepare
+      - name: Preserve the verified build for failed-job retry
+        run: tar -cf "$RUNNER_TEMP/skills-release.tar" build/cli
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: skills-release-${{ needs.plan.outputs.source_sha }}
+          path: ${{ runner.temp }}/skills-release.tar
+          compression-level: 0
+          retention-days: 14
+          overwrite: true
+          if-no-files-found: error
+      - name: Remove temporary signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/eigenflux-skills-signing-key"
+
+  publish:
+    needs: [plan, prepare]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    concurrency:
+      group: release-r2
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: skills-release-${{ needs.plan.outputs.source_sha }}
+          path: ${{ runner.temp }}/skills-release
+      - name: Restore prepared files and executable permissions
+        run: tar -xf "$RUNNER_TEMP/skills-release/skills-release.tar"
+      - name: Publish or verify an unchanged signed Skills release
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
+          EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY: ${{ secrets.EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY }}
+        run: bash cli/scripts/release-skills.sh --publish
 
       # static/feed_contract.md is served at runtime by the api gateway but only
       # regenerated by build.sh at deploy time, so the git copy drifts behind
@@ -150,7 +200,11 @@ jobs:
         run: |
           if [ -f build/cli/manifest.json ]; then
             rev=$(grep -o '"revision"[^,]*' build/cli/manifest.json | head -1)
-            echo "### Skills published" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Skills release result" >> "$GITHUB_STEP_SUMMARY"
+            if [ -f build/cli/release-state/publication.json ]; then
+              action=$(python3 -c 'import json; print(json.load(open("build/cli/release-state/publication.json"))["action"])')
+              echo "- publication action: $action (noop preserves the signed sequence)" >> "$GITHUB_STEP_SUMMARY"
+            fi
             echo "- built manifest: \`${rev}\`" >> "$GITHUB_STEP_SUMMARY"
             live=$(curl -fsS "${R2_PUBLIC_URL}/skills/latest/manifest.json" | grep -o '"revision"[^,]*' | head -1 || echo "unavailable")
             echo "- live on R2: \`${live}\`" >> "$GITHUB_STEP_SUMMARY"

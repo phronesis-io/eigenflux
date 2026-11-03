@@ -3,8 +3,10 @@
 import argparse
 import base64
 import binascii
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -51,10 +53,26 @@ def verify(build):
     return expected
 
 
+def parallel(operation, items):
+    setting = os.environ.get('EIGENFLUX_RELEASE_WORKERS', '3')
+    if not re.fullmatch(r'[1-8]', setting):
+        raise ValueError('EIGENFLUX_RELEASE_WORKERS must be an integer from 1 to 8')
+    errors = []
+    with ThreadPoolExecutor(max_workers=int(setting)) as executor:
+        futures = [executor.submit(operation, item) for item in items]
+        for future in futures:
+            try:
+                future.result()
+            except Exception as error:
+                errors.append(error)
+    if errors:
+        raise errors[0]
+
+
 def verify_public(build, base_url):
-    # Check the public delivery path against local artifacts, not just against
-    # a remote checksum that could belong to the same stale release.
-    for name, value in verify(build).items():
+    # Verify actual payloads, not merely remote checksums from a stale release.
+    def verify_artifact(item):
+        name, value = item
         url = base_url.rstrip("/") + "/" + name
         query = "?verify=" + uuid.uuid4().hex
         with urlopen(url + ".sha256" + query, timeout=30) as response:
@@ -64,6 +82,7 @@ def verify_public(build, base_url):
         with urlopen(url + query, timeout=30) as response:
             if digest(response) != value:
                 raise ValueError(f"published binary differs from build: {name}")
+    parallel(verify_artifact, verify(build).items())
 
 
 def manifest_files(build):
@@ -112,10 +131,11 @@ def verify_release(build):
 def verify_release_public(build, base_url):
     verify_release(build)
     query = '?verify=' + uuid.uuid4().hex
-    for filename in manifest_files(build):
+    def verify_manifest(filename):
         with urlopen(base_url.rstrip('/') + '/' + filename + query, timeout=30) as response:
             if response.read(1024 * 1024 + 1) != (build / filename).read_bytes():
                 raise ValueError('published CLI release manifest differs from build')
+    parallel(verify_manifest, manifest_files(build))
 
 
 def main():
