@@ -25,6 +25,8 @@ on:
       - 'cli/scripts/skills-release-state.py'
       - 'cli/scripts/publish-install-doc.py'
       - 'cli/internal/skills/release.go'
+      - 'cli/internal/skills/production_versions.go'
+      - 'cli/cmd/manifestgen/**'
       - '.github/workflows/release-skills.yml'
       - 'cli/.cli.config'              # SKILLS_MIN_CLI_VERSION / SKILLS_REVISION
   workflow_dispatch:                   # manual "Run workflow" button
