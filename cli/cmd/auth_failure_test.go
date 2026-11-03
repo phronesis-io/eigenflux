@@ -76,7 +76,7 @@ func TestCommandFailureProvidesScopedOwnerAction(t *testing.T) {
 		{
 			name: "unavailable original identity", v2: true,
 			failure:    unavailableV2Identity(errors.New("original identity is inaccessible")),
-			wantAction: []string{"Inspect and restore my original EigenFlux identity", "file access permissions", "identity.json and agent-v2-credentials.json", "existing installation or a backup", "Do not initialize a replacement identity"},
+			wantAction: []string{"Inspect and restore my original EigenFlux identity", "file access permissions", "identity.json and agent-v2-credentials.json", "existing installation or a backup", "Recover my original EigenFlux account through webpage verification", "preserve the original Agent, friends, and messages", "Do not initialize a replacement identity automatically"},
 		},
 		{
 			name:       "identity unavailable without saved credentials",

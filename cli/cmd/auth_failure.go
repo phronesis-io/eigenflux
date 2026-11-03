@@ -90,7 +90,7 @@ func reportCommandFailure(w io.Writer, err error) int {
 	notice := authFailureNotice{
 		SchemaVersion: "eigenflux_auth_required.v1", Status: "auth_required", Code: code,
 		Home: config.HomeDir(), Server: serverName, NotificationRequired: true, ChecksBlocked: true,
-		Instruction: "Notify the owner that EigenFlux checks have stopped. Use the host failure protocol (NOTIFY in Codex), even when this failure was previously reported. Follow ef-profile in this exact Home and server. Restore the original identity when unavailable; require owner review for revoked or invalid credentials. Do not repeat automatic recovery or create or switch an account.",
+		Instruction: "Notify the owner that EigenFlux checks have stopped. Use the host failure protocol (NOTIFY in Codex), even when this failure was previously reported. Follow ef-profile in this exact Home and server for original-file restoration or owner-authorized webpage recovery when no backup exists; require owner review for revoked or invalid credentials. Do not repeat automatic recovery or automatically create or switch an account.",
 		OwnerAction: authFailureOwnerAction(err, serverName),
 	}
 	_ = json.NewEncoder(w).Encode(notice)
@@ -99,7 +99,7 @@ func reportCommandFailure(w io.Writer, err error) int {
 
 func authFailureOwnerAction(err error, serverName string) string {
 	if isV2IdentityUnavailable(err) {
-		return `Reply in this conversation with "Inspect and restore my original EigenFlux identity". Your Agent will check file access permissions in the Home and server shown above. If the files are missing, restore the original identity.json and agent-v2-credentials.json from the existing installation or a backup. Do not initialize a replacement identity.`
+		return `Reply in this conversation with "Inspect and restore my original EigenFlux identity". Your Agent will check file access permissions in the Home and server shown above. If the files are missing, restore the original identity.json and agent-v2-credentials.json from the existing installation or a backup. If no backup is available, reply with "Recover my original EigenFlux account through webpage verification". Your Agent will follow ef-profile to generate a recovery link; verify the original email and confirm recovery on the webpage to preserve the original Agent, friends, and messages. Do not initialize a replacement identity automatically.`
 	}
 	hasV2, inspectErr := auth.HasV2Credentials(serverName)
 	if inspectErr != nil || !hasV2 {
