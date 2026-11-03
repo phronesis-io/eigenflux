@@ -430,6 +430,7 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 		forced, contextFailure bool
 		retry                  bool
 		policyDisabled         bool
+		feedOnly               bool
 	}{
 		{mode: "skill", host: "codex"}, {mode: "skill", host: "codex", forced: true},
 		{mode: "plugin", host: "claude-code"}, {mode: "plugin", host: "claude-code", forced: true},
@@ -437,6 +438,8 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 		{mode: "skill", host: "codex", forced: true, contextFailure: true},
 		{mode: "skill", host: "codex", retry: true},
 		{mode: "skill", host: "codex", policyDisabled: true},
+		{mode: "skill", host: "codex", forced: true, feedOnly: true},
+		{mode: "skill", host: "codex", forced: true, feedOnly: true, policyDisabled: true},
 	} {
 		caseName := map[bool]string{false: "daily", true: "Skills minimum overrides TTL"}[tc.forced]
 		if tc.contextFailure {
@@ -448,8 +451,14 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 		if tc.policyDisabled {
 			caseName = "server pause and resume automatic upgrade"
 		}
+		if tc.feedOnly {
+			caseName = "legacy Feed minimum upgrades before single pull"
+			if tc.policyDisabled {
+				caseName += " with server policy disabled"
+			}
+		}
 		t.Run(tc.host+"/"+caseName, func(t *testing.T) {
-			var requests, reported atomic.Int32
+			var requests, reported, feedPulls atomic.Int32
 			var policyDisabled atomic.Bool
 			policyDisabled.Store(tc.policyDisabled)
 			var eventMu sync.Mutex
@@ -472,7 +481,19 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 						http.Error(w, "business unavailable after CLI replacement", http.StatusServiceUnavailable)
 						return
 					}
-					_, _ = w.Write([]byte(`{"code":0,"data":{"context_revision":1}}`))
+					_, _ = w.Write([]byte(`{"code":0,"data":{"context_revision":1,"control_context":{}}}`))
+				case "/api/v2/feed":
+					feedPulls.Add(1)
+					wantVersion := "0.0.48"
+					if tc.policyDisabled {
+						wantVersion = "0.0.47"
+					}
+					if r.Header.Get("X-Client-CLI-Version") != wantVersion {
+						t.Error("Feed pulled before required CLI adoption")
+					}
+					_, _ = w.Write([]byte(`{"code":0,"data":{"schema_version":"feed.v2","personalization":{"mode":"baseline"},"items":[]}}`))
+				case "/api/v2/runtime/heartbeat", "/api/v2/agents/me/card/refresh-events":
+					_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
 				case "/api/v2/maintenance/events:batch":
 					var body struct {
 						Events []maintenance.Event `json:"events"`
@@ -532,7 +553,7 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 				t.Fatal(err)
 			}
 			manifest.MinCLIVersion, manifest.Sequence = "0.0.48", 1
-			if tc.policyDisabled {
+			if tc.policyDisabled && !tc.feedOnly {
 				manifest.MinCLIVersion = ""
 			}
 			// Matching revision needs no tarball; signature still verifies compatibility.
@@ -562,6 +583,9 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 				}
 			}
 			cmd := exec.Command(bin, "--homedir", config.HomeDir(), "--server", server, "heartbeat", "plan", "--format", "json")
+			if tc.feedOnly {
+				cmd = exec.Command(bin, "--homedir", config.HomeDir(), "--server", server, "feed", "poll", "--format", "json")
+			}
 			envHome := t.TempDir()
 			cmd.Env = append(os.Environ(), "EIGENFLUX_HOME="+envHome, "EIGENFLUX_UPDATE_REEXEC=0", "EIGENFLUX_CDN_URL="+srv.URL, "EIGENFLUX_SKILLS_DIR="+rules, "EIGENFLUX_MODE="+tc.mode, "EIGENFLUX_HOST="+tc.host, "EIGENFLUX_MODEL=test-model")
 			var stderr bytes.Buffer
@@ -612,6 +636,28 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 			}
 			if err != nil {
 				t.Fatalf("heartbeat failed: %s %s %v", out, stderr.String(), err)
+			}
+			if tc.feedOnly {
+				if tc.policyDisabled {
+					state := skills.LoadAutoSyncState(config.HomeDir())
+					if feedPulls.Load() != 1 || requests.Load() != 0 || state.RequiredCLIVersion != "0.0.48" || state.LastResult != "blocked" || !strings.Contains(stderr.String(), "cli_update_reason=server_policy_disabled") {
+						t.Fatalf("disabled policy blocked Feed or lost incompatibility: pulls=%d releases=%d state=%+v stderr=%s", feedPulls.Load(), requests.Load(), state, stderr.String())
+					}
+					return
+				}
+				if feedPulls.Load() != 1 || requests.Load() != 1 {
+					t.Fatalf("minimum upgrade or single Feed pull lost: pulls=%d release checks=%d", feedPulls.Load(), requests.Load())
+				}
+				state := skills.LoadAutoSyncState(config.HomeDir())
+				if state.RequiredCLIVersion != "" || state.LastResult != "nochange" {
+					t.Fatalf("replacement did not retry Skills immediately: %+v; %s", state, stderr.String())
+				}
+				creds, err := auth.LoadV2Credentials(server)
+				if err != nil || creds.AgentID != "agent-1" || creds.AccessToken != "test-v2" {
+					t.Fatalf("identity changed: %v", err)
+				}
+				assertHeartbeatUpdatedInstallation(t, bin, oldBytes, newBytes, pub)
+				return
 			}
 			if tc.policyDisabled {
 				var paused heartbeatPlan

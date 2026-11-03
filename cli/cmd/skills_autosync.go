@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -32,15 +33,15 @@ const (
 
 // maybeSyncSkills is a best-effort, throttled background skill refresh meant to
 // hang off the feed-poll heartbeat. It NEVER returns an error and does real work
-// at most once per TTL (default 24h) — the rest of the heartbeats just read a
-// small local state file and return. When it does run, network is bounded per
+// at most once per successful TTL (default 24h), retrying incomplete checks
+// after five minutes. Other heartbeats read local state and return. Network is bounded per
 // request (autoSkillSyncTimeout); the disk swap is not, so on the ~once/day
 // update it can block a few seconds. It writes to the host's autodetected
 // skill-load dir (terminal => ~/.agents/skills); plugin hosts that load their
 // own bundle are refreshed by the plugin's own periodic sync, not this hook.
-func maybeSyncSkills(cfg *config.Config) {
+func maybeSyncSkills(cfg *config.Config) *skills.SyncResult {
 	if cfg == nil || !automaticMaintenanceEnabled(cfg, autoSkillSyncKey) {
-		return
+		return nil
 	}
 
 	ttl := defaultSkillSyncTTL
@@ -54,8 +55,15 @@ func maybeSyncSkills(cfg *config.Config) {
 
 	home := config.HomeDir()
 	state := skills.LoadAutoSyncState(home)
-	if !skills.DueForAutoSync(state, ttl, time.Now()) {
-		return
+	// Failed maintenance retries without acquiring the successful daily interval.
+	if state.LastResult == "error" || state.LastResult == "offline" || state.LastResult == "blocked" {
+		if ttl > 5*time.Minute {
+			ttl = 5 * time.Minute
+		}
+	}
+	adoptingRequiredCLI := os.Getenv(updateReexecEnv) == "1" && state.RequiredCLIVersion != ""
+	if !adoptingRequiredCLI && !skills.DueForAutoSync(state, ttl, time.Now()) {
+		return nil
 	}
 
 	// Stamp the attempt BEFORE calling out, so an offline/slow stretch can't
@@ -70,12 +78,15 @@ func maybeSyncSkills(cfg *config.Config) {
 		HTTPClient: &http.Client{Timeout: autoSkillSyncTimeout},
 	})
 	state.LastResult = classifyAutoSync(res, err)
+	state.RequiredCLIVersion = ""
 	if res != nil {
+		state.RequiredCLIVersion = res.RequiredCLIVersion
 		if m, mErr := skills.ReadLocalManifest(res.SkillsDir); mErr == nil && m != nil {
 			state.LastRevision = m.Revision
 		}
 	}
 	_ = skills.SaveAutoSyncState(home, state)
+	return res
 }
 
 // classifyAutoSync maps a Sync outcome to a short state label for `doctor`.
@@ -85,8 +96,10 @@ func classifyAutoSync(res *skills.SyncResult, err error) string {
 		return "error"
 	case res.NoNetwork:
 		return "offline"
+	case res.RetentionCode != "":
+		return "blocked"
 	case res.Source == "local":
-		// revision matched (or lock held) => nothing changed
+		// The checked release matched the installed revision.
 		return "nochange"
 	default:
 		return "ok"

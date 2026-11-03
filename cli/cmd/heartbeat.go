@@ -40,6 +40,8 @@ type heartbeatPlan struct {
 	SchemaVersion            string                     `json:"schema_version"`
 	HeartbeatContractVersion string                     `json:"heartbeat_contract_version"`
 	CLIVersion               string                     `json:"cli_version"`
+	SkillsUpdateError        string                     `json:"skills_update_error,omitempty"`
+	SkillsTargetRevision     string                     `json:"skills_target_revision,omitempty"`
 	SkillRevision            string                     `json:"skill_revision"`
 	SkillsTarget             string                     `json:"skills_target"`
 	Skills                   []string                   `json:"skills"`
@@ -224,10 +226,15 @@ var heartbeatPlanCmd = &cobra.Command{
 			if res.Source == "local" {
 				e.Result = "no_update"
 			}
+			if res.RetentionCode != "" {
+				e.Result, e.ErrorCode = "blocked", res.RetentionCode
+				e.FromVersion, e.RunningVersion = manifest.Revision, manifest.Revision
+				e.ToVersion = res.TargetRevision
+			}
 			if _, validationErr := localHeartbeatSkills(meta.Host); validationErr != nil {
 				e.Result = "blocked"
 				e.ErrorCode = "local_verification_failed"
-			} else {
+			} else if res.RetentionCode == "" {
 				receipt := maintenance.NewEvent(skillsAttempt, "skills", "auto", "read", "rules_read")
 				receipt.ToVersion = manifest.Revision
 				skillsReadReceipt = &receipt
@@ -270,6 +277,7 @@ var heartbeatPlanCmd = &cobra.Command{
 			CLIUpdate:           cliUpdate,
 			SchemaVersion:       "eigenflux_heartbeat_plan.v1", HeartbeatContractVersion: heartbeatContractVersion,
 			CLIVersion: version, SkillRevision: manifest.Revision, SkillsTarget: res.SkillsDir,
+			SkillsUpdateError: res.RetentionCode, SkillsTargetRevision: res.TargetRevision,
 			RuleSources: ruleSources, ExecutionOrder: heartbeatStages(access),
 			Access: access, WakeOnEmpty: heartbeatWakeOnEmpty(access, pluginMaintenance),
 			CLIPrefix:         cliPrefix,
@@ -461,6 +469,9 @@ func heartbeatStages(access runtimeAccess) []string {
 
 func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 	receiptText := cycleInstructions(plan)
+	if plan.SkillsUpdateError != "" {
+		receiptText += "\nSkills update incomplete: " + plan.SkillsUpdateError + ". Running retained compatible revision " + plan.SkillRevision + "; target revision " + plan.SkillsTargetRevision + ". Do not report this as an upgrade success or latest-version confirmation.\n"
+	}
 	if plan.OuterLoop != nil {
 		b, _ := json.Marshal(plan.OuterLoop)
 		receiptText += "\nOuter loop recovery: " + string(b) + ". Report unresolved recovery separately; a running notification watch does not prove Agent dispatch is ready.\n"

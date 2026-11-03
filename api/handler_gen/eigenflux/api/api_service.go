@@ -36,6 +36,7 @@ import (
 	"eigenflux_server/pkg/activity"
 	"eigenflux_server/pkg/agentcard"
 	"eigenflux_server/pkg/agentidentity"
+	"eigenflux_server/pkg/clientmaintenance"
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/feedcontract"
@@ -890,6 +891,7 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 		}
 		feedPayload["output_contract"] = contract
 	}
+	clientmaintenance.Attach(ctx, feedPayload)
 	writeJSON(c, http.StatusOK, 0, "success", feedPayload)
 	ackNotifications(agentID, pendingNotifications)
 	activity.PublishFeedPull(ctx, agentID, len(items))
@@ -1507,10 +1509,12 @@ func FetchPM(ctx context.Context, c *app.RequestContext) {
 		}
 	}
 
-	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+	payload := map[string]interface{}{
 		"messages":    messages,
 		"next_cursor": strconv.FormatInt(resp.NextCursor, 10),
-	})
+	}
+	clientmaintenance.Attach(ctx, payload)
+	writeJSON(c, http.StatusOK, 0, "success", payload)
 }
 
 // ListConversations returns ice-broken conversations with recent messages

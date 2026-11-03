@@ -20,9 +20,10 @@ type AutoSyncState struct {
 	// Recording attempt (not success) means an offline stretch can't punch
 	// through the TTL gate on every heartbeat.
 	LastAttemptUnix int64 `json:"last_attempt_unix"`
-	// LastRevision / LastResult are informational (surfaced by `doctor`).
-	LastRevision string `json:"last_revision,omitempty"`
-	LastResult   string `json:"last_result,omitempty"` // ok|nochange|offline|error
+	// LastResult also selects the shorter retry interval after incomplete checks.
+	LastRevision       string `json:"last_revision,omitempty"`
+	LastResult         string `json:"last_result,omitempty"` // ok|nochange|blocked|offline|error
+	RequiredCLIVersion string `json:"required_cli_version,omitempty"`
 }
 
 // LoadAutoSyncState reads the state file from homeDir. A missing or corrupt file

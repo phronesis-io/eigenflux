@@ -102,3 +102,66 @@ func TestHeartbeatSkillsObservationClosesValidationFailure(t *testing.T) {
 		})
 	}
 }
+
+func TestHeartbeatRetainedSkillsDoNotReportNoUpdate(t *testing.T) {
+	var observed []maintenance.Event
+	var mu sync.Mutex
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/maintenance/events:batch" {
+			var batch struct {
+				Events []maintenance.Event `json:"events"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&batch); err != nil {
+				t.Error(err)
+			}
+			mu.Lock()
+			observed = append(observed, batch.Events...)
+			mu.Unlock()
+		}
+		_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+	}))
+	defer api.Close()
+	cfg, _ := runtimeTestConfig(t, api.URL, true)
+	dir := installHeartbeatTestRules(t)
+	local, err := skills.ReadLocalManifest(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetKV(autoSkillSyncKey, "true"); err != nil {
+		t.Fatal(err)
+	}
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer cdn.Close()
+	t.Setenv("EIGENFLUX_CDN_URL", cdn.URL)
+	// The intentionally incomplete access response fails later, after usable
+	// local Skills are retained and the maintenance outcome has been recorded.
+	_ = heartbeatPlanCmd.RunE(&cobra.Command{}, nil)
+	mu.Lock()
+	defer mu.Unlock()
+	var terminal *maintenance.Event
+	for i := range observed {
+		event := &observed[i]
+		if event.Component != "skills" || event.Result == "started" {
+			continue
+		}
+		if event.Result == "no_update" || event.Result == "installed" || event.Result == "rules_read" {
+			t.Fatalf("retention claimed success: %+v", event)
+		}
+		terminal = event
+	}
+	if terminal == nil || terminal.Result != "blocked" || terminal.ErrorCode != "skills_manifest_unavailable" || terminal.RunningVersion != local.Revision || terminal.ToVersion != "" {
+		t.Fatalf("missing retention outcome: %+v", observed)
+	}
+	if err := maintenance.Validate(*terminal); err != nil {
+		t.Fatal(err)
+	}
+	scope, err := maintenanceScope(activeServerName())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, known, err := maintenance.ReadAttempt(scope, terminal.AttemptID); err != nil || known {
+		t.Fatalf("retention registered a successful read receipt: known=%t err=%v", known, err)
+	}
+}

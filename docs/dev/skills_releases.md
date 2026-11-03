@@ -138,3 +138,25 @@ Compatibility failures require upgrading the CLI before retrying. Signed
 rollback failures require a corrected release; retain the local manifest and
 its rollback protection. Skills releases do not require a CLI or plugin release
 unless the minimum supported CLI changes.
+
+Retained bundle results include `retention_code` and, after a verified remote
+manifest was obtained, `target_revision`. Heartbeat maintenance reports these
+outcomes as `blocked`, with the retained revision in `from_version` and
+`running_version` and the attempted target in `to_version`. A failed freshness
+check has no known target. These outcomes never report `no_update`, never issue
+an upgrade adoption receipt, and do not prevent compatible local rules from
+running. The Agent plan names the incomplete update separately from its active
+revision. During remote synchronization, `no_update` denotes a successful
+unchanged-release check, rather than an inability to accept the release. Legacy
+Feed autosync classifies retained updates as `blocked` (or `offline` when the
+remote manifest is unavailable).
+
+Legacy `feed poll` schedulers share the signed minimum-CLI upgrade path before
+the business pull. A required update preserves the Home, server, integration
+mode and account, follows the server update policy, and re-executes the original
+command once adopted. The replacement immediately retries Skills synchronization
+before pulling Feed. Unavailable or disabled upgrades retain the compatible local
+rules and do not block business pulls. Failed, offline and retained background
+Skills checks retry after five minutes; successful checks retain the configured
+daily interval. Existing old executables require the server-provided migration
+guidance described in [API endpoints](api_endpoints.md#legacy-client-maintenance-bridge).
