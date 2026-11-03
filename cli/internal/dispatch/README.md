@@ -82,6 +82,11 @@ policy failure causes; classification does not change dispatch or admission.
 Watch restarts and independent plugin workers clear automatic-update handoff
 counts together with the old update identity and receipt environment. Handoff
 budgets belong only to the current synchronous upgrade invocation.
+CLI installation receipts retain their original attempt and pinned identity in
+local maintenance state until the target CLI starts, independently of queue
+flushes. Every watch mode records `execute.executed` from this context, including
+notification-only and host-supervised restarts. This confirms process execution
+without claiming `runtime_ready`.
 
 ## PM flow and invariants
 

@@ -19,6 +19,13 @@ restarting themselves. Reuse maintenance observations and emit redacted
 `cli_update_status` with fixed `reason` and `next_check_at`. Log changed deferred
 decisions once instead of every minute. Installation alone does not prove runtime readiness.
 
+Persist the installation attempt with its pinned account, principal and endpoint
+independently of upload queue acknowledgements. When that target CLI starts a
+watch, record `execute.executed` on the original attempt before runtime readiness.
+Use the same receipt for notification-only and host-supervised restarts. Clear
+the retained context only after matching execution, or after seven days; do not
+claim execution for another version or identity.
+
 Watch and heartbeat share the failure categories documented in
 [observations](OBSERVABILITY.md#cli-update-observations). Policy failures retain
 the request/cache step and bounded cause in the existing maintenance error code.

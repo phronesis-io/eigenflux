@@ -9,6 +9,9 @@ notification-only mode; no Agent turn or heartbeat plan is required. Set the
 account server's `auto_cli_update=false` to stop automatic downloads. Upgrade
 failure leaves the watch running; successful updates wait for admitted work to
 finish. Supervised watches delegate the drained restart to their host.
+The target CLI records a correlated execution receipt on watch startup, including
+notification-only and host-supervised restarts; process execution is separate
+from runtime readiness.
 
 ## Automatic Windows WorkBuddy setup
 
