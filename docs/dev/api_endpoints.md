@@ -959,12 +959,22 @@ are stored separately from settings and server delivery/feedback facts.
 
 ### CLI feedback completion
 
-CLI 0.7.4 supports opt-in `feed poll --batch N` and local `feed next`, with
-batch-scoped metadata and re-handing limited to batch-marked exposures.
-Agent format references repeated intent instructions and the served contract
-file. `eigenflux_heartbeat.v4` requires reading that file before processing,
-`feed status` before leaving the Feed stage and `feed status --after-push`
-after delivery.
+Broadcast detail GET routes accept optional `impression_id` (64 bytes, no
+control characters) for the server's `detail_fetch` inspection signal. Invalid
+attribution does not reject a successful detail read and stays unknown. Event
+ingestion accepts only the existing client kinds; clients cannot submit this
+server-only kind. See [signal semantics and exact attribution](feed_and_cache.md#broadcast-behavior-signals).
+
+CLI 1.0.8 bounds opt-in `feed poll --batch N`, `feed next` and `feed recover`
+bodies at 32 KiB, with explicit single-item oversize reporting. Agent batches
+inline the served contract core and reference its details. `eigenflux_heartbeat.v5`
+uses isolated cycles, at most four scheduled batches, per-batch feedback,
+read-only recovery and cycle-scoped post-push closing.
+V2 previews always carry `source` (`summary` or `content`) alongside `text` and
+`truncated`; a short summary can be untruncated without being the full original.
+Treat missing source from an older server as summary. V1 remains unchanged.
+Settings health adds batch, expiry, detail-fetch and byte-budget counters through
+migration 000125; byte sum/max accept 0–1099511627776, with max no larger than sum.
 The [client feedback contract](feedback_clients.md) defines local report state,
 durable keyed retries and the `feedback_health` settings report.
 Baseline Feed remains read-only. The server's feedback wire schema is unchanged;

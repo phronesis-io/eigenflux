@@ -15,8 +15,23 @@ import (
 const PendingWindowMs int64 = 48 * 60 * 60 * 1000
 const HealthWindowMs int64 = 24 * 60 * 60 * 1000
 const FeedbackContractVersion = "feedback.v2"
+const CycleTTLMs int64 = 2 * 60 * 60 * 1000
+
+type Cycle struct {
+	Origin   string `json:"origin"`
+	OpenedAt int64  `json:"opened_at"`
+	Batches  int    `json:"batches"`
+	Items    int    `json:"items"`
+	ClosedAt int64  `json:"closed_at,omitempty"`
+}
+
+func (c Cycle) Active(now int64) bool {
+	return c.OpenedAt > 0 && c.OpenedAt <= now && c.ClosedAt == 0 && now-c.OpenedAt < CycleTTLMs
+}
 
 type Report struct {
+	CycleID           string `json:"cycle_id,omitempty"`
+	CyclePosition     int    `json:"cycle_position,omitempty"`
 	ImpressionID      string `json:"impression_id"`
 	ItemID            string `json:"item_id"`
 	ServedAt          int64  `json:"served_at"`
@@ -39,6 +54,7 @@ type HealthEvent struct {
 	Counts map[string]int64 `json:"counts"`
 }
 type Reports struct {
+	Cycles      map[string]Cycle  `json:"cycles,omitempty"`
 	Scope       string            `json:"scope"`
 	Entries     map[string]Report `json:"entries"`
 	Health      []HealthEvent     `json:"health,omitempty"`
@@ -146,6 +162,11 @@ func (s *ReportStore) Update(now int64, fn func(*Reports)) error {
 			delete(state.Entries, key)
 		}
 	}
+	for id, cycle := range state.Cycles {
+		if cycle.OpenedAt < now-ledgerTTLMs {
+			delete(state.Cycles, id)
+		}
+	}
 	fresh := state.Health[:0]
 	for _, e := range state.Health {
 		if e.At > now-HealthWindowMs && e.At <= now {
@@ -187,7 +208,11 @@ func (r Reports) HealthCounts(now int64) map[string]int64 {
 	for _, e := range r.Health {
 		if e.At > now-HealthWindowMs && e.At <= now {
 			for k, v := range e.Counts {
-				result[k] += v
+				if k == "batch_body_max_bytes" {
+					result[k] = max(result[k], v)
+				} else {
+					result[k] += v
+				}
 			}
 		}
 	}

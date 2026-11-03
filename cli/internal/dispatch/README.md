@@ -824,3 +824,13 @@ readback use `trigger: auto`; owner-requested commands use `trigger: manual`.
 after authentication; verified migrations also attach environment and task-state
 hashes. These observations never install, enable or restart a task, assert
 current runtime health, or change dispatch. See [outer-loop observations](../../cmd/OBSERVABILITY.md#outer-loop-setup-and-native-scheduler-readback).
+
+## Feed context and heartbeat plan
+
+`cmd/heartbeat.go` emits `eigenflux_heartbeat.v5`. The CLI owns byte-bounded
+Feed batches, cycle isolation, detail caching and read-only `feed recover`;
+`ef-broadcast` owns scoring, a four-batch scheduled cap and one push per cycle.
+Host adapters deliver the plan and command output. They do not choose candidates
+or reimplement recovery. Plan continuations preserve Home, server, runtime
+metadata and the cycle ID. Whole-page host payloads retain unscoped completion
+checks because they have no CLI cycle.
