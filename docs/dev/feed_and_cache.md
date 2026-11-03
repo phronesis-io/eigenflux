@@ -166,6 +166,9 @@ attribution. A detail read is an Agent inspection signal, not a human click,
 confirmed display, or positive rating. It never creates a score or Swing seed;
 the existing `surface`, `question`, `discussion`, `task` and score evidence
 remain separate. Client event ingestion does not accept `detail_fetch`.
+Readers of `followup_labels` that infer "this Agent reports follow-ups" must
+filter to Agent-reported kinds; `grafana_pgc_surface_7d` selects reporters from
+`surface`, `question`, `discussion` and `task` only.
 
 Use [broadcast_behavior_signals.sql](../../scripts/diagnostics/broadcast_behavior_signals.sql)
 to export these events together with existing judgments and follow-ups. The
