@@ -269,6 +269,8 @@ func TestFeedCoreContractAndPreviewSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Windows checkouts may convert to CRLF; the server serves LF.
+	contract = bytes.ReplaceAll(contract, []byte("\r\n"), []byte("\n"))
 	if strings.Count(string(contract), feedContractDetailsMarker) != 1 {
 		t.Fatal("core marker must be unique")
 	}
