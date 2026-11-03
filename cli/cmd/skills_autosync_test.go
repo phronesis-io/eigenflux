@@ -94,23 +94,3 @@ func TestMaybeSyncSkills_DueOfflineStampsAttempt(t *testing.T) {
 		t.Fatalf("offline+due: result must not be ok, got %q", got.LastResult)
 	}
 }
-
-func TestMaybeSyncSkillsFailedCheckRetriesBeforeDailyInterval(t *testing.T) {
-	for _, result := range []string{"blocked", "error", "offline", "ok", "nochange"} {
-		t.Run(result, func(t *testing.T) {
-			home := tempHome(t)
-			t.Setenv("EIGENFLUX_CDN_URL", "http://127.0.0.1:1")
-			t.Setenv("EIGENFLUX_SKILLS_DIR", filepath.Join(t.TempDir(), "skills"))
-			previous := skills.AutoSyncState{LastAttemptUnix: time.Now().Add(-6 * time.Minute).Unix(), LastResult: result}
-			if err := skills.SaveAutoSyncState(home, previous); err != nil {
-				t.Fatal(err)
-			}
-			maybeSyncSkills(&config.Config{})
-			got := skills.LoadAutoSyncState(home)
-			wantRetry := result == "blocked" || result == "error" || result == "offline"
-			if (got.LastAttemptUnix != previous.LastAttemptUnix) != wantRetry {
-				t.Fatalf("retry=%t previous=%+v got=%+v", wantRetry, previous, got)
-			}
-		})
-	}
-}

@@ -150,13 +150,3 @@ revision. During remote synchronization, `no_update` denotes a successful
 unchanged-release check, rather than an inability to accept the release. Legacy
 Feed autosync classifies retained updates as `blocked` (or `offline` when the
 remote manifest is unavailable).
-
-Legacy `feed poll` schedulers share the signed minimum-CLI upgrade path before
-the business pull. A required update preserves the Home, server, integration
-mode and account, follows the server update policy, and re-executes the original
-command once adopted. The replacement immediately retries Skills synchronization
-before pulling Feed. Unavailable or disabled upgrades retain the compatible local
-rules and do not block business pulls. Failed, offline and retained background
-Skills checks retry after five minutes; successful checks retain the configured
-daily interval. Existing old executables require the server-provided migration
-guidance described in [API endpoints](api_endpoints.md#legacy-client-maintenance-bridge).

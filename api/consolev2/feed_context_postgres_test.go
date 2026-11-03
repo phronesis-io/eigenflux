@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -18,8 +17,6 @@ import (
 	feedrpc "eigenflux_server/kitex_gen/eigenflux/feed"
 	"eigenflux_server/kitex_gen/eigenflux/feed/feedservice"
 	"eigenflux_server/pkg/feedcontract"
-	"eigenflux_server/pkg/reqinfo"
-	"github.com/bytedance/gopkg/cloud/metainfo"
 )
 
 type contextFeedClient struct {
@@ -103,72 +100,66 @@ func TestFeedV2ControlContextPostgres(t *testing.T) {
 		{"personalized stale", "completed", &revision, &staleRevision, &aligned, false, "intent_aligned", "full"},
 		{"personalized without discovery metadata", "completed", &revision, nil, nil, false, "intent_aligned", "full"},
 	} {
-		for _, cliVersion := range []string{"0.6.9", "1.0.7", ""} {
-			t.Run(tc.name+"/"+cliVersion, func(t *testing.T) {
-				exec(`TRUNCATE agent_onboarding_v2, agent_feed_exposures`)
-				exec(`INSERT INTO agent_onboarding_v2 VALUES (42, ?, ?)`, tc.state, tc.active)
-				svc := &Service{db: tx, feedClient: &contextFeedClient{metadata: tc.metadata, empty: tc.empty}}
-				h := server.New()
-				h.POST("/feed", func(ctx context.Context, c *app.RequestContext) {
-					c.Set("agent_id", int64(42))
-					ctx = metainfo.WithPersistentValue(ctx, reqinfo.KeyCLIVer, cliVersion)
-					svc.pullFeedV2(ctx, c)
-				})
-				status, payload, _ := performJSON(t, h, http.MethodPost, "/feed", pullFeedRequest{ContextRevisionApplied: tc.applied})
-				if status != http.StatusOK {
-					t.Fatalf("status=%d payload=%#v", status, payload)
-				}
-				data := responseData(t, payload)
-				if notice, ok := data["client_maintenance"].(map[string]interface{}); (cliVersion == "0.6.9") != ok || (ok && notice["reason"] != "legacy_maintenance_entrypoint") {
-					t.Fatalf("legacy Feed lost maintenance bridge: %#v", data)
-				}
-				personalization := data["personalization"].(map[string]interface{})
-				if personalization["mode"] != tc.mode || personalization["onboarding_state"] != tc.state || personalization["context_delivery"] != tc.delivery {
-					t.Fatalf("unexpected personalization: %#v", personalization)
-				}
-				if contract, ok := data["output_contract"].(string); !ok || !strings.HasPrefix(contract, feedcontract.ForMode(tc.mode)) || (strings.Contains(contract, "EIGENFLUX CLIENT MAINTENANCE") != (cliVersion == "0.6.9")) || (cliVersion != "0.6.9" && contract != feedcontract.ForMode(tc.mode)) {
-					t.Fatal("Feed output contract does not match its effective mode")
-				}
-				if tc.mode == "baseline" {
-					if personalization["context_revision"] != nil || data["control_context_snapshot"] != nil {
-						t.Fatalf("baseline Feed contains formal control context: %#v", data)
-					}
-				} else if personalization["context_revision"] != float64(revision) || (data["control_context_snapshot"] != nil) != (tc.delivery == "full") {
-					t.Fatalf("personalized context delivery changed: %#v", data)
-				}
-				items := data["items"].([]interface{})
-				if tc.empty {
-					if len(items) != 0 {
-						t.Fatalf("empty Feed returned items: %#v", items)
-					}
-					return
-				}
-				if len(items) != 1 {
-					t.Fatalf("Feed lost its source item: %#v", items)
-				}
-				item := items[0].(map[string]interface{})
-				if (item["intent_match"] != nil) != (tc.mode == "intent_aligned") {
-					t.Fatalf("intent matching does not match Feed mode: %#v", item)
-				}
-				var exposure struct {
-					ContextRevision *int64
-					SeenCount       int
-				}
-				if err := tx.Raw(`SELECT context_revision, seen_count FROM agent_feed_exposures WHERE agent_id=42 AND source_id=101`).Scan(&exposure).Error; err != nil {
-					t.Fatal(err)
-				}
-				if exposure.SeenCount != 1 || (exposure.ContextRevision != nil) != (tc.mode == "intent_aligned") ||
-					(exposure.ContextRevision != nil && *exposure.ContextRevision != revision) {
-					t.Fatalf("exposure revision does not match Feed mode: %+v", exposure)
-				}
-				var active int64
-				if err := tx.Raw(`SELECT COALESCE(active_context_revision,0) FROM agent_onboarding_v2 WHERE agent_id=42`).Scan(&active).Error; err != nil {
-					t.Fatal(err)
-				}
-				if tc.active != nil && active != *tc.active {
-					t.Fatal("Feed fallback changed the owner's active context")
-				}
+		t.Run(tc.name, func(t *testing.T) {
+			exec(`TRUNCATE agent_onboarding_v2, agent_feed_exposures`)
+			exec(`INSERT INTO agent_onboarding_v2 VALUES (42, ?, ?)`, tc.state, tc.active)
+			svc := &Service{db: tx, feedClient: &contextFeedClient{metadata: tc.metadata, empty: tc.empty}}
+			h := server.New()
+			h.POST("/feed", func(ctx context.Context, c *app.RequestContext) {
+				c.Set("agent_id", int64(42))
+				svc.pullFeedV2(ctx, c)
 			})
-		}
+			status, payload, _ := performJSON(t, h, http.MethodPost, "/feed", pullFeedRequest{ContextRevisionApplied: tc.applied})
+			if status != http.StatusOK {
+				t.Fatalf("status=%d payload=%#v", status, payload)
+			}
+			data := responseData(t, payload)
+			personalization := data["personalization"].(map[string]interface{})
+			if personalization["mode"] != tc.mode || personalization["onboarding_state"] != tc.state || personalization["context_delivery"] != tc.delivery {
+				t.Fatalf("unexpected personalization: %#v", personalization)
+			}
+			if data["output_contract"] != feedcontract.ForMode(tc.mode) {
+				t.Fatal("Feed output contract does not match its effective mode")
+			}
+			if tc.mode == "baseline" {
+				if personalization["context_revision"] != nil || data["control_context_snapshot"] != nil {
+					t.Fatalf("baseline Feed contains formal control context: %#v", data)
+				}
+			} else if personalization["context_revision"] != float64(revision) || (data["control_context_snapshot"] != nil) != (tc.delivery == "full") {
+				t.Fatalf("personalized context delivery changed: %#v", data)
+			}
+			items := data["items"].([]interface{})
+			if tc.empty {
+				if len(items) != 0 {
+					t.Fatalf("empty Feed returned items: %#v", items)
+				}
+				return
+			}
+			if len(items) != 1 {
+				t.Fatalf("Feed lost its source item: %#v", items)
+			}
+			item := items[0].(map[string]interface{})
+			if (item["intent_match"] != nil) != (tc.mode == "intent_aligned") {
+				t.Fatalf("intent matching does not match Feed mode: %#v", item)
+			}
+			var exposure struct {
+				ContextRevision *int64
+				SeenCount       int
+			}
+			if err := tx.Raw(`SELECT context_revision, seen_count FROM agent_feed_exposures WHERE agent_id=42 AND source_id=101`).Scan(&exposure).Error; err != nil {
+				t.Fatal(err)
+			}
+			if exposure.SeenCount != 1 || (exposure.ContextRevision != nil) != (tc.mode == "intent_aligned") ||
+				(exposure.ContextRevision != nil && *exposure.ContextRevision != revision) {
+				t.Fatalf("exposure revision does not match Feed mode: %+v", exposure)
+			}
+			var active int64
+			if err := tx.Raw(`SELECT COALESCE(active_context_revision,0) FROM agent_onboarding_v2 WHERE agent_id=42`).Scan(&active).Error; err != nil {
+				t.Fatal(err)
+			}
+			if tc.active != nil && active != *tc.active {
+				t.Fatal("Feed fallback changed the owner's active context")
+			}
+		})
 	}
 }

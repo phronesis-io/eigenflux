@@ -67,11 +67,6 @@ Examples:
 		if serverName == "" {
 			return fmt.Errorf("no active server")
 		}
-		// Complete any CLI handoff before opening the business poll observation.
-		cfg, _ := config.Load()
-		if resumed, err := prepareFeedMaintenance(cmd, cfg); resumed || err != nil {
-			return err
-		}
 		pollID := newProfileRunID()
 		reportProfileFunnel(serverName, profileFunnelEvent{Stage: "poll_started", PollID: pollID, Cause: "feed_poll"})
 		defer func() {
@@ -81,6 +76,12 @@ Examples:
 			}
 			reportProfileFunnel(serverName, profileFunnelEvent{Stage: stage, PollID: pollID, Cause: "feed_poll", FailureCode: profileFailureCode(resultErr), FailureReason: profileFailureReason(resultErr)})
 		}()
+		// V1 and V2 share the same best-effort fallback refresh. The primary
+		// Heartbeat V2 path uses `heartbeat plan` on every cycle; this daily hook
+		// keeps older schedulers from missing Skills merely because V2 returns
+		// before the legacy Feed branch.
+		cfg, _ := config.Load()
+		maybeSyncSkills(cfg)
 		if _, v2Err := auth.LoadV2Credentials(serverName); v2Err == nil {
 			return runFeedV2Poll(action, cursor, func() error {
 				if err := pollFeedV2(cmd, serverName, limit); err != nil {

@@ -17,7 +17,6 @@ import (
 	feedrpc "eigenflux_server/kitex_gen/eigenflux/feed"
 	"eigenflux_server/pkg/activity"
 	"eigenflux_server/pkg/agentidentity"
-	"eigenflux_server/pkg/clientmaintenance"
 	"eigenflux_server/pkg/feedcontract"
 	profiledal "eigenflux_server/rpc/profile/dal"
 )
@@ -196,7 +195,6 @@ func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 	if contract := feedcontract.ForMode(mode); contract != "" {
 		response["output_contract"] = contract
 	}
-	clientmaintenance.Attach(ctx, response)
 	encoded, _ := json.Marshal(response)
 	if len(encoded) > feedResponseBudget {
 		response["agent_card_updates"] = map[string]interface{}{}
