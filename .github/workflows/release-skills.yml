@@ -14,7 +14,7 @@ name: Release Skills
 on:
   workflow_run:
     workflows: [Release CLI]
-    types: [completed]
+    types: [in_progress]
     branches: [main]
   push:
     branches: [main]
@@ -42,7 +42,7 @@ concurrency:
 
 jobs:
   plan:
-    if: github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
@@ -82,8 +82,13 @@ jobs:
           aws s3api put-object --generate-cli-skeleton input | python3 -c 'import json,sys; assert "IfNoneMatch" in json.load(sys.stdin)'
           cd cli
           go test ./cmd/manifestcheck ./cmd/releaseverify ./cmd/clirelease
+      - name: Recheck CI after release-specific preparation
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 cli/scripts/release-plan.py --repository "$GITHUB_REPOSITORY" --sha '${{ needs.plan.outputs.source_sha }}' --github-output "$GITHUB_OUTPUT"
       - name: Run uncovered tests when matching main CI is unavailable
-        if: needs.plan.outputs.trusted_ci != 'true'
+        if: steps.ci.outputs.trusted_ci != 'true'
         run: |
           python3 -m unittest discover -s tests/cli_release -p 'test_*.py'
           cd cli
@@ -118,8 +123,21 @@ jobs:
         if: always()
         run: rm -f "$RUNNER_TEMP/eigenflux-skills-signing-key"
 
-  publish:
+  cli_ready:
     needs: [plan, prepare]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Wait for the matching CLI release outside the publication lock
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CLI_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: gh run watch "$CLI_RUN_ID" --exit-status --interval 15
+
+  publish:
+    needs: [plan, prepare, cli_ready]
     runs-on: ubuntu-latest
     permissions:
       contents: write

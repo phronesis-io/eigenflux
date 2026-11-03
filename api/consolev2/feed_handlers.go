@@ -384,8 +384,10 @@ func (s *Service) buildFeedPayloads(viewerID int64, mode string, contextRevision
 			contentClass = "pgc"
 		}
 		previewText := ""
-		if item.Summary != nil {
+		previewSource := "content"
+		if item.Summary != nil && *item.Summary != "" {
 			previewText = *item.Summary
+			previewSource = "summary"
 		} else if item.RawContent != nil {
 			previewText = *item.RawContent
 		}
@@ -395,7 +397,7 @@ func (s *Service) buildFeedPayloads(viewerID int64, mode string, contextRevision
 			"source_ref":      map[string]interface{}{"type": "broadcast", "id": fmt.Sprintf("%d", item.ItemId)},
 			"content_class":   contentClass,
 			"author_identity": nil,
-			"preview":         map[string]interface{}{"text": previewText, "truncated": previewTruncated},
+			"preview":         map[string]interface{}{"text": previewText, "truncated": previewTruncated, "source": previewSource},
 			"metadata": map[string]interface{}{
 				"broadcast_type": item.BroadcastType,
 				"domains":        boundedFeedStrings(item.Domains, 8, 64),
