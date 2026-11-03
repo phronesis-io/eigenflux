@@ -353,6 +353,16 @@ func main() {
 			consoleV2Service.RegisterDiscovery(h, commissionAccess)
 		}
 		registerConsoleV2BusinessBFF(h, consoleV2Service, cfg, commissionAccess)
+		commissionSource, sourceErr := commissionservice.NewClient(cfg.CommissionSourceService, rpcx.ClientOptions(r)...)
+		orderSource, orderErr := orderservice.NewClient(cfg.OrderSourceService, rpcx.ClientOptions(r)...)
+		var homeSource featureindex.CommissionSource
+		if sourceErr == nil && orderErr == nil {
+			homeSource = commissionsource.Adapter{Commission: commissionSource, Order: orderSource}
+		} else {
+			log.Printf("Home Commission catalogue unavailable: commission=%v order=%v", sourceErr, orderErr)
+		}
+		consoleV2Service.RegisterHomeServices(h, homeSource, commissionAccess.ConsoleMiddleware())
+
 		log.Print("Console V2 routes registered")
 	}
 
