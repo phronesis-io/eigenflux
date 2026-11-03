@@ -22,15 +22,17 @@ def fetch(path):
     return binary
 def run(*args,**kwargs):
     calls.append(args[0])
-    if scenario in ('eligible-wrong','missing-receipts'):
+    if scenario not in ('missing-state',):
         Path(args[0][0]+'.update.json').write_text('{}')
     if scenario=='credentials-changed':
         home=Path(args[0][args[0].index('--homedir')+1])
         (home/'servers/audit/agent-v2-credentials.json').write_text('changed')
     return subprocess.CompletedProcess(args[0],2,'','intentional missing Skills')
 def version(*args,**kwargs):
-    if scenario=='wrong-version' or (scenario=='eligible-wrong' and len(calls)==3):return '0.0.0'
-    return '1.0.7' if scenario=='missing-receipts' and len(calls)==3 else '1.0.5'
+    if scenario=='wrong-version':return '0.0.0'
+    if scenario=='delayed-bridge':return '1.0.5'
+    if scenario=='repeat-wrong' and len(calls)==2:return '0.0.0'
+    return '1.0.7'
 class Server:
     server_port=12345
     def serve_forever(self):pass
@@ -49,9 +51,10 @@ class AcceptanceGuardTest(unittest.TestCase):
             for scenario, error, calls in (
                 ('bad-hash', 'checksum or size mismatch', 0),
                 ('wrong-version', 'first cycle ran 0.0.0', 1),
-                ('missing-state', 'no updater eligibility state', 2),
-                ('eligible-wrong', 'eligible cycle ran 0.0.0', 3),
-                ('missing-receipts', 'missing automatic execution receipt', 3),
+                ('missing-state', 'no updater eligibility state', 1),
+                ('delayed-bridge', 'first cycle ran 1.0.5', 1),
+                ('repeat-wrong', 'repeat cycle ran 0.0.0', 2),
+                ('missing-receipts', 'missing automatic execution receipt', 2),
                 ('credentials-changed', 'credentials changed', 1),
             ):
                 with self.subTest(optimized=optimized, scenario=scenario), tempfile.TemporaryDirectory() as temporary:

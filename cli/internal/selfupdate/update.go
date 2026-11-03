@@ -28,7 +28,8 @@ type Progress struct {
 type Options struct {
 	// CompletePackage requires the signed CLI/helper package and immutable activation.
 	CompletePackage bool
-	// CheckNow bypasses only the check interval for an explicit owner request.
+	// CheckNow bypasses only the check interval for an owner request or a bounded
+	// automatic continuation after verified process adoption.
 	CheckNow bool
 	// OnAttempt runs after the shared lock and throttle admit a real release check.
 	OnAttempt func()

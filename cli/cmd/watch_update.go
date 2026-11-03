@@ -108,7 +108,7 @@ func watchReexecEnvironment(env []string, home string, identity auth.V2Credentia
 	out := make([]string, 0, len(env)+3)
 	for _, value := range env {
 		skip := false
-		for _, key := range []string{"EIGENFLUX_HOME", watchAgentEnv, watchPrincipalEnv, updateReexecEnv, updateAttemptEnv, updateIdentityEnv, updateFromVersionEnv} {
+		for _, key := range []string{"EIGENFLUX_HOME", watchAgentEnv, watchPrincipalEnv, updateReexecEnv, updateAttemptEnv, updateIdentityEnv, updateFromVersionEnv, updateHopsEnv} {
 			if strings.HasPrefix(value, key+"=") {
 				skip = true
 				break

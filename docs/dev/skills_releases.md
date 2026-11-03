@@ -176,3 +176,16 @@ revision. During remote synchronization, `no_update` denotes a successful
 unchanged-release check, rather than an inability to accept the release. Legacy
 Feed autosync classifies retained updates as `blocked` (or `offline` when the
 remote manifest is unavailable).
+
+## Automatic bridge continuation
+
+A newly adopted CLI may continue an automatic update in the same heartbeat
+invocation. Only a strictly newer running version with a valid handoff bypasses
+the daily check interval, with at most two continuation handoffs. Identity,
+server update policy, signatures, rollback protection and shared installation
+locking remain required. Ordinary subsequent invocations retain the daily
+interval. Manual updates retain their existing restart behavior.
+
+Publish a new legacy bridge with matching CLI and notarized App versions to
+make this behavior available to historical clients. Immutable historical bridge
+binaries cannot gain continuation logic through a v2-only publication.

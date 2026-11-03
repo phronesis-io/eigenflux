@@ -2,7 +2,7 @@
 """Opt-in native acceptance using published binaries and an isolated local API.
 
 No owner credentials, production API writes, OS tasks or notifications are used.
-The second automatic check is tested both inside and beyond the daily throttle.
+The first automatic invocation must reach v2 through the published bridge.
 """
 import argparse
 import hashlib
@@ -15,7 +15,6 @@ import subprocess
 import tempfile
 import threading
 import urllib.request
-from datetime import datetime, timedelta, timezone
 
 CDN = 'https://cdn.eigenflux.ai'
 
@@ -110,20 +109,19 @@ def main():
                 return version
 
             first = run_check('first automatic cycle')
-            require(first == legacy, f'first cycle ran {first}, expected bridge {legacy}')
-            immediate = run_check('immediate second automatic cycle')
-            report['immediate_reaches_target'] = immediate == target
-            # Advance only the updater eligibility timestamp, never the OS clock.
-            # This simulates a later daily cycle without waiting 24 hours.
+            require(first == target, f'first cycle ran {first}, expected latest {target}')
             states = list(root.glob('eigenflux*.update.json'))
-            require(bool(states), 'no updater eligibility state to age')
-            for state in states:
-                data = json.loads(state.read_text())
-                data['attempt'] = (datetime.now(timezone.utc)-timedelta(hours=25)).isoformat().replace('+00:00','Z')
-                state.write_text(json.dumps(data))
-            eligible = run_check('eligible automatic cycle (25h state age)')
-            require(eligible == target, f'eligible cycle ran {eligible}, expected {target}')
+            require(bool(states), 'no updater eligibility state')
+            original_states = {state: state.read_bytes() for state in states}
+            immediate = run_check('immediate second automatic cycle')
+            require(immediate == target, f'repeat cycle ran {immediate}, expected {target}')
+            require(all(state.read_bytes() == data for state, data in original_states.items()),
+                    'repeat cycle bypassed normal update throttle')
+            report['immediate_reaches_target'] = True
+            report['repeat_preserved_update_state'] = True
             for before, after in ((args.from_version, legacy), (legacy, target)):
+                if before == after:
+                    continue
                 require(any(e.get('component') == 'cli' and e.get('trigger') == 'auto'
                     and e.get('result') == 'executed' and e.get('from_version') == before
                     and e.get('running_version') == after for e in events), 'missing automatic execution receipt')
