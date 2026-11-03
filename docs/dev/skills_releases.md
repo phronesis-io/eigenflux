@@ -13,6 +13,12 @@ Incompatible or unknown versions stop installation without replacing existing
 Skills. Publishing a higher minimum does not publish its required CLI binary;
 complete Release CLI before directing new users to that Skills release.
 
+Production `ef-*` Skills must declare stable `major.minor.patch` versions in
+`metadata.version`. Cross-platform CI and `manifestgen` validate every discovered
+production Skill before signing. Missing versions, prerelease/build suffixes and
+leading zeroes fail validation. `ef-localdev` and unrelated Skills are excluded.
+Skill contract tests check behavior without pinning a particular release number.
+
 ## Installation entry
 
 `skills/install.md` is the sole source for the `/install` landing page's Agent
