@@ -79,6 +79,20 @@ through any other workflow is rejected before credentials are loaded.
 
 ## Client synchronization and permissions
 
+Content replacements preserve host-owned top-level files, hidden directories,
+custom Skills and symlinks outside the managed Skill set. This includes Hermes
+metadata such as `.curator_state`, `.bundled_manifest` and `.hub`. Preserve file
+contents and ordinary permission bits; copy symlink text without following its
+target. Keep these local entries outside the signed release's trust boundary.
+Only the installer's `.ef-manifest.json`, `.ef-manifest-*.tmp` and `.ef-stale`
+entries are regenerated or discarded. Retired managed Skills are still removed,
+and signed synchronization still preserves edited managed Skills.
+
+Unreadable host entries and unsupported special files abort replacement before
+the active tree is swapped. Identical-content and metadata-only refreshes do not
+scan host content. Signed sync, local bundle installation and provisional
+offline installation use the same preservation step.
+
 Every heartbeat checks the signed remote manifest. An intact installation with
 unchanged content and sequence returns without creating directories, locks, or
 timestamps in the Skills tree. Directory and manifest checks around content
@@ -100,7 +114,7 @@ an intact provisional bundle remains usable offline and is refreshed online.
 
 Before content replacement, the client also reads existing official directories
 identified by the remote manifest when local metadata is missing or corrupt, and
-third-party directories that must be preserved. Unchanged checks and metadata-only
+host entries that must be preserved. Unchanged checks and metadata-only
 refreshes do not scan third-party content. Before recovery or replacement cleans
 the staging directory, its directory traversal is checked without reading the
 contents of files being deleted. These checks report permission failures before

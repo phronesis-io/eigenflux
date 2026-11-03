@@ -430,11 +430,9 @@ func reconcileZombies(local, remote *Manifest) []string {
 	return dead
 }
 
-// preserveUnmanaged copies into newDir any existing top-level skill folder that
-// must survive the swap: (1) folders not in the remote manifest (third-party /
-// user-placed), including on first install where local==nil; (2) a managed skill
-// the user has hand-edited (on-disk sha != our recorded sha) — we keep their
-// edit rather than clobber it.
+// preserveUnmanaged copies into newDir host-owned files, directories and links
+// outside the managed set, including hidden metadata and first installations.
+// It also preserves hand-edited managed skills (on-disk sha != recorded sha).
 // preserveUnmanaged returns the names of managed skills whose pending update was
 // skipped because the user hand-edited them (so callers can surface that the
 // skill is stuck on a local fork). Third-party folders are preserved verbatim
@@ -455,7 +453,7 @@ func preserveUnmanaged(real, newDir string, local, remote *Manifest, forceManage
 		return nil, err
 	}
 	for _, e := range entries {
-		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+		if isSkillsMetadata(e.Name()) {
 			continue
 		}
 		name := e.Name()
@@ -464,13 +462,16 @@ func preserveUnmanaged(real, newDir string, local, remote *Manifest, forceManage
 		if _, ok := inRemote[name]; !ok {
 			// Not in the new manifest. If WE previously managed it, it is a
 			// zombie being reconciled away — do not preserve. Otherwise it is a
-			// third-party / user-placed folder and must survive verbatim.
+			// host-owned entry and must survive verbatim.
 			if _, wasManaged := recorded[name]; wasManaged {
 				continue
 			}
-			if err := replaceCopy(src, dst); err != nil {
+			if err := copyHostEntry(src, dst); err != nil {
 				return nil, err
 			}
+			continue
+		}
+		if !e.IsDir() {
 			continue
 		}
 		// In the managed set: keep user edits to a previously-managed skill,

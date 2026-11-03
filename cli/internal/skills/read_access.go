@@ -59,7 +59,7 @@ func checkSyncReadAccess(real, parent string) (err error) {
 
 // checkReplacementReadAccess runs only before a content replacement. Official
 // files normally use the local manifest; the remote list covers a lost manifest.
-// Only third-party directories that preserveUnmanaged will copy need extra reads.
+// Only host entries that preserveUnmanaged will copy need extra reads.
 func checkReplacementReadAccess(real string, local, remote *Manifest) (err error) {
 	defer func() { err = permissionFailure(err, "read") }()
 	if err := checkCleanupReadAccess(real + newSuffix); err != nil {
@@ -78,18 +78,51 @@ func checkReplacementReadAccess(real string, local, remote *Manifest) (err error
 		recorded = local.names()
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+		if isSkillsMetadata(entry.Name()) {
 			continue
 		}
 		_, official := inRemote[entry.Name()]
 		_, managed := recorded[entry.Name()]
-		if (local == nil && official) || (!official && !managed) {
+		if !official && !managed {
+			if err := checkHostEntryReadAccess(filepath.Join(real, entry.Name())); err != nil {
+				return err
+			}
+		} else if local == nil && official && entry.IsDir() {
 			if _, err := dirSHA256(filepath.Join(real, entry.Name())); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// WalkDir and Readlink inspect links themselves, never their targets. Opening
+// regular files is enough for the preflight; actual copying rechecks under lock.
+func checkHostEntryReadAccess(root string) error {
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		switch {
+		case info.Mode()&os.ModeSymlink != 0:
+			_, err := os.Readlink(path)
+			return err
+		case info.IsDir():
+			return nil
+		case info.Mode().IsRegular():
+			file, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			return file.Close()
+		default:
+			return fmt.Errorf("unsupported host metadata file type: %s", path)
+		}
+	})
 }
 
 // Cleanup traverses directories but does not read the contents of deleted files.
