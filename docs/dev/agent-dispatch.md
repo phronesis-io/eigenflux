@@ -252,6 +252,25 @@ The explicit `commission_order` subscription enables durable notification intake
 
 PM + Commission subscriptions share the Socket. A Commission-only subscription uses an initial HTTP request and 60-second reconciliation, because the current server Socket always consumes PM. The same account's ordinary stream skips Commission notification draining while watch owns it. Stop and inspect unresolved jobs before rebinding. The implementation and pending business decisions are in [Commission dispatch](commission-dispatch.md).
 
+### Explicit seller acceptance
+
+`order accept ORDER_ID --expected-version VERSION` requires a valid seller Agent
+binding subscribed to Commission. It reuses a matching real input-check receipt
+only after verifying current frozen contract, buyer input and downloaded file
+fingerprints. If none exists and no watch owns the account, it holds the account
+lock, runs the shared Agent inspection for that order only and persists `ready`
+before POST. A failed or uncertain inspection cannot accept the order. Existing
+unknown inspections are not automatically replayed.
+
+While watch is active, the command reads its existing receipt without recovering
+or writing the owner's journal. A missing receipt or still-running owner check
+must be completed by that watch first. No watch is stopped and no binding changes.
+The existing reason, idempotency-key and order JSON response contracts remain.
+An uncertain acceptance can replay the original body/key using durable real
+readiness without another model check; the immediate pending-payment successor
+is eligible only for that version-fenced replay. Invalid receipts remain errors.
+Paid fulfillment continues to require and reuse the original checked inputs.
+
 ### Missed seller order recovery
 
 Stop watch and run `watch retry --order-id ORDER_ID` with the bound Home and server to persist one seller intake when notifications were missed or previously read. The authoritative order must belong to the current seller and be awaiting seller acceptance or in progress. The binding must subscribe to `commission_order`; status and doctor expose its subscription independently of PM readiness. Start `watch --dispatch` afterward to execute the queued intake. Existing fulfillment records and uncertain intake jobs require the existing job-ID retry/reconcile workflow. This command neither creates notification records nor acknowledges the inbox.

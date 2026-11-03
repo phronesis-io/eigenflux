@@ -148,6 +148,12 @@ func (w *accountWatch) readCommissionOrder(ctx context.Context, id string) (comm
 }
 
 func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job dispatch.Job) error {
+	return w.dispatchCommissionIntakeWithAcceptance(parent, job, 0, w.acceptInspectedCommission)
+}
+
+// Manual acceptance shares the real input inspection while retaining its own
+// version requirement and authenticated mutation/response contract.
+func (w *accountWatch) dispatchCommissionIntakeWithAcceptance(parent context.Context, job dispatch.Job, expectedVersion int64, accept func(context.Context, commissionIntakeOrder) error) error {
 	defer w.observeCommissionJob(job)()
 	if err := w.commissionIdentityOK(); err != nil {
 		if saveErr := w.finishDispatch(job, "failed", "identity_changed", "", ""); saveErr != nil {
@@ -201,6 +207,9 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 	if err != nil || order.Version < notification.Payload.Version {
 		return w.finishDispatch(job, "failed", "commission_order_unavailable", "", "")
 	}
+	if expectedVersion > 0 && (order.Version != expectedVersion || order.State != "awaiting_seller") {
+		return w.finishDispatch(job, "failed", "commission_order_changed", "", "")
+	}
 	switch order.State {
 	case "awaiting_seller", "pending_payment", "in_progress":
 	default:
@@ -241,7 +250,7 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 	}
 	prompt, requiresMaterials, files, cleanup, err := w.commissionIntakePrompt(ctx, job, order)
 	if err != nil {
-		if errors.Is(err, errCommissionMaterialsMissing) && order.State == "awaiting_seller" {
+		if expectedVersion == 0 && errors.Is(err, errCommissionMaterialsMissing) && order.State == "awaiting_seller" {
 			return w.requestCommissionInputs(ctx, job, order, "The required buyer input files are missing. Clarify the available authorized materials needed by the frozen contract.", "", "required_input_files")
 		}
 		status, code := "failed", "commission_intake_prompt_unavailable"
@@ -314,7 +323,7 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 	if err != nil || !sameCommissionIntakeOrder(order, current) {
 		return w.finishDispatch(job, "failed", "commission_order_changed", result.SessionID, "")
 	}
-	if order.State == "awaiting_seller" && decision.Outcome == "needs_input" {
+	if expectedVersion == 0 && order.State == "awaiting_seller" && decision.Outcome == "needs_input" {
 		return w.requestCommissionInputs(ctx, job, order, decision.Summary, result.SessionID)
 	}
 	if order.State == "awaiting_seller" && decision.Outcome == "ready" {
@@ -330,7 +339,7 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 		}
 		acceptStarted := time.Now()
 		observation.Stage = "accept"
-		if err := w.acceptInspectedCommission(ctx, order); err != nil {
+		if err := accept(ctx, order); err != nil {
 			w.recordCommissionObservation(observation, "failed", "execution_unconfirmed", acceptStarted, result, err)
 			return w.finishDispatch(job, "unknown", "commission_accept_unconfirmed", result.SessionID, "")
 		}

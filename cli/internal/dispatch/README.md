@@ -578,6 +578,27 @@ and the same input fingerprint, then queue fulfillment using the original checke
 version and the current paid execution version separately. Fulfillment retains
 file download/digest checks but never repeats the model readiness assessment.
 
+`order accept` uses this same real input inspection and persists readiness before
+its authenticated POST. It requires the current seller's valid subscribed Agent
+binding. Without an active watch, the command holds the existing account lock
+and claims only the requested order/version; it never replays an uncertain
+inspection. An existing matching readiness receipt is reused only after fresh
+verified input downloads, the frozen contract fingerprint and order/identity
+fences still match. Active-watch callers read the journal without opening or
+recovering it and cannot start another input check. Missing evidence asks the
+owner watch to complete inspection first; a running owner check is left alone.
+Local inspection diagnostics remain durable, but the synchronous operator call
+does not emit automatic watch execution telemetry.
+
+The command retains its required `--expected-version`, optional reason, explicit
+or default idempotency key and successful order JSON response. An uncertain
+acceptance with real persisted readiness can converge by replaying the same
+body/key against the original version, including its immediate pending-payment
+successor. It never reruns the model for that replay; paid and delivered orders
+cannot be accepted. Invalid or ambiguous acceptance receipts remain errors.
+The original paid worker reuses this readiness and its checked version through
+`QueueCommissionFromReadiness`; paid guards and retry behavior are unchanged.
+
 Upgraded Orders without the new local inspection evidence remain blocked; never
 invent a historical inspection or silently recheck. Current input changes also
 block. Ordinary buyer workspace writes remain closed after Order activation; the
