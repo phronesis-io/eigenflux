@@ -786,6 +786,20 @@ reuses [maintenance observations](../maintenance/README.md); failed telemetry
 must not authorize, retry or fail a business action. Synchronize these documents
 when changing diagnostic categories or receipt semantics.
 
+Commission observations retain the fixed local job code independently of the
+coarse execution category. Structured check receipts identify actual retained
+outcomes, checked versions, inspected-file counts, source jobs and verified
+fingerprints. Bridge details contain only fixed codes/messages and bounded
+operation, exit and JSON-RPC codes. Capture them before wrapping a failure in a
+generic category, and retain captured details for restart diagnostics.
+
+Startup emits deduplicated `diagnostic_snapshot` / `observed` receipts for
+retained unresolved Commission work. An absent receipt or uncaptured historical
+bridge error stays missing or unknown. Snapshots never invoke the Agent, mutate
+a job's execution status or replay an Order operation. Deploy the accepting API
+before the corresponding CLI; existing anonymous stage aggregates exclude this
+observation stage. See [the observability contract](../../../docs/dev/commission-observability.md).
+
 ## CLI update integration
 
 The merged updater supports explicit `update` and authenticated identity-pinned

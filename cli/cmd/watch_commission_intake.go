@@ -230,6 +230,11 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 		for _, prior := range w.journal.Snapshot() {
 			result := prior.CommissionResult
 			if prior.ID != job.ID && result != nil && prior.Code != "operator_verified" && result.Outcome != "failed" && result.OrderID == id && result.OrderVersion == order.Version {
+				fingerprint := ""
+				if prior.CommissionReadiness != nil {
+					fingerprint = prior.CommissionReadiness.InputFingerprint
+				}
+				_ = w.journal.SaveCommissionDiagnostic(job.ID, nil, dispatch.CheckReceipt(*result, fingerprint))
 				return w.finishDispatch(job, "completed", "commission_intake_already_checked", "", "")
 			}
 		}
@@ -286,6 +291,7 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 		w.recordCommissionObservation(observation, "failed", "output_invalid", checkStarted, result, nil)
 		return w.finishDispatch(job, "failed", "commission_intake_result_invalid", result.SessionID, "")
 	}
+	_ = w.journal.SaveCommissionDiagnostic(job.ID, nil, dispatch.CheckReceipt(decision, ""))
 	observation := commissionJobObservation(job)
 	observation.Stage = "input_check"
 	checkStatus, checkCode := "succeeded", ""

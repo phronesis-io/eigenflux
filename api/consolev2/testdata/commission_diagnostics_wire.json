@@ -1,0 +1,1755 @@
+{
+  "now_ms": 1793664000000,
+  "cases": [
+    {
+      "name": "legacy_coarse_only",
+      "valid": true,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1
+        }
+      }
+    },
+    {
+      "name": "missing_check_and_acp_rpc_error",
+      "valid": true,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "ready_receipt_with_zero_inspected_files",
+      "valid": true,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_unconfirmed",
+          "check_receipt": {
+            "status": "present",
+            "outcome": "ready",
+            "checked_order_version": 1,
+            "inspected_file_count": 0,
+            "input_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "source_job_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "historical_snapshot_is_observation_only",
+      "valid": true,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "observed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 0,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "diagnostic_snapshot",
+          "attempt": 0,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "unknown_failure"
+          }
+        }
+      }
+    },
+    {
+      "name": "check_missing",
+      "valid": true,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "check_not_applicable",
+      "valid": true,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "not_applicable"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "receipt_needs_input",
+      "valid": true,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_unconfirmed",
+          "check_receipt": {
+            "status": "present",
+            "outcome": "needs_input",
+            "checked_order_version": 1,
+            "inspected_file_count": 0,
+            "source_job_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "receipt_needs_user",
+      "valid": true,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_unconfirmed",
+          "check_receipt": {
+            "status": "present",
+            "outcome": "needs_user",
+            "checked_order_version": 1,
+            "inspected_file_count": 0,
+            "source_job_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "receipt_failed",
+      "valid": true,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_unconfirmed",
+          "check_receipt": {
+            "status": "present",
+            "outcome": "failed",
+            "checked_order_version": 1,
+            "inspected_file_count": 0,
+            "source_job_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "fixed_rpc_code_-32700",
+      "valid": true,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32700
+          }
+        }
+      }
+    },
+    {
+      "name": "fixed_rpc_code_-32600",
+      "valid": true,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32600
+          }
+        }
+      }
+    },
+    {
+      "name": "fixed_rpc_code_-32601",
+      "valid": true,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32601
+          }
+        }
+      }
+    },
+    {
+      "name": "fixed_rpc_code_-32602",
+      "valid": true,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32602
+          }
+        }
+      }
+    },
+    {
+      "name": "fixed_rpc_code_-32603",
+      "valid": true,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32603
+          }
+        }
+      }
+    },
+    {
+      "name": "fixed_rpc_code_-32000",
+      "valid": true,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "bounded_exit_code_-1",
+      "valid": true,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000,
+            "exit_code": -1
+          }
+        }
+      }
+    },
+    {
+      "name": "bounded_exit_code_0",
+      "valid": true,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000,
+            "exit_code": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "bounded_exit_code_255",
+      "valid": true,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000,
+            "exit_code": 255
+          }
+        }
+      }
+    },
+    {
+      "name": "local_code_is_not_free_error",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "Bearer secret-token-for-test",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown_local_code",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "new_unreviewed_code",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "bridge_message_is_not_raw_error",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "/Users/private/token=secret-token-for-test",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "bridge_unknown_code",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "private-bridge-secret",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "bridge_unknown_cannot_claim_details",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "unknown_failure",
+            "operation": "network"
+          }
+        }
+      }
+    },
+    {
+      "name": "bridge_exit_above_bound",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000,
+            "exit_code": 256
+          }
+        }
+      }
+    },
+    {
+      "name": "bridge_exit_below_bound",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000,
+            "exit_code": -2
+          }
+        }
+      }
+    },
+    {
+      "name": "bridge_rpc_outside_fixed_codes",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32001
+          }
+        }
+      }
+    },
+    {
+      "name": "bridge_operation_is_not_command",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "curl private-url",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "missing_receipt_cannot_invent_outcome",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing",
+            "outcome": "ready"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "present_requires_explicit_count",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_unconfirmed",
+          "check_receipt": {
+            "status": "present",
+            "outcome": "ready",
+            "checked_order_version": 1,
+            "input_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "source_job_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "present_requires_source_job",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_unconfirmed",
+          "check_receipt": {
+            "status": "present",
+            "outcome": "ready",
+            "checked_order_version": 1,
+            "inspected_file_count": 0,
+            "input_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "present_requires_positive_checked_version",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_unconfirmed",
+          "check_receipt": {
+            "status": "present",
+            "outcome": "ready",
+            "checked_order_version": 0,
+            "inspected_file_count": 0,
+            "input_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "source_job_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "receipt_cannot_exceed_manifest_count",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_unconfirmed",
+          "check_receipt": {
+            "status": "present",
+            "outcome": "ready",
+            "checked_order_version": 1,
+            "inspected_file_count": 129,
+            "input_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "source_job_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "receipt_cannot_have_negative_count",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_unconfirmed",
+          "check_receipt": {
+            "status": "present",
+            "outcome": "ready",
+            "checked_order_version": 1,
+            "inspected_file_count": -1,
+            "input_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "source_job_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "receipt_unknown_outcome",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_unconfirmed",
+          "check_receipt": {
+            "status": "present",
+            "outcome": "paid",
+            "checked_order_version": 1,
+            "inspected_file_count": 0,
+            "input_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "source_job_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "receipt_fingerprint_is_not_path",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_unconfirmed",
+          "check_receipt": {
+            "status": "present",
+            "outcome": "ready",
+            "checked_order_version": 1,
+            "inspected_file_count": 0,
+            "input_fingerprint": "/private/input",
+            "source_job_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "receipt_source_is_not_raw_session",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_unconfirmed",
+          "check_receipt": {
+            "status": "present",
+            "outcome": "ready",
+            "checked_order_version": 1,
+            "inspected_file_count": 0,
+            "input_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "source_job_id": "owner-private-session"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "receipt_nonready_cannot_claim_readiness_fingerprint",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_unconfirmed",
+          "check_receipt": {
+            "status": "present",
+            "outcome": "failed",
+            "checked_order_version": 1,
+            "inspected_file_count": 0,
+            "input_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "source_job_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "snapshot_cannot_be_started_execution",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "started",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 0,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "diagnostic_snapshot",
+          "attempt": 0,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "unknown_failure"
+          }
+        }
+      }
+    },
+    {
+      "name": "snapshot_cannot_add_attempt",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "observed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 0,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "diagnostic_snapshot",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "unknown_failure"
+          }
+        }
+      }
+    },
+    {
+      "name": "snapshot_cannot_add_duration",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "observed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 0,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "diagnostic_snapshot",
+          "attempt": 0,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "unknown_failure"
+          }
+        },
+        "duration_ms": 100
+      }
+    },
+    {
+      "name": "snapshot_cannot_schedule_retry",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "observed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 0,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "diagnostic_snapshot",
+          "attempt": 0,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "unknown_failure"
+          },
+          "next_attempt_at": 1793664060000
+        }
+      }
+    },
+    {
+      "name": "snapshot_requires_local_code",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "observed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 0,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "diagnostic_snapshot",
+          "attempt": 0,
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "unknown_failure"
+          }
+        }
+      }
+    },
+    {
+      "name": "snapshot_requires_check_receipt",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "observed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 0,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "diagnostic_snapshot",
+          "attempt": 0,
+          "local_code": "commission_intake_evidence_missing",
+          "bridge_error": {
+            "code": "unknown_failure"
+          }
+        }
+      }
+    },
+    {
+      "name": "snapshot_requires_bridge_error",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "observed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 0,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "diagnostic_snapshot",
+          "attempt": 0,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown_nested_prompt_field",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000,
+            "raw_prompt": "private prompt"
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown_nested_actor_identity",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing",
+            "agent_id": "99"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown_event_actor_identity",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "missing"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        },
+        "agent_id": "99"
+      }
+    },
+    {
+      "name": "receipt_cannot_reference_future_order_version",
+      "valid": false,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "failed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 2,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "job_finished",
+          "attempt": 1,
+          "local_code": "commission_intake_unconfirmed",
+          "check_receipt": {
+            "status": "present",
+            "outcome": "ready",
+            "checked_order_version": 3,
+            "inspected_file_count": 0,
+            "input_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "source_job_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          },
+          "bridge_error": {
+            "code": "acp_rpc_error",
+            "message": "acp_rpc_error",
+            "operation": "network",
+            "rpc_code": -32000
+          }
+        }
+      }
+    },
+    {
+      "name": "snapshot_unknown_order_version_preserves_real_receipt",
+      "valid": true,
+      "event": {
+        "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "event_at": 1793664000000,
+        "component": "dispatch",
+        "trigger": "auto",
+        "phase": "commission",
+        "source": "watch",
+        "platform": "darwin",
+        "result": "observed",
+        "error_code": "execution_failed",
+        "commission": {
+          "order_id": "123",
+          "order_version": 0,
+          "role": "seller",
+          "job_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "job_kind": "commission_order",
+          "stage": "diagnostic_snapshot",
+          "attempt": 0,
+          "local_code": "commission_intake_evidence_missing",
+          "check_receipt": {
+            "status": "present",
+            "outcome": "ready",
+            "checked_order_version": 1,
+            "inspected_file_count": 0,
+            "input_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "source_job_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          },
+          "bridge_error": {
+            "code": "unknown_failure"
+          }
+        }
+      }
+    }
+  ]
+}
