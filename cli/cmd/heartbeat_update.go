@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -26,6 +27,28 @@ import (
 const updateReexecEnv = "EIGENFLUX_UPDATE_REEXEC"
 const updateAttemptEnv = "EIGENFLUX_UPDATE_ATTEMPT"
 const updateIdentityEnv = "EIGENFLUX_UPDATE_IDENTITY"
+const updateHopsEnv = "EIGENFLUX_UPDATE_HANDOFFS"
+const maxUpdateHops = 2
+const sameCycleBridgeVersion = "1.0.10"
+
+func updateHops() int {
+	value := os.Getenv(updateHopsEnv)
+	if value == "" {
+		return 0
+	}
+	hops, err := strconv.Atoi(value)
+	if err != nil || hops < 0 {
+		return maxUpdateHops
+	}
+	return hops
+}
+
+func continueAutomaticCLIUpdate() bool {
+	from := os.Getenv(updateFromVersionEnv)
+	return os.Getenv(updateReexecEnv) == "1" && updateHops() < maxUpdateHops &&
+		selfupdate.ValidVersion(from) && selfupdate.Compare(from, version) < 0 &&
+		selfupdate.Compare(from, sameCycleBridgeVersion) < 0 && selfupdate.Compare(version, sameCycleBridgeVersion) >= 0
+}
 
 // The process handoff is pinned independently of optional maintenance receipts.
 type cliUpdateIdentity struct {
@@ -103,9 +126,14 @@ func runObservedCLIUpdate(cmd *cobra.Command, cfg *config.Config, minimum string
 	if manual {
 		trigger = "manual"
 	}
+	continuation := !manual && continueAutomaticCLIUpdate()
 	if os.Getenv(updateReexecEnv) == "1" {
 		recorder := resumedCLIRecorder(server, trigger, cmd.ErrOrStderr())
-		return selfupdate.Result{Status: "restarted", Version: version}, false, recorder, nil
+		if !continuation {
+			return selfupdate.Result{Status: "restarted", Version: version}, false, recorder, nil
+		}
+		// Persist adoption of this bridge before a distinct next update attempt.
+		recorder.Flush()
 	}
 	recorder := newMaintenanceRecorder(server, "cli", trigger, "", cmd.ErrOrStderr())
 	if !manual {
@@ -148,7 +176,7 @@ func runObservedCLIUpdate(cmd *cobra.Command, cfg *config.Config, minimum string
 	result := selfupdate.Check(updateCtx, selfupdate.Options{
 		CompletePackage: runtime.GOOS == "darwin" || runtime.GOOS == "windows",
 		Home:            config.HomeDir(), Executable: path, Version: version, Minimum: minimum,
-		CDN: cdnBase(), Key: key, CheckNow: manual, OnProgress: recorder.Progress(version),
+		CDN: cdnBase(), Key: key, CheckNow: manual || continuation, OnProgress: recorder.Progress(version),
 	})
 	recorder.Complete(result, version)
 	// Installation and synchronous rollback finish before restoring signal defaults.
@@ -166,7 +194,7 @@ func runObservedCLIUpdate(cmd *cobra.Command, cfg *config.Config, minimum string
 	}
 	recorder.Phase("execute", version, result.Version)
 	child := exec.CommandContext(ctx, result.Executable, heartbeatReexecArgs(os.Args[1:], config.HomeDir(), server)...)
-	child.Env = append(heartbeatReexecEnvironment(os.Environ()), updateAttemptEnv+"="+recorder.attempt, updateFromVersionEnv+"="+version)
+	child.Env = append(heartbeatReexecEnvironment(os.Environ()), updateAttemptEnv+"="+recorder.attempt, updateFromVersionEnv+"="+version, updateHopsEnv+"="+strconv.Itoa(updateHops()+1))
 	if root, err := selfupdate.InstallationRoot(path); err == nil {
 		if _, err := selfupdate.ResolveInstallation(root, key); err == nil {
 			child.Env = selfupdate.InstallationEnvironment(child.Env, root)
@@ -263,7 +291,7 @@ func heartbeatMaintenanceEnabled(mode string, cfg *config.Config, key string) bo
 func heartbeatReexecEnvironment(env []string) []string {
 	out := make([]string, 0, len(env)+2)
 	for _, v := range env {
-		if strings.HasPrefix(v, updateReexecEnv+"=") || strings.HasPrefix(v, updateAttemptEnv+"=") || strings.HasPrefix(v, updateIdentityEnv+"=") || strings.HasPrefix(v, updateFromVersionEnv+"=") || strings.HasPrefix(v, "EIGENFLUX_HOME=") {
+		if strings.HasPrefix(v, updateHopsEnv+"=") || strings.HasPrefix(v, updateReexecEnv+"=") || strings.HasPrefix(v, updateAttemptEnv+"=") || strings.HasPrefix(v, updateIdentityEnv+"=") || strings.HasPrefix(v, updateFromVersionEnv+"=") || strings.HasPrefix(v, "EIGENFLUX_HOME=") {
 			continue
 		}
 		out = append(out, v)

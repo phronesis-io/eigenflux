@@ -79,6 +79,9 @@ return `needs_user`, without switching to a permission-bypass mode.
 Watch CLI update failures reuse the bounded diagnostics in
 [CLI observations](../../cmd/OBSERVABILITY.md#cli-update-observations), including
 policy failure causes; classification does not change dispatch or admission.
+Watch restarts and independent plugin workers clear automatic-update handoff
+counts together with the old update identity and receipt environment. Handoff
+budgets belong only to the current synchronous upgrade invocation.
 
 ## PM flow and invariants
 

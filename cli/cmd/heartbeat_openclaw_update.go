@@ -75,7 +75,7 @@ func cleanPluginUpdateEnvironment(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, value := range env {
 		skip := false
-		for _, key := range []string{updateReexecEnv, updateAttemptEnv, updateIdentityEnv, updateFromVersionEnv, watchSupervisedEnv, watchAgentEnv, watchPrincipalEnv} {
+		for _, key := range []string{updateReexecEnv, updateAttemptEnv, updateIdentityEnv, updateFromVersionEnv, updateHopsEnv, watchSupervisedEnv, watchAgentEnv, watchPrincipalEnv} {
 			if strings.HasPrefix(value, key+"=") {
 				skip = true
 				break
