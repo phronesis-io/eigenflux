@@ -9,6 +9,7 @@ import (
 
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/profilestate"
 	"cli.eigenflux.ai/internal/selfupdate"
 )
@@ -110,11 +111,56 @@ func policyFailure(step string, err error) error {
 	return &cliUpdatePolicyError{code: "update_policy_" + step + "_" + kind, err: err}
 }
 
-func (r *maintenanceRecorder) PolicyFailure(err error, from string) {
+// Persist diagnostic transitions across heartbeat/watch processes. This never
+// changes the effective policy or the frequency of fetching remote settings.
+func (r *maintenanceRecorder) policyDiagnostic(code, from string) bool {
+	if !r.authenticated {
+		return false
+	}
+	if _, err := maintenanceIdentity(r.scope, r.principal, r.endpoint); err != nil {
+		r.failure("identity_changed")
+		return false
+	}
+	scope := strings.TrimRight(r.endpoint, "/") + "\x1f" + r.scope.AgentID + "\x1f" + r.principal + "\x1f" + from
+	recorded := false
+	_, err := profilestate.UpdateRuntime(r.scope.Home, r.scope.Server, func(state *profilestate.RuntimeState) (bool, error) {
+		if code == "" {
+			if state.CLIUpdateDiagnosticScope != scope || state.CLIUpdateDiagnosticCode == "" {
+				return false, nil
+			}
+		} else if state.CLIUpdateDiagnosticScope == scope && state.CLIUpdateDiagnosticCode == code {
+			return false, nil
+		}
+		before := len(r.pending)
+		// Policy diagnostics have their own attempt: a recovery must not
+		// consume the binary check/no_update event ID in this maintenance entry.
+		result, diagnosticCode := "waiting_online", code
+		if code == "" {
+			result, diagnosticCode = "no_update", "update_policy_recovered"
+		}
+		event := maintenance.NewEvent(maintenance.NewID(), "cli", r.trigger, "check", result)
+		event.FromVersion, event.ErrorCode = from, diagnosticCode
+		r.Record(event)
+		if len(r.pending) == before {
+			return false, nil
+		}
+		state.CLIUpdateDiagnosticScope, state.CLIUpdateDiagnosticCode = scope, code
+		recorded = true
+		return true, nil
+	})
+	if err != nil {
+		r.failure("policy_diagnostic_cache_failed")
+	}
+	return recorded
+}
+
+func (r *maintenanceRecorder) PolicyFailure(err error, from string) bool {
 	code := "update_policy_unavailable"
 	var policy *cliUpdatePolicyError
 	if errors.As(err, &policy) {
 		code = policy.code
 	}
-	r.Finish("check", "waiting_online", from, "", "", code)
+	return r.policyDiagnostic(code, from)
 }
+
+func (r *maintenanceRecorder) PolicyRecovered(from string) { r.policyDiagnostic("", from) }

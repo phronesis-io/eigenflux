@@ -153,8 +153,11 @@ func runObservedCLIUpdate(cmd *cobra.Command, cfg *config.Config, minimum string
 	if !manual {
 		enabled, policyErr := refreshCLIUpdatePolicy(cfg, server)
 		if policyErr != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "[eigenflux:maintenance] component=cli phase=check error_code=update_policy_unavailable effective_enabled=%t error=%q\n", enabled, policyErr.Error())
-			recorder.PolicyFailure(policyErr, version)
+			if recorder.PolicyFailure(policyErr, version) {
+				fmt.Fprintf(cmd.ErrOrStderr(), "[eigenflux:maintenance] component=cli phase=check error_code=update_policy_unavailable effective_enabled=%t error=%q\n", enabled, policyErr.Error())
+			}
+		} else {
+			recorder.PolicyRecovered(version)
 		}
 		if !enabled {
 			recorder.Finish("check", "blocked", version, "", "", "server_policy_disabled")

@@ -187,5 +187,16 @@
     "title": "Exclude server-only detail readers from surface reporters",
     "description": "Migration 000126 must precede detail-event collection. The rolling seven-day view counts only Agent-reported follow-up kinds; existing event rows are unchanged and historical aggregates are recomputed. API-only rollout does not apply this correction.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/481"
+  },
+  {
+    "id": "passive-cli-version-observation-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "api",
+    "dashboards": [
+      "update-maintenance"
+    ],
+    "title": "Observe CLI versions on passive Agent reads",
+    "description": "After API rollout, successful authenticated CLI settings and pending-notification reads refresh only the CLI version, without counting as activity or runtime readiness. Existing clients benefit on their next read; historical snapshots and missing execution receipts are not backfilled. Correlated execution receipts and deduplicated policy warnings require the new CLI.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/505"
   }
 ]
