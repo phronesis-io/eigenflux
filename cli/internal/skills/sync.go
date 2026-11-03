@@ -40,7 +40,7 @@ func Sync(opts SyncOptions) (result *SyncResult, err error) {
 	}
 	if ferr != nil {
 		if local.intact {
-			r := keepLocal(real, local.manifest, "remote manifest unavailable: "+ferr.Error())
+			r := keepLocal(real, local.manifest, "skills_manifest_unavailable", "", "remote manifest unavailable: "+ferr.Error())
 			r.NoNetwork, r.Stale = true, local.stale
 			if opts.IfStale || opts.Quiet {
 				return r, nil
@@ -58,7 +58,7 @@ func Sync(opts SyncOptions) (result *SyncResult, err error) {
 				return nil, err
 			}
 			if local.intact {
-				r := keepLocal(real, local.manifest, "remote manifest unavailable: "+ferr.Error())
+				r := keepLocal(real, local.manifest, "skills_manifest_unavailable", "", "remote manifest unavailable: "+ferr.Error())
 				r.NoNetwork, r.Stale = true, local.stale
 				return r, nil
 			}
@@ -101,10 +101,10 @@ func Sync(opts SyncOptions) (result *SyncResult, err error) {
 	// Keep the existing same-filesystem staging and durable extraction path.
 	tarGz, err := fetchTarball(opts, dirURL, remote.Revision)
 	if err != nil {
-		return syncDownloadFailure(opts, real, err)
+		return syncDownloadFailure(opts, real, remote.Revision, "skills_download_failed", err)
 	}
 	if err := verifyTarSHA(tarGz, remote.TarSHA256); err != nil {
-		return syncDownloadFailure(opts, real, err)
+		return syncDownloadFailure(opts, real, remote.Revision, "skills_checksum_failed", err)
 	}
 	newDir := real + newSuffix
 	if err := removeInstallTree(newDir); err != nil {
@@ -121,22 +121,26 @@ func Sync(opts SyncOptions) (result *SyncResult, err error) {
 func syncDecision(opts SyncOptions, real string, state *syncSnapshot, remote *Manifest) (*SyncResult, error) {
 	local, intact := state.manifest, state.intact
 	reason := ""
+	code := ""
 	if local != nil && local.Sequence > 0 {
 		switch {
 		case remote.Sequence < local.Sequence:
 			reason = "signed manifest rollback rejected"
+			code = "skills_rollback_rejected"
 		case remote.Sequence == local.Sequence && remote.Revision != local.Revision:
 			reason = "signed manifest sequence reused for different content"
+			code = "skills_rollback_rejected"
 		}
 	}
 	requiredCLIVersion := ""
 	if reason == "" && !cliMeetsMin(opts.CLIVersion, remote.MinCLIVersion) {
 		reason = fmt.Sprintf("skills need CLI >= %s (have %s) — upgrade the CLI", remote.MinCLIVersion, opts.CLIVersion)
 		requiredCLIVersion = remote.MinCLIVersion
+		code = "skills_cli_incompatible"
 	}
 	if reason != "" {
 		if intact {
-			res := keepLocal(real, local, reason)
+			res := keepLocal(real, local, code, remote.Revision, reason)
 			res.RequiredCLIVersion = requiredCLIVersion
 			res.Diagnostics[0].TargetRevision = remote.Revision
 			if strings.HasPrefix(reason, "skills need CLI") {
@@ -159,13 +163,13 @@ func syncDecision(opts SyncOptions, real string, state *syncSnapshot, remote *Ma
 	return nil, nil
 }
 
-func syncDownloadFailure(opts SyncOptions, real string, cause error) (*SyncResult, error) {
+func syncDownloadFailure(opts SyncOptions, real, target, code string, cause error) (*SyncResult, error) {
 	local, err := readSyncSnapshot(real)
 	if err != nil {
 		return nil, softFail(opts, err)
 	}
 	if local.intact {
-		return keepLocal(real, local.manifest, cause.Error()), nil
+		return keepLocal(real, local.manifest, code, target, cause.Error()), nil
 	}
 	return nil, softFail(opts, cause)
 }
@@ -213,7 +217,7 @@ func applyStaged(opts SyncOptions, real, parent, newDir string, local, remote *M
 			return nil, permissionFailure(err, "read")
 		}
 		if local != nil {
-			return keepLocal(real, local, "verify failed: "+err.Error()), nil
+			return keepLocal(real, local, "skills_verification_failed", remote.Revision, "verify failed: "+err.Error()), nil
 		}
 		return nil, softFail(opts, err)
 	}
@@ -530,10 +534,10 @@ func staleMarkerPresent(dir string) bool {
 	return fileExists(filepath.Join(dir, StaleMarkerName))
 }
 
-func keepLocal(real string, local *Manifest, reason string) *SyncResult {
-	return &SyncResult{SkillsDir: real, Source: "local", CLIVersion: local.CLIVersion,
+func keepLocal(real string, local *Manifest, code, target, reason string) *SyncResult {
+	return &SyncResult{SkillsDir: real, Source: "local", CLIVersion: local.CLIVersion, RetentionCode: code, TargetRevision: target,
 		Diagnostics: []SyncDiagnostic{{Path: real, Reason: reason, LocalRevision: local.Revision,
-			Hint: fmt.Sprintf("Keep the existing Skills and retry eigenflux skills sync --into %s after resolving the reported failure; do not delete the local manifest.", shellQuote(real))}},
+			TargetRevision: target, Hint: fmt.Sprintf("Keep the existing Skills and retry eigenflux skills sync --into %s after resolving the reported failure; do not delete the local manifest.", shellQuote(real))}},
 	}
 }
 

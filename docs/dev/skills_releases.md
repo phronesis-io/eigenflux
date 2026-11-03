@@ -158,3 +158,15 @@ Compatibility failures require upgrading the CLI before retrying. Signed
 rollback failures require a corrected release; retain the local manifest and
 its rollback protection. Skills releases do not require a CLI or plugin release
 unless the minimum supported CLI changes.
+
+Retained bundle results include `retention_code` and, after a verified remote
+manifest was obtained, `target_revision`. Heartbeat maintenance reports these
+outcomes as `blocked`, with the retained revision in `from_version` and
+`running_version` and the attempted target in `to_version`. A failed freshness
+check has no known target. These outcomes never report `no_update`, never issue
+an upgrade adoption receipt, and do not prevent compatible local rules from
+running. The Agent plan names the incomplete update separately from its active
+revision. During remote synchronization, `no_update` denotes a successful
+unchanged-release check, rather than an inability to accept the release. Legacy
+Feed autosync classifies retained updates as `blocked` (or `offline` when the
+remote manifest is unavailable).
