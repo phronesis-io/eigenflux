@@ -122,6 +122,23 @@ class ReleasePlanTests(unittest.TestCase):
                 self.assertTrue(plan.defer_skills('workflow_run', {'workflow_run': dict(event['workflow_run'], **change)}, REPO, HEAD)[0])
                 version.assert_not_called()
 
+    def test_in_progress_cli_allows_preparation_only_for_matching_version(self):
+        run = {'status': 'in_progress', 'conclusion': None, 'head_branch': 'main',
+               'name': 'Release CLI', 'head_sha': BEFORE,
+               'path': '.github/workflows/release-cli.yml',
+               'head_repository': {'full_name': REPO}}
+        event = {'action': 'in_progress', 'workflow_run': run}
+        with patch.object(plan, 'cli_version_at', side_effect=['1.0.6', '1.0.6']):
+            self.assertFalse(plan.defer_skills('workflow_run', event, REPO, HEAD)[0])
+        with patch.object(plan, 'cli_version_at', side_effect=['1.0.6', '1.0.7']):
+            self.assertTrue(plan.defer_skills('workflow_run', event, REPO, HEAD)[0])
+        for change in ({'status': 'completed', 'conclusion': 'failure'},
+                       {'path': '.github/workflows/untrusted.yml'},
+                       {'head_repository': {'full_name': 'fork/eigenflux'}}):
+            with patch.object(plan, 'cli_version_at') as version:
+                self.assertTrue(plan.defer_skills('workflow_run', dict(event, workflow_run=dict(run, **change)), REPO, HEAD)[0])
+                version.assert_not_called()
+
     def test_config_is_read_from_pinned_commits_and_validated(self):
         with patch.object(plan.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, 'CLI_VERSION=1.0.5\nNOTIFIER_VERSION=1.0.4\n', '')) as command:
             self.assertEqual(plan.cli_version_at(HEAD), '1.0.5')

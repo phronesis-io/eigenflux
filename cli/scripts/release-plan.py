@@ -69,8 +69,10 @@ def defer_skills(event_name, event, repository, sha):
     if event_name == 'workflow_run':
         try:
             run = event['workflow_run']
-            if (run.get('conclusion') != 'success' or run.get('head_branch') != 'main'
+            if ((run.get('conclusion') != 'success' and not (event.get('action') == 'in_progress' and run.get('status') == 'in_progress'))
+                    or run.get('head_branch') != 'main'
                     or run.get('name') != 'Release CLI'
+                    or run.get('path', '.github/workflows/release-cli.yml') != '.github/workflows/release-cli.yml'
                     or (run.get('head_repository') or {}).get('full_name', '').lower() != repository.lower()):
                 return True, 'upstream_identity_unknown'
             changed = cli_version_at(run['head_sha']) != cli_version_at(sha)
