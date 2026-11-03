@@ -130,9 +130,7 @@ The optional `owner_action` gives the owner a concrete reply to authorize the
 next foreground step. Unavailable local identity files direct the owner to
 request inspection and restoration of the original EigenFlux identity, including
 file access permissions and restoration of the original `identity.json` and
-`agent-v2-credentials.json` from an existing installation or backup. When no
-backup exists, it offers an explicit request for webpage verification to recover
-the original Agent, friends, and messages through `ef-profile`. Other V2
+`agent-v2-credentials.json` from an existing installation or backup. Other V2
 401s direct the owner to request recovery of the current account in the reported
 Home and server, with renewed authorization confirmed first if access was
 intentionally revoked. Host adapters localize and forward this CLI-owned action;
