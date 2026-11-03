@@ -208,8 +208,8 @@ and delivery verification. They never cancel an in-progress publication.
 A push that changes `CLI_VERSION` defers Skills publication until that CLI
 workflow succeeds. Test-only changes do not trigger a Skills release. An older
 CLI success event cannot publish the Skills for a newer, still-pending CLI
-version. A Skills run selects the current main SHA once; both subsequent jobs
-check out that exact SHA. Missing history causes conservative deferral rather
+version. A standalone Skills run selects the current main SHA once; a CLI-triggered run
+selects the upstream CLI SHA. Preparation and publication check out that exact SHA. Missing history causes conservative deferral rather
 than premature publication.
 
 Release planning may reuse a successful `CLI Auth Cross-Platform` main-push run
@@ -242,3 +242,16 @@ parallelism (default 3, `EIGENFLUX_RELEASE_WORKERS` accepts 1 through 8).
 All preflight checks finish before any write; all started workers finish before
 failure returns. Pointer promotion remains ordered and follows complete payload
 verification. Retries skip existing identical immutable and alias payloads.
+
+### Overlapping CLI and Skills preparation
+
+Release Skills starts when Release CLI enters `in_progress` and freezes the CLI
+run's source SHA. Skills tests, signing and artifact preparation overlap CLI work.
+A separate job waits for that exact CLI run to succeed before Skills publication;
+the wait does not hold `release-r2`. A failed or cancelled CLI blocks publication.
+After recovery, rerun Release CLI or dispatch Release Skills on main.
+
+CI evidence is checked immediately before fallback tests, after unconditional
+release-specific checks. Only completed successful main-push CI for the exact
+source SHA may suppress covered tests. Pending CI still requires fallback tests;
+starting a release before CI finishes does not establish reusable evidence.

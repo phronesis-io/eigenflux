@@ -29,11 +29,6 @@ jobs:
         with:
           go-version-file: cli/go.mod
           cache-dependency-path: cli/go.sum
-      - name: Reuse successful CI for this exact main commit
-        id: plan
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 cli/scripts/release-plan.py --repository "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA" --event-name "$GITHUB_EVENT_NAME" --event-path "$GITHUB_EVENT_PATH" --github-output "$GITHUB_OUTPUT"
       - name: Provide publication tools
         run: |
           brew list gnu-tar >/dev/null 2>&1 || brew install gnu-tar
@@ -43,7 +38,6 @@ jobs:
           aws s3api put-object --generate-cli-skeleton input | python3 -c 'import json,sys; assert "IfNoneMatch" in json.load(sys.stdin)'
           cd cli
           go test ./cmd/clirelease
-          if [[ '${{ steps.plan.outputs.trusted_ci }}' != true ]]; then go test ./tests; fi
       - name: Test CLI artifact publication
         run: |
           python3 -m unittest discover -s tests/cli_release -p 'test_cli_artifacts.py'
@@ -52,7 +46,16 @@ jobs:
           aws s3api put-object --generate-cli-skeleton input | python3 -c 'import json,sys; assert "IfNoneMatch" in json.load(sys.stdin)'
           cd cli
           go test ./cmd/notifierrelease
-          if [[ '${{ steps.plan.outputs.trusted_ci }}' != true ]]; then go test ./internal/selfupdate; fi
+      - name: Recheck CI before uncovered tests
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 cli/scripts/release-plan.py --repository "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA" --github-output "$GITHUB_OUTPUT"
+      - name: Run tests not covered by successful main CI
+        if: steps.ci.outputs.trusted_ci != 'true'
+        run: |
+          cd cli
+          go test ./tests ./internal/selfupdate
       - name: Resolve notification release inputs
         id: notifier
         env:
