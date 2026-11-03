@@ -164,6 +164,8 @@ both architecture archives. It is created after immutable archives are stored.
 Restore validates the receipt, archive hashes, safe paths, local code signatures,
 architecture and versions. Only an absent ready object is a miss; authentication,
 transport and validation errors abort rather than building a replacement.
+After both Apps pass validation, restore retains the exact receipt-bound ZIPs
+beside `ready.json` for the later offline package-publication check.
 
 A miss builds/signs both architectures concurrently. R2 staging preserves each
 signed archive and Apple submission ID separately. Later runners reuse those

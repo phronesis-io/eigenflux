@@ -189,6 +189,9 @@ def restore(args):
         args.helpers_dir.mkdir(parents=True)
         for arch in ARCHES:
             shutil.move(str(stage / ('darwin-' + arch)), args.helpers_dir / ('darwin-' + arch))
+            # Publication must compare packaged Apps with these exact receipt-bound
+            # bytes after the temporary extraction directory has been removed.
+            (stage / (arch + '.zip')).replace(args.work_dir / (arch + '.zip'))
     print('Restored verified notification App ' + args.version)
     return 0
 
