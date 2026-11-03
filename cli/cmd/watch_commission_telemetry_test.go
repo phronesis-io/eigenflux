@@ -169,3 +169,119 @@ func TestCommissionTelemetryPhysicalReceiptReplayIsIdempotent(t *testing.T) {
 		t.Fatal("physical attempts collapsed")
 	}
 }
+
+func TestCommissionRetryDoesNotReusePriorBridgeFailure(t *testing.T) {
+	w := newCommissionWatch(t, "http://127.0.0.1:1", "commission_order")
+	job := claimCommissionIntake(t, w)
+	calls := 0
+	w.runAgent = func(context.Context, dispatch.Request) (dispatch.Result, error) {
+		calls++
+		if calls == 1 {
+			return dispatch.Result{}, &dispatch.DiagnosticError{Cause: dispatch.ErrNeedsUser, Code: "permission_required", Operation: "read"}
+		}
+		return dispatch.Result{Text: "verified local result"}, nil
+	}
+	if _, err := w.runCommissionAgent(context.Background(), job, dispatch.Request{}); err == nil {
+		t.Fatal("missing first failure")
+	}
+	if err := w.journal.Update(job.ID, "failed", "commission_intake_unconfirmed", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.journal.Retry(job.ID); err != nil {
+		t.Fatal(err)
+	}
+	retried, ok, err := w.journal.NextKind("commission_order")
+	if err != nil || !ok {
+		t.Fatal(err)
+	}
+	finish := w.observeCommissionJob(retried)
+	if _, err := w.runCommissionAgent(context.Background(), retried, dispatch.Request{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.finishDispatch(retried, "completed", "commission_order_not_actionable", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	finish()
+	for _, event := range commissionObservations(t, w) {
+		if (event.Result == "started" || event.Result == "succeeded") && event.Commission.BridgeError != nil {
+			t.Fatalf("new attempt carried old error: %+v", event.Commission.BridgeError)
+		}
+	}
+	if calls != 2 {
+		t.Fatal("diagnostics reran the model", calls)
+	}
+}
+
+func TestCommissionStartupBackfillIsDurableObservationOnly(t *testing.T) {
+	w := newCommissionWatch(t, "http://127.0.0.1:1", "commission_order")
+	job := claimCommissionIntake(t, w)
+	if err := w.journal.SetCommissionExecution(job.ID, "901", 3, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.journal.Update(job.ID, "needs_user", "commission_skill_read_scope_invalid", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	w.runAgent = func(context.Context, dispatch.Request) (dispatch.Result, error) {
+		t.Fatal("snapshot reran model")
+		return dispatch.Result{}, nil
+	}
+	before := w.commissionDeliveryJob(job)
+	w.backfillCommissionDiagnostics()
+	events := commissionObservations(t, w)
+	if len(events) != 1 || events[0].Result != "observed" || events[0].Commission.Stage != "diagnostic_snapshot" || events[0].Commission.LocalCode != "commission_skill_read_scope_invalid" || events[0].Commission.BridgeError.Code != "unknown_failure" || events[0].Commission.CheckReceipt.Status != "missing" || events[0].Commission.Attempt != 0 || events[0].DurationMS != 0 {
+		t.Fatalf("%+v", events)
+	}
+	recovered, err := dispatch.OpenJournal(*w.binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.journal = recovered
+	w.backfillCommissionDiagnostics()
+	if len(commissionObservations(t, w)) != 1 {
+		t.Fatal("startup repeated diagnostic snapshot")
+	}
+	after := w.commissionDeliveryJob(job)
+	if before.Code != after.Code || before.Status != after.Status || before.CommissionExecution.Reported != after.CommissionExecution.Reported {
+		t.Fatal("diagnostics changed business job")
+	}
+}
+
+func TestCommissionDiagnosticSnapshotKeepsCapturedContent(t *testing.T) {
+	w := newCommissionWatch(t, "http://127.0.0.1:1", "commission_order")
+	job := claimCommissionIntake(t, w)
+	if err := w.journal.Update(job.ID, "failed", "commission_intake_unconfirmed", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	captured := w.journal.CommissionDiagnosticSnapshots(32)[0]
+	if err := w.journal.SaveCommissionDiagnostic(job.ID, &maintenance.CommissionBridgeError{Code: "workbuddy_agent_rejected", Message: "workbuddy_agent_rejected"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !w.recordCommissionObservation(captured.Observation, "observed", "execution_failed", time.Time{}, dispatch.Result{}, nil, captured.Key) {
+		t.Fatal("failed to record snapshot")
+	}
+	events := commissionObservations(t, w)
+	if len(events) != 1 || events[0].Commission.BridgeError.Code != "unknown_failure" || events[0].AttemptID != captured.Key {
+		t.Fatal("snapshot was rehydrated under an old key", events)
+	}
+	if err := w.journal.AcknowledgeCommissionDiagnosticSnapshot(job.ID, captured.Key); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.journal.CommissionDiagnosticSnapshots(32)) != 1 {
+		t.Fatal("stale snapshot hid newly saved diagnosis")
+	}
+}
+
+func TestMainNoticeRetryPreflightDoesNotReuseBridgeFailure(t *testing.T) {
+	w := newCommissionWatch(t, "http://127.0.0.1:1", "commission_order")
+	w.runMainNotice = func(context.Context, string) (dispatch.Result, error) {
+		t.Fatal("preflight must not run bridge")
+		return dispatch.Result{}, nil
+	}
+	item := dispatch.MainNotice{ID: "91", OrderID: "901", Version: 3, Role: "buyer", State: "pending_payment", Attempts: 2, BridgeError: &maintenance.CommissionBridgeError{Code: "workbuddy_agent_rejected", Message: "workbuddy_agent_rejected"}}
+	_, _ = w.dispatchCommissionMainNotice(context.Background(), item)
+	for _, event := range commissionObservations(t, w) {
+		if event.Commission.BridgeError != nil {
+			t.Fatalf("new preflight reused old bridge failure: %+v", event.Commission.BridgeError)
+		}
+	}
+}

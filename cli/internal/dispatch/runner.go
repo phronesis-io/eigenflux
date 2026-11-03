@@ -176,7 +176,8 @@ func (r Runner) runProcess(ctx context.Context, args []string, stdin string) ([]
 		return nil, nil, errOutputLimit
 	}
 	if err != nil {
-		return nil, nil, &DiagnosticError{Cause: errors.New("runner_exit_failed"), Code: "runner_exit_failed"}
+		exit := cmd.ProcessState.ExitCode()
+		return nil, nil, &DiagnosticError{Cause: errors.New("runner_exit_failed"), Code: "runner_exit_failed", ExitCode: &exit}
 	}
 	return out.data, stderr.data, nil
 }

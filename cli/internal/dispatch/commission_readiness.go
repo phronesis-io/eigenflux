@@ -131,6 +131,10 @@ func (j *Journal) QueueCommissionFromReadiness(id, sourceID, orderID string, ord
 		// source protection atomically with its durable queue admission.
 		clearCommissionReadiness(&next, orderID)
 		job = &next.Jobs[i]
+		if job.CommissionDiagnostic == nil {
+			job.CommissionDiagnostic = &CommissionDiagnostic{}
+		}
+		job.CommissionDiagnostic.CheckReceipt = CheckReceipt(readiness.Result, readiness.InputFingerprint)
 		job.Status, job.Code = "completed", "commission_intake_ready_reused"
 		return j.saveUpdatedJob(next, i)
 	}

@@ -10,6 +10,17 @@ notice receipts retain hashed host session/run IDs. Material reminders retain
 the order version and request hash/round. Observation failures never repeat an
 operation or change a job/Order state; business records remain authoritative.
 
+Preserve fixed local job codes in `commission.local_code` alongside the coarse
+category. Attach structured check receipts and captured, allowlisted bridge
+diagnostics. A receipt reports actual presence/outcome, checked version,
+inspected-file count and retained fingerprint; an unknown bridge failure stays
+unknown. Do not upload raw errors, prompts, process output or local paths.
+
+Startup reports retained blocked, failed or unconfirmed jobs as deduplicated
+`diagnostic_snapshot` observations. Snapshotting never invokes the Agent or
+replays a business operation. Deploy the API receiver before the matching CLI;
+upgrading cannot recover bridge details an older process never saved.
+
 # CLI update observations
 
 Heartbeat and watch share the existing maintenance queue and attempt IDs.

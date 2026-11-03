@@ -20,6 +20,12 @@ const (
 // pass through host RPC messages, URLs, token bytes, file paths or stderr text.
 func DiagnosticMessage(message string) string {
 	switch message {
+	case "workbuddy_host_pid_unreadable: cannot read the Sidecar discovery file; existing task and binding unchanged",
+		"workbuddy_host_status_unknown: Sidecar discovery file is absent and Desktop process discovery failed; existing task and binding unchanged",
+		"workbuddy_host_not_running: open and sign in to WorkBuddy, then retry; existing task and binding unchanged",
+		"workbuddy_sidecar_not_ready: WorkBuddy Desktop is running but its host-owned Sidecar has not started; open a local conversation in WorkBuddy to initialize its runtime, then retry watch start --host workbuddy; existing task and binding unchanged":
+		return message
+
 	case invalidOwnerURL, invalidOwnerScheme, invalidOwnerCredentials, invalidOwnerPath,
 		invalidOwnerPort, invalidOwnerHost, invalidMainSession, invalidOwnerWorkdir, invalidTokenPath, invalidTokenContent, unavailableTokenFile, mainOnlyBridge, invalidDesktopContract,
 		"hermes_main_invalid_config", "hermes_main_requires_loopback", "hermes_main_invalid_token_file",

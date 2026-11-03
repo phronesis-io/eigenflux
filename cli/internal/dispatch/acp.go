@@ -87,8 +87,12 @@ func (r Runner) withACP(ctx context.Context, use func(*acpClient) (Result, error
 		}
 		stdout.Close()
 		guard.close()
+
 		if message := stderr.message(); resultErr != nil && message != "" {
 			resultErr = &bridgeDiagnosticError{cause: resultErr, message: message}
+		}
+		if resultErr != nil && cmd.ProcessState != nil {
+			resultErr = &processDiagnosticError{cause: resultErr, exitCode: cmd.ProcessState.ExitCode()}
 		}
 	}()
 	go c.read(stdout)
@@ -288,12 +292,18 @@ func (c *acpClient) call(method string, params any, collect bool) (json.RawMessa
 			}
 			if len(msg.Error) > 0 && string(msg.Error) != "null" {
 				var problem struct {
+					Code    int    `json:"code"`
 					Message string `json:"message"`
 				}
 				if json.Unmarshal(msg.Error, &problem) == nil {
+					cause := &DiagnosticError{Cause: errors.New("acp_rpc_error"), Code: "acp_rpc_error", RPCCode: &problem.Code}
 					if message := mainbridge.DiagnosticMessage(problem.Message); message != "" {
-						return nil, &bridgeDiagnosticError{cause: errors.New("acp_rpc_error"), message: message}
+						return nil, &bridgeDiagnosticError{cause: cause, message: message}
 					}
+					if safeBridgeCode(problem.Message) != "unknown_failure" {
+						return nil, &bridgeDiagnosticError{cause: cause, message: problem.Message}
+					}
+					return nil, cause
 				}
 				return nil, errors.New("acp_rpc_error")
 			}
