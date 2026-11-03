@@ -25,6 +25,11 @@ def fetch(path):
         return response.read()
 
 
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--from-version', default='1.0.0')
@@ -40,7 +45,8 @@ def main():
     initial_manifest = json.loads(fetch(f'/cli/{args.from_version}/release.json'))
     binary = fetch(f'/cli/{args.from_version}/{artifact}')
     expected = initial_manifest['artifacts'][artifact]
-    assert len(binary) == expected['size'] and hashlib.sha256(binary).hexdigest() == expected['sha256']
+    require(len(binary) == expected['size'] and hashlib.sha256(binary).hexdigest() == expected['sha256'],
+            'initial executable checksum or size mismatch')
     requests, events = [], []
 
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -63,7 +69,7 @@ def main():
     server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     report = {'platform': artifact, 'legacy': legacy, 'target': target,
-              'initial': args.from_version, 'checks': [], 'events': events}
+              'initial': args.from_version, 'checks': [], 'events': events, 'passed': False}
     try:
         with tempfile.TemporaryDirectory(prefix='eigenflux-bridge-') as temporary:
             root = Path(temporary).resolve()
@@ -100,23 +106,27 @@ def main():
                     'active_pointer': json.loads(pointer.read_text()) if pointer.exists() else None}
                 report['checks'].append(entry)
                 print(label, version, 'plan_exit', result.returncode, flush=True)
-                assert credentials.read_bytes() == original_credentials, 'credentials changed'
+                require(credentials.read_bytes() == original_credentials, 'credentials changed')
                 return version
 
-            assert run_check('first automatic cycle') == legacy
+            first = run_check('first automatic cycle')
+            require(first == legacy, f'first cycle ran {first}, expected bridge {legacy}')
             immediate = run_check('immediate second automatic cycle')
             report['immediate_reaches_target'] = immediate == target
             # Advance only the updater eligibility timestamp, never the OS clock.
             # This simulates a later daily cycle without waiting 24 hours.
-            for state in root.glob('eigenflux*.update.json'):
+            states = list(root.glob('eigenflux*.update.json'))
+            require(bool(states), 'no updater eligibility state to age')
+            for state in states:
                 data = json.loads(state.read_text())
                 data['attempt'] = (datetime.now(timezone.utc)-timedelta(hours=25)).isoformat().replace('+00:00','Z')
                 state.write_text(json.dumps(data))
-            assert run_check('eligible automatic cycle (25h state age)') == target
+            eligible = run_check('eligible automatic cycle (25h state age)')
+            require(eligible == target, f'eligible cycle ran {eligible}, expected {target}')
             for before, after in ((args.from_version, legacy), (legacy, target)):
-                assert any(e.get('component') == 'cli' and e.get('trigger') == 'auto'
+                require(any(e.get('component') == 'cli' and e.get('trigger') == 'auto'
                     and e.get('result') == 'executed' and e.get('from_version') == before
-                    and e.get('running_version') == after for e in events), 'missing automatic execution receipt'
+                    and e.get('running_version') == after for e in events), 'missing automatic execution receipt')
             report['credential_preserved'] = True
             report['api_requests'] = requests
             report['passed'] = True
