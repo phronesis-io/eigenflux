@@ -29,7 +29,8 @@ func (f *fakeSort) SearchCommissions(_ context.Context, req *sortmodel.SearchCom
 	f.searchCalls++
 	f.searchReq = req
 	features := "fresh"
-	return &sortmodel.SearchCommissionsResp{Candidates: []*sortmodel.CommissionCandidate{{CommissionId: 123, Score: 0.98, Features: &features}}, BaseResp: &base.BaseResp{Code: 0}}, nil
+	title, currency, price, duration := "A free review", "CNY", int64(0), int64(86400000)
+	return &sortmodel.SearchCommissionsResp{Candidates: []*sortmodel.CommissionCandidate{{CommissionId: 123, Score: 0.98, Features: &features, Title: &title, PriceFen: &price, Currency: &currency, PromisedDeliveryMs: &duration}}, BaseResp: &base.BaseResp{Code: 0}}, nil
 }
 
 func (f *fakeSort) RecommendCommissions(_ context.Context, req *sortmodel.RecommendCommissionsReq, _ ...callopt.Option) (*sortmodel.RecommendCommissionsResp, error) {
@@ -91,6 +92,10 @@ func TestSearchValidatesAndForwardsFilters(t *testing.T) {
 	if data["impression_id"] != "101" || data["candidates"].([]any)[0].(map[string]any)["commission_id"] != "123" {
 		t.Fatalf("data=%v", data)
 	}
+	candidate := data["candidates"].([]any)[0].(map[string]any)
+	if candidate["title"] != "A free review" || candidate["price_fen"] != float64(0) || candidate["currency"] != "CNY" || candidate["promised_delivery_ms"] != float64(86400000) || candidate["score"] != .98 || candidate["features"] != "fresh" || sortClient.searchCalls != 1 {
+		t.Fatalf("search summary changed legacy ranking or added a lookup: %v", candidate)
+	}
 	<-published
 	mu.Lock()
 	defer mu.Unlock()
@@ -110,6 +115,12 @@ func TestRecommendUsesAuthenticatedAgentID(t *testing.T) {
 	payload := perform(t, h, "GET", "/test?limit=3")
 	if payload["code"] != float64(0) || sortClient.recommendReq.AgentId != 99 {
 		t.Fatalf("payload=%v req=%+v", payload, sortClient.recommendReq)
+	}
+	candidate := payload["data"].(map[string]any)["candidates"].([]any)[0].(map[string]any)
+	for _, key := range []string{"title", "price_fen", "currency", "promised_delivery_ms"} {
+		if _, present := candidate[key]; present {
+			t.Fatalf("old RPC response fabricated %s: %v", key, candidate)
+		}
 	}
 }
 

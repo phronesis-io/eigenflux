@@ -69,6 +69,7 @@ return `needs_user`, without switching to a permission-bypass mode.
 | [journal.go](journal.go) | `AddMessages`, `AddHint`, `AddCommissionNotification`, `Next` / `NextKind`, `Update`: persistence, deduplication, sessions, recovery |
 | [desktop.go](desktop.go), [desktop queue](../desktopqueue/README.md) | `CommissionBlockers`: validated routing metadata for unresolved local work; desktop delivery remains separate from execution |
 | [runner.go](runner.go), [acp.go](acp.go), [codex_hidden_pm.go](codex_hidden_pm.go) | `Runner.Run`, `RunCommand`, `runACP`: host execution, macOS/Windows hidden main-session PM decisions and result parsing |
+| [hermes_output.go](hermes_output.go) | Model-free Hermes output capability negotiation, strict final JSONL receipts and legacy quiet compatibility |
 | [process_unix.go](process_unix.go), [process_windows.go](process_windows.go) | Process-group / Windows Job Object cancellation |
 | [replace_unix.go](replace_unix.go), [replace_windows.go](replace_windows.go) | Atomic file replacement |
 | [heartbeat.go](../../cmd/heartbeat.go) | Companion stages and `--watch-managed` launcher |
@@ -92,6 +93,19 @@ receipts must agree. The probe never sends business data or starts a model turn.
 See the bridge contract for methods and the host-specific acceptance boundary.
 
 Hermes keeps native quiet-chat execution and a separate built-in main bridge.
+Before a native Hermes invocation, run the same bound executable's `chat --help`
+with a five-second ceiling and the existing account environment and workspace.
+When its format choices advertise `stream-json`, request that formal JSONL
+protocol. Accept one initial `system/init`, intermediate text/tool events and
+one final `result` with an explicit zero exit code, valid session ID and no
+error. Return only that result's exact text; never parse tool previews or text
+deltas as business decisions. Reject malformed, missing, duplicate or trailing
+receipts without another Agent call. A tool error corrected within the same
+invocation does not invalidate a successful final receipt.
+Older Hermes builds whose successful help output lacks this format retain the
+quiet text adapter. Failed, oversized or timed-out capability probes fail with
+fixed diagnostics instead of starting or retrying a model. ACP and command
+bindings retain their existing behavior. Hidden-main bridge routing is separate.
 Binding validation rejects `watch acp-bridge` as an ordinary execution command,
 including argv split between `command` and `args`. The main-notice override uses
 `main_command` only. See [Hermes configuration](../../../docs/dev/agent-dispatch.md#hermes-execution-and-main-notifications)
@@ -421,7 +435,7 @@ desktop lifecycle remain unverified. Fixtures do not prove a live PM receipt.
 | Area | Tests |
 |---|---|
 | Binding / decisions / journal | `binding_test.go`, `execution_binding_test.go`, `types_test.go`, `journal_test.go`, `../../cmd/watch_binding_test.go` |
-| Host / ACP / cancellation | `runner_test.go`, `acp_test.go`, `bridge_diagnostic_test.go`, `../mainbridge/hermes_runner_test.go`, `process_windows_test.go` |
+| Host / ACP / cancellation | `runner_test.go`, `hermes_output_test.go`, `acp_test.go`, `bridge_diagnostic_test.go`, `../mainbridge/hermes_runner_test.go`, `process_windows_test.go` |
 | Main target / Desktop IPC / hidden receipts | `main_notice_test.go`, `main_notice_codex_test.go`, `main_notice_probe_test.go`, `codex_owner_ipc*_test.go`; opt-in real host: `main_notice_native_test.go` |
 | Intake → Agent → reply / identity / permission | `../../cmd/watch_dispatch_test.go`, `../../cmd/watch_test.go` |
 | Commission intake / inspection / materials / ownership | `journal_commission_test.go`, `commission_intake_test.go`, `commission_fulfillment_test.go`, `../../cmd/watch_commission*_test.go`, `../../cmd/order_notifications_test.go`, `../../cmd/order_result_notifications_test.go`, `../skills/read_signed_test.go` |

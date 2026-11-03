@@ -265,6 +265,64 @@ main notification bridge separately in `main_command`. The built-in
 `watch acp-bridge` command is rejected as an execution adapter, including argv
 split across `command` and `args`; it implements only the hidden-main extension.
 
+Native execution needs an installed, authenticated Hermes CLI with working model
+and artifact tools, a writable bound workspace, compatible signed Skills and the
+explicit `commission_order` subscription. Binding validation does not run the
+model. Only the real publication trial verifies contractual artifact production.
+
+The native adapter negotiates output framing automatically. Before each call it
+runs a bounded, model-free `chat --help` probe with the same bound executable,
+environment and cwd. Hosts advertising `--format stream-json` run with
+`chat --quiet --format stream-json`; the adapter requires valid JSONL and one
+successful terminal result with session identity, and passes only its text to
+the business decoder. Older hosts whose help lacks this capability retain legacy
+quiet output. Quiet mode alone can include file-tool previews, so callers must
+leave framing to the adapter. Invalid machine output remains unconfirmed; the
+adapter does not repeat the model invocation or strip text around an arbitrary
+JSON object. No additional binding field is required.
+
+Hermes v0.22.5 quiet chat uses `GatewayAgent` and needs a ready gateway for its
+selected profile. Verify the default profile with
+`hermes --profile default gateway ensure --timeout 45` before the trial and
+require `ready`; use the bound profile when it differs. Updating the CLI launcher
+does not migrate an existing host service still pinned to an older virtualenv.
+That old owner can retain the gateway lock without exposing the new control
+socket: the new CLI then reaches its 60-second `starting` deadline and reports
+`message not sent`. Resolve the service ownership before retrying execution.
+
+For an authorized upgrade, make a consistent backup of Hermes configuration and
+SQLite state first. Use the host's normal service manager to migrate the existing
+gateway service to the new stable launcher, preserving profile, model selection,
+authentication, sessions and business environment. Restart that one owner in a
+controlled handoff, verify gateway readiness and configured channel health, then
+run the trial. Keep concurrent gateway owners absent. Gateway startup may migrate
+configuration and SQLite schemas; reverting requires compatible configuration
+and database state as well as the matching launcher.
+
+Main notifications additionally require an already running local Hermes TUI
+gateway and an existing live owner with the exact configured session and cwd.
+The gateway build must implement the audited **desktop contract 8**:
+
+- `/api/ws` JSON-RPC `event` frames and `gateway.ready`, without the unaudited
+  session-authority route.
+- `session.active_list` for the existing owner and `session.activate` accepting
+  `omit_messages:true`; activation must confirm `messages_omitted:true`, omit
+  history and return matching cwd, desktop contract, status and running state.
+- `prompt.submit` accepting `display_kind:"hidden"` and `queued:true`, with the
+  admitted `user_row_id`; completion must include the matching complete
+  persisted-turn receipt and committed final row.
+
+Use a matching Hermes host build when these operations or fields are absent.
+An ordinary WebSocket handshake, native `chat` support, successful binding or a
+newer version number does not establish this protocol. Hermes v0.17.0 build
+`e62afaca6` is a verified incompatible build: it advertises
+`DESKTOP_BACKEND_CONTRACT=2` and lacks the required hidden-input/history-omission/
+receipt fields. An incompatible desktop contract returns
+`hermes_main_unsupported_protocol` with `info.desktop_contract must be 8` and
+the required capability guidance. Keep main notices unavailable until a compatible
+host's exact-owner probe succeeds. Do not replace the route with visible main
+input or automatically change an installed Hermes build.
+
 For execution plus main notifications, replace the executable paths, live owner
 session ID, workspace, port and token-file path in this binding configuration:
 
@@ -305,7 +363,8 @@ canonical path.
 Bind with the intended EigenFlux Home/server, then run `watch doctor` and, when
 main notices are configured, `watch doctor --probe-main`. The plain
 `acp_extension_required` category describes the non-Codex main-notice protocol;
-it does not establish a missing Hermes dependency. The main probe negotiates and
+it does not inspect whether the required gateway capabilities are installed.
+The main probe negotiates and
 inspects the exact owner without submitting a prompt. It does not verify the
 execution adapter, model authentication or deliverable production. Run the real
 `commission publish --trial-input` trial for publication readiness.
@@ -314,9 +373,11 @@ Configuration errors retain `hermes_main_invalid_config` with fixed field
 guidance, without echoing supplied values. The runner preserves allowlisted
 bridge diagnostics from stderr and RPC errors; unrelated process output and
 arbitrary error messages remain private. Fix the named field before retrying.
-Hermes main notifications remain experimental and untested with a real host;
-fixture success and a successful probe do not establish complete live publication
-or Desktop/TUI acceptance.
+Hermes main notifications remain experimental. A real Hermes v0.22.5 protocol
+check returned the exact expected final text with a matching persisted-row
+receipt, zero public user-input rows and the existing control WebSocket still
+active. Temporary test endpoints and credentials were removed. Desktop/TUI visual
+acceptance remains pending; this check did not publish a live platform listing.
 
 ## Test main conversation transaction notices
 

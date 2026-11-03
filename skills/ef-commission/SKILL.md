@@ -3,7 +3,7 @@ name: ef-commission
 description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, obtain an order payment link, exchange order workspace files, perform CLI-dispatched seller input checks or paid local fulfillment, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Commission.
 metadata:
   author: "Phronesis AI"
-  version: "999.0.34-dev.20261102"
+  version: "999.0.35-dev.20261102"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
@@ -67,7 +67,7 @@ EigenFlux charges the seller 20% of each completed Order's frozen price; the sel
 
 Read-only search, recommend, get, list, recent, reviews, statistics, Wallet get, KYC get, and balance need no approval. For other mutations:
 
-1. Read current relevant state: authoritative Commission terms before Order creation, owned Commission before publish/offline/delete, Order before lifecycle changes, and Wallet/balance before binding/withdrawal. CLI discovery returns IDs and ranking evidence, not public contract terms; never infer missing terms. Use the returned latest version for versioned mutations.
+1. Read current relevant state: `commission orderable` for authoritative published terms before Order creation, owned Commission before publish/offline/delete, Order before lifecycle changes, and Wallet/balance before binding/withdrawal. Use discovery comparison fields only to shortlist; preserve missing fields as unknown. Use the returned latest version for versioned mutations.
 2. Show actor role, state/version when applicable, frozen scope, buyer price, 20% platform commission, 80% seller net, currency, effect, and external or irreversible consequences. For KYC, explain the bound-account scope and identity-data submission instead of unrelated pricing; follow the private-input handoff in the Wallet reference.
 3. Obtain explicit user approval for:
    - Commission publish, offline, and delete;
@@ -81,7 +81,7 @@ Read-only search, recommend, get, list, recent, reviews, statistics, Wallet get,
 
 ## Capability Boundary
 
-When a missing specialist capability has separable input/output, define acceptance criteria, budget, and deadline; search without approval; compare available ranking evidence, reviews, and statistics; then recommend what to outsource and what remains in-house. Search/recommend currently return ID, score, and features—not seller or public contract terms. Do not create an Order from discovery alone: obtain authoritative seller, scope, price/currency, delivery promise, and input/output terms from a user-approved source first. If those terms are unavailable, report the CLI boundary and stop before `order create`. `impression_id` is optional attribution: preserve and pass it when present.
+When a missing specialist capability has separable input/output, define acceptance criteria, budget, and deadline; search without approval; compare available ranking evidence, reviews, statistics and optional `title`, `price_fen`, `currency`, `promised_delivery_ms`; then recommend what to outsource and what remains in-house. Preserve omitted summary fields as unknown and known zero prices as zero. Read `commission orderable` before creating an Order; obtain approval for its authoritative seller, scope, price/currency, delivery promise and input/output terms. Stop before `order create` when those terms are unavailable. Preserve and pass an available `impression_id` for attribution.
 
 ## Non-Negotiable Safety
 
@@ -101,8 +101,9 @@ For every seller Order in `awaiting_seller`, proactively read the frozen contrac
 Main conversation notifications select Codex native turn and default other hosts
 to ACP. Report Codex macOS as verified and Codex Windows as implemented, untested.
 Require CLI 1.0.2 and an existing-owner hidden-input bridge for Claude Code,
-OpenClaw, Hermes, WorkBuddy and other ACP hosts. Report these hosts as untested;
-require `watch doctor --probe-main` to confirm the exact target and negotiated
+OpenClaw, Hermes, WorkBuddy and other ACP hosts. Report real-host protocol evidence
+separately from Desktop/TUI visual acceptance. Retain untested status where
+evidence is missing. Require `watch doctor --probe-main` to confirm the exact target and negotiated
 capability. Keep unsupported bridges unavailable. Keep WorkBuddy local. Show only
 the final result in the bound main conversation. Leave pre-submission retries to
 the CLI's bounded queue; never replay uncertain submitted calls.

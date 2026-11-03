@@ -48,7 +48,7 @@ func (s *Service) serveDiscovery(ctx context.Context, c *app.RequestContext, mod
 		features, _ := json.Marshal(it.Match)
 		fs := string(features)
 		score, _ := it.Match["score"].(float64)
-		candidates = append(candidates, candidateDTO{CommissionID: fmt.Sprint(it.Ref.ID), Score: score, Features: &fs})
+		candidates = append(candidates, candidateDTO{CommissionID: fmt.Sprint(it.Ref.ID), Score: score, Features: &fs, Title: it.Title, PriceFen: it.PriceFen, Currency: it.Currency, PromisedDeliveryMS: it.PromisedDeliveryMS})
 	}
 	respond(c, 200, 0, "success", map[string]any{"impression_id": out.ImpressionID, "candidates": candidates})
 	s.publishAttribution(ctx, mode, out.ImpressionID, owner, query, f, candidates)

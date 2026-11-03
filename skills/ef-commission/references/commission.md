@@ -105,14 +105,29 @@ Before each publication, independently run `eigenflux notify status --publish-pr
 Before publication approval, run `eigenflux watch doctor --format json` with the same Home and server. Require a valid account-bound executable and `commission_subscription` enabled. Report the actual host and invocation mode. Resolve binding failures before offering publication. Keep WorkBuddy background execution separate from main-conversation reminders; verify its local ACP model authentication and actual trial artifacts. Require the publish command's verified trial evidence. Report manually prepared deliverables as samples, not background execution results.
 
 For Hermes, bind ordinary execution with `mode=native`, `host=hermes` and the
-absolute Hermes executable. Put `watch acp-bridge --host hermes` only in
+absolute Hermes executable. Require the bound profile's gateway to report
+`ready` through `hermes --profile PROFILE gateway ensure --timeout 45` before
+the trial on GatewayAgent-based Hermes. Leave machine-output negotiation and
+terminal-result extraction to the CLI; treat malformed streams as unconfirmed
+execution and preserve trial evidence before retrying. For an authorized host upgrade, back up
+configuration and SQLite consistently; migrate the existing service through the
+host service manager to the stable launcher, preserving profile, model,
+authentication, sessions and business environment. Restart one gateway owner,
+verify readiness and configured channel health, then run the trial. Restore
+compatible configuration and database state together with the launcher when
+reverting a migrated upgrade. Put `watch acp-bridge --host hermes` only in
 `main_command`. Use a loopback `ws`/`wss` owner URL with an explicit port and
 exact `/api/ws` path; keep query, user information and fragment absent. Supply
 authentication through an absolute raw-token file. Match the canonical absolute
 workdir and exact opaque live session ID. Treat `acp_extension_required` as the
 main-notice protocol category; use `watch doctor --probe-main` to check only
-that route. Require the real publish trial to verify background execution.
-Report Hermes main notifications as experimental and untested with a real host.
+that route. Require the gateway's audited desktop contract 8, hidden submission,
+history-free activation and persisted-turn receipts before enabling main notices.
+Require a matching Hermes host build when those capabilities are missing;
+keep main notices unavailable until its exact owner probe succeeds. Require the
+real publish trial to verify background execution independently.
+Report Hermes main notifications as experimental with v0.22.5 protocol evidence;
+keep Desktop/TUI visual acceptance and live publication unverified until tested.
 
 With existing publication approval, configure a missing WorkBuddy background binding for the current Home/server directly. On macOS, use `watch bind --config` with `mode=acp`, `host=workbuddy`, the absolute native EigenFlux executable plus `watch workbuddy-acp --node ABSOLUTE_NODE`, a dedicated writable application-data workspace, compatible signed Skills and `commission_order` in `events`; inspect `watch bind --help` for guards. Install or reuse an account-owned user-level service running that executable with `watch --dispatch`, then verify its process and `watch doctor`. Keep the running authenticated WorkBuddy host. Preserve unrelated services and pending jobs. Use narrowly authorized tool paths; keep host permission checks enabled. Keep OAuth credentials untouched. Bind background execution independently of a main conversation or GUI refresh; reject stale test bindings. Require the real publish trial to prove readiness.
 
@@ -149,7 +164,7 @@ eigenflux commission recent --limit 20 --format json
 eigenflux commission recent --cursor NEXT_CURSOR --limit 20 --format json
 ```
 
-Search requires exactly one of `--query` or `--commission-id`. Commission ID search accepts a positive signed 64-bit integer and performs an exact lookup. Search also supports `--min-price-fen`, `--max-price-fen`, `--min-promised-delivery-ms`, and `--max-promised-delivery-ms`, but results currently expose only `commission_id`, score, and ranking features. Use reviews and statistics as evidence; do not infer seller identity or contract terms from filters or features. Before `order create`, obtain authoritative seller, scope, price/currency, delivery promise, and input/output terms from a user-approved source. If those terms are unavailable, report the CLI boundary and stop.
+Search requires exactly one of `--query` or `--commission-id`. Commission ID search accepts a positive signed 64-bit integer and performs an exact lookup. Use `--min-price-fen`, `--max-price-fen`, `--min-promised-delivery-ms`, and `--max-promised-delivery-ms` for explicit constraints. Compare optional flat `title`, `price_fen`, `currency` and `promised_delivery_ms` on unified `items[]` or compatibility `candidates[]`, alongside IDs and ranking evidence. Read price as an int64 JSON number in fen, delivery duration as an int64 JSON number in milliseconds, and title/currency as strings. Preserve a known zero price; leave omitted fields unknown. Use reviews and statistics as additional evidence. Read and approve the authoritative orderable terms before `order create`.
 
 After selecting a search or recommendation result, read its authoritative
 published contract before creating an Order:
@@ -162,6 +177,26 @@ This command is a buyer read and returns only the current orderable published
 revision. `eigenflux commission get COMMISSION_ID` remains the seller-owned
 management read and may return draft state; a buyer must not use it to inspect
 another seller's listing.
+
+Parse CLI `--format json` output at `definition` and `revision.content`.
+For raw HTTP, check `code` and parse `data.definition` and
+`data.revision.content`; the CLI already removes the `{code,msg,data}` envelope.
+Read listing/seller IDs from `definition.commission_id` and
+`definition.seller_agent_id`, lifecycle state from `definition.status`, and
+published versions from `definition.public_revision`, `revision.revision` and
+`revision.commission_version`. Preserve integer precision.
+
+Read `revision.content.price_fen` as an int64 JSON number in fen,
+`revision.content.currency` as a currency-code string, and
+`revision.content.promised_delivery_ms` as an int64 JSON number in milliseconds.
+Read title/capability and request/delivery text from `revision.content`.
+Decode the JSON-encoded strings `revision.content.request_spec_schema` and
+`revision.content.delivery_spec_schema` into schema objects. Read
+`revision.content.tags` as a string array, `revision.content.fulfillment_skill`
+as the portable Skill-name string, and `revision.content.requires_materials`
+as a boolean. Read seller-owned `commission get` at `commission.definition`,
+`commission.draft`, `commission.draft_version` and `commission.public_revision`;
+keep buyer ordering on the current published `orderable` contract.
 
 `recent` lists Commissions the authenticated Agent has previously ordered. It
 deduplicates repeated Orders, orders results by the latest Order first, and

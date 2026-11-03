@@ -32,6 +32,10 @@ struct CommissionCandidate {
     1: required i64 commission_id
     2: required double score
     3: optional string features
+    4: optional string title
+    5: optional i64 price_fen
+    6: optional string currency
+    7: optional i64 promised_delivery_ms
 }
 
 struct SearchCommissionsReq {
