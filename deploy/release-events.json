@@ -196,6 +196,7 @@
       "update-maintenance"
     ],
     "title": "Observe CLI versions on passive Agent reads",
-    "description": "After API rollout, successful authenticated CLI settings and pending-notification reads refresh only the CLI version, without counting as activity or runtime readiness. Existing clients benefit on their next read; historical snapshots and missing execution receipts are not backfilled. Correlated execution receipts and deduplicated policy warnings require the new CLI."
+    "description": "After API rollout, successful authenticated CLI settings and pending-notification reads refresh only the CLI version, without counting as activity or runtime readiness. Existing clients benefit on their next read; historical snapshots and missing execution receipts are not backfilled. Correlated execution receipts and deduplicated policy warnings require the new CLI.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/505"
   }
 ]
