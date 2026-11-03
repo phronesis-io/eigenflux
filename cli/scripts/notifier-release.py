@@ -189,6 +189,7 @@ def restore(args):
         args.helpers_dir.mkdir(parents=True)
         for arch in ARCHES:
             shutil.move(str(stage / ('darwin-' + arch)), args.helpers_dir / ('darwin-' + arch))
+            shutil.move(str(stage / (arch + '.zip')), args.work_dir / (arch + '.zip'))
     print('Restored verified notification App ' + args.version)
     return 0
 

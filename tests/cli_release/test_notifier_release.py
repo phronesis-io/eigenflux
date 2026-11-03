@@ -178,6 +178,37 @@ class NotifierReleaseTests(unittest.TestCase):
                     release.restore(args)
             self.assertFalse(args.helpers_dir.exists())
 
+    @unittest.skipUnless(Path('/usr/bin/ditto').exists(), 'macOS ditto required')
+    def test_restored_archives_survive_staging_and_verify_cli_packages(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            build = root / 'build'
+            build.mkdir()
+            args = SimpleNamespace(work_dir=root / 'state', helpers_dir=root / 'helpers',
+                                   build_dir=build, version='1.0.5', source='a' * 64,
+                                   team_id='ABCDEFGHIJ')
+            record = {'version': args.version, 'team_id': args.team_id, 'artifacts': {}}
+            stored = {'ready.json': b'signed-receipt'}
+            for arch in release.ARCHES:
+                archive = root / (arch + '.zip')
+                self.native_archive(archive, (2020, 1, 1, 0, 0, 0))
+                stored[arch + '.zip'] = archive.read_bytes()
+                record['artifacts'][arch] = {'size': archive.stat().st_size,
+                                             'sha256': release.digest(archive)}
+                shutil.copyfile(archive, build / ('eigenflux-darwin-' + arch + '.zip'))
+            def download(key, destination, **kwargs):
+                destination.write_bytes(stored[key.rsplit('/', 1)[-1]])
+                return True
+            with patch.object(release, 'download', side_effect=download), \
+                    patch.object(release, 'checked_receipt', return_value=record), \
+                    patch.object(release, 'validate_identity'):
+                self.assertEqual(release.restore(args), 0)
+            for arch in release.ARCHES:
+                self.assertEqual((args.work_dir / (arch + '.zip')).read_bytes(), stored[arch + '.zip'])
+                self.assertTrue((args.helpers_dir / ('darwin-' + arch) / release.APP).is_dir())
+            with patch.object(release, 'receipt_tool', return_value=json.dumps(record)):
+                self.assertEqual(release.verify_packages(args), 0)
+
     def test_publish_resumes_signed_local_validation_and_receipt_is_last(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
