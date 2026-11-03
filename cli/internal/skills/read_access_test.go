@@ -10,7 +10,7 @@ import (
 )
 
 func TestSyncReplacementReadDenialDoesNotCreateLock(t *testing.T) {
-	for _, scope := range []string{"missing-manifest", "corrupt-manifest", "third-party", "recovery-stage", "replacement-stage", "nested-recovery-stage"} {
+	for _, scope := range []string{"missing-manifest", "corrupt-manifest", "third-party", "host-file", "hidden-host-directory", "recovery-stage", "replacement-stage", "nested-recovery-stage"} {
 		t.Run(scope, func(t *testing.T) {
 			opts, _, _ := installedSyncFixture(t)
 			src := stageSkills(t, map[string]map[string]string{"ef-broadcast": {"SKILL.md": "updated"}})
@@ -33,6 +33,20 @@ func TestSyncReplacementReadDenialDoesNotCreateLock(t *testing.T) {
 					t.Fatal(err)
 				}
 				if err := os.WriteFile(blocked, []byte("user"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			case "host-file":
+				blocked = filepath.Join(opts.Into, ".curator_state")
+				if err := os.WriteFile(blocked, []byte("host"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			case "hidden-host-directory":
+				directory = true
+				blocked = filepath.Join(opts.Into, ".hub")
+				if err := os.Mkdir(blocked, 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(blocked, "registry.json"), []byte("host"), 0600); err != nil {
 					t.Fatal(err)
 				}
 			default:
