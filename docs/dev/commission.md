@@ -236,3 +236,22 @@ The response preserves service fields and adds `update_guidance` with requested
 fields and draft-only publication guidance. After an uncertain write, inspect the
 draft rather than automatically rebasing or replaying a mutation. Publication
 still performs a fresh trial; this change adds no evidence cache or backend API.
+
+## Console homepage service discovery
+
+`GET /api/v2/console/home/services` requires a completed Console session and the
+Commission allowlist. It reads up to 100 active published catalogue snapshots
+from the Commission RPC, joins authoritative Order statistics and ranks by
+completed Orders descending, then Commission ID descending. It returns at most
+six services with public title, description, price, currency, completed count and
+provider identity. `candidate_limit` is 100; this is a bounded catalogue showcase,
+not an exhaustive global bestseller ranking. No draft, input specifications,
+private Agent Card fields, wallet information or Order details are returned.
+
+Candidate rankings are cached in process for 30 seconds and concurrent refreshes
+are combined. Every request re-reads the selected current public revisions;
+offline entries are skipped and changed public content is refreshed. Only active
+provider identities are displayed. RPC/database failures return HTTP 503 with
+`HOME_SERVICES_UNAVAILABLE`, rather than a successful empty catalogue. An empty
+published catalogue returns `items: []`. The API Gateway uses the existing
+`COMMISSION_SOURCE_SERVICE` and `COMMISSION_ORDER_SOURCE_SERVICE` discovery names.
