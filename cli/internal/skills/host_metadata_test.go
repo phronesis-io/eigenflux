@@ -2,12 +2,155 @@ package skills
 
 import (
 	"bytes"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestBundlePreservationFailureCanRetryAfterReadAccessGranted(t *testing.T) {
+	for _, directory := range []string{".a-readonly", "a-readonly"} {
+		t.Run(directory, func(t *testing.T) {
+			target := filepath.Join(t.TempDir(), "skills")
+			source := stageSkills(t, map[string]map[string]string{"ef-broadcast": {"SKILL.md": "old"}})
+			opts := SyncOptions{Into: target, BundleDir: source, CLIVersion: "1.0.0"}
+			if _, err := InstallFromBundle(opts); err != nil {
+				t.Fatal(err)
+			}
+			readonly := filepath.Join(target, directory)
+			if err := os.Mkdir(readonly, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(readonly, "state"), []byte("host state"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(readonly, 0500); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				for _, root := range []string{target, target + newSuffix, target + oldSuffix} {
+					_ = os.Chmod(filepath.Join(root, directory), 0700)
+				}
+			})
+			blocked := filepath.Join(target, "z", "file")
+			if err := os.Mkdir(filepath.Dir(blocked), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(blocked, []byte("host data"), 0000); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.ReadFile(blocked); err == nil {
+				t.Skip("filesystem does not enforce read permissions")
+			}
+			if err := os.WriteFile(filepath.Join(source, "ef-broadcast", "SKILL.md"), []byte("new"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(filepath.Join(target, ManifestFileName))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := InstallFromBundle(opts); !errors.Is(err, os.ErrPermission) {
+				t.Fatalf("expected read refusal: %v", err)
+			}
+			after, err := os.ReadFile(filepath.Join(target, ManifestFileName))
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatal("failed preservation changed active manifest", err)
+			}
+			if info, err := os.Stat(readonly); err != nil || info.Mode().Perm() != 0500 {
+				t.Fatal("cleanup changed active host permissions", err)
+			}
+			if _, err := os.Stat(target + newSuffix); !os.IsNotExist(err) {
+				t.Fatalf("failed preservation left staging debris: %v", err)
+			}
+			if err := os.Chmod(blocked, 0600); err != nil {
+				t.Fatal(err)
+			}
+			result, err := InstallFromBundle(opts)
+			if err != nil || result == nil || !result.Atomic {
+				t.Fatalf("retry after read grant failed: %+v %v", result, err)
+			}
+			if data, err := os.ReadFile(filepath.Join(target, "ef-broadcast", "SKILL.md")); err != nil || string(data) != "new" {
+				t.Fatal("retry did not update Skill", err)
+			}
+			if data, err := os.ReadFile(filepath.Join(readonly, "state")); err != nil || string(data) != "host state" {
+				t.Fatal("retry lost host state", err)
+			}
+			if data, err := os.ReadFile(blocked); err != nil || string(data) != "host data" {
+				t.Fatal("retry lost previously unreadable host data", err)
+			}
+			if info, err := os.Stat(readonly); err != nil || info.Mode().Perm() != 0500 {
+				t.Fatal("retry changed host permissions", err)
+			}
+			if _, err := os.Stat(target + oldSuffix); !os.IsNotExist(err) {
+				t.Fatalf("successful retry left read-only backup: %v", err)
+			}
+		})
+	}
+}
+
+func TestInstallationReplacesReadOnlyStagingWithoutFollowingLinks(t *testing.T) {
+	for _, mode := range []string{"sync", "bundle"} {
+		t.Run(mode, func(t *testing.T) {
+			opts, _, _ := installedSyncFixture(t)
+			external := t.TempDir()
+			if err := os.WriteFile(filepath.Join(external, "keep"), []byte("external"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(external, 0500); err != nil {
+				t.Fatal(err)
+			}
+			externalBefore, err := os.Stat(external)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chmod(external, 0700) })
+			stage := opts.Into + newSuffix
+			readonly := filepath.Join(stage, ".readonly")
+			if err := os.MkdirAll(readonly, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(readonly, "partial"), []byte("partial"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			linked := os.Symlink(external, filepath.Join(readonly, "outside")) == nil
+			if err := os.Chmod(readonly, 0500); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chmod(readonly, 0700) })
+			source := stageSkills(t, map[string]map[string]string{"ef-broadcast": {"SKILL.md": "updated"}})
+			var result *SyncResult
+			err = nil
+			if mode == "sync" {
+				server, _ := serveBundleAtSequence(t, "1.0.0", source, []string{"ef-broadcast"}, 101)
+				opts.CDNBase = server.URL
+				result, err = Sync(opts)
+			} else {
+				opts.BundleDir = source
+				result, err = InstallFromBundle(opts)
+			}
+			if err != nil || result == nil || !result.Atomic {
+				t.Fatalf("stale stage prevented installation: %+v %v", result, err)
+			}
+			if _, err := os.Stat(stage); !os.IsNotExist(err) {
+				t.Fatal("stale stage remains", err)
+			}
+			if linked {
+				if data, err := os.ReadFile(filepath.Join(external, "keep")); err != nil || string(data) != "external" {
+					t.Fatal("cleanup followed staging symlink", err)
+				}
+				info, err := os.Stat(external)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if info.Mode().Perm() != externalBefore.Mode().Perm() {
+					t.Fatal("cleanup changed external directory permissions")
+				}
+			}
+		})
+	}
+}
 
 func TestInstallationPreservesHostMetadata(t *testing.T) {
 	for _, mode := range []string{"sync-first", "sync-update", "bundle-first", "bundle-update", "offline-first"} {

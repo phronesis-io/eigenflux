@@ -107,12 +107,11 @@ func Sync(opts SyncOptions) (result *SyncResult, err error) {
 		return syncDownloadFailure(opts, real, err)
 	}
 	newDir := real + newSuffix
-	if err := os.RemoveAll(newDir); err != nil {
+	if err := removeInstallTree(newDir); err != nil {
 		return nil, err
 	}
 	if err := extractTarGz(tarGz, newDir, manifestSkillNames(remote)); err != nil {
-		os.RemoveAll(newDir)
-		return nil, err
+		return nil, errors.Join(err, removeInstallTree(newDir))
 	}
 	return applyStaged(opts, real, parent, newDir, local.manifest, remote, source, false)
 }
@@ -207,7 +206,9 @@ func manifestSkillNames(m *Manifest) []string {
 // unmanaged/user-modified folders, then atomically swap newDir into place.
 func applyStaged(opts SyncOptions, real, parent, newDir string, local, remote *Manifest, source string, stale bool) (*SyncResult, error) {
 	if err := verifyManifest(newDir, remote); err != nil {
-		os.RemoveAll(newDir)
+		if cleanupErr := removeInstallTree(newDir); cleanupErr != nil {
+			return nil, softFail(opts, errors.Join(err, cleanupErr))
+		}
 		if errors.Is(err, os.ErrPermission) {
 			return nil, permissionFailure(err, "read")
 		}
@@ -219,16 +220,14 @@ func applyStaged(opts SyncOptions, real, parent, newDir string, local, remote *M
 
 	preserved, err := preserveUnmanaged(real, newDir, local, remote, opts.ForceManaged)
 	if err != nil {
-		os.RemoveAll(newDir)
-		return nil, softFail(opts, err)
+		return nil, softFail(opts, errors.Join(err, removeInstallTree(newDir)))
 	}
 
 	removed := reconcileZombies(local, remote)
 
 	remote.ManagedBy = ManagedByValue
 	if err := WriteManifestAtomic(newDir, remote); err != nil {
-		os.RemoveAll(newDir)
-		return nil, softFail(opts, err)
+		return nil, softFail(opts, errors.Join(err, removeInstallTree(newDir)))
 	}
 	if stale {
 		_ = os.WriteFile(filepath.Join(newDir, StaleMarkerName), []byte("provisional\n"), manifestFilePerm)
@@ -267,26 +266,25 @@ func swapInPlace(opts SyncOptions, parent, real, newDir string, remote *Manifest
 
 	realExists := dirExists(real)
 	if realExists {
-		os.RemoveAll(oldDir)
+		if err := removeInstallTree(oldDir); err != nil {
+			return nil, softFail(opts, errors.Join(err, removeInstallTree(newDir)))
+		}
 		if err := writeJournal(journal, oldDir); err != nil {
-			os.RemoveAll(newDir)
-			return nil, softFail(opts, err)
+			return nil, softFail(opts, errors.Join(err, removeInstallTree(newDir)))
 		}
 		fsyncDir(parent)
 
 		if err := os.Rename(real, oldDir); err != nil { // ── A ──
 			os.Remove(journal)
 			fsyncDir(parent)
-			os.RemoveAll(newDir)
-			return nil, softFail(opts, err)
+			return nil, softFail(opts, errors.Join(err, removeInstallTree(newDir)))
 		}
 		fsyncDir(parent) // A durable: real -> oldDir
 	} else {
 		// Fresh install: no old version to preserve, but still journal so an
 		// interrupted B is recoverable (old="" means "no rollback target").
 		if err := writeJournal(journal, ""); err != nil {
-			os.RemoveAll(newDir)
-			return nil, softFail(opts, err)
+			return nil, softFail(opts, errors.Join(err, removeInstallTree(newDir)))
 		}
 		fsyncDir(parent)
 	}
@@ -298,14 +296,13 @@ func swapInPlace(opts SyncOptions, parent, real, newDir string, remote *Manifest
 		}
 		os.Remove(journal)
 		fsyncDir(parent)
-		os.RemoveAll(newDir)
-		return nil, softFail(opts, err)
+		return nil, softFail(opts, errors.Join(err, removeInstallTree(newDir)))
 	}
 	fsyncDir(parent) // B durable: newDir -> real
 
 	os.Remove(journal) // ── C: journal gone == swap complete ──
 	if realExists {
-		os.RemoveAll(oldDir)
+		_ = removeInstallTree(oldDir)
 	}
 	fsyncDir(parent)
 	return result, nil
@@ -342,11 +339,11 @@ func recoverInterrupted(real string) error {
 		}
 		fsyncDir(parent)
 	}
-	if err := os.RemoveAll(real + newSuffix); err != nil {
+	if err := removeInstallTree(real + newSuffix); err != nil {
 		return err
 	}
 	if old != "" && old != real {
-		if err := os.RemoveAll(old); err != nil {
+		if err := removeInstallTree(old); err != nil {
 			return err
 		}
 	}

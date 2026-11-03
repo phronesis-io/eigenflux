@@ -3,10 +3,41 @@ package skills
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+// Only use for the installer's inactive staging/retired trees. Preserved host
+// directories may be read-only, so restore owner traversal/write permission
+// before removing them. WalkDir never follows symlinks into external content.
+func removeInstallTree(root string) error {
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if path == root && os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if entry.Type()&os.ModeSymlink != 0 || !entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		mode := info.Mode().Perm()
+		if mode&0700 != 0700 {
+			return os.Chmod(path, mode|0700)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return os.RemoveAll(root)
+}
 
 // Only these in-target entries belong to the installer. Staging, recovery and
 // lock paths live beside the target and do not participate in preservation.

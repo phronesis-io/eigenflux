@@ -93,6 +93,12 @@ the active tree is swapped. Identical-content and metadata-only refreshes do not
 scan host content. Signed sync, local bundle installation and provisional
 offline installation use the same preservation step.
 
+Failed preservation cleans its inactive staging tree even when copied host
+directories are read-only. Cleanup restores owner access only inside inactive
+installer trees, never follows symlinks, and leaves active host permissions
+unchanged. A denied read can be retried after access is granted. Stale staging
+cleanup failures are returned before building or reusing the next stage.
+
 Every heartbeat checks the signed remote manifest. An intact installation with
 unchanged content and sequence returns without creating directories, locks, or
 timestamps in the Skills tree. Directory and manifest checks around content
