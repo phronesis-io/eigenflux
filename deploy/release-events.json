@@ -163,7 +163,18 @@
       "feedback-compliance"
     ],
     "title": "Feed batch and detail-fetch health available",
-    "description": "Only CLI 1.0.3 and later report these counters; older clients report zeros, so compare matching CLI cohorts.",
+    "description": "Only CLI 1.0.8 and later report these counters; older clients report zeros, so compare matching CLI cohorts.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/481"
+  },
+  {
+    "id": "broadcast-detail-inspection-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "api",
+    "dashboards": [
+      "recommendation-effect"
+    ],
+    "title": "Record broadcast detail inspections separately from display",
+    "description": "Successful non-author detail reads produce weak inspection signals. Exact exposure attribution needs CLI 1.0.8 or an explicit impression; older clients remain unattributed. No historical backfill, human-click inference or ranking-weight change.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/481"
   }
 ]

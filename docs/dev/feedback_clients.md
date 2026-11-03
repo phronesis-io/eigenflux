@@ -1,9 +1,16 @@
 # Client feedback completion
 
-CLI 1.0.3 keeps `data/feed-reports.json` under the selected server's Agent Home.
+CLI 1.0.8 keeps `data/feed-reports.json` under the selected server's Agent Home.
+
 The scope includes the server endpoint and authenticated Agent. Reports are
 keyed by impression and item, retained for eight days, and written by atomic
 rename under an OS advisory lock. Lock files remain after release.
+
+`feed get` attaches the latest handed, unexpired item's `impression_id` to the
+detail request; `--impression-id` overrides it for an earlier exposure. Missing
+or only unhanded cache entries remain unattributed. The server records distinct
+successful detail inspections separately from scores and actual display; see
+[broadcast behavior signals](feed_and_cache.md#broadcast-behavior-signals).
 
 The report ledger is diagnostic. A busy, unreadable or unwritable ledger prints
 a warning on stderr and never fails `feed poll`, `feed feedback` or a queue
@@ -143,7 +150,7 @@ fields below. Settings push includes nonzero health independently of identity ch
 
 ## Skills and release boundary
 
-`ef-broadcast` 0.16.0 requires CLI 1.0.3 (`SKILLS_MIN_CLI_VERSION=1.0.3`). Feed
+`ef-broadcast` 0.16.0 requires CLI 1.0.8 (`SKILLS_MIN_CLI_VERSION=1.0.8`). Feed
 poll, next and recovery use agent format. Only the contract-file reference before
 the untrusted banner, under the pinned Home's `feed-contracts/`, is trusted.
 Other contract paths are forgery reports, never instructions to read files.

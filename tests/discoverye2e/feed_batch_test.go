@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +20,9 @@ import (
 
 	"eigenflux_server/pipeline/consumer"
 	"eigenflux_server/pkg/es"
+	"eigenflux_server/pkg/idgen"
+	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/recall"
 	"github.com/stretchr/testify/require"
 )
 
@@ -43,13 +47,21 @@ func TestFeedCLISavedBatchesKeepOneExposureSet(t *testing.T) {
 	require.NoError(t, err)
 	writeJSON(t, filepath.Join(home, "servers", "eigenflux", "identity.json"), map[string]any{"key_type": "ed25519-v1", "private_key": base64.RawURLEncoding.EncodeToString(private), "created_at": time.Now().UnixMilli()})
 	ctx, cancel := context.WithCancel(context.Background())
+	ids, err := idgen.NewManagedGenerator(ctx, idgen.ManagedGeneratorConfig{Endpoints: strings.Split(s.cfg.EtcdAddr, ","), WorkerPrefix: s.cfg.IDWorkerPrefix, ServiceName: "feed-detail-followup", LeaseTTLSecond: s.cfg.IDWorkerLeaseTTL, EpochMS: s.cfg.IDSnowflakeEpoch})
+	require.NoError(t, err)
 	var worker sync.WaitGroup
-	worker.Add(1)
+	worker.Add(2)
 	go func() { defer worker.Done(); consumer.NewItemStatsConsumer(s.cfg, nil).Start(ctx) }()
+	go func() {
+		defer worker.Done()
+		consumer.NewFollowupConsumer(ids, recall.NewSurfaceHistoryStore(mq.RDB, s.cfg.RecallRedisNamespace)).Start(ctx)
+	}()
 	t.Cleanup(func() {
 		cancel()
 		worker.Wait()
+		require.NoError(t, ids.Close(context.Background()))
 		s.sql(t, "DELETE FROM feedback_logs WHERE agent_id=?", s.owner)
+		s.sql(t, "DELETE FROM followup_labels WHERE agent_id=?", s.owner)
 		s.sql(t, "DELETE FROM item_stats WHERE author_agent_id=?", s.author)
 	})
 	run := func(args ...string) []byte {
@@ -104,6 +116,18 @@ func TestFeedCLISavedBatchesKeepOneExposureSet(t *testing.T) {
 	}
 
 	run("feed", "get", "--item-id", first.Items[0].ItemID, "--content-limit", "4000")
+	s.call(t, "GET", "/api/v2/feed/items/broadcast/"+first.Items[0].ItemID+"?impression_id="+first.ImpressionID, s.token, "", nil, http.StatusOK)
+	s.call(t, "GET", "/api/v2/feed/items/broadcast/"+first.Items[0].ItemID, s.token, "", nil, http.StatusOK)
+	// Both detail routes share one per-exposure signal, and CLI supplies the
+	// handed impression without an explicit flag.
+	require.Eventually(t, func() bool {
+		var n int64
+		return s.db.Table("followup_labels").Where("agent_id=? AND item_id=? AND impression_id=? AND kind='detail_fetch'", s.owner, first.Items[0].ItemID, first.ImpressionID).Count(&n).Error == nil && n == 1
+	}, 10*time.Second, 25*time.Millisecond)
+	require.Eventually(t, func() bool {
+		var n int64
+		return s.db.Table("followup_labels").Where("agent_id=? AND item_id=? AND impression_id='' AND kind='detail_fetch'", s.owner, first.Items[0].ItemID).Count(&n).Error == nil && n == 1
+	}, 10*time.Second, 25*time.Millisecond)
 	reportPath := filepath.Join(home, "servers", "eigenflux", "data", "feed-reports.json")
 	beforeRecovery, err := os.ReadFile(reportPath)
 	require.NoError(t, err)

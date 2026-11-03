@@ -351,6 +351,25 @@ restarted CLI drains the durable queue; the real worker stores one feedback row
 and increments the score counter once. It uses an isolated Agent Home and local
 HTTP proxy, with no host delivery or production writes.
 
+## Broadcast detail inspection and attribution
+
+Run `go test -race ./pkg/followuplog` with a loopback `PG_DSN` to test event
+identity, request-cancellation survival and the exact SQL attribution export.
+The PostgreSQL case uses temporary tables and checks foreign Agents/items,
+non-deliveries, other source kinds, missing and ambiguous impressions,
+before-exposure timestamps, time-window boundaries and search separation.
+From `cli/`, run `go test -race -short ./cmd -run TestFeedGet` for explicit,
+handed, unhanded and missing impression handling.
+
+Against isolated running services, `./tests/run.sh --skip-start e2e -c
+TestFeedDetailSignals` verifies successful detail reads reach the real stream
+consumer and PostgreSQL once per exposure; unattributed reads stay separate.
+Author/failed/unauthenticated reads produce no signal, clients cannot mint the
+server-only event, and reads create neither scores nor Swing seeds.
+`TestFeedCLISavedBatchesKeepOneExposureSet` in the discovery process suite also
+checks actual CLI attribution and the V2 source-detail route. See that suite's
+startup-isolation instructions above.
+
 ## Native CLI self-update regressions
 
 From `cli/`, run `go test ./internal/selfupdate -count=1`. The CLI cross-platform

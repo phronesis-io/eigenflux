@@ -959,7 +959,13 @@ are stored separately from settings and server delivery/feedback facts.
 
 ### CLI feedback completion
 
-CLI 1.0.3 bounds opt-in `feed poll --batch N`, `feed next` and `feed recover`
+Broadcast detail GET routes accept optional `impression_id` (64 bytes, no
+control characters) for the server's `detail_fetch` inspection signal. Invalid
+attribution does not reject a successful detail read and stays unknown. Event
+ingestion accepts only the existing client kinds; clients cannot submit this
+server-only kind. See [signal semantics and exact attribution](feed_and_cache.md#broadcast-behavior-signals).
+
+CLI 1.0.8 bounds opt-in `feed poll --batch N`, `feed next` and `feed recover`
 bodies at 32 KiB, with explicit single-item oversize reporting. Agent batches
 inline the served contract core and reference its details. `eigenflux_heartbeat.v5`
 uses isolated cycles, at most four scheduled batches, per-batch feedback,
