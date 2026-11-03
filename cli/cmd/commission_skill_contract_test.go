@@ -17,7 +17,7 @@ func TestCommissionSkillContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !regexp.MustCompile(`(?m)^  version: "(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"$`).Match(skillBody) {
+	if !regexp.MustCompile(`(?m)^  version: "(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"\r?$`).Match(skillBody) {
 		t.Error("ef-commission must declare a stable major.minor.patch version")
 	}
 	skill := string(skillBody)
