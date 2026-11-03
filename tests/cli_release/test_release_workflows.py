@@ -64,7 +64,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
             gh = Path(directory) / 'gh'
             gh.write_text('#!/bin/sh\nexit "$FIXTURE_EXIT"\n')
             gh.chmod(0o755)
-            for exit_code in (0, 1, 2):
+            # A failed gate may be rerun after the upstream CLI is repaired.
+            for exit_code in (1, 2, 0):
                 env = dict(os.environ, PATH=directory + os.pathsep + os.environ['PATH'],
                            CLI_RUN_ID='123', FIXTURE_EXIT=str(exit_code))
                 result = subprocess.run(['bash', '-e', '-c', gate['run']], env=env)
@@ -110,5 +111,5 @@ class ReleaseWorkflowTests(unittest.TestCase):
         gate = jobs['cli_ready']['steps'][0]
         self.assertIn('--exit-status', gate['run'])
         self.assertEqual(gate['env']['CLI_RUN_ID'], '${{ github.event.workflow_run.id }}')
-        self.assertIn('github.event.workflow_run.head_sha', jobs['plan']['steps'][0]['with']['ref'])
+        self.assertEqual(jobs['plan']['steps'][0]['with']['ref'], 'main')
         self.assertEqual(fallback['if'], "steps.ci.outputs.trusted_ci != 'true'")

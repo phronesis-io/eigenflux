@@ -188,7 +188,7 @@ func TestSkillsPublicationRequiresAvailableCLI(t *testing.T) {
 			t.Fatal("publishers must share serialization")
 		}
 	}
-	for _, required := range []string{"workflow_run:", "workflows: [Release CLI]", "types: [completed]", "github.event.workflow_run.conclusion == 'success'"} {
+	for _, required := range []string{"workflow_run:", "workflows: [Release CLI]", "types: [in_progress]", "needs: [plan, prepare, cli_ready]", `gh run watch "$CLI_RUN_ID" --exit-status --interval 15`} {
 		if !strings.Contains(skillsWorkflow, required) {
 			t.Fatalf("missing successful CLI handoff: %s", required)
 		}
