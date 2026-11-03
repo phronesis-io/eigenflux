@@ -80,3 +80,9 @@ write. Publish immutable versioned ZIPs/binaries/checksums before changing the
 signed latest pointer. Keep bare artifacts for existing clients; new clients
 require signed complete packages and retain old version directories while in use.
 Runtime business failures never replay work through an older release.
+
+## Published legacy bridge acceptance
+
+Run `python3 cli/scripts/verify-published-bridge.py --output build/bridge-acceptance.json` from the repository root on native macOS or Linux. It downloads the actual published 1.0.0 binary into a temporary Home and points authenticated API calls at a local fixture. The shipped updater verifies CDN signatures; the initial executable is hash-checked against its versioned manifest. No owner credentials, production API writes, scheduler setup or notifications are used.
+
+The report requires 1.0.0 to adopt the legacy bridge, checks the immediate next automatic cycle, then ages only local updater state by 25 hours to test the next eligible automatic check against v2. It verifies actual execution receipts, stable-entry running versions and preserved credentials. Missing Skills deliberately stops subsequent business-plan work; that failure is not an upgrade failure. The daily interval is simulated, not a wall-clock soak. Windows and other CPU architectures require separate native acceptance.
