@@ -91,6 +91,7 @@ func TestRealCLIConsecutiveCompleteUpdates(t *testing.T) {
 			t.Fatal(err)
 		}
 		payloads["/cli/"+version+"/"+name+".zip"] = archive
+		payloads["/cli/"+version+"/"+name] = binary
 	}
 	if err := os.WriteFile(root, firstBinary, 0755); err != nil {
 		t.Fatal(err)
@@ -101,6 +102,23 @@ func TestRealCLIConsecutiveCompleteUpdates(t *testing.T) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"code":0,"data":{"auto_cli_update":true}}`))
+			return
+		}
+		if r.URL.Path == "/cli/v2/latest/release.json" {
+			var selected Manifest
+			_ = json.Unmarshal(latest.Load().([]byte), &selected)
+			selected.Packages = nil
+			if err := Sign(&selected, key); err != nil {
+				t.Error(err)
+				http.Error(w, "sign", 500)
+				return
+			}
+			raw, _ := json.Marshal(selected)
+			_, _ = w.Write(raw)
+			return
+		}
+		if r.URL.Path == "/cli/latest/release.json" {
+			_, _ = w.Write(payloads["/cli/9.8.7/release.json"])
 			return
 		}
 		if r.URL.Path == "/cli/v2/latest/package-release.json" {
