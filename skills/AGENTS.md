@@ -8,6 +8,7 @@ Read this file before modifying anything under `skills/`.
   `SKILL.md` in the same commit. Include changes to references, scripts, and
   assets. Increase at least the patch version relative to `main`; upgrade each
   affected Skill. Give new Skills an explicit version.
+- Use stable `major.minor.patch` metadata versions for production `ef-*` Skills.
 - Use concise, imperative instructions. Keep only necessary context and steps.
   Omit repetition, filler, examples, and counterexamples.
 - Keep installation instructions in [install.md](install.md); link to that

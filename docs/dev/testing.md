@@ -329,7 +329,7 @@ status output and local health-counter isolation. Run `go test -race ./cmd ./int
 `cli/cmd/feed_batch_output_test.go` models a large page with ten authors, ten
 discovery entries, eight Chinese intent instructions and five actions per item.
 Its five-item agent batch must stay within 32 KiB, omit foreign cards, duplicate
-discovery previews and inline contract text, and carry instruction references.
+discovery previews and contract details, and carry instruction references.
 The suite also checks exact-text matching against current intents, unchanged
 JSON rendering, contract hashes/content/retention/write-failure fallback and
 160 pre-upgrade exposures that remain pending without being re-handed.
@@ -351,6 +351,25 @@ restarted CLI drains the durable queue; the real worker stores one feedback row
 and increments the score counter once. It uses an isolated Agent Home and local
 HTTP proxy, with no host delivery or production writes.
 
+## Broadcast detail inspection and attribution
+
+Run `go test -race ./pkg/followuplog` with a loopback `PG_DSN` to test event
+identity, request-cancellation survival and the exact SQL attribution export.
+The PostgreSQL case uses temporary tables and checks foreign Agents/items,
+non-deliveries, other source kinds, missing and ambiguous impressions,
+before-exposure timestamps, time-window boundaries and search separation.
+From `cli/`, run `go test -race -short ./cmd -run TestFeedGet` for explicit,
+handed, unhanded and missing impression handling.
+
+Against isolated running services, `./tests/run.sh --skip-start e2e -c
+TestFeedDetailSignals` verifies successful detail reads reach the real stream
+consumer and PostgreSQL once per exposure; unattributed reads stay separate.
+Author/failed/unauthenticated reads produce no signal, clients cannot mint the
+server-only event, and reads create neither scores nor Swing seeds.
+`TestFeedCLISavedBatchesKeepOneExposureSet` in the discovery process suite also
+checks actual CLI attribution and the V2 source-detail route. See that suite's
+startup-isolation instructions above.
+
 ## Native CLI self-update regressions
 
 From `cli/`, run `go test ./internal/selfupdate -count=1`. The CLI cross-platform
@@ -362,3 +381,12 @@ the old release and pointer. Existing native real-CLI tests cover consecutive
 complete updates through the stable entry. macOS runners verify bounded local
 tool diagnostics, plist errors, helper version mismatch and invalid helper
 signatures; every validation failure leaves the package unactivated.
+
+Feed context-budget regressions in `cli/cmd/feed_context_budget_test.go` cover
+exact rendered bytes for agent/JSON, dropped-candidate hand state, explicit
+oversize reporting, cycle isolation/expiry/close and read-only recovery of cached
+details. Run `go test -short ./cmd ./internal/feedevent ./internal/cache` from
+`cli/`; the short flag excludes native self-update packaging, not Feed coverage.
+API preview provenance and health snapshots are covered by
+`go test ./api/consolev2 ./api/dal ./pkg/feedcontract`. Apply migration 000125
+before validating settings against a real local database.

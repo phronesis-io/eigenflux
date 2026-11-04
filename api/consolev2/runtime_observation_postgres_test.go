@@ -139,6 +139,39 @@ func TestRuntimeObservationPostgresHTTP(t *testing.T) {
 		})
 	}
 
+	t.Run("passive polls update CLI version without Agent activity", func(t *testing.T) {
+		svc.SetNotificationClient(&fakeNotificationClient{})
+		for _, path := range []string{"/api/v2/agents/me/settings", "/api/v2/notifications/pending"} {
+			t.Run(path, func(t *testing.T) {
+				if err := database.Model(&dal.AgentSettings{}).Where("agent_id = ?", id).UpdateColumns(map[string]interface{}{
+					"cli_version": "1.0.5", "runtime_reported_at": 100, "last_activity_at": 100,
+					"runtime_name": "workbuddy", "runtime_version": "5.9.3", "mode": "skill", "model": "known-model",
+				}).Error; err != nil {
+					t.Fatal(err)
+				}
+				before := read()
+				// Use a CLI-shaped request; performJSON adds a browser Origin.
+				recorder := ut.PerformRequest(h.Engine, http.MethodGet, "https://console.example.test"+path, nil,
+					auth, ut.Header{Key: "Host", Value: "console.example.test"},
+					ut.Header{Key: "X-CLI-Ver", Value: "1.0.9"},
+					ut.Header{Key: "X-Client-Host", Value: "openclaw/new"},
+					ut.Header{Key: "X-Client-Mode", Value: "plugin"},
+					ut.Header{Key: "X-Client-Model", Value: "different-model"})
+				if response := recorder.Result(); response.StatusCode() != http.StatusOK {
+					t.Fatalf("poll status=%d body=%s", response.StatusCode(), response.Body())
+				}
+				after := read()
+				if after.CLIVersion != "1.0.9" || after.RuntimeReportedAt <= before.RuntimeReportedAt {
+					t.Fatalf("passive poll did not record CLI version: %+v", after)
+				}
+				after.CLIVersion, after.RuntimeReportedAt, after.UpdatedAt = before.CLIVersion, before.RuntimeReportedAt, before.UpdatedAt
+				if after != before {
+					t.Fatalf("passive poll changed unrelated settings: before=%+v after=%+v", before, after)
+				}
+			})
+		}
+	})
+
 	t.Run("settings reads persisted model from header reports", func(t *testing.T) {
 		previousAuth := clients.AuthClient
 		clients.AuthClient = &runtimeAuthClient{agentID: id}

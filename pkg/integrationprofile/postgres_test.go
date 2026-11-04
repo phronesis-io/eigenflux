@@ -69,7 +69,7 @@ func postgresContextStore(t *testing.T) (*Store, int64) {
 			t.Fatal(err)
 		}
 	}
-	for _, name := range []string{"000125_enterprise_integrations.sql", "000126_integration_contexts.sql"} {
+	for _, name := range []string{"000127_enterprise_integrations.sql", "000128_integration_contexts.sql"} {
 		raw, err := os.ReadFile(filepath.Join("..", "..", "migrations", name))
 		if err != nil {
 			t.Fatal(err)

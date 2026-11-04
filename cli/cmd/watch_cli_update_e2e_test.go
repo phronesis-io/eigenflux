@@ -17,12 +17,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/selfupdate"
 	"github.com/gorilla/websocket"
 )
@@ -50,11 +52,16 @@ func TestWatchAutomaticallyUpdatesWithoutHeartbeatOrAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	var manifests, packages atomic.Int32
+	var receiptsMu sync.Mutex
+	var receipts []maintenance.Event
 	upgrader := websocket.Upgrader{}
 	srv := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v2/agents/me/settings":
 			_, _ = out.Write([]byte(`{"code":0,"data":{"auto_cli_update":true}}`))
+		case "/cli/v2/latest/release.json", "/cli/v2/latest/package-release.json":
+			// This fixture models the legacy lane before the v2 channel exists.
+			http.NotFound(out, r)
 		case "/cli/latest/release.json", "/cli/latest/package-release.json":
 			manifests.Add(1)
 			_ = json.NewEncoder(out).Encode(release)
@@ -82,6 +89,15 @@ func TestWatchAutomaticallyUpdatesWithoutHeartbeatOrAgent(t *testing.T) {
 		case "/api/v2/pm/fetch":
 			_, _ = out.Write([]byte(`{"code":0,"data":{"messages":[],"next_cursor":""}}`))
 		case "/api/v2/maintenance/events:batch":
+			var body struct {
+				Events []maintenance.Event `json:"events"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+			}
+			receiptsMu.Lock()
+			receipts = append(receipts, body.Events...)
+			receiptsMu.Unlock()
 			_, _ = out.Write([]byte(`{"code":0,"data":{}}`))
 		default:
 			t.Errorf("watch contacted an unrelated endpoint: %s", r.URL.Path)
@@ -159,6 +175,20 @@ func TestWatchAutomaticallyUpdatesWithoutHeartbeatOrAgent(t *testing.T) {
 	_ = command.Process.Signal(os.Interrupt)
 	if err := command.Wait(); err != nil {
 		t.Fatalf("watch did not stop gracefully: %v %s", err, stderr.String())
+	}
+	receiptsMu.Lock()
+	var installed, executed maintenance.Event
+	for _, event := range receipts {
+		if event.Component == "cli" && event.Result == "installed" {
+			installed = event
+		}
+		if event.Component == "cli" && event.Result == "executed" {
+			executed = event
+		}
+	}
+	receiptsMu.Unlock()
+	if installed.AttemptID == "" || executed.AttemptID != installed.AttemptID || executed.FromVersion != "0.0.47" || executed.ToVersion != "0.0.48" || executed.RunningVersion != "0.0.48" {
+		t.Fatalf("handoff missing correlated execution: installed=%+v executed=%+v", installed, executed)
 	}
 	assertHeartbeatUpdatedInstallation(t, stable, oldBytes, newBytes, pub)
 	after, _ := os.ReadFile(credentialPath)

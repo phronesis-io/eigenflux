@@ -73,6 +73,11 @@ func TestNativeWindowsPackageRenameRecoversAndPreservesOldInstallation(t *testin
 				t.Fatal(err)
 			}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/cli/v2/latest/release.json" || r.URL.Path == "/cli/v2/latest/package-release.json" {
+					http.NotFound(w, r)
+					return
+				}
+
 				if r.URL.Path == "/cli/latest/package-release.json" {
 					_ = json.NewEncoder(w).Encode(manifest)
 					return

@@ -86,7 +86,7 @@ Examples:
 // Installation lifecycle and local metadata commands never write into a Home
 // they may be about to remove, migrate or only describe.
 func flushesFeedQueue(cmd *cobra.Command) bool {
-	if cmd == feedNextCmd {
+	if cmd == feedNextCmd || cmd == feedRecoverCmd {
 		return false
 	}
 	for c := cmd; c != nil; c = c.Parent() {

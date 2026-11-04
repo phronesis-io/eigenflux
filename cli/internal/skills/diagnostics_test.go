@@ -52,6 +52,9 @@ func TestSyncIncompatibleReleaseDiagnostics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if res.RetentionCode != "skills_cli_incompatible" || res.TargetRevision != remote.Revision {
+		t.Fatalf("missing machine-readable retention outcome: %+v", res)
+	}
 	if len(res.Diagnostics) != 1 {
 		t.Fatalf("missing compatibility diagnostic: %+v", res)
 	}
@@ -83,7 +86,7 @@ func TestSyncManifestFailureRetainsDiagnostic(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if res.Source != "local" || !res.NoNetwork || res.Atomic || len(res.Diagnostics) != 1 {
+			if res.Source != "local" || !res.NoNetwork || res.Atomic || len(res.Diagnostics) != 1 || res.RetentionCode != "skills_manifest_unavailable" || res.TargetRevision != "" {
 				t.Fatalf("unexpected fallback: %+v", res)
 			}
 			d := res.Diagnostics[0]
@@ -118,5 +121,29 @@ func TestSyncSameReleaseReportsLocalModification(t *testing.T) {
 	data, _ := os.ReadFile(file)
 	if string(data) != "user customization" {
 		t.Fatal("local modification overwritten")
+	}
+}
+
+func TestSyncRetainedReleaseFailuresIdentifyTarget(t *testing.T) {
+	for _, code := range []string{"skills_download_failed", "skills_checksum_failed"} {
+		t.Run(code, func(t *testing.T) {
+			opts, local, _ := installedSyncFixture(t)
+			result, err := syncDownloadFailure(opts, opts.Into, "new-revision", code, fmt.Errorf("unavailable"))
+			if err != nil || result.RetentionCode != code || result.TargetRevision != "new-revision" || result.VerifiedManifest || result.Diagnostics[0].LocalRevision != local.Revision || result.Diagnostics[0].TargetRevision != "new-revision" {
+				t.Fatalf("failure hidden: %+v %v", result, err)
+			}
+		})
+	}
+	opts, local, _ := installedSyncFixture(t)
+	state, err := readSyncSnapshot(opts.Into)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote := *local
+	remote.Sequence--
+	remote.Revision = "rejected-revision"
+	result, err := syncDecision(opts, opts.Into, state, &remote)
+	if err != nil || result.RetentionCode != "skills_rollback_rejected" || result.TargetRevision != remote.Revision {
+		t.Fatalf("rollback hidden: %+v %v", result, err)
 	}
 }

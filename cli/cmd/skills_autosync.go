@@ -85,8 +85,10 @@ func classifyAutoSync(res *skills.SyncResult, err error) string {
 		return "error"
 	case res.NoNetwork:
 		return "offline"
+	case res.RetentionCode != "":
+		return "blocked"
 	case res.Source == "local":
-		// revision matched (or lock held) => nothing changed
+		// The checked release matched the installed revision.
 		return "nochange"
 	default:
 		return "ok"

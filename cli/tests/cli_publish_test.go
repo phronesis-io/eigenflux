@@ -53,8 +53,14 @@ func TestCLIPublisherDoesNotAdvancePointerAfterFailedUpload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(b), "release.json") || strings.Contains(string(b), "version.txt") || strings.Count(string(b), "\n") != 1 {
-		t.Fatalf("publisher advanced after failure: %s", b)
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) < 1 || len(lines) > 3 {
+		t.Fatalf("unbounded failed preflight: %s", b)
+	}
+	for _, line := range lines {
+		if !strings.HasPrefix(line, "s3api get-object ") {
+			t.Fatalf("publisher wrote after failed preflight: %s", b)
+		}
 	}
 }
 
@@ -170,7 +176,7 @@ func TestSkillsPublicationRequiresAvailableCLI(t *testing.T) {
 		return string(b)
 	}
 	script := read("../scripts/release-skills.sh")
-	gate := strings.Index(script, "./cmd/clirelease")
+	gate := strings.Index(script, `"$BUILD_DIR/clirelease" --verify-cdn`)
 	reserve := strings.Index(script, "skills-release-state.py\" reserve")
 	if gate < 0 || reserve < gate || !strings.Contains(script, `--min-version "${SKILLS_MIN_CLI_VERSION:-$CLI_VERSION}"`) {
 		t.Fatal("Skills must verify the published CLI minimum before reserving or publishing")
@@ -182,7 +188,7 @@ func TestSkillsPublicationRequiresAvailableCLI(t *testing.T) {
 			t.Fatal("publishers must share serialization")
 		}
 	}
-	for _, required := range []string{"workflow_run:", "workflows: [Release CLI]", "types: [completed]", "github.event.workflow_run.conclusion == 'success'"} {
+	for _, required := range []string{"workflow_run:", "workflows: [Release CLI]", "types: [in_progress]", "needs: [plan, prepare, cli_ready]", `gh run watch "$CLI_RUN_ID" --exit-status --interval 15`} {
 		if !strings.Contains(skillsWorkflow, required) {
 			t.Fatalf("missing successful CLI handoff: %s", required)
 		}

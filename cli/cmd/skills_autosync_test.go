@@ -22,6 +22,7 @@ func TestClassifyAutoSync(t *testing.T) {
 		{"error on nil result", nil, nil, "error"},
 		{"offline", &skills.SyncResult{NoNetwork: true}, nil, "offline"},
 		{"offline wins over source", &skills.SyncResult{NoNetwork: true, Source: "local"}, nil, "offline"},
+		{"retained compatibility failure", &skills.SyncResult{Source: "local", RetentionCode: "skills_cli_incompatible"}, nil, "blocked"},
 		{"nochange (local source)", &skills.SyncResult{Source: "local"}, nil, "nochange"},
 		{"ok (real update)", &skills.SyncResult{Source: "cli/latest"}, nil, "ok"},
 	}

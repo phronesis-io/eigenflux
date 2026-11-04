@@ -29,6 +29,11 @@ Commission diagnostics reuse this queue and its upload acknowledgements. Keep
 Updater observations use the same queue with an identity-pinned token and endpoint.
 Uploads do not refresh credentials or mutate business state. CLI update phase
 observers remain best effort; rollback finishes before cancellation returns.
+`RecordCLIAdoption` atomically retains the CLI installation event, principal and
+endpoint independently of upload acknowledgements. A matching new CLI process
+records `execute.executed` under that original attempt and clears the pending
+receipt. Retention remains seven days; account/endpoint/version mismatches do
+not establish adoption. This does not establish runtime readiness.
 
 Heartbeat CLI results include `reason` for skipped, locked, deferred and failed
 checks; `next_check_at` identifies the next eligible heartbeat check. Successful

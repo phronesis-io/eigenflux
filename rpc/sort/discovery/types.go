@@ -238,13 +238,17 @@ type Candidate struct {
 	Reasons         []string `json:"policy_reasons,omitempty"`
 }
 type ResultItem struct {
-	Ref          SourceRef         `json:"source_ref"`
-	ItemID       int64             `json:"item_id,string,omitempty"`
-	ContextID    int64             `json:"context_id,string"`
-	NeedID       int64             `json:"need_id,string,omitempty"`
-	NeedRevision int64             `json:"need_revision,omitempty"`
-	Preview      map[string]string `json:"preview"`
-	Match        map[string]any    `json:"match"`
+	Ref                SourceRef         `json:"source_ref"`
+	ItemID             int64             `json:"item_id,string,omitempty"`
+	ContextID          int64             `json:"context_id,string"`
+	NeedID             int64             `json:"need_id,string,omitempty"`
+	NeedRevision       int64             `json:"need_revision,omitempty"`
+	Preview            map[string]string `json:"preview"`
+	Match              map[string]any    `json:"match"`
+	Title              string            `json:"title,omitempty"`
+	PriceFen           *int64            `json:"price_fen,omitempty"`
+	Currency           string            `json:"currency,omitempty"`
+	PromisedDeliveryMS *int64            `json:"promised_delivery_ms,omitempty"`
 }
 type Response struct {
 	RequestID        string       `json:"request_id"`
@@ -266,6 +270,9 @@ type Response struct {
 
 func PublicItem(c Candidate) ResultItem {
 	r := ResultItem{Ref: c.Document.Ref, ContextID: c.Context.ID, Preview: map[string]string{"text": c.Document.Preview}, Match: map[string]any{"score": c.Score.Value, "scorer_type": c.Score.ScorerType, "scorer_version": c.Score.Version, "score_kind": c.Score.Kind}}
+	if c.Document.Ref.Type == Commission {
+		r.Title, r.PriceFen, r.Currency, r.PromisedDeliveryMS = c.Document.Preview, c.Document.PriceFen, c.Document.Currency, c.Document.DurationMS
+	}
 	if c.LR != nil {
 		r.Match["score"] = c.LR.Probability
 		r.Match["scorer_type"] = "lr"

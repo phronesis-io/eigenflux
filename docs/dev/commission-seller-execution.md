@@ -55,6 +55,13 @@ seller intake job. It does not change the order, recreate a notification, clear
 ACKs or start watch. Existing fulfillment or uncertain/running jobs require the
 existing job reconciliation flow rather than another order recovery.
 
+Diagnose blocked work through the account/Order-scoped maintenance trace before
+retrying it. Distinguish the coarse execution issue from the fixed local code,
+actual input-check receipt and captured bridge diagnostic. A retained
+`diagnostic_snapshot` is evidence readback, not a retry or proof of delivery.
+Missing receipt fields and unknown historical bridge errors do not establish
+that the input check succeeded. Keep the original journal and binding intact.
+
 Paid fulfillment retains verified artifacts before final local checks. CLI
 1.0.27 automatically retries recoverable delivery failures at most five times
 in total, including the first attempt, with 1/2/5/10-minute delays. The journal

@@ -4,6 +4,9 @@ package selfupdate
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -22,7 +25,8 @@ func TestNativeMacPackageValidationFailuresStayClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, scenario := range []string{"plist_read", "version", "signature"} {
+	public, key, _ := ed25519.GenerateKey(rand.Reader)
+	for _, scenario := range []string{"plist_read", "version", "signature", "signed_notifier_version"} {
 		t.Run(scenario, func(t *testing.T) {
 			root, _, _ := installationFixture(t)
 			dir := t.TempDir()
@@ -41,12 +45,31 @@ func TestNativeMacPackageValidationFailuresStayClosed(t *testing.T) {
 				}
 			}
 			archive := testPackage(t, entries...)
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(archive) }))
-			defer server.Close()
 			name := "eigenflux-darwin-" + runtime.GOARCH
 			manifest := Manifest{Version: version, Artifacts: map[string]Artifact{name: testArtifact(binary)}, Packages: map[string]Artifact{name + ".zip": testArtifact(archive)}}
-			_, _, err := StagePackage(context.Background(), Options{Home: dir, CDN: server.URL, Version: "9.8.6"}, manifest, root)
+			if scenario == "signed_notifier_version" {
+				manifest.NotifierVersion = "9.8.6"
+			}
+			legacy := manifest
+			legacy.NotifierVersion = ""
+			legacy.Packages = nil
+			if err := Sign(&legacy, key); err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/release.json") {
+					_ = json.NewEncoder(w).Encode(legacy)
+					return
+				}
+				_, _ = w.Write(archive)
+			}))
+			defer server.Close()
+
+			_, _, err := StagePackage(context.Background(), Options{Home: dir, CDN: server.URL, Version: "9.8.6", Key: public}, manifest, root)
 			want := "verify_helper_" + scenario + "_failed"
+			if scenario == "signed_notifier_version" {
+				want = "verify_helper_version_failed"
+			}
 			if err == nil || failureCode("verify", err) != want {
 				t.Fatalf("validation classification: %v, want %s", err, want)
 			}

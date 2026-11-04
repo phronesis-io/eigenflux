@@ -45,3 +45,18 @@ func TestPGCAudienceViewsKeepGrafanaOnAnonymousAggregates(t *testing.T) {
 		}
 	}
 }
+
+func TestPGCSurfaceReportersExcludeServerDetailFetches(t *testing.T) {
+	contents, err := os.ReadFile("../../migrations/000126_pgc_surface_reporters_agent_kinds.sql")
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	up, _, _ := strings.Cut(string(contents), "-- +goose Down")
+	reporters, _, _ := strings.Cut(up, "), deliveries AS")
+	if !strings.Contains(up, "CREATE OR REPLACE VIEW grafana_pgc_surface_7d\nWITH (security_barrier = true)") {
+		t.Fatal("surface view must stay a security-barrier view")
+	}
+	if !strings.Contains(reporters, "f.kind IN ('surface', 'question', 'discussion', 'task')") {
+		t.Fatal("surface reporters must count only Agent-reported follow-up kinds")
+	}
+}

@@ -56,6 +56,7 @@ esac
 				"uname": "#!/bin/sh\n[ \"$1\" = -s ] && echo \"$FIXTURE_OS\" || echo arm64\n",
 				"curl": `#!/bin/sh
 case "$*" in
+ */cli/v2/latest/version.txt*) printf '\n404' ;;
  *version.txt*) echo 1.0.0 ;;
  *.sha256*)
   if [ "$FIXTURE_BAD_HASH" = 1 ]; then printf '%064d\n' 0; else shasum -a 256 "$FIXTURE_CLI" | awk '{print $1}'; fi ;;

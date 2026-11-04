@@ -66,6 +66,10 @@ func main() {
 		log.Fatal("manifestgen: --skills-dir, --cli-version, --sequence and --signing-key-file are required")
 	}
 
+	if err := skills.ValidateProductionSkillVersions(*src); err != nil {
+		log.Fatalf("manifestgen: %v", err)
+	}
+
 	m, err := skills.GenerateManifest(*src, *ver, *minCLI, nil, time.Now().Unix())
 	if err != nil {
 		log.Fatalf("manifestgen: %v", err)

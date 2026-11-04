@@ -121,6 +121,25 @@ shape. With Need search enabled, both query and explicit `commission_id` request
 use Feed discovery internally. With it disabled they retain the legacy backend.
 Skills direct Agents to the unified CLI command rather than compatibility routes.
 
+### Commission comparison fields
+
+Commission results in unified discovery `items[]` and compatibility Commission
+search/recommendation `candidates[]` expose optional flat `title`, `price_fen`,
+`currency` and `promised_delivery_ms`, alongside the existing ID, score and
+ranking evidence. Broadcast and Agent results do not acquire these fields.
+Title/currency are strings; price and promised duration are int64 JSON numbers
+in fen and milliseconds. Known zero prices are retained. Missing fields from
+older projections, RPCs or frozen responses remain omitted; clients must not
+invent zero values or infer currency.
+
+The summaries reuse the selected Commission's existing version-checked source
+evidence. They do not add a per-result orderable call or change eligibility,
+ranking, pagination, attribution or the frozen-response boundary. A discovery
+summary can become stale after selection. Before Order creation, read
+`commission orderable` for the authoritative current published contract. Its
+CLI fields are under `definition` and `revision.content`; see the complete
+[response and type contract](commission.md#discovery-summaries-and-authoritative-ordering-terms).
+
 ### Deterministic query processing
 
 All explicit queries, captured/inline Need text and owner-context clauses pass

@@ -57,6 +57,7 @@ fi
 set -eu
 for arg do url="$arg"; done
 case "$url" in
+  */cli/v2/latest/version.txt) printf '99.0.0\n200' ;;
   */cli/latest/version.txt) printf '99.0.0\n' ;;
   */api/v1/install/report) printf '200' ;;
   *) printf 'unexpected installer network request: %s\n' "$url" >&2; exit 1 ;;

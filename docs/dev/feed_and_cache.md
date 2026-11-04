@@ -142,6 +142,55 @@ After onboarding, the Agent scores each eligible Feed item, submits feedback, th
 
 The backend `intent_match` is an advisory keyword match, not a feedback score or a delivery gate. Its status and numeric score remain wire-compatible; the reason distinguishes absent intents from an evaluated non-match. Empty intents never authorize inferred intent actions. Recoverable feedback failures do not discard qualified judgments or block later safe stages. Baseline onboarding remains read-only.
 
+## Broadcast behavior signals
+
+Successful non-author reads through `/api/v1/items/:item_id` (including its V2
+compatibility route) and `/api/v2/feed/items/broadcast/:source_id` emit the
+server-only `detail_fetch` kind through the existing follow-up stream and
+`followup_labels` consumer. Failed, unauthenticated and author-owned reads emit
+nothing. Publication is best-effort with a detached three-second deadline;
+telemetry errors are logged and do not fail a successful content read. Stream
+retention and consumer retry limits still apply; absence is not proof of no read.
+
+The optional `impression_id` query parameter is a client attribution claim,
+bounded to 64 bytes without control characters. Invalid claims become unknown.
+The authenticated Agent ID and server timestamp are authoritative. No content,
+URL, prompt, conversation text or credential is copied into this signal.
+Repeated reads deduplicate by Agent, item and claimed impression across both
+routes. Missing impressions deduplicate by Agent/item/UTC day and stay
+unattributed. These rows measure distinct inspections, not request volume.
+
+CLI 1.0.8 `feed get` supplies the latest handed, unexpired exposure; an explicit
+`--impression-id` selects an earlier one. Cached but unhanded items do not supply
+attribution. A detail read is an Agent inspection signal, not a human click,
+confirmed display, or positive rating. It never creates a score or Swing seed;
+the existing `surface`, `question`, `discussion`, `task` and score evidence
+remain separate. Client event ingestion does not accept `detail_fetch`.
+Readers of `followup_labels` that infer "this Agent reports follow-ups" must
+filter to Agent-reported kinds; `grafana_pgc_surface_7d` selects reporters from
+`surface`, `question`, `discussion` and `task` only.
+
+Apply migration `000126` before deploying API code that emits `detail_fetch`.
+The first rollout requires a full deployment: API-only deployment does not run
+migrations and would leave server-only readers in the old view's denominator.
+Migration `000125` is also required for the Feed health counters in this release.
+After both migrations are applied, subsequent API-only restarts can update
+detail-event collection. The view correction and API collection have separate
+release declarations. The corrected seven-day view recomputes from existing
+event rows; it does not rewrite or backfill those rows.
+
+Use [broadcast_behavior_signals.sql](../../scripts/diagnostics/broadcast_behavior_signals.sql)
+to export these events together with existing judgments and follow-ups. The
+read-only query joins exact `(agent_id, item_id, impression_id)` keys against
+delivered broadcast replay rows and checks event time. Missing, unmatched,
+ambiguous and before-exposure events retain explicit attribution status and no
+replay provenance. It never guesses a nearest exposure. Run against a bounded,
+settled window after asynchronous ingestion, with an operator statement timeout.
+Keep server inspection and Agent-reported behavior separate, preserve
+search/recommendation provenance, and never turn missing events into negatives.
+This collection does not change ranking weights or the existing positive-label
+definition; model adoption remains an offline evaluation decision.
+
 ## Candidate forward features
 
 Discovery candidates use the shared [online feature module](feature_index.md).

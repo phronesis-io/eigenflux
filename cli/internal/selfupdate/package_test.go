@@ -133,7 +133,13 @@ func TestStagePackageFailureRetainsOldInstallAndRejectsExistingVersion(t *testin
 		name += ".exe"
 	}
 	data := testPackage(t, packageEntry{name: "eigenflux", content: "bad CLI", mode: 0755})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(data) }))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/cli/v2/latest/release.json" || r.URL.Path == "/cli/v2/latest/package-release.json" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(data)
+	}))
 	defer server.Close()
 	m := Manifest{Version: "9.8.7", Artifacts: map[string]Artifact{name: testArtifact([]byte("different binary"))}, Packages: map[string]Artifact{name + ".zip": testArtifact(data)}}
 	if _, _, err := StagePackage(context.Background(), Options{CDN: server.URL, Home: t.TempDir(), Version: "1.0.0"}, m, root); err == nil {
@@ -230,7 +236,13 @@ func TestStageCompletePackageProbesAndReusesExactFiles(t *testing.T) {
 		}
 	}
 	data := testPackage(t, entries...)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(data) }))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/cli/v2/latest/release.json" || r.URL.Path == "/cli/v2/latest/package-release.json" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(data)
+	}))
 	defer server.Close()
 	m := Manifest{Version: "9.8.7", Artifacts: map[string]Artifact{name: testArtifact(cli)}, Packages: map[string]Artifact{name + ".zip": testArtifact(data)}}
 	root := filepath.Join(dir, "installed")

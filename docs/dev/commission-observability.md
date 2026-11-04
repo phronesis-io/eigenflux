@@ -21,7 +21,8 @@ synchronized. Fixed stages cover job admission, first order read, Agent work,
 artifact verification, upload grant/PUT/confirmation, delivery, verification,
 main-conversation reminders and retries. Use `event_at`, `duration_ms`, attempt,
 order/version, job and source-notification IDs to correlate evidence. Version
-zero is allowed only for preflight before an order has been read. Each physical
+zero is allowed for preflight before an order has been read, or for a retained
+diagnostic snapshot without a captured version. Each physical
 stage observation is assigned one receipt; its start/result share an attempt ID
 and replayed uploads reuse event IDs. A queued job has a stable receipt across
 Socket/HTTP duplicates;
@@ -34,6 +35,32 @@ may be included. Never upload prompts, answers, order inputs, absolute paths,
 file names, upload URLs, headers or credentials. A successful Agent stage does
 not establish accepted delivery, buyer confirmation or settlement. The business
 order/event/payment tables remain authoritative.
+
+### Detailed failures and retained evidence
+
+Keep the coarse `error_code` for existing consumers and attach the fixed local
+job code as `commission.local_code`. Unknown local codes remain
+`unknown_failure`; never use arbitrary exception text as a code.
+
+`check_receipt` reports `present`, `missing` or `not_applicable`. A present
+receipt retains its actual outcome, checked Order version, inspected-file count
+and source job hash. Include the input fingerprint only when the journal holds
+that verified fingerprint. Missing evidence is not reconstructed from a paid
+state, an acceptance event, a notification ACK or loose local files.
+
+`bridge_error` retains a bounded fixed code, an optional allowlisted message,
+permission operation and process exit code when captured. Keep runner and
+bridge categories separate from business failures. Exclude raw stderr, RPC
+messages, command arguments, URLs, prompts, model output, credentials and local
+paths. An older job without retained bridge details reports unknown evidence.
+
+On startup, report retained failed, blocked or unconfirmed Commission jobs using
+`stage=diagnostic_snapshot`, `result=observed`, zero attempt/duration and no
+scheduled retry, deduplicated by retained evidence. This is a new
+observation of existing local state, not another execution attempt. It must not
+start an Agent, synthesize a readiness receipt, retry a mutation, clear a job or
+change an Order. Snapshot time is observation time, not the historical failure
+time. Preserve the account, binding and Order correlation of the retained job.
 
 ## Queries and dashboards
 
@@ -48,9 +75,12 @@ from migration `000123_commission_observability_views.sql`:
   start at EigenFlux inbox receipt. ACK proves durable local intake only.
 
 Grant Grafana access to the views, never the underlying event or inbox tables.
-Deploy the backend contract and views before adopting the new CLI. Historical
-clients do not produce execution evidence; absent events do not prove success
-or failure. New client events do not backfill old execution attempts.
+Deploy the receiver before adopting the new CLI. Legacy events remain valid.
+The detailed receiver reuses the existing JSON properties and needs no database
+migration. Historical clients do not produce detailed evidence; absent events
+do not prove success or failure. Retained diagnostic snapshots do not backfill
+historical execution attempts. The anonymous stage views exclude snapshots and
+do not expose local error codes, receipts or bridge details.
 
 ## Console user actions
 
