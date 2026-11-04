@@ -119,7 +119,7 @@ No client auto-update protocol or customer self-service billing is required.
 
 ## Versioned context and matching
 
-Apply migration `000126_integration_contexts.sql` and enable the integration flag
+Apply migration `000128_integration_contexts.sql` and enable the integration flag
 on API, pipeline, and Sort together. This is a full rollout, not API-only.
 Existing personal CLI routes and their recommendation behavior stay unchanged.
 
