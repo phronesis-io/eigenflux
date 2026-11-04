@@ -28,8 +28,9 @@ var ErrCommandLineTooLong = errors.New("windows_command_line_too_long")
 var errOutputLimit = errors.New("runner_output_too_large")
 
 type Runner struct {
-	Binding        Binding
-	cliEnvironment bool
+	Binding          Binding
+	cliEnvironment   bool
+	hermesStreamJSON bool
 }
 
 func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
@@ -82,6 +83,20 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	if r.Binding.Mode == "native" && r.Binding.Host == "hermes" {
+		// Preserve argument/platform rejection before even the model-free probe.
+		if _, err := r.command(args); err != nil {
+			return Result{}, err
+		}
+		r.hermesStreamJSON, err = r.probeHermesStreamJSON(ctx)
+		if err != nil {
+			return Result{}, err
+		}
+		args, stdin, err = r.arguments(req)
+		if err != nil {
+			return Result{}, err
+		}
+	}
 	out, stderr, err := r.runProcess(ctx, args, stdin)
 	if err != nil {
 		return Result{}, err
@@ -91,6 +106,9 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 			return Result{}, errors.New("invalid_result_encoding")
 		}
 		return Result{Text: string(out)}, nil
+	}
+	if r.hermesStreamJSON {
+		return parseHermesStreamJSON(out)
 	}
 	result, err := parseNative(r.Binding.Host, out, stderr)
 	if err == nil && strings.TrimSpace(result.Text) == "" {
@@ -158,7 +176,8 @@ func (r Runner) runProcess(ctx context.Context, args []string, stdin string) ([]
 		return nil, nil, errOutputLimit
 	}
 	if err != nil {
-		return nil, nil, &DiagnosticError{Cause: errors.New("runner_exit_failed"), Code: "runner_exit_failed"}
+		exit := cmd.ProcessState.ExitCode()
+		return nil, nil, &DiagnosticError{Cause: errors.New("runner_exit_failed"), Code: "runner_exit_failed", ExitCode: &exit}
 	}
 	return out.data, stderr.data, nil
 }
@@ -206,6 +225,9 @@ func (r Runner) arguments(req Request) ([]string, string, error) {
 		return args, "", nil
 	case "hermes":
 		args = append(args, "chat", "--quiet")
+		if r.hermesStreamJSON {
+			args = append(args, "--format", "stream-json")
+		}
 		if req.SessionID != "" {
 			args = append(args, "--resume", req.SessionID)
 		}

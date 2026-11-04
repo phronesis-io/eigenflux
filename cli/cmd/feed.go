@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/cache"
@@ -150,6 +151,9 @@ var feedGetCmd = &cobra.Command{
 	Use:   "get",
 	Short: "Get item details",
 	Long: `Fetch full details of a specific item by ID.
+The latest handed, unexpired exposure supplies impression_id automatically.
+Use --impression-id when inspecting an earlier exposure. Detail fetching is
+an inspection signal, not a declaration that the item was shown to the owner.
 
 Examples:
   eigenflux feed get --item-id 123`,
@@ -162,21 +166,43 @@ Examples:
 		if contentLimit < 0 || contentLimit > 4000 {
 			return fmt.Errorf("--content-limit must be between 0 and 4000")
 		}
+		impression, _ := cmd.Flags().GetString("impression-id")
+		impression = strings.TrimSpace(impression)
+		if len(impression) > 64 || strings.ContainsFunc(impression, unicode.IsControl) {
+			return fmt.Errorf("--impression-id must be at most 64 bytes without control characters")
+		}
+		if impression == "" {
+			server := activeServerName()
+			reports, err := feedReportStore(server).Read()
+			warnReportLedger(err)
+			if e, status := feedLedger(server).LookupHanded(itemID, reports, time.Now().UnixMilli()); status == feedevent.StatusHit {
+				impression = e.ImpressionID
+			}
+		}
+		params := map[string]string{}
+		if impression != "" {
+			params["impression_id"] = impression
+		}
 		c := newClient()
-		resp, err := c.Get("/items/"+itemID, nil)
+		resp, err := c.Get("/items/"+itemID, params)
 		if err != nil {
+			recordFeedDetail(activeServerName(), itemID, nil, err)
 			return err
 		}
 		if resp.Code != 0 {
-			return fmt.Errorf("%s", resp.Msg)
+			err := fmt.Errorf("%s", resp.Msg)
+			recordFeedDetail(activeServerName(), itemID, nil, err)
+			return err
 		}
 		data := json.RawMessage(resp.Data)
 		if contentLimit > 0 {
 			data, err = limitItemDetailContent(data, contentLimit)
 			if err != nil {
+				recordFeedDetail(activeServerName(), itemID, nil, err)
 				return err
 			}
 		}
+		recordFeedDetail(activeServerName(), itemID, data, nil)
 		output.PrintData(data, resolveFormat())
 		return nil
 	},
@@ -585,6 +611,7 @@ func init() {
 	feedPollCmd.Flags().String("cursor", "", "pagination cursor (last_updated_at)")
 	feedGetCmd.Flags().String("item-id", "", "item ID to fetch (required)")
 	feedGetCmd.Flags().Int("content-limit", 0, "truncate item.content to this many Unicode code points and emit content_truncated (max 4000; 0 keeps full content)")
+	feedGetCmd.Flags().String("impression-id", "", "original exposure for detail-fetch attribution (defaults to latest handed exposure)")
 	feedFeedbackCmd.Flags().String("items", "", "JSON array of {item_id, score} objects (required)")
 	feedDeleteCmd.Flags().String("item-id", "", "item ID to delete (required)")
 	feedEventPushCmd.Flags().String("items", "", "inline JSON array of {item_id, kind, impression_id} objects (mutually exclusive with --batch)")

@@ -11,14 +11,16 @@ import (
 // from config.json, whose unrelated writers may hold an older config snapshot.
 // Identity is server-scoped; ReportedSnapshot also includes the account ID.
 type RuntimeState struct {
-	Host             string `json:"host"`
-	Mode             string `json:"mode"`
-	Revision         uint64 `json:"revision"`
-	ReportedSnapshot string `json:"reported_snapshot,omitempty"`
-	ReportedClient   string `json:"reported_client,omitempty"`
-	ReportedAtMillis int64  `json:"reported_at_millis,omitempty"`
-	CLIAutoUpdate    *bool  `json:"cli_auto_update,omitempty"`
-	CLIUpdateScope   string `json:"cli_update_scope,omitempty"`
+	Host                     string `json:"host"`
+	Mode                     string `json:"mode"`
+	Revision                 uint64 `json:"revision"`
+	ReportedSnapshot         string `json:"reported_snapshot,omitempty"`
+	ReportedClient           string `json:"reported_client,omitempty"`
+	ReportedAtMillis         int64  `json:"reported_at_millis,omitempty"`
+	CLIAutoUpdate            *bool  `json:"cli_auto_update,omitempty"`
+	CLIUpdateScope           string `json:"cli_update_scope,omitempty"`
+	CLIUpdateDiagnosticScope string `json:"cli_update_diagnostic_scope,omitempty"`
+	CLIUpdateDiagnosticCode  string `json:"cli_update_diagnostic_code,omitempty"`
 }
 
 func runtimeFilePath(homeDir, serverName string) string {

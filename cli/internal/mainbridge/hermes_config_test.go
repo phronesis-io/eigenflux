@@ -43,14 +43,14 @@ func TestHermesConfigDiagnosticFieldsAndRedaction(t *testing.T) {
 		{"no-port", func(c *HermesConfig) { c.URL = "ws://localhost/api/ws" }, invalidOwnerPort},
 		{"port-zero", func(c *HermesConfig) { c.URL = "ws://localhost:0/api/ws" }, invalidOwnerPort},
 		{"port-range", func(c *HermesConfig) { c.URL = "ws://localhost:65536/api/ws" }, invalidOwnerPort},
-		{"remote", func(c *HermesConfig) { c.URL = "wss://private-secret.example:443/api/ws" }, "hermes_main_requires_loopback"},
+		{"remote", func(c *HermesConfig) { c.URL = "wss://private-secret.example:443/api/ws" }, invalidOwnerHost},
 		{"empty-session", func(c *HermesConfig) { c.SessionID = "" }, invalidMainSession},
 		{"session-space", func(c *HermesConfig) { c.SessionID = " private-secret" }, invalidMainSession},
 		{"session-control", func(c *HermesConfig) { c.SessionID = "private-secret\n" }, invalidMainSession},
 		{"relative-workdir", func(c *HermesConfig) { c.Cwd = "private-secret" }, invalidOwnerWorkdir},
 		{"unclean-workdir", func(c *HermesConfig) { c.Cwd += string(filepath.Separator) + "." }, invalidOwnerWorkdir},
 		{"relative-token", func(c *HermesConfig) { c.TokenFile = "private-secret" }, invalidTokenPath},
-		{"missing-token", func(c *HermesConfig) { c.TokenFile = filepath.Join(base.Cwd, "private-secret") }, "hermes_main_token_unavailable"},
+		{"missing-token", func(c *HermesConfig) { c.TokenFile = filepath.Join(base.Cwd, "private-secret") }, unavailableTokenFile},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			config := base

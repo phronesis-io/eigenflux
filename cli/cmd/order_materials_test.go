@@ -225,34 +225,21 @@ func TestRetiredMaterialSubmissionFailsLocally(t *testing.T) {
 	}
 }
 
-func TestSellerAcceptanceUsesAuthenticatedVersionedRoute(t *testing.T) {
-	var calls int
-	materialTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/orders/51/accept" || r.Header.Get("Authorization") != "Bearer test-token" || r.Header.Get(idempotencyHeader) != "seller-accept-test" {
-			t.Errorf("unexpected acceptance request: %s %s", r.Method, r.URL.Path)
-		}
-		var body struct {
-			Version int64 `json:"expected_version"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Version != 1 {
-			t.Errorf("acceptance must fence the inspected version: %+v %v", body, err)
-		}
-		fmt.Fprint(w, `{"code":0,"data":{"order":{"order_id":51,"state":"pending_payment","version":2}}}`)
-	})
+func TestSellerAcceptanceRequiresInspectedVersionAndBoundAgent(t *testing.T) {
+	calls := 0
+	materialTestServer(t, func(http.ResponseWriter, *http.Request) { calls++ })
 	if orderAcceptCmd.Deprecated != "" {
-		t.Fatal("seller acceptance must be available")
+		t.Fatal("seller acceptance must remain available")
 	}
 	materialFlag(t, orderAcceptCmd, "expected-version", "0")
-	if err := orderAcceptCmd.RunE(orderAcceptCmd, []string{"51"}); err == nil || calls != 0 {
-		t.Fatal("acceptance without an inspected version must fail locally")
+	if err := orderAcceptCmd.RunE(orderAcceptCmd, []string{"51"}); err == nil {
+		t.Fatal("missing inspected version accepted")
 	}
 	materialFlag(t, orderAcceptCmd, "expected-version", "1")
-	materialFlag(t, orderAcceptCmd, "idempotency-key", "seller-accept-test")
-	if err := orderAcceptCmd.RunE(orderAcceptCmd, []string{"51"}); err != nil {
-		t.Fatal(err)
+	if err := orderAcceptCmd.RunE(orderAcceptCmd, []string{"51"}); err == nil {
+		t.Fatal("unbound manual acceptance bypassed input check")
 	}
-	if calls != 1 {
-		t.Fatalf("expected one authenticated acceptance, got %d", calls)
+	if calls != 0 {
+		t.Fatal("unbound acceptance sent network mutation")
 	}
 }

@@ -11,6 +11,7 @@ import (
 )
 
 const manifestDomain = "eigenflux_cli_release.v1\n"
+const manifestDomainV2 = "eigenflux_cli_release.v2\n"
 
 type Artifact struct {
 	SHA256 string `json:"sha256"`
@@ -18,10 +19,11 @@ type Artifact struct {
 }
 
 type Manifest struct {
-	Version   string              `json:"version"`
-	Artifacts map[string]Artifact `json:"artifacts"`
-	Packages  map[string]Artifact `json:"packages,omitempty"`
-	Signature string              `json:"signature,omitempty"`
+	Version         string              `json:"version"`
+	NotifierVersion string              `json:"notifier_version,omitempty"`
+	Artifacts       map[string]Artifact `json:"artifacts"`
+	Packages        map[string]Artifact `json:"packages,omitempty"`
+	Signature       string              `json:"signature,omitempty"`
 }
 
 var stableVersion = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
@@ -51,11 +53,15 @@ func Compare(a, b string) int {
 func payload(m Manifest) []byte {
 	m.Signature = ""
 	b, _ := json.Marshal(m)
-	return append([]byte(manifestDomain), b...)
+	domain := manifestDomain
+	if m.NotifierVersion != "" {
+		domain = manifestDomainV2
+	}
+	return append([]byte(domain), b...)
 }
 
 func Sign(m *Manifest, key ed25519.PrivateKey) error {
-	if !ValidVersion(m.Version) || len(key) != ed25519.PrivateKeySize {
+	if !ValidVersion(m.Version) || (m.NotifierVersion != "" && !ValidVersion(m.NotifierVersion)) || len(key) != ed25519.PrivateKeySize {
 		return fmt.Errorf("invalid release version or signing key")
 	}
 	m.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(key, payload(*m)))
@@ -71,7 +77,7 @@ func Verify(data []byte, key ed25519.PublicKey) (*Manifest, error) {
 	if err != nil || len(key) != ed25519.PublicKeySize || !ed25519.Verify(key, payload(m), sig) {
 		return nil, fmt.Errorf("untrusted CLI release signature")
 	}
-	if !ValidVersion(m.Version) {
+	if !ValidVersion(m.Version) || (m.NotifierVersion != "" && !ValidVersion(m.NotifierVersion)) {
 		return nil, fmt.Errorf("invalid CLI release version %s", strconv.Quote(m.Version))
 	}
 	return &m, nil

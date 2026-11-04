@@ -103,6 +103,9 @@ func newHermesFixture(t *testing.T, scenario string) *hermesFixture {
 				if scenario == "old-contract" {
 					contract = 7
 				}
+				if scenario == "contract-two" {
+					contract = 2
+				}
 				if scenario == "future-contract" {
 					contract = 9
 				}
@@ -267,12 +270,17 @@ func TestHermesBridgeProbeDoesNotSubmit(t *testing.T) {
 }
 
 func TestHermesBridgeRejectsUnverifiedTarget(t *testing.T) {
-	for _, scenario := range []string{"authority", "missing-session", "duplicate-session", "wrong-session", "wrong-cwd", "old-contract", "future-contract", "missing-running", "history-returned", "version-changed", "busy"} {
+	for _, scenario := range []string{"authority", "missing-session", "duplicate-session", "wrong-session", "wrong-cwd", "old-contract", "contract-two", "future-contract", "missing-running", "history-returned", "version-changed", "busy"} {
 		t.Run(scenario, func(t *testing.T) {
 			f := newHermesFixture(t, scenario)
 			responses, output := fixtureRun(t, f, "_eigenflux/main/notify", 3*time.Second)
 			if len(responses) == 0 || len(responses[len(responses)-1].Error) == 0 {
 				t.Fatalf("target accepted: %s", output)
+			}
+			if scenario == "old-contract" || scenario == "contract-two" || scenario == "future-contract" {
+				if !strings.Contains(output, invalidDesktopContract) || DiagnosticMessage(invalidDesktopContract) == "" {
+					t.Fatalf("missing safe contract field guidance: %s", output)
+				}
 			}
 			f.mu.Lock()
 			defer f.mu.Unlock()

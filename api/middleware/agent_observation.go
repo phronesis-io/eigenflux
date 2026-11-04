@@ -54,6 +54,12 @@ func agentActivityRoute(method, path string) bool {
 	return false
 }
 
+// agentVersionRoute observes installed CLI versions without treating background
+// settings or notification polling as Agent activity.
+func agentVersionRoute(method, path string) bool {
+	return method == http.MethodGet && (path == "/api/v2/agents/me/settings" || path == "/api/v2/notifications/pending")
+}
+
 func successfulAgentResponse(c *app.RequestContext) bool {
 	if c.Response.StatusCode() < 200 || c.Response.StatusCode() >= 300 {
 		return false
@@ -71,20 +77,26 @@ func successfulAgentResponse(c *app.RequestContext) bool {
 // ObserveSuccessfulAgentRequest runs only after Agent authentication and a
 // successful allowlisted handler. V1 credentials are shared with the old
 // Console, so that compatibility path additionally requires CLI metadata and
-// excludes browser requests. Identity/settings reads never refresh activity.
+// excludes browser requests. Allowlisted passive reads record only CLI version;
+// identity/settings reads never refresh activity.
 func ObserveSuccessfulAgentRequest(ctx context.Context, c *app.RequestContext, database *gorm.DB, agentID, startedAt int64, legacy bool) {
 	path := c.FullPath()
 	if path == "" {
 		path = string(c.Path())
 	}
-	if database == nil || !agentActivityRoute(string(c.Method()), path) || !successfulAgentResponse(c) {
+	active := agentActivityRoute(string(c.Method()), path)
+	versionOnly := agentVersionRoute(string(c.Method()), path)
+	if database == nil || (!active && !versionOnly) || !successfulAgentResponse(c) {
 		return
 	}
-	if legacy && (len(c.GetHeader("X-CLI-Ver")) == 0 || len(c.GetHeader("Origin")) > 0 || len(c.GetHeader("Sec-Fetch-Site")) > 0) {
+	if (legacy || versionOnly) && (len(c.GetHeader("X-CLI-Ver")) == 0 || len(c.GetHeader("Origin")) > 0 || len(c.GetHeader("Sec-Fetch-Site")) > 0) {
 		return
 	}
 	headers := reqinfo.BoundedClientHeaders(func(name string) string { return string(c.GetHeader(name)) })
-	obs := dal.RuntimeObservation{Host: headers.Host, Mode: headers.Mode, Model: headers.Model, CLIVersion: headers.CLIVersion, ObservedAt: startedAt, Active: true}
+	obs := dal.RuntimeObservation{Host: headers.Host, Mode: headers.Mode, Model: headers.Model, CLIVersion: headers.CLIVersion, ObservedAt: startedAt, Active: active}
+	if versionOnly {
+		obs = dal.RuntimeObservation{CLIVersion: headers.CLIVersion, ObservedAt: startedAt}
+	}
 	observationCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	result, err := dal.ObserveRuntime(database.WithContext(observationCtx), agentID, obs)
@@ -96,7 +108,7 @@ func ObserveSuccessfulAgentRequest(ctx context.Context, c *app.RequestContext, d
 		logger.Ctx(ctx).Warn("agent_runtime_observation", fields...)
 		return
 	}
-	if result.IdentityChanged {
+	if active && result.IdentityChanged {
 		agentcard.PublishRebuild(ctx, agentID, "runtime_update")
 	}
 	logger.Ctx(ctx).Info("agent_runtime_observation", fields...)

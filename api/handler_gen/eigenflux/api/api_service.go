@@ -1141,6 +1141,7 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 		detail["recent_interactions"] = list
 	}
 
+	followuplog.RecordDetailFetch(ctx, agentID, item.AuthorAgentID, item.ItemID, c.Query("impression_id"))
 	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
 		"item": detail,
 	})

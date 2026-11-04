@@ -72,3 +72,5 @@ python3 scripts/cloud/release_annotations.py --state-dir /tmp/release-validation
 
 Production checks: inspect service Result and journal, timer activity, pending
 outbox size, and exact event readback. Do not create synthetic production events.
+
+The CLI update-maintenance dashboard also accepts API instrumentation markers.

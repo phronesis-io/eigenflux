@@ -20,7 +20,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const heartbeatContractVersion = "eigenflux_heartbeat.v4"
+const heartbeatContractVersion = "eigenflux_heartbeat.v5"
 
 type heartbeatPlan struct {
 	CycleID                  string                     `json:"cycle_id,omitempty"`
@@ -40,6 +40,8 @@ type heartbeatPlan struct {
 	SchemaVersion            string                     `json:"schema_version"`
 	HeartbeatContractVersion string                     `json:"heartbeat_contract_version"`
 	CLIVersion               string                     `json:"cli_version"`
+	SkillsUpdateError        string                     `json:"skills_update_error,omitempty"`
+	SkillsTargetRevision     string                     `json:"skills_target_revision,omitempty"`
 	SkillRevision            string                     `json:"skill_revision"`
 	SkillsTarget             string                     `json:"skills_target"`
 	Skills                   []string                   `json:"skills"`
@@ -224,10 +226,15 @@ var heartbeatPlanCmd = &cobra.Command{
 			if res.Source == "local" {
 				e.Result = "no_update"
 			}
+			if res.RetentionCode != "" {
+				e.Result, e.ErrorCode = "blocked", res.RetentionCode
+				e.FromVersion, e.RunningVersion = manifest.Revision, manifest.Revision
+				e.ToVersion = res.TargetRevision
+			}
 			if _, validationErr := localHeartbeatSkills(meta.Host); validationErr != nil {
 				e.Result = "blocked"
 				e.ErrorCode = "local_verification_failed"
-			} else {
+			} else if res.RetentionCode == "" {
 				receipt := maintenance.NewEvent(skillsAttempt, "skills", "auto", "read", "rules_read")
 				receipt.ToVersion = manifest.Revision
 				skillsReadReceipt = &receipt
@@ -270,6 +277,7 @@ var heartbeatPlanCmd = &cobra.Command{
 			CLIUpdate:           cliUpdate,
 			SchemaVersion:       "eigenflux_heartbeat_plan.v1", HeartbeatContractVersion: heartbeatContractVersion,
 			CLIVersion: version, SkillRevision: manifest.Revision, SkillsTarget: res.SkillsDir,
+			SkillsUpdateError: res.RetentionCode, SkillsTargetRevision: res.TargetRevision,
 			RuleSources: ruleSources, ExecutionOrder: heartbeatStages(access),
 			Access: access, WakeOnEmpty: heartbeatWakeOnEmpty(access, pluginMaintenance),
 			CLIPrefix:         cliPrefix,
@@ -461,6 +469,9 @@ func heartbeatStages(access runtimeAccess) []string {
 
 func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 	receiptText := cycleInstructions(plan)
+	if plan.SkillsUpdateError != "" {
+		receiptText += "\nSkills update incomplete: " + plan.SkillsUpdateError + ". Running retained compatible revision " + plan.SkillRevision + "; target revision " + plan.SkillsTargetRevision + ". Do not report this as an upgrade success or latest-version confirmation.\n"
+	}
 	if plan.OuterLoop != nil {
 		b, _ := json.Marshal(plan.OuterLoop)
 		receiptText += "\nOuter loop recovery: " + string(b) + ". Report unresolved recovery separately; a running notification watch does not prove Agent dispatch is ready.\n"
@@ -515,8 +526,8 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 	}
 	completion := ""
 	if plan.FeedCompletionCheck {
-		completion = "\nBefore leaving the Feed stage, run " + plan.CLIPrefix + " feed status. Score every item it lists, then continue."
-		completion += "\nAfter the Feed push, run " + plan.CLIPrefix + " feed status --after-push. Report surface only for listed items the owner was actually shown."
+		completion = "\nBefore leaving the Feed stage, run " + plan.CLIPrefix + " feed status --cycle <id>. Score every item it lists, then continue. Without a cycle use unscoped status."
+		completion += "\nAfter the Feed push, run " + plan.CLIPrefix + " feed status --after-push --cycle <id> to close the cycle after recording surface for items actually shown; close it the same way when nothing is pushed. Without a cycle use unscoped status."
 	}
 	executorNotice := ""
 	if plan.PluginMaintenance.Executor == "cli" {
@@ -543,7 +554,7 @@ MANDATORY FOR THIS CYCLE
 %s
 2. Apply runtime-model.md before subsequent CLI calls: resolve the current model and pass it through --runtime-model for each invocation. If unavailable, keep it unset and continue permitted Feed work.
 3. Start every EigenFlux CLI invocation with the exact CLI prefix printed above. Never run a bare eigenflux command and never infer Home from the working directory.
-4. Runtime access: %s. Execute the available stages in order: %s. Apply the current Skills to each stage. A Feed payload supplied by the host is this cycle's completed pull. feed next reads this cycle's saved page and is not a pull. A Feed batch names its output contract file; read that file completely before processing the batch.
+4. Runtime access: %s. Execute the available stages in order: %s. Apply the current Skills to each stage. A Feed payload supplied by the host is this cycle's completed pull. feed next reads this cycle's saved page and is not a pull. Follow the inline contract core; read the named details before their actions, otherwise skip those actions. Score and submit each batch before following its next command with --cycle. Scheduled cycles stop at 4 batches or open=0 backlog=0, then push completed recommendations once. Owner checks drain without that cap. After compaction use feed recover --cycle <id>, never re-score recovered items.
 %s
 5. Follow the current Skills for onboarding restrictions and recovery. Host harness output and notification requirements take precedence over Skill silence tokens and display conventions.
 

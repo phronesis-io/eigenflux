@@ -102,6 +102,22 @@ function Download-WithRetry {
     }
 }
 
+# Only HTTP 404 permits fallback to the legacy bridge release channel.
+function Get-LatestCliVersion {
+    try {
+        $value = (Invoke-RestMethod -Uri "${CdnUrl}/cli/v2/latest/version.txt" -TimeoutSec 30).Trim()
+    } catch {
+        if ($null -eq $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 404) {
+            throw
+        }
+        $value = (Invoke-RestMethod -Uri "${CdnUrl}/cli/latest/version.txt" -TimeoutSec 30).Trim()
+    }
+    if ($value -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
+        throw 'Invalid published CLI version'
+    }
+    return $value
+}
+
 # ── Step 1: Install CLI binary ────────────────────────────────
 
 function Install-Cli {
@@ -115,7 +131,7 @@ function Install-Cli {
     Info "Detected: windows/${arch}"
 
     try {
-        $script:latestVersion = (Invoke-RestMethod -Uri "${CdnUrl}/cli/latest/version.txt").Trim()
+        $script:latestVersion = Get-LatestCliVersion
     } catch {
         Err "Failed to fetch latest version from ${CdnUrl}"
     }

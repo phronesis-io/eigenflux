@@ -206,3 +206,54 @@ func TestReadAttemptWindowIsBoundedAndSurvivesEventUpload(t *testing.T) {
 		t.Fatal("read receipt crossed identity boundary")
 	}
 }
+
+func TestCLIAdoptionSurvivesQueueFlushAndOtherMaintenance(t *testing.T) {
+	scope := Scope{Home: t.TempDir(), Server: "same", AgentID: "1"}
+	installed := NewEvent(NewID(), "cli", "auto", "adoption", "installed")
+	installed.FromVersion, installed.ToVersion = "1.0.8", "1.0.9"
+	if err := RecordCLIAdoption(scope, installed, "principal", "https://api.example"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Flush(scope, time.Now(), func([]Event) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if err := Record(scope, NewEvent(NewID(), "cli", "auto", "check", "waiting_online")); err != nil {
+		t.Fatal(err)
+	}
+	state, err := Snapshot(scope)
+	if err != nil || state.PendingCLIAdoption == nil || state.PendingCLIAdoption.Event.AttemptID != installed.AttemptID {
+		t.Fatalf("installation context lost: %+v %v", state, err)
+	}
+	for _, matching := range []bool{false, true} {
+		attempt := NewID()
+		if matching {
+			attempt = installed.AttemptID
+		}
+		executed := NewEvent(attempt, "cli", "auto", "execute", "executed")
+		executed.FromVersion, executed.ToVersion, executed.RunningVersion = "1.0.8", "1.0.9", "1.0.9"
+		if err := Record(scope, executed); err != nil {
+			t.Fatal(err)
+		}
+		state, _ := Snapshot(scope)
+		if (state.PendingCLIAdoption == nil) != matching {
+			t.Fatalf("context cleared without matching execution=%v: %+v", matching, state)
+		}
+	}
+}
+
+func TestCLIAdoptionRetentionAndValidation(t *testing.T) {
+	scope := Scope{Home: t.TempDir(), Server: "same", AgentID: "1"}
+	e := NewEvent(NewID(), "cli", "auto", "adoption", "installed")
+	if err := RecordCLIAdoption(scope, e, "principal", "https://api.example"); err == nil {
+		t.Fatal("missing target accepted")
+	}
+	e.FromVersion, e.ToVersion = "1.0.8", "1.0.9"
+	e.EventAt = time.Now().Add(-Retention - time.Hour).UnixMilli()
+	if err := RecordCLIAdoption(scope, e, "principal", "https://api.example"); err != nil {
+		t.Fatal(err)
+	}
+	state, err := Snapshot(scope)
+	if err != nil || state.PendingCLIAdoption != nil {
+		t.Fatalf("expired context retained: %+v %v", state, err)
+	}
+}

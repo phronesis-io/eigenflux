@@ -10,6 +10,17 @@ notice receipts retain hashed host session/run IDs. Material reminders retain
 the order version and request hash/round. Observation failures never repeat an
 operation or change a job/Order state; business records remain authoritative.
 
+Preserve fixed local job codes in `commission.local_code` alongside the coarse
+category. Attach structured check receipts and captured, allowlisted bridge
+diagnostics. A receipt reports actual presence/outcome, checked version,
+inspected-file count and retained fingerprint; an unknown bridge failure stays
+unknown. Do not upload raw errors, prompts, process output or local paths.
+
+Startup reports retained blocked, failed or unconfirmed jobs as deduplicated
+`diagnostic_snapshot` observations. Snapshotting never invokes the Agent or
+replays a business operation. Deploy the API receiver before the matching CLI;
+upgrading cannot recover bridge details an older process never saved.
+
 # CLI update observations
 
 Heartbeat and watch share the existing maintenance queue and attempt IDs.
@@ -24,6 +35,20 @@ network failure, malformed response and cache read/write error. Both automatic
 entries retain the effective account/endpoint cache or the enabled default;
 these observations do not change the server switch or update eligibility.
 Policy-enabled reports are effective state, not proof of a successful policy GET.
+Repeated identical policy errors are suppressed across maintenance entries using
+Home/server-local account, principal, endpoint and CLI-version scoped state.
+A changed reason emits another warning; the first successful fetch emits one
+`no_update` / `update_policy_recovered` receipt. Requests, the three-second
+settings timeout and cached/default policy behavior remain unchanged. These
+warnings do not establish an attempted or failed binary upgrade.
+
+An installed CLI retains the original attempt and identity locally until a
+matching new process records `execute.executed`. Watch startup records this
+before runtime readiness, including notification-only and supervisor restarts.
+`installed`, `executed` and `runtime_ready` mean installation, process execution
+and runtime readiness respectively; none implies the next stage. Pending
+execution evidence expires with the maintenance retention window. Historical
+missing receipts are not reconstructed.
 Only clients running the new diagnostics emit these codes. Historical generic
 codes and missing evidence retain their original meaning.
 

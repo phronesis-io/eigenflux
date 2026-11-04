@@ -96,7 +96,8 @@ func (s *Service) searchCommissions(ctx context.Context, query string, vector []
 		score := commissionScore(hit)
 		features, _ := json.Marshal(map[string]any{"keyword_score": hit.KeywordScore, "semantic_score": hit.SemanticScore, "completion_rate_bps": hit.Document.CompletionRateBPS, "rating_milli": hit.Document.AverageRatingMilli, "completed_count": hit.Document.CompletedCount})
 		featureString := string(features)
-		out = append(out, &sort.CommissionCandidate{CommissionId: hit.Document.CommissionID, Score: score, Features: &featureString})
+		title, price, currency, duration := hit.Document.Title, hit.Document.PriceFen, hit.Document.Currency, hit.Document.PromisedDeliveryMS
+		out = append(out, &sort.CommissionCandidate{CommissionId: hit.Document.CommissionID, Score: score, Features: &featureString, Title: &title, PriceFen: &price, Currency: &currency, PromisedDeliveryMs: &duration})
 	}
 	sortCommissionCandidates(out)
 	return out, nil

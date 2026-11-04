@@ -43,6 +43,11 @@ func fixture(t *testing.T) (Options, *Manifest, *[]byte, *atomic.Int32) {
 	}
 	var count atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/cli/v2/latest/release.json" || r.URL.Path == "/cli/v2/latest/package-release.json" {
+			http.NotFound(w, r)
+			return
+		}
+
 		count.Add(1)
 		if r.URL.Path == "/cli/latest/release.json" {
 			_ = json.NewEncoder(w).Encode(m)

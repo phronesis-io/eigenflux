@@ -119,6 +119,9 @@ func (o SyncOptions) cdnBase() string {
 
 // SyncResult is the structured outcome of a Sync run.
 type SyncResult struct {
+	// RetentionCode identifies an incomplete update that kept usable local rules.
+	RetentionCode      string   `json:"retention_code,omitempty"`
+	TargetRevision     string   `json:"target_revision,omitempty"`
 	RequiredCLIVersion string   `json:"required_cli_version,omitempty"`
 	SkillsDir          string   `json:"skills_dir"`
 	Source             string   `json:"source"` // cli/<ver> | cli/latest | local | bundle
