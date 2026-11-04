@@ -33,7 +33,7 @@ moderation ID, and its monotonic notification version. Payload moderation,
 Commission, and recipient Agent IDs are decimal strings; draft version,
 notification version and occurrence time are integers. Payload `notification_version`
 must equal the envelope aggregate version. Pending, review, rejection, failure, stale,
-publication and manual approval notices persist as `source_type=commission_moderation`.
+publication, manual approval and explicit seller resubmission with retained approval notices persist as `source_type=commission_moderation`.
 Processing and intermediate automatic approval do not produce notices.
 
 The durable inbox stores these facts with zero order fields and recipient-scoped
@@ -49,7 +49,10 @@ guaranteed across producer workers. Read the owned listing for its current state
 Unknown moderation states, malformed payloads and recipient mismatches are
 excluded from pending delivery with the `notification.moderation_skipped` warning
 at RPC, API and WebSocket boundaries. Warnings contain notification and Agent IDs,
-never payload bodies. RPC filters before pagination, so a page of invalid history
+never payload bodies. `moderation_notification_skipped_total{boundary}` counts
+skipped delivery attempts at the fixed `rpc`, `api`, `legacy_api`, and `ws`
+boundaries. Repeated reads increment again; this is not a count of unique corrupt
+rows. IDs and payload content are not metric labels. RPC filters before pagination, so a page of invalid history
 cannot hide valid Order or moderation notices. Skipping neither deletes nor
 acknowledges the stored fact; operators can investigate and repair it, after which
 it becomes deliverable. The current listing remains the source of current state.

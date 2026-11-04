@@ -2,7 +2,9 @@ package push
 
 import (
 	"context"
+	"eigenflux_server/pkg/metrics"
 	"encoding/json"
+	dto "github.com/prometheus/client_model/go"
 	"strings"
 	"testing"
 
@@ -73,9 +75,20 @@ func TestFetchPendingModerationAndOrderNotifications(t *testing.T) {
 		{NotificationId: 85, SourceType: "commission_moderation"},
 		{NotificationId: 86, SourceType: "commission_moderation", PayloadJson: stringPointer(strings.Replace(moderation, `"status":"review"`, `"status":"future"`, 1))},
 	}}}
+	counter := metrics.ModerationNotificationSkippedTotal.WithLabelValues("ws")
+	before, after := &dto.Metric{}, &dto.Metric{}
+	if err := counter.Write(before); err != nil {
+		t.Fatal(err)
+	}
 	data, err := fetchPendingNotificationData(context.Background(), stub, 42)
 	if err != nil || len(data.Notifications) != 2 || stub.ackCalls != 0 {
 		t.Fatalf("push projection: %#v %v", data, err)
+	}
+	if err := counter.Write(after); err != nil {
+		t.Fatal(err)
+	}
+	if got := after.GetCounter().GetValue() - before.GetCounter().GetValue(); got != 4 {
+		t.Fatalf("skipped metric delta = %v, want 4", got)
 	}
 	notice := data.Notifications[1]
 	if notice.SourceType != "commission_moderation" || string(notice.Payload) != moderation {

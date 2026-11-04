@@ -134,6 +134,7 @@ func drainCommissionNotifications(api *client.Client, format, language string, w
 			}
 			ackAPI := *api
 			ackAPI.Token, ackAPI.OnUnauthorized = credentials.AccessToken, nil
+			moderationOwned, moderationOwnerKnown := false, false
 			ackItems := make([]map[string]string, 0, len(page.Notifications))
 			for _, raw := range page.Notifications {
 				var header struct {
@@ -143,9 +144,12 @@ func drainCommissionNotifications(api *client.Client, format, language string, w
 					continue
 				}
 				if header.Source == moderationNotificationSource {
-					moderationOwned, err := moderationNotificationsOwnedByWatch(api)
-					if err != nil {
-						return err
+					if !moderationOwnerKnown {
+						moderationOwned, err = moderationNotificationsOwnedByWatch(api)
+						if err != nil {
+							return err
+						}
+						moderationOwnerKnown = true
 					}
 					if moderationOwned {
 						continue

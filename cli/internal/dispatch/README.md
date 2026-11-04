@@ -147,12 +147,18 @@ The inbox is authoritative: if output fails after persistence, retry may ACK the
 saved notice without emitting it again. `watch notices` still exposes it.
 A newly saved notice emits `commission_moderation_notification`; this event has
 no Order, PM, cursor or dispatch job fields. Generic `notification_push` output
-contains only subscribed Order notices, never moderation or unknown sources.
+retains every non-moderation entry, including unknown sources and unsubscribed
+Orders, with their raw fields and envelope extensions. Forwarding an Order is
+separate from CLI execution/ACK ownership. Pure legacy socket batches use the
+existing local identity check without HTTP token refresh or Commission lookup.
 Neither path creates a moderation execution or main-Agent job. Installed host
 adapters can ignore the informational event and users can still read the inbox.
 
-When configured, desktop delivery additionally enqueues the same notice with a
-scoped notification ID. Legacy stream saves and renders moderation before ACK
+When configured, desktop delivery enqueues the same notice with a scoped ID
+before the completed inbox receipt is saved. An enqueue failure leaves no
+receipt and no ACK. If enqueue succeeds but inbox persistence fails, retry
+reuses the desktop queue's stable ID; the completed receipt is written only
+after both durable sinks succeed. Legacy stream saves and renders moderation before ACK
 when no watch owns that source; a persisted PM-only binding owns moderation but
 leaves Orders to legacy consumption. Invalid moderation entries remain pending
 and emit a fixed diagnostic in watch; they do not block valid neighbors' ACKs.
@@ -161,6 +167,15 @@ awaiting publication, while only `published` confirms public availability.
 Desktop links open the Trade page without claiming a specific selected account
 or a service deep-link. Payload eviction does not remove its 90-day receipt.
 Duplicate receipts neither emit another host event nor enqueue desktop delivery.
+
+Ordinary/PM-only watches use the existing PM fallback tick for moderation:
+reconcile each minute while the socket is unavailable and every 15 minutes while
+healthy to recover missed wake-ups. Socket connection/reconnection already
+replays pending notices, so these watches start no separate notification loop.
+Explicit Order and notification-only owners retain their initial/minute HTTP
+reconciliation. Bindings with neither PM nor Orders use initial/15-minute HTTP
+reconciliation because they have no socket. Seller state remains durable on the
+server between reconciliations.
 
 ## Commission input inspection
 

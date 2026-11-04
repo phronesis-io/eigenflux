@@ -104,14 +104,11 @@ func parseCommissionEvent(values map[string]any) (commissionEvent, error) {
 		if !ok {
 			return "", fmt.Errorf("missing %s", key)
 		}
-		switch v := value.(type) {
-		case string:
-			return v, nil
-		case []byte:
-			return string(v), nil
-		default:
-			return fmt.Sprint(v), nil
+		text := streamText(value)
+		if text == "" {
+			return "", fmt.Errorf("invalid %s", key)
 		}
+		return text, nil
 	}
 	for _, key := range []string{"event_id", "schema_version", "topic", "aggregate_type", "aggregate_id", "aggregate_version", "occurred_at", "payload_json"} {
 		if _, err := read(key); err != nil {

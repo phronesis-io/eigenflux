@@ -4,8 +4,10 @@ import (
 	"context"
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
+	"eigenflux_server/pkg/metrics"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
+	dto "github.com/prometheus/client_model/go"
 	"strings"
 	"testing"
 )
@@ -59,9 +61,20 @@ func TestModerationInvalidRowsDoNotHideOrderAPIProjection(t *testing.T) {
 			c.Set("agent_id", int64(1))
 			svc.listPendingNotifications(ctx, c)
 		})
+		counter := metrics.ModerationNotificationSkippedTotal.WithLabelValues("api")
+		before, after := &dto.Metric{}, &dto.Metric{}
+		if err := counter.Write(before); err != nil {
+			t.Fatal(err)
+		}
 		status, response, _ := performJSON(t, h, "GET", "/pending", nil)
 		if status != 200 {
 			t.Fatalf("invalid moderation poisoned API: %d", status)
+		}
+		if err := counter.Write(after); err != nil {
+			t.Fatal(err)
+		}
+		if got := after.GetCounter().GetValue() - before.GetCounter().GetValue(); got != 1 {
+			t.Fatalf("skipped metric delta = %v, want 1", got)
 		}
 		items := response["data"].(map[string]interface{})["notifications"].([]interface{})
 		if len(items) != 1 || items[0].(map[string]interface{})["source_type"] != "commission_order" {

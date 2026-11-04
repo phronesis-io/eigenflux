@@ -114,8 +114,8 @@ func TestWatchCommissionPersistsWholePageBeforeACKAndDeduplicates(t *testing.T) 
 		if _, err := time.Parse(time.RFC3339Nano, data["received_at"].(string)); err != nil {
 			t.Fatal(err)
 		}
-		if len(data["notifications"].([]json.RawMessage)) != 2 {
-			t.Fatal("non-order notification leaked into order event output")
+		if len(data["notifications"].([]json.RawMessage)) != 3 {
+			t.Fatal("generic non-moderation notification was lost")
 		}
 		return nil
 	}

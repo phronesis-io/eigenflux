@@ -6,7 +6,9 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
 	"eigenflux_server/kitex_gen/eigenflux/notification/notificationservice"
+	"eigenflux_server/pkg/metrics"
 	"github.com/cloudwego/kitex/client/callopt"
+	dto "github.com/prometheus/client_model/go"
 	"testing"
 )
 
@@ -46,9 +48,20 @@ func TestLegacyFeedMissingModerationPayloadDoesNotHideOrder(t *testing.T) {
 		{NotificationId: 1, SourceType: "commission_moderation"},
 		{NotificationId: 2, SourceType: "commission_order", PayloadJson: &order},
 	}}}
+	counter := metrics.ModerationNotificationSkippedTotal.WithLabelValues("legacy_api")
+	before, after := &dto.Metric{}, &dto.Metric{}
+	if err := counter.Write(before); err != nil {
+		t.Fatal(err)
+	}
 	pending, projected := fetchPendingNotifications(context.Background(), 1)
 	if len(projected) != 1 || projected[0]["source_type"] != "commission_order" {
 		t.Fatal("missing moderation payload exposed or hid Order")
+	}
+	if err := counter.Write(after); err != nil {
+		t.Fatal(err)
+	}
+	if got := after.GetCounter().GetValue() - before.GetCounter().GetValue(); got != 1 {
+		t.Fatalf("skipped metric delta = %v, want 1", got)
 	}
 	ackNotifications(1, pending)
 }

@@ -69,9 +69,17 @@ func (w *accountWatch) pmFallbackLoop(ctx context.Context) error {
 	if !w.receivesPM() {
 		return nil
 	}
+	lastModeration := time.Now()
 	for watchPause(ctx, time.Minute) {
 		if err := w.pollPM(ctx); err != nil {
 			if fatal := w.diagnostic("pm_poll", err); fatal != nil {
+				return fatal
+			}
+		}
+		var err error
+		lastModeration, err = w.reconcileModeration(ctx, lastModeration, time.Now())
+		if err != nil {
+			if fatal := w.diagnostic("moderation_poll", err); fatal != nil {
 				return fatal
 			}
 		}

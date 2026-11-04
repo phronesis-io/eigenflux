@@ -55,7 +55,7 @@ func moderationStatusText(language, status string) string {
 		"pending":   {"Queued for review", "已提交审核"},
 		"review":    {"Awaiting manual review", "等待人工审核"},
 		"reject":    {"Listing rejected", "审核未通过"},
-		"pass":      {"Approved; publication pending", "人工审核通过，等待上架"},
+		"pass":      {"Approved; publication pending", "审核通过，等待上架"},
 		"published": {"Service published", "服务已上架"},
 		"failed":    {"Review or publication failed", "审核或上架失败"},
 		"stale":     {"Listing changed; publish again", "服务内容已变更，请重新提交上架"},
@@ -93,33 +93,28 @@ func moderationNotificationText(language string, notice moderationNotification) 
 	return title, body
 }
 
-func (w *accountWatch) enqueueModerationNotification(raw json.RawMessage) (bool, error) {
-	notice, err := parseModerationNotification(raw, w.identity.AgentID)
+func (w *accountWatch) enqueueModerationNotification(notice moderationNotification) (bool, error) {
+	fresh, err := saveModerationNoticeWithSink(w.home, w.scope, w.identity.AgentID, notice, func() error {
+		if w.desktop == nil {
+			return nil
+		}
+		target, err := url.Parse(w.server.Endpoint)
+		if err != nil || target.Host == "" || target.User != nil || target.RawQuery != "" || target.Fragment != "" {
+			return errors.New("invalid_moderation_notification_origin")
+		}
+		target.Path, target.RawPath = "/dashboard/trade", ""
+		title, body := moderationNotificationText(desktopnotify.SystemLanguage(), notice)
+		return w.desktop.Enqueue(desktopnotify.Message{ID: w.scope + ":moderation:" + strconv.FormatInt(int64(notice.ID), 10), Title: title, Body: body, URL: target.String()})
+	})
 	if err != nil {
 		return false, err
 	}
-	fresh, err := saveModerationNotice(w.home, w.scope, w.identity.AgentID, notice)
-	if err != nil {
-		return false, err
-	}
-	// The inbox is the durable informational sink, including hosts without desktop support.
+	// A completed receipt covers every enabled durable sink. Output is recoverable
+	// from watch notices even if the host output fails after the receipt is saved.
 	if fresh {
 		if err := w.emit("commission_moderation_notification", map[string]any{"notification": notice}); err != nil {
 			return false, err
 		}
-	}
-	if !fresh || w.desktop == nil {
-		return true, nil
-	}
-	target, err := url.Parse(w.server.Endpoint)
-	if err != nil || target.Host == "" || target.User != nil || target.RawQuery != "" || target.Fragment != "" {
-		return false, errors.New("invalid_moderation_notification_origin")
-	}
-	target.Path, target.RawPath = "/dashboard/trade", ""
-	title, body := moderationNotificationText(desktopnotify.SystemLanguage(), notice)
-	message := desktopnotify.Message{ID: w.scope + ":moderation:" + strconv.FormatInt(int64(notice.ID), 10), Title: title, Body: body, URL: target.String()}
-	if err := w.desktop.Enqueue(message); err != nil {
-		return false, err
 	}
 	return true, nil
 }
@@ -188,6 +183,9 @@ func readModerationInbox(home, scope, agentID string) (moderationInbox, error) {
 	return inbox, nil
 }
 func saveModerationNotice(home, scope, agentID string, notice moderationNotification) (bool, error) {
+	return saveModerationNoticeWithSink(home, scope, agentID, notice, nil)
+}
+func saveModerationNoticeWithSink(home, scope, agentID string, notice moderationNotification, beforeSave func() error) (bool, error) {
 	inbox, err := readModerationInbox(home, scope, agentID)
 	if err != nil {
 		return false, err
@@ -212,6 +210,13 @@ func saveModerationNotice(home, scope, agentID string, notice moderationNotifica
 	// Never discard an unexpired receipt just to make space: retain remote pending.
 	if len(inbox.Receipts) >= moderationReceiptLimit {
 		return false, errors.New("moderation_receipts_full")
+	}
+	// Durable desktop enqueue comes before the completed receipt. Its stable ID
+	// makes a retry safe if the later inbox write fails.
+	if beforeSave != nil {
+		if err := beforeSave(); err != nil {
+			return false, err
+		}
 	}
 	inbox.Receipts[id] = now
 	// An expired receipt may still have a retained payload; replace it on redelivery.

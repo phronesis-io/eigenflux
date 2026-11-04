@@ -13,6 +13,7 @@ import (
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
 	"eigenflux_server/pkg/audience"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/notificationpayload"
 	"eigenflux_server/pkg/reqinfo"
 	"eigenflux_server/rpc/notification/dal"
@@ -135,6 +136,7 @@ func (s *NotificationServiceImpl) ListPending(ctx context.Context, req *notifica
 		if row.SourceType == notificationpayload.SourceCommissionModeration {
 			payload, err := notificationpayload.ModerationForAgent(payloadJSON, req.AgentId)
 			if err != nil {
+				metrics.ModerationNotificationSkippedTotal.WithLabelValues("rpc").Inc()
 				logger.Ctx(ctx).Warn("invalid moderation notification skipped", "event", "notification.moderation_skipped", "notificationID", row.NotificationID, "agentID", req.AgentId)
 				continue
 			}

@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/notificationpayload"
 	"fmt"
+	dto "github.com/prometheus/client_model/go"
 	"strings"
 	"testing"
 
@@ -173,9 +175,20 @@ func TestInvalidModerationDoesNotBlockPendingPaginationOrOrderAck(t *testing.T) 
 		}
 	}
 	limit := int32(1)
+	counter := metrics.ModerationNotificationSkippedTotal.WithLabelValues("rpc")
+	before, after := &dto.Metric{}, &dto.Metric{}
+	if err := counter.Write(before); err != nil {
+		t.Fatal(err)
+	}
 	first, err := service.ListPending(ctx, &notification.ListPendingReq{AgentId: 1, Limit: &limit})
 	if err != nil || first.BaseResp.Code != 0 || len(first.Notifications) != 1 || first.Notifications[0].NotificationId != 900 || !first.GetHasMore() {
 		t.Fatalf("invalid rows blocked first page: %#v %v", first, err)
+	}
+	if err := counter.Write(after); err != nil {
+		t.Fatal(err)
+	}
+	if got := after.GetCounter().GetValue() - before.GetCounter().GetValue(); got != 101 {
+		t.Fatalf("skipped metric delta = %v, want 101", got)
 	}
 	cursor := first.GetNextCursor()
 	next, err := service.ListPending(ctx, &notification.ListPendingReq{AgentId: 1, Limit: &limit, Cursor: &cursor})

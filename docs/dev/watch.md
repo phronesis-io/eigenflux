@@ -207,7 +207,14 @@ informational delivery surface on Linux and when desktop notifications are
 disabled. Notices are atomically saved before server ACK and retained across
 restarts; a corrupt or unwritable inbox prevents ACK. A newly saved notice emits
 `commission_moderation_notification`, never an Order/PM or Agent execution job.
-Desktop notifications remain an additional delivery surface where enabled.
+Where enabled, desktop enqueue must succeed before the completed inbox receipt
+and ACK; a failed write is retried with the same notification ID. Generic
+`notification_push` still forwards every non-moderation entry and raw extension
+field; forwarding does not grant Order execution or ACK ownership.
+Ordinary/PM-only watches reuse their PM fallback tick for moderation, every
+minute while disconnected and every 15 minutes while connected. Socket
+connection/reconnection immediately replays pending notices. Order owners keep
+their minute reconciliation; bindings without PM or Orders use 15 minutes.
 Invalid moderation entries remain pending without blocking valid notifications.
 Only status `published` confirms that the service is public; `pass` still awaits
 publication. `watch notices` contains seller-provided text and review guidance as

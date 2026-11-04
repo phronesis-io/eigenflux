@@ -292,15 +292,16 @@ published catalogue returns `items: []`. The API Gateway uses the existing
 Commission writes seller status changes and their versioned outbox events in the
 same transaction. EigenFlux consumes `commission.moderation.changed.v1` into the
 durable `commission_moderation` inbox source (migration 127). Pending, manual
-review, rejection, failure, stale draft, manual approval and publication changes
+review, rejection, failure, stale draft, approval/resumed publication and publication changes
 notify the seller; internal processing and automatic approval before publication
 do not create extra notices. Review and rejection include the field and seller
 guidance. Notifications are historical events; listing reads remain authoritative.
 
 Every account watch receives these notices independently of Order subscriptions.
 Before ACK, it persists the latest 100 in an account-scoped informational inbox,
-readable with `watch notices` even without desktop support. Desktop delivery is
-additional where enabled. The dedicated `commission_moderation_notification`
+readable with `watch notices` even without desktop support. Where enabled,
+desktop enqueue precedes the completed receipt, so failed enqueue remains
+retryable before ACK. The dedicated `commission_moderation_notification`
 event never schedules Agent execution or Order work. Legacy stream saves and
 renders notices when no watch binding owns that source; invalid moderation
 notices do not block valid neighbors. Existing notification rollout settings

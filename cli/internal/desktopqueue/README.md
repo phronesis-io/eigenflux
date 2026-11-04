@@ -29,6 +29,10 @@ the service ID, draft version, status and bounded seller guidance; the link open
 in the independent 100-entry informational inbox exposed by `watch notices`.
 That inbox enables ACK and retrieval without desktop support or an Order
 subscription; desktop permission failures do not remove those saved notices.
+When a desktop queue is enabled, enqueue must succeed before the informational
+inbox records a completed 90-day receipt. Failed enqueue leaves the remote notice
+pending with no completed receipt. If the later inbox write fails, the desktop
+queue's stable ID makes retry safe. A completed receipt skips duplicate enqueue.
 
 ## Persistence and retry
 

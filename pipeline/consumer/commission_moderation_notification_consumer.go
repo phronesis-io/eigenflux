@@ -73,17 +73,6 @@ func (c *CommissionModerationNotificationConsumer) Handle(ctx context.Context, _
 	return HandleSuccess
 }
 
-func streamText(value any) string {
-	switch value := value.(type) {
-	case string:
-		return value
-	case []byte:
-		return string(value)
-	default:
-		return ""
-	}
-}
-
 func parseCommissionModerationNotification(values map[string]any, now int64) (*dal.InboxNotification, error) {
 	invalid := errors.New("invalid Commission moderation event envelope")
 	if streamText(values["schema_version"]) != "1" || streamText(values["topic"]) != notificationpayload.CommissionModerationTopic || streamText(values["aggregate_type"]) != "commission_moderation" {

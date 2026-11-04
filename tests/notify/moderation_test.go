@@ -111,6 +111,8 @@ func TestCommissionModerationStreamPendingAndAck(t *testing.T) {
 }
 
 func TestCorruptModerationDoesNotBlockOrderPendingAndAck(t *testing.T) {
+	// This test asserts exact pagination across all sources, so isolate persistent announcements too.
+	cleanNotifyTestData(t)
 	cfg := config.Load()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -147,7 +149,14 @@ func TestCorruptModerationDoesNotBlockOrderPendingAndAck(t *testing.T) {
 	limit := int32(1)
 	pending, err := rpc.ListPending(ctx, &notificationrpc.ListPendingReq{AgentId: recipient, Limit: &limit})
 	if err != nil || pending.BaseResp.Code != 0 || len(pending.Notifications) != 1 || pending.Notifications[0].NotificationId != firstID+101 || pending.GetHasMore() {
-		t.Fatal("invalid moderation history blocked valid Order pagination")
+		if err != nil {
+			t.Fatal(err)
+		}
+		source := ""
+		if len(pending.Notifications) > 0 {
+			source = pending.Notifications[0].SourceType
+		}
+		t.Fatalf("invalid moderation history blocked Order pagination: code=%d count=%d first_source=%s has_more=%t", pending.BaseResp.Code, len(pending.Notifications), source, pending.GetHasMore())
 	}
 	ack, err := rpc.AckNotifications(ctx, &notificationrpc.AckNotificationsReq{AgentId: recipient, Items: []*notificationrpc.AckNotificationItem{{NotificationId: firstID + 101, SourceType: "commission_order"}}})
 	if err != nil || ack.BaseResp.Code != 0 {

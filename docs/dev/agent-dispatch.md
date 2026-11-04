@@ -257,11 +257,13 @@ Every account watch receives listing moderation independently of `commission_ord
 Before ACK, it atomically saves the latest 100 notices in the account-scoped
 informational inbox, readable as JSON through `watch notices`, including Linux
 and desktop-disabled hosts. Recent IDs deduplicate across retries and restarts.
-Where enabled, desktop delivery additionally queues the notice. Neither path
+Where enabled, desktop delivery queues the notice before its completed inbox
+receipt; failure leaves it pending for a safe retry. Neither path
 starts Agent or Order execution. Host adapters must treat the dedicated
 `commission_moderation_notification` event as display data, never Order or PM
-work. Generic `notification_push` output contains only subscribed Orders.
-Manual approval is shown as awaiting publication until a separate published
+work. Generic `notification_push` output preserves all non-moderation entries and
+unknown fields; only subscribed Orders enter CLI execution and ACK.
+Approval is shown as awaiting publication until a separate published
 notice arrives. Malformed moderation notices remain pending without blocking
 valid neighbors. A PM-only binding owns moderation intake while leaving Orders
 to the legacy stream; without a binding the stream saves and renders before ACK.
@@ -271,6 +273,11 @@ for 90 days from first local receipt, even after the payload leaves the latest
 100 notices. Retries do not extend that retention. Expired receipts are pruned
 on writes; capacity exhaustion retains server pending work rather than removing
 unexpired receipts.
+
+Ordinary/PM-only watches reuse the PM fallback tick: moderation reconciles every
+minute while disconnected and every 15 minutes while connected. Connection and
+reconnection replay pending notices immediately. They have no separate minute
+notification loop; bindings without PM or Orders use initial/15-minute HTTP.
 
 PM + Commission subscriptions share the Socket. A Commission-only subscription uses an initial HTTP request and 60-second reconciliation, because the current server Socket always consumes PM. The same account's ordinary stream skips Commission notification draining while watch owns it. Stop and inspect unresolved jobs before rebinding. The implementation and pending business decisions are in [Commission dispatch](commission-dispatch.md).
 

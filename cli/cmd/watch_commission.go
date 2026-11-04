@@ -61,7 +61,20 @@ func (w *accountWatch) receivesCommissionNotifications() bool {
 
 func (w *accountWatch) deliverSocketEvent(ctx context.Context, kind string, data json.RawMessage) error {
 	if kind == "notification_push" && w.receivesCommissionNotifications() {
-		return w.deliverCommissionNotifications(ctx, data, "socket")
+		var page struct {
+			Notifications []json.RawMessage `json:"notifications"`
+		}
+		if json.Unmarshal(data, &page) == nil {
+			for _, raw := range page.Notifications {
+				var header struct {
+					Source string `json:"source_type"`
+				}
+				if json.Unmarshal(raw, &header) == nil && (header.Source == moderationNotificationSource || header.Source == "commission_order" && w.receivesCommission()) {
+					return w.deliverCommissionNotifications(ctx, data, "socket")
+				}
+			}
+		}
+		// Legacy notifications need no HTTP client, token refresh, or Commission owner.
 	}
 	return w.deliverPM(ctx, kind, data, "socket")
 }
@@ -69,8 +82,12 @@ func (w *accountWatch) deliverSocketEvent(ctx context.Context, kind string, data
 // Notification-only bindings use HTTP: the current server WebSocket also marks
 // PMs read. A binding owning both sources can reuse its existing PM connection.
 func (w *accountWatch) commissionFallbackLoop(ctx context.Context) error {
-	if !w.receivesCommissionNotifications() {
+	if !w.receivesCommissionNotifications() || !w.receivesCommission() && w.receivesPM() {
 		return nil
+	}
+	interval := time.Minute
+	if !w.receivesCommission() {
+		interval = moderationReconcileInterval
 	}
 	for ctx.Err() == nil {
 		if err := w.pollCommissionNotifications(ctx); err != nil {
@@ -85,7 +102,7 @@ func (w *accountWatch) commissionFallbackLoop(ctx context.Context) error {
 				return err
 			}
 		}
-		if !watchPause(ctx, time.Minute) {
+		if !watchPause(ctx, interval) {
 			break
 		}
 	}
@@ -159,23 +176,25 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 			}
 		}
 		ack := make([]map[string]string, 0, len(page.Notifications))
-		orderOutput := make([]json.RawMessage, 0, len(page.Notifications))
+		genericOutput := make([]json.RawMessage, 0, len(page.Notifications))
 		for _, raw := range page.Notifications {
 			var notification struct {
 				Source string          `json:"source_type"`
 				ID     json.RawMessage `json:"notification_id"`
 			}
 			if json.Unmarshal(raw, &notification) != nil {
+				genericOutput = append(genericOutput, raw)
 				continue
 			}
 			if notification.Source == moderationNotificationSource {
-				if _, err := parseModerationNotification(raw, w.identity.AgentID); err != nil {
+				notice, err := parseModerationNotification(raw, w.identity.AgentID)
+				if err != nil {
 					if err := w.emit("commission_notification_invalid", map[string]string{"source_type": moderationNotificationSource, "code": "invalid_moderation_notification"}); err != nil {
 						return err
 					}
 					continue
 				}
-				saved, err := w.enqueueModerationNotification(raw)
+				saved, err := w.enqueueModerationNotification(notice)
 				if err != nil {
 					return err
 				}
@@ -188,6 +207,7 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 				}
 				continue
 			}
+			genericOutput = append(genericOutput, raw)
 			if notification.Source != "commission_order" || !w.receivesCommission() {
 				continue
 			}
@@ -227,7 +247,6 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 			if json.Unmarshal(notification.ID, &id) != nil {
 				return errors.New("invalid_commission_notification_id")
 			}
-			orderOutput = append(orderOutput, raw)
 			ack = append(ack, map[string]string{
 				"notification_id": strconv.FormatInt(int64(id), 10),
 				"source_type":     "commission_order",
@@ -251,18 +270,33 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 				return errors.New("commission_notification_ack_failed")
 			}
 		}
-		if len(orderOutput) == 0 {
+		if len(genericOutput) == 0 {
 			return nil
 		}
 		if w.notificationsOnly {
-			return w.emit("notification_push", map[string]interface{}{"count": len(orderOutput), "transport": transport})
+			return w.emit("notification_push", map[string]interface{}{"count": len(genericOutput), "transport": transport})
 		}
-		return w.emit("notification_push", map[string]interface{}{
-			"notifications": orderOutput,
-			"has_more":      page.HasMore,
-			"next_cursor":   page.NextCursor,
-			"transport":     transport,
-			"received_at":   time.Now().UTC().Format(time.RFC3339Nano),
-		})
+		var envelope map[string]json.RawMessage
+		if err := json.Unmarshal(data, &envelope); err != nil {
+			return err
+		}
+		output := make(map[string]interface{}, len(envelope)+2)
+		for key, value := range envelope {
+			output[key] = value
+		}
+		output["notifications"] = genericOutput
+		output["transport"], output["received_at"] = transport, time.Now().UTC().Format(time.RFC3339Nano)
+		return w.emit("notification_push", output)
 	})
+}
+
+const moderationReconcileInterval = 15 * time.Minute
+
+// Socket connection/reconnection already replays pending notifications. HTTP
+// covers an unavailable socket and infrequent lost Pub/Sub wake-ups.
+func (w *accountWatch) reconcileModeration(ctx context.Context, last, now time.Time) (time.Time, error) {
+	if w.receivesCommission() || !w.receivesPM() || w.wsOnline.Load() && now.Sub(last) < moderationReconcileInterval {
+		return last, nil
+	}
+	return now, w.pollCommissionNotifications(ctx)
 }

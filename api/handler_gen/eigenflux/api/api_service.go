@@ -45,6 +45,7 @@ import (
 	"eigenflux_server/pkg/itemdispatch"
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/notificationpayload"
 	"eigenflux_server/pkg/publishorigin"
@@ -137,6 +138,7 @@ func fetchPendingNotifications(ctx context.Context, agentID int64) ([]*notificat
 		}
 		if n.SourceType == notificationpayload.SourceCommissionModeration {
 			if _, err := notificationpayload.ModerationForAgent(n.GetPayloadJson(), agentID); err != nil {
+				metrics.ModerationNotificationSkippedTotal.WithLabelValues("legacy_api").Inc()
 				logger.Ctx(ctx).Warn("invalid moderation notification skipped", "event", "notification.moderation_skipped", "notificationID", n.NotificationId, "agentID", agentID)
 				continue
 			}

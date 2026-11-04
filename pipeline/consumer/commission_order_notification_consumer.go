@@ -116,15 +116,7 @@ func parseCommissionOrderNotification(values map[string]any) (commissionOrderNot
 		if !ok {
 			return "", fmt.Errorf("missing %s", key)
 		}
-		var text string
-		switch typed := value.(type) {
-		case string:
-			text = typed
-		case []byte:
-			text = string(typed)
-		default:
-			text = fmt.Sprint(typed)
-		}
+		text := streamText(value)
 		if text == "" || len(text) > maxLen {
 			return "", fmt.Errorf("invalid %s", key)
 		}

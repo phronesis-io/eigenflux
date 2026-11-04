@@ -118,6 +118,9 @@ func TestModerationNoticeTextAndStringIDs(t *testing.T) {
 			t.Fatal(output.String())
 		}
 	}
+	if got := moderationStatusText("zh", "pass"); got != "审核通过，等待上架" {
+		t.Fatal("approval must not imply manual review", got)
+	}
 	if moderationStatusText("zh", "pass") == moderationStatusText("zh", "published") {
 		t.Fatal("approval claims publication")
 	}
@@ -186,8 +189,15 @@ func TestModerationFirstSellerWithoutOrderSubscriptionOrDesktop(t *testing.T) {
 	watch = newCommissionWatch(t, server.URL, "pm_push")
 	events := 0
 	watch.emit = func(kind string, data interface{}) error {
+		if kind == "notification_push" {
+			raw, _ := json.Marshal(data)
+			if strings.Contains(string(raw), moderationNotificationSource) {
+				t.Fatal("moderation reached host Order route")
+			}
+			return nil
+		}
 		if kind != "commission_moderation_notification" {
-			t.Fatalf("moderation reached host Order/PM route: %s", kind)
+			t.Fatalf("unexpected event %s", kind)
 		}
 		raw, _ := json.Marshal(data)
 		if strings.Contains(string(raw), `"order_id"`) || strings.Contains(string(raw), `"messages"`) || strings.Contains(string(raw), `"next_cursor"`) {
