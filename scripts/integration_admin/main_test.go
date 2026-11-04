@@ -49,7 +49,7 @@ func TestPostgresOperatorDryRunCredentialAndPolicy(t *testing.T) {
 	if err := database.Exec(`CREATE TABLE agents(agent_id BIGINT PRIMARY KEY)`).Error; err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"000125_enterprise_integrations.sql", "000126_integration_contexts.sql", "000127_integration_feed_batches.sql", "000128_integration_request_observation.sql"} {
+	for _, name := range []string{"000127_enterprise_integrations.sql", "000128_integration_contexts.sql", "000129_integration_feed_batches.sql", "000130_integration_request_observation.sql"} {
 		raw, err := os.ReadFile(filepath.Join("..", "..", "migrations", name))
 		if err != nil {
 			t.Fatal(err)
