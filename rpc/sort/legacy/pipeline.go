@@ -14,6 +14,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/sort"
 	"eigenflux_server/pkg/cache"
 	embcodec "eigenflux_server/pkg/embedding"
+	"eigenflux_server/pkg/integrationprofile"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/recallsource"
@@ -223,10 +224,28 @@ func (s *Service) SortItems(ctx context.Context, req *sort.SortItemsReq) (*sort.
 		}
 	}
 
+	var managedMatchingVersion int64
+	if s.cfg != nil && s.cfg.EnableSDKIntegrations {
+		managed, err := integrationprofile.LoadMatching(ctx, s.db, req.AgentId)
+		if err != nil {
+			return nil, err
+		}
+		if managed != nil {
+			if err := json.Unmarshal([]byte(managed.Keywords), &keywords); err != nil {
+				return nil, err
+			}
+			domains = keywords
+			profileEmbedding = embcodec.Decode(managed.Embedding)
+			managedMatchingVersion = managed.SourceRevision
+		}
+	}
 	agentFeaturesMap := map[string]interface{}{
 		"keywords": keywords,
 		"domains":  domains,
 		"geo":      geo,
+	}
+	if managedMatchingVersion > 0 {
+		agentFeaturesMap["managed_matching_version"] = managedMatchingVersion
 	}
 	if ctxFeat := buildContextFeatures(reqinfo.ClientFromContext(ctx)); ctxFeat != nil {
 		agentFeaturesMap["context"] = ctxFeat

@@ -81,7 +81,8 @@ func initDiscovery(ctx context.Context, cfg *config.Config, policies func(contex
 	vectors := needembedding.New(cfg, db.DB, mq.RDB)
 	reader := recall.NewRedisRecallReader(mq.RDB, cfg.RecallRedisNamespace)
 	sources := &discovery.Source{
-		ContextCache: contexts, DB: db.DB, Redis: mq.RDB,
+		ManagedIntegrations: cfg.EnableSDKIntegrations,
+		ContextCache:        contexts, DB: db.DB, Redis: mq.RDB,
 		CommissionIndex: index, AgentIndex: cfg.AgentDiscoveryIndex,
 		RecallNamespace: cfg.RecallRedisNamespace, BlockedAuthorEmails: cfg.BlockedAgentEmails,
 		DisableDedup:         cfg.ShouldDisableDedup(),

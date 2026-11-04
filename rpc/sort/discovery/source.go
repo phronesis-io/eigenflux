@@ -5,6 +5,7 @@ import (
 	"eigenflux_server/pkg/agentidentity"
 	"eigenflux_server/pkg/bloomfilter"
 	"eigenflux_server/pkg/featureindex"
+	"eigenflux_server/pkg/integrationprofile"
 
 	"eigenflux_server/pkg/cache"
 
@@ -24,6 +25,7 @@ import (
 )
 
 type Source struct {
+	ManagedIntegrations                                             bool
 	FriendFeedMaxAuthors, FriendFeedWindowHours, FriendFeedMaxItems int
 	SwingRecall                                                     recallsource.RecallSource
 	ContextCache                                                    *cache.DiscoveryCache
@@ -82,6 +84,19 @@ func (s *Source) loadOwner(ctx context.Context, id int64) (OwnerContext, error) 
 		}
 	}
 	out := OwnerContext{Revision: fmt.Sprintf("%d:%d", row.Revision, row.CardVersion), Languages: public.Languages}
+	if s.ManagedIntegrations {
+		managed, err := integrationprofile.LoadMatching(ctx, s.DB, id)
+		if err != nil {
+			return OwnerContext{}, err
+		}
+		if managed != nil {
+			if err := json.Unmarshal([]byte(managed.Keywords), &out.Clauses); err != nil {
+				return OwnerContext{}, err
+			}
+			out.Revision = fmt.Sprintf("managed:%d:%d", managed.SourceRevision, managed.ProfileVersion)
+			return out, nil
+		}
+	}
 	for _, i := range frozen.Intents {
 		v := strings.TrimSpace(i.WatchFor + " " + i.TriggerWhen)
 		if v != "" {
