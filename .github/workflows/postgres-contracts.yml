@@ -39,6 +39,9 @@ on:
       - 'pkg/recommendationmetrics/**'
       - 'pkg/config/**'
       - 'scripts/test_account_reset/**'
+      - 'scripts/integration_admin/**'
+      - 'examples/enterprise_sdk/**'
+      - 'rpc/feed/**'
       - 'scripts/common/**'
       - '.github/workflows/postgres-contracts.yml'
   push:
@@ -80,6 +83,9 @@ on:
       - 'pkg/recommendationmetrics/**'
       - 'pkg/config/**'
       - 'scripts/test_account_reset/**'
+      - 'scripts/integration_admin/**'
+      - 'examples/enterprise_sdk/**'
+      - 'rpc/feed/**'
       - 'scripts/common/**'
       - '.github/workflows/postgres-contracts.yml'
   workflow_dispatch:
@@ -128,7 +134,7 @@ jobs:
       - name: Apply every migration and rollout helper
         run: bash scripts/common/migrate_up.sh
       - name: Verify managed integration identity and application quotas
-        run: INTEGRATION_TEST_PG_DSN="$PG_DSN" go test -race ./pkg/integrationidentity ./pkg/integrationprofile ./pkg/integrationfeed ./api/integrations -count=1
+        run: INTEGRATION_TEST_PG_DSN="$PG_DSN" go test -race ./pkg/integrationidentity ./pkg/integrationprofile ./pkg/integrationfeed ./api/integrations ./scripts/integration_admin -count=1
       - name: Verify broadcast keyword expiry query
         run: go test -race -count=1 ./rpc/sort/discovery -run '^TestBroadcastRetrievalFiltersExpiryAtRequestClock$'
       - name: Verify migration source contracts

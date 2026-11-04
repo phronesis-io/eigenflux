@@ -140,6 +140,24 @@ func (s *Store) Begin(ctx context.Context, id int64, request Request) (Batch, bo
 		if err := tx.Table("integration_apps").Where("app_id = ?", managed.AppID).First(&app).Error; err != nil {
 			return err
 		}
+		interval := managed.RequestedPollIntervalSeconds
+		if interval < app.MinPollIntervalSeconds {
+			interval = app.MinPollIntervalSeconds
+		}
+		if interval < 10 || interval > 86400 {
+			return failure(503, "INTEGRATION_FEED_POLICY_INVALID")
+		}
+		earliest := managed.NextPollAt
+		if current.Sequence > 0 {
+			activeMinimum := current.CreatedAt + int64(interval)*1000
+			if activeMinimum > earliest {
+				earliest = activeMinimum
+			}
+		}
+		if earliest > time {
+			return &RetryError{429, "FEED_POLL_TOO_EARLY", int((earliest - time + 999) / 1000)}
+		}
+
 		day := time / 86400000
 		used := app.FeedBatchesToday
 		if app.FeedUsageDay != day {
@@ -157,13 +175,6 @@ func (s *Store) Begin(ctx context.Context, id int64, request Request) (Batch, bo
 				return failure(409, "CONTEXT_MATCHING_NOT_READY")
 			}
 			return err
-		}
-		interval := managed.RequestedPollIntervalSeconds
-		if interval < app.MinPollIntervalSeconds {
-			interval = app.MinPollIntervalSeconds
-		}
-		if interval < 10 {
-			return failure(503, "INTEGRATION_FEED_POLICY_INVALID")
 		}
 		result = Batch{AgentID: id, Sequence: request.Sequence, BatchID: uuid.NewString(), RequestHash: hash, Status: "generating", MatchingVersion: projection.SourceRevision, Payload: "{}", LeaseUntil: time + 120000, CreatedAt: time, NextPollAt: time + int64(interval)*1000}
 		if current.Sequence == 0 {
