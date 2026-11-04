@@ -15,7 +15,10 @@ REF = 'EF-Abcd1234'
 RECEIPT = {'code': 0, 'data': {'converted': True, 'attribution': {'ref': REF}}}
 
 
-@unittest.skipUnless(os.name == 'nt' or PWSH, 'requires PowerShell')
+@unittest.skipUnless(
+    os.name == 'nt' or (os.environ.get('EIGENFLUX_TEST_PWSH') and os.environ.get('EIGENFLUX_TEST_CLI')),
+    'requires Windows or explicit PowerShell and native CLI paths',
+)
 class WindowsAttributionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
