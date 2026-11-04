@@ -6,6 +6,7 @@ import (
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
+	"strings"
 	"testing"
 )
 
@@ -23,8 +24,8 @@ func TestModerationNotificationProjection(t *testing.T) {
 			})
 			status, response, _ := performJSON(t, h, "GET", "/pending", nil)
 			if recipient == 2 {
-				if status != 503 {
-					t.Fatal("foreign payload exposed")
+				if status != 200 || len(response["data"].(map[string]interface{})["notifications"].([]interface{})) != 0 {
+					t.Fatal("foreign payload exposed or poisoned the page")
 				}
 				return
 			}
@@ -40,5 +41,31 @@ func TestModerationNotificationProjection(t *testing.T) {
 				t.Fatal("moderation identity or authority changed")
 			}
 		})
+	}
+}
+
+func TestModerationInvalidRowsDoNotHideOrderAPIProjection(t *testing.T) {
+	valid := `{"notification_version":2,"moderation_id":"1","commission_id":"2","recipient_agent_id":"1","draft_version":2,"status":"review","decision":"review","flag":"","field":"title","reason":"private invalid reason","occurred_at":1000}`
+	order := `{"order_id":9007199254740995}`
+	for _, raw := range []string{"", "{", "{}", strings.Replace(valid, `"recipient_agent_id":"1"`, `"recipient_agent_id":"2"`, 1), strings.Replace(valid, `"status":"review"`, `"status":"future"`, 1)} {
+		client := &pendingFailureClient{response: &notificationrpc.ListPendingResp{BaseResp: &base.BaseResp{}, Notifications: []*notificationrpc.PendingNotification{
+			{NotificationId: 1, SourceType: "commission_moderation", PayloadJson: &raw},
+			{NotificationId: 2, SourceType: "commission_order", PayloadJson: &order},
+		}}}
+		svc := &Service{}
+		svc.SetNotificationClient(client)
+		h := server.Default()
+		h.GET("/pending", func(ctx context.Context, c *app.RequestContext) {
+			c.Set("agent_id", int64(1))
+			svc.listPendingNotifications(ctx, c)
+		})
+		status, response, _ := performJSON(t, h, "GET", "/pending", nil)
+		if status != 200 {
+			t.Fatalf("invalid moderation poisoned API: %d", status)
+		}
+		items := response["data"].(map[string]interface{})["notifications"].([]interface{})
+		if len(items) != 1 || items[0].(map[string]interface{})["source_type"] != "commission_order" {
+			t.Fatal("valid Order lost behind invalid moderation")
+		}
 	}
 }

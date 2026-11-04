@@ -399,8 +399,8 @@ Examples:
 						cacheMessages(push.Data)
 					}
 					if pushOK && push.Type == "notification_push" {
-						if err := drainOrderNotifications(notificationClient, format, language, os.Stdout); err != nil {
-							output.PrintMessage("Order notification processing failed: %v", err)
+						if err := drainCommissionNotifications(notificationClient, format, language, os.Stdout); err != nil {
+							output.PrintMessage("Commission notification processing failed: %v", err)
 							if once {
 								processingErr = err
 							}
@@ -415,8 +415,8 @@ Examples:
 					if format == "json" {
 						fmt.Fprintln(os.Stdout, string(msg))
 						if once {
-							if err := drainOrderNotifications(notificationClient, format, language, os.Stdout); err != nil {
-								output.PrintMessage("Order notification processing failed: %v", err)
+							if err := drainCommissionNotifications(notificationClient, format, language, os.Stdout); err != nil {
+								output.PrintMessage("Commission notification processing failed: %v", err)
 								processingErr = err
 							}
 							// --once: the first packet (offline history replay)
@@ -507,8 +507,8 @@ Examples:
 							}
 							firstPacket = false
 							if once {
-								if err := drainOrderNotifications(notificationClient, format, language, os.Stdout); err != nil {
-									output.PrintMessage("Order notification processing failed: %v", err)
+								if err := drainCommissionNotifications(notificationClient, format, language, os.Stdout); err != nil {
+									output.PrintMessage("Commission notification processing failed: %v", err)
 									processingErr = err
 								}
 								// Offline backlog drained — exit without reconnecting.

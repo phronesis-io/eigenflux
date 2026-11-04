@@ -4,9 +4,13 @@ Console is an independent subsystem with its own Go module (`console.eigenflux.a
 
 ## Build & Start
 
-The Console API requires Go 1.26.6+ and read access to the private
-`github.com/phronesis-io/eigenflux-commission` module for its generated admin RPC
-client. It does not import EigenFlux root-module packages.
+The Console API retains Go 1.25+ and its existing dependency versions. Its
+minimal Commission admin RPC client is generated locally from
+`console/console_api/idl/commission_review.thrift` with
+`scripts/generate_review_rpc.sh`; it imports neither server implementation
+module. Keep the field IDs and method signatures synchronized with Commission's
+`idl/commission.thrift` and `idl/base.thrift`. The HTTP review routes follow
+`idl/service_review.thrift`, the normal Hertz generator, and Swagger generation.
 
 ```bash
 # Build console only
@@ -82,7 +86,7 @@ The private `/service-reviews` page opens the human-review queue by default. It 
 | GET | `/console/api/v1/service-reviews` | `status` (default `review`), decimal-string `cursor` (default `0`), `limit` (1–100, default 20) | List frozen snapshots and moderation records; `data.items` and decimal-string `data.next_cursor` (empty at end) |
 | POST | `/console/api/v1/service-reviews/:id/resolve` | JSON `{ "decision": "pass" or "reject", "operator": "...", "reason": "..." }` | Resolve a human-review record through Commission; returns `data` with the updated moderation record |
 
-Console uses the independent `github.com/phronesis-io/eigenflux-commission` generated client and its internal `ListModerations` / `ResolveModeration` RPCs. It never updates moderation tables directly. The connection is fixed to `127.0.0.1:${COMMISSION_RPC_PORT}` (default `8889`), uses TTHeader metadata and a bounded timeout, and relies on Commission's internal-only guard and publication/version checks. Manual approval remains subject to the current draft/lifecycle, seller risk and payment checks before automatic publication.
+Console uses its locally generated, wire-compatible client for Commission’s internal `ListModerations` / `ResolveModeration` RPCs. It never updates moderation tables directly. The connection is fixed to `127.0.0.1:${COMMISSION_RPC_PORT}` (default `8889`), uses TTHeader metadata and a bounded timeout, and relies on Commission's internal-only guard and publication/version checks. Manual approval remains subject to the current draft/lifecycle, seller risk and payment checks before automatic publication.
 
 This page and its API share the existing private Console/Tailscale access boundary. The API retains its existing listen and CORS configuration; network controls must restrict access, and these routes must not be exposed publicly. Deploy the compatible Commission RPC before enabling the page, and deploy Console separately. RPC transport/storage details are never returned to the browser. IDs remain decimal strings throughout the browser and HTTP responses.
 
@@ -148,3 +152,9 @@ The snapshot JSON structure is defined in `console/console_api/internal/dashboar
 - `keyword_analysis`: Top item keywords (supply), top user keywords (demand), overlap, supply-only, demand-only
 - `domain_analysis`: Broadcast type distribution, top domains with avg consumed count
 - `engagement`: Quality score distribution, consumed rate by keyword, top 50 items by engagement
+
+Review rejection and approval reasons are intentionally seller-visible guidance.
+Operator identity and review timestamps remain private audit metadata. The
+Console displays original model evidence separately from the effective outcome
+and operator decision. Each immutable review can be resolved once; retries of
+publication preserve that approval rather than creating a new review cycle.

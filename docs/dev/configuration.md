@@ -20,6 +20,7 @@ All ports support `.env` override; default values when not configured:
 | PM RPC (kitex) | `PM_RPC_PORT` | 8885 |
 | Auth RPC (kitex) | `AUTH_RPC_PORT` | 8886 |
 | Notification RPC (kitex) | `NOTIFICATION_RPC_PORT` | 8887 |
+| Commission RPC (separate Commission service; Console review client target) | `COMMISSION_RPC_PORT` | 8889 |
 | PostgreSQL (docker mapped) | `POSTGRES_PORT` | 5432 |
 | Redis (docker mapped) | `REDIS_PORT` | 6379 |
 | etcd (docker mapped) | `ETCD_PORT` | 2379 |
@@ -125,9 +126,10 @@ The per-user opt-out is a setting, not an env var: `eigenflux config set --key o
 | `COMMISSION_INDEX_NAME` / `COMMISSION_INDEX_ALIAS` | `commissions-v1` / `commissions` | Backing Elasticsearch index and its stable read/write alias |
 | `COMMISSION_INDEX_STREAM` / `_CONSUMER_GROUP` / `_DLQ_STREAM` | `stream:commission:index` / `cg:commission:index` / `stream:commission:index:dlq` | Commission source notification stream, consumer group, and poison-message stream |
 | `COMMISSION_INDEX_CONSUMER_WORKERS` / `_RETRIES` | `2` / `3` | Projection worker count and maximum pending retries before DLQ |
-| `ENABLE_COMMISSION_ORDER_NOTIFICATIONS` | `false` | Enables durable Commission Order notification ingestion in Pipeline |
+| `ENABLE_COMMISSION_ORDER_NOTIFICATIONS` | `false` | Enables both durable Commission Order and listing moderation notification consumers in Pipeline; moderation reads `COMMISSION_INDEX_STREAM` with its independent group |
 | `COMMISSION_NOTIFICATION_STREAM` / `_CONSUMER_GROUP` / `_DLQ_STREAM` | `stream:commission:notification` / `cg:commission:notification` / `stream:commission:notification:dlq` | Dedicated Order notification transport and poison-message stream |
-| `COMMISSION_NOTIFICATION_CONSUMER_WORKERS` / `_RETRIES` | `2` / `5` | Notification inbox worker count and maximum pending retries before DLQ |
+| `COMMISSION_NOTIFICATION_CONSUMER_WORKERS` / `_RETRIES` | `2` / `5` | Worker count and maximum pending retries before DLQ for each of the Order and moderation inbox consumers |
+| `COMMISSION_RPC_PORT` | `8889` | Private Commission RPC target port for the Console service-review client on loopback; the Commission service owns its listener |
 | `COMMISSION_BACKFILL_PAGE_SIZE` | `100` | Active snapshots fetched per `commission_backfill` page |
 
 | `SEARCH_CACHE_TTL` | `2` | Search cache TTL (seconds) |
@@ -150,6 +152,16 @@ The per-user opt-out is a setting, not an env var: `eigenflux config set --key o
 | `LR_RANKER_ENABLED` | `false` | Enable the in-process LR ranker for the item feed. When on and a valid model is loaded, LR probability replaces the formula ordering of eligible items; otherwise sort falls back to the formula ranker. See `docs/dev/sort.md` |
 | `LR_RANKER_MODEL_PATH` | `/data/models/eigenflux/lr-ranker/current/model.json` | Local path to the current model bundle's `model.json` (usually a `current` symlink). Delivered out-of-band by `scripts/cloud/install_lr_model.sh`; sort never reads OSS directly |
 | `LR_RANKER_RELOAD_INTERVAL` | `60s` | How often the LR ranker checks for a newer bundle and hot-swaps it. An unchanged bundle is a no-op; a failed load keeps the previous model |
+
+### Commission moderation notification transport
+
+Despite its legacy name, `ENABLE_COMMISSION_ORDER_NOTIFICATIONS` controls both
+Order and listing moderation ingestion. Moderation uses `COMMISSION_INDEX_STREAM`
+with `${COMMISSION_INDEX_CONSUMER_GROUP}:moderation-notification` and
+`${COMMISSION_INDEX_DLQ_STREAM}:moderation-notification`. It does not require
+`ENABLE_COMMISSION_INDEX`; the catalogue and moderation consumers ignore each
+other's event topics. Apply migration `000127` before enabling the consumers.
+See [notification handling and rollback](notification.md#commission-listing-moderation-inbox).
 
 ### CLI Commission endpoint
 

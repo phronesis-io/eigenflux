@@ -46,7 +46,19 @@ both source and recipient transactionally; legacy Feed auto-ACK excludes this
 source. Moderation notices are informational and never trigger Order execution.
 These are immutable historical transitions; same-millisecond display order is not
 guaranteed across producer workers. Read the owned listing for its current state.
+Unknown moderation states, malformed payloads and recipient mismatches are
+excluded from pending delivery with the `notification.moderation_skipped` warning
+at RPC, API and WebSocket boundaries. Warnings contain notification and Agent IDs,
+never payload bodies. RPC filters before pagination, so a page of invalid history
+cannot hide valid Order or moderation notices. Skipping neither deletes nor
+acknowledges the stored fact; operators can investigate and repair it, after which
+it becomes deliverable. The current listing remains the source of current state.
+
 The existing 90-day pending and 180-day acknowledged retention applies.
+Migration `000127` Down intentionally refuses while any moderation history exists,
+including acknowledged rows. It preserves the rows and original constraints
+transactionally. Roll back application binaries while retaining the expanded
+schema; do not delete notification history to force a database downgrade.
 
 ## DAL Structure
 

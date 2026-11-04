@@ -38,7 +38,7 @@ func notificationIssuerIdentity(notification *notificationrpc.PendingNotificatio
 		sourceType = notification.SourceType
 	}
 	switch strings.ToLower(strings.TrimSpace(sourceType)) {
-	case "system", "milestone", "trade", "commission_order", "commission_moderation":
+	case "system", "milestone", "trade", "commission_order", notificationpayload.SourceCommissionModeration:
 		return platformIssuerIdentity()
 	default:
 		// Friend requests and unknown legacy notification types are not
@@ -93,11 +93,11 @@ func (s *Service) listPendingNotifications(ctx context.Context, c *app.RequestCo
 		if notification == nil {
 			continue
 		}
-		if notification.SourceType == "commission_moderation" {
-			parsed, err := notificationpayload.ParseCommissionModeration(notification.GetPayloadJson())
-			if err != nil || parsed.RecipientAgentID != strconv.FormatInt(agentIDValue, 10) {
-				fail(c, http.StatusServiceUnavailable, "NOTIFICATIONS_UNAVAILABLE", "invalid moderation notification", nil)
-				return
+		if notification.SourceType == notificationpayload.SourceCommissionModeration {
+			_, err := notificationpayload.ModerationForAgent(notification.GetPayloadJson(), agentIDValue)
+			if err != nil {
+				logger.Ctx(ctx).Warn("invalid moderation notification skipped", "event", "notification.moderation_skipped", "notificationID", notification.NotificationId, "agentID", agentIDValue)
+				continue
 			}
 		}
 		content, truncated := truncateRunes(notification.Content, 2000)

@@ -233,17 +233,18 @@ func fetchPendingNotificationData(ctx context.Context, client notificationservic
 	}
 	data := NotificationFetchData{HasMore: response.GetHasMore(), NextCursor: response.GetNextCursor()}
 	for _, notification := range response.Notifications {
-		if notification == nil || (notification.SourceType != "commission_order" && notification.SourceType != "commission_moderation") || notification.PayloadJson == nil || !json.Valid([]byte(*notification.PayloadJson)) {
+		if notification == nil || (notification.SourceType != "commission_order" && notification.SourceType != notificationpayload.SourceCommissionModeration) {
 			continue
 		}
-		payload := json.RawMessage(*notification.PayloadJson)
-		if notification.SourceType == "commission_moderation" {
-			parsed, err := notificationpayload.ParseCommissionModeration(*notification.PayloadJson)
-			if err != nil || parsed.RecipientAgentID != strconv.FormatInt(agentID, 10) {
+		payload := json.RawMessage(notification.GetPayloadJson())
+		if notification.SourceType == notificationpayload.SourceCommissionModeration {
+			_, err := notificationpayload.ModerationForAgent(notification.GetPayloadJson(), agentID)
+			if err != nil {
+				logger.Ctx(ctx).Warn("invalid moderation notification skipped", "event", "notification.moderation_skipped", "notificationID", notification.NotificationId, "agentID", agentID)
 				continue
 			}
 		} else {
-			normalized, err := notificationpayload.NormalizeCommissionOrderIDs(*notification.PayloadJson)
+			normalized, err := notificationpayload.NormalizeCommissionOrderIDs(notification.GetPayloadJson())
 			if err != nil {
 				continue
 			}

@@ -229,7 +229,7 @@ Commission repository's sibling `prompts/safety_rules.tmpl`. Broadcast policy
 changes require an explicit sync and Commission rollout. Clean listings may
 return `{"decision":"pass"}`; review and reject retain all four result fields.
 The service uses EigenFlux's shared Aliyun `LLM_API_KEY`, `LLM_BASE_URL`, and
-`LLM_MODEL` settings. Operator instructions, migrations 17–18 and the rollout contract
+`LLM_MODEL` settings. Operator instructions, migrations 17–19 and the rollout contract
 are in that repository's `docs/listing-moderation.md`. Seller Skills understand
 both the existing immediate-revision response and the new pending response.
 
@@ -297,11 +297,20 @@ notify the seller; internal processing and automatic approval before publication
 do not create extra notices. Review and rejection include the field and seller
 guidance. Notifications are historical events; listing reads remain authoritative.
 
-The CLI watch persists these notices in its desktop queue before acknowledging
-them. They never schedule Agent execution or Order work. Without a desktop sink,
-watch leaves them pending; the legacy notifications stream can render and
-acknowledge them when it owns delivery. Existing notification rollout settings
+Every account watch receives these notices independently of Order subscriptions.
+Before ACK, it persists the latest 100 in an account-scoped informational inbox,
+readable with `watch notices` even without desktop support. Desktop delivery is
+additional where enabled. The dedicated `commission_moderation_notification`
+event never schedules Agent execution or Order work. Legacy stream saves and
+renders notices when no watch binding owns that source; invalid moderation
+notices do not block valid neighbors. Existing notification rollout settings
 apply; see [notification.md](notification.md).
+
+Moderation notification IDs retain separate lightweight deduplication receipts
+for 90 days from first local receipt, even after the payload leaves the latest
+100 notices. Retries do not extend that retention. Expired receipts are pruned
+on writes; capacity exhaustion retains server pending work rather than removing
+unexpired receipts.
 
 The private operator Console exposes a **Service Review** page with status
 filters, cursor pagination, the exact reviewed listing snapshot and audit data.
@@ -311,3 +320,11 @@ does not bypass the draft/version checks. Console calls Commission's internal
 `ListModerations` and `ResolveModeration` RPCs using `COMMISSION_RPC_PORT`.
 The operator identifier is self-reported; access is controlled by the existing
 private Console network boundary, not a new authentication system.
+
+Commission migration 19 retains the approval gate in the database during a
+code-only rollback. It checks the exact approved snapshot, seller and current
+draft/definition version before a revision insert. Keep this migration installed
+during rollback; the older application cannot publish an unreviewed revision.
+Transient publication failures retain approval and retry publication without
+re-running the model. Editing, withdrawing or deleting a pending listing
+invalidates its review and emits the stale-state notice transactionally.

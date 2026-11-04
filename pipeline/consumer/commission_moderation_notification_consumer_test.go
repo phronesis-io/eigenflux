@@ -24,7 +24,7 @@ func moderationValues(t *testing.T) map[string]any {
 
 func TestModerationNotificationEnvelope(t *testing.T) {
 	row, err := parseCommissionModerationNotification(moderationValues(t), 2000)
-	if err != nil || row.AgentID != 9007199254740997 || row.OrderID != 0 || row.OrderVersion != 0 || row.SourceType != dal.SourceTypeCommissionModeration {
+	if err != nil || row.AgentID != 9007199254740997 || row.OrderID != 0 || row.OrderVersion != 0 || row.SourceType != notificationpayload.SourceCommissionModeration {
 		t.Fatalf("row: %#v %v", row, err)
 	}
 	for key, value := range map[string]any{"event_id": "0", "schema_version": "2", "aggregate_id": "9", "aggregate_version": "0", "aggregate_type": "commission", "occurred_at": "1001", "payload_json": "{}"} {

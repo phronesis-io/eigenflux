@@ -187,7 +187,7 @@ var watchCmd = &cobra.Command{
 }
 
 func init() {
-	watchCmd.Flags().Bool("desktop-notifications", nativeDesktopSupported(), "show account-scoped desktop notifications for subscribed Commission orders")
+	watchCmd.Flags().Bool("desktop-notifications", nativeDesktopSupported(), "show account-scoped desktop notifications for listing moderation and subscribed Commission orders")
 	watchCmd.Flags().Bool("notifications-only", false, "receive desktop order notifications without PM consumption or Agent execution")
 	rootCmd.AddCommand(watchCmd)
 }

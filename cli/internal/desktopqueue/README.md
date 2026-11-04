@@ -11,8 +11,8 @@ before ACK; an unavailable/full queue prevents ACK. Account ownership checks
 and retry/submission semantics remain the same.
 
 1. `watch --dispatch` enables desktop notifications by default on macOS/Windows
-   for a binding subscribed to `commission_order`. Both buyer and seller events
-   become notifications; displaying one never invokes an Agent.
+   for listing moderation; subscribed `commission_order` buyer and seller events
+   also become notifications. Displaying one never invokes an Agent.
 2. `deliverCommissionNotifications` validates and saves the execution job, then
    saves its desktop message, then ACKs the remote notification. Either save
    failing prevents ACK. Socket and HTTP use this same path.
@@ -25,8 +25,10 @@ and retry/submission semantics remain the same.
 Listing moderation uses the same durable queue with IDs scoped by account and
 notification ID. It does not create an Order execution job. Its message includes
 the service ID, draft version, status and bounded seller guidance; the link opens
-`/dashboard/trade`. No payload-supplied URL is accepted. Without a desktop queue,
-the server notification stays pending.
+`/dashboard/trade`. No payload-supplied URL is accepted. Moderation also persists
+in the independent 100-entry informational inbox exposed by `watch notices`.
+That inbox enables ACK and retrieval without desktop support or an Order
+subscription; desktop permission failures do not remove those saved notices.
 
 ## Persistence and retry
 

@@ -70,6 +70,8 @@ func TestFetchPendingModerationAndOrderNotifications(t *testing.T) {
 		{NotificationId: 82, SourceType: "commission_moderation", PayloadJson: &moderation},
 		{NotificationId: 83, SourceType: "commission_moderation", PayloadJson: &foreign},
 		{NotificationId: 84, SourceType: "commission_moderation", PayloadJson: &invalid},
+		{NotificationId: 85, SourceType: "commission_moderation"},
+		{NotificationId: 86, SourceType: "commission_moderation", PayloadJson: stringPointer(strings.Replace(moderation, `"status":"review"`, `"status":"future"`, 1))},
 	}}}
 	data, err := fetchPendingNotificationData(context.Background(), stub, 42)
 	if err != nil || len(data.Notifications) != 2 || stub.ackCalls != 0 {

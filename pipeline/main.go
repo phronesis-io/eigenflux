@@ -113,7 +113,7 @@ func main() {
 	if cfg.EnableCommissionOrderNotifications {
 		commissionNotificationConsumer = consumer.NewCommissionOrderNotificationConsumer(cfg, db.DB, mq.RDB)
 		commissionModerationConsumer = consumer.NewCommissionModerationNotificationConsumer(cfg, db.DB, mq.RDB)
-		log.Println("Commission Order notification consumer initialized")
+		log.Println("Commission Order and listing moderation notification consumers initialized")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

@@ -11,6 +11,10 @@ export interface Moderation {
   flag: string;
   field: string;
   reason: string;
+  model_decision?: string;
+  model_flag?: string;
+  model_field?: string;
+  model_reason?: string;
   reviewer?: string;
   review_decision?: string;
   review_reason?: string;

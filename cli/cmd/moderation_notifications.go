@@ -6,11 +6,16 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"cli.eigenflux.ai/internal/desktopnotify"
+	"cli.eigenflux.ai/internal/dispatch"
+	"github.com/spf13/cobra"
 )
 
 const moderationNotificationSource = "commission_moderation"
@@ -36,7 +41,7 @@ type moderationNotification struct {
 
 func parseModerationNotification(raw json.RawMessage, agentID string) (moderationNotification, error) {
 	var notice moderationNotification
-	if json.Unmarshal(raw, &notice) != nil || notice.ID <= 0 || notice.Source != moderationNotificationSource || notice.Type != "commission.moderation.changed.v1" || notice.Payload.ModerationID <= 0 || notice.Payload.CommissionID <= 0 || notice.Payload.DraftVersion <= 0 || notice.Payload.NotificationVersion <= 0 || notice.Payload.OccurredAt <= 0 || strconv.FormatInt(int64(notice.Payload.RecipientAgentID), 10) != agentID {
+	if len(raw) > 32<<10 || json.Unmarshal(raw, &notice) != nil || notice.ID <= 0 || notice.Source != moderationNotificationSource || notice.Type != "commission.moderation.changed.v1" || notice.Payload.ModerationID <= 0 || notice.Payload.CommissionID <= 0 || notice.Payload.DraftVersion <= 0 || notice.Payload.NotificationVersion <= 0 || notice.Payload.OccurredAt <= 0 || strconv.FormatInt(int64(notice.Payload.RecipientAgentID), 10) != agentID {
 		return notice, errors.New("invalid_moderation_notification")
 	}
 	if moderationStatusText("en", notice.Payload.Status) == "" {
@@ -93,9 +98,18 @@ func (w *accountWatch) enqueueModerationNotification(raw json.RawMessage) (bool,
 	if err != nil {
 		return false, err
 	}
-	// Without a durable delivery sink, retain the server notice for later delivery.
-	if w.desktop == nil {
-		return false, nil
+	fresh, err := saveModerationNotice(w.home, w.scope, w.identity.AgentID, notice)
+	if err != nil {
+		return false, err
+	}
+	// The inbox is the durable informational sink, including hosts without desktop support.
+	if fresh {
+		if err := w.emit("commission_moderation_notification", map[string]any{"notification": notice}); err != nil {
+			return false, err
+		}
+	}
+	if !fresh || w.desktop == nil {
+		return true, nil
 	}
 	target, err := url.Parse(w.server.Endpoint)
 	if err != nil || target.Host == "" || target.User != nil || target.RawQuery != "" || target.Fragment != "" {
@@ -117,4 +131,115 @@ func renderModerationNotification(writer io.Writer, format, language string, not
 	title, body := moderationNotificationText(language, notice)
 	_, err := fmt.Fprintf(writer, "%s\n%s\n", title, body)
 	return err
+}
+
+// The account credential lock serializes writers. Atomic replacement also lets
+// watch notices safely read while a watch is receiving. Retain the newest 100.
+const moderationInboxLimit = 100
+const moderationReceiptLimit = 100000
+const moderationReceiptRetention = 90 * 24 * time.Hour
+const moderationInboxMaxBytes = 8 << 20
+
+type moderationInbox struct {
+	Version  int                      `json:"version"`
+	Scope    string                   `json:"scope"`
+	Notices  []moderationNotification `json:"notices"`
+	Receipts map[string]int64         `json:"receipts,omitempty"`
+}
+
+func moderationInboxPath(home, scope string) string {
+	return filepath.Join(home, "watch", "moderation-"+scope+".json")
+}
+func readModerationInbox(home, scope, agentID string) (moderationInbox, error) {
+	inbox := moderationInbox{Version: 1, Scope: scope, Notices: []moderationNotification{}}
+	file, err := os.Open(moderationInboxPath(home, scope))
+	if errors.Is(err, os.ErrNotExist) {
+		return inbox, nil
+	}
+	if err != nil {
+		return inbox, err
+	}
+	defer file.Close()
+	raw, err := io.ReadAll(io.LimitReader(file, moderationInboxMaxBytes+1))
+	if err != nil {
+		return inbox, err
+	}
+	inbox = moderationInbox{}
+	if len(raw) > moderationInboxMaxBytes || json.Unmarshal(raw, &inbox) != nil || inbox.Version != 1 || inbox.Scope != scope || inbox.Notices == nil || len(inbox.Notices) > moderationInboxLimit {
+		return inbox, errors.New("invalid_moderation_inbox")
+	}
+	if len(inbox.Receipts) > moderationReceiptLimit {
+		return inbox, errors.New("invalid_moderation_receipts")
+	}
+	for id, receivedAt := range inbox.Receipts {
+		n, err := strconv.ParseInt(id, 10, 64)
+		if err != nil || n <= 0 || strconv.FormatInt(n, 10) != id || receivedAt <= 0 {
+			return inbox, errors.New("invalid_moderation_receipts")
+		}
+	}
+	seen := map[notificationID]bool{}
+	for _, notice := range inbox.Notices {
+		raw, _ := json.Marshal(notice)
+		if _, err := parseModerationNotification(raw, agentID); err != nil || seen[notice.ID] {
+			return inbox, errors.New("invalid_moderation_inbox")
+		}
+		seen[notice.ID] = true
+	}
+	return inbox, nil
+}
+func saveModerationNotice(home, scope, agentID string, notice moderationNotification) (bool, error) {
+	inbox, err := readModerationInbox(home, scope, agentID)
+	if err != nil {
+		return false, err
+	}
+	now := time.Now().Unix()
+	// Upgrade pre-receipt inboxes conservatively; original receipt times are unknown.
+	if inbox.Receipts == nil {
+		inbox.Receipts = map[string]int64{}
+		for _, existing := range inbox.Notices {
+			inbox.Receipts[strconv.FormatInt(int64(existing.ID), 10)] = now
+		}
+	}
+	for id, receivedAt := range inbox.Receipts {
+		if receivedAt <= now-int64(moderationReceiptRetention/time.Second) {
+			delete(inbox.Receipts, id)
+		}
+	}
+	id := strconv.FormatInt(int64(notice.ID), 10)
+	if _, seen := inbox.Receipts[id]; seen {
+		return false, dispatch.WriteJSON(moderationInboxPath(home, scope), inbox)
+	}
+	// Never discard an unexpired receipt just to make space: retain remote pending.
+	if len(inbox.Receipts) >= moderationReceiptLimit {
+		return false, errors.New("moderation_receipts_full")
+	}
+	inbox.Receipts[id] = now
+	// An expired receipt may still have a retained payload; replace it on redelivery.
+	for i, existing := range inbox.Notices {
+		if existing.ID == notice.ID {
+			inbox.Notices = append(inbox.Notices[:i], inbox.Notices[i+1:]...)
+			break
+		}
+	}
+	inbox.Notices = append(inbox.Notices, notice)
+	if len(inbox.Notices) > moderationInboxLimit {
+		inbox.Notices = inbox.Notices[len(inbox.Notices)-moderationInboxLimit:]
+	}
+	if err := dispatch.WriteJSON(moderationInboxPath(home, scope), inbox); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+func init() {
+	watchCmd.AddCommand(&cobra.Command{Use: "notices", Short: "Read the latest 100 listing moderation notices for this account", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		identity, err := watchBindingIdentity()
+		if err != nil {
+			return err
+		}
+		inbox, err := readModerationInbox(identity.Home, identity.Scope, identity.AgentID)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"version": inbox.Version, "scope": inbox.Scope, "notices": inbox.Notices})
+	}})
 }

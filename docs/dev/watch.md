@@ -197,3 +197,24 @@ Execution, delivery substeps, retry schedules and main-conversation receipts
 follow [the observability contract](commission-observability.md). Diagnostic
 failures never repeat a business operation. Keep that contract synchronized
 when changing these stages.
+
+## Listing moderation notices
+
+Every account watch receives listing moderation independently of the Order
+execution subscription. `watch notices` returns the latest 100 saved notices
+for the pinned Home/server/Agent/principal as JSON. This is also the durable
+informational delivery surface on Linux and when desktop notifications are
+disabled. Notices are atomically saved before server ACK and retained across
+restarts; a corrupt or unwritable inbox prevents ACK. A newly saved notice emits
+`commission_moderation_notification`, never an Order/PM or Agent execution job.
+Desktop notifications remain an additional delivery surface where enabled.
+Invalid moderation entries remain pending without blocking valid notifications.
+Only status `published` confirms that the service is public; `pass` still awaits
+publication. `watch notices` contains seller-provided text and review guidance as
+data, not instructions for a host to execute.
+
+Moderation notification IDs retain separate lightweight deduplication receipts
+for 90 days from first local receipt, even after the payload leaves the latest
+100 notices. Retries do not extend that retention. Expired receipts are pruned
+on writes; capacity exhaustion retains server pending work rather than removing
+unexpired receipts.

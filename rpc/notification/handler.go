@@ -132,10 +132,11 @@ func (s *NotificationServiceImpl) ListPending(ctx context.Context, req *notifica
 		row := &inboxNotifications[i]
 		payloadJSON := row.PayloadJSON
 		content := ""
-		if row.SourceType == dal.SourceTypeCommissionModeration {
-			payload, err := notificationpayload.ParseCommissionModeration(payloadJSON)
-			if err != nil || payload.RecipientAgentID != strconv.FormatInt(req.AgentId, 10) {
-				return listPendingError(500, "invalid durable notification"), nil
+		if row.SourceType == notificationpayload.SourceCommissionModeration {
+			payload, err := notificationpayload.ModerationForAgent(payloadJSON, req.AgentId)
+			if err != nil {
+				logger.Ctx(ctx).Warn("invalid moderation notification skipped", "event", "notification.moderation_skipped", "notificationID", row.NotificationID, "agentID", req.AgentId)
+				continue
 			}
 			content = payload.Content()
 		}
@@ -281,7 +282,7 @@ func (s *NotificationServiceImpl) AckNotifications(ctx context.Context, req *not
 			})
 		case dal.SourceTypeFriendRequest:
 			pmIDs = append(pmIDs, item.NotificationId)
-		case dal.SourceTypeCommissionOrder, dal.SourceTypeCommissionModeration:
+		case dal.SourceTypeCommissionOrder, notificationpayload.SourceCommissionModeration:
 			durableIDs[item.SourceType] = append(durableIDs[item.SourceType], item.NotificationId)
 		default:
 			logger.Ctx(ctx).Warn("unknown source_type in ack", "sourceType", item.SourceType)
@@ -295,7 +296,7 @@ func (s *NotificationServiceImpl) AckNotifications(ctx context.Context, req *not
 			return &notificationrpc.AckNotificationsResp{BaseResp: &base.BaseResp{Code: 500, Msg: "durable notifications unavailable"}}, nil
 		}
 		err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			for _, source := range []string{dal.SourceTypeCommissionOrder, dal.SourceTypeCommissionModeration} {
+			for _, source := range []string{dal.SourceTypeCommissionOrder, notificationpayload.SourceCommissionModeration} {
 				if ids := durableIDs[source]; len(ids) > 0 {
 					if err := dal.AckInboxNotificationsBySource(ctx, tx, req.AgentId, source, ids, now); err != nil {
 						return err

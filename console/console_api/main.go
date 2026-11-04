@@ -18,6 +18,7 @@ import (
 
 	_ "console.eigenflux.ai/docs"
 	consoleHandler "console.eigenflux.ai/handler_gen/eigenflux/console"
+	reviewHandler "console.eigenflux.ai/handler_gen/eigenflux/servicereview"
 	"console.eigenflux.ai/internal/config"
 	"console.eigenflux.ai/internal/dashboard"
 	"console.eigenflux.ai/internal/db"
@@ -102,7 +103,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("initialize service review client: %v", err)
 	}
-	servicereview.Register(h, reviewClient)
+	reviewHandler.InitServiceReviewClient(reviewClient)
 	register(h)
 
 	log.Printf("Console API gateway starting on %s", cfg.ListenAddr())

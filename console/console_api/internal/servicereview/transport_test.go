@@ -9,13 +9,11 @@ import (
 	"testing"
 	"time"
 
+	api "console.eigenflux.ai/kitex_gen/eigenflux/commission"
+	"console.eigenflux.ai/kitex_gen/eigenflux/commission/commissionservice"
 	"github.com/bytedance/gopkg/cloud/metainfo"
 	"github.com/cloudwego/kitex/pkg/transmeta"
 	"github.com/cloudwego/kitex/server"
-	"github.com/phronesis-io/eigenflux-commission/kitex_gen/eigenflux/base"
-	api "github.com/phronesis-io/eigenflux-commission/kitex_gen/eigenflux/commission"
-	"github.com/phronesis-io/eigenflux-commission/kitex_gen/eigenflux/commission/commissionservice"
-	"github.com/phronesis-io/eigenflux-commission/pkg/rpcauth"
 )
 
 type transportService struct {
@@ -26,22 +24,22 @@ type transportService struct {
 }
 
 func (s *transportService) ListModerations(ctx context.Context, req *api.ListModerationsReq) (*api.ListModerationsResp, error) {
-	if err := rpcauth.RequireNoAgent(ctx); err != nil {
-		return &api.ListModerationsResp{BaseResp: rpcauth.Response(err)}, nil
+	if _, exists := metainfo.GetPersistentValue(ctx, "agent_id"); exists {
+		return &api.ListModerationsResp{BaseResp: &api.ReviewBaseResp{Code: 403, Msg: "forbidden"}}, nil
 	}
 	s.mu.Lock()
 	s.listed = req
 	s.mu.Unlock()
-	return &api.ListModerationsResp{BaseResp: &base.BaseResp{}, ResultJson: `{"items":[{"moderation":{"id":"9223372036854775806","commission_id":"9223372036854775805","status":"review","draft_version":3},"listing":{"title":"Frozen submitted service"}}],"next_cursor":"9223372036854775806"}`}, nil
+	return &api.ListModerationsResp{BaseResp: &api.ReviewBaseResp{}, ResultJson: `{"items":[{"moderation":{"id":"9223372036854775806","commission_id":"9223372036854775805","status":"review","draft_version":3},"listing":{"title":"Frozen submitted service"}}],"next_cursor":"9223372036854775806"}`}, nil
 }
 func (s *transportService) ResolveModeration(ctx context.Context, req *api.ResolveModerationReq) (*api.ResolveModerationResp, error) {
-	if err := rpcauth.RequireNoAgent(ctx); err != nil {
-		return &api.ResolveModerationResp{BaseResp: rpcauth.Response(err)}, nil
+	if _, exists := metainfo.GetPersistentValue(ctx, "agent_id"); exists {
+		return &api.ResolveModerationResp{BaseResp: &api.ReviewBaseResp{Code: 403, Msg: "forbidden"}}, nil
 	}
 	s.mu.Lock()
 	s.resolved = req
 	s.mu.Unlock()
-	return &api.ResolveModerationResp{BaseResp: &base.BaseResp{}, ResultJson: `{"id":"9223372036854775806","status":"pass","reviewer":"Alice","review_reason":"Verified scope"}`}, nil
+	return &api.ResolveModerationResp{BaseResp: &api.ReviewBaseResp{}, ResultJson: `{"id":"9223372036854775806","status":"pass","reviewer":"Alice","review_reason":"Verified scope"}`}, nil
 }
 
 func TestConsoleRoutesThroughRealCommissionRPC(t *testing.T) {
@@ -103,7 +101,7 @@ func TestConsoleRoutesThroughRealCommissionRPC(t *testing.T) {
 		t.Fatalf("RPC resolve: %+v", resolved)
 	}
 	// TTHeader must carry the identity guard even though Console calls carry none.
-	agentContext := metainfo.WithPersistentValue(context.Background(), rpcauth.AgentIDKey, "42")
+	agentContext := metainfo.WithPersistentValue(context.Background(), "agent_id", "42")
 	denied, err := rpc.ListModerations(agentContext, &api.ListModerationsReq{Status: "review", Limit: 1})
 	if err != nil || denied.BaseResp.Code != 403 {
 		t.Fatalf("propagated seller bypassed RPC guard: %+v %v", denied, err)

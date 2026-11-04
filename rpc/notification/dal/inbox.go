@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"eigenflux_server/pkg/notificationpayload"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -63,11 +65,11 @@ func InsertInboxNotification(ctx context.Context, db *gorm.DB, value *InboxNotif
 }
 
 func validInboxSource(source string) bool {
-	return source == SourceTypeCommissionOrder || source == SourceTypeCommissionModeration
+	return source == SourceTypeCommissionOrder || source == notificationpayload.SourceCommissionModeration
 }
 
 func validInboxOrderFields(value *InboxNotification) bool {
-	if value.SourceType == SourceTypeCommissionModeration {
+	if value.SourceType == notificationpayload.SourceCommissionModeration {
 		return value.OrderID == 0 && value.OrderVersion == 0
 	}
 	return value.OrderID > 0 && value.OrderVersion > 0
@@ -88,7 +90,7 @@ func SetInboxDeliveryError(ctx context.Context, db *gorm.DB, notificationID, age
 		deliveryError = string(runes[:maxDeliveryErrorRunes])
 	}
 	return db.WithContext(ctx).Model(&InboxNotification{}).
-		Where("notification_id = ? AND agent_id = ? AND source_type IN ?", notificationID, agentID, []string{SourceTypeCommissionOrder, SourceTypeCommissionModeration}).
+		Where("notification_id = ? AND agent_id = ? AND source_type IN ?", notificationID, agentID, []string{SourceTypeCommissionOrder, notificationpayload.SourceCommissionModeration}).
 		Update("last_delivery_error", deliveryError).Error
 }
 
@@ -98,13 +100,9 @@ func ListInboxNotifications(ctx context.Context, db *gorm.DB, agentID, now int64
 	}
 	var rows []InboxNotification
 	err := db.WithContext(ctx).
-		Where("agent_id = ? AND source_type IN ? AND acknowledged_at IS NULL AND expires_at > ?", agentID, []string{SourceTypeCommissionOrder, SourceTypeCommissionModeration}, now).
+		Where("agent_id = ? AND source_type IN ? AND acknowledged_at IS NULL AND expires_at > ?", agentID, []string{SourceTypeCommissionOrder, notificationpayload.SourceCommissionModeration}, now).
 		Order("occurred_at ASC, order_version ASC, notification_id ASC").Find(&rows).Error
 	return rows, err
-}
-
-func AckInboxNotifications(ctx context.Context, db *gorm.DB, agentID int64, notificationIDs []int64, acknowledgedAt int64) error {
-	return AckInboxNotificationsBySource(ctx, db, agentID, SourceTypeCommissionOrder, notificationIDs, acknowledgedAt)
 }
 
 func AckInboxNotificationsBySource(ctx context.Context, db *gorm.DB, agentID int64, source string, notificationIDs []int64, acknowledgedAt int64) error {

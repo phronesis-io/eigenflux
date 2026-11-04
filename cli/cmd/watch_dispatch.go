@@ -139,12 +139,14 @@ func (w *accountWatch) dispatchIdentityOK() error {
 	if w.notificationsOnly {
 		return w.notificationIdentityOK()
 	}
-	b, err := dispatch.ReadBinding(w.home, w.server.Name)
-	if err != nil {
-		return err
-	}
-	if b.Revision != w.binding.Revision || b.MainSessionID != w.binding.MainSessionID || b.Env["CODEX_HOME"] != w.binding.Env["CODEX_HOME"] || !sameBindingIdentity(b, *w.binding) {
-		return errWatchConfiguration
+	if w.binding != nil {
+		b, err := dispatch.ReadBinding(w.home, w.server.Name)
+		if err != nil {
+			return err
+		}
+		if b.Revision != w.binding.Revision || b.MainSessionID != w.binding.MainSessionID || b.Env["CODEX_HOME"] != w.binding.Env["CODEX_HOME"] || !sameBindingIdentity(b, *w.binding) {
+			return errWatchConfiguration
+		}
 	}
 	cred, err := auth.LoadV2Credentials(w.server.Name)
 	if err != nil {

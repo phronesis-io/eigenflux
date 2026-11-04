@@ -10,11 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	api "console.eigenflux.ai/kitex_gen/eigenflux/commission"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/cloudwego/kitex/client/callopt"
-	"github.com/phronesis-io/eigenflux-commission/kitex_gen/eigenflux/base"
-	api "github.com/phronesis-io/eigenflux-commission/kitex_gen/eigenflux/commission"
 )
 
 type fakeClient struct {
@@ -27,16 +26,18 @@ type fakeClient struct {
 
 func (f *fakeClient) ListModerations(_ context.Context, req *api.ListModerationsReq, _ ...callopt.Option) (*api.ListModerationsResp, error) {
 	f.listRequest = req
-	return &api.ListModerationsResp{BaseResp: &base.BaseResp{Code: f.code, Msg: "private SQL credential"}, ResultJson: f.payload}, f.err
+	return &api.ListModerationsResp{BaseResp: &api.ReviewBaseResp{Code: f.code, Msg: "private SQL credential"}, ResultJson: f.payload}, f.err
 }
 func (f *fakeClient) ResolveModeration(_ context.Context, req *api.ResolveModerationReq, _ ...callopt.Option) (*api.ResolveModerationResp, error) {
 	f.resolveRequest = req
-	return &api.ResolveModerationResp{BaseResp: &base.BaseResp{Code: f.code, Msg: "private SQL credential"}, ResultJson: f.payload}, f.err
+	return &api.ResolveModerationResp{BaseResp: &api.ReviewBaseResp{Code: f.code, Msg: "private SQL credential"}, ResultJson: f.payload}, f.err
 }
 func request(t *testing.T, rpc Client, method, path, body string) (int, string) {
 	t.Helper()
 	h := server.New()
-	Register(h, rpc)
+	handler := NewHandler(rpc)
+	h.GET("/console/api/v1/service-reviews", handler.List)
+	h.POST("/console/api/v1/service-reviews/:id/resolve", handler.Resolve)
 	result := ut.PerformRequest(h.Engine, method, path, &ut.Body{Body: bytes.NewBufferString(body), Len: len(body)}, ut.Header{Key: "Content-Type", Value: "application/json"}).Result()
 	return result.StatusCode(), string(result.Body())
 }

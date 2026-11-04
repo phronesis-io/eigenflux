@@ -69,7 +69,7 @@ func commissionDesktopMessage(raw json.RawMessage, endpoint, agentID, language s
 	return desktopnotify.Message{ID: "commission:" + strconv.FormatInt(int64(fact.ID), 10), Title: title, Body: body, URL: target}, nil
 }
 func (w *accountWatch) enableDesktop() error {
-	if !w.receivesCommission() {
+	if !w.receivesCommissionNotifications() {
 		return nil
 	}
 	if _, err := orderDesktopURL(w.server.Endpoint, w.identity.AgentID, "1", "seller"); err != nil {

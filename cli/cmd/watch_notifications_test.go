@@ -73,7 +73,7 @@ func TestNotificationsOnlyPersistsBeforeACKAndLegacyStreamDoesNotConsume(t *test
 	if owned, err := orderNotificationsOwnedByWatch(api); err != nil || !owned {
 		t.Fatalf("legacy ownership: %v %v", owned, err)
 	}
-	if err := drainOrderNotifications(api, "json", "en", io.Discard); err != nil {
+	if err := drainCommissionNotifications(api, "json", "en", io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if ack.Load() != 2 {

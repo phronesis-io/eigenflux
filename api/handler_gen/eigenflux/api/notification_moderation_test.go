@@ -37,3 +37,18 @@ func TestLegacyFeedModerationProjectionAndExplicitAck(t *testing.T) {
 		t.Fatal("cross-recipient payload exposed")
 	}
 }
+
+func TestLegacyFeedMissingModerationPayloadDoesNotHideOrder(t *testing.T) {
+	original := clients.NotificationClient
+	defer func() { clients.NotificationClient = original }()
+	order := `{"order_id":9007199254740995}`
+	clients.NotificationClient = moderationNotificationClient{response: &notificationrpc.ListPendingResp{BaseResp: &base.BaseResp{}, Notifications: []*notificationrpc.PendingNotification{
+		{NotificationId: 1, SourceType: "commission_moderation"},
+		{NotificationId: 2, SourceType: "commission_order", PayloadJson: &order},
+	}}}
+	pending, projected := fetchPendingNotifications(context.Background(), 1)
+	if len(projected) != 1 || projected[0]["source_type"] != "commission_order" {
+		t.Fatal("missing moderation payload exposed or hid Order")
+	}
+	ackNotifications(1, pending)
+}

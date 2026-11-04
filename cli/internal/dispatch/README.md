@@ -132,14 +132,35 @@ checks only the main route and cannot replace the actual publication trial.
 
 ## Listing moderation notices
 
-The existing Commission notification intake also accepts `commission_moderation`.
-These are informational seller status changes, not Orders: validate the recipient,
-persist the desktop message before ACK, and never create an execution or main-Agent
-job. Missing desktop delivery retains the server notice. Legacy stream renders
-these notices before ACK when no watch owns intake. Status, draft version, field
-and reason come from the immutable moderation event; `pass` is awaiting publication,
-while only `published` confirms public availability. Desktop links open the Trade
-page without claiming a specific selected account or a service deep-link.
+Every account watch receives `commission_moderation`, including plain watch and
+PM-only bindings. Order intake and execution still require `commission_order`.
+Moderation notices are informational: validate the recipient and payload, then
+atomically save the latest 100 notices in `watch/moderation-<scope>.json` before
+ACK. `watch notices` reads this account-scoped inbox as JSON, including on Linux
+or with desktop notifications disabled. A corrupt/unwritable inbox prevents ACK.
+Lightweight ID receipts deduplicate across restart and socket/poll retries for
+90 days from their first local receipt, independently of the latest 100 payloads.
+Only expired receipts are pruned on writes. The store is capped at 100,000
+unexpired receipts / 8 MiB; exhaustion prevents ACK rather than evicting valid
+receipts. Pre-receipt inboxes seed retained payload IDs at upgrade time.
+The inbox is authoritative: if output fails after persistence, retry may ACK the
+saved notice without emitting it again. `watch notices` still exposes it.
+A newly saved notice emits `commission_moderation_notification`; this event has
+no Order, PM, cursor or dispatch job fields. Generic `notification_push` output
+contains only subscribed Order notices, never moderation or unknown sources.
+Neither path creates a moderation execution or main-Agent job. Installed host
+adapters can ignore the informational event and users can still read the inbox.
+
+When configured, desktop delivery additionally enqueues the same notice with a
+scoped notification ID. Legacy stream saves and renders moderation before ACK
+when no watch owns that source; a persisted PM-only binding owns moderation but
+leaves Orders to legacy consumption. Invalid moderation entries remain pending
+and emit a fixed diagnostic in watch; they do not block valid neighbors' ACKs.
+Status, draft version, field and reason come from the immutable event; `pass` is
+awaiting publication, while only `published` confirms public availability.
+Desktop links open the Trade page without claiming a specific selected account
+or a service deep-link. Payload eviction does not remove its 90-day receipt.
+Duplicate receipts neither emit another host event nor enqueue desktop delivery.
 
 ## Commission input inspection
 

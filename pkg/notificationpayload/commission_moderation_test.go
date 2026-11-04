@@ -56,3 +56,22 @@ func TestCommissionModerationPayload(t *testing.T) {
 		t.Fatal("numeric ID accepted")
 	}
 }
+
+func TestModerationForAgent(t *testing.T) {
+	raw := `{"notification_version":2,"moderation_id":"9007199254740993","commission_id":"9007199254740995","recipient_agent_id":"42","draft_version":2,"status":"review","decision":"review","flag":"","field":"title","reason":"Clarify title","occurred_at":1000}`
+	payload, err := ModerationForAgent(raw, 42)
+	if err != nil || payload.RecipientAgentID != "42" {
+		t.Fatalf("valid recipient rejected: %v", err)
+	}
+	for _, tc := range []struct {
+		raw     string
+		agentID int64
+	}{
+		{raw, 43}, {raw, 0}, {raw, -1}, {"", 42}, {"null", 42}, {strings.Replace(raw, `"status":"review"`, `"status":"future_state"`, 1), 42},
+	} {
+		payload, err := ModerationForAgent(tc.raw, tc.agentID)
+		if err == nil || payload != (CommissionModeration{}) {
+			t.Fatal("invalid or foreign payload escaped the shared boundary")
+		}
+	}
+}

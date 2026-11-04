@@ -114,8 +114,8 @@ func TestWatchCommissionPersistsWholePageBeforeACKAndDeduplicates(t *testing.T) 
 		if _, err := time.Parse(time.RFC3339Nano, data["received_at"].(string)); err != nil {
 			t.Fatal(err)
 		}
-		if len(data["notifications"].([]json.RawMessage)) != 3 {
-			t.Fatal("non-commission notification was hidden from event output")
+		if len(data["notifications"].([]json.RawMessage)) != 2 {
+			t.Fatal("non-order notification leaked into order event output")
 		}
 		return nil
 	}
@@ -333,15 +333,16 @@ func TestWatchCommissionSubscriptionDoesNotConsumeOtherSources(t *testing.T) {
 		t.Fatal("HTTP-only binding must be ready without claiming Socket connectivity")
 	}
 	watch.binding.Events = []string{"pm_push"}
-	for _, call := range []func(context.Context) error{watch.commissionFallbackLoop, watch.pollCommissionNotifications} {
-		if err := call(ctx); err != nil {
-			t.Fatal(err)
-		}
+	if err := dispatch.WriteJSON(dispatch.BindingPath(watch.home, watch.server.Name), watch.binding); err != nil {
+		t.Fatal(err)
+	}
+	if err := watch.pollCommissionNotifications(ctx); err != nil {
+		t.Fatal(err)
 	}
 	if err := watch.deliverCommissionNotifications(ctx, commissionTestPage(commissionTestNotification(81, 901, "42")), "socket"); err != nil {
 		t.Fatal(err)
 	}
-	if requests.Load() != 0 || len(watch.journal.Snapshot()) != 0 {
+	if requests.Load() != 1 || len(watch.journal.Snapshot()) != 0 {
 		t.Fatal("unsubscribed commission notifications were consumed")
 	}
 }
@@ -395,7 +396,7 @@ func TestWatchCommissionSocketDoesNotReplacePMCursor(t *testing.T) {
 	}
 }
 
-func TestDrainOrderNotificationsRespectsDispatchOwnership(t *testing.T) {
+func TestDrainCommissionNotificationsRespectsDispatchOwnership(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -404,7 +405,7 @@ func TestDrainOrderNotificationsRespectsDispatchOwnership(t *testing.T) {
 	defer server.Close()
 	watch := newCommissionWatch(t, server.URL, "commission_order")
 	api := client.New(server.URL+"/api/v2", watch.identity.AccessToken, "test", client.Meta{})
-	if err := drainOrderNotifications(api, "json", "en", io.Discard); err != nil {
+	if err := drainCommissionNotifications(api, "json", "en", io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if calls.Load() != 0 {
@@ -414,7 +415,7 @@ func TestDrainOrderNotificationsRespectsDispatchOwnership(t *testing.T) {
 	if err := dispatch.WriteJSON(dispatch.BindingPath(watch.home, watch.server.Name), watch.binding); err != nil {
 		t.Fatal(err)
 	}
-	if err := drainOrderNotifications(api, "json", "en", io.Discard); err != nil {
+	if err := drainCommissionNotifications(api, "json", "en", io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if calls.Load() != 1 {
@@ -422,7 +423,7 @@ func TestDrainOrderNotificationsRespectsDispatchOwnership(t *testing.T) {
 	}
 }
 
-func TestDrainOrderNotificationsStopsAfterOwnershipOrIdentityChangesDuringFetch(t *testing.T) {
+func TestDrainCommissionNotificationsStopsAfterOwnershipOrIdentityChangesDuringFetch(t *testing.T) {
 	for _, mode := range []string{"handoff", "identity"} {
 		t.Run(mode, func(t *testing.T) {
 			var watch *accountWatch
@@ -452,7 +453,7 @@ func TestDrainOrderNotificationsStopsAfterOwnershipOrIdentityChangesDuringFetch(
 			watch = newCommissionWatch(t, server.URL, "pm_push")
 			api := client.New(server.URL+"/api/v2", watch.identity.AccessToken, "test", client.Meta{})
 			var output strings.Builder
-			err := drainOrderNotifications(api, "json", "en", &output)
+			err := drainCommissionNotifications(api, "json", "en", &output)
 			if mode == "identity" && !errors.Is(err, errWatchIdentity) {
 				t.Fatalf("identity switch not rejected: %v", err)
 			}
@@ -466,7 +467,7 @@ func TestDrainOrderNotificationsStopsAfterOwnershipOrIdentityChangesDuringFetch(
 	}
 }
 
-func TestDrainOrderNotificationsPinsBothRequestsToCurrentIdentity(t *testing.T) {
+func TestDrainCommissionNotificationsPinsBothRequestsToCurrentIdentity(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
@@ -483,14 +484,14 @@ func TestDrainOrderNotificationsPinsBothRequestsToCurrentIdentity(t *testing.T) 
 	newCommissionWatch(t, server.URL, "pm_push")
 	api := client.New(server.URL+"/api/v2", "previous-account-token", "test", client.Meta{})
 	api.OnUnauthorized = func() (string, error) { t.Fatal("legacy drain must not refresh under credential lock"); return "", nil }
-	if err := drainOrderNotifications(api, "json", "en", io.Discard); err != nil {
+	if err := drainCommissionNotifications(api, "json", "en", io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if requests.Load() != 2 || api.Token != "previous-account-token" || api.OnUnauthorized == nil {
 		t.Fatal("legacy drain failed to isolate request credentials")
 	}
 	api.BaseURL = server.URL + "/wrong-endpoint"
-	if err := drainOrderNotifications(api, "json", "en", io.Discard); !errors.Is(err, errWatchConfiguration) {
+	if err := drainCommissionNotifications(api, "json", "en", io.Discard); !errors.Is(err, errWatchConfiguration) {
 		t.Fatalf("sent credentials to unbound endpoint: %v", err)
 	}
 	if requests.Load() != 2 {

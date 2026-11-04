@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+const SourceCommissionModeration = "commission_moderation"
+
 const CommissionModerationTopic = "commission.moderation.changed.v1"
 
 type CommissionModeration struct {
@@ -67,6 +69,18 @@ func ParseCommissionModeration(raw string) (CommissionModeration, error) {
 		}
 	default:
 		return payload, invalid
+	}
+	return payload, nil
+}
+
+// ModerationForAgent validates the payload and its authenticated recipient.
+func ModerationForAgent(raw string, agentID int64) (CommissionModeration, error) {
+	payload, err := ParseCommissionModeration(raw)
+	if err != nil {
+		return CommissionModeration{}, err
+	}
+	if agentID <= 0 || payload.RecipientAgentID != strconv.FormatInt(agentID, 10) {
+		return CommissionModeration{}, errors.New("moderation notification recipient mismatch")
 	}
 	return payload, nil
 }

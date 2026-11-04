@@ -60,7 +60,7 @@ func (c *CommissionModerationNotificationConsumer) Handle(ctx context.Context, _
 		return HandleSuccess
 	}
 	wake, _ := json.Marshal(map[string]string{
-		"source_type":     dal.SourceTypeCommissionModeration,
+		"source_type":     notificationpayload.SourceCommissionModeration,
 		"notification_id": strconv.FormatInt(row.NotificationID, 10),
 		"sequence":        strconv.FormatInt(row.NotificationID, 10),
 	})
@@ -109,7 +109,7 @@ func parseCommissionModerationNotification(values map[string]any, now int64) (*d
 	recipient, _ := strconv.ParseInt(payload.RecipientAgentID, 10, 64)
 	return &dal.InboxNotification{
 		NotificationID: ids["event_id"], AgentID: recipient, SourceID: ids["event_id"],
-		SourceType: dal.SourceTypeCommissionModeration, EventKind: notificationpayload.CommissionModerationTopic,
+		SourceType: notificationpayload.SourceCommissionModeration, EventKind: notificationpayload.CommissionModerationTopic,
 		DedupeKey:   fmt.Sprintf("commission_moderation:%s:version:%d:recipient:%s", payload.ModerationID, ids["aggregate_version"], payload.RecipientAgentID),
 		PayloadJSON: raw, OccurredAt: payload.OccurredAt, ReceivedAt: now, ExpiresAt: now + dal.PendingRetention.Milliseconds(),
 	}, nil

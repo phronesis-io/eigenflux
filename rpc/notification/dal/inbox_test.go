@@ -2,6 +2,7 @@ package dal
 
 import (
 	"context"
+	"eigenflux_server/pkg/notificationpayload"
 	"strings"
 	"testing"
 
@@ -74,13 +75,13 @@ func TestInboxDedupeAuthorizationAndIdempotentAck(t *testing.T) {
 	if _, err := InsertInboxNotification(ctx, database, &conflict); err == nil {
 		t.Fatal("mismatched duplicate was accepted")
 	}
-	if err := AckInboxNotifications(ctx, database, 2, []int64{11}, 2500); err == nil {
+	if err := AckInboxNotificationsBySource(ctx, database, 2, SourceTypeCommissionOrder, []int64{11}, 2500); err == nil {
 		t.Fatal("another Agent acknowledged the notification")
 	}
-	if err := AckInboxNotifications(ctx, database, 1, []int64{11, 11}, 2500); err != nil {
+	if err := AckInboxNotificationsBySource(ctx, database, 1, SourceTypeCommissionOrder, []int64{11, 11}, 2500); err != nil {
 		t.Fatal(err)
 	}
-	if err := AckInboxNotifications(ctx, database, 1, []int64{11}, 2600); err != nil {
+	if err := AckInboxNotificationsBySource(ctx, database, 1, SourceTypeCommissionOrder, []int64{11}, 2600); err != nil {
 		t.Fatalf("idempotent ACK failed: %v", err)
 	}
 	rows, err := ListInboxNotifications(ctx, database, 1, 2400)
@@ -93,27 +94,27 @@ func TestModerationInboxSourceSpecificAckAndValidation(t *testing.T) {
 	db := setupInboxTestDB(t)
 	ctx := context.Background()
 	row := inboxFixture(31, 1, 1)
-	row.SourceType = SourceTypeCommissionModeration
+	row.SourceType = notificationpayload.SourceCommissionModeration
 	row.OrderID, row.OrderVersion = 0, 0
 	if inserted, err := InsertInboxNotification(ctx, db, row); err != nil || !inserted {
 		t.Fatalf("insert: %v %v", inserted, err)
 	}
-	if err := AckInboxNotifications(ctx, db, 1, []int64{31}, 2500); err == nil {
+	if err := AckInboxNotificationsBySource(ctx, db, 1, SourceTypeCommissionOrder, []int64{31}, 2500); err == nil {
 		t.Fatal("order source acknowledged moderation")
 	}
-	if err := AckInboxNotificationsBySource(ctx, db, 2, SourceTypeCommissionModeration, []int64{31}, 2500); err == nil {
+	if err := AckInboxNotificationsBySource(ctx, db, 2, notificationpayload.SourceCommissionModeration, []int64{31}, 2500); err == nil {
 		t.Fatal("foreign recipient acknowledged moderation")
 	}
-	if err := AckInboxNotificationsBySource(ctx, db, 1, SourceTypeCommissionModeration, []int64{31}, 2500); err != nil {
+	if err := AckInboxNotificationsBySource(ctx, db, 1, notificationpayload.SourceCommissionModeration, []int64{31}, 2500); err != nil {
 		t.Fatal(err)
 	}
-	if err := AckInboxNotificationsBySource(ctx, db, 1, SourceTypeCommissionModeration, []int64{31}, 2600); err != nil {
+	if err := AckInboxNotificationsBySource(ctx, db, 1, notificationpayload.SourceCommissionModeration, []int64{31}, 2600); err != nil {
 		t.Fatal(err)
 	}
-	for _, source := range []string{SourceTypeCommissionModeration, SourceTypeCommissionOrder, "unknown"} {
+	for _, source := range []string{notificationpayload.SourceCommissionModeration, SourceTypeCommissionOrder, "unknown"} {
 		invalid := *row
 		invalid.SourceType = source
-		if source == SourceTypeCommissionModeration {
+		if source == notificationpayload.SourceCommissionModeration {
 			invalid.OrderID = 7
 		}
 		if _, err := InsertInboxNotification(ctx, db, &invalid); err == nil {

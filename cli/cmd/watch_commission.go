@@ -54,8 +54,13 @@ func (w *accountWatch) receivesCommission() bool {
 	return w.notificationsOnly || (w.binding != nil && w.journal != nil && w.binding.Handles("commission_order"))
 }
 
+// Moderation is informational and never requires an Order execution subscription.
+func (w *accountWatch) receivesCommissionNotifications() bool {
+	return w.identity.AgentID != "" && w.scope != ""
+}
+
 func (w *accountWatch) deliverSocketEvent(ctx context.Context, kind string, data json.RawMessage) error {
-	if kind == "notification_push" && w.receivesCommission() {
+	if kind == "notification_push" && w.receivesCommissionNotifications() {
 		return w.deliverCommissionNotifications(ctx, data, "socket")
 	}
 	return w.deliverPM(ctx, kind, data, "socket")
@@ -64,7 +69,7 @@ func (w *accountWatch) deliverSocketEvent(ctx context.Context, kind string, data
 // Notification-only bindings use HTTP: the current server WebSocket also marks
 // PMs read. A binding owning both sources can reuse its existing PM connection.
 func (w *accountWatch) commissionFallbackLoop(ctx context.Context) error {
-	if !w.receivesCommission() {
+	if !w.receivesCommissionNotifications() {
 		return nil
 	}
 	for ctx.Err() == nil {
@@ -88,7 +93,7 @@ func (w *accountWatch) commissionFallbackLoop(ctx context.Context) error {
 }
 
 func (w *accountWatch) pollCommissionNotifications(ctx context.Context) error {
-	if !w.receivesCommission() {
+	if !w.receivesCommissionNotifications() {
 		return nil
 	}
 	cursor := ""
@@ -132,7 +137,7 @@ func (w *accountWatch) pollCommissionNotifications(ctx context.Context) error {
 }
 
 func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data json.RawMessage, transport string) error {
-	if !w.receivesCommission() {
+	if !w.receivesCommissionNotifications() {
 		return nil
 	}
 	page, err := decodeCommissionNotificationPage(data)
@@ -154,15 +159,22 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 			}
 		}
 		ack := make([]map[string]string, 0, len(page.Notifications))
+		orderOutput := make([]json.RawMessage, 0, len(page.Notifications))
 		for _, raw := range page.Notifications {
 			var notification struct {
 				Source string          `json:"source_type"`
 				ID     json.RawMessage `json:"notification_id"`
 			}
 			if json.Unmarshal(raw, &notification) != nil {
-				return errors.New("invalid_commission_notification")
+				continue
 			}
 			if notification.Source == moderationNotificationSource {
+				if _, err := parseModerationNotification(raw, w.identity.AgentID); err != nil {
+					if err := w.emit("commission_notification_invalid", map[string]string{"source_type": moderationNotificationSource, "code": "invalid_moderation_notification"}); err != nil {
+						return err
+					}
+					continue
+				}
 				saved, err := w.enqueueModerationNotification(raw)
 				if err != nil {
 					return err
@@ -176,7 +188,7 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 				}
 				continue
 			}
-			if notification.Source != "commission_order" {
+			if notification.Source != "commission_order" || !w.receivesCommission() {
 				continue
 			}
 			internal := isCommissionInputCoordination(raw)
@@ -215,6 +227,7 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 			if json.Unmarshal(notification.ID, &id) != nil {
 				return errors.New("invalid_commission_notification_id")
 			}
+			orderOutput = append(orderOutput, raw)
 			ack = append(ack, map[string]string{
 				"notification_id": strconv.FormatInt(int64(id), 10),
 				"source_type":     "commission_order",
@@ -238,11 +251,14 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 				return errors.New("commission_notification_ack_failed")
 			}
 		}
+		if len(orderOutput) == 0 {
+			return nil
+		}
 		if w.notificationsOnly {
-			return w.emit("notification_push", map[string]interface{}{"count": len(ack), "transport": transport})
+			return w.emit("notification_push", map[string]interface{}{"count": len(orderOutput), "transport": transport})
 		}
 		return w.emit("notification_push", map[string]interface{}{
-			"notifications": page.Notifications,
+			"notifications": orderOutput,
 			"has_more":      page.HasMore,
 			"next_cursor":   page.NextCursor,
 			"transport":     transport,
