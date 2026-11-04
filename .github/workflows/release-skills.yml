@@ -29,7 +29,12 @@ on:
       - 'cli/cmd/manifestgen/**'
       - '.github/workflows/release-skills.yml'
       - 'cli/.cli.config'              # SKILLS_MIN_CLI_VERSION / SKILLS_REVISION
-  workflow_dispatch:                   # manual "Run workflow" button
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Reverify and publish even when this source already succeeded
+        type: boolean
+        default: false
 
 # contents: write — the sync step commits static/feed_contract.md back to main,
 # or to a chore/ branch when branch protection rejects the direct push.
@@ -50,6 +55,8 @@ jobs:
       source_sha: ${{ steps.source.outputs.sha }}
       trusted_ci: ${{ steps.plan.outputs.trusted_ci }}
       defer_to_cli: ${{ steps.plan.outputs.defer_to_cli }}
+      duplicate_release: ${{ steps.plan.outputs.duplicate_release }}
+      publication_receipt: ${{ steps.plan.outputs.publication_receipt }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -60,14 +67,20 @@ jobs:
       - id: plan
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 cli/scripts/release-plan.py --repository "$GITHUB_REPOSITORY" --sha '${{ steps.source.outputs.sha }}' --event-name "$GITHUB_EVENT_NAME" --event-path "$GITHUB_EVENT_PATH" --github-output "$GITHUB_OUTPUT"
+          R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
+        run: python3 cli/scripts/release-plan.py --check-duplicate --repository "$GITHUB_REPOSITORY" --sha '${{ steps.source.outputs.sha }}' --event-name "$GITHUB_EVENT_NAME" --event-path "$GITHUB_EVENT_PATH" --github-output "$GITHUB_OUTPUT"
+      - name: Summarize a verified duplicate
+        if: steps.plan.outputs.duplicate_release == 'true'
+        env:
+          PREVIOUS_RUN: ${{ steps.plan.outputs.duplicate_run_id }}
+        run: echo "Verified duplicate; preparation and publication skipped. Reused run $PREVIOUS_RUN." >> "$GITHUB_STEP_SUMMARY"
       - name: Explain a combined CLI release
         if: steps.plan.outputs.defer_to_cli == 'true'
         run: echo 'Skills publication deferred until the matching CLI release succeeds.' >> "$GITHUB_STEP_SUMMARY"
 
   prepare:
     needs: plan
-    if: needs.plan.outputs.defer_to_cli != 'true'
+    if: needs.plan.outputs.defer_to_cli != 'true' && needs.plan.outputs.duplicate_release != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -234,3 +247,13 @@ jobs:
           if [ "${{ job.status }}" = "success" ]; then
             echo "- installation entry: https://cdn.eigenflux.ai/skills/latest/install.md (verified against skills/install.md)" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      # Record only a fully verified publication; failed runs cannot be reused.
+      - name: Preserve the successful publication manifest for duplicate detection
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ needs.plan.outputs.publication_receipt }}
+          path: build/cli/manifest.json
+          retention-days: 14
+          overwrite: true
+          if-no-files-found: error
