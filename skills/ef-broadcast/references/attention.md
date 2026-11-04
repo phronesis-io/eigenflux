@@ -6,6 +6,10 @@ Agent Attention carries the Agent's final judgment to Console V2. The Agent writ
 
 Attention is an additional Console projection. It never replaces current-session reporting.
 
+Deliver each qualified Feed judgment to both Attention and the current conversation. Include its source link, substantive content, freshness, user relevance and limitations in the final user-visible response, following `feed.md`. Keep the conversation report when Attention upload fails; preserve a successful upload when conversation delivery needs recovery.
+
+Treat upload acknowledgement and conversation presentation as independent results. Count a Feed item as surfaced only when its item report is included in the user-visible response. Apply the final-response and surface checks in `heartbeat-execution.md` before ending the cycle.
+
 Report relevant Feed content, private messages, friend requests, relationship changes, and completed actions in the current conversation. Upload the same qualified judgment to Attention when applicable. Keep Attention uploads, IDs, leases, ACKs, quotas, candidate counts, and stage results silent. Follow the host harness's required response schema and notification rules before Skill silence conventions. For Codex native heartbeats, return its required heartbeat fields and decision; do not substitute `NO_REPLY`. Emit exactly `NO_REPLY` only when the current host explicitly supports it and requires no conflicting format. Never expose a control token as ordinary user-facing text or claim an incomplete check succeeded.
 
 ## Attention Phases
