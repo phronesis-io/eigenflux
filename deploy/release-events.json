@@ -111,6 +111,17 @@
     "pr": "https://github.com/phronesis-io/eigenflux/pull/466"
   },
   {
+    "id": "managed-enterprise-identities-v1",
+    "kind": "behavior",
+    "deploy_scope": "full",
+    "dashboards": [
+      "user-growth"
+    ],
+    "title": "Managed enterprise registration available",
+    "description": "Default off. Approved integrations can create anonymous Agent identities without personal onboarding; growth counts include these identities only after explicit integration activation. Deployment alone does not activate access.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/469"
+  },
+  {
     "id": "feed-v2-baseline-context-v1",
     "kind": "behavior",
     "deploy_scope": "api",

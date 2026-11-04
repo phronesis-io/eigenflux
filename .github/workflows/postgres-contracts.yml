@@ -30,6 +30,8 @@ on:
       - 'tests/pmtimestampbackfill/**'
       - 'pkg/consolev2retention/**'
       - 'pkg/agentidentity/**'
+      - 'pkg/integrationidentity/**'
+      - 'api/integrations/**'
       - 'pkg/agentcard/**'
       - 'pkg/testaccountreset/**'
       - 'pkg/recommendationmetrics/**'
@@ -67,6 +69,8 @@ on:
       - 'tests/pmtimestampbackfill/**'
       - 'pkg/consolev2retention/**'
       - 'pkg/agentidentity/**'
+      - 'pkg/integrationidentity/**'
+      - 'api/integrations/**'
       - 'pkg/agentcard/**'
       - 'pkg/testaccountreset/**'
       - 'pkg/recommendationmetrics/**'
@@ -119,6 +123,8 @@ jobs:
           python3 -m unittest discover -s scripts/discovery_fidelity_replay -p 'test*report.py'
       - name: Apply every migration and rollout helper
         run: bash scripts/common/migrate_up.sh
+      - name: Verify managed integration identity and application quotas
+        run: INTEGRATION_TEST_PG_DSN="$PG_DSN" go test -race ./pkg/integrationidentity ./api/integrations -count=1
       - name: Verify broadcast keyword expiry query
         run: go test -race -count=1 ./rpc/sort/discovery -run '^TestBroadcastRetrievalFiltersExpiryAtRequestClock$'
       - name: Verify migration source contracts
