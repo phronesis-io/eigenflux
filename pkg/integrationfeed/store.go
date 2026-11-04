@@ -33,6 +33,9 @@ type Batch struct {
 
 func (Batch) TableName() string { return "integration_feed_batches" }
 
+// MinimumPollIntervalSeconds is the only server-side Feed usage limit.
+const MinimumPollIntervalSeconds = integrationidentity.MinimumFeedPollIntervalSeconds
+
 type Store struct{ DB *gorm.DB }
 type Request struct {
 	Sequence int64 `json:"sequence"`
@@ -75,7 +78,7 @@ func now(db *gorm.DB) (int64, error) {
 	return value, err
 }
 
-// Begin commits the quota/cadence decision before any external generation.
+// Begin commits the minimum-interval decision before any external generation.
 // Only the caller receiving admitted=true may invoke the Feed RPC once.
 func (s *Store) Begin(ctx context.Context, id int64, request Request) (Batch, bool, error) {
 	var result Batch
@@ -127,48 +130,16 @@ func (s *Store) Begin(ctx context.Context, id int64, request Request) (Batch, bo
 		if err := tx.First(&managed, "agent_id = ?", id).Error; err != nil {
 			return err
 		}
-		if managed.NextPollAt > time {
-			return &RetryError{429, "FEED_POLL_TOO_EARLY", int((managed.NextPollAt - time + 999) / 1000)}
-		}
-		var app struct {
-			AppID                  string
-			MinPollIntervalSeconds int
-			MaxFeedBatchesPerDay   int
-			FeedUsageDay           int64
-			FeedBatchesToday       int64
-		}
-		if err := tx.Table("integration_apps").Where("app_id = ?", managed.AppID).First(&app).Error; err != nil {
-			return err
-		}
-		interval := managed.RequestedPollIntervalSeconds
-		if interval < app.MinPollIntervalSeconds {
-			interval = app.MinPollIntervalSeconds
-		}
-		if interval < 10 || interval > 86400 {
-			return failure(503, "INTEGRATION_FEED_POLICY_INVALID")
-		}
-		earliest := managed.NextPollAt
+		// Stored next_poll_at is a scheduling hint for SDK clients, not an
+		// admission reservation. A changed client cadence must not block HTTP.
 		if current.Sequence > 0 {
-			activeMinimum := current.CreatedAt + int64(interval)*1000
-			if activeMinimum > earliest {
-				earliest = activeMinimum
+			earliest := current.CreatedAt + int64(MinimumPollIntervalSeconds)*1000
+			if earliest > time {
+				return &RetryError{429, "FEED_POLL_TOO_EARLY", int((earliest - time + 999) / 1000)}
 			}
 		}
-		if earliest > time {
-			return &RetryError{429, "FEED_POLL_TOO_EARLY", int((earliest - time + 999) / 1000)}
-		}
+		interval := max(MinimumPollIntervalSeconds, managed.RequestedPollIntervalSeconds)
 
-		day := time / 86400000
-		used := app.FeedBatchesToday
-		if app.FeedUsageDay != day {
-			used = 0
-		}
-		if app.MaxFeedBatchesPerDay < 1 {
-			return failure(503, "INTEGRATION_FEED_POLICY_INVALID")
-		}
-		if used >= int64(app.MaxFeedBatchesPerDay) {
-			return &RetryError{429, "APPLICATION_FEED_QUOTA_EXCEEDED", int(((day+1)*86400000 - time + 999) / 1000)}
-		}
 		var projection struct{ SourceRevision int64 }
 		if err := tx.Table("integration_matching_profiles").Select("source_revision").Where("agent_id = ?", id).First(&projection).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -188,7 +159,7 @@ func (s *Store) Begin(ctx context.Context, id int64, request Request) (Batch, bo
 		if err := tx.Model(&integrationidentity.Agent{}).Where("agent_id = ?", id).Update("next_poll_at", result.NextPollAt).Error; err != nil {
 			return err
 		}
-		if err := tx.Table("integration_apps").Where("app_id = ?", app.AppID).Updates(map[string]any{"feed_usage_day": day, "feed_batches_today": used + 1, "feed_batches_total": gorm.Expr("feed_batches_total + 1")}).Error; err != nil {
+		if err := tx.Table("integration_apps").Where("app_id = ?", managed.AppID).Updates(map[string]any{"feed_usage_day": time / 86400000, "feed_batches_today": gorm.Expr("CASE WHEN feed_usage_day = ? THEN feed_batches_today + 1 ELSE 1 END", time/86400000), "feed_batches_total": gorm.Expr("feed_batches_total + 1")}).Error; err != nil {
 			return err
 		}
 		admitted = true
@@ -269,6 +240,11 @@ func (s *Store) Latest(ctx context.Context, id int64) (Batch, error) {
 		if err != nil {
 			return err
 		}
+		var managed integrationidentity.Agent
+		if err := tx.First(&managed, "agent_id = ?", id).Error; err != nil {
+			return err
+		}
+		batch.NextPollAt = batch.CreatedAt + int64(max(MinimumPollIntervalSeconds, managed.RequestedPollIntervalSeconds))*1000
 		time, err := now(tx)
 		if err != nil {
 			return err
