@@ -7,7 +7,7 @@ approval gate to existing CLI APIs.
 
 ## Activation and ownership
 
-Apply migration `000125_enterprise_integrations.sql` before enabling
+Apply migration `000127_enterprise_integrations.sql` before enabling
 `ENABLE_ENTERPRISE_INTEGRATIONS=true` on the gateway. The environment flag is
 false by default and controls route registration. The persistent
 `integration_control` singleton also starts disabled; neither the migration nor
