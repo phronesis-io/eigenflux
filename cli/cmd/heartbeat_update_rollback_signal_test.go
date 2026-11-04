@@ -65,6 +65,9 @@ func TestHeartbeatInstalledProbeSignalRollback(t *testing.T) {
 			var unexpected atomic.Int32
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
+				case "/cli/v2/latest/release.json", "/cli/v2/latest/package-release.json":
+					// This fixture models the legacy lane before the v2 channel exists.
+					http.NotFound(w, r)
 				case "/cli/latest/release.json", "/cli/latest/package-release.json":
 					_ = json.NewEncoder(w).Encode(release)
 				case "/cli/0.0.48/" + artifactPath:

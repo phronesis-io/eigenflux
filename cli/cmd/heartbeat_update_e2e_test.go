@@ -62,6 +62,9 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			requests.Add(1)
 			switch r.URL.Path {
+			case "/cli/v2/latest/release.json", "/cli/v2/latest/package-release.json":
+				// This fixture models the legacy lane before the v2 channel exists.
+				http.NotFound(w, r)
 			case "/cli/latest/release.json", "/cli/latest/package-release.json":
 				_ = json.NewEncoder(w).Encode(release)
 			case "/cli/0.0.48/" + artifactPath:
@@ -111,8 +114,8 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 				t.Fatal("old CLI claimed to be the replacement process")
 			}
 		}
-		if requests.Load() != 3 {
-			t.Fatalf("expected one install and one immediate current check, got %d requests", requests.Load())
+		if requests.Load() != 5 {
+			t.Fatalf("expected two v2 misses, two legacy manifests and one artifact request, got %d requests", requests.Load())
 		}
 		assertHeartbeatUpdatedInstallation(t, bin, oldBytes, newBytes, pub)
 		currentConfig, err := os.ReadFile(filepath.Join(home, "config.json"))
@@ -128,6 +131,9 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 		var manifests, packages atomic.Int32
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
+			case "/cli/v2/latest/release.json", "/cli/v2/latest/package-release.json":
+				// This fixture models the legacy lane before the v2 channel exists.
+				http.NotFound(w, r)
 			case "/cli/latest/package-release.json":
 				manifests.Add(1)
 				_ = json.NewEncoder(w).Encode(release)
@@ -296,6 +302,9 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 		t.Run("manual update with unreadable "+broken, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
+				case "/cli/v2/latest/release.json", "/cli/v2/latest/package-release.json":
+					// This fixture models the legacy lane before the v2 channel exists.
+					http.NotFound(w, r)
 				case "/cli/latest/release.json", "/cli/latest/package-release.json":
 					_ = json.NewEncoder(w).Encode(release)
 				case "/cli/0.0.48/" + artifactPath:
@@ -346,6 +355,9 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 			var observed []maintenance.Event
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
+				case "/cli/v2/latest/release.json", "/cli/v2/latest/package-release.json":
+					// This fixture models the legacy lane before the v2 channel exists.
+					http.NotFound(w, r)
 				case "/cli/latest/release.json", "/cli/latest/package-release.json":
 					_ = json.NewEncoder(w).Encode(release)
 				case "/cli/0.0.48/" + artifactPath:
@@ -445,6 +457,9 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 			var manifest *skills.Manifest
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
+				case "/cli/v2/latest/release.json", "/cli/v2/latest/package-release.json":
+					// This fixture models the legacy lane before the v2 channel exists.
+					http.NotFound(w, r)
 				case "/cli/latest/release.json", "/cli/latest/package-release.json":
 					requests.Add(1)
 					_ = json.NewEncoder(w).Encode(release)

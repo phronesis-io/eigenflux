@@ -8,26 +8,29 @@ import (
 
 // This is diagnostic evidence, not an authoritative order-state transition.
 type Commission struct {
-	OrderID              string `json:"order_id"`
-	OrderVersion         int64  `json:"order_version"`
-	Role                 string `json:"role"`
-	JobID                string `json:"job_id"`
-	JobKind              string `json:"job_kind"`
-	SourceNotificationID string `json:"source_notification_id,omitempty"`
-	Stage                string `json:"stage"`
-	Attempt              int    `json:"attempt"`
-	NextAttemptAt        int64  `json:"next_attempt_at,omitempty"`
-	CLICommit            string `json:"cli_commit,omitempty"`
-	Adapter              string `json:"adapter,omitempty"`
-	Transport            string `json:"transport,omitempty"`
-	HostSessionIDHash    string `json:"host_session_id_hash,omitempty"`
-	HostRunIDHash        string `json:"host_run_id_hash,omitempty"`
-	ArtifactIDHash       string `json:"artifact_id_hash,omitempty"`
-	Operation            string `json:"operation,omitempty"`
-	Resource             string `json:"resource,omitempty"`
-	HTTPStatus           int    `json:"http_status,omitempty"`
-	InputRequestIDHash   string `json:"input_request_id_hash,omitempty"`
-	InputRound           int    `json:"input_round,omitempty"`
+	LocalCode            string                  `json:"local_code,omitempty"`
+	CheckReceipt         *CommissionCheckReceipt `json:"check_receipt,omitempty"`
+	BridgeError          *CommissionBridgeError  `json:"bridge_error,omitempty"`
+	OrderID              string                  `json:"order_id"`
+	OrderVersion         int64                   `json:"order_version"`
+	Role                 string                  `json:"role"`
+	JobID                string                  `json:"job_id"`
+	JobKind              string                  `json:"job_kind"`
+	SourceNotificationID string                  `json:"source_notification_id,omitempty"`
+	Stage                string                  `json:"stage"`
+	Attempt              int                     `json:"attempt"`
+	NextAttemptAt        int64                   `json:"next_attempt_at,omitempty"`
+	CLICommit            string                  `json:"cli_commit,omitempty"`
+	Adapter              string                  `json:"adapter,omitempty"`
+	Transport            string                  `json:"transport,omitempty"`
+	HostSessionIDHash    string                  `json:"host_session_id_hash,omitempty"`
+	HostRunIDHash        string                  `json:"host_run_id_hash,omitempty"`
+	ArtifactIDHash       string                  `json:"artifact_id_hash,omitempty"`
+	Operation            string                  `json:"operation,omitempty"`
+	Resource             string                  `json:"resource,omitempty"`
+	HTTPStatus           int                     `json:"http_status,omitempty"`
+	InputRequestIDHash   string                  `json:"input_request_id_hash,omitempty"`
+	InputRound           int                     `json:"input_round,omitempty"`
 }
 
 func ValidateCommission(e Event) error {
@@ -38,13 +41,17 @@ func ValidateCommission(e Event) error {
 	if !watchOneOf(e.Platform, "darwin", "windows", "linux") || !safeValue.MatchString(e.Host) || !safeValue.MatchString(e.FromVersion) || !watchOneOf(e.Mode, "", "skill", "plugin") || e.ToVersion != "" || e.RunningVersion != "" || e.DurationMS < 0 || e.DurationMS > int64(24*time.Hour/time.Millisecond) {
 		return fmt.Errorf("invalid commission diagnostic metadata")
 	}
-	if !canonicalPositiveNotificationID(c.OrderID) || c.OrderVersion < 0 || c.OrderVersion == 0 && c.Stage != "preflight" || !watchOneOf(c.Role, "buyer", "seller") || !notificationHash.MatchString(c.JobID) || !watchOneOf(c.JobKind, "commission_order", "commission_fulfillment", "commission_clarification", "main_notice", "material_notice") || c.SourceNotificationID != "" && !canonicalPositiveNotificationID(c.SourceNotificationID) {
+	if !canonicalPositiveNotificationID(c.OrderID) || c.OrderVersion < 0 || c.OrderVersion == 0 && c.Stage != "preflight" && c.Stage != "diagnostic_snapshot" || !watchOneOf(c.Role, "buyer", "seller") || !notificationHash.MatchString(c.JobID) || !watchOneOf(c.JobKind, "commission_order", "commission_fulfillment", "commission_clarification", "main_notice", "material_notice") || c.SourceNotificationID != "" && !canonicalPositiveNotificationID(c.SourceNotificationID) {
 		return fmt.Errorf("invalid commission diagnostic correlation")
 	}
-	if !watchOneOf(c.Stage, "queued", "claimed", "preflight", "agent", "artifact", "upload_grant", "upload_put", "upload_confirm", "deliver", "verify", "main_notice", "input_check", "accept", "job_finished", "retry") || !watchOneOf(e.Result, "queued", "started", "succeeded", "failed", "blocked", "retry_scheduled", "skipped") {
+	if c.Stage == "diagnostic_snapshot" {
+		if e.Result != "observed" || c.Attempt != 0 || c.NextAttemptAt != 0 || e.DurationMS != 0 || c.LocalCode == "" || c.CheckReceipt == nil || c.BridgeError == nil {
+			return fmt.Errorf("invalid commission diagnostic snapshot")
+		}
+	} else if !watchOneOf(c.Stage, "queued", "claimed", "preflight", "agent", "artifact", "upload_grant", "upload_put", "upload_confirm", "deliver", "verify", "main_notice", "input_check", "accept", "job_finished", "retry") || !watchOneOf(e.Result, "queued", "started", "succeeded", "failed", "blocked", "retry_scheduled", "skipped") {
 		return fmt.Errorf("invalid commission diagnostic stage or result")
 	}
-	if c.Attempt < 0 || c.Attempt > 5 || c.Attempt == 0 && c.Stage != "queued" || (c.Stage == "queued") != (e.Result == "queued") {
+	if c.Attempt < 0 || c.Attempt > 5 || c.Attempt == 0 && c.Stage != "queued" && c.Stage != "diagnostic_snapshot" || (c.Stage == "queued") != (e.Result == "queued") {
 		return fmt.Errorf("invalid commission diagnostic attempt")
 	}
 	if e.Result == "retry_scheduled" {
@@ -71,7 +78,7 @@ func ValidateCommission(e Event) error {
 	if c.InputRound < 0 || c.InputRound > 3 || c.InputRound > 0 && c.InputRequestIDHash == "" || c.InputRequestIDHash != "" && c.InputRound == 0 && c.JobKind != "main_notice" {
 		return fmt.Errorf("invalid commission input request correlation")
 	}
-	return nil
+	return ValidateCommissionDetails(c)
 }
 
 func validCommissionCode(code string) bool {

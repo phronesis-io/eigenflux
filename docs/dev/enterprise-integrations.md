@@ -7,7 +7,7 @@ approval gate to existing CLI APIs.
 
 ## Activation and ownership
 
-Apply migration `000125_enterprise_integrations.sql` before enabling
+Apply migration `000127_enterprise_integrations.sql` before enabling
 `ENABLE_ENTERPRISE_INTEGRATIONS=true` on the gateway. The environment flag is
 false by default and controls route registration. The persistent
 `integration_control` singleton also starts disabled; neither the migration nor
@@ -129,7 +129,7 @@ No client auto-update protocol or customer self-service billing is required.
 
 ## Versioned context and matching
 
-Apply migration `000126_integration_contexts.sql` and enable the integration flag
+Apply migration `000128_integration_contexts.sql` and enable the integration flag
 on API, pipeline, and Sort together. This is a full rollout, not API-only.
 Existing personal CLI routes and their recommendation behavior stay unchanged.
 
@@ -189,7 +189,7 @@ logged or projected to public Cards.
 
 ## Durable enterprise Feed
 
-Apply migration `000127_integration_feed_batches.sql` before activating the full
+Apply migration `000129_integration_feed_batches.sql` before activating the full
 API/Feed/Sort/pipeline rollout. Enterprise MVP serves personalized broadcast
 items through the existing legacy ranking, content disclosure, impression and
 replay chain. It does not depend on personal onboarding or activate personal

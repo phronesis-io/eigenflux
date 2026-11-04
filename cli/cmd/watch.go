@@ -73,6 +73,7 @@ type accountWatch struct {
 	desktop               *desktopqueue.Queue
 	desktopProvider       desktopProvider
 	desktopDisabledReason string
+	manualCommission      bool // Synchronous operator inspection; no automatic watch telemetry.
 	notificationsOnly     bool
 	notificationsReady    atomic.Bool
 	handoff               *watchHandoff
@@ -122,6 +123,7 @@ var watchCmd = &cobra.Command{
 		}
 		w := &accountWatch{home: home, server: *server, identity: *credentials, wake: make(chan struct{}, 1), notificationsOnly: notificationsOnly}
 		w.scope = watchstate.Scope(home, server.Name, credentials.AgentID, credentials.PrincipalID)
+		w.reportCLIExecution(os.Stderr)
 		if notificationsOnly {
 			if err := w.enableNotificationsOnly(); err != nil {
 				return err

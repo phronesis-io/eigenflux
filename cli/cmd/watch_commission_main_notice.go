@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"cli.eigenflux.ai/internal/dispatch"
+	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/skills"
 )
 
@@ -156,10 +157,12 @@ func (w *accountWatch) commissionMainNoticePrompt(item dispatch.MainNotice) (str
 func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item dispatch.MainNotice) (status, code string) {
 	started := time.Now()
 	observation := mainNoticeObservation(item)
+	observation.BridgeError = nil
 	if w.binding != nil && w.binding.Host == "codex" {
 		observation.Adapter = "codex_turn"
 	}
 	defer func() {
+		observation.LocalCode = maintenance.CommissionLocalCode(code)
 		result, reason := "skipped", commissionNoticeCode(code)
 		if status == "delivered" {
 			result, reason = "succeeded", ""
@@ -248,7 +251,16 @@ func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item di
 	runObservation := observation
 	runObservation.Stage = "agent"
 	w.recordCommissionObservation(runObservation, "started", "", runStarted, dispatch.Result{}, nil)
+	if queue, queueErr := w.mainNoticeQueue(); queueErr == nil && queue != nil {
+		_ = queue.SaveBridgeDiagnostic(item.ID, &maintenance.CommissionBridgeError{Code: "unknown_failure"})
+	}
 	result, runErr := w.runMainNotice(callCtx, prompt)
+	if runErr != nil {
+		observation.BridgeError = dispatch.SafeDiagnostic(runErr)
+		if queue, queueErr := w.mainNoticeQueue(); queueErr == nil && queue != nil {
+			_ = queue.SaveBridgeDiagnostic(item.ID, observation.BridgeError)
+		}
+	}
 	runStatus, runCode := commissionCallOutcome(runErr)
 	w.recordCommissionObservation(runObservation, runStatus, runCode, runStarted, result, runErr)
 	if item.IsBuyerInputRequest() && !w.buyerInputNoticeCurrent(callCtx, item) {

@@ -1,11 +1,17 @@
 -- Read-only operator query. Supply canonical psql variables agent_id/order_id.
 -- Authenticated Agent scope and retained event time are required for diagnosis.
 SELECT to_timestamp(event_at/1000.0) AS observed_at,
+       to_timestamp(created_at/1000.0) AS uploaded_at,
        properties->>'attempt_id' AS receipt_id,
        properties->>'from_version' AS cli_version,
        properties->>'host' AS host,
        properties->>'result' AS result,
        properties->>'error_code' AS error_code,
+       properties->'commission'->>'local_code' AS local_code,
+       CASE WHEN properties->'commission'->>'stage'='diagnostic_snapshot'
+            THEN 'retained_diagnostic' ELSE 'execution_observation' END AS observation_kind,
+       properties->'commission'->'check_receipt' AS check_receipt,
+       properties->'commission'->'bridge_error' AS bridge_error,
        properties->>'duration_ms' AS duration_ms,
        properties->'commission' AS diagnostic
 FROM telemetry_events_v2

@@ -4,11 +4,12 @@ Update this file when bridge behavior changes. `ServeHermes` implements only the
 EigenFlux ACP `ai.eigenflux.mainConversation` extension. Standard ACP does not
 provide hidden input. No model, session, daemon, or scheduler is created here.
 
-## Hermes: experimental, not tested with a real host
+## Hermes: experimental, visual acceptance pending
 
 Configure `watch acp-bridge --host hermes` in `main_command` only. Ordinary
 seller checks, publication trials, fulfillment and PM decisions use the binding's
-execution `command`; the Hermes native adapter invokes `hermes chat --quiet`.
+execution `command`; the native adapter negotiates quiet-chat machine framing
+separately from this bridge.
 The main bridge implements no standard ACP `session/new` or `session/prompt`.
 Binding validation rejects this built-in bridge as an execution command,
 including when its argv is split between `command` and `args`.
@@ -54,6 +55,39 @@ The contract number is a protocol gate, not an exact build fingerprint or proof
 of hidden UI behavior. A different build retaining contract 8 may be incompatible.
 Real-host verification of the installed build, hidden input, final-only UI, and
 unchanged existing viewer remains required before reporting host verification.
+
+The gateway and exact live owner must already exist. A build missing the listed
+operations, hidden-input fields, history-free activation or persisted receipts
+requires a compatible Hermes host build before main notices can be enabled.
+Native quiet-chat execution and model authentication are separate prerequisites
+for seller work. Hermes v0.17.0 build `e62afaca6` is a verified incompatible build:
+it advertises desktop contract 2 and lacks these fields. A mismatched contract
+returns `hermes_main_unsupported_protocol` with `info.desktop_contract must be 8`
+and required capability guidance. A successful bind or WebSocket handshake
+does not change that result. Keep installed builds unchanged during read-only
+probes; a protocol number or fixture alone never proves Desktop/TUI acceptance.
+
+Hermes v0.22.5 native quiet chat uses `GatewayAgent`; its selected-profile gateway
+must be ready before a seller trial. Migrate an existing service through the
+normal host service manager when it remains pinned to an old virtualenv. Preserve
+profile/model/authentication/session/environment state and one gateway owner.
+Back up configuration and SQLite consistently before an upgrade because gateway
+startup can migrate both. Verify the default profile with
+`hermes --profile default gateway ensure --timeout 45` and require `ready`.
+See the [operator preflight](../../../docs/dev/agent-dispatch.md#hermes-execution-and-main-notifications)
+for old-owner lock/control-socket failures and migration recovery.
+
+Native framing probes `chat --help` without a model call and selects
+`chat --quiet --format stream-json` when the bound host advertises it. Only the
+validated successful terminal result text reaches the business decoder; legacy
+hosts retain quiet output. The adapter owns tool-preview separation and never
+replays a model invocation to repair framing.
+
+A real Hermes v0.22.5 check returned the expected final text and exact persisted
+row receipt, retained zero public user-input rows and left the original control
+WebSocket active. Temporary test endpoints and credentials were removed. This
+verifies that protocol path; manual Desktop/TUI visual acceptance and live
+platform publication remain separate.
 
 `inspect` never submits a prompt. `notify` checks structured idle state again,
 then submits once. Busy is refused. Queued, missing/partial receipts, host approval,

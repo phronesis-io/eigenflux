@@ -27,6 +27,53 @@ if [[ -z "$R2_ACCESS_KEY_ID" || -z "$R2_SECRET_ACCESS_KEY" ]]; then
   exit 1
 fi
 
+# Use bounded batches compatible with the system Bash 3.2 on macOS.
+RELEASE_WORKERS="${EIGENFLUX_RELEASE_WORKERS:-3}"
+if [[ ! "$RELEASE_WORKERS" =~ ^[1-8]$ ]]; then
+  echo 'EIGENFLUX_RELEASE_WORKERS must be an integer from 1 to 8' >&2
+  exit 1
+fi
+export EIGENFLUX_RELEASE_WORKERS="$RELEASE_WORKERS"
+release_active_pids=()
+release_worker_phase=0
+release_cancel_status=0
+stop_publication() {
+  release_cancel_status="$1"
+  trap '' INT TERM
+  # Defer during dispatch/wait so a signal cannot miss a just-started child.
+  if [[ $release_worker_phase -eq 0 ]]; then exit "$release_cancel_status"; fi
+}
+wait_release_workers() {
+  local pid status=0
+  for pid in "${release_active_pids[@]}"; do
+    if wait "$pid"; then :; else
+      # A trapped signal interrupts wait without necessarily ending the child.
+      if [[ $release_cancel_status -ne 0 ]]; then wait "$pid" || true; fi
+      status=1
+    fi
+  done
+  release_active_pids=()
+  return "$status"
+}
+run_bounded() {
+  local operation="$1" item status=0
+  shift
+  release_worker_phase=1
+  for item in "$@"; do
+    [[ $release_cancel_status -eq 0 ]] || break
+    "$operation" "$item" &
+    release_active_pids+=("$!")
+    if [[ ${#release_active_pids[@]} -ge $RELEASE_WORKERS ]]; then
+      if wait_release_workers; then :; else status=1; fi
+      [[ $status -eq 0 && $release_cancel_status -eq 0 ]] || break
+    fi
+  done
+  if wait_release_workers; then :; else status=1; fi
+  release_worker_phase=0
+  if [[ $release_cancel_status -ne 0 ]]; then exit "$release_cancel_status"; fi
+  return "$status"
+}
+
 # Reject incomplete or changed artifacts before making any remote writes.
 ARTIFACTS=$(python3 "$SCRIPT_DIR/cli-artifacts.py" list "$BUILD_DIR")
 python3 "$SCRIPT_DIR/cli-artifacts.py" verify-release "$BUILD_DIR"
@@ -54,72 +101,106 @@ echo ""
 # Preflight the complete immutable release before writing even a missing object.
 CHECK_DIR=$(mktemp -d)
 trap 'rm -rf "$CHECK_DIR"' EXIT
+trap 'stop_publication 130' INT
+trap 'stop_publication 143' TERM
 VERSION_FILES=()
 while IFS= read -r name; do
   VERSION_FILES+=("$BUILD_DIR/$name")
 done <<< "$ARTIFACTS"
 VERSION_FILES+=("$BUILD_DIR/version.txt" "$BUILD_DIR/release.json" "$BUILD_DIR/package-release.json")
-for file in "${VERSION_FILES[@]}"; do
+if [[ -f "$BUILD_DIR/release-v2.json" ]]; then
+  VERSION_FILES+=("$BUILD_DIR/release-v2.json" "$BUILD_DIR/package-release-v2.json")
+fi
+PUBLISH_LEGACY=true
+if [[ -f "$BUILD_DIR/release-v2.json" && "$NOTIFIER_VERSION" != "$CLI_VERSION" ]]; then
+  PUBLISH_LEGACY=false
+fi
+preflight_object() {
+  local file="$1" name
   name=$(basename "$file")
   if aws s3api get-object --bucket "$R2_BUCKET" --key "cli/$CLI_VERSION/$name" \
-      "$CHECK_DIR/$name" $S3_ARGS > /dev/null 2> "$CHECK_DIR/error"; then
+      "$CHECK_DIR/$name" $S3_ARGS > /dev/null 2> "$CHECK_DIR/$name.error"; then
     cmp -s "$file" "$CHECK_DIR/$name" || {
       echo "Published $CLI_VERSION/$name differs; bump CLI_VERSION" >&2
-      exit 1
+      return 1
     }
-  elif grep -q 'An error occurred (NoSuchKey) when calling the GetObject operation' "$CHECK_DIR/error"; then
+  elif grep -q 'An error occurred (NoSuchKey) when calling the GetObject operation' "$CHECK_DIR/$name.error"; then
     touch "$CHECK_DIR/$name.missing"
   else
-    cat "$CHECK_DIR/error" >&2
-    exit 1
+    cat "$CHECK_DIR/$name.error" >&2
+    return 1
   fi
-done
-for file in "${VERSION_FILES[@]}"; do
+}
+upload_object() {
+  local file="$1" name
   name=$(basename "$file")
   if [[ -f "$CHECK_DIR/$name.missing" ]]; then
     if ! aws s3api put-object --bucket "$R2_BUCKET" --key "cli/$CLI_VERSION/$name" \
         --body "$file" --if-none-match '*' $S3_ARGS > /dev/null; then
       aws s3api get-object --bucket "$R2_BUCKET" --key "cli/$CLI_VERSION/$name" \
-        "$CHECK_DIR/$name" $S3_ARGS > /dev/null
+        "$CHECK_DIR/$name" $S3_ARGS > /dev/null || return 1
       cmp -s "$file" "$CHECK_DIR/$name" || {
         echo "Published $CLI_VERSION/$name differs; bump CLI_VERSION" >&2
-        exit 1
+        return 1
       }
     fi
   fi
-done
-
-while IFS= read -r name; do
-  file="$BUILD_DIR/$name"
-  echo -ne "${CYAN}Uploading $name ...${NC} "
-
-  # Upload to versioned path
-  # Versioned objects were conditionally created or verified above.
-  echo -ne "${GREEN}v${CLI_VERSION} ${NC}"
-
-  # Also upload to latest/
+}
+upload_alias() {
+  local name="$1" file="$BUILD_DIR/$1"
+  # Resume interrupted publication without re-uploading identical mutable payloads.
+  if aws s3api get-object --bucket "$R2_BUCKET" --key "cli/latest/$name" \
+      "$CHECK_DIR/alias-$name" $S3_ARGS > /dev/null 2> "$CHECK_DIR/alias-$name.error"; then
+    if cmp -s "$file" "$CHECK_DIR/alias-$name"; then return 0; fi
+  elif ! grep -q 'An error occurred (NoSuchKey) when calling the GetObject operation' "$CHECK_DIR/alias-$name.error"; then
+    cat "$CHECK_DIR/alias-$name.error" >&2
+    return 1
+  fi
   aws s3 cp "$file" "s3://$R2_BUCKET/cli/latest/$name" $S3_ARGS --quiet
-  echo -e "${GREEN}latest${NC}"
-done <<< "$ARTIFACTS"
+}
+
+# No writes are allowed until every immutable object has passed preflight.
+run_bounded preflight_object "${VERSION_FILES[@]}"
+run_bounded upload_object "${VERSION_FILES[@]}"
+if [[ "$PUBLISH_LEGACY" == true ]]; then
+  ALIAS_FILES=()
+  while IFS= read -r name; do ALIAS_FILES+=("$name"); done <<< "$ARTIFACTS"
+  run_bounded upload_alias "${ALIAS_FILES[@]}"
+fi
 
 python3 "$SCRIPT_DIR/cli-artifacts.py" verify-public "$BUILD_DIR" \
   --base-url "$R2_PUBLIC_URL/cli/$CLI_VERSION"
-python3 "$SCRIPT_DIR/cli-artifacts.py" verify-public "$BUILD_DIR" \
-  --base-url "$R2_PUBLIC_URL/cli/latest"
+if [[ "$PUBLISH_LEGACY" == true ]]; then
+  python3 "$SCRIPT_DIR/cli-artifacts.py" verify-public "$BUILD_DIR" \
+    --base-url "$R2_PUBLIC_URL/cli/latest"
+fi
 python3 "$SCRIPT_DIR/cli-artifacts.py" verify-release-public "$BUILD_DIR" \
   --base-url "$R2_PUBLIC_URL/cli/$CLI_VERSION"
 
-# Advertise the version only after all payloads are available and verified.
-aws s3 cp "$BUILD_DIR/version.txt" "s3://$R2_BUCKET/cli/latest/version.txt" $S3_ARGS --quiet
-aws s3 cp "$BUILD_DIR/release.json" "s3://$R2_BUCKET/cli/latest/release.json" $S3_ARGS --cache-control no-store --quiet
-aws s3 cp "$BUILD_DIR/package-release.json" "s3://$R2_BUCKET/cli/latest/package-release.json" $S3_ARGS --cache-control no-store --quiet
+# Promote signed metadata after immutable payload verification. Old clients stay on
+# the bridge when native versions diverge; v2 clients download versioned payloads.
+if [[ -f "$BUILD_DIR/release-v2.json" ]]; then
+  aws s3 cp "$BUILD_DIR/release-v2.json" "s3://$R2_BUCKET/cli/v2/latest/release.json" $S3_ARGS --cache-control no-store --quiet
+  aws s3 cp "$BUILD_DIR/package-release-v2.json" "s3://$R2_BUCKET/cli/v2/latest/package-release.json" $S3_ARGS --cache-control no-store --quiet
+  aws s3 cp "$BUILD_DIR/version.txt" "s3://$R2_BUCKET/cli/v2/latest/version.txt" $S3_ARGS --cache-control no-store --quiet
+fi
+if [[ "$PUBLISH_LEGACY" == true ]]; then
+  aws s3 cp "$BUILD_DIR/version.txt" "s3://$R2_BUCKET/cli/latest/version.txt" $S3_ARGS --cache-control no-store --quiet
+  aws s3 cp "$BUILD_DIR/release.json" "s3://$R2_BUCKET/cli/latest/release.json" $S3_ARGS --cache-control no-store --quiet
+  aws s3 cp "$BUILD_DIR/package-release.json" "s3://$R2_BUCKET/cli/latest/package-release.json" $S3_ARGS --cache-control no-store --quiet
+fi
 
 # Skills use the serialized Linux Release Skills workflow after CLI publication.
 echo -e "${CYAN}skills: ${GREEN}published separately by Release Skills workflow${NC}"
 
 echo ""
 echo -e "${GREEN}Published to ${R2_PUBLIC_URL}/cli/${CLI_VERSION}/${NC}"
-echo -e "${GREEN}Latest at ${R2_PUBLIC_URL}/cli/latest/${NC}"
+if [[ -f "$BUILD_DIR/release-v2.json" ]]; then
+  echo -e "${GREEN}Latest v2 metadata at ${R2_PUBLIC_URL}/cli/v2/latest/${NC}"
+fi
+if [[ "$PUBLISH_LEGACY" == true ]]; then
+  echo -e "${GREEN}Legacy bridge at ${R2_PUBLIC_URL}/cli/latest/${NC}"
+fi
 if [[ "$PUBLISH_SKILLS_AFTER_CLI" == "true" ]]; then
   bash "$SCRIPT_DIR/release-skills.sh"
 fi

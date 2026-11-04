@@ -32,7 +32,7 @@ func largeFeedBatchFixture(t *testing.T) json.RawMessage {
 		intents = append(intents, map[string]any{"intent_id": fmt.Sprint(i), "then": fmt.Sprint(i) + strings.Repeat("结合用户确认的目标评估此信息，核查来源并提出具体可执行的下一步。", 12)})
 	}
 	page["control_context_snapshot"] = map[string]any{"context_revision": 1, "intent_actions": intents}
-	page["output_contract"] = strings.Repeat("SERVED CONTRACT: score every item before presenting.\n", 200)
+	page["output_contract"] = "CORE RULES\n" + feedContractDetailsMarker + "\n" + strings.Repeat("SERVED CONTRACT: score every item before presenting.\n", 200)
 	cards := map[string]any{}
 	discovery := []any{}
 	for i, value := range page["items"].([]any) {
@@ -122,7 +122,7 @@ func TestFeedBatchMetadataAndOutputSize(t *testing.T) {
 				t.Fatalf("unexpected batch output (%d bytes): %s", len(out), out)
 			}
 			t.Logf("agent batch: %d bytes", len(out))
-			if !strings.Contains(out, "\n"+feedInstructionReference+"\n[EIGENFLUX OUTPUT CONTRACT]") {
+			if !strings.Contains(out, "\n"+feedInstructionReference+"\nCORE RULES\n[EIGENFLUX OUTPUT CONTRACT]") {
 				t.Fatal("instruction reference is not directly after the trusted context")
 			}
 			formatFlag = "json"
@@ -175,8 +175,8 @@ func TestFeedBatchInstructionReferencesRequireCurrentMatchedText(t *testing.T) {
 func TestFeedBatchContractFilesAndFallback(t *testing.T) {
 	_, server := runtimeTestConfig(t, "http://127.0.0.1:1", true)
 	dir := filepath.Join(cache.ServerDataDir(server), "feed-contracts")
-	for _, contract := range []string{"first 契约", "second contract"} {
-		line := feedBatchContract(server, contract)
+	for _, contract := range []string{"first 契约\n" + feedContractDetailsMarker + "\ndetail", "second contract\n" + feedContractDetailsMarker + "\ndetail"} {
+		line := feedBatchContractText(server, contract, false)
 		hash := fmt.Sprintf("%x", sha256.Sum256([]byte(contract)))[:16]
 		path := filepath.Join(dir, hash+".md")
 		body, err := os.ReadFile(path)
@@ -193,7 +193,16 @@ func TestFeedBatchContractFilesAndFallback(t *testing.T) {
 	if err := os.Chtimes(old, stamp, stamp); err != nil {
 		t.Fatal(err)
 	}
-	feedBatchContract(server, "third contract")
+	second := "second contract\n" + feedContractDetailsMarker + "\ndetail"
+	current := filepath.Join(dir, fmt.Sprintf("%x", sha256.Sum256([]byte(second)))[:16]+".md")
+	if err := os.Chtimes(current, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	feedBatchContractText(server, second, false)
+	if info, err := os.Stat(current); err != nil || info.ModTime().After(stamp.Add(time.Hour)) {
+		t.Fatal("unchanged contract was rewritten", err)
+	}
+	feedBatchContractText(server, "third core\n"+feedContractDetailsMarker+"\ndetail", false)
 	if _, err := os.Stat(old); !os.IsNotExist(err) {
 		t.Fatal("expired contract remains", err)
 	}
@@ -219,7 +228,7 @@ func TestFeedBatchNextCommandPreservesAgentFormat(t *testing.T) {
 	t.Cleanup(func() { formatFlag = old })
 	for _, format := range []string{"", "json", "agent", "table"} {
 		formatFlag = format
-		if got := strings.Contains(batchNextCommand("test", 2), " --format agent"); got != (resolveFormat() == "agent") {
+		if got := strings.Contains(batchNextCommand("test", 2, ""), " --format agent"); got != (resolveFormat() == "agent") {
 			t.Fatal(format)
 		}
 	}
@@ -251,7 +260,7 @@ func TestFeedBatchUpgradeFetchesInsteadOfReplayingOldExposures(t *testing.T) {
 					t.Fatal(err)
 				}
 				if err := feedReportStore(server).Update(now, func(state *feedevent.Reports) {
-					_, err := recordFeedPage(state, page, now-1000, 0)
+					_, err := recordFeedPage(state, page, now-1000, 0, false)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -277,7 +286,7 @@ func TestFeedBatchUpgradeFetchesInsteadOfReplayingOldExposures(t *testing.T) {
 			if entry, _ := ledger.LookupHanded("1", state, now); entry.ImpressionID == "" {
 				t.Fatal("old exposure lost feedback attribution")
 			}
-			if _, meta, err := localFeedBatchPayload(server, ledger, 5, false); err != nil || meta != nil {
+			if _, meta, err := localFeedBatchPayload(server, ledger, 5, false, ""); err != nil || meta != nil {
 				t.Fatal(meta, err)
 			}
 			old := formatFlag

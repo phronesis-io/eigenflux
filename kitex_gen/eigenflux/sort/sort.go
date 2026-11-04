@@ -350,9 +350,13 @@ var fieldIDToName_CommissionSearchFilters = map[int16]string{
 }
 
 type CommissionCandidate struct {
-	CommissionId int64   `thrift:"commission_id,1,required" frugal:"1,required,i64" json:"commission_id"`
-	Score        float64 `thrift:"score,2,required" frugal:"2,required,double" json:"score"`
-	Features     *string `thrift:"features,3,optional" frugal:"3,optional,string" json:"features,omitempty"`
+	CommissionId       int64   `thrift:"commission_id,1,required" frugal:"1,required,i64" json:"commission_id"`
+	Score              float64 `thrift:"score,2,required" frugal:"2,required,double" json:"score"`
+	Features           *string `thrift:"features,3,optional" frugal:"3,optional,string" json:"features,omitempty"`
+	Title              *string `thrift:"title,4,optional" frugal:"4,optional,string" json:"title,omitempty"`
+	PriceFen           *int64  `thrift:"price_fen,5,optional" frugal:"5,optional,i64" json:"price_fen,omitempty"`
+	Currency           *string `thrift:"currency,6,optional" frugal:"6,optional,string" json:"currency,omitempty"`
+	PromisedDeliveryMs *int64  `thrift:"promised_delivery_ms,7,optional" frugal:"7,optional,i64" json:"promised_delivery_ms,omitempty"`
 }
 
 func NewCommissionCandidate() *CommissionCandidate {
@@ -378,6 +382,42 @@ func (p *CommissionCandidate) GetFeatures() (v string) {
 	}
 	return *p.Features
 }
+
+var CommissionCandidate_Title_DEFAULT string
+
+func (p *CommissionCandidate) GetTitle() (v string) {
+	if !p.IsSetTitle() {
+		return CommissionCandidate_Title_DEFAULT
+	}
+	return *p.Title
+}
+
+var CommissionCandidate_PriceFen_DEFAULT int64
+
+func (p *CommissionCandidate) GetPriceFen() (v int64) {
+	if !p.IsSetPriceFen() {
+		return CommissionCandidate_PriceFen_DEFAULT
+	}
+	return *p.PriceFen
+}
+
+var CommissionCandidate_Currency_DEFAULT string
+
+func (p *CommissionCandidate) GetCurrency() (v string) {
+	if !p.IsSetCurrency() {
+		return CommissionCandidate_Currency_DEFAULT
+	}
+	return *p.Currency
+}
+
+var CommissionCandidate_PromisedDeliveryMs_DEFAULT int64
+
+func (p *CommissionCandidate) GetPromisedDeliveryMs() (v int64) {
+	if !p.IsSetPromisedDeliveryMs() {
+		return CommissionCandidate_PromisedDeliveryMs_DEFAULT
+	}
+	return *p.PromisedDeliveryMs
+}
 func (p *CommissionCandidate) SetCommissionId(val int64) {
 	p.CommissionId = val
 }
@@ -387,9 +427,37 @@ func (p *CommissionCandidate) SetScore(val float64) {
 func (p *CommissionCandidate) SetFeatures(val *string) {
 	p.Features = val
 }
+func (p *CommissionCandidate) SetTitle(val *string) {
+	p.Title = val
+}
+func (p *CommissionCandidate) SetPriceFen(val *int64) {
+	p.PriceFen = val
+}
+func (p *CommissionCandidate) SetCurrency(val *string) {
+	p.Currency = val
+}
+func (p *CommissionCandidate) SetPromisedDeliveryMs(val *int64) {
+	p.PromisedDeliveryMs = val
+}
 
 func (p *CommissionCandidate) IsSetFeatures() bool {
 	return p.Features != nil
+}
+
+func (p *CommissionCandidate) IsSetTitle() bool {
+	return p.Title != nil
+}
+
+func (p *CommissionCandidate) IsSetPriceFen() bool {
+	return p.PriceFen != nil
+}
+
+func (p *CommissionCandidate) IsSetCurrency() bool {
+	return p.Currency != nil
+}
+
+func (p *CommissionCandidate) IsSetPromisedDeliveryMs() bool {
+	return p.PromisedDeliveryMs != nil
 }
 
 func (p *CommissionCandidate) String() string {
@@ -403,6 +471,10 @@ var fieldIDToName_CommissionCandidate = map[int16]string{
 	1: "commission_id",
 	2: "score",
 	3: "features",
+	4: "title",
+	5: "price_fen",
+	6: "currency",
+	7: "promised_delivery_ms",
 }
 
 type SearchCommissionsReq struct {

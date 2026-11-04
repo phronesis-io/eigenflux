@@ -13,6 +13,12 @@ Incompatible or unknown versions stop installation without replacing existing
 Skills. Publishing a higher minimum does not publish its required CLI binary;
 complete Release CLI before directing new users to that Skills release.
 
+Production `ef-*` Skills must declare stable `major.minor.patch` versions in
+`metadata.version`. Cross-platform CI and `manifestgen` validate every discovered
+production Skill before signing. Missing versions, prerelease/build suffixes and
+leading zeroes fail validation. `ef-localdev` and unrelated Skills are excluded.
+Skill contract tests check behavior without pinning a particular release number.
+
 ## Installation entry
 
 `skills/install.md` is the sole source for the `/install` landing page's Agent
@@ -79,6 +85,26 @@ through any other workflow is rejected before credentials are loaded.
 
 ## Client synchronization and permissions
 
+Content replacements preserve host-owned top-level files, hidden directories,
+custom Skills and symlinks outside the managed Skill set. This includes Hermes
+metadata such as `.curator_state`, `.bundled_manifest` and `.hub`. Preserve file
+contents and ordinary permission bits; copy symlink text without following its
+target. Keep these local entries outside the signed release's trust boundary.
+Only the installer's `.ef-manifest.json`, `.ef-manifest-*.tmp` and `.ef-stale`
+entries are regenerated or discarded. Retired managed Skills are still removed,
+and signed synchronization still preserves edited managed Skills.
+
+Unreadable host entries and unsupported special files abort replacement before
+the active tree is swapped. Identical-content and metadata-only refreshes do not
+scan host content. Signed sync, local bundle installation and provisional
+offline installation use the same preservation step.
+
+Failed preservation cleans its inactive staging tree even when copied host
+directories are read-only. Cleanup restores owner access only inside inactive
+installer trees, never follows symlinks, and leaves active host permissions
+unchanged. A denied read can be retried after access is granted. Stale staging
+cleanup failures are returned before building or reusing the next stage.
+
 Every heartbeat checks the signed remote manifest. An intact installation with
 unchanged content and sequence returns without creating directories, locks, or
 timestamps in the Skills tree. Directory and manifest checks around content
@@ -100,7 +126,7 @@ an intact provisional bundle remains usable offline and is refreshed online.
 
 Before content replacement, the client also reads existing official directories
 identified by the remote manifest when local metadata is missing or corrupt, and
-third-party directories that must be preserved. Unchanged checks and metadata-only
+host entries that must be preserved. Unchanged checks and metadata-only
 refreshes do not scan third-party content. Before recovery or replacement cleans
 the staging directory, its directory traversal is checked without reading the
 contents of files being deleted. These checks report permission failures before
@@ -138,3 +164,29 @@ Compatibility failures require upgrading the CLI before retrying. Signed
 rollback failures require a corrected release; retain the local manifest and
 its rollback protection. Skills releases do not require a CLI or plugin release
 unless the minimum supported CLI changes.
+
+Retained bundle results include `retention_code` and, after a verified remote
+manifest was obtained, `target_revision`. Heartbeat maintenance reports these
+outcomes as `blocked`, with the retained revision in `from_version` and
+`running_version` and the attempted target in `to_version`. A failed freshness
+check has no known target. These outcomes never report `no_update`, never issue
+an upgrade adoption receipt, and do not prevent compatible local rules from
+running. The Agent plan names the incomplete update separately from its active
+revision. During remote synchronization, `no_update` denotes a successful
+unchanged-release check, rather than an inability to accept the release. Legacy
+Feed autosync classifies retained updates as `blocked` (or `offline` when the
+remote manifest is unavailable).
+
+## Automatic bridge continuation
+
+A CLI adopted from a version older than the 1.0.10 bridge may continue an
+automatic update in the same heartbeat invocation. Only a strictly newer
+running version at least 1.0.10 with a valid handoff bypasses
+the daily check interval, with at most two continuation handoffs. Identity,
+server update policy, signatures, rollback protection and shared installation
+locking remain required. Ordinary subsequent invocations retain the daily
+interval. Manual updates retain their existing restart behavior.
+
+Publish a new legacy bridge with matching CLI and notarized App versions to
+make this behavior available to historical clients. Immutable historical bridge
+binaries cannot gain continuation logic through a v2-only publication.

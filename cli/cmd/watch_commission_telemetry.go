@@ -69,13 +69,30 @@ func commissionJobObservation(job dispatch.Job) maintenance.Commission {
 	return c
 }
 
-func (w *accountWatch) recordCommissionObservation(c maintenance.Commission, result, code string, started time.Time, receipt dispatch.Result, cause error) {
-	if w.binding == nil || c.OrderID == "" {
+func (w *accountWatch) recordCommissionObservation(c maintenance.Commission, result, code string, started time.Time, receipt dispatch.Result, cause error, fixedAttempt ...string) (recorded bool) {
+	if w.manualCommission || w.binding == nil || c.OrderID == "" {
 		return
+	}
+	if w.journal != nil && c.Stage != "diagnostic_snapshot" {
+		if details, ok := w.journal.CommissionDiagnosticObservation(c.JobID); ok {
+			c.LocalCode = details.LocalCode
+			c.CheckReceipt = details.CheckReceipt
+			if c.BridgeError == nil {
+				c.BridgeError = details.BridgeError
+			}
+		}
+	}
+	if cause != nil {
+		c.BridgeError = dispatch.SafeDiagnostic(cause)
+	} else if result == "started" || result == "succeeded" {
+		c.BridgeError = nil
 	}
 	attemptID := maintenance.NewID()
 	if !started.IsZero() || result == "queued" {
 		attemptID = commissionDiagnosticHash(fmt.Sprintf("%s:%d:%s:%d:%s:%d", c.JobID, c.OrderVersion, c.Stage, c.Attempt, c.ArtifactIDHash, started.UnixNano()))
+	}
+	if len(fixedAttempt) > 0 {
+		attemptID = fixedAttempt[0]
 	}
 	e := maintenance.NewEvent(attemptID, "dispatch", "auto", "commission", result)
 	e.Source, e.Platform, e.Host, e.FromVersion = "watch", runtime.GOOS, w.binding.Host, version
@@ -99,7 +116,9 @@ func (w *accountWatch) recordCommissionObservation(c maintenance.Commission, res
 	c.HostSessionIDHash, c.HostRunIDHash = commissionDiagnosticHash(receipt.SessionID), commissionDiagnosticHash(receipt.RunID)
 	var diagnostic *dispatch.DiagnosticError
 	if errors.As(cause, &diagnostic) {
-		c.Operation = diagnostic.Operation
+		if c.BridgeError != nil {
+			c.Operation = c.BridgeError.Operation
+		}
 		e.ErrorCode = maintenance.CommissionCode(diagnostic.Code)
 	}
 	var apiError *client.APIError
@@ -110,7 +129,9 @@ func (w *accountWatch) recordCommissionObservation(c maintenance.Commission, res
 	if err := maintenance.Record(w.maintenanceScope(), e); err != nil {
 		// An observation failure must never repeat or block a business operation.
 		_ = w.emit("commission_telemetry_status", map[string]string{"status": "queued", "code": "local_queue_unavailable"})
+		return false
 	}
+	return true
 }
 
 // Capture preflight failures even before a revision-fenced execution report can
@@ -153,9 +174,16 @@ func (w *accountWatch) observeCommissionJob(job dispatch.Job) func() {
 func (w *accountWatch) runCommissionAgent(ctx context.Context, job dispatch.Job, request dispatch.Request) (dispatch.Result, error) {
 	c := commissionJobObservation(job)
 	c.Stage = "agent"
+	if w.journal != nil {
+		_ = w.journal.SaveCommissionDiagnostic(job.ID, &maintenance.CommissionBridgeError{Code: "unknown_failure"}, nil)
+	}
+	c.BridgeError = &maintenance.CommissionBridgeError{Code: "unknown_failure"}
 	started := time.Now()
 	w.recordCommissionObservation(c, "started", "", started, dispatch.Result{}, nil)
 	result, err := w.runAgent(ctx, request)
+	if err != nil && w.journal != nil {
+		_ = w.journal.SaveCommissionDiagnostic(job.ID, dispatch.SafeDiagnostic(err), nil)
+	}
 	status, code := commissionCallOutcome(err)
 	w.recordCommissionObservation(c, status, code, started, result, err)
 	return result, err
@@ -185,7 +213,7 @@ func commissionCallOutcome(err error) (string, string) {
 
 func mainNoticeObservation(item dispatch.MainNotice) maintenance.Commission {
 	c := maintenance.Commission{OrderID: item.OrderID, OrderVersion: item.Version, Role: item.Role,
-		JobID: commissionDiagnosticHash(item.ID), JobKind: "main_notice", Stage: "main_notice", Attempt: max(1, item.Attempts)}
+		JobID: commissionDiagnosticHash(item.ID), JobKind: "main_notice", Stage: "main_notice", Attempt: max(1, item.Attempts), LocalCode: maintenance.CommissionLocalCode(item.Code), CheckReceipt: &maintenance.CommissionCheckReceipt{Status: "not_applicable"}, BridgeError: item.BridgeError}
 	if item.IsBuyerInputRequest() {
 		c.InputRequestIDHash = commissionDiagnosticHash(item.InputRequestID)
 	}
@@ -248,4 +276,19 @@ func (w *accountWatch) readCommissionPreflight(ctx context.Context, job dispatch
 	}
 	w.recordCommissionObservation(c, status, code, started, dispatch.Result{}, err)
 	return order, err
+}
+
+// Startup only queues bounded diagnostic metadata. It never claims or reruns work.
+func (w *accountWatch) backfillCommissionDiagnostics() {
+	if w.journal == nil || w.binding == nil {
+		return
+	}
+	for _, snapshot := range w.journal.CommissionDiagnosticSnapshots(32) {
+		c := snapshot.Observation
+		if w.recordCommissionObservation(c, "observed", commissionJobDiagnosticCode(c.LocalCode, snapshot.Status), time.Time{}, dispatch.Result{}, nil, snapshot.Key) {
+			if err := w.journal.AcknowledgeCommissionDiagnosticSnapshot(c.JobID, snapshot.Key); err != nil {
+				_ = w.emit("commission_telemetry_status", map[string]string{"status": "queued", "code": "local_queue_unavailable"})
+			}
+		}
+	}
 }

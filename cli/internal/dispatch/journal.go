@@ -95,6 +95,9 @@ func readJournal(b Binding) (journalState, bool, error) {
 		if !validCommissionDelivery(job) {
 			return journalState{}, false, errors.New("invalid_journal_commission_delivery")
 		}
+		if !validCommissionDiagnostic(job.CommissionDiagnostic) || (job.CommissionDiagnostic != nil && job.Kind != "commission_order" && job.Kind != "commission_fulfillment" && job.Kind != "commission_clarification") {
+			return journalState{}, false, errors.New("invalid_journal_commission_diagnostic")
+		}
 		if !validCommissionExecutionContext(job) {
 			return journalState{}, false, errors.New("invalid_journal_commission_execution")
 		}
@@ -656,6 +659,7 @@ func trimCompleted(s *journalState) {
 }
 
 func cloneJob(job Job) Job {
+	job.CommissionDiagnostic = cloneCommissionDiagnostic(job.CommissionDiagnostic)
 	if job.CommissionReadiness != nil {
 		value := *job.CommissionReadiness
 		value.Result.InspectedFiles = append([]string{}, value.Result.InspectedFiles...)

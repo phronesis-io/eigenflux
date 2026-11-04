@@ -544,7 +544,7 @@ exit 0
 	if err := os.WriteFile(filepath.Join(binDir, "eigenflux"), []byte(fake), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(binDir, "curl"), []byte("#!/bin/sh\nprintf '%s\\n' '1.0.0'\n"), 0755); err != nil {
+	if err := os.WriteFile(filepath.Join(binDir, "curl"), []byte("#!/bin/sh\nprintf '%s\\n' '1.0.0'\ncase \" $* \" in *'%{http_code}'*) printf '200\\n' ;; esac\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	script := prefix + "\ninstall_cli\nmigrate_config\ninstall_skills\nprintf 'RESULT:%s|%s|%s\\n' \"$INSTALLED_CLI_PATH\" \"$EF_HOME\" \"$INSTALL_SKILLS_TARGET\"\n"

@@ -10,6 +10,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"gorm.io/gorm"
 
+	"eigenflux_server/pkg/followuplog"
 	itemdal "eigenflux_server/rpc/item/dal"
 )
 
@@ -27,7 +28,7 @@ func splitMetadataValues(raw string) []string {
 	return out
 }
 
-func (s *Service) getFeedSourceItem(_ context.Context, c *app.RequestContext) {
+func (s *Service) getFeedSourceItem(ctx context.Context, c *app.RequestContext) {
 	agentIDValue, _ := agentID(c)
 	sourceType := strings.ToLower(strings.TrimSpace(c.Param("source_type")))
 	sourceID, err := strconv.ParseInt(c.Param("source_id"), 10, 64)
@@ -75,6 +76,7 @@ func (s *Service) getFeedSourceItem(_ context.Context, c *app.RequestContext) {
 			}
 		}
 	}
+	followuplog.RecordDetailFetch(ctx, agentIDValue, source.AuthorAgentID, sourceID, c.Query("impression_id"))
 	reply(c, http.StatusOK, map[string]interface{}{
 		"source_ref":    map[string]interface{}{"type": sourceType, "id": strconv.FormatInt(sourceID, 10)},
 		"content_class": source.ContentClass, "author_identity": authorIdentity,

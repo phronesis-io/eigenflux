@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"cli.eigenflux.ai/internal/maintenance"
 	"encoding/json"
 	"errors"
 	"io"
@@ -20,20 +21,21 @@ var mainNoticeRetryDelays = [...]time.Duration{time.Minute, 2 * time.Minute, 5 *
 
 // MainNotice stores routing metadata only. Its lifecycle never changes an Order.
 type MainNotice struct {
-	ID             string `json:"notification_id"`
-	OrderID        string `json:"order_id"`
-	Version        int64  `json:"order_version"`
-	Role           string `json:"role"`
-	Event          string `json:"event"`
-	State          string `json:"state"`
-	Status         string `json:"status"`
-	Code           string `json:"code,omitempty"`
-	JobID          string `json:"job_id,omitempty"`
-	JobStatus      string `json:"job_status,omitempty"`
-	JobCode        string `json:"job_code,omitempty"`
-	InputRequestID string `json:"input_request_id,omitempty"`
-	Attempts       int    `json:"attempts,omitempty"`
-	NextAttemptAt  int64  `json:"next_attempt_at,omitempty"`
+	BridgeError    *maintenance.CommissionBridgeError `json:"bridge_error,omitempty"`
+	ID             string                             `json:"notification_id"`
+	OrderID        string                             `json:"order_id"`
+	Version        int64                              `json:"order_version"`
+	Role           string                             `json:"role"`
+	Event          string                             `json:"event"`
+	State          string                             `json:"state"`
+	Status         string                             `json:"status"`
+	Code           string                             `json:"code,omitempty"`
+	JobID          string                             `json:"job_id,omitempty"`
+	JobStatus      string                             `json:"job_status,omitempty"`
+	JobCode        string                             `json:"job_code,omitempty"`
+	InputRequestID string                             `json:"input_request_id,omitempty"`
+	Attempts       int                                `json:"attempts,omitempty"`
+	NextAttemptAt  int64                              `json:"next_attempt_at,omitempty"`
 }
 type mainNoticeQueueState struct {
 	Scope    string       `json:"scope"`
@@ -52,6 +54,7 @@ func (q *MainNoticeQueue) Lookup(id string) (MainNotice, bool) {
 	defer q.mu.Unlock()
 	for _, item := range q.state.Entries {
 		if item.ID == id {
+			item.BridgeError = cloneCommissionDiagnostic(&CommissionDiagnostic{BridgeError: item.BridgeError}).BridgeError
 			return item, true
 		}
 	}
@@ -102,6 +105,9 @@ func OpenMainNoticeQueue(binding Binding) (*MainNoticeQueue, error) {
 	return q, nil
 }
 func validMainNotice(item MainNotice) bool {
+	if maintenance.ValidateCommissionBridgeError(item.BridgeError) != nil {
+		return false
+	}
 	if item.Attempts < 0 || item.Attempts > MainNoticeMaxAttempts || item.NextAttemptAt < 0 || item.NextAttemptAt > 253402300799999 {
 		return false
 	}
@@ -150,7 +156,10 @@ func validMainNotice(item MainNotice) bool {
 }
 func (q *MainNoticeQueue) save(entries []MainNotice) error {
 	state := q.state
-	state.Entries = entries
+	state.Entries = append([]MainNotice{}, entries...)
+	for i := range state.Entries {
+		state.Entries[i].BridgeError = cloneCommissionDiagnostic(&CommissionDiagnostic{BridgeError: state.Entries[i].BridgeError}).BridgeError
+	}
 	if err := WriteJSON(q.path, state); err != nil {
 		return err
 	}
@@ -206,12 +215,14 @@ func (q *MainNoticeQueue) NextAt(now time.Time) (MainNotice, bool, error) {
 		if item.Status == "pending" && item.NextAttemptAt <= now.UnixMilli() {
 			entries := append([]MainNotice{}, q.state.Entries...)
 			item.Status = "running"
+			item.BridgeError = nil
 			item.Attempts++
 			item.NextAttemptAt = 0
 			entries[i] = item
 			if err := q.save(entries); err != nil {
 				return MainNotice{}, false, err
 			}
+			item.BridgeError = cloneCommissionDiagnostic(&CommissionDiagnostic{BridgeError: item.BridgeError}).BridgeError
 			return item, true, nil
 		}
 	}
@@ -252,4 +263,20 @@ func (q *MainNoticeQueue) FinishAt(id, status, code string, now time.Time) error
 		}
 	}
 	return errors.New("main_notice_not_running")
+}
+
+func (q *MainNoticeQueue) SaveBridgeDiagnostic(id string, value *maintenance.CommissionBridgeError) error {
+	if maintenance.ValidateCommissionBridgeError(value) != nil {
+		return errors.New("invalid_main_notice_diagnostic")
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	entries := append([]MainNotice{}, q.state.Entries...)
+	for i := range entries {
+		if entries[i].ID == id {
+			entries[i].BridgeError = cloneCommissionDiagnostic(&CommissionDiagnostic{BridgeError: value}).BridgeError
+			return q.save(entries)
+		}
+	}
+	return errors.New("main_notice_not_found")
 }

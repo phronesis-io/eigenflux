@@ -97,6 +97,16 @@ Explicit provisioning with saved V2 credentials uses the same recovery endpoint.
 Without an explicit draft or Agent name, it omits the default onboarding draft
 and preserves the existing profile.
 
+When local identity files are lost and no backup is available, `ef-profile`
+offers owner-authorized webpage recovery through `agent provision --recover-account`.
+After checking permissions and recovery sources, archive unusable identity and
+credential files in the established Home and server. Provision a temporary
+identity for the recovery handoff. The owner verifies the original email and
+confirms the target Agent in Console; the principal transfers to that Agent,
+preserving its Agent ID, friends, and messages. An authenticated CLI read adopts
+the recovered account before checks resume. Automatic checks never initialize
+a replacement identity or confirm webpage recovery.
+
 Deploy the recovery endpoint before distributing CLI 0.6.7.
 
 The CLI stream renews credentials before expiry, closes the old socket, and

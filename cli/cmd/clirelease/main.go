@@ -21,21 +21,29 @@ import (
 func main() {
 	dir := flag.String("dir", "", "built CLI artifact directory")
 	version := flag.String("version", "", "stable release version")
+	notifierVersion := flag.String("notifier-version", "", "independent macOS notification version for v2 manifests")
 	keyFile := flag.String("signing-key-file", "", "Ed25519 private key file")
 	cdn := flag.String("verify-cdn", "", "verify the published CLI and all platform artifacts")
+	verifyLocal := flag.Bool("verify-local", false, "verify signatures of a prepared release before publication")
 	minimum := flag.String("min-version", "", "minimum compatible CLI version")
 	flag.Parse()
-	if *cdn != "" {
+	if *cdn != "" || *verifyLocal {
 		key, err := base64.StdEncoding.DecodeString(os.Getenv("EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY"))
 		if err != nil {
 			log.Fatal(err)
+		}
+		if *verifyLocal {
+			if err := verifyLocalSignatures(*dir, *version, key); err != nil {
+				log.Fatal(err)
+			}
+			return
 		}
 		if err := verifyPublished(*cdn, *minimum, key); err != nil {
 			log.Fatal(err)
 		}
 		return
 	}
-	if *dir == "" || !selfupdate.ValidVersion(*version) || *keyFile == "" {
+	if *dir == "" || !selfupdate.ValidVersion(*version) || (*notifierVersion != "" && !selfupdate.ValidVersion(*notifierVersion)) || *keyFile == "" {
 		log.Fatal("--dir, --version and --signing-key-file are required")
 	}
 	key, err := loadKey(*keyFile)
@@ -69,9 +77,30 @@ func main() {
 			m.Packages[name+".zip"] = selfupdate.Artifact{SHA256: hex.EncodeToString(packageSum[:]), Size: int64(len(archive))}
 		}
 	}
-	for _, filename := range []string{"package-release.json", "release.json"} {
-		if filename == "release.json" {
-			m.Packages = nil
+	outputs := []struct {
+		name         string
+		complete, v2 bool
+	}{
+		{"package-release.json", true, false}, {"release.json", false, false},
+	}
+	if *notifierVersion != "" {
+		outputs = append(outputs, struct {
+			name         string
+			complete, v2 bool
+		}{"package-release-v2.json", true, true}, struct {
+			name         string
+			complete, v2 bool
+		}{"release-v2.json", false, true})
+	}
+	completePackages := m.Packages
+	for _, out := range outputs {
+		m.Packages = nil
+		if out.complete {
+			m.Packages = completePackages
+		}
+		m.NotifierVersion = ""
+		if out.v2 {
+			m.NotifierVersion = *notifierVersion
 		}
 		if err := selfupdate.Sign(&m, key); err != nil {
 			log.Fatal(err)
@@ -83,10 +112,11 @@ func main() {
 		if _, err = selfupdate.Verify(b, key.Public().(ed25519.PublicKey)); err != nil {
 			log.Fatal(err)
 		}
-		if err = os.WriteFile(filepath.Join(*dir, filename), b, 0644); err != nil {
+		if err = os.WriteFile(filepath.Join(*dir, out.name), b, 0644); err != nil {
 			log.Fatal(err)
 		}
 	}
+
 }
 
 func loadKey(path string) (ed25519.PrivateKey, error) {

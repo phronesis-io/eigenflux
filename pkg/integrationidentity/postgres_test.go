@@ -57,7 +57,7 @@ func TestPostgresRegistrationQuotaAndMigration(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	sql, err := os.ReadFile(filepath.Join("..", "..", "migrations", "000125_enterprise_integrations.sql"))
+	sql, err := os.ReadFile(filepath.Join("..", "..", "migrations", "000127_enterprise_integrations.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -203,7 +203,7 @@ func TestFeedbackMetadataAndIdempotency(t *testing.T) {
 func TestFeedbackHealthReportE2E(t *testing.T) {
 	token, agent, _, _ := feedbackMetadataFixture(t)
 	for _, attempts := range []int{3, 5} {
-		result, status, err := feedbackMetadataRequest("PUT", "/api/v1/agents/me/settings", token, map[string]any{"feedback_health": map[string]any{"window_ms": 3600000, "pulls": 2, "delivered_items": 10, "scored_items": 8, "status_runs": 1, "feedback_attempts": attempts, "feedback_failures": 1, "queue_drops": 0, "queue_depth": 1, "oldest_queued_age_ms": 100}})
+		result, status, err := feedbackMetadataRequest("PUT", "/api/v1/agents/me/settings", token, map[string]any{"feedback_health": map[string]any{"window_ms": 3600000, "pulls": 2, "delivered_items": 10, "scored_items": 8, "status_runs": 1, "feedback_attempts": attempts, "feedback_failures": 1, "queue_drops": 0, "queue_depth": 1, "oldest_queued_age_ms": 100, "batches_handed": 4, "detail_fetches": attempts, "detail_fetch_failures": 1, "batch_body_bytes": 96000, "batch_body_max_bytes": 32000, "oversize_batches": 1, "backlog_expired_items": 2}})
 		require.NoError(t, err)
 		require.Equal(t, 200, status, result)
 	}
@@ -213,6 +213,12 @@ func TestFeedbackHealthReportE2E(t *testing.T) {
 	require.NoError(t, testutil.TestDB.QueryRow(`SELECT count(*),max(feedback_attempts),max(reported_at),max(cli_version),max(day)::text FROM agent_feedback_health_daily WHERE agent_id=$1`, agent).Scan(&n, &attempts, &at, &version, &day))
 	require.Equal(t, 1, n)
 	require.Equal(t, 5, attempts)
+	var details, bodyBytes, maxBytes int64
+	require.NoError(t, testutil.TestDB.QueryRow(`SELECT detail_fetches,batch_body_bytes,batch_body_max_bytes FROM agent_feedback_health_daily WHERE agent_id=$1`, agent).Scan(&details, &bodyBytes, &maxBytes))
+	require.Equal(t, int64(5), details)
+	require.Equal(t, int64(96000), bodyBytes)
+	require.Equal(t, int64(32000), maxBytes)
+
 	require.Equal(t, "0.6.10", version)
 	require.Equal(t, time.UnixMilli(at).In(time.FixedZone("CST", 8*3600)).Format("2006-01-02"), day)
 	database, err := gorm.Open(postgres.Open(config.Load().PgDSN), &gorm.Config{})
