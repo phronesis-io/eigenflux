@@ -68,7 +68,7 @@ func TestPostgresRegistrationQuotaAndMigration(t *testing.T) {
 	if err := db.Exec(up).Error; err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"000126_integration_contexts.sql", "000127_integration_feed_batches.sql", "000128_integration_request_observation.sql"} {
+	for _, name := range []string{"000128_integration_contexts.sql", "000129_integration_feed_batches.sql", "000130_integration_request_observation.sql"} {
 		raw, err := os.ReadFile(filepath.Join("..", "..", "migrations", name))
 		if err != nil {
 			t.Fatal(err)

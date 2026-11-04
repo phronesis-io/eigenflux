@@ -5,12 +5,12 @@ five-PR enterprise SDK delivery. It is not a production activation record.
 
 | Requirement | Implementation | Verification |
 | --- | --- | --- |
-| Stable anonymous identity, app ownership, Agent/product/SDK/install/runtime metadata and interval | `pkg/integrationidentity`, integration registration API, migration 125 | PostgreSQL slot races, stable retry binding, strict HTTP ownership; compiled SDK registers and reports updated runtime version without personal principals/onboarding |
-| Summary/structured context, Card and private matching | `pkg/integrationprofile`, context/Card routes, migration 126, Sort/Discovery adapters | PostgreSQL stale-result/concurrent-edit fences and rebuilt Card privacy; actual ranking queries and returned items change between private Python/Go context revisions |
-| Hourly server admission, shared quota and idempotency | `pkg/integrationfeed`, Feed routes, migration 127, additive generated RPC fields | 16-way admission produces one generator owner; persisted retries, UTC app quota, changed minimum, old sequences and unknown completion are fenced; immediate second round returns 429 |
+| Stable anonymous identity, app ownership, Agent/product/SDK/install/runtime metadata and interval | `pkg/integrationidentity`, integration registration API, migration 127 | PostgreSQL slot races, stable retry binding, strict HTTP ownership; compiled SDK registers and reports updated runtime version without personal principals/onboarding |
+| Summary/structured context, Card and private matching | `pkg/integrationprofile`, context/Card routes, migration 128, Sort/Discovery adapters | PostgreSQL stale-result/concurrent-edit fences and rebuilt Card privacy; actual ranking queries and returned items change between private Python/Go context revisions |
+| Hourly server admission, shared quota and idempotency | `pkg/integrationfeed`, Feed routes, migration 129, additive generated RPC fields | 16-way admission produces one generator owner; persisted retries, UTC app quota, changed minimum, old sequences and unknown completion are fenced; immediate second round returns 429 |
 | SDK outer loop and customer consumption | Private compiled Go runtime, thin Python adapter, binary wheel, runnable B reference Agent | Go race tests; actual compiled-runtime Python tests; installed-wheel tests; native backend HTTP -> context worker -> ranking/Feed -> SQLite consumer acceptance |
 | Global/app/Agent/installation controls and bounded local permit | Shared server control checks, operator mutations, independent SDK control loop | Disabled stored payload/Card/context reads fail; stale runtime binding fails; blocked callback is cancelled by a control check while the permit still has 90 seconds; permit expiry has a separate test; SDK restarts disabled and resumes after operator re-enable |
-| Operational visibility | `scripts/integration_admin`, `operations.go`, migration 128 and enterprise-only request observer | Real PostgreSQL dry-run/credential rotation/policy tests; inspection verifies versions, installations, effective cadence, request observations, exact admitted batches, fixed server failure codes and bounded SDK diagnostic snapshots |
+| Operational visibility | `scripts/integration_admin`, `operations.go`, migration 130 and enterprise-only request observer | Real PostgreSQL dry-run/credential rotation/policy tests; inspection verifies versions, installations, effective cadence, request observations, exact admitted batches, fixed server failure codes and bounded SDK diagnostic snapshots |
 
 The final native acceptance run used an installed macOS arm64 `0.1.0` wheel and
 its bundled runtime, an isolated fully migrated PostgreSQL database, a native
@@ -30,7 +30,7 @@ queue. No production database or authorization list was accessed.
 
 Additional checks passed locally:
 
-- Actual migrations through 128 and existing test-account reset coverage.
+- Actual migrations through 130 and existing test-account reset coverage.
 - Race-tested identity/context/Feed/API/operator packages against isolated PostgreSQL.
 - Feed, legacy Sort, Discovery, pipeline, migration and personal CLI Feed contract regressions.
 - API/pipeline/Feed/Sort/operator builds and targeted `go vet`.

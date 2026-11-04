@@ -249,7 +249,7 @@ readiness as if the new context had been applied.
 
 ## Operator tool
 
-Apply migration `000128_integration_request_observation.sql` before enabling this
+Apply migration `000130_integration_request_observation.sql` before enabling this
 version of the gateway. Operators use `go run ./scripts/integration_admin` through
 existing restricted database access; no customer-accessible management route is
 added. `PG_DSN` must be explicitly supplied in the operator environment. The tool
@@ -357,7 +357,7 @@ EIGENFLUX_SDK_RUNTIME=/private/sdk-venv/lib/python3.12/site-packages/eigenflux_s
 ## Activation boundary
 
 These PRs do not deploy, publish a package, or edit production authorization data.
-Before a future full rollout, apply migrations 125–128, verify existing CLI
+Before a future full rollout, apply migrations 127–130, verify existing CLI
 contracts, and enable the environment flag on API/pipeline/Sort/Feed together.
 Keep the persistent enterprise global switch and applications disabled until
 approved credentials, capacities and customer state locations are ready. Start
