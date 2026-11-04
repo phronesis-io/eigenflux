@@ -179,7 +179,7 @@ logged or projected to public Cards.
 
 ## Durable enterprise Feed
 
-Apply migration `000127_integration_feed_batches.sql` before activating the full
+Apply migration `000129_integration_feed_batches.sql` before activating the full
 API/Feed/Sort/pipeline rollout. Enterprise MVP serves personalized broadcast
 items through the existing legacy ranking, content disclosure, impression and
 replay chain. It does not depend on personal onboarding or activate personal
