@@ -285,15 +285,21 @@ The CLI accepts `agent provision --ref` and can read a pending ref saved by
 saved endpoint prevents a pending ref from crossing server environments.
 After successful provision and credential persistence, the CLI sends the saved
 ref to the selected server's public `/api/v1/install/report` endpoint before
-creating the Console handoff. This report has a five-second timeout and does
+creating the Console handoff. Transient failures have at most three attempts,
+each with a five-second timeout. A credential persistence failure also attempts
+the installation report and preserves the original local error. Reporting does
 not require an email binding. A failed report does not undo registration;
 `install_reported` is false and the command warns that reprovisioning with the
 same Home and server retries it. Duplicate reports keep the server's existing
 one-conversion-per-token behavior. Commands without a ref send no report.
 
-The shell installer attempts referral reporting at most three times with
-bounded connection and request timeouts. It checks both HTTP status and the
-business response; an exhausted report warns without blocking installation.
+Both installers save the referral in the selected Home and server before Skills
+setup. The PowerShell installer accepts `-Ref` and `-Endpoint`; its parameterized
+invocation uses a downloaded script block rather than piping into `iex`.
+Both installers attempt referral reporting at most three times with bounded
+request timeouts. They check HTTP and business responses; an exhausted report
+warns without blocking installation. Installation reporting measures the CLI
+installation, before host plugin activation or completion of onboarding.
 
 Ref-aware installation requires CLI 0.0.43 or newer. Release the API and CLI
 compatibility changes first while preserving the existing installer, raw

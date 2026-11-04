@@ -11,9 +11,9 @@ import (
 )
 
 // Match crawler identities, not platform names: their in-app browsers are
-// real visits too. LarkUrl was observed minting tokens from Feishu previews.
+// real visits too. LarkUrl and Google-Safety were observed minting preview tokens.
 // Match complete UA products, not substrings in app metadata or encoded blobs.
-var previewUARe = regexp.MustCompile(`(?i)(?:^|[ \t;(])((?:[a-z][a-z0-9._-]{0,62})?(?:bot|crawler|spider)(?:-[a-z0-9_-]+)?|crawl|preview|slurp|headless(?:chrome)?|facebookexternalhit|facebookcatalog|embedly|vkshare|larkurl|google-inspectiontool|bingpreview|googlewebpreview|skypeuripreview|qqurlpreview|wechatpreview)(?:/[a-z0-9._-]+)?(?:$|[ \t;)])`)
+var previewUARe = regexp.MustCompile(`(?i)(?:^|[ \t;(])((?:[a-z][a-z0-9._-]{0,62})?(?:bot|crawler|spider)(?:-[a-z0-9_-]+)?|crawl|preview|slurp|headless(?:chrome)?|facebookexternalhit|facebookcatalog|embedly|vkshare|larkurl|google-safety|google-inspectiontool|bingpreview|googlewebpreview|skypeuripreview|qqurlpreview|wechatpreview)(?:/[a-z0-9._-]+)?(?:$|[ \t;)])`)
 var previewSnippetUARe = regexp.MustCompile(`(?i)(?:^|[ \t;(])\+?https?://developers\.google\.com/\+/web/snippet(?:$|[ \t;)])`)
 
 func isPreviewBot(userAgent string) bool {

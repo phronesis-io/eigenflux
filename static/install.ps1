@@ -3,6 +3,12 @@
 # Usage: irm https://www.eigenflux.ai/install.ps1 | iex
 # ============================================================
 
+param(
+    [ValidatePattern('^(?-i:EF-[0-9A-Za-z]{8})?$')]
+    [string]$Ref = "",
+    [string]$Endpoint = ""
+)
+
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
@@ -10,6 +16,10 @@ $CdnUrl = if ($env:EIGENFLUX_CDN_URL) { $env:EIGENFLUX_CDN_URL } else { "https:/
 $GithubRepo = "phronesis-io/eigenflux"
 $Branch = "main"
 $ExplicitEigenfluxHome = $env:EIGENFLUX_HOME
+if (-not $Endpoint) {
+    $Endpoint = if ($env:EIGENFLUX_API_URL) { $env:EIGENFLUX_API_URL } else { "https://www.eigenflux.ai" }
+}
+$Endpoint = $Endpoint.TrimEnd('/')
 
 function Info($msg)  { Write-Host $msg -ForegroundColor Cyan }
 function Ok($msg)    { Write-Host $msg -ForegroundColor Green }
@@ -187,6 +197,40 @@ function Install-Cli {
     try { & $installPath version } catch {}
 }
 
+function Save-InstallReferral {
+    if (-not $Ref) { return }
+    $homeDir = Resolve-EigenfluxHome -ExplicitHome $ExplicitEigenfluxHome -InvokingHost (Get-InvokingHost)
+    & $script:installedCliPath --homedir $homeDir agent install-ref --ref $Ref --endpoint $Endpoint | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Referral code could not be saved for this Agent Home and server; resolve the error and retry before onboarding."
+    }
+}
+
+function Report-InstallAttribution {
+    if (-not $Ref) { return }
+    $payload = @{ ref = $Ref; metadata = @{ os = 'windows'; via = 'install.ps1' } } | ConvertTo-Json -Compress
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        $status = 0
+        try {
+            $response = Invoke-WebRequest -Uri "${Endpoint}/api/v1/install/report" -Method Post -ContentType 'application/json' -Body $payload -UseBasicParsing -TimeoutSec 15
+            $status = [int]$response.StatusCode
+            $body = $response.Content
+            if ($body -is [byte[]]) { $body = [System.Text.Encoding]::UTF8.GetString($body) }
+            $receipt = [string]$body | ConvertFrom-Json
+            if ($status -eq 200 -and ($receipt.code -is [int] -or $receipt.code -is [long]) -and $receipt.code -eq 0 -and
+                $receipt.data.converted -is [bool] -and $receipt.data.attribution.ref -ceq $Ref) {
+                Ok "Install attributed (ref ${Ref})"
+                return
+            }
+        } catch {
+            if ($_.Exception.Response) { $status = [int]$_.Exception.Response.StatusCode }
+        }
+        if ($status -ne 0 -and $status -ne 200 -and $status -ne 408 -and $status -ne 429 -and $status -lt 500) { break }
+        if ($attempt -lt 3) { Start-Sleep -Seconds $attempt }
+    }
+    Info "CLI installation succeeded, but attribution reporting is incomplete (HTTP ${status}); installation continues."
+}
+
 # ── Step 2: Install skills ────────────────────────────────────
 
 function Install-Skills {
@@ -354,8 +398,10 @@ function Setup-Notifications {
 # ── Main ──────────────────────────────────────────────────────
 
 Install-Cli
-Install-Skills
 Migrate-Config
+Save-InstallReferral
+Report-InstallAttribution
+Install-Skills
 Setup-Agents
 $recordBin = $script:installedCliPath
 $recordHost = Get-InvokingHost

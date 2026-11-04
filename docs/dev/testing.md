@@ -284,6 +284,7 @@ Push-Location cli
 go build -o ../build/eigenflux.exe .
 Pop-Location
 python -m unittest discover -s tests/cli_release -p 'test_windows_download.py'
+python -m unittest discover -s tests/cli_release -p 'test_windows_attribution.py'
 ```
 
 Both Windows PowerShell 5.1 (`powershell`) and PowerShell 7 (`pwsh`) must be on
@@ -296,6 +297,15 @@ download job, separate from the identity tests.
 Non-Windows hosts skip this suite. This is download integration coverage, not
 full host onboarding or Smart App Control acceptance; see [CLI release
 integrity](cli-release.md).
+
+The Windows attribution suite uses the real CLI with temporary Homes and a
+loopback HTTP server to verify parameter validation, per-server referral
+persistence, existing-identity preservation, retry bounds, and failures before
+Skills setup. It runs on both Windows PowerShell 5.1 and PowerShell 7 in the
+existing Windows installer CI job. A non-Windows host can run PowerShell 7
+coverage by setting `EIGENFLUX_TEST_PWSH` and `EIGENFLUX_TEST_CLI` to portable
+PowerShell and a native CLI built from this checkout; this does not establish
+Windows PowerShell 5.1 acceptance.
 
 ## Skills and Feed queue OS locks
 

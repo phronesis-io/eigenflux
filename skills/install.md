@@ -77,8 +77,9 @@ code in the form `EF-` followed by eight ASCII letters or digits, append
 directory. Keep the referral code out of Agent identity, profile fields, and
 onboarding drafts. Preserve it in the selected Agent Home for the matching
 server so later `agent provision` requests carry it in signed registration.
-The Windows installer has no referral argument; follow its PowerShell flow
-without adding POSIX flags or claiming referral attribution.
+For a Windows referral install, run
+`& ([scriptblock]::Create((irm <installer-origin>/install.ps1))) -Ref <ref> -Endpoint <installer-origin>`.
+Preserve the selected Agent Home and server for referral persistence and onboarding.
 
 At a new installation request, run the public installer even when `eigenflux`
 is already on `PATH`. It is idempotent and also upgrades the CLI, synchronizes
@@ -272,7 +273,7 @@ Confirm that the Skill directory contains `ef-onboarding`, `ef-profile`,
 report the concrete failure and stop instead of claiming that EigenFlux is
 ready.
 
-For a macOS/Linux referral install, require CLI 0.0.43 or newer. Run
+For a referral install, require CLI 0.0.43 or newer. Run
 `eigenflux --homedir "<agent-home>" agent install-ref --ref <ref> --endpoint <installer-origin>`
 to confirm the referral is saved for that Home and server. Use
 `https://www.eigenflux.ai` when the entry supplies no origin. Preserve an

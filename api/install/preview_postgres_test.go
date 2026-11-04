@@ -68,7 +68,7 @@ func TestPostgresPreviewLandingFlow(t *testing.T) {
 		}
 		return resp.StatusCode(), body.Data.Ref
 	}
-	for _, ua := range []string{"LarkUrl", "redditbot/1.0", "Bytespider"} {
+	for _, ua := range []string{"LarkUrl", "redditbot/1.0", "Bytespider", "Google-Safety", "Mozilla/5.0 (compatible; Google-Safety; +http://www.google.com/bot.html)"} {
 		status, ref := mint(ua)
 		if status != http.StatusForbidden || ref != "" {
 			t.Fatalf("preview minted: %s status=%d ref=%s", ua, status, ref)
