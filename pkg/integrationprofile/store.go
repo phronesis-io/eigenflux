@@ -8,7 +8,6 @@ import (
 	"eigenflux_server/pkg/integrationidentity"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 )
 
@@ -58,26 +57,7 @@ func (s *Store) database(ctx context.Context) *gorm.DB {
 // lockManaged matches registration's application-first order and rechecks
 // current business authorization for asynchronous processing and retries.
 func lockManaged(tx *gorm.DB, agentID int64) error {
-	var owner struct{ AppID string }
-	if err := tx.Table("integration_agents").Select("app_id").Where("agent_id = ?", agentID).First(&owner).Error; err != nil {
-		return err
-	}
-	var app integrationidentity.App
-	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&app, "app_id = ?", owner.AppID).Error; err != nil {
-		return err
-	}
-	var agent integrationidentity.Agent
-	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&agent, "agent_id = ?", agentID).Error; err != nil {
-		return err
-	}
-	var global struct{ Enabled bool }
-	if err := tx.Table("integration_control").Where("id = 1").First(&global).Error; err != nil {
-		return err
-	}
-	if !global.Enabled || !app.Enabled || !agent.Enabled {
-		return contextError(403, "INTEGRATION_DISABLED")
-	}
-	return nil
+	return integrationidentity.LockManagedAgent(tx, agentID)
 }
 
 // Accept keeps only the latest input, while a separate matching projection

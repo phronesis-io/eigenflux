@@ -88,6 +88,7 @@ const (
 // rest carry an agent id with no foreign key and would survive it. Every other
 // agent-scoped table cascades from agents.
 var Steps = []Step{
+	{Table: "integration_feed_batches", Where: "agent_id = $1"},
 	{Table: "integration_matching_profiles", Where: "agent_id = $1"},
 	{Table: "integration_contexts", Where: "agent_id = $1"},
 	{Table: "integration_installations", Where: "agent_id = $1"},

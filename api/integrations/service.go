@@ -12,13 +12,17 @@ import (
 	"strings"
 	"time"
 
+	"eigenflux_server/pkg/integrationfeed"
 	"eigenflux_server/pkg/integrationidentity"
 	"eigenflux_server/pkg/integrationprofile"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 )
 
-type Service struct{ Store *integrationidentity.Store }
+type Service struct {
+	Store *integrationidentity.Store
+	Feed  integrationfeed.Generator
+}
 type appKey struct{}
 
 func (s *Service) Register(h *server.Hertz) {
@@ -27,6 +31,8 @@ func (s *Service) Register(h *server.Hertz) {
 	h.PUT("/api/v2/integrations/agents/me/context", s.authenticate, s.putContext)
 	h.GET("/api/v2/integrations/agents/me/context", s.authenticate, s.getContext)
 	h.GET("/api/v2/integrations/agents/me/card", s.authenticate, s.getCard)
+	h.POST("/api/v2/integrations/agents/me/feed", s.authenticate, s.pullFeed)
+	h.GET("/api/v2/integrations/agents/me/feed", s.authenticate, s.latestFeed)
 }
 
 func (s *Service) business(ctx context.Context, c *app.RequestContext) (integrationidentity.Agent, error) {
@@ -104,7 +110,14 @@ func fail(c *app.RequestContext, err error) {
 	if !errors.As(err, &typed) {
 		typed = &integrationidentity.Error{Status: 503, Code: "INTEGRATION_UNAVAILABLE"}
 	}
-	c.JSON(typed.Status, map[string]any{"code": typed.Status, "msg": typed.Code, "error": map[string]any{"code": typed.Code, "message": typed.Code}})
+	response := map[string]any{"code": typed.Status, "msg": typed.Code, "error": map[string]any{"code": typed.Code, "message": typed.Code}}
+	var retry interface{ RetryAfter() int }
+	if errors.As(err, &retry) {
+		seconds := retry.RetryAfter()
+		c.Header("Retry-After", strconv.Itoa(seconds))
+		response["retry_after_seconds"] = seconds
+	}
+	c.JSON(typed.Status, response)
 }
 
 func (s *Service) authenticate(ctx context.Context, c *app.RequestContext) {

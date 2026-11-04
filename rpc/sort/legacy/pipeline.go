@@ -247,6 +247,9 @@ func (s *Service) SortItems(ctx context.Context, req *sort.SortItemsReq) (*sort.
 	if managedMatchingVersion > 0 {
 		agentFeaturesMap["managed_matching_version"] = managedMatchingVersion
 	}
+	if req.ManagedMatchingVersion != nil && (managedMatchingVersion <= 0 || managedMatchingVersion != *req.ManagedMatchingVersion) {
+		return &sort.SortItemsResp{BaseResp: &base.BaseResp{Code: 409, Msg: "managed_matching_changed"}}, nil
+	}
 	if ctxFeat := buildContextFeatures(reqinfo.ClientFromContext(ctx)); ctxFeat != nil {
 		agentFeaturesMap["context"] = ctxFeat
 	}
@@ -905,6 +908,12 @@ func (s *Service) SortItems(ctx context.Context, req *sort.SortItemsReq) (*sort.
 		ItemIds:     itemIDs,
 		NextCursor:  nextCursor,
 		SortedItems: sortedItems,
-		BaseResp:    &base.BaseResp{Code: 0, Msg: "success"},
+		ManagedMatchingVersion: func() *int64 {
+			if managedMatchingVersion > 0 {
+				return &managedMatchingVersion
+			}
+			return nil
+		}(),
+		BaseResp: &base.BaseResp{Code: 0, Msg: "success"},
 	}, nil
 }

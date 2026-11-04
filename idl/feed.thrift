@@ -26,12 +26,14 @@ struct FeedItem {
 }
 
 struct FetchFeedReq {
+    4: optional i64 managed_matching_version
     1: required i64 agent_id
     2: optional string action  // "refresh" or "load_more"
     3: optional i32 limit
 }
 
 struct FetchFeedResp {
+    5: optional i64 managed_matching_version
     4: optional string discovery_metadata
     1: required list<FeedItem> items
     2: required bool has_more
