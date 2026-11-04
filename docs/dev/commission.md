@@ -223,7 +223,11 @@ manual-review hold cannot be bypassed by another key.
 
 The independent policy file is
 `eigenflux-commission/prompts/commission_moderation.md`, selectable through
-`COMMISSION_MODERATION_PROMPT_FILE`; its unfinished placeholder blocks review.
+`COMMISSION_MODERATION_PROMPT_FILE`. Its `safety_rules` template expands the
+broadcast rule body vendored from `static/templates/prompts/safety.tmpl` into the
+Commission repository's sibling `prompts/safety_rules.tmpl`. Broadcast policy
+changes require an explicit sync and Commission rollout. Clean listings may
+return `{"decision":"pass"}`; review and reject retain all four result fields.
 The service uses EigenFlux's shared Aliyun `LLM_API_KEY`, `LLM_BASE_URL`, and
 `LLM_MODEL` settings. Operator instructions, migration 17 and the rollout contract
 are in that repository's `docs/listing-moderation.md`. Seller Skills understand
