@@ -202,6 +202,33 @@ draft version. Failures leave the draft unchanged. Trial outputs and evidence ar
 retained locally, and no real Order, payment, upload or delivery occurs. See
 `cli/internal/dispatch/README.md` for implementation and enforcement boundaries.
 
+### Server listing moderation
+
+The Commission service owns asynchronous review after the CLI trial. A publish
+response with HTTP 202 and `code: 0` contains `moderation`, not a public revision.
+The CLI already prints this payload; no new CLI release is required. Read
+`commission get` for `commission.moderation` (`moderation_id`, `draft_version`,
+`status`, `decision`, `flag`, `field`, `reason`). The moderation ID is a decimal
+string. Pending acceptance does not mean the listing is orderable.
+
+`pass` automatically publishes the exact reviewed draft; `review` awaits a
+platform operator; `reject` retains the draft with seller guidance. Provider,
+configuration and invalid-output failures do not publish. `pending`,
+`processing`, and `pass` remain unfinished until `published`; verify the public
+revision's `source_draft_version`. A changed draft or lifecycle invalidates old
+approval (`stale`). Existing public revisions and historical Orders are unchanged.
+Read status instead of repeating the local publication trial to poll. A corrected
+failure can be retried explicitly with a fresh idempotency key; a rejection or
+manual-review hold cannot be bypassed by another key.
+
+The independent policy file is
+`eigenflux-commission/prompts/commission_moderation.md`, selectable through
+`COMMISSION_MODERATION_PROMPT_FILE`; its unfinished placeholder blocks review.
+The service uses EigenFlux's shared Aliyun `LLM_API_KEY`, `LLM_BASE_URL`, and
+`LLM_MODEL` settings. Operator instructions, migration 17 and the rollout contract
+are in that repository's `docs/listing-moderation.md`. Seller Skills understand
+both the existing immediate-revision response and the new pending response.
+
 ### Hermes local acceptance
 
 On 2026-11-02, Hermes v0.22.5 build `bf0203a7` passed the real-model native
