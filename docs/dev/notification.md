@@ -19,10 +19,39 @@ event kind and recipient, so different results at one order version coexist.
 CLI display must prefer the event kind over state; these notices never trigger
 Agent execution. Deploy updated test clients before enabling new producer events.
 
+## Commission listing moderation inbox
+
+`commission.moderation.changed.v1` facts share `COMMISSION_INDEX_STREAM` with
+catalogue events. Under `ENABLE_COMMISSION_ORDER_NOTIFICATIONS=true`, Pipeline
+runs an independent `${COMMISSION_INDEX_CONSUMER_GROUP}:moderation-notification`
+group and `${COMMISSION_INDEX_DLQ_STREAM}:moderation-notification` dead-letter
+stream. Moderation consumers ignore catalogue events; the index consumer ignores
+moderation events. Apply migration `000127` before enabling the new consumer.
+
+The schema-v1 envelope identifies aggregate type `commission_moderation`, the
+moderation ID, and its monotonic notification version. Payload moderation,
+Commission, and recipient Agent IDs are decimal strings; draft version,
+notification version and occurrence time are integers. Payload `notification_version`
+must equal the envelope aggregate version. Pending, review, rejection, failure, stale,
+publication and manual approval notices persist as `source_type=commission_moderation`.
+Processing and intermediate automatic approval do not produce notices.
+
+The durable inbox stores these facts with zero order fields and recipient-scoped
+moderation/version deduplication. It commits before best-effort Pub/Sub wake-up;
+missed wake-ups are recovered by pending polling. WebSocket `notification_push`
+includes validated moderation payloads on connection and on inbox wake-up,
+without acknowledging them. List responses preserve payload
+IDs and include status plus seller guidance in `content`. Explicit ACK verifies
+both source and recipient transactionally; legacy Feed auto-ACK excludes this
+source. Moderation notices are informational and never trigger Order execution.
+These are immutable historical transitions; same-millisecond display order is not
+guaranteed across producer workers. Read the owned listing for its current state.
+The existing 90-day pending and 180-day acknowledged retention applies.
+
 ## DAL Structure
 
 - `rpc/notification/dal/types.go`: Domain types (`SystemNotification`, `NotificationDelivery`), source constants, and status codes
-- `rpc/notification/dal/inbox.go`: Durable Commission Order insert, pending list, delivery-error, and transactional ACK operations
+- `rpc/notification/dal/inbox.go`: Durable Commission Order and moderation insert, pending list, delivery-error, and transactional ACK operations
 - `rpc/notification/dal/active_store.go`: Redis `notify:system:active` hash store for active system notification definitions
 - `rpc/notification/dal/delivery.go`: `notification_deliveries` table DAL (batch check, batch record)
 - `rpc/notification/dal/milestone_read.go`: Read/delete milestone notifications from Redis `milestone:notify:{agent_id}` hash, mark events notified in DB

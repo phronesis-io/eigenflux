@@ -88,3 +88,36 @@ func TestInboxDedupeAuthorizationAndIdempotentAck(t *testing.T) {
 		t.Fatalf("acknowledged notification remained pending: %#v, %v", rows, err)
 	}
 }
+
+func TestModerationInboxSourceSpecificAckAndValidation(t *testing.T) {
+	db := setupInboxTestDB(t)
+	ctx := context.Background()
+	row := inboxFixture(31, 1, 1)
+	row.SourceType = SourceTypeCommissionModeration
+	row.OrderID, row.OrderVersion = 0, 0
+	if inserted, err := InsertInboxNotification(ctx, db, row); err != nil || !inserted {
+		t.Fatalf("insert: %v %v", inserted, err)
+	}
+	if err := AckInboxNotifications(ctx, db, 1, []int64{31}, 2500); err == nil {
+		t.Fatal("order source acknowledged moderation")
+	}
+	if err := AckInboxNotificationsBySource(ctx, db, 2, SourceTypeCommissionModeration, []int64{31}, 2500); err == nil {
+		t.Fatal("foreign recipient acknowledged moderation")
+	}
+	if err := AckInboxNotificationsBySource(ctx, db, 1, SourceTypeCommissionModeration, []int64{31}, 2500); err != nil {
+		t.Fatal(err)
+	}
+	if err := AckInboxNotificationsBySource(ctx, db, 1, SourceTypeCommissionModeration, []int64{31}, 2600); err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range []string{SourceTypeCommissionModeration, SourceTypeCommissionOrder, "unknown"} {
+		invalid := *row
+		invalid.SourceType = source
+		if source == SourceTypeCommissionModeration {
+			invalid.OrderID = 7
+		}
+		if _, err := InsertInboxNotification(ctx, db, &invalid); err == nil {
+			t.Fatalf("source-specific order constraints not enforced: %s", source)
+		}
+	}
+}

@@ -229,7 +229,7 @@ Commission repository's sibling `prompts/safety_rules.tmpl`. Broadcast policy
 changes require an explicit sync and Commission rollout. Clean listings may
 return `{"decision":"pass"}`; review and reject retain all four result fields.
 The service uses EigenFlux's shared Aliyun `LLM_API_KEY`, `LLM_BASE_URL`, and
-`LLM_MODEL` settings. Operator instructions, migration 17 and the rollout contract
+`LLM_MODEL` settings. Operator instructions, migrations 17–18 and the rollout contract
 are in that repository's `docs/listing-moderation.md`. Seller Skills understand
 both the existing immediate-revision response and the new pending response.
 
@@ -286,3 +286,28 @@ provider identities are displayed. RPC/database failures return HTTP 503 with
 `HOME_SERVICES_UNAVAILABLE`, rather than a successful empty catalogue. An empty
 published catalogue returns `items: []`. The API Gateway uses the existing
 `COMMISSION_SOURCE_SERVICE` and `COMMISSION_ORDER_SOURCE_SERVICE` discovery names.
+
+## Moderation notifications and operator review
+
+Commission writes seller status changes and their versioned outbox events in the
+same transaction. EigenFlux consumes `commission.moderation.changed.v1` into the
+durable `commission_moderation` inbox source (migration 127). Pending, manual
+review, rejection, failure, stale draft, manual approval and publication changes
+notify the seller; internal processing and automatic approval before publication
+do not create extra notices. Review and rejection include the field and seller
+guidance. Notifications are historical events; listing reads remain authoritative.
+
+The CLI watch persists these notices in its desktop queue before acknowledging
+them. They never schedule Agent execution or Order work. Without a desktop sink,
+watch leaves them pending; the legacy notifications stream can render and
+acknowledge them when it owns delivery. Existing notification rollout settings
+apply; see [notification.md](notification.md).
+
+The private operator Console exposes a **Service Review** page with status
+filters, cursor pagination, the exact reviewed listing snapshot and audit data.
+Only `review` records can be approved or rejected; each action requires an
+operator identifier and reason. Approval queues version-checked publication; it
+does not bypass the draft/version checks. Console calls Commission's internal
+`ListModerations` and `ResolveModeration` RPCs using `COMMISSION_RPC_PORT`.
+The operator identifier is self-reported; access is controlled by the existing
+private Console network boundary, not a new authentication system.

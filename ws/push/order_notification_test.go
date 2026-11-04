@@ -3,6 +3,7 @@ package push
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/kitex/client/callopt"
@@ -58,3 +59,24 @@ func TestFetchPendingNotificationDataIsAgentScopedAndDoesNotAck(t *testing.T) {
 
 func boolPointer(value bool) *bool       { return &value }
 func stringPointer(value string) *string { return &value }
+
+func TestFetchPendingModerationAndOrderNotifications(t *testing.T) {
+	moderation := `{"notification_version":2,"moderation_id":"9007199254740993","commission_id":"9007199254740995","recipient_agent_id":"42","draft_version":2,"status":"review","decision":"review","flag":"","field":"title","reason":"Clarify title","occurred_at":1000}`
+	order := `{"order_id":9007199254740997}`
+	foreign := strings.Replace(moderation, `"recipient_agent_id":"42"`, `"recipient_agent_id":"43"`, 1)
+	invalid := `{}`
+	stub := &notificationClientStub{response: &notificationrpc.ListPendingResp{BaseResp: &base.BaseResp{}, Notifications: []*notificationrpc.PendingNotification{
+		{NotificationId: 81, SourceType: "commission_order", PayloadJson: &order},
+		{NotificationId: 82, SourceType: "commission_moderation", PayloadJson: &moderation},
+		{NotificationId: 83, SourceType: "commission_moderation", PayloadJson: &foreign},
+		{NotificationId: 84, SourceType: "commission_moderation", PayloadJson: &invalid},
+	}}}
+	data, err := fetchPendingNotificationData(context.Background(), stub, 42)
+	if err != nil || len(data.Notifications) != 2 || stub.ackCalls != 0 {
+		t.Fatalf("push projection: %#v %v", data, err)
+	}
+	notice := data.Notifications[1]
+	if notice.SourceType != "commission_moderation" || string(notice.Payload) != moderation {
+		t.Fatal("moderation payload lost string IDs or fields")
+	}
+}

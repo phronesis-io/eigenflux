@@ -17,12 +17,6 @@ import (
 	watchstate "cli.eigenflux.ai/internal/watch"
 )
 
-type orderNotificationPage struct {
-	Notifications []orderNotification `json:"notifications"`
-	HasMore       bool                `json:"has_more"`
-	NextCursor    string              `json:"next_cursor"`
-}
-
 type orderNotification struct {
 	NotificationID string                   `json:"notification_id"`
 	SourceType     string                   `json:"source_type"`
@@ -115,7 +109,7 @@ func drainOrderNotifications(api *client.Client, format, language string, writer
 		if response.Code != 0 {
 			return fmt.Errorf("list pending notifications: %s", response.Msg)
 		}
-		var page orderNotificationPage
+		var page commissionNotificationPage
 		if err := json.Unmarshal(response.Data, &page); err != nil {
 			return fmt.Errorf("parse pending notifications: %w", err)
 		}
@@ -138,7 +132,22 @@ func drainOrderNotifications(api *client.Client, format, language string, writer
 			ackAPI := *api
 			ackAPI.Token, ackAPI.OnUnauthorized = credentials.AccessToken, nil
 			ackItems := make([]map[string]string, 0, len(page.Notifications))
-			for _, notification := range page.Notifications {
+			for _, raw := range page.Notifications {
+				var notification orderNotification
+				if err := json.Unmarshal(raw, &notification); err != nil {
+					return err
+				}
+				if notification.SourceType == moderationNotificationSource {
+					notice, err := parseModerationNotification(raw, expected.AgentID)
+					if err != nil {
+						return err
+					}
+					if err := renderModerationNotification(writer, format, language, notice); err != nil {
+						return err
+					}
+					ackItems = append(ackItems, map[string]string{"notification_id": notification.NotificationID, "source_type": moderationNotificationSource})
+					continue
+				}
 				if notification.SourceType != "commission_order" {
 					continue
 				}

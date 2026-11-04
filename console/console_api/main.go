@@ -20,11 +20,12 @@ import (
 	consoleHandler "console.eigenflux.ai/handler_gen/eigenflux/console"
 	"console.eigenflux.ai/internal/config"
 	"console.eigenflux.ai/internal/dashboard"
-	"console.eigenflux.ai/internal/metrics"
 	"console.eigenflux.ai/internal/db"
 	"console.eigenflux.ai/internal/idgen"
 	"console.eigenflux.ai/internal/logger"
+	"console.eigenflux.ai/internal/metrics"
 	"console.eigenflux.ai/internal/notification"
+	"console.eigenflux.ai/internal/servicereview"
 	"console.eigenflux.ai/internal/telemetry"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/hertz-contrib/cors"
@@ -97,6 +98,11 @@ func main() {
 
 	h.GET("/swagger/*any", hertzSwagger.WrapHandler(swaggerFiles.Handler))
 
+	reviewClient, err := servicereview.NewClient(cfg.CommissionRPCPort)
+	if err != nil {
+		log.Fatalf("initialize service review client: %v", err)
+	}
+	servicereview.Register(h, reviewClient)
 	register(h)
 
 	log.Printf("Console API gateway starting on %s", cfg.ListenAddr())

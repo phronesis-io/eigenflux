@@ -162,6 +162,20 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 			if json.Unmarshal(raw, &notification) != nil {
 				return errors.New("invalid_commission_notification")
 			}
+			if notification.Source == moderationNotificationSource {
+				saved, err := w.enqueueModerationNotification(raw)
+				if err != nil {
+					return err
+				}
+				if saved {
+					var id notificationID
+					if err := json.Unmarshal(notification.ID, &id); err != nil {
+						return err
+					}
+					ack = append(ack, map[string]string{"notification_id": strconv.FormatInt(int64(id), 10), "source_type": moderationNotificationSource})
+				}
+				continue
+			}
 			if notification.Source != "commission_order" {
 				continue
 			}

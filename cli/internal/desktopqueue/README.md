@@ -22,6 +22,12 @@ and retry/submission semantics remain the same.
    `needs_user`, `failed`, and `unknown` work. Recover these notifications after
    crashes without exposing task bodies or changing execution state.
 
+Listing moderation uses the same durable queue with IDs scoped by account and
+notification ID. It does not create an Order execution job. Its message includes
+the service ID, draft version, status and bounded seller guidance; the link opens
+`/dashboard/trade`. No payload-supplied URL is accepted. Without a desktop queue,
+the server notification stays pending.
+
 ## Persistence and retry
 
 `watch/desktop-<scope>.json` uses the existing Home/server/Agent/principal scope,

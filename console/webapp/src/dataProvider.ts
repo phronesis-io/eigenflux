@@ -103,5 +103,11 @@ export const consoleDataProvider = (
     return { data };
   },
 
+  custom: async ({ url, method, query }) => {
+    const { data } = await httpClient.request({ url, method, params: query });
+    if (data.code !== 0 || !data.data) throw new Error(data.msg || "API request failed");
+    return { data: data.data };
+  },
+
   getApiUrl: () => apiUrl,
 });

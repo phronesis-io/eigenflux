@@ -5,6 +5,7 @@ import (
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/featureindex"
 	"eigenflux_server/pkg/metrics"
+	"eigenflux_server/pkg/notificationpayload"
 	"fmt"
 	"strconv"
 	"strings"
@@ -36,6 +37,9 @@ func NewCommissionIndexConsumer(cfg *config.Config, source featureindex.Commissi
 func (c *CommissionIndexConsumer) Start(ctx context.Context) { c.runtime.Run(ctx) }
 
 func (c *CommissionIndexConsumer) Handle(ctx context.Context, _ string, values map[string]any) HandleResult {
+	if streamText(values["topic"]) == notificationpayload.CommissionModerationTopic {
+		return HandleSuccess
+	}
 	event, err := parseCommissionEvent(values)
 	if err != nil {
 		return HandleFailure

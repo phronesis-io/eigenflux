@@ -130,6 +130,17 @@ checks only the main route and cannot replace the actual publication trial.
 7. Require one JSON decision: `version=1`, matching `request_id`, `action`, `reply_text`. Actions: `reply`, `no_reply`, `needs_user`. Reject missing/unknown/duplicate fields and trailing output.
 8. Validate reply content, persist `sending`, then recheck identity and permission under the credential lock. POST only to the original conversation with `request_id=pm-reply:<original-message-id>`; disable POST refresh/replay. The gateway and PM RPC preserve this ID so different inbound messages can receive identical text, while repeated sends for one message reuse its first receipt within the server's 60-second window. Record `replied` only with a valid matching receipt; emit redacted status. Interrupted sends remain `unknown`; this key does not enable automatic replay. Deploy the updated PM RPC and gateway before relying on this behavior in the CLI.
 
+## Listing moderation notices
+
+The existing Commission notification intake also accepts `commission_moderation`.
+These are informational seller status changes, not Orders: validate the recipient,
+persist the desktop message before ACK, and never create an execution or main-Agent
+job. Missing desktop delivery retains the server notice. Legacy stream renders
+these notices before ACK when no watch owns intake. Status, draft version, field
+and reason come from the immutable moderation event; `pass` is awaiting publication,
+while only `published` confirms public availability. Desktop links open the Trade
+page without claiming a specific selected account or a service deep-link.
+
 ## Commission input inspection
 
 CLI 1.0.11 adds `watch --notifications-only` for hosts without an execution

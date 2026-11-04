@@ -253,6 +253,12 @@ Deploy the API receiver before the matching CLI. See the
 
 The explicit `commission_order` subscription enables durable notification intake and a separate seller input-check worker. It reads the frozen contract and bound Skill, verifies downloaded inputs, invokes a fresh Agent session and saves a strict `commission_result` in `watch status`. Files are capped at 128 / 64 MiB; preparation and execution have a local 180-second ceiling after queue claim. Paid `ready` results atomically queue a separate local fulfillment worker. It saves output paths before execution, verifies real files and retains them with hashes and self-check evidence in `commission_fulfillment`. Awaiting-seller `ready` invokes seller-authenticated acceptance; unavailable Agents leave orders waiting. Paid `artifacts_ready` persists evidence before fixed-key uploads and delivery, then reads back the order before confirming submission. Recoverable deliveries retain evidence and follow the bounded idempotent retry schedule; legacy uncertain mutations require reconciliation. Buyer confirmation remains separate. Local readiness or artifacts alone are not delivery receipts.
 
+The `commission_order` subscription also receives listing moderation status notices.
+Watch saves them in the durable desktop queue before acknowledging the inbox;
+these informational messages never start Agent or Order execution. Manual approval
+is shown as awaiting publication until a separate published notice arrives.
+Without a desktop sink, watch leaves moderation notices pending.
+
 PM + Commission subscriptions share the Socket. A Commission-only subscription uses an initial HTTP request and 60-second reconciliation, because the current server Socket always consumes PM. The same account's ordinary stream skips Commission notification draining while watch owns it. Stop and inspect unresolved jobs before rebinding. The implementation and pending business decisions are in [Commission dispatch](commission-dispatch.md).
 
 ### Explicit seller acceptance

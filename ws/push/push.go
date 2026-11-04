@@ -233,12 +233,21 @@ func fetchPendingNotificationData(ctx context.Context, client notificationservic
 	}
 	data := NotificationFetchData{HasMore: response.GetHasMore(), NextCursor: response.GetNextCursor()}
 	for _, notification := range response.Notifications {
-		if notification == nil || notification.SourceType != "commission_order" || notification.PayloadJson == nil || !json.Valid([]byte(*notification.PayloadJson)) {
+		if notification == nil || (notification.SourceType != "commission_order" && notification.SourceType != "commission_moderation") || notification.PayloadJson == nil || !json.Valid([]byte(*notification.PayloadJson)) {
 			continue
 		}
-		payload, err := notificationpayload.NormalizeCommissionOrderIDs(*notification.PayloadJson)
-		if err != nil {
-			continue
+		payload := json.RawMessage(*notification.PayloadJson)
+		if notification.SourceType == "commission_moderation" {
+			parsed, err := notificationpayload.ParseCommissionModeration(*notification.PayloadJson)
+			if err != nil || parsed.RecipientAgentID != strconv.FormatInt(agentID, 10) {
+				continue
+			}
+		} else {
+			normalized, err := notificationpayload.NormalizeCommissionOrderIDs(*notification.PayloadJson)
+			if err != nil {
+				continue
+			}
+			payload = normalized
 		}
 		data.Notifications = append(data.Notifications, NotificationData{
 			NotificationID: strconv.FormatInt(notification.NotificationId, 10), SourceType: notification.SourceType,

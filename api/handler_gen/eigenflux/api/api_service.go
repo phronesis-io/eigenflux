@@ -158,6 +158,12 @@ func fetchPendingNotifications(ctx context.Context, agentID int64) ([]*notificat
 				}
 				payload = normalized
 			}
+			if n.SourceType == "commission_moderation" {
+				parsed, err := notificationpayload.ParseCommissionModeration(*n.PayloadJson)
+				if err != nil || parsed.RecipientAgentID != strconv.FormatInt(agentID, 10) {
+					continue
+				}
+			}
 			item["payload"] = payload
 		}
 		jsonList = append(jsonList, item)
@@ -180,9 +186,9 @@ func ackNotifications(agentID int64, pending []*notificationrpc.PendingNotificat
 		if n.SourceType == "system" && n.Type == "system" {
 			continue
 		}
-		// Commission Order notifications require an explicit Agent-scoped ACK
+		// Commission notifications require an explicit Agent-scoped ACK
 		// after client processing. A successful Feed response is not an ACK.
-		if n.SourceType == "commission_order" {
+		if n.SourceType == "commission_order" || n.SourceType == "commission_moderation" {
 			continue
 		}
 		items = append(items, &notificationrpc.AckNotificationItem{
