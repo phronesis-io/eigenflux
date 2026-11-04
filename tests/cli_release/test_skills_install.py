@@ -24,6 +24,7 @@ class SkillsInstallation(unittest.TestCase):
             "EIGENFLUX_HOME": str(self.home / "agent/.eigenflux"),
             "EIGENFLUX_SKIP_AGENT_SETUP": "1", "TEST_VERSION": "0.0.51",
             "TEST_SKILLS": str(self.skills), "TEST_ARCHIVE": str(self.archive),
+            "TEST_CLI_LOG": str(self.home / "cli.log"),
         }
         self.stub("curl", '''for arg do url="$arg"; done
 case "$url" in
@@ -32,7 +33,8 @@ case "$url" in
   */archive/refs/heads/main.tar.gz) cat "$TEST_ARCHIVE" ;;
   *) echo "Unexpected network request: $url" >&2; exit 1 ;;
 esac''')
-        self.stub("eigenflux", '''case "$*" in
+        self.stub("eigenflux", '''printf '%s\\n' "$*" >> "$TEST_CLI_LOG"
+case "$*" in
   'version --short') printf '%s\\n' "$TEST_VERSION" ;;
   'skills sync --host codex') echo 'skills need a newer CLI' >&2; exit 1 ;;
   'skills path --host codex') printf '%s\\n' "$TEST_SKILLS" ;;
@@ -55,9 +57,9 @@ esac''')
                 info.size = len(content)
                 archive.addfile(info, io.BytesIO(content))
 
-    def install(self):
+    def install(self, extra_args=None):
         return subprocess.run(
-            ["sh", str(ROOT / "static/install.sh"), "--host", "codex"],
+            ["sh", str(ROOT / "static/install.sh"), "--host", "codex", *(extra_args or [])],
             env=self.env, cwd=self.home, stdin=subprocess.DEVNULL,
             capture_output=True, text=True, start_new_session=True, timeout=30,
         )
@@ -69,6 +71,16 @@ esac''')
         self.assertIn("0.0.52", result.stderr)
         self.assertFalse(self.skills.exists())
         self.assertNotIn("Done!", result.stdout)
+
+    def test_ref_saved_before_skills_installation_failure(self):
+        self.source_archive("0.0.52")
+        result = self.install(["--ref", "EF-1234abcd"])
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        calls = Path(self.env["TEST_CLI_LOG"]).read_text()
+        saved = calls.index("agent install-ref --ref EF-1234abcd --endpoint https://www.eigenflux.ai")
+        self.assertLess(calls.index("migrate"), saved)
+        self.assertLess(saved, calls.index("skills sync --host codex"))
+        self.assertNotIn("agent provision", calls)
 
     def test_incompatible_fallback_preserves_existing_skills(self):
         self.source_archive("0.0.53")

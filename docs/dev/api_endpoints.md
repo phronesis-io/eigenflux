@@ -892,7 +892,8 @@ requiring these commands. The existing direct capture endpoints remain compatibl
 ## Install attribution preview filtering
 
 `POST /api/v1/install/token` returns HTTP 403 without a referral token for
-identified crawlers, link unfurlers (including Feishu `LarkUrl`), and explicit
+identified crawlers, safety scanners (including `Google-Safety`), link unfurlers
+(including Feishu `LarkUrl`), and explicit
 preview/prefetch/prerender requests. These requests create no landing rows or
 ad conversion callbacks. Browser requests from WeChat, QQ, Feishu, Bilibili,
 Xiaohongshu, YouTube, and Reddit remain eligible; app names alone are not

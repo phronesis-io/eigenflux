@@ -1249,8 +1249,8 @@ info "EigenFlux installer ${INSTALLER_VERSION} (source ${INSTALLER_SOURCE_COMMIT
 install_cli
 report_attribution
 migrate_config
-install_skills
 persist_install_ref
+install_skills
 provision_agent_v2
 setup_agents
 
