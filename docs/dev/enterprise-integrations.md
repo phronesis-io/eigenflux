@@ -218,15 +218,19 @@ an in-progress POST returns 409 with Retry-After. Both methods check current
 controls even when the payload already exists. A restarted/superseded runtime
 cannot read with its previous binding.
 
-Admission uses PostgreSQL time and the shared app-first transaction lock. It
-atomically reserves the Agent interval, one in-flight batch, and application
-quota before invoking the Feed source. The effective interval is the maximum
-of requested cadence and application minimum, normally 3600 seconds. An
-application initially allows 10000 admitted batches per UTC day; operators can
-change this policy, and all its Agents share that counter. An early new round
-or exceeded daily quota returns 429 plus Retry-After/retry_after_seconds. Batch
-retries and reads do not consume another generation or quota unit. This policy
-is independent of existing personal CLI cadence.
+Admission uses PostgreSQL time and the shared app-first transaction lock.
+The only usage limit is a fixed five-minute minimum between new generations
+for the same Agent. SDK requested cadence and legacy application interval or
+daily quota settings do not restrict HTTP admission. Usage counters remain
+observational. Early new rounds return 429 with Retry-After/retry_after_seconds.
+Same-batch retries remain idempotent and concurrent generation stays fenced.
+
+`next_poll_at` is an SDK scheduling hint: the latest generation time plus the
+maximum of the current requested SDK interval and 300 seconds. GET recalculates
+this hint, so lowering SDK cadence does not preserve an old one-hour reservation.
+The SDK default stays one hour; this test installation requests ten minutes.
+Authentication, binding, remote controls and context readiness remain required.
+Existing personal CLI cadence is unchanged.
 
 Only the latest payload is retained, without a 30-minute cache expiry. Its
 monotonic sequence remains the fence after replacement, so an old retry returns
@@ -237,7 +241,7 @@ The API commits `generating` before making one source call. If the process dies,
 the source response is lost, or completion fails, the same sequence is never
 sent to the generator again. An expired 120-second generation lease becomes
 `unknown`; explicit source failure marks it immediately. Such an admission
-conservatively consumes the reserved interval/quota. A later new sequence may
+conservatively counts as a generation for the five-minute minimum. A later new sequence may
 start only when cadence permits. This may skip a failed round; it avoids false
 exactly-once claims across PostgreSQL and the Feed RPC. The SDK must likewise
 persist delivery intent and treat an unknown consumer outcome separately.
@@ -390,7 +394,7 @@ recheck current control inside the transaction.
 
 The PostgreSQL suite requires an explicit loopback DSN, creates a unique isolated
 schema, executes the actual migration, and removes only that schema. It tests
-concurrent application quota admission, retry identity stability, current
+concurrent identity admission, retry identity stability, current
 disable behavior, and the live-binding rollback guard. SQLite HTTP tests cover
 credential boundaries, strict input, default-off activation, and 503 failure
 classification. These tests do not establish production deployment state.
@@ -404,3 +408,7 @@ Enterprise Card rebuild runs directly after matching commit and is reconciled
 every two seconds from durable matching/Card source-version differences. Failures
 retry after a persisted 30-second reservation, including after restart. No model
 call or profile write is repeated for Card repair. Disabled subjects are skipped.
+
+Legacy `min_poll_interval_seconds` and `max_feed_batches_per_day` columns and
+operator flags remain accepted for compatibility but do not enforce Feed limits.
+Agent and installation count limits still govern identity registration.

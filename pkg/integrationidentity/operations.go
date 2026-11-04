@@ -157,7 +157,7 @@ func (s *Store) Inspect(ctx context.Context, appID string, agentID, afterAgentID
 		result.Applications = result.Applications[:100]
 	}
 	agents := db.Table("integration_agents a").Select(`a.agent_id,a.app_id,a.external_agent_id,a.enabled,a.runtime_name,a.runtime_version,a.requested_poll_interval_seconds,
- CASE WHEN a.requested_poll_interval_seconds>p.min_poll_interval_seconds THEN a.requested_poll_interval_seconds ELSE p.min_poll_interval_seconds END AS effective_poll_interval_seconds,
+ CASE WHEN a.requested_poll_interval_seconds>300 THEN a.requested_poll_interval_seconds ELSE 300 END AS effective_poll_interval_seconds,
  a.next_poll_at,a.request_count,a.last_request_at,a.last_failure_code,a.last_failure_at,
  COALESCE(c.status,'none') AS context_status,COALESCE(c.source_revision,0) AS context_revision,COALESCE(c.applied_matching_version,0) AS applied_matching_version,COALESCE(c.failure_code,'') AS context_failure_code,
  COALESCE(f.status,'none') AS feed_status,COALESCE(f.sequence,0) AS feed_batches_total,COALESCE(f.item_count,0) AS feed_item_count,COALESCE(f.created_at,0) AS last_feed_at,COALESCE(f.failure_code,'') AS feed_failure_code`).

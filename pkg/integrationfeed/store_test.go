@@ -135,7 +135,7 @@ func TestPostgresSingleGenerationAndDurableRetry(t *testing.T) {
 	_, _, err = s.Begin(ctx, 1, Request{Sequence: 2})
 	requireError(t, err, 429, "FEED_POLL_TOO_EARLY")
 	var retryErr interface{ RetryAfter() int }
-	if !errors.As(err, &retryErr) || retryErr.RetryAfter() < 3500 {
+	if !errors.As(err, &retryErr) || retryErr.RetryAfter() < 299 {
 		t.Fatal("retry delay missing", err)
 	}
 	_, _, err = s.Begin(ctx, 1, Request{Sequence: 1, Limit: 1})
@@ -161,27 +161,20 @@ func TestPostgresSingleGenerationAndDurableRetry(t *testing.T) {
 	}
 }
 
-func TestPostgresAppQuotaSharedAcrossAgentsAndCadence(t *testing.T) {
+func TestPostgresDailyQuotaDoesNotRestrictFeed(t *testing.T) {
 	s := feedStore(t)
 	ctx := context.Background()
-	if err := s.DB.Exec(`UPDATE integration_apps SET max_feed_batches_per_day=1`).Error; err != nil {
+	if err := s.DB.Exec(`UPDATE integration_apps SET max_feed_batches_per_day=1, feed_batches_today=999, feed_usage_day=(extract(epoch FROM clock_timestamp())*1000)::bigint/86400000`).Error; err != nil {
 		t.Fatal(err)
 	}
-	if _, accepted, err := s.Begin(ctx, 1, Request{Sequence: 1}); err != nil || !accepted {
-		t.Fatal(accepted, err)
+	for _, id := range []int64{1, 2} {
+		if _, accepted, err := s.Begin(ctx, id, Request{Sequence: 1}); err != nil || !accepted {
+			t.Fatal(id, accepted, err)
+		}
 	}
-	_, _, err := s.Begin(ctx, 2, Request{Sequence: 1})
-	requireError(t, err, 429, "APPLICATION_FEED_QUOTA_EXCEEDED")
-	// Agent and application counters roll back together on failed admission.
-	var next int64
-	if err := s.DB.Table("integration_agents").Select("next_poll_at").Where("agent_id=2").Scan(&next).Error; err != nil || next != 0 {
-		t.Fatal(next, err)
-	}
-	if err := s.DB.Exec(`UPDATE integration_apps SET feed_usage_day=feed_usage_day-1`).Error; err != nil {
-		t.Fatal(err)
-	}
-	if _, accepted, err := s.Begin(ctx, 2, Request{Sequence: 1}); err != nil || !accepted {
-		t.Fatal(accepted, err)
+	var used int64
+	if err := s.DB.Table("integration_apps").Select("feed_batches_today").Scan(&used).Error; err != nil || used != 1001 {
+		t.Fatal(used, err)
 	}
 }
 
@@ -230,7 +223,7 @@ func TestPostgresUnknownNeverRegeneratesAndDisableProtectsPayload(t *testing.T) 
 	requireError(t, err, 503, "INTEGRATION_FEED_UNAVAILABLE")
 }
 
-func TestPostgresRaisedMinimumAppliesToCurrentAdmission(t *testing.T) {
+func TestPostgresOnlyFiveMinuteMinimumApplies(t *testing.T) {
 	s := feedStore(t)
 	ctx := context.Background()
 	batch, _, err := s.Begin(ctx, 1, Request{Sequence: 1})
@@ -240,15 +233,45 @@ func TestPostgresRaisedMinimumAppliesToCurrentAdmission(t *testing.T) {
 	if applied, err := s.Complete(ctx, batch, json.RawMessage(`{"items":[]}`), 0); err != nil || !applied {
 		t.Fatal(applied, err)
 	}
-	if err := s.DB.Exec(`UPDATE integration_feed_batches SET created_at=created_at-3600001`).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DB.Exec(`UPDATE integration_agents SET next_poll_at=0`).Error; err != nil {
-		t.Fatal(err)
-	}
+	// Legacy reservations and application policy must not override 5 minutes.
 	if err := s.DB.Exec(`UPDATE integration_apps SET min_poll_interval_seconds=7200`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB.Exec(`UPDATE integration_feed_batches SET created_at=created_at-299000`).Error; err != nil {
 		t.Fatal(err)
 	}
 	_, _, err = s.Begin(ctx, 1, Request{Sequence: 2})
 	requireError(t, err, 429, "FEED_POLL_TOO_EARLY")
+	if err := s.DB.Exec(`UPDATE integration_feed_batches SET created_at=created_at-2000`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, accepted, err := s.Begin(ctx, 1, Request{Sequence: 2}); err != nil || !accepted {
+		t.Fatal(accepted, err)
+	}
+}
+
+func TestPostgresLatestRecalculatesSDKHintWithoutReservingCadence(t *testing.T) {
+	s := feedStore(t)
+	ctx := context.Background()
+	batch, _, err := s.Begin(ctx, 1, Request{Sequence: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied, err := s.Complete(ctx, batch, json.RawMessage(`{"items":[]}`), 0); err != nil || !applied {
+		t.Fatal(applied, err)
+	}
+	if err := s.DB.Exec(`UPDATE integration_agents SET requested_poll_interval_seconds=600 WHERE agent_id=1`).Error; err != nil {
+		t.Fatal(err)
+	}
+	latest, err := s.Latest(ctx, 1)
+	if err != nil || latest.NextPollAt != batch.CreatedAt+600000 {
+		t.Fatal(latest, err)
+	}
+	if err := s.DB.Exec(`UPDATE integration_agents SET requested_poll_interval_seconds=10 WHERE agent_id=1`).Error; err != nil {
+		t.Fatal(err)
+	}
+	latest, err = s.Latest(ctx, 1)
+	if err != nil || latest.NextPollAt != batch.CreatedAt+300000 {
+		t.Fatal(latest, err)
+	}
 }

@@ -289,8 +289,11 @@ func (s *Store) Register(ctx context.Context, appID string, req Registration) (R
 	return out, err
 }
 
+// MinimumFeedPollIntervalSeconds does not depend on SDK scheduling preferences.
+const MinimumFeedPollIntervalSeconds = 300
+
 func policy(enabled bool, revision int64, app App, agent Agent, installation Installation) Policy {
-	p := Policy{BusinessEnabled: true, PolicyRevision: fmt.Sprintf("%d:%d:%d", revision, app.Revision, agent.Revision), EffectiveFeedPollIntervalSeconds: max(app.MinPollIntervalSeconds, agent.RequestedPollIntervalSeconds), NextPollAt: agent.NextPollAt, NextControlCheckSeconds: 30, ValidForSeconds: 90}
+	p := Policy{BusinessEnabled: true, PolicyRevision: fmt.Sprintf("%d:%d:%d", revision, app.Revision, agent.Revision), EffectiveFeedPollIntervalSeconds: max(MinimumFeedPollIntervalSeconds, agent.RequestedPollIntervalSeconds), NextPollAt: agent.NextPollAt, NextControlCheckSeconds: 30, ValidForSeconds: 90}
 	switch {
 	case !enabled:
 		p.Reason = "INTEGRATIONS_DISABLED"

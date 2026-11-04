@@ -45,8 +45,8 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	credentialOut := flags.String("credential-out", "", "new, exclusive mode-0600 credential file")
 	maxAgents := flags.Int("max-agents", 1, "approved Agent slots")
 	maxInstallations := flags.Int("max-installations", 1, "installation slots per Agent")
-	minPoll := flags.Int("min-poll-seconds", 3600, "minimum Feed interval")
-	daily := flags.Int("max-feed-batches-per-day", 10000, "application daily generation admissions")
+	minPoll := flags.Int("min-poll-seconds", 3600, "legacy interval metadata (not enforced for Feed)")
+	daily := flags.Int("max-feed-batches-per-day", 10000, "legacy daily quota metadata (not enforced for Feed)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}

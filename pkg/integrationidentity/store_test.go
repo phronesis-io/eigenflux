@@ -242,3 +242,12 @@ func TestIntegrationSourceIsReportedWithoutGrantingPermissions(t *testing.T) {
 	_, err = s.Register(ctx, "partner", req)
 	requireCode(t, err, 403, "APP_DISABLED")
 }
+
+func TestSDKCadenceIndependentOfLegacyAppFeedLimits(t *testing.T) {
+	for _, requested := range []int{10, 600, 3600} {
+		p := policy(true, 1, App{Enabled: true, MinPollIntervalSeconds: 7200}, Agent{Enabled: true, RequestedPollIntervalSeconds: requested}, Installation{Enabled: true})
+		if !p.BusinessEnabled || p.EffectiveFeedPollIntervalSeconds != max(300, requested) {
+			t.Fatal(requested, p)
+		}
+	}
+}

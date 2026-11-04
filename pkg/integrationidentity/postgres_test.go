@@ -178,7 +178,7 @@ func TestPostgresRegistrationQuotaAndMigration(t *testing.T) {
 	if err != nil || len(view.Agents) != 1 || len(view.Applications) != 1 || len(view.Installations) != 1 {
 		t.Fatal(view, err)
 	}
-	if view.Agents[0].RequestCount != 13 || view.Agents[0].LastFailureCode != "AGENT_DISABLED" || view.Agents[0].EffectivePollIntervalSeconds != 7200 || view.Applications[0].AppPolicy != policy {
+	if view.Agents[0].RequestCount != 13 || view.Agents[0].LastFailureCode != "AGENT_DISABLED" || view.Agents[0].EffectivePollIntervalSeconds != 3600 || view.Applications[0].AppPolicy != policy {
 		t.Fatal(view)
 	}
 	if view.Installations[0].SDKState != "delivery_unknown" || view.Installations[0].SDKFailureCode != "consumer_outcome_unknown" {
