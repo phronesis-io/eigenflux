@@ -18,8 +18,14 @@ CLI_DIR="$(cd "$SCRIPT_DIR/.."; pwd)"
 PROJECT_ROOT="$(cd "$CLI_DIR/.."; pwd)"
 BUILD_DIR="$PROJECT_ROOT/build/cli"
 
-# Local/manual recovery uses the same serialized publisher as automatic releases.
+PHASE="${1:---all}"
+case "$PHASE" in --prepare|--publish|--all) ;; *) echo 'usage: release-skills.sh [--prepare|--publish|--all]' >&2; exit 1 ;; esac
+
+# Local/manual recovery uses the same publisher as automatic releases.
 if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
+  if [[ "$PHASE" != --all ]]; then
+    echo "Preparation/publication phases require the main workflow; use the default command to dispatch." >&2; exit 1
+  fi
   exec gh workflow run release-skills.yml --repo phronesis-io/eigenflux --ref main
 fi
 if [[ "${GITHUB_WORKFLOW_REF:-}" != "phronesis-io/eigenflux/.github/workflows/release-skills.yml@refs/heads/main" ]]; then
@@ -35,30 +41,40 @@ GREEN='\033[0;32m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
 if [[ -z "${R2_ACCESS_KEY_ID:-}" || -z "${R2_SECRET_ACCESS_KEY:-}" ]]; then
   echo -e "${RED}R2 credentials missing in .cli.env${NC}"; exit 1
 fi
-if [[ -z "${EIGENFLUX_SKILLS_SIGNING_KEY_FILE:-}" || -z "${EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY:-}" ]]; then
-  echo -e "${RED}Skills signing key file and verify public key are required${NC}"; exit 1
-fi
-if ! command -v gtar >/dev/null 2>&1; then
-  echo -e "${RED}gtar (GNU tar) required: brew install gnu-tar${NC}"; exit 1
+if [[ -z "${EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY:-}" ]]; then
+  echo -e "${RED}Skills verify public key is required${NC}"; exit 1
 fi
 
 if command -v mise >/dev/null 2>&1 && [[ -f "$PROJECT_ROOT/mise.toml" ]]; then
   GO_CMD=(mise exec -- go); else GO_CMD=(go); fi
-
-DERIVED_SKILLS_PUBLIC_KEY=$(cd "$CLI_DIR" && "${GO_CMD[@]}" run ./cmd/manifestgen \
-  --print-public-key --signing-key-file "$EIGENFLUX_SKILLS_SIGNING_KEY_FILE")
-[[ "$DERIVED_SKILLS_PUBLIC_KEY" == "$EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY" ]] || {
-  echo -e "${RED}Skills signing key does not match verify public key${NC}"; exit 1;
-}
 
 SKILLS_SRC="$PROJECT_ROOT/skills"
 SKILLS_STAGE="$BUILD_DIR/skills-stage"
 mkdir -p "$BUILD_DIR"
 export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
 export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
+
+if [[ "$PHASE" != --publish ]]; then
+if [[ -z "${EIGENFLUX_SKILLS_SIGNING_KEY_FILE:-}" ]]; then
+  echo -e "${RED}Skills signing key file is required for preparation${NC}"; exit 1
+fi
+if ! command -v gtar >/dev/null 2>&1; then
+  echo -e "${RED}gtar (GNU tar) required: brew install gnu-tar${NC}"; exit 1
+fi
+DERIVED_SKILLS_PUBLIC_KEY=$(cd "$CLI_DIR" && "${GO_CMD[@]}" run ./cmd/manifestgen \
+  --print-public-key --signing-key-file "$EIGENFLUX_SKILLS_SIGNING_KEY_FILE")
+[[ "$DERIVED_SKILLS_PUBLIC_KEY" == "$EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY" ]] || {
+  echo -e "${RED}Skills signing key does not match verify public key${NC}"; exit 1;
+}
+
 ( cd "$CLI_DIR" && "${GO_CMD[@]}" build \
     -ldflags "-X cli.eigenflux.ai/internal/skills.VerifyPublicKeyBase64=${EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY}" \
     -o "$BUILD_DIR/manifestcheck" ./cmd/manifestcheck )
+for tool in releaseverify clirelease; do
+  ( cd "$CLI_DIR" && "${GO_CMD[@]}" build \
+      -ldflags "-X cli.eigenflux.ai/internal/skills.VerifyPublicKeyBase64=${EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY}" \
+      -o "$BUILD_DIR/$tool" "./cmd/$tool" )
+done
 SKILLS_SEQUENCE=$(python3 "$SCRIPT_DIR/skills-release-state.py" prepare --build "$BUILD_DIR")
 echo "Allocated signed Skills sequence $SKILLS_SEQUENCE from R2 release history"
 
@@ -89,25 +105,45 @@ find "$SKILLS_STAGE" \( -name '.DS_Store' -o -name '._*' \) -delete
 rm -rf "$SKILLS_STAGE"
 
 REVISION=$(grep -o '"revision"[^,]*' "$BUILD_DIR/manifest.json" | head -1)
-echo -e "${CYAN}Built skills bundle (${REVISION}); publishing to R2 skills/latest...${NC}"
+echo -e "${CYAN}Built skills bundle (${REVISION}); validating for publication...${NC}"
 
-export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
-export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
-S3_ARGS="--endpoint-url $R2_ENDPOINT"
-# Exercise the exact signed archive through Sync before any publication write.
-( cd "$CLI_DIR" && "${GO_CMD[@]}" run \
-    -ldflags "-X cli.eigenflux.ai/internal/skills.VerifyPublicKeyBase64=${EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY}" \
-    ./cmd/releaseverify --manifest "$BUILD_DIR/manifest.json" --bundle "$BUILD_DIR" )
-# Do not publish rules whose required signed CLI release is unavailable.
-( cd "$CLI_DIR" && "${GO_CMD[@]}" run ./cmd/clirelease \
-    --verify-cdn "${R2_PUBLIC_URL:-https://cdn.eigenflux.ai}" \
-    --min-version "${SKILLS_MIN_CLI_VERSION:-$CLI_VERSION}" )
-python3 "$SCRIPT_DIR/skills-release-state.py" reserve --build "$BUILD_DIR"
-for f in skills.tar.gz skills.tar.gz.sha256 manifest.json; do
-  aws s3 cp "$BUILD_DIR/$f" "s3://$R2_BUCKET/skills/latest/$f" $S3_ARGS --quiet
-  aws s3 cp "$BUILD_DIR/$f" "s3://$R2_BUCKET/cli/latest/$f"    $S3_ARGS --quiet
-  echo -e "${GREEN}  $f → skills/latest + cli/latest${NC}"
+# Exercise the exact signed archive before preparation leaves the runner.
+"$BUILD_DIR/releaseverify" --manifest "$BUILD_DIR/manifest.json" --bundle "$BUILD_DIR"
+python3 - "$BUILD_DIR/prepared-source.json" "$(git -C "$PROJECT_ROOT" rev-parse HEAD)" "$CLI_VERSION" "${SKILLS_MIN_CLI_VERSION:-}" <<'PYSOURCE'
+import json, pathlib, sys
+pathlib.Path(sys.argv[1]).write_text(json.dumps(dict(zip(('sha', 'cli_version', 'min_cli_version'), sys.argv[2:]))))
+PYSOURCE
+if [[ "$PHASE" == --prepare ]]; then
+  echo 'Skills prepared and verified; no R2 objects written.'
+  exit 0
+fi
+fi
+
+# Publication artifacts are downloaded only from this exact workflow commit.
+python3 - "$BUILD_DIR/prepared-source.json" "$(git -C "$PROJECT_ROOT" rev-parse HEAD)" "$CLI_VERSION" "${SKILLS_MIN_CLI_VERSION:-}" <<'PYSOURCE'
+import json, sys
+expected = dict(zip(('sha', 'cli_version', 'min_cli_version'), sys.argv[2:]))
+if json.load(open(sys.argv[1])) != expected:
+    raise SystemExit('prepared Skills artifacts do not match the current checkout/config')
+PYSOURCE
+for tool in manifestcheck releaseverify clirelease; do
+  [[ -x "$BUILD_DIR/$tool" ]] || { echo "missing prepared release tool: $tool" >&2; exit 1; }
 done
+"$BUILD_DIR/manifestcheck" "$BUILD_DIR/manifest.json" >/dev/null
+"$BUILD_DIR/releaseverify" --manifest "$BUILD_DIR/manifest.json" --bundle "$BUILD_DIR"
+# Do not publish rules whose required signed CLI release is unavailable.
+"$BUILD_DIR/clirelease" --verify-cdn "${R2_PUBLIC_URL:-https://cdn.eigenflux.ai}" \
+  --min-version "${SKILLS_MIN_CLI_VERSION:-$CLI_VERSION}"
+S3_ARGS="--endpoint-url $R2_ENDPOINT"
+python3 "$SCRIPT_DIR/skills-release-state.py" reserve --build "$BUILD_DIR"
+ACTION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["action"])' "$BUILD_DIR/release-state/publication.json")
+if [[ "$ACTION" == publish ]]; then
+  for f in skills.tar.gz skills.tar.gz.sha256 manifest.json; do
+    aws s3 cp "$BUILD_DIR/$f" "s3://$R2_BUCKET/skills/latest/$f" $S3_ARGS --quiet
+    aws s3 cp "$BUILD_DIR/$f" "s3://$R2_BUCKET/cli/latest/$f"    $S3_ARGS --quiet
+    echo -e "${GREEN}  $f → skills/latest + cli/latest${NC}"
+  done
+fi
 python3 "$SCRIPT_DIR/skills-release-state.py" verify --build "$BUILD_DIR"
 # Post-publish verification: fetch the tarball through the CDN with the SAME
 # cache-busting key clients will use (?rev=<revision>). This both pre-warms the
@@ -134,9 +170,7 @@ if [[ "$VERIFY_OK" != "true" ]]; then
 fi
 echo -e "${GREEN}CDN verified: rev-keyed tarball matches (rev $REV_KEY).${NC}"
 
-# Check the actual client path through both CDN aliases, including atomic install.
-( cd "$CLI_DIR" && "${GO_CMD[@]}" run \
-    -ldflags "-X cli.eigenflux.ai/internal/skills.VerifyPublicKeyBase64=${EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY}" \
-    ./cmd/releaseverify --manifest "$BUILD_DIR/manifest.json" --cdn "$CDN_BASE" )
+# Check the actual client path even when the signed release was unchanged.
+"$BUILD_DIR/releaseverify" --manifest "$BUILD_DIR/manifest.json" --cdn "$CDN_BASE"
 python3 "$SCRIPT_DIR/publish-install-doc.py"
 echo -e "${GREEN}Done. Skills are live on R2 — clients pick them up on next sync. No CLI release.${NC}"

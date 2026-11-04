@@ -211,6 +211,20 @@ ef_should_setup() {
   return 1
 }
 
+# Prefer the independent-notifier release lane. Only a missing endpoint permits
+# migration through the legacy bridge; network and server errors remain fatal.
+fetch_latest_cli_version() {
+  version_response=$(curl -sSL --connect-timeout 10 --max-time 30 -w '\n%{http_code}' "${CDN_URL}/cli/v2/latest/version.txt") || return 1
+  version_status=$(printf '%s' "$version_response" | tail -n 1)
+  case "$version_status" in
+    200) version_value=$(printf '%s' "$version_response" | sed '$d') ;;
+    404) version_value=$(curl -fsSL --connect-timeout 10 --max-time 30 "${CDN_URL}/cli/latest/version.txt") || return 1 ;;
+    *) return 1 ;;
+  esac
+  printf '%s' "$version_value" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' || return 1
+  printf '%s\n' "$version_value"
+}
+
 # ── Step 1: Install CLI binary ────────────────────────────────
 
 install_cli() {
@@ -236,7 +250,7 @@ install_cli() {
 
   info "Detected: ${OS}/${ARCH}"
 
-  LATEST_VERSION=$(curl -fsSL "${CDN_URL}/cli/latest/version.txt" 2>/dev/null || echo "")
+  LATEST_VERSION=$(fetch_latest_cli_version) || { err "Failed to fetch a valid CLI release from ${CDN_URL}"; return 1; }
   if [ -z "$LATEST_VERSION" ]; then
     err "Failed to fetch latest version from ${CDN_URL}"
     exit 1

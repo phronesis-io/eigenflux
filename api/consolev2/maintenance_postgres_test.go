@@ -2,6 +2,7 @@ package consolev2
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -421,6 +422,80 @@ FROM telemetry_events_v2 WHERE properties->>'component'='dispatch' ORDER BY agen
 		t.Fatalf("outer-loop identity/idempotency/readback lost: %d %d", outerCount, pausedCount)
 	}
 
+	// Detailed Commission observations retain the original coarse category and
+	// all bounded private diagnostics. Historical snapshots stay observations;
+	// neither account replay nor account switching can overwrite another actor.
+	svc.telemetryRates = map[string]telemetryRateState{}
+	for i, name := range []string{"missing_check_and_acp_rpc_error", "ready_receipt_with_zero_inspected_files", "historical_snapshot_is_observation_only"} {
+		e := detailedCommissionEvent(t, name)
+		e.EventID, e.AttemptID = fmt.Sprintf("%064x", 50000+i), fmt.Sprintf("%032x", 51000+i)
+		body = map[string]interface{}{"events": []maintenanceEvent{e}}
+		for _, id := range []int64{42, 42, 43} {
+			if status := send(id); status != 202 {
+				t.Fatalf("detailed Commission ingestion %s: %d", name, status)
+			}
+		}
+	}
+	var detailRows []struct {
+		AgentID            int64
+		Properties         string
+		EventAt, ExpiresAt int64
+	}
+	if err := tx.Raw(`SELECT agent_id,properties::text AS properties,event_at,expires_at
+FROM telemetry_events_v2 WHERE properties->'commission' ? 'local_code'
+ORDER BY agent_id,properties->'commission'->>'stage',event_id`).Scan(&detailRows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(detailRows) != 6 {
+		t.Fatalf("detailed diagnostic identity or deduplication lost: %d", len(detailRows))
+	}
+	accounts, snapshots, explicitZeroCounts, bridgeRPCCodes := map[int64]int{}, 0, 0, 0
+	for _, row := range detailRows {
+		accounts[row.AgentID]++
+		var stored maintenanceEvent
+		if err := json.Unmarshal([]byte(row.Properties), &stored); err != nil {
+			t.Fatal(err)
+		}
+		c := stored.Commission
+		if stored.ErrorCode != "execution_failed" || c == nil || c.LocalCode == "" || c.CheckReceipt == nil || c.BridgeError == nil || c.OrderID != "123" || c.JobID != strings.Repeat("c", 64) || row.ExpiresAt <= row.EventAt {
+			t.Fatalf("detailed diagnostic fields dropped or retention lost: %s", row.Properties)
+		}
+		if c.Stage == "diagnostic_snapshot" {
+			snapshots++
+			if stored.Result != "observed" || c.Attempt != 0 || stored.DurationMS != 0 || c.OrderVersion != 0 || c.CheckReceipt.Status != "missing" || c.BridgeError.Code != "unknown_failure" {
+				t.Fatal("historical diagnosis became a new execution")
+			}
+		} else if c.BridgeError.RPCCode != nil && *c.BridgeError.RPCCode == -32000 && c.BridgeError.Code == "acp_rpc_error" && c.BridgeError.Message == "acp_rpc_error" && c.BridgeError.Operation == "network" {
+			bridgeRPCCodes++
+		}
+		if c.CheckReceipt.Status == "present" {
+			r := c.CheckReceipt
+			if r.InspectedFileCount == nil || *r.InspectedFileCount != 0 || r.Outcome != "ready" || r.CheckedOrderVersion != 1 || r.InputFingerprint != strings.Repeat("d", 64) || r.SourceJobID != strings.Repeat("e", 64) {
+				t.Fatal("inspection receipt was lost or fabricated")
+			}
+			explicitZeroCounts++
+		}
+	}
+	if accounts[42] != 3 || accounts[43] != 3 || snapshots != 2 || explicitZeroCounts != 2 || bridgeRPCCodes != 4 {
+		t.Fatalf("detailed diagnostic projection mismatch: accounts=%v snapshots=%d zero=%d rpc=%d", accounts, snapshots, explicitZeroCounts, bridgeRPCCodes)
+	}
+	validDetail := detailedCommissionEvent(t, "missing_check_and_acp_rpc_error")
+	validDetail.EventID = fmt.Sprintf("%064x", 52000)
+	privateDetail := detailedCommissionEvent(t, "missing_check_and_acp_rpc_error")
+	privateDetail.EventID = fmt.Sprintf("%064x", 52001)
+	privateDetail.Commission.BridgeError.Message = "Bearer secret-token-must-not-persist"
+	body = map[string]interface{}{"events": []maintenanceEvent{validDetail, privateDetail}}
+	if status := send(42); status != 400 {
+		t.Fatalf("private bridge diagnostics accepted: %d", status)
+	}
+	var detailCount int64
+	if err := tx.Raw(`SELECT count(*) FROM telemetry_events_v2 WHERE properties->'commission' ? 'local_code'`).Scan(&detailCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if detailCount != 6 {
+		t.Fatal("invalid detailed diagnostic batch partially persisted")
+	}
+	body = map[string]interface{}{"events": []maintenanceEvent{validDetail}}
 	exec(`UPDATE agent_credential_sessions SET scopes=ARRAY['feed:read'] WHERE principal_id=42`)
 	if status := send(42); status != 403 {
 		t.Fatalf("missing settings scope: %d", status)

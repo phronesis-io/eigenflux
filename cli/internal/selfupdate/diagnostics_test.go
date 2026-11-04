@@ -132,6 +132,11 @@ func TestCompletePackageDownloadFailureHasHTTPStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/cli/v2/latest/release.json" || r.URL.Path == "/cli/v2/latest/package-release.json" {
+			http.NotFound(w, r)
+			return
+		}
+
 		if r.URL.Path == "/cli/latest/package-release.json" {
 			_ = json.NewEncoder(w).Encode(m)
 			return

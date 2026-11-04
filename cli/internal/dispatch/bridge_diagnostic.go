@@ -30,6 +30,8 @@ func (w *bridgeDiagnosticWriter) consumeLine() {
 		line = strings.TrimPrefix(line, "Error: ")
 		if message := mainbridge.DiagnosticMessage(line); message != "" {
 			w.diagnostic = message
+		} else if safeBridgeCode(line) != "unknown_failure" {
+			w.diagnostic = line
 		}
 	}
 	w.line, w.overflow = w.line[:0], false

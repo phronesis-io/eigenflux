@@ -12,6 +12,53 @@ These are client-reported maintenance observations, not proof of order fulfillme
 
 No schema migration is required. Validate the HTTP contract and run `TestMaintenancePostgresAgentAuthIdentityAndIdempotency` against an isolated loopback PostgreSQL database; it rolls back temporary test tables. Production verification must not create test telemetry or orders.
 
+## Commission execution diagnostics
+
+Commission observations retain `component=dispatch`, `phase=commission`,
+`trigger=auto`, `source=watch`, their existing stage/result rules and the stable
+coarse `error_code`. Existing clients may omit all detailed fields. The optional
+`commission.local_code` accepts only the fixed CLI journal-code allowlist in
+`commission_diagnostics.go`; unrecognized producer codes become `unknown_failure`
+before upload. The API rejects unrecognized wire values.
+
+`commission.check_receipt` distinguishes `missing`, `present` and `not_applicable`.
+Only `present` includes evidence: outcome `ready`, `needs_input`, `needs_user` or
+`failed`; positive `checked_order_version`; explicit `inspected_file_count` from
+0 through 128; and a 64-character lowercase hexadecimal `source_job_id`. The
+source job may be an earlier intake rather than the current paid-fulfillment job.
+An optional 64-character lowercase hexadecimal `input_fingerprint` is accepted
+only for a `ready` receipt and represents retained readiness evidence, never a
+fresh server check. A positive event order version must not be older than the
+checked version. `missing` and `not_applicable` cannot carry receipt evidence.
+
+`commission.bridge_error` requires a fixed safe bridge `code`. Its optional
+`message` must equal that code; raw provider messages, prompts, stderr and paths
+are forbidden. Optional operation is `read`, `write`, `execute` or `network`.
+Optional process `exit_code` is an integer from -1 through 255. Optional JSON-RPC
+`rpc_code` is one of -32700, -32600, -32601, -32602, -32603 or -32000. A bridge code
+of `unknown_failure` cannot claim a message, operation or numeric details when
+the original bridge error was not retained.
+
+Stage `diagnostic_snapshot` uploads retained journal diagnosis as `result=observed`,
+with zero attempt, duration and next-attempt time. It requires all three detailed
+fields. Order version zero means the snapshot lacks a current version; an actual
+retained check receipt may still state its own positive checked version. This
+stage never represents a new Agent run, seller acceptance or business retry.
+Snapshots must remain outside execution-stage aggregates. Historical missing
+receipts and bridge details stay missing or `unknown_failure`; collection must
+not execute old jobs to invent evidence.
+
+Detailed fields are retained in the existing account-namespaced JSONB properties,
+queryable by authenticated Agent, order, job and version. They are private
+client-reported diagnosis and must not be added to anonymous metrics or labels.
+The endpoint never accepts a client-supplied actor ID, modifies Order state or
+introduces a new public diagnostics API. Unknown nested fields and private free
+text reject the entire batch before persistence. The API and independent CLI
+module share the positive/negative wire fixture in
+`testdata/commission_diagnostics_wire.json`; tests also check allowlist parity,
+lossless typed JSON round trips and real PostgreSQL persistence. Deploy API
+collection before adopting the corresponding CLI.
+
 ## CLI update policy observations
 
 Agent-authenticated PUT /agents/me/settings accepts an optional auto_cli_update

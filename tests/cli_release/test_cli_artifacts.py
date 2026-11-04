@@ -8,11 +8,14 @@ import importlib.util
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 from urllib.error import HTTPError
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location('artifacts', ROOT / 'cli/scripts/cli-artifacts.py')
@@ -48,6 +51,40 @@ class ArtifactTests(unittest.TestCase):
         (self.build / 'package-release.json').write_text(json.dumps(manifest))
         manifest.pop('packages')
         (self.build / 'release.json').write_text(json.dumps(manifest))
+
+    def write_v2(self, notifier):
+        for name in ('release', 'package-release'):
+            manifest = json.loads((self.build / (name + '.json')).read_text())
+            manifest['notifier_version'] = notifier
+            (self.build / (name + '-v2.json')).write_text(json.dumps(manifest))
+
+    def test_v2_reused_app_freezes_legacy_pointer(self):
+        self.write_v2('98.0.0')
+        result, calls = self.publisher(notifier='98.0.0')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(any('/cli/latest/' in call for call in calls))
+        self.assertIn('s3://bucket/cli/v2/latest/version.txt', calls)
+        public = self.root / 'public/cli/v2/latest'
+        self.assertEqual(json.loads((public / 'package-release.json').read_text())['notifier_version'], '98.0.0')
+
+    def test_v2_bridge_promotes_both_lanes(self):
+        self.write_v2('99.0.0')
+        result, calls = self.publisher()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('s3://bucket/cli/latest/version.txt', calls)
+        self.assertIn('s3://bucket/cli/v2/latest/version.txt', calls)
+
+    def test_v2_partial_or_disagreeing_notifier_metadata_rejected(self):
+        self.write_v2('98.0.0')
+        peer = self.build / 'package-release-v2.json'
+        manifest = json.loads(peer.read_text())
+        manifest['notifier_version'] = '97.0.0'
+        peer.write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, 'versions differ'):
+            artifacts.verify_release(self.build)
+        peer.unlink()
+        with self.assertRaisesRegex(ValueError, 'incomplete v2'):
+            artifacts.verify_release(self.build)
 
     def test_checksums_describe_exact_bytes_for_all_six_platforms(self):
         self.assertEqual(len(artifacts.verify(self.build)), 12)
@@ -111,7 +148,7 @@ class ArtifactTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'published checksum'):
             artifacts.verify_public(self.build, url)
 
-    def publisher(self, fail_upload='', corrupt_public=False, race_mode='', get_failure=False):
+    def publisher(self, fail_upload='', corrupt_public=False, race_mode='', get_failure=False, notifier='99.0.0', workers='3', trace=False, terminate=False):
         scripts = self.root / 'cli/scripts'
         scripts.mkdir(parents=True, exist_ok=True)
         for name in ('publish.sh', 'cli-artifacts.py'):
@@ -119,14 +156,14 @@ class ArtifactTests(unittest.TestCase):
         # Native signing/notarization is separately tested on macOS. Keep the
         # object-store integration isolated from real Apple credentials.
         (scripts / 'verify-macos-packages.sh').write_text('#!/bin/bash\nexit "${MACOS_VERIFY_EXIT:-0}"\n')
-        (self.root / 'cli/.cli.config').write_text('CLI_VERSION=99.0.0\n')
+        (self.root / 'cli/.cli.config').write_text('CLI_VERSION=99.0.0\nNOTIFIER_VERSION=' + notifier + '\n')
         bindir = self.root / 'bin'
         bindir.mkdir(exist_ok=True)
         # Stub only the external object-store client; run the real publisher and
         # public verifier against an HTTP server serving the uploaded files.
         aws = bindir / 'aws'
         aws.write_text('''#!/usr/bin/env python3
-import os, pathlib, shutil, sys
+import atexit, os, pathlib, shutil, sys, time
 args = sys.argv[1:]
 public = pathlib.Path(os.environ['PUBLIC_ROOT'])
 if args[:2] == ['s3api', 'get-object']:
@@ -149,6 +186,13 @@ if args[:2] == ['s3api', 'put-object']:
 else:
     assert args[:2] == ['s3', 'cp']
     source, target = args[2:4]
+if os.environ.get('TRANSFER_TRACE'):
+    def event(phase):
+        with open(os.environ['TRANSFER_TRACE'], 'a') as trace:
+            trace.write(phase + '\\n')
+    event('start')
+    atexit.register(event, 'worker-finished')
+    time.sleep(float(os.environ.get('TRANSFER_DELAY', '0.08')))
 with open(os.environ['UPLOAD_LOG'], 'a') as log:
     log.write(target + '\\n')
 if os.environ.get('FAIL_UPLOAD') == target:
@@ -178,9 +222,30 @@ if os.environ.get('CORRUPT_PUBLIC') == '1' and path.name.endswith('.sha256'):
                    PUBLIC_ROOT=str(public), FAIL_UPLOAD=fail_upload,
                    CORRUPT_PUBLIC='1' if corrupt_public else '0',
                    RACE_MODE=race_mode, GET_FAILURE='1' if get_failure else '0',
-                   EIGENFLUX_PUBLISH_SKILLS_WITH_CLI='false')
-        result = subprocess.run(['bash', str(scripts / 'publish.sh')], env=env,
-                                capture_output=True, text=True, timeout=30)
+                   EIGENFLUX_PUBLISH_SKILLS_WITH_CLI='false',
+                   EIGENFLUX_RELEASE_WORKERS=workers,
+                   TRANSFER_TRACE=str(self.root / 'transfer-events') if trace else '',
+                   TRANSFER_DELAY='0.3' if terminate else '0.08')
+        if terminate:
+            # Record the actual EXIT cleanup after the last worker completes.
+            cleanup = bindir / 'rm'
+            cleanup.write_text('#!/bin/sh\nprintf "cleanup\\n" >> "$TRANSFER_TRACE"\nexec /bin/rm "$@"\n')
+            cleanup.chmod(0o755)
+            process = subprocess.Popen(['bash', str(scripts / 'publish.sh')], env=env,
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            events = self.root / 'transfer-events'
+            deadline = time.monotonic() + 10
+            while not events.exists() or events.read_text().count('start\n') < 2:
+                if process.poll() is not None or time.monotonic() > deadline:
+                    process.kill()
+                    self.fail('publisher never started the upload batch')
+                time.sleep(0.01)
+            process.send_signal(signal.SIGTERM)
+            stdout, stderr = process.communicate(timeout=30)
+            result = subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
+        else:
+            result = subprocess.run(['bash', str(scripts / 'publish.sh')], env=env,
+                                    capture_output=True, text=True, timeout=30)
         return result, log.read_text().splitlines() if log.exists() else []
 
     def test_publish_uploads_each_binary_and_checksum_before_version_pointer(self):
@@ -227,7 +292,7 @@ if os.environ.get('CORRUPT_PUBLIC') == '1' and path.name.endswith('.sha256'):
                 failed = f's3://bucket/cli/{channel}/{artifacts.BINARIES[0]}'
                 result, calls = self.publisher(fail_upload=failed)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertEqual(calls[-1], failed)
+                self.assertIn(failed, calls)
                 self.assertNotIn('s3://bucket/cli/latest/version.txt', calls)
                 self.assertNotIn('s3://bucket/cli/latest/release.json', calls)
 
@@ -272,8 +337,97 @@ if os.environ.get('CORRUPT_PUBLIC') == '1' and path.name.endswith('.sha256'):
         (self.root / 'uploads').unlink()
         result, calls = self.publisher()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(calls), 27)
+        self.assertEqual(len(calls), 3)
         self.assertTrue(all('/cli/latest/' in path for path in calls))
+
+    def test_partial_transfer_retry_keeps_existing_objects_and_waits_for_workers(self):
+        failed = f's3://bucket/cli/99.0.0/{artifacts.BINARIES[0]}'
+        result, calls = self.publisher(fail_upload=failed, workers='2', trace=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('s3://bucket/cli/latest/version.txt', calls)
+        active = peak = 0
+        for event in (self.root / 'transfer-events').read_text().splitlines():
+            active += 1 if event == 'start' else -1
+            peak = max(peak, active)
+            self.assertGreaterEqual(active, 0)
+        self.assertEqual(active, 0, 'publisher returned before a worker exited')
+        self.assertEqual(peak, 2)
+        completed = {path for path in calls if (self.root / 'public' / path.removeprefix('s3://bucket/')).exists()}
+        self.assertTrue(completed)
+        (self.root / 'uploads').unlink()
+        result, retried = self.publisher(workers='2')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(completed.intersection(retried), 'completed immutable objects were uploaded again')
+
+    def test_partial_alias_retry_does_not_rewrite_completed_payloads(self):
+        failed = f's3://bucket/cli/latest/{artifacts.BINARIES[0]}'
+        result, calls = self.publisher(fail_upload=failed)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('s3://bucket/cli/latest/version.txt', calls)
+        completed = {path for path in calls if (self.root / 'public' / path.removeprefix('s3://bucket/')).exists()}
+        self.assertTrue(any('/cli/latest/' in path for path in completed))
+        (self.root / 'uploads').unlink()
+        result, retried = self.publisher()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(completed.intersection(retried))
+
+    def test_sigterm_waits_for_current_workers_before_cleanup(self):
+        result, calls = self.publisher(workers='2', trace=True, terminate=True)
+        self.assertEqual(result.returncode, 143, result.stderr)
+        events = (self.root / 'transfer-events').read_text().splitlines()
+        self.assertEqual(events.count('start'), 2, 'new work started after cancellation')
+        self.assertEqual(events.count('worker-finished'), 2)
+        self.assertEqual(events[-1], 'cleanup')
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all('/cli/99.0.0/' in path for path in calls))
+        self.assertNotIn('s3://bucket/cli/latest/version.txt', calls)
+
+    def test_parallel_uploads_respect_worker_limit(self):
+        result, calls = self.publisher(workers='2', trace=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        active = peak = 0
+        for event in (self.root / 'transfer-events').read_text().splitlines():
+            active += 1 if event == 'start' else -1
+            peak = max(peak, active)
+            self.assertGreaterEqual(active, 0)
+        self.assertEqual(active, 0)
+        self.assertEqual(peak, 2)
+        self.assertEqual(calls[-3:], ['s3://bucket/cli/latest/version.txt',
+                                     's3://bucket/cli/latest/release.json',
+                                     's3://bucket/cli/latest/package-release.json'])
+
+    def test_invalid_worker_limit_stops_before_writes_or_public_reads(self):
+        for workers in ('0', '9', '-1', '3x'):
+            with self.subTest(workers=workers):
+                result, calls = self.publisher(workers=workers)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(calls, [])
+                with patch.dict(os.environ, {'EIGENFLUX_RELEASE_WORKERS': workers}):
+                    with self.assertRaisesRegex(ValueError, 'integer from 1 to 8'):
+                        artifacts.verify_public(self.build, 'http://must-not-be-contacted.invalid')
+
+    def test_parallel_verification_waits_for_every_result_before_failure(self):
+        lock, enough_started = threading.Lock(), threading.Event()
+        state = {'active': 0, 'peak': 0, 'finished': 0}
+        def operation(item):
+            with lock:
+                state['active'] += 1
+                state['peak'] = max(state['peak'], state['active'])
+                if state['active'] == 2:
+                    enough_started.set()
+            try:
+                self.assertTrue(enough_started.wait(timeout=2))
+                time.sleep(0.01)
+                if item == 0:
+                    raise ValueError('verification failed')
+            finally:
+                with lock:
+                    state['active'] -= 1
+                    state['finished'] += 1
+        with patch.dict(os.environ, {'EIGENFLUX_RELEASE_WORKERS': '2'}):
+            with self.assertRaisesRegex(ValueError, 'verification failed'):
+                artifacts.parallel(operation, range(6))
+        self.assertEqual(state, {'active': 0, 'peak': 2, 'finished': 6})
 
     def test_conflicting_partial_release_stops_before_any_write(self):
         target = self.root / 'public/cli/99.0.0/release.json'

@@ -64,6 +64,7 @@ type Job struct {
 	CommissionDelivery    *CommissionDeliveryRetry     `json:"commission_delivery,omitempty"`
 	CommissionDirectory   string                       `json:"commission_directory,omitempty"`
 	CommissionExecution   *CommissionExecutionContext  `json:"commission_execution,omitempty"`
+	CommissionDiagnostic  *CommissionDiagnostic        `json:"commission_diagnostic,omitempty"`
 }
 
 // CommissionReadiness preserves the actual pre-acceptance check independently

@@ -3,8 +3,10 @@
 import argparse
 import base64
 import binascii
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -51,10 +53,26 @@ def verify(build):
     return expected
 
 
+def parallel(operation, items):
+    setting = os.environ.get('EIGENFLUX_RELEASE_WORKERS', '3')
+    if not re.fullmatch(r'[1-8]', setting):
+        raise ValueError('EIGENFLUX_RELEASE_WORKERS must be an integer from 1 to 8')
+    errors = []
+    with ThreadPoolExecutor(max_workers=int(setting)) as executor:
+        futures = [executor.submit(operation, item) for item in items]
+        for future in futures:
+            try:
+                future.result()
+            except Exception as error:
+                errors.append(error)
+    if errors:
+        raise errors[0]
+
+
 def verify_public(build, base_url):
-    # Check the public delivery path against local artifacts, not just against
-    # a remote checksum that could belong to the same stale release.
-    for name, value in verify(build).items():
+    # Verify actual payloads, not merely remote checksums from a stale release.
+    def verify_artifact(item):
+        name, value = item
         url = base_url.rstrip("/") + "/" + name
         query = "?verify=" + uuid.uuid4().hex
         with urlopen(url + ".sha256" + query, timeout=30) as response:
@@ -64,6 +82,17 @@ def verify_public(build, base_url):
         with urlopen(url + query, timeout=30) as response:
             if digest(response) != value:
                 raise ValueError(f"published binary differs from build: {name}")
+    parallel(verify_artifact, verify(build).items())
+
+
+def manifest_files(build):
+    files = ['release.json', 'package-release.json']
+    extra = ['release-v2.json', 'package-release-v2.json']
+    if any((build / name).exists() for name in extra):
+        if not all((build / name).is_file() for name in extra):
+            raise ValueError('incomplete v2 release metadata')
+        files += extra
+    return files
 
 
 def verify_release(build):
@@ -73,9 +102,16 @@ def verify_release(build):
     if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version):
         raise ValueError('invalid CLI release version')
     expected = verify(build)
-    for filename in ('release.json', 'package-release.json'):
+    for filename in manifest_files(build):
         manifest = json.loads((build / filename).read_text(encoding='utf-8'))
-        packaged = filename == 'package-release.json'
+        packaged = filename.startswith('package-release')
+        if '-v2.' in filename:
+            notifier = manifest.get('notifier_version', '')
+            if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', notifier):
+                raise ValueError('invalid signed notifier version')
+            peer = 'release-v2.json' if packaged else 'package-release-v2.json'
+            if json.loads((build / peer).read_text()).get('notifier_version') != notifier:
+                raise ValueError('v2 notifier versions differ')
         if manifest.get('version') != version or set(manifest.get('artifacts', {})) != set(BINARIES):
             raise ValueError('CLI release manifest version or platform set differs from build')
         if (packaged and set(manifest.get('packages', {})) != set(PACKAGES)) or (not packaged and 'packages' in manifest):
@@ -95,10 +131,11 @@ def verify_release(build):
 def verify_release_public(build, base_url):
     verify_release(build)
     query = '?verify=' + uuid.uuid4().hex
-    for filename in ('release.json', 'package-release.json'):
+    def verify_manifest(filename):
         with urlopen(base_url.rstrip('/') + '/' + filename + query, timeout=30) as response:
             if response.read(1024 * 1024 + 1) != (build / filename).read_bytes():
                 raise ValueError('published CLI release manifest differs from build')
+    parallel(verify_manifest, manifest_files(build))
 
 
 def main():

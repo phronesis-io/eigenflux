@@ -33,6 +33,7 @@ class CodexInstallation(unittest.TestCase):
         self.stub("uname", 'if [ "$1" = -s ]; then echo Linux; else echo x86_64; fi')
         self.stub("curl", '''for arg do url="$arg"; done
 case "$url" in
+  */cli/v2/latest/version.txt) printf '\\n404' ;;
   */cli/latest/version.txt) echo 99.0.0 ;;
   *) echo "Unexpected network request: $url" >&2; exit 1 ;;
 esac''')

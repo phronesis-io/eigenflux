@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -56,25 +57,24 @@ func bundleApply(opts SyncOptions, real, parent string, local *Manifest, stale b
 		}
 	}
 	newDir := real + newSuffix
-	os.RemoveAll(newDir)
+	if err := removeInstallTree(newDir); err != nil {
+		return nil, softFail(opts, err)
+	}
 	if err := os.MkdirAll(newDir, dirPerm); err != nil {
 		return nil, softFail(opts, err)
 	}
 	for _, name := range allowlist {
 		src := filepath.Join(opts.BundleDir, name)
 		if !fileExists(filepath.Join(src, "SKILL.md")) {
-			os.RemoveAll(newDir)
-			return nil, softFail(opts, fmt.Errorf("bundle skill %q missing SKILL.md in %s", name, opts.BundleDir))
+			return nil, softFail(opts, errors.Join(fmt.Errorf("bundle skill %q missing SKILL.md in %s", name, opts.BundleDir), removeInstallTree(newDir)))
 		}
 		if err := copyDir(src, filepath.Join(newDir, name)); err != nil {
-			os.RemoveAll(newDir)
-			return nil, softFail(opts, err)
+			return nil, softFail(opts, errors.Join(err, removeInstallTree(newDir)))
 		}
 	}
 	m, err := GenerateManifest(newDir, opts.CLIVersion, "", allowlist, 0)
 	if err != nil {
-		os.RemoveAll(newDir)
-		return nil, softFail(opts, err)
+		return nil, softFail(opts, errors.Join(err, removeInstallTree(newDir)))
 	}
 	source := "bundle"
 	return applyStaged(opts, real, parent, newDir, local, m, source, stale)

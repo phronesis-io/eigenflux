@@ -123,7 +123,7 @@ func TestFeedBatchPollAndNextKeepExposureAndRuntime(t *testing.T) {
 	}
 	scoreBatch(t, server, "1", "1", "2")
 	for _, ids := range [][]string{{"3", "4"}, {"5", "6"}} {
-		payload, meta, err := localFeedBatchPayload(server, feedLedger(server), 2, false)
+		payload, meta, err := localFeedBatchPayload(server, feedLedger(server), 2, false, "")
 		if err != nil || meta == nil {
 			t.Fatal(meta, err)
 		}
@@ -144,11 +144,10 @@ func TestFeedBatchPollAndNextKeepExposureAndRuntime(t *testing.T) {
 	if flushesFeedQueue(feedNextCmd) {
 		t.Fatal("feed next must stay local")
 	}
-	for key := range reportedFeedbackHealth(cfg, server) {
-		if key == "batches_handed" || key == "local_polls" || key == "rehanded_items" || key == "backlog_expired_items" || key == "surface_reminders" {
-			t.Fatalf("local health leaked: %s", key)
-		}
+	if health := reportedFeedbackHealth(cfg, server); health["batches_handed"] != 4 || health["batch_body_bytes"] == 0 {
+		t.Fatal(health)
 	}
+
 	oldOrigin := originFlag
 	originFlag = publishOriginOwner
 	raw, err = captureHeartbeatStdout(t, func() error { return pollFeedV2(cmd, server, "20") })
@@ -156,7 +155,7 @@ func TestFeedBatchPollAndNextKeepExposureAndRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if page = decodeBatch(t, []byte(raw)); pulls != 2 || page.LocalBatch.Source != "server" || page.LocalBatch.ImpressionID != "2" || page.LocalBatch.Backlog != 6 || page.LocalBatch.Open != 2 {
+	if page = decodeBatch(t, []byte(raw)); pulls != 2 || page.LocalBatch.Source != "server" || page.LocalBatch.ImpressionID != "2" || page.LocalBatch.Backlog != 6 || page.LocalBatch.Open != 0 {
 		t.Fatal(pulls, raw)
 	}
 	_ = cmd.Flags().Set("action", "more")
@@ -200,7 +199,9 @@ func TestFeedBatchRehandOrderExpiryAndAttribution(t *testing.T) {
 		if err := cache.SaveFeedResponse(server, batchTestPage(imp, 4)); err != nil {
 			t.Fatal(err)
 		}
-		if err := feedReportStore(server).Update(now, func(r *feedevent.Reports) { _, _ = recordFeedPage(r, batchTestPage(imp, 4), now-int64(100-index), 1) }); err != nil {
+		if err := feedReportStore(server).Update(now, func(r *feedevent.Reports) {
+			_, _ = recordFeedPage(r, batchTestPage(imp, 4), now-int64(100-index), 1, false)
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -215,17 +216,17 @@ func TestFeedBatchRehandOrderExpiryAndAttribution(t *testing.T) {
 		t.Fatal(events, err)
 	}
 	for count := 2; count <= 3; count++ {
-		payload, _, err := localFeedBatchPayload(server, feedLedger(server), 1, false)
+		payload, _, err := localFeedBatchPayload(server, feedLedger(server), 1, false, "")
 		if err != nil || decodeBatch(t, payload).LocalBatch.ImpressionID != "old" || decodeBatch(t, payload).Items[0].ItemID != "1" {
 			t.Fatal(string(payload), err)
 		}
 	}
-	payload, _, err := localFeedBatchPayload(server, feedLedger(server), 1, false)
+	payload, _, err := localFeedBatchPayload(server, feedLedger(server), 1, false, "")
 	if err != nil || decodeBatch(t, payload).LocalBatch.ImpressionID != "new" {
 		t.Fatal(string(payload), err)
 	}
 	scoreBatch(t, server, "new", "1")
-	payload, _, err = localFeedBatchPayload(server, feedLedger(server), 2, false)
+	payload, _, err = localFeedBatchPayload(server, feedLedger(server), 2, false, "")
 	page := decodeBatch(t, payload)
 	if err != nil || page.LocalBatch.ImpressionID != "old" || page.Items[0].ItemID != "2" || page.Items[1].ItemID != "3" {
 		t.Fatal(string(payload), err)
@@ -302,7 +303,7 @@ func TestFeedBatchStatusSurfaceReminderOnceAndCurrentContext(t *testing.T) {
 	}
 	now := time.Now().UnixMilli()
 	if err := feedReportStore(server).Update(now, func(r *feedevent.Reports) {
-		_, _ = recordFeedPage(r, page, now-1000, 5)
+		_, _ = recordFeedPage(r, page, now-1000, 5, false)
 		for i := 1; i <= 4; i++ {
 			r.RecordFeedback(feedevent.Event{"item_id": fmt.Sprint(i), "impression_id": "status", "score": i % 3, "client_key": fmt.Sprint(i)}, now, "queued")
 		}
@@ -354,7 +355,7 @@ func TestFeedBatchStatusSurfaceReminderOnceAndCurrentContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	scoreBatch(t, server, "status", "5")
-	payload, meta, err := localFeedBatchPayload(server, feedLedger(server), 5, false)
+	payload, meta, err := localFeedBatchPayload(server, feedLedger(server), 5, false, "")
 	if err != nil || meta == nil {
 		t.Fatal(meta, err)
 	}
@@ -378,10 +379,11 @@ func TestFeedBatchStatusSurfaceReminderOnceAndCurrentContext(t *testing.T) {
 	cmd := batchTestCommand(5)
 	cmd.SetOut(&buf)
 	formatFlag = "agent"
+	meta.body = nil
 	if err := renderFeedV2Batch(cmd, server, payload, meta); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(buf.String(), "test contract") || !strings.Contains(buf.String(), "[EIGENFLUX OUTPUT CONTRACT] Read ") || strings.Index(buf.String(), "[EIGENFLUX LOCAL BATCH]") > strings.Index(buf.String(), "[EIGENFLUX NETWORK FEED") {
+	if !strings.Contains(buf.String(), "test contract") || strings.Contains(buf.String(), "[EIGENFLUX OUTPUT CONTRACT] Read ") || strings.Index(buf.String(), "[EIGENFLUX LOCAL BATCH]") > strings.Index(buf.String(), "[EIGENFLUX NETWORK FEED") {
 		t.Fatal(buf.String())
 	}
 }
@@ -455,7 +457,7 @@ func TestFeedBatchBaselineAndNoFlagKeepWholeOutput(t *testing.T) {
 
 func TestFeedNextConcurrentProcesses(t *testing.T) {
 	if server := os.Getenv("EF_BATCH_CHILD_SERVER"); server != "" {
-		payload, _, err := localFeedBatchPayload(server, feedLedger(server), 2, false)
+		payload, _, err := localFeedBatchPayload(server, feedLedger(server), 2, false, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -472,7 +474,7 @@ func TestFeedNextConcurrentProcesses(t *testing.T) {
 	}
 	now := time.Now().UnixMilli()
 	store := feedReportStore(server)
-	if err := store.Update(now, func(r *feedevent.Reports) { _, _ = recordFeedPage(r, page, now, 1) }); err != nil {
+	if err := store.Update(now, func(r *feedevent.Reports) { _, _ = recordFeedPage(r, page, now, 1, false) }); err != nil {
 		t.Fatal(err)
 	}
 	scoreBatch(t, server, "parallel", "1")
@@ -528,7 +530,7 @@ func TestFeedStatusBusyLedgerStillReports(t *testing.T) {
 	now := time.Now().UnixMilli()
 	store := feedReportStore(server)
 	if err := store.Update(now, func(r *feedevent.Reports) {
-		_, _ = recordFeedPage(r, page, now-1000, 0)
+		_, _ = recordFeedPage(r, page, now-1000, 0, false)
 		r.RecordFeedback(feedevent.Event{"item_id": "1", "impression_id": "busy", "score": 2, "client_key": "k1"}, now, "queued")
 	}); err != nil {
 		t.Fatal(err)

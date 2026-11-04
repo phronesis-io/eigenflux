@@ -14,11 +14,44 @@ import (
 	"github.com/cloudwego/kitex/client/callopt"
 )
 
-type discoveryStub struct{ last *sortapi.DiscoveryReq }
+type discoveryStub struct {
+	last  *sortapi.DiscoveryReq
+	items []discovery.ResultItem
+}
 
 func (f *discoveryStub) Discovery(_ context.Context, r *sortapi.DiscoveryReq, _ ...callopt.Option) (*sortapi.DiscoveryResp, error) {
 	f.last = r
+	if f.items != nil {
+		return transport.Response(discovery.Response{ImpressionID: "new-42", Items: f.items}, nil), nil
+	}
 	return transport.Response(discovery.Response{ImpressionID: "new-42", Items: []discovery.ResultItem{{Ref: discovery.SourceRef{Type: discovery.Commission, ID: 42}, Match: map[string]any{"score": .8, "scorer_version": "commission_rules_v1"}}}}, nil), nil
+}
+
+func TestCommissionSummarySurvivesPublicItemTransportAndCompatibilityHTTP(t *testing.T) {
+	price, duration := int64(0), int64(86400000)
+	item := discovery.PublicItem(discovery.Candidate{Document: discovery.Document{Ref: discovery.SourceRef{Type: discovery.Commission, ID: 9007199254740993}, Preview: "Free code review", PriceFen: &price, Currency: "CNY", DurationMS: &duration}, Score: discovery.Score{Value: .8, Version: "test"}})
+	for _, mode := range []string{"search", "recommend"} {
+		t.Run(mode, func(t *testing.T) {
+			old, next := &fakeSort{}, &discoveryStub{items: []discovery.ResultItem{item}}
+			s := New(old, &fakeIDGen{}, nil, nil)
+			s.SetDiscoveryClient(next)
+			h := server.New()
+			h.GET("/search", func(ctx context.Context, c *app.RequestContext) { c.Set("agent_id", int64(1)); s.Search(ctx, c) })
+			h.GET("/recommend", func(ctx context.Context, c *app.RequestContext) { c.Set("agent_id", int64(1)); s.Recommend(ctx, c) })
+			path := "/recommend?limit=7"
+			if mode == "search" {
+				path = "/search?query=review&limit=7"
+			}
+			status, out := performWithStatus(t, h, "GET", path)
+			if status != 200 {
+				t.Fatal(status, out)
+			}
+			candidate := out["data"].(map[string]any)["candidates"].([]any)[0].(map[string]any)
+			if candidate["commission_id"] != "9007199254740993" || candidate["title"] != "Free code review" || candidate["price_fen"] != float64(0) || candidate["currency"] != "CNY" || candidate["promised_delivery_ms"] != float64(duration) || candidate["score"] != .8 || old.searchCalls != 0 || old.recommendCalls != 0 {
+				t.Fatalf("summary lost or old lookup called: %v", candidate)
+			}
+		})
+	}
 }
 func TestLegacyCommissionCutoverPreservesExactLookupAndCurrency(t *testing.T) {
 	old := &fakeSort{}

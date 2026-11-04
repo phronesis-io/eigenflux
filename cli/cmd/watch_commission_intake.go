@@ -148,6 +148,12 @@ func (w *accountWatch) readCommissionOrder(ctx context.Context, id string) (comm
 }
 
 func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job dispatch.Job) error {
+	return w.dispatchCommissionIntakeWithAcceptance(parent, job, 0, w.acceptInspectedCommission)
+}
+
+// Manual acceptance shares the real input inspection while retaining its own
+// version requirement and authenticated mutation/response contract.
+func (w *accountWatch) dispatchCommissionIntakeWithAcceptance(parent context.Context, job dispatch.Job, expectedVersion int64, accept func(context.Context, commissionIntakeOrder) error) error {
 	defer w.observeCommissionJob(job)()
 	if err := w.commissionIdentityOK(); err != nil {
 		if saveErr := w.finishDispatch(job, "failed", "identity_changed", "", ""); saveErr != nil {
@@ -201,6 +207,9 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 	if err != nil || order.Version < notification.Payload.Version {
 		return w.finishDispatch(job, "failed", "commission_order_unavailable", "", "")
 	}
+	if expectedVersion > 0 && (order.Version != expectedVersion || order.State != "awaiting_seller") {
+		return w.finishDispatch(job, "failed", "commission_order_changed", "", "")
+	}
 	switch order.State {
 	case "awaiting_seller", "pending_payment", "in_progress":
 	default:
@@ -230,13 +239,18 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 		for _, prior := range w.journal.Snapshot() {
 			result := prior.CommissionResult
 			if prior.ID != job.ID && result != nil && prior.Code != "operator_verified" && result.Outcome != "failed" && result.OrderID == id && result.OrderVersion == order.Version {
+				fingerprint := ""
+				if prior.CommissionReadiness != nil {
+					fingerprint = prior.CommissionReadiness.InputFingerprint
+				}
+				_ = w.journal.SaveCommissionDiagnostic(job.ID, nil, dispatch.CheckReceipt(*result, fingerprint))
 				return w.finishDispatch(job, "completed", "commission_intake_already_checked", "", "")
 			}
 		}
 	}
 	prompt, requiresMaterials, files, cleanup, err := w.commissionIntakePrompt(ctx, job, order)
 	if err != nil {
-		if errors.Is(err, errCommissionMaterialsMissing) && order.State == "awaiting_seller" {
+		if expectedVersion == 0 && errors.Is(err, errCommissionMaterialsMissing) && order.State == "awaiting_seller" {
 			return w.requestCommissionInputs(ctx, job, order, "The required buyer input files are missing. Clarify the available authorized materials needed by the frozen contract.", "", "required_input_files")
 		}
 		status, code := "failed", "commission_intake_prompt_unavailable"
@@ -286,6 +300,7 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 		w.recordCommissionObservation(observation, "failed", "output_invalid", checkStarted, result, nil)
 		return w.finishDispatch(job, "failed", "commission_intake_result_invalid", result.SessionID, "")
 	}
+	_ = w.journal.SaveCommissionDiagnostic(job.ID, nil, dispatch.CheckReceipt(decision, ""))
 	observation := commissionJobObservation(job)
 	observation.Stage = "input_check"
 	checkStatus, checkCode := "succeeded", ""
@@ -308,7 +323,7 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 	if err != nil || !sameCommissionIntakeOrder(order, current) {
 		return w.finishDispatch(job, "failed", "commission_order_changed", result.SessionID, "")
 	}
-	if order.State == "awaiting_seller" && decision.Outcome == "needs_input" {
+	if expectedVersion == 0 && order.State == "awaiting_seller" && decision.Outcome == "needs_input" {
 		return w.requestCommissionInputs(ctx, job, order, decision.Summary, result.SessionID)
 	}
 	if order.State == "awaiting_seller" && decision.Outcome == "ready" {
@@ -324,7 +339,7 @@ func (w *accountWatch) dispatchCommissionIntake(parent context.Context, job disp
 		}
 		acceptStarted := time.Now()
 		observation.Stage = "accept"
-		if err := w.acceptInspectedCommission(ctx, order); err != nil {
+		if err := accept(ctx, order); err != nil {
 			w.recordCommissionObservation(observation, "failed", "execution_unconfirmed", acceptStarted, result, err)
 			return w.finishDispatch(job, "unknown", "commission_accept_unconfirmed", result.SessionID, "")
 		}

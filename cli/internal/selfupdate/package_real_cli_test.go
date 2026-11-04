@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // Use the real CLI entry, including ForwardInstallation, so a version probe
@@ -66,10 +67,22 @@ func TestRealCLIConsecutiveCompleteUpdates(t *testing.T) {
 		}
 		entries := []packageEntry{{name: versionExecutableName(), content: string(binary), mode: 0755}}
 		if runtime.GOOS == "darwin" {
-			entries = append(entries, realCLITestHelper(t, directory, version, binary)...)
+			entries = append(entries, realCLITestHelper(t, directory, "9.8.7", firstBinary)...)
 		}
 		archive := testPackage(t, entries...)
 		manifest := Manifest{Version: version, Artifacts: map[string]Artifact{name: testArtifact(binary)}, Packages: map[string]Artifact{name + ".zip": testArtifact(archive)}}
+		entry := manifest
+		entry.Packages = nil
+		if err := Sign(&entry, key); err != nil {
+			t.Fatal(err)
+		}
+		payloads["/cli/"+version+"/release.json"], err = json.Marshal(entry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if version == "9.8.8" {
+			manifest.NotifierVersion = "9.8.7"
+		}
 		if err := Sign(&manifest, key); err != nil {
 			t.Fatal(err)
 		}
@@ -78,6 +91,7 @@ func TestRealCLIConsecutiveCompleteUpdates(t *testing.T) {
 			t.Fatal(err)
 		}
 		payloads["/cli/"+version+"/"+name+".zip"] = archive
+		payloads["/cli/"+version+"/"+name] = binary
 	}
 	if err := os.WriteFile(root, firstBinary, 0755); err != nil {
 		t.Fatal(err)
@@ -85,8 +99,42 @@ func TestRealCLIConsecutiveCompleteUpdates(t *testing.T) {
 	var latest atomic.Value
 	latest.Store(manifests["9.8.7"])
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"code":0,"data":{"auto_cli_update":true}}`))
+			return
+		}
+		if r.URL.Path == "/cli/v2/latest/release.json" {
+			var selected Manifest
+			_ = json.Unmarshal(latest.Load().([]byte), &selected)
+			selected.Packages = nil
+			if err := Sign(&selected, key); err != nil {
+				t.Error(err)
+				http.Error(w, "sign", 500)
+				return
+			}
+			raw, _ := json.Marshal(selected)
+			_, _ = w.Write(raw)
+			return
+		}
+		if r.URL.Path == "/cli/latest/release.json" {
+			_, _ = w.Write(payloads["/cli/9.8.7/release.json"])
+			return
+		}
+		if r.URL.Path == "/cli/v2/latest/package-release.json" {
+			var selected Manifest
+			raw := latest.Load().([]byte)
+			_ = json.Unmarshal(raw, &selected)
+			if selected.NotifierVersion == "" {
+				http.NotFound(w, r)
+				return
+			}
+			_, _ = w.Write(raw)
+			return
+		}
 		if r.URL.Path == "/cli/latest/package-release.json" {
-			_, _ = w.Write(latest.Load().([]byte))
+			// Old clients continue receiving the signed bridge while v2 moves on.
+			_, _ = w.Write(manifests["9.8.7"])
 			return
 		}
 		if payload, ok := payloads[r.URL.Path]; ok {
@@ -111,6 +159,30 @@ func TestRealCLIConsecutiveCompleteUpdates(t *testing.T) {
 	if second.Status != "updated" || second.Version != "9.8.8" {
 		t.Fatalf("second complete update from version child: %+v", second)
 	}
+	// Model the already-shipped stable entry verifier exactly: unknown v2
+	// fields are discarded before re-marshalling the v1 signature payload.
+	oldData, err := os.ReadFile(filepath.Join(root+".versions", "9.8.8", "release.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var old struct {
+		Version   string              `json:"version"`
+		Artifacts map[string]Artifact `json:"artifacts"`
+		Packages  map[string]Artifact `json:"packages,omitempty"`
+		Signature string              `json:"signature,omitempty"`
+	}
+	if err = json.Unmarshal(oldData, &old); err != nil {
+		t.Fatal(err)
+	}
+	oldSignature, err := base64.StdEncoding.DecodeString(old.Signature)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old.Signature = ""
+	oldPayload, _ := json.Marshal(old)
+	if old.Version != "9.8.8" || !ed25519.Verify(public, append([]byte(manifestDomain), oldPayload...), oldSignature) {
+		t.Fatal("old stable launcher cannot authenticate the active independent-App release")
+	}
 	active, err := ResolveInstallation(root, public)
 	if err != nil || active.Version != "9.8.8" {
 		t.Fatalf("active=%+v err=%v", active, err)
@@ -124,6 +196,49 @@ func TestRealCLIConsecutiveCompleteUpdates(t *testing.T) {
 	output, err := probe.CombinedOutput()
 	if err != nil || strings.TrimSpace(string(output)) != "9.8.8" {
 		t.Fatalf("stable entry did not forward latest version: %v %s", err, output)
+	}
+	// Model an old updater resuming the bridge with a fresh daily throttle.
+	// One invocation must adopt v2 without ageing that state or issuing update.
+	chain := filepath.Join(directory, "automatic")
+	chainHome := filepath.Join(chain, ".eigenflux")
+	account := filepath.Join(chainHome, "servers", "audit")
+	if err := os.MkdirAll(account, 0700); err != nil {
+		t.Fatal(err)
+	}
+	configBody, _ := json.Marshal(map[string]any{"default_server": "audit", "servers": []map[string]string{{"name": "audit", "endpoint": server.URL, "commission_endpoint": server.URL, "stream_endpoint": server.URL}}, "kv": map[string]string{"auto_cli_update": "true", "auto_skill_sync": "false", "auto_plugin_update": "false"}})
+	if err := os.WriteFile(filepath.Join(chainHome, "config.json"), configBody, 0600); err != nil {
+		t.Fatal(err)
+	}
+	credentials := []byte(`{"agent_id":"audit-agent","principal_id":"audit-principal","access_token":"local-fixture","refresh_token":"local-fixture","expires_at":4102444800000}`)
+	credentialPath := filepath.Join(account, "agent-v2-credentials.json")
+	if err := os.WriteFile(credentialPath, credentials, 0600); err != nil {
+		t.Fatal(err)
+	}
+	chainRoot := filepath.Join(chain, versionExecutableName())
+	if err := os.WriteFile(chainRoot, firstBinary, 0755); err != nil {
+		t.Fatal(err)
+	}
+	throttle, _ := json.Marshal(state{Attempt: time.Now(), PackageChecked: true, Highest: "9.8.7"})
+	if err := os.WriteFile(chainRoot+".update.json", throttle, 0600); err != nil {
+		t.Fatal(err)
+	}
+	var chainEnv []string
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, "EIGENFLUX_") {
+			chainEnv = append(chainEnv, entry)
+		}
+	}
+	chainEnv = append(chainEnv, "EIGENFLUX_HOME="+chainHome, "EIGENFLUX_MODE=skill", "EIGENFLUX_HOST=codex", "EIGENFLUX_CDN_URL="+server.URL, "EIGENFLUX_SKIP_AGENT_SETUP=1", "EIGENFLUX_SKILLS_DIR="+filepath.Join(chain, "absent-skills"))
+	runChain := exec.Command(chainRoot, "--homedir", chainHome, "--server", "audit", "heartbeat", "plan", "--format", "json")
+	runChain.Env = append(append([]string(nil), chainEnv...), "EIGENFLUX_UPDATE_REEXEC=1", "EIGENFLUX_UPDATE_FROM_VERSION=1.0.0", "EIGENFLUX_UPDATE_ATTEMPT=11111111111111111111111111111111")
+	chainOutput, _ := runChain.CombinedOutput() // Missing Skills may fail the resumed business plan.
+	checkChain := exec.Command(chainRoot, "--homedir", chainHome, "version", "--short")
+	checkChain.Env = chainEnv
+	if got, err := checkChain.CombinedOutput(); err != nil || strings.TrimSpace(string(got)) != "9.8.8" {
+		t.Fatalf("same-cycle continuation failed: %v %s; %s", err, got, chainOutput)
+	}
+	if got, err := os.ReadFile(credentialPath); err != nil || !bytes.Equal(got, credentials) {
+		t.Fatal("continuation changed credentials")
 	}
 	retained, err := os.ReadFile(root)
 	if err != nil || !bytes.Equal(retained, firstBinary) {

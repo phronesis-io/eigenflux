@@ -1089,6 +1089,62 @@ func (p *CommissionCandidate) FastRead(buf []byte) (int, error) {
 					goto SkipFieldError
 				}
 			}
+		case 4:
+			if fieldTypeId == thrift.STRING {
+				l, err = p.FastReadField4(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
+		case 5:
+			if fieldTypeId == thrift.I64 {
+				l, err = p.FastReadField5(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
+		case 6:
+			if fieldTypeId == thrift.STRING {
+				l, err = p.FastReadField6(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
+		case 7:
+			if fieldTypeId == thrift.I64 {
+				l, err = p.FastReadField7(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
 		default:
 			l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
 			offset += l
@@ -1160,6 +1216,62 @@ func (p *CommissionCandidate) FastReadField3(buf []byte) (int, error) {
 	return offset, nil
 }
 
+func (p *CommissionCandidate) FastReadField4(buf []byte) (int, error) {
+	offset := 0
+
+	var _field *string
+	if v, l, err := thrift.Binary.ReadString(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = &v
+	}
+	p.Title = _field
+	return offset, nil
+}
+
+func (p *CommissionCandidate) FastReadField5(buf []byte) (int, error) {
+	offset := 0
+
+	var _field *int64
+	if v, l, err := thrift.Binary.ReadI64(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = &v
+	}
+	p.PriceFen = _field
+	return offset, nil
+}
+
+func (p *CommissionCandidate) FastReadField6(buf []byte) (int, error) {
+	offset := 0
+
+	var _field *string
+	if v, l, err := thrift.Binary.ReadString(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = &v
+	}
+	p.Currency = _field
+	return offset, nil
+}
+
+func (p *CommissionCandidate) FastReadField7(buf []byte) (int, error) {
+	offset := 0
+
+	var _field *int64
+	if v, l, err := thrift.Binary.ReadI64(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = &v
+	}
+	p.PromisedDeliveryMs = _field
+	return offset, nil
+}
+
 func (p *CommissionCandidate) FastWrite(buf []byte) int {
 	return p.FastWriteNocopy(buf, nil)
 }
@@ -1169,7 +1281,11 @@ func (p *CommissionCandidate) FastWriteNocopy(buf []byte, w thrift.NocopyWriter)
 	if p != nil {
 		offset += p.fastWriteField1(buf[offset:], w)
 		offset += p.fastWriteField2(buf[offset:], w)
+		offset += p.fastWriteField5(buf[offset:], w)
+		offset += p.fastWriteField7(buf[offset:], w)
 		offset += p.fastWriteField3(buf[offset:], w)
+		offset += p.fastWriteField4(buf[offset:], w)
+		offset += p.fastWriteField6(buf[offset:], w)
 	}
 	offset += thrift.Binary.WriteFieldStop(buf[offset:])
 	return offset
@@ -1181,6 +1297,10 @@ func (p *CommissionCandidate) BLength() int {
 		l += p.field1Length()
 		l += p.field2Length()
 		l += p.field3Length()
+		l += p.field4Length()
+		l += p.field5Length()
+		l += p.field6Length()
+		l += p.field7Length()
 	}
 	l += thrift.Binary.FieldStopLength()
 	return l
@@ -1209,6 +1329,42 @@ func (p *CommissionCandidate) fastWriteField3(buf []byte, w thrift.NocopyWriter)
 	return offset
 }
 
+func (p *CommissionCandidate) fastWriteField4(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	if p.IsSetTitle() {
+		offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.STRING, 4)
+		offset += thrift.Binary.WriteStringNocopy(buf[offset:], w, *p.Title)
+	}
+	return offset
+}
+
+func (p *CommissionCandidate) fastWriteField5(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	if p.IsSetPriceFen() {
+		offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.I64, 5)
+		offset += thrift.Binary.WriteI64(buf[offset:], *p.PriceFen)
+	}
+	return offset
+}
+
+func (p *CommissionCandidate) fastWriteField6(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	if p.IsSetCurrency() {
+		offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.STRING, 6)
+		offset += thrift.Binary.WriteStringNocopy(buf[offset:], w, *p.Currency)
+	}
+	return offset
+}
+
+func (p *CommissionCandidate) fastWriteField7(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	if p.IsSetPromisedDeliveryMs() {
+		offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.I64, 7)
+		offset += thrift.Binary.WriteI64(buf[offset:], *p.PromisedDeliveryMs)
+	}
+	return offset
+}
+
 func (p *CommissionCandidate) field1Length() int {
 	l := 0
 	l += thrift.Binary.FieldBeginLength()
@@ -1228,6 +1384,42 @@ func (p *CommissionCandidate) field3Length() int {
 	if p.IsSetFeatures() {
 		l += thrift.Binary.FieldBeginLength()
 		l += thrift.Binary.StringLengthNocopy(*p.Features)
+	}
+	return l
+}
+
+func (p *CommissionCandidate) field4Length() int {
+	l := 0
+	if p.IsSetTitle() {
+		l += thrift.Binary.FieldBeginLength()
+		l += thrift.Binary.StringLengthNocopy(*p.Title)
+	}
+	return l
+}
+
+func (p *CommissionCandidate) field5Length() int {
+	l := 0
+	if p.IsSetPriceFen() {
+		l += thrift.Binary.FieldBeginLength()
+		l += thrift.Binary.I64Length()
+	}
+	return l
+}
+
+func (p *CommissionCandidate) field6Length() int {
+	l := 0
+	if p.IsSetCurrency() {
+		l += thrift.Binary.FieldBeginLength()
+		l += thrift.Binary.StringLengthNocopy(*p.Currency)
+	}
+	return l
+}
+
+func (p *CommissionCandidate) field7Length() int {
+	l := 0
+	if p.IsSetPromisedDeliveryMs() {
+		l += thrift.Binary.FieldBeginLength()
+		l += thrift.Binary.I64Length()
 	}
 	return l
 }

@@ -62,9 +62,13 @@ func registerRoutes(h *server.Hertz, service *Service, auth, access app.HandlerF
 }
 
 type candidateDTO struct {
-	CommissionID string  `json:"commission_id"`
-	Score        float64 `json:"score"`
-	Features     *string `json:"features,omitempty"`
+	CommissionID       string  `json:"commission_id"`
+	Score              float64 `json:"score"`
+	Features           *string `json:"features,omitempty"`
+	Title              string  `json:"title,omitempty"`
+	PriceFen           *int64  `json:"price_fen,omitempty"`
+	Currency           string  `json:"currency,omitempty"`
+	PromisedDeliveryMS *int64  `json:"promised_delivery_ms,omitempty"`
 }
 
 type filters struct {
@@ -179,9 +183,13 @@ func candidatesDTO(candidates []*sortmodel.CommissionCandidate) []candidateDTO {
 			continue
 		}
 		result = append(result, candidateDTO{
-			CommissionID: strconv.FormatInt(candidate.CommissionId, 10),
-			Score:        candidate.Score,
-			Features:     candidate.Features,
+			CommissionID:       strconv.FormatInt(candidate.CommissionId, 10),
+			Score:              candidate.Score,
+			Features:           candidate.Features,
+			Title:              candidate.GetTitle(),
+			PriceFen:           candidate.PriceFen,
+			Currency:           candidate.GetCurrency(),
+			PromisedDeliveryMS: candidate.PromisedDeliveryMs,
 		})
 	}
 	return result

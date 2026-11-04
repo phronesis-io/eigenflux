@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"time"
@@ -60,10 +62,25 @@ func StagePackage(ctx context.Context, o Options, m Manifest, rootExecutable str
 	if err != nil {
 		return "", "", err
 	}
+	entryManifestData := manifestData
+	if m.NotifierVersion != "" {
+		client := o.Client
+		if client == nil {
+			client = &http.Client{Timeout: 2 * time.Minute}
+		}
+		entryManifestData, err = download(ctx, client, strings.TrimRight(o.CDN, "/")+"/cli/"+m.Version+"/release.json", 1<<20, o.Version)
+		if err != nil {
+			return "", "", atStep("package_manifest", err)
+		}
+		if err = validateLegacyEntryManifest(entryManifestData, m, o.Key); err != nil {
+			return "", "", atStep("package_manifest", err)
+		}
+	}
+
 	destination := filepath.Join(versions, m.Version)
 	if _, err := os.Lstat(destination); err == nil {
 		progress("verify")
-		if err := validateInstalledPackage(ctx, destination, artifact, binary, executable, m.Version, o.Home, manifestData); err != nil {
+		if err := validateInstalledPackage(ctx, destination, artifact, binary, executable, m.Version, o.Home, manifestData, entryManifestData); err != nil {
 			return "", "", fmt.Errorf("existing version directory is not the signed package: %w", err)
 		}
 		progress("probe")
@@ -98,10 +115,15 @@ func StagePackage(ctx context.Context, o Options, m Manifest, rootExecutable str
 	if err := writePackageArchive(filepath.Join(stage, packageArchive), data); err != nil {
 		return "", "", atStep("package_archive", err)
 	}
-	if err := writePackageArchive(filepath.Join(stage, "release.json"), manifestData); err != nil {
+	if err := writePackageArchive(filepath.Join(stage, "release.json"), entryManifestData); err != nil {
 		return "", "", atStep("package_manifest", err)
 	}
-	if err := validateInstalledPackage(ctx, stage, artifact, binary, executable, m.Version, o.Home, manifestData); err != nil {
+	if m.NotifierVersion != "" {
+		if err := writePackageArchive(filepath.Join(stage, ".package-release.json"), manifestData); err != nil {
+			return "", "", atStep("package_manifest", err)
+		}
+	}
+	if err := validateInstalledPackage(ctx, stage, artifact, binary, executable, m.Version, o.Home, manifestData, entryManifestData); err != nil {
 		return "", "", err
 	}
 	progress("probe")
@@ -248,7 +270,7 @@ func readPackage(reader io.ReaderAt, size int64) (*zip.Reader, error) {
 	var expanded uint64
 	for _, entry := range r.File {
 		name := strings.TrimSuffix(entry.Name, "/")
-		if name == "" || name == "." || name == packageArchive || name == "release.json" || path.Clean(name) != name || path.IsAbs(name) || strings.ContainsAny(name, "\\:\x00") {
+		if name == "" || name == "." || name == packageArchive || name == "release.json" || name == ".package-release.json" || path.Clean(name) != name || path.IsAbs(name) || strings.ContainsAny(name, "\\:\x00") {
 			return nil, fmt.Errorf("unsafe CLI package path")
 		}
 		for _, part := range strings.Split(name, "/") {
@@ -306,7 +328,7 @@ func readPackage(reader io.ReaderAt, size int64) (*zip.Reader, error) {
 	return r, nil
 }
 
-func validateInstalledPackage(ctx context.Context, dir string, artifact, binary Artifact, executable, version, home string, manifestData []byte) error {
+func validateInstalledPackage(ctx context.Context, dir string, artifact, binary Artifact, executable, version, home string, manifestData, entryManifestData []byte) error {
 	info, err := os.Lstat(dir)
 	if err != nil {
 		return err
@@ -340,10 +362,25 @@ func validateInstalledPackage(ctx context.Context, dir string, artifact, binary 
 		return fmt.Errorf("invalid installed package release manifest")
 	}
 	savedManifest, err := os.ReadFile(filepath.Join(dir, "release.json"))
-	if err != nil || !bytes.Equal(savedManifest, manifestData) {
+	if err != nil || !bytes.Equal(savedManifest, entryManifestData) {
 		return fmt.Errorf("installed package release manifest differs")
 	}
 	expected := map[string]bool{packageArchive: true, "release.json": true}
+	if !bytes.Equal(manifestData, entryManifestData) {
+		v2info, err := os.Lstat(filepath.Join(dir, ".package-release.json"))
+		if err != nil {
+			return err
+		}
+		if !v2info.Mode().IsRegular() || v2info.Size() > 1<<20 {
+			return fmt.Errorf("invalid v2 installation manifest")
+		}
+		v2data, err := os.ReadFile(filepath.Join(dir, ".package-release.json"))
+		if err != nil || !bytes.Equal(v2data, manifestData) {
+			return fmt.Errorf("installed v2 package release differs")
+		}
+		expected[".package-release.json"] = true
+	}
+
 	helper := false
 	for _, entry := range r.File {
 		name := strings.TrimSuffix(entry.Name, "/")
@@ -427,13 +464,21 @@ func validateInstalledPackage(ctx context.Context, dir string, artifact, binary 
 		}
 		verifyCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
+		var release Manifest
+		if err := json.Unmarshal(manifestData, &release); err != nil {
+			return atStep("helper_version", err)
+		}
+		expected := version
+		if release.NotifierVersion != "" {
+			expected = release.NotifierVersion
+		}
 		for _, key := range []string{"CFBundleVersion", "CFBundleShortVersionString"} {
 			value, err := packageCommandOutput(verifyCtx, "/usr/libexec/PlistBuddy", "-c", "Print :"+key, filepath.Join(dir, "EigenFlux Notifications.app", "Contents", "Info.plist"))
 			if err != nil {
 				return atStep("helper_plist_read", fmt.Errorf("read notification helper %s: %w", key, err))
 			}
-			if strings.TrimSpace(value) != version {
-				return atStep("helper_version", fmt.Errorf("notification helper %s differs from CLI release", key))
+			if !ValidVersion(expected) || strings.TrimSpace(value) != expected {
+				return atStep("helper_version", fmt.Errorf("notification helper %s differs from signed notification release", key))
 			}
 		}
 		if _, err := packageCommandOutput(verifyCtx, "/usr/bin/codesign", "--verify", "--deep", "--strict", filepath.Join(dir, "EigenFlux Notifications.app")); err != nil {
@@ -452,4 +497,17 @@ func packageFileHash(name string) (string, error) {
 	hash := sha256.New()
 	_, err = io.Copy(hash, in)
 	return hex.EncodeToString(hash.Sum(nil)), err
+}
+
+// Old stable launchers remain on disk and can only verify the v1 envelope.
+// Both release signatures must authenticate the same executable set.
+func validateLegacyEntryManifest(data []byte, current Manifest, key ed25519.PublicKey) error {
+	legacy, err := Verify(data, key)
+	if err != nil {
+		return err
+	}
+	if legacy.NotifierVersion != "" || legacy.Version != current.Version || legacy.Packages != nil || !reflect.DeepEqual(legacy.Artifacts, current.Artifacts) {
+		return fmt.Errorf("legacy stable-entry manifest differs from v2 release")
+	}
+	return nil
 }

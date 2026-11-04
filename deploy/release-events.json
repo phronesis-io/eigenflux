@@ -165,5 +165,49 @@
     "title": "Runtime and external-loop observations available",
     "description": "API accepts environment and cycle stage receipts. Coverage begins only after CLI 1.0.3 adoption; D0 snapshots are not backfilled and missing receipts are not failures. Telemetry does not count as activity. Hardware means CPU architecture only.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/477"
+  },
+  {
+    "id": "feed-context-budget-health-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "full",
+    "dashboards": [
+      "feedback-compliance"
+    ],
+    "title": "Feed batch and detail-fetch health available",
+    "description": "Only CLI 1.0.8 and later report these counters; older clients report zeros, so compare matching CLI cohorts.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/481"
+  },
+  {
+    "id": "broadcast-detail-inspection-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "api",
+    "dashboards": [
+      "recommendation-effect"
+    ],
+    "title": "Record broadcast detail inspections separately from display",
+    "description": "Successful non-author detail reads produce weak inspection signals. Exact exposure attribution needs CLI 1.0.8 or an explicit impression; older clients remain unattributed. No historical backfill, human-click inference or ranking-weight change.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/481"
+  },
+  {
+    "id": "pgc-surface-agent-reporters-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "full",
+    "dashboards": [
+      "recommendation-effect"
+    ],
+    "title": "Exclude server-only detail readers from surface reporters",
+    "description": "Migration 000126 must precede detail-event collection. The rolling seven-day view counts only Agent-reported follow-up kinds; existing event rows are unchanged and historical aggregates are recomputed. API-only rollout does not apply this correction.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/481"
+  },
+  {
+    "id": "passive-cli-version-observation-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "api",
+    "dashboards": [
+      "update-maintenance"
+    ],
+    "title": "Observe CLI versions on passive Agent reads",
+    "description": "After API rollout, successful authenticated CLI settings and pending-notification reads refresh only the CLI version, without counting as activity or runtime readiness. Existing clients benefit on their next read; historical snapshots and missing execution receipts are not backfilled. Correlated execution receipts and deduplicated policy warnings require the new CLI.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/505"
   }
 ]

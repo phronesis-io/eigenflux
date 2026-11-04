@@ -320,7 +320,7 @@ func (s CommissionESStore) Search(ctx context.Context, req CommissionSearchReque
 	}
 	query := map[string]any{
 		"size":    req.Limit,
-		"_source": []string{"commission_id", "catalogue_version"},
+		"_source": []string{"commission_id", "catalogue_version", "title"},
 		"query":   map[string]any{"bool": boolQuery},
 	}
 	if req.CommissionID == 0 && len(req.Embedding) > 0 {
@@ -383,6 +383,9 @@ func (s CommissionESStore) Search(ctx context.Context, req CommissionSearchReque
 		if !ok || !d.Active || d.CatalogueVersion != hit.Source.CatalogueVersion {
 			continue
 		}
+		// Display text comes from the same ES catalogue version as the validated
+		// scalar projection, without expanding the Redis feature view.
+		d.Title = hit.Source.Title
 		hits = append(hits, CommissionHit{Document: d, KeywordScore: hit.Score, SemanticScore: hit.Score})
 	}
 	return hits, nil

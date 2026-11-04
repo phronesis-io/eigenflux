@@ -5,7 +5,9 @@ import (
 	"eigenflux_server/api/commissionaccess"
 	"eigenflux_server/kitex_gen/eigenflux/feed/feedservice"
 	sortapi "eigenflux_server/kitex_gen/eigenflux/sort"
+	"eigenflux_server/rpc/sort/discovery"
 	"eigenflux_server/rpc/sort/discovery/transport"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -19,15 +21,20 @@ import (
 
 type discoveryFeedFake struct {
 	feedservice.Client
-	last *sortapi.DiscoveryReq
+	last     *sortapi.DiscoveryReq
+	response *discovery.Response
 }
 
 func (f *discoveryFeedFake) Discovery(_ context.Context, r *sortapi.DiscoveryReq, _ ...callopt.Option) (*sortapi.DiscoveryResp, error) {
 	f.last = r
+	if f.response != nil {
+		return transport.Response(*f.response, nil), nil
+	}
 	return transport.Response(map[string]any{"items": []any{map[string]any{"source_ref": map[string]any{"type": "agent", "id": "9007199254740993"}, "context_id": "1", "match": map[string]any{"score": .8, "scorer_version": "test"}}}}, nil), nil
 }
 
-func TestUnifiedDiscoveryAuthAndOwnerBoundary(t *testing.T) {
+func discoveryHandlerTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -40,6 +47,11 @@ func TestUnifiedDiscoveryAuthAndOwnerBoundary(t *testing.T) {
 	if err = db.Exec("INSERT INTO agent_credential_sessions VALUES(1,1,'{feed:read,context:read,context:write}',?,'agent_v2',NULL,?,FALSE)", hashString("efv2a_discovery"), time.Now().Add(time.Hour).UnixMilli()).Error; err != nil {
 		t.Fatal(err)
 	}
+	return db
+}
+
+func TestUnifiedDiscoveryAuthAndOwnerBoundary(t *testing.T) {
+	db := discoveryHandlerTestDB(t)
 	feed := &discoveryFeedFake{}
 	svc := &Service{db: db, feedClient: feed}
 	access, _ := commissionaccess.New(true, "43")
@@ -70,5 +82,40 @@ func TestUnifiedDiscoveryAuthAndOwnerBoundary(t *testing.T) {
 	}
 	if status := ut.PerformRequest(h.Engine, "POST", "/api/v2/discovery/search", nil).Result().StatusCode(); status != 401 {
 		t.Fatal(status)
+	}
+}
+
+func TestUnifiedDiscoveryCommissionSummaryAcrossHTTP(t *testing.T) {
+	price, duration := int64(0), int64(86400000)
+	item := discovery.PublicItem(discovery.Candidate{Document: discovery.Document{Ref: discovery.SourceRef{Type: discovery.Commission, ID: 9007199254740993}, Preview: "Free review", PriceFen: &price, Currency: "CNY", DurationMS: &duration}, Score: discovery.Score{Value: .8, Version: "test"}})
+	feed := &discoveryFeedFake{response: &discovery.Response{Items: []discovery.ResultItem{item}}}
+	svc := &Service{db: discoveryHandlerTestDB(t), feedClient: feed}
+	access, _ := commissionaccess.New(true, "42")
+	h := server.New()
+	svc.RegisterDiscovery(h, access)
+	for _, tc := range []struct{ path, body string }{
+		{"/api/v2/discovery/search", `{"query":"review","source_kinds":["commission"]}`},
+		{"/api/v2/discovery/recommendations", `{"source_kinds":["commission"]}`},
+	} {
+		result := ut.PerformRequest(h.Engine, "POST", tc.path, &ut.Body{Body: strings.NewReader(tc.body), Len: len(tc.body)}, ut.Header{Key: "Authorization", Value: "Bearer efv2a_discovery"}).Result()
+		if result.StatusCode() != 200 {
+			t.Fatalf("summary request failed: %d %s", result.StatusCode(), result.Body())
+		}
+		var payload struct {
+			Data discovery.Response `json:"data"`
+		}
+		if err := json.Unmarshal(result.Body(), &payload); err != nil {
+			t.Fatal(err)
+		}
+		if len(payload.Data.Items) != 1 {
+			t.Fatalf("unexpected summary count: %s", result.Body())
+		}
+		got := payload.Data.Items[0]
+		if got.Ref.ID != item.Ref.ID || got.Title != "Free review" || got.PriceFen == nil || *got.PriceFen != 0 || got.Currency != "CNY" || got.PromisedDeliveryMS == nil || *got.PromisedDeliveryMS != duration {
+			t.Fatalf("summary lost in unified HTTP response: %s", result.Body())
+		}
+		if _, present := got.Match["score"]; present {
+			t.Fatal("adding summary exposed numeric ranking diagnostics")
+		}
 	}
 }

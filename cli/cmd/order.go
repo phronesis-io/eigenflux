@@ -110,6 +110,9 @@ func orderLifecycleCommand(operation string) *cobra.Command {
 				body["reason"] = reason
 			}
 			key, _ := cmd.Flags().GetString("idempotency-key")
+			if operation == "accept" {
+				return acceptOrderAfterInspection(cmd, id, version, key, body)
+			}
 			path := "/orders/" + strconv.FormatInt(id, 10) + "/" + operation
 			if operation == "deliver" {
 				files, err := uploadDeliveryText(cmd, id, key)

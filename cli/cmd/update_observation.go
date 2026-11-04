@@ -109,7 +109,13 @@ func (r *maintenanceRecorder) Record(event maintenance.Event) {
 		event.EventAt = r.lastAt + 1
 	}
 	r.lastAt = event.EventAt
-	if err := maintenance.Record(r.scope, event); err != nil {
+	var recordErr error
+	if event.Component == "cli" && event.Result == "installed" {
+		recordErr = maintenance.RecordCLIAdoption(r.scope, event, r.principal, r.endpoint)
+	} else {
+		recordErr = maintenance.Record(r.scope, event)
+	}
+	if recordErr != nil {
 		r.failure("record_failed")
 		return
 	}

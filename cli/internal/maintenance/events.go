@@ -48,17 +48,26 @@ type Event struct {
 	ReasonCategory string                `json:"reason_category,omitempty"`
 }
 
+// CLIAdoption retains installation evidence across queue flushes and host-owned restarts.
+// Principal and endpoint are local fences and are never uploaded.
+type CLIAdoption struct {
+	Event       Event  `json:"event"`
+	PrincipalID string `json:"principal_id"`
+	Endpoint    string `json:"endpoint"`
+}
+
 type State struct {
-	RuntimeNextFlush int64            `json:"runtime_next_flush,omitempty"`
-	RuntimeFailures  uint             `json:"runtime_failures,omitempty"`
-	Cycles           map[string]Cycle `json:"cycles,omitempty"`
-	ReadAttempts     map[string]Event `json:"read_attempts,omitempty"`
-	Events           []Event          `json:"events"`
-	Dropped          uint64           `json:"dropped"`
-	LastAttempt      int64            `json:"last_attempt"`
-	NextFlush        int64            `json:"next_flush"`
-	Failures         int              `json:"failures"`
-	Attempts         map[string]Event `json:"attempts,omitempty"`
+	PendingCLIAdoption *CLIAdoption     `json:"pending_cli_adoption,omitempty"`
+	RuntimeNextFlush   int64            `json:"runtime_next_flush,omitempty"`
+	RuntimeFailures    uint             `json:"runtime_failures,omitempty"`
+	Cycles             map[string]Cycle `json:"cycles,omitempty"`
+	ReadAttempts       map[string]Event `json:"read_attempts,omitempty"`
+	Events             []Event          `json:"events"`
+	Dropped            uint64           `json:"dropped"`
+	LastAttempt        int64            `json:"last_attempt"`
+	NextFlush          int64            `json:"next_flush"`
+	Failures           int              `json:"failures"`
+	Attempts           map[string]Event `json:"attempts,omitempty"`
 }
 
 func NewID() string {
@@ -159,6 +168,9 @@ func (s Scope) path() (string, error) {
 	return filepath.Join(s.Home, "maintenance", hex.EncodeToString(sum[:16])+"-events.json"), nil
 }
 func prune(st *State, now time.Time) {
+	if st.PendingCLIAdoption != nil && st.PendingCLIAdoption.Event.EventAt < now.Add(-Retention).UnixMilli() {
+		st.PendingCLIAdoption = nil
+	}
 	for id, c := range st.Cycles {
 		if c.StartedAt < now.Add(-Retention).UnixMilli() {
 			delete(st.Cycles, id)
@@ -279,6 +291,18 @@ func update(s Scope, fn func(*State) error) error {
 	return syncParentDir(filepath.Dir(path))
 }
 func Record(s Scope, e Event) error {
+	return record(s, e, nil)
+}
+
+// RecordCLIAdoption atomically queues the installation event and its restart context.
+func RecordCLIAdoption(s Scope, e Event, principal, endpoint string) error {
+	if e.Component != "cli" || e.Result != "installed" || e.ToVersion == "" || endpoint == "" {
+		return errors.New("invalid CLI adoption context")
+	}
+	return record(s, e, &CLIAdoption{Event: e, PrincipalID: principal, Endpoint: endpoint})
+}
+
+func record(s Scope, e Event, adoption *CLIAdoption) error {
 	if err := Validate(e); err != nil {
 		return err
 	}
@@ -290,6 +314,12 @@ func Record(s Scope, e Event) error {
 		}
 		st.Events = append(st.Events, e)
 		st.Attempts[e.Component] = e
+		if adoption != nil {
+			st.PendingCLIAdoption = adoption
+		}
+		if pending := st.PendingCLIAdoption; pending != nil && e.Component == "cli" && e.Phase == "execute" && e.Result == "executed" && e.AttemptID == pending.Event.AttemptID && e.ToVersion == pending.Event.ToVersion {
+			st.PendingCLIAdoption = nil
+		}
 		if e.Component == "skills" && e.Phase == "install" && (e.Result == "installed" || e.Result == "no_update") {
 			st.ReadAttempts[e.AttemptID] = e
 		}
