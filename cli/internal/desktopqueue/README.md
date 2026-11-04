@@ -33,6 +33,9 @@ When a desktop queue is enabled, enqueue must succeed before the informational
 inbox records a completed 90-day receipt. Failed enqueue leaves the remote notice
 pending with no completed receipt. If the later inbox write fails, the desktop
 queue's stable ID makes retry safe. A completed receipt skips duplicate enqueue.
+A failed moderation enqueue does not prevent independent, already durable
+notifications from being ACKed. Orders that require the same unavailable queue
+remain blocked until their own required sinks succeed; no sink is bypassed.
 
 ## Persistence and retry
 
@@ -65,9 +68,9 @@ observations before delivery. Retention, capacity or local I/O failure can still
 lose diagnostic evidence; no exactly-once audit guarantee is made.
 
 OS failures retain pending work with 1/2/4/8/16-minute retry delays; setup retries
-every five minutes. These failures do not stop Agent workers. Queue persistence
-failure or exhausted capacity stops watch; ingestion never ACKs an unsaved
-desktop message. Submission followed by a crash before receipt persistence can
+every five minutes. These failures do not stop Agent workers. Desktop-worker persistence
+failure stops watch. Intake never ACKs an unsaved desktop message: moderation
+rows are isolated as above, while required Order sink failures stop that batch. Submission followed by a crash before receipt persistence can
 repeat the same stable message ID. OS acceptance does not prove banner visibility
 or a user click.
 

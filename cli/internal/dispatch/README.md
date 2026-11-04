@@ -146,9 +146,11 @@ receipts. Pre-receipt inboxes seed retained payload IDs at upgrade time.
 The inbox is authoritative: if output fails after persistence, retry may ACK the
 saved notice without emitting it again. `watch notices` still exposes it.
 A newly saved notice emits `commission_moderation_notification`; this event has
-no Order, PM, cursor or dispatch job fields. Generic `notification_push` output
+no Order, PM, cursor or dispatch job fields. Socket `notification_push` output
 retains every non-moderation entry, including unknown sources and unsubscribed
-Orders, with their raw fields and envelope extensions. Forwarding an Order is
+Orders, with their raw fields and envelope extensions. HTTP reconciliation for
+ordinary/PM-only watches emits moderation only; explicit Order owners retain
+the generic HTTP output contract. Forwarding an Order is
 separate from CLI execution/ACK ownership. Pure legacy socket batches use the
 existing local identity check without HTTP token refresh or Commission lookup.
 Neither path creates a moderation execution or main-Agent job. Installed host
@@ -162,6 +164,12 @@ after both durable sinks succeed. Legacy stream saves and renders moderation bef
 when no watch owns that source; a persisted PM-only binding owns moderation but
 leaves Orders to legacy consumption. Invalid moderation entries remain pending
 and emit a fixed diagnostic in watch; they do not block valid neighbors' ACKs.
+A moderation inbox or desktop enqueue failure also leaves only that row pending:
+independently durable neighbors can be ACKed, and bounded HTTP reconciliation
+continues through later cursor pages before reporting the failure. Socket intake
+emits a checked, fixed diagnostic and keeps reading subsequent frames. A shared
+desktop outage still blocks Orders requiring that queue. Identity changes,
+cancellation, ACK failures and output failures stop intake immediately.
 Status, draft version, field and reason come from the immutable event; `pass` is
 awaiting publication, while only `published` confirms public availability.
 Desktop links open the Trade page without claiming a specific selected account
@@ -187,7 +195,10 @@ Legacy stream respects this ownership while the task is stopped. An existing
 execution binding is never replaced by notification setup. `watch start` installs
 an interactive current-user Windows logon task, or reports `pending_auth` /
 `host_managed`. `notifications_ready` means a successful order poll, separately
-from OS submission and Agent `runtime_ready`. Disabled tasks remain disabled.
+from OS submission and Agent `runtime_ready`. Its `notification_push.count`
+counts successfully ACKed owned Order rows only, excluding moderation, generic
+notices and skipped internal coordination. No count event is emitted for zero
+Orders. Disabled tasks remain disabled.
 
 `commission_order` explicitly enables durable intake and a separate seller inspection worker. It also queues paid local fulfillment after a ready check. After actual Agent readiness it accepts awaiting-seller orders; after paid fulfillment it uploads verified contractual artifacts and submits delivery. Subscription alone does not prove host execution readiness or establish a buyer SLA.
 

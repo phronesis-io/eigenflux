@@ -261,11 +261,19 @@ Where enabled, desktop delivery queues the notice before its completed inbox
 receipt; failure leaves it pending for a safe retry. Neither path
 starts Agent or Order execution. Host adapters must treat the dedicated
 `commission_moderation_notification` event as display data, never Order or PM
-work. Generic `notification_push` output preserves all non-moderation entries and
-unknown fields; only subscribed Orders enter CLI execution and ACK.
+work. Socket `notification_push` output preserves all non-moderation entries and
+unknown fields; only subscribed Orders enter CLI execution and ACK. Ordinary and
+PM-only HTTP reconciliation emits moderation only, avoiding repeated generic
+notices from pending pages.
 Approval is shown as awaiting publication until a separate published
 notice arrives. Malformed moderation notices remain pending without blocking
-valid neighbors. A PM-only binding owns moderation intake while leaving Orders
+valid neighbors. A moderation persistence failure also leaves its row pending
+while independently durable neighbors and later HTTP pages continue. The socket
+reports a fixed diagnostic and stays connected to receive later frames. Required
+Order sinks are never bypassed; identity, cancellation, ACK and output failures
+still stop intake. Notification-only count events include only successfully
+ACKed owned Orders and are omitted when none were ACKed.
+A PM-only binding owns moderation intake while leaving Orders
 to the legacy stream; without a binding the stream saves and renders before ACK.
 
 Moderation notification IDs retain separate lightweight deduplication receipts

@@ -93,6 +93,13 @@ func moderationNotificationText(language string, notice moderationNotification) 
 	return title, body
 }
 
+// Only persistence failures can be isolated from independent notification rows.
+// Host output, cancellation and identity failures retain their fatal behavior.
+type moderationSinkError struct{ cause error }
+
+func (e *moderationSinkError) Error() string { return e.cause.Error() }
+func (e *moderationSinkError) Unwrap() error { return e.cause }
+
 func (w *accountWatch) enqueueModerationNotification(notice moderationNotification) (bool, error) {
 	fresh, err := saveModerationNoticeWithSink(w.home, w.scope, w.identity.AgentID, notice, func() error {
 		if w.desktop == nil {
@@ -107,7 +114,7 @@ func (w *accountWatch) enqueueModerationNotification(notice moderationNotificati
 		return w.desktop.Enqueue(desktopnotify.Message{ID: w.scope + ":moderation:" + strconv.FormatInt(int64(notice.ID), 10), Title: title, Body: body, URL: target.String()})
 	})
 	if err != nil {
-		return false, err
+		return false, &moderationSinkError{cause: err}
 	}
 	// A completed receipt covers every enabled durable sink. Output is recoverable
 	// from watch notices even if the host output fails after the receipt is saved.

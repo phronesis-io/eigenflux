@@ -39,6 +39,13 @@ type commissionNotificationPage struct {
 	NextCursor    string            `json:"next_cursor"`
 }
 
+// This result is produced only after every successful row has been ACKed and
+// required output has succeeded. Fatal errors never carry this paging signal.
+type moderationPageError struct{ cause error }
+
+func (e *moderationPageError) Error() string { return e.cause.Error() }
+func (e *moderationPageError) Unwrap() error { return e.cause }
+
 func decodeCommissionNotificationPage(data json.RawMessage) (commissionNotificationPage, error) {
 	var page commissionNotificationPage
 	var fields map[string]json.RawMessage
@@ -70,7 +77,15 @@ func (w *accountWatch) deliverSocketEvent(ctx context.Context, kind string, data
 					Source string `json:"source_type"`
 				}
 				if json.Unmarshal(raw, &header) == nil && (header.Source == moderationNotificationSource || header.Source == "commission_order" && w.receivesCommission()) {
-					return w.deliverCommissionNotifications(ctx, data, "socket")
+					err := w.deliverCommissionNotifications(ctx, data, "socket")
+					var partial *moderationPageError
+					if err != nil && errors.As(err, &partial) {
+						if ctx.Err() != nil {
+							return ctx.Err()
+						}
+						return w.emit("diagnostic", map[string]string{"area": "moderation_delivery", "code": "moderation_sink_failed"})
+					}
+					return err
 				}
 			}
 		}
@@ -113,15 +128,16 @@ func (w *accountWatch) pollCommissionNotifications(ctx context.Context) error {
 	if !w.receivesCommissionNotifications() {
 		return nil
 	}
+	var deliveryErrors []error
 	cursor := ""
 	seen := map[string]bool{"": true}
 	for pageIndex := 0; pageIndex < commissionPollPages; pageIndex++ {
 		if err := w.dispatchIdentityOK(); err != nil {
-			return err
+			return errors.Join(errors.Join(deliveryErrors...), err)
 		}
 		api, err := w.api(ctx)
 		if err != nil {
-			return err
+			return errors.Join(errors.Join(deliveryErrors...), err)
 		}
 		params := map[string]string{"limit": "50"}
 		if cursor != "" {
@@ -129,28 +145,32 @@ func (w *accountWatch) pollCommissionNotifications(ctx context.Context) error {
 		}
 		response, err := api.Get("/notifications/pending", params)
 		if err != nil {
-			return err
+			return errors.Join(errors.Join(deliveryErrors...), err)
 		}
 		if response.Code != 0 {
-			return errors.New("commission_poll_failed")
+			return errors.Join(errors.Join(deliveryErrors...), errors.New("commission_poll_failed"))
 		}
 		page, err := decodeCommissionNotificationPage(response.Data)
 		if err != nil {
-			return err
+			return errors.Join(errors.Join(deliveryErrors...), err)
 		}
 		if err := w.deliverCommissionNotifications(ctx, response.Data, "http_poll"); err != nil {
-			return err
+			var partial *moderationPageError
+			if ctx.Err() != nil || isWatchTerminal(err) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || !errors.As(err, &partial) {
+				return errors.Join(errors.Join(deliveryErrors...), err)
+			}
+			deliveryErrors = append(deliveryErrors, partial.cause)
 		}
 		if !page.HasMore {
-			return nil
+			return errors.Join(deliveryErrors...)
 		}
 		if seen[page.NextCursor] {
-			return errors.New("commission_notification_cursor_did_not_advance")
+			return errors.Join(errors.Join(deliveryErrors...), errors.New("commission_notification_cursor_did_not_advance"))
 		}
 		cursor = page.NextCursor
 		seen[cursor] = true
 	}
-	return nil
+	return errors.Join(deliveryErrors...)
 }
 
 func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data json.RawMessage, transport string) error {
@@ -177,7 +197,11 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 		}
 		ack := make([]map[string]string, 0, len(page.Notifications))
 		genericOutput := make([]json.RawMessage, 0, len(page.Notifications))
+		var sinkErrors []error
 		for _, raw := range page.Notifications {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			var notification struct {
 				Source string          `json:"source_type"`
 				ID     json.RawMessage `json:"notification_id"`
@@ -196,7 +220,12 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 				}
 				saved, err := w.enqueueModerationNotification(notice)
 				if err != nil {
-					return err
+					var sink *moderationSinkError
+					if ctx.Err() != nil || isWatchTerminal(err) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || !errors.As(err, &sink) {
+						return err
+					}
+					sinkErrors = append(sinkErrors, err)
+					continue
 				}
 				if saved {
 					var id notificationID
@@ -254,12 +283,19 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 		}
 		// Every notification is durable before any ACK. Refresh outside the
 		// credential lock; an uncertain ACK is safe to repeat after deduplication.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := w.dispatchIdentityOK(); err != nil {
+			return err
+		}
 		api.OnUnauthorized = nil
 		credentials, err := auth.LoadV2Credentials(w.server.Name)
 		if err != nil {
 			return err
 		}
 		api.Token = credentials.AccessToken
+		ackedOrders := 0
 		for first := 0; first < len(ack); first += 50 {
 			last := min(first+50, len(ack))
 			response, err := api.Post("/notifications/ack", map[string]interface{}{"notifications": ack[first:last]})
@@ -269,12 +305,29 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 			if response.Code != 0 {
 				return errors.New("commission_notification_ack_failed")
 			}
+			for _, item := range ack[first:last] {
+				if item["source_type"] == "commission_order" {
+					ackedOrders++
+				}
+			}
 		}
-		if len(genericOutput) == 0 {
-			return nil
+		// Ordinary reconciliation owns moderation only; realtime socket forwarding
+		// still preserves all legacy non-moderation entries.
+		var rowFailure error
+		if len(sinkErrors) > 0 {
+			rowFailure = &moderationPageError{cause: errors.Join(sinkErrors...)}
+		}
+		if len(genericOutput) == 0 || transport == "http_poll" && !w.receivesCommission() {
+			return rowFailure
 		}
 		if w.notificationsOnly {
-			return w.emit("notification_push", map[string]interface{}{"count": len(genericOutput), "transport": transport})
+			if ackedOrders == 0 {
+				return rowFailure
+			}
+			if err := w.emit("notification_push", map[string]interface{}{"count": ackedOrders, "transport": transport}); err != nil {
+				return err
+			}
+			return rowFailure
 		}
 		var envelope map[string]json.RawMessage
 		if err := json.Unmarshal(data, &envelope); err != nil {
@@ -286,7 +339,10 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 		}
 		output["notifications"] = genericOutput
 		output["transport"], output["received_at"] = transport, time.Now().UTC().Format(time.RFC3339Nano)
-		return w.emit("notification_push", output)
+		if err := w.emit("notification_push", output); err != nil {
+			return err
+		}
+		return rowFailure
 	})
 }
 

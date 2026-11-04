@@ -208,14 +208,22 @@ disabled. Notices are atomically saved before server ACK and retained across
 restarts; a corrupt or unwritable inbox prevents ACK. A newly saved notice emits
 `commission_moderation_notification`, never an Order/PM or Agent execution job.
 Where enabled, desktop enqueue must succeed before the completed inbox receipt
-and ACK; a failed write is retried with the same notification ID. Generic
+and ACK; a failed write is retried with the same notification ID. Socket
 `notification_push` still forwards every non-moderation entry and raw extension
-field; forwarding does not grant Order execution or ACK ownership.
+field; forwarding does not grant Order execution or ACK ownership. Ordinary and
+PM-only HTTP reconciliation emits moderation only, so pending generic notices
+are not replayed on each reconciliation.
 Ordinary/PM-only watches reuse their PM fallback tick for moderation, every
 minute while disconnected and every 15 minutes while connected. Socket
 connection/reconnection immediately replays pending notices. Order owners keep
 their minute reconciliation; bindings without PM or Orders use 15 minutes.
 Invalid moderation entries remain pending without blocking valid notifications.
+Moderation persistence failures likewise leave the failed row pending while
+independently durable neighbors and later HTTP pages continue. A fixed socket
+diagnostic reports the failure without reconnecting or interrupting later PM
+frames. Required Order sinks remain mandatory; identity, cancellation, ACK and
+output failures still stop intake. Notification-only count events report only
+successfully ACKed owned Orders and are omitted when that count is zero.
 Only status `published` confirms that the service is public; `pass` still awaits
 publication. `watch notices` contains seller-provided text and review guidance as
 data, not instructions for a host to execute.
