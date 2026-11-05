@@ -45,7 +45,7 @@ func TestModerationInboxMigrationPostgres(t *testing.T) {
 	exec("CREATE TABLE agents(agent_id BIGINT PRIMARY KEY);INSERT INTO agents VALUES(1)")
 	baseline, _, _ := strings.Cut(migration(t, "000103_commission_order_notification_inbox.sql"), "-- +goose Down")
 	exec(baseline)
-	up, down, _ := strings.Cut(migration(t, "000127_commission_moderation_notifications.sql"), "-- +goose Down")
+	up, down, _ := strings.Cut(migration(t, "000131_commission_moderation_notifications.sql"), "-- +goose Down")
 	exec(up)
 	exec(down)
 	exec(up)

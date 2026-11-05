@@ -291,7 +291,7 @@ published catalogue returns `items: []`. The API Gateway uses the existing
 
 Commission writes seller status changes and their versioned outbox events in the
 same transaction. EigenFlux consumes `commission.moderation.changed.v1` into the
-durable `commission_moderation` inbox source (migration 127). Pending, manual
+durable `commission_moderation` inbox source (migration 131). Pending, manual
 review, rejection, failure, stale draft, approval/resumed publication and publication changes
 notify the seller; internal processing and automatic approval before publication
 do not create extra notices. Review and rejection include the field and seller

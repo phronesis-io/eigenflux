@@ -161,7 +161,7 @@ Order and listing moderation ingestion. Moderation uses `COMMISSION_INDEX_STREAM
 with `${COMMISSION_INDEX_CONSUMER_GROUP}:moderation-notification` and
 `${COMMISSION_INDEX_DLQ_STREAM}:moderation-notification`. It does not require
 `ENABLE_COMMISSION_INDEX`; the catalogue and moderation consumers ignore each
-other's event topics. Apply migration `000127` before enabling the consumers.
+other's event topics. Apply migration `000131` before enabling the consumers.
 See [notification handling and rollback](notification.md#commission-listing-moderation-inbox).
 
 ### CLI Commission endpoint

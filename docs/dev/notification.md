@@ -26,7 +26,7 @@ catalogue events. Under `ENABLE_COMMISSION_ORDER_NOTIFICATIONS=true`, Pipeline
 runs an independent `${COMMISSION_INDEX_CONSUMER_GROUP}:moderation-notification`
 group and `${COMMISSION_INDEX_DLQ_STREAM}:moderation-notification` dead-letter
 stream. Moderation consumers ignore catalogue events; the index consumer ignores
-moderation events. Apply migration `000127` before enabling the new consumer.
+moderation events. Apply migration `000131` before enabling the new consumer.
 
 The schema-v1 envelope identifies aggregate type `commission_moderation`, the
 moderation ID, and its monotonic notification version. Payload moderation,
@@ -58,7 +58,7 @@ acknowledges the stored fact; operators can investigate and repair it, after whi
 it becomes deliverable. The current listing remains the source of current state.
 
 The existing 90-day pending and 180-day acknowledged retention applies.
-Migration `000127` Down intentionally refuses while any moderation history exists,
+Migration `000131` Down intentionally refuses while any moderation history exists,
 including acknowledged rows. It preserves the rows and original constraints
 transactionally. Roll back application binaries while retaining the expanded
 schema; do not delete notification history to force a database downgrade.
