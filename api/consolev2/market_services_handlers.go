@@ -54,6 +54,8 @@ type marketServicesQuery struct {
 	HasCompleted        bool
 	MaxDeliveryMS       *int64
 	MinRatingMilli      *int64
+	MinPriceFen         *int64
+	MaxPriceFen         *int64
 	Limit               int
 	AfterCount, AfterID int64
 	HasCursor           bool
@@ -81,6 +83,18 @@ func parseMarketServicesQuery(c *app.RequestContext) (marketServicesQuery, error
 			}
 			*dest = &value
 		}
+	}
+	for name, dest := range map[string]**int64{"min_price_fen": &q.MinPriceFen, "max_price_fen": &q.MaxPriceFen} {
+		if raw := c.Query(name); raw != "" {
+			value, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil || value < 0 || raw[0] < '0' || raw[0] > '9' {
+				return q, fmt.Errorf("invalid %s", name)
+			}
+			*dest = &value
+		}
+	}
+	if q.MinPriceFen != nil && q.MaxPriceFen != nil && *q.MinPriceFen > *q.MaxPriceFen {
+		return q, errors.New("min_price_fen must not exceed max_price_fen")
 	}
 	if raw := c.Query("limit"); raw != "" {
 		value, err := strconv.Atoi(raw)
@@ -240,6 +254,9 @@ func selectMarketServices(items []marketServiceItem, q marketServicesQuery) mark
 			continue
 		}
 		if q.MinRatingMilli != nil && (!item.HasRating || int64(item.AverageRatingMilli) < *q.MinRatingMilli) {
+			continue
+		}
+		if (q.MinPriceFen != nil && item.PriceFen < *q.MinPriceFen) || (q.MaxPriceFen != nil && item.PriceFen > *q.MaxPriceFen) {
 			continue
 		}
 		if text != "" && !strings.Contains(strings.ToLower(strings.Join([]string{item.Title, item.CapabilityDescription, item.Provider.DisplayName, item.Provider.DisplayNameEn}, " ")), text) {

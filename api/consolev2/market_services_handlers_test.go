@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -109,19 +110,19 @@ func marketTestRouter(t *testing.T, f *browserSessionFixture, source featureinde
 
 func readMarket(t *testing.T, h *server.Hertz, path, cookie string) marketServicesResponse {
 	t.Helper()
-	status, payload, _ := performJSON(t, h, http.MethodGet, "/api/v2/console/market/services"+path, nil, ut.Header{Key: "Cookie", Value: cookie})
-	if status != 200 {
-		t.Fatalf("status=%d payload=%#v", status, payload)
+	recorder := ut.PerformRequest(h.Engine, http.MethodGet, "https://console.example.test/api/v2/console/market/services"+path, nil,
+		ut.Header{Key: "Cookie", Value: cookie}, ut.Header{Key: "Host", Value: "console.example.test"}, ut.Header{Key: "Origin", Value: "https://console.example.test"})
+	resp := recorder.Result()
+	if resp.StatusCode() != 200 {
+		t.Fatalf("status=%d body=%s", resp.StatusCode(), resp.Body())
 	}
-	raw, err := json.Marshal(payload["data"])
-	if err != nil {
+	var envelope struct {
+		Data marketServicesResponse `json:"data"`
+	}
+	if err := json.Unmarshal(resp.Body(), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	var data marketServicesResponse
-	if err := json.Unmarshal(raw, &data); err != nil {
-		t.Fatal(err)
-	}
-	return data
+	return envelope.Data
 }
 
 func TestMarketServicesCompleteCatalogueAndPagination(t *testing.T) {
@@ -157,7 +158,7 @@ func TestMarketServicesCompleteCatalogueAndPagination(t *testing.T) {
 func TestMarketServicesCombinedFiltersAndViewerRelations(t *testing.T) {
 	f, source := marketFixture(t)
 	h := marketTestRouter(t, f, source, "10,20")
-	filters := "?q=english%20provider&model=gpt-6&friends_only=true&max_delivery_ms=120000&min_rating_milli=4500&has_completed=true"
+	filters := "?q=english%20provider&model=gpt-6&friends_only=true&max_delivery_ms=120000&min_rating_milli=4500&has_completed=true&min_price_fen=10&max_price_fen=10"
 	data := readMarket(t, h, filters, f.cookieHeader(0))
 	if data.Total != 109 || len(data.Models) != 2 || data.Models[0] != "claude" || data.Models[1] != "gpt-6" {
 		t.Fatalf("wrong combined filters/facets: %+v", data)
@@ -174,6 +175,72 @@ func TestMarketServicesCombinedFiltersAndViewerRelations(t *testing.T) {
 	description := readMarket(t, h, "?q=RESEARCH", f.cookieHeader(0))
 	if description.Total != 220 {
 		t.Fatalf("description search failed: %+v", description)
+	}
+}
+
+func TestMarketServicesPriceRangesAcrossCataloguePages(t *testing.T) {
+	f, source := marketFixture(t)
+	for i := range source.rows {
+		source.rows[i].PriceFen = source.rows[i].CommissionID
+	}
+	source.rows[219].PriceFen = 0
+	source.rows[217].PriceFen = math.MaxInt64
+	h := marketTestRouter(t, f, source, "10")
+	for _, tc := range []struct {
+		name, query string
+		ids         string
+	}{
+		{"free on final source page", "?max_price_fen=0", "220"},
+		{"inclusive two-sided bounds", "?min_price_fen=100&max_price_fen=102", "102,101,100"},
+		{"upper bound alone", "?max_price_fen=2", "220,2,1"},
+		{"lower bound alone", "?min_price_fen=219", "219,218"},
+		{"int64 upper boundary", "?min_price_fen=9223372036854775807&max_price_fen=9223372036854775807", "218"},
+		{"no matches", "?min_price_fen=221&max_price_fen=222", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before := source.listCalls
+			data := readMarket(t, h, tc.query, f.cookieHeader(0))
+			ids := make([]string, 0, len(data.Items))
+			for _, item := range data.Items {
+				ids = append(ids, item.CommissionID)
+			}
+			if strings.Join(ids, ",") != tc.ids || data.Total != len(ids) || data.NextCursor != "" || strings.Join(data.Models, ",") != "claude,gpt-6" || source.listCalls-before != 3 {
+				t.Fatalf("incorrect global price filter: %+v source calls=%d", data, source.listCalls-before)
+			}
+		})
+	}
+	if data := readMarket(t, h, "?min_price_fen=0&max_price_fen=9223372036854775807", f.cookieHeader(0)); data.Total != 220 {
+		t.Fatalf("nonnegative int64 range lost services: %+v", data)
+	}
+}
+
+func TestMarketServicesPriceRangePagination(t *testing.T) {
+	f, source := marketFixture(t)
+	for i := range source.rows {
+		source.rows[i].PriceFen = source.rows[i].CommissionID
+	}
+	h := marketTestRouter(t, f, source, "10")
+	query := "?min_price_fen=99&max_price_fen=103&limit=2"
+	var ids []string
+	cursor := ""
+	for page := 0; page < 3; page++ {
+		data := readMarket(t, h, query+"&cursor="+url.QueryEscape(cursor), f.cookieHeader(0))
+		if data.Total != 5 || len(data.Items) == 0 || len(data.Items) > 2 {
+			t.Fatalf("incorrect filtered count/page: %+v", data)
+		}
+		for _, item := range data.Items {
+			ids = append(ids, item.CommissionID)
+			if item.PriceFen < 99 || item.PriceFen > 103 {
+				t.Fatalf("out-of-range service reached page: %+v", item)
+			}
+		}
+		cursor = data.NextCursor
+		if (page < 2) != (cursor != "") {
+			t.Fatalf("incorrect filtered cursor at page %d: %+v", page, data)
+		}
+	}
+	if strings.Join(ids, ",") != "103,102,101,100,99" {
+		t.Fatalf("filtered pagination lost or duplicated services: %v", ids)
 	}
 }
 
@@ -213,6 +280,16 @@ func TestMarketServicesErrorsAndAuthentication(t *testing.T) {
 		{name: "bad limit", query: "?limit=101", cookie: f.cookieHeader(0), status: 400, code: "MARKET_QUERY_INVALID"},
 		{name: "bad rating", query: "?min_rating_milli=5001", cookie: f.cookieHeader(0), status: 400, code: "MARKET_QUERY_INVALID"},
 		{name: "bad duration", query: "?max_delivery_ms=-1", cookie: f.cookieHeader(0), status: 400, code: "MARKET_QUERY_INVALID"},
+		{name: "negative minimum price", query: "?min_price_fen=-1", cookie: f.cookieHeader(0), status: 400, code: "MARKET_QUERY_INVALID"},
+		{name: "negative maximum price", query: "?max_price_fen=-1", cookie: f.cookieHeader(0), status: 400, code: "MARKET_QUERY_INVALID"},
+		{name: "negative zero price", query: "?min_price_fen=-0", cookie: f.cookieHeader(0), status: 400, code: "MARKET_QUERY_INVALID"},
+		{name: "reversed price bounds", query: "?min_price_fen=11&max_price_fen=10", cookie: f.cookieHeader(0), status: 400, code: "MARKET_QUERY_INVALID"},
+		{name: "minimum price overflow", query: "?min_price_fen=9223372036854775808", cookie: f.cookieHeader(0), status: 400, code: "MARKET_QUERY_INVALID"},
+		{name: "maximum price overflow", query: "?max_price_fen=9223372036854775808", cookie: f.cookieHeader(0), status: 400, code: "MARKET_QUERY_INVALID"},
+		{name: "fractional price", query: "?min_price_fen=0.1", cookie: f.cookieHeader(0), status: 400, code: "MARKET_QUERY_INVALID"},
+		{name: "exponent price", query: "?max_price_fen=1e2", cookie: f.cookieHeader(0), status: 400, code: "MARKET_QUERY_INVALID"},
+		{name: "signed price", query: "?min_price_fen=%2B1", cookie: f.cookieHeader(0), status: 400, code: "MARKET_QUERY_INVALID"},
+		{name: "nonnumeric price", query: "?max_price_fen=free", cookie: f.cookieHeader(0), status: 400, code: "MARKET_QUERY_INVALID"},
 		{name: "bad boolean", query: "?friends_only=yes", cookie: f.cookieHeader(0), status: 400, code: "MARKET_QUERY_INVALID"},
 		{name: "oversized query", query: "?q=" + strings.Repeat("x", 513), cookie: f.cookieHeader(0), status: 400, code: "MARKET_QUERY_INVALID"},
 	} {
@@ -298,10 +375,10 @@ func TestMarketServicesPostgresHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	const id = int64(9223372036854775000)
-	source := &marketServicesSource{rows: []featureindex.CommissionCatalogueSnapshot{{CommissionID: id, SellerAgentID: 21, Status: "active", Title: "Research"}}, stats: map[int64]featureindex.CommissionStatisticsSnapshot{id: {CommissionID: id, SellerAgentID: 21, CompletedCount: 2, HasRating: true, AverageRatingMilli: 4500, AverageDeliveryMS: 1000}}}
+	source := &marketServicesSource{rows: []featureindex.CommissionCatalogueSnapshot{{CommissionID: id, SellerAgentID: 21, Status: "active", Title: "Research", PriceFen: 10, Currency: "CNY"}}, stats: map[int64]featureindex.CommissionStatisticsSnapshot{id: {CommissionID: id, SellerAgentID: 21, CompletedCount: 2, HasRating: true, AverageRatingMilli: 4500, AverageDeliveryMS: 1000}}}
 	f := &browserSessionFixture{service: &Service{db: tx}}
 	h := marketTestRouter(t, f, source, "10")
-	data := readMarket(t, h, "?q=english&friends_only=true&model=gpt-6&min_rating_milli=4500&max_delivery_ms=1000", consoleCookieName+"=market-session.secret")
+	data := readMarket(t, h, "?q=english&friends_only=true&model=gpt-6&min_rating_milli=4500&max_delivery_ms=1000&min_price_fen=10&max_price_fen=10", consoleCookieName+"=market-session.secret")
 	if data.Total != 1 || data.Items[0].CommissionID != "9223372036854775000" || !data.Items[0].Provider.IsFriend {
 		t.Fatalf("PostgreSQL contract mismatch: %+v", data)
 	}
