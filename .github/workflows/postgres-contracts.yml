@@ -188,7 +188,7 @@ jobs:
         run: go test -count=1 ./api/handler_gen/eigenflux/api -run 'Test(PostgresBroadcastDetail.*|GetItemAggregateStats|BroadcastCountryCode)'
       - name: Verify Attention schema and golden corpus
         run: go test -count=1 ./api/consolev2 -run '^(TestAttentionGoldenCorpusMatchesServerValidators|TestAttentionSchemaEnumsMatchServer)$'
-      - name: Verify Console homepage HTTP and data contracts
-        run: go test -count=1 ./api/consolev2 -run '^TestHome'
+      - name: Verify Console homepage and market HTTP and data contracts
+        run: go test -count=1 ./api/consolev2 -run '^Test(Home|MarketServices)'
       - name: Verify homepage eligibility backfill and LLM contracts
         run: go test -count=1 ./pipeline/cron ./pipeline/llm

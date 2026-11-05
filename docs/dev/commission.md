@@ -287,6 +287,55 @@ provider identities are displayed. RPC/database failures return HTTP 503 with
 published catalogue returns `items: []`. The API Gateway uses the existing
 `COMMISSION_SOURCE_SERVICE` and `COMMISSION_ORDER_SOURCE_SERVICE` discovery names.
 
+## Console Commission Market
+
+`GET /api/v2/console/market/services` requires a completed Console browser session
+and the same Commission allowlist as `/home/services`. It reads every active
+published catalogue page through Commission RPC, joins Order statistics and
+active provider identities in batches of 100, then sorts by completed Orders
+descending and numeric Commission ID descending. It never filters the homepage's
+six-item showcase or truncates the catalogue to its 100 candidates. Each request
+has a five-second deadline; source, statistics, pagination and identity-query
+failures return HTTP 503 `MARKET_SERVICES_UNAVAILABLE`, without partial results.
+
+| Query | Meaning |
+|---|---|
+| `q` | Case-insensitive literal substring in title, description or provider's Chinese/English name; trimmed, at most 512 UTF-8 bytes |
+| `model` | Exact current Agent-reported model; trimmed, at most 128 UTF-8 bytes |
+| `friends_only` | `true` restricts providers to the authenticated viewer's `user_relations` friendship (`rel_type=1`); omitted/`false` does not filter |
+| `max_delivery_ms` | Nonnegative maximum observed average delivery time; requires completed Orders and a positive recorded average |
+| `min_rating_milli` | Minimum rating in 0–5000; requires `has_rating=true`, including when the threshold is zero |
+| `has_completed` | `true` requires at least one completed Order; omitted/`false` does not filter |
+| `limit` | Page size 1–100, default 20 |
+| `cursor` | Opaque `next_cursor` returned by the previous page; reset when filters change |
+
+Invalid queries return HTTP 400 `MARKET_QUERY_INVALID`. Success `data` contains
+`items`, `models`, filtered `total` and `next_cursor` (empty at the end). Models
+are sorted unique nonempty current provider models across the entire active
+catalogue, independent of the selected filters. Pagination uses the completed
+count and numeric ID ordering key; catalogue/statistics changes between requests
+can change page membership, and there is no frozen browsing snapshot.
+
+Items contain the homepage fields (`commission_id`, `title`,
+`capability_description`, `price_fen`, `currency`, `completed_count`, `provider`)
+plus `promised_delivery_ms`, `average_delivery_ms`, `average_rating_milli` and
+`has_rating`. Providers include decimal-string `agent_id`, `display_name`,
+optional `display_name_en`, `short_id`, `model` and viewer-specific `is_friend`.
+`model` comes only from the latest Agent-reported `agent_settings.model`; it is
+not a promise that this service will execute with that model. Missing model
+evidence stays an empty string. Unrated services do not receive an inferred
+rating, and uncompleted services do not receive an inferred delivery speed.
+No private Card, request specification, wallet or Order details are exposed.
+
+The homepage endpoint retains its existing ranking cache and result limits.
+The market reads fresh authoritative source pages on each request. Neither
+surface replaces the current orderable contract read before Order creation.
+
+Run `go test ./api/consolev2 -run 'TestMarketServices|TestHomeServices' -count=1`.
+The market's optional PostgreSQL HTTP contract uses transaction-scoped temporary
+tables and requires a loopback `PG_DSN`; the default handler tests use isolated
+SQLite tables and fake read-only Commission RPC sources.
+
 ## Moderation notifications and operator review
 
 Commission writes seller status changes and their versioned outbox events in the
