@@ -30,6 +30,22 @@ credential provisioning resumes only that scoped intent, and completed heartbeat
 retry it. Failed probes retain intent for retry. Notification setup failures do
 not prevent watch restoration, and another Home's LaunchAgent is not a conflict.
 
+Linux recovery preserves a watch only when its fresh identity-matched runtime
+pulse and account lock establish a current owner; the ordinary Skills, version
+and readiness checks still apply. It never installs or starts a Linux service.
+Without that owner, recovery returns a nonzero, actionable pending result.
+Plugin mode reports `host_managed_unverified`; other modes report
+`external_loop_unverified`. Neither configured mode nor a cached scheduler
+receipt proves execution. The host must verify its existing persistent trigger,
+first unattended cycle and result destination, without duplicating a loop or
+enabling a paused task.
+
+`cmd/update_watch_recovery_notice.go` deduplicates only the new actionable
+recovery notices by pinned account/endpoint and outcome. Heartbeat output keeps
+unchanged diagnostics internal; new or changed actions and verified recovery
+request a host notification once. The hashed local receipt is notification
+intent, not delivery confirmation, and does not change watch or business state.
+
 `cmd/update_watch_skills.go` rejects retained-old, provisional and unverified
 sync outcomes as upgrade completion. Fresh official synchronization still
 requires local signature, compatibility and file-hash validation. Owner-disabled

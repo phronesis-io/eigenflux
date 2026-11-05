@@ -660,6 +660,47 @@ codex_plugin_result() {
       }'
 }
 
+# Keep these boundaries aligned with the published plugins' minGatewayVersion:
+# current releases require 2026.5.7; the pinned 0.0.8 release requires 2026.3.1.
+select_openclaw_plugin() {
+  PLUGIN_SPEC=""
+  if [ -n "${OPENCLAW_VERSION:-}" ]; then
+    OC_VERSION="$OPENCLAW_VERSION"
+    info "Using OPENCLAW_VERSION from environment: ${OC_VERSION}"
+  else
+    OC_VERSION=""
+    if OC_RAW=$(openclaw --version 2>&1); then
+      OC_VERSION=$(printf '%s\n' "$OC_RAW" | awk '
+        { for (i = 1; i <= NF; i++) if ($i ~ /^v?[0-9]+\.[0-9]+\.[0-9]+/) {
+            sub(/^v/, "", $i); print $i; exit
+        } }
+      ')
+    fi
+  fi
+
+  if ! printf '%s\n' "$OC_VERSION" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
+    err "Could not verify a stable OpenClaw version; plugin setup skipped. Check openclaw --version, upgrade to 2026.5.7 or later, then retry."
+    printf '%s\n' '{"component":"openclaw-eigenflux","status":"skipped","reason":"unverified_gateway_version"}'
+    return 1
+  fi
+
+  OC_COMPAT=$(printf '%s\n' "$OC_VERSION" | awk -F. '
+    $1 > 2026 || ($1 == 2026 && ($2 > 5 || ($2 == 5 && $3 >= 7))) { print "current"; next }
+    $1 == 2026 && (($2 == 3 && $3 >= 1) || $2 == 4 || ($2 == 5 && $3 < 2)) { print "legacy"; next }
+    { print "unsupported" }
+  ')
+  case "$OC_COMPAT" in
+    current) PLUGIN_SPEC="@phronesis-io/openclaw-eigenflux" ;;
+    legacy) PLUGIN_SPEC="@phronesis-io/openclaw-eigenflux@0.0.8" ;;
+    *)
+      err "OpenClaw ${OC_VERSION} has no verified compatible plugin selection; plugin setup skipped. Upgrade OpenClaw to 2026.5.7 or later, then retry."
+      printf '%s\n' '{"component":"openclaw-eigenflux","status":"skipped","reason":"unsupported_gateway_version"}'
+      return 1
+      ;;
+  esac
+  info "OpenClaw version: ${OC_VERSION} -> plugin: ${PLUGIN_SPEC}"
+}
+
 # ── Step 5: Detect and configure AI agents ────────────────────
 
 setup_agents() {
@@ -693,38 +734,9 @@ setup_agents() {
     export PATH
   fi
 
-  if command -v openclaw >/dev/null 2>&1 && ef_should_setup openclaw; then
+  if command -v openclaw >/dev/null 2>&1 && ef_should_setup openclaw && select_openclaw_plugin; then
     info ""
     info "OpenClaw environment detected."
-
-    # Determine the plugin specifier based on OpenClaw version.
-    # >= 2026.5.2 uses latest; 2026.3.x–2026.5.1 pins @0.0.8.
-    # Override with OPENCLAW_VERSION env var when auto-detection is unreliable
-    # (e.g. non-interactive shells, CI, agent-driven installs).
-    if [ -n "${OPENCLAW_VERSION:-}" ]; then
-      OC_VERSION="$OPENCLAW_VERSION"
-      info "Using OPENCLAW_VERSION from environment: ${OC_VERSION}"
-    else
-      OC_RAW=$(openclaw --version 2>&1 || true)
-      OC_VERSION=$(printf '%s' "$OC_RAW" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-    fi
-    PLUGIN_SPEC="@phronesis-io/openclaw-eigenflux"
-    if [ -n "$OC_VERSION" ]; then
-      OC_MAJOR=$(echo "$OC_VERSION" | cut -d. -f1)
-      OC_MINOR=$(echo "$OC_VERSION" | cut -d. -f2)
-      OC_PATCH=$(echo "$OC_VERSION" | cut -d. -f3)
-      if [ "$OC_MAJOR" = "2026" ]; then
-        if [ "$OC_MINOR" -lt 3 ] 2>/dev/null; then
-          err "OpenClaw ${OC_VERSION} is too old; please upgrade to 2026.3.0 or later."
-          return
-        elif [ "$OC_MINOR" -lt 5 ] 2>/dev/null || { [ "$OC_MINOR" = "5" ] && [ "${OC_PATCH:-0}" -lt 2 ] 2>/dev/null; }; then
-          PLUGIN_SPEC="@phronesis-io/openclaw-eigenflux@0.0.8"
-        fi
-      fi
-      info "OpenClaw version: ${OC_VERSION} -> plugin: ${PLUGIN_SPEC}"
-    else
-      info "Could not detect OpenClaw version; installing latest plugin"
-    fi
 
     install_openclaw_plugin() {
       spec="$1"
@@ -1262,7 +1274,7 @@ if [ "${EIGENFLUX_SKIP_AGENT_SETUP:-}" != "1" ]; then
   fi
   if "$INSTALLED_CLI_PATH" watch recover --help >/dev/null 2>&1; then
     if ! "$INSTALLED_CLI_PATH" --homedir "$EF_HOME" watch recover; then
-      info "CLI installed, but outer-loop recovery is incomplete. Run eigenflux watch recover with this same Home to retry."
+      info "CLI installed, but background execution is not verified. Follow the recovery action for this same Home/server before treating setup as complete."
     fi
   else
     info "This CLI does not support automatic outer-loop recovery; update to CLI 1.0.1 or later when available."

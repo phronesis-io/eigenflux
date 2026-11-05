@@ -474,7 +474,17 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 	}
 	if plan.OuterLoop != nil {
 		b, _ := json.Marshal(plan.OuterLoop)
-		receiptText += "\nOuter loop recovery: " + string(b) + ". Report unresolved recovery separately; a running notification watch does not prove Agent dispatch is ready.\n"
+		receiptText += "\nOuter loop recovery: " + string(b) + ". A running notification watch does not prove Agent dispatch is ready. "
+		switch plan.OuterLoop.Notification {
+		case "unchanged":
+			receiptText += "Keep this unchanged recovery state internal; do not repeat its notification or repair a second trigger.\n"
+		case "required":
+			receiptText += "Notify the owner of this new or changed recovery action separately; preserve any verified existing scheduler and continue safe business stages.\n"
+		case "recovered":
+			receiptText += "Notify the owner once that the previously reported recovery state has cleared; preserve the reported runtime and delivery verification boundaries.\n"
+		default:
+			receiptText += "Report unresolved recovery separately.\n"
+		}
 	}
 	if plan.Notifications != nil {
 		b, _ := json.Marshal(plan.Notifications)

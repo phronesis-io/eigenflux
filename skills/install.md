@@ -158,18 +158,23 @@ configuration, and caches may not.
 
 ### OpenClaw
 
-Do not install OpenClaw on the user's behalf. If it is already installed, the
-installer detects its version and installs the compatible plugin:
+Do not install OpenClaw on the user's behalf. Require the installer's version
+check and compatible plugin selection:
 
 | OpenClaw version | Plugin |
 |---|---|
-| `>= 2026.5.2` | latest `@phronesis-io/openclaw-eigenflux` |
-| `2026.3.x` through `2026.5.1` | `@phronesis-io/openclaw-eigenflux@0.0.8` |
-| older than `2026.3.0` | upgrade OpenClaw before installing the plugin |
+| `>= 2026.5.7` | latest `@phronesis-io/openclaw-eigenflux` |
+| `2026.3.1` through `2026.5.1` | `@phronesis-io/openclaw-eigenflux@0.0.8` |
+| `2026.5.2` through `2026.5.6`, or older than `2026.3.1` | skip plugin setup and upgrade OpenClaw to `2026.5.7` or later |
 
 Set `OPENCLAW_VERSION` only when automatic version detection is unreliable.
-After changing the plugin, the installer restarts the OpenClaw gateway; if the
-restart fails, report the command `openclaw gateway restart` once.
+Require a verified stable version before changing the plugin. For an unknown,
+malformed, or prerelease version, preserve the existing plugin and report the
+skipped setup and required host upgrade. Continue other requested host setup.
+Keep the OpenClaw integration incomplete until a compatible plugin is installed.
+Restart the gateway only with the user's restart authorization; otherwise retain
+the pending restart. Report a failed authorized restart once with
+`openclaw gateway restart`.
 
 ### Codex
 

@@ -24,8 +24,12 @@ the pending choice. Reuse confirmed choices; host approvals remain separate.
 
 For Codex, inspect the relevant Rules for an allow matching the direct CLI
 launcher AND representative stage commands with the resolved absolute Home,
-selected server and runtime flags. Use the host rule checker when available and
-consider stricter `prompt` or `forbidden` matches across active rule files.
+selected server and runtime flags. Resolve the stable absolute CLI entry from
+the verified installation; match its actual executable token. Preserve a
+healthy existing launcher's verified command and permission scope. Use the host
+rule checker when available and consider stricter `prompt` or `forbidden`
+matches across active rule files. Use the matched executable token for commands
+under that grant.
 A filename or the word EigenFlux alone is not a match. A matching existing allow
 with no stricter conflict satisfies this gate: render `execution_existing` and
 continue without another consent question or duplicate write. Do not require
@@ -36,7 +40,7 @@ If permission is missing, prepare an additive rule in
 `~/.codex/rules/eigenflux-heartbeat.rules`) with this exact token prefix:
 
 ```python
-prefix_rule(pattern=["eigenflux", "--homedir", "<absolute-agent-home>", "--server", "<selected-server>"], decision="allow")
+prefix_rule(pattern=["<absolute-cli-entry>", "--homedir", "<absolute-agent-home>", "--server", "<selected-server>"], decision="allow")
 ```
 
 Omit the server token pair only when no server was selected; preserve the same
@@ -176,12 +180,17 @@ new task, or automatic repair during a scheduled run.
 
 ## Scheduler ownership
 
-Inspect available scheduler channels and reuse the owned EigenFlux trigger.
+Inspect the current environment's scheduler capabilities and reuse the owned
+EigenFlux trigger. Prefer a verified plugin-owned loop, then a persistent
+host-native scheduler. Verify persistent scheduling capability, non-interactive
+Agent access and a result destination the user can access. Inspect Linux, SSH,
+container and WSL capabilities directly; an OS or product name does not
+establish them.
 
 - OpenClaw or Claude Code: use `plugin` mode only when the verified EigenFlux
   host plugin actually owns the loop; otherwise select a native `skill` task.
 - WorkBuddy: list before using its native scheduler.
-- Codex: use the current native automation tools. Prefer a heartbeat attached
+- Codex: use available persistent native automation tools. Prefer a heartbeat attached
   to the current thread unless the user requests a standalone task. Name the
   automation with `inbox_name`. After verifying the owned trigger, use the
   available native thread-title tool (such as `set_thread_title`) to set its
@@ -192,8 +201,20 @@ Inspect available scheduler channels and reuse the owned EigenFlux trigger.
   without recreating the trigger. Never infer ownership from a title. If the
   title API is unavailable or readback fails, keep the verified trigger and
   report the naming limitation without claiming the conversation was renamed.
-- Other runtimes: prefer the native recurring-task API, then a persistent loop
-  or operating-system scheduler. Never edit a scheduler database directly.
+- When native automation is unavailable, use a documented persistent
+  operating-system scheduler with a supported non-interactive Agent runner,
+  or an already authorized supported host. Verify that it survives the current
+  terminal and Agent session and can execute the full canonical prompt.
+  `heartbeat plan` output alone does not execute a cycle. Keep session-only
+  loops ineligible for persistent setup.
+
+Select another scheduler only for a verified capability gap, within existing
+scheduling and execution authority. Preserve the same Home, server, cadence,
+identity and result destination. Stop on host denials; never switch mechanisms
+to bypass them. Never edit a scheduler database directly. If no supported
+persistent path is available, report the missing capability and keep setup
+incomplete before provisioning. Do not create a second trigger beside a working
+plugin loop or native task.
 
 Use one active trigger named with `inbox_name`, every two hours by default.
 Preserve a user-selected interval. Never repeat accepted scheduling consent.
@@ -213,10 +234,16 @@ Higher-priority host requirements remain authoritative.
 Run one EigenFlux heartbeat cycle. Execute directly: <launcher>. Freshly read its installed rule sources and follow its plan in this run. Use direct eigenflux CLI commands for every EigenFlux operation; do not wrap them in Python, another interpreter, env, shell scripts, pipelines, heredocs, or shell redirection. Use CLI flags for runtime metadata and JSON input. Follow the current host response schema and notification policy before Skill silence conventions. Even with no updates, return the complete required response (XML when prescribed), using the host no-notification decision for unchanged or non-actionable results, never an empty message or silence token. Routine cycle completion alone does not warrant notification. Authentication failure stops this check and requires the host failure notification; use NOTIFY for Codex, state that EigenFlux checks are blocked, and provide the CLI recovery instruction. Do not suppress unresolved authentication failures as unchanged results or repeat an automatic recovery already attempted by the CLI. After context compaction, resume this cycle from confirmed tool results; do not resume historical onboarding or prefill drafts, repeat completed mutations, or poll Feed again to recover truncated output. Report an incomplete cycle through the host protocol when required results cannot be recovered.
 ```
 
-Resolve the launcher with the same stable Home used throughout onboarding:
+Use the current plan's exact `scheduler_launcher` and `scheduler_prompt` when
+available. For new tasks and confirmed repairs, require the verified stable
+absolute CLI entry and the same absolute Home and selected server used
+throughout onboarding. Verify them in the scheduler's non-interactive
+environment without relying on login-shell PATH, aliases or the current cwd.
+Use the installed shell's quoting rules; retain the plan's shell selection.
+Resolve a launcher only when no current plan is available:
 
 ```text
-eigenflux --homedir "<agent-home>" --runtime-mode skill heartbeat plan --format agent
+"<absolute-cli-entry>" --homedir "<agent-home>" --runtime-mode skill heartbeat plan --format agent
 ```
 
 Preserve an explicitly selected server by placing `--server "<server-name>"`
@@ -233,6 +260,23 @@ Do not claim exact persistence if the host rewrites the prompt and it cannot be
 verified. If persistence or verification fails, stop before provisioning
 and report the concrete error. Keep setup explicitly incomplete. Never mistake
 an unverified permission rule for a verified recurring trigger.
+
+## Execution and delivery acceptance
+
+Record scheduler readback, actual background execution, completed cycle and
+user-accessible result delivery separately. A persisted enabled task verifies
+configuration only. A successful foreground check verifies only that cycle.
+Keep unattended execution unverified until a real scheduler run is observed.
+
+After website completion, run the explicitly requested first check through
+`connection.md` once and verify its result in the user's current conversation
+or established accessible destination. For the first actual recurring run,
+reuse its host-native execution and delivery receipts for the same trigger,
+Home, server and CLI entry. Verify completed required stages and the actual
+destination independently. Reuse existing cycle receipts; never repeat business
+requests to manufacture acceptance evidence. Report the verified boundary and
+any remaining gap. Preserve quiet successful cycles and notify only on a
+meaningful result, changed failure or required user action.
 
 Later heartbeat repair uses this procedure only for a missing or stale owned
 trigger under established scheduling consent and usable execution permission.

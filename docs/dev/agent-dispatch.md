@@ -128,6 +128,15 @@ ACP requires v1 newline-delimited JSON-RPC over stdio; permission requests yield
 
 ## Ownership and recovery
 
+On Linux, `watch recover` preserves a live identity-matched watch under its
+existing supervisor. It does not install a system service. When no current
+watch can be verified, it returns pending with an `action` and a nonzero exit:
+`host_managed_unverified` for configured plugin mode, otherwise
+`external_loop_unverified`. Inspect the existing host-native or OS scheduler
+with the same Home/server, preserve paused tasks, and verify an unattended
+cycle and its accessible result destination. Installation, task readback,
+runtime readiness and a completed Agent call are separate receipts.
+
 Stop the old account's plugin/message consumer before starting dispatch. Keep the companion `heartbeat plan --watch-managed`: it skips subscribed work and retains maintenance unless `maintenance_due` is enabled. Restart a stopped watch to resume its ownership; bindings do not automatically fall back to another consumer.
 
 Stop watch before mutating bind/retry/reconcile; read-only `watch bind --preflight` keeps it running. Retry only `failed` or `needs_user`; inspect host/business results before reconciling `unknown/failed/needs_user` work:
