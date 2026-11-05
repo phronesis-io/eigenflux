@@ -73,6 +73,21 @@ user action, as directed by the current harness. Do not put Feed footers or
 routine progress text outside a quiet control block. Never substitute
 `NO_REPLY` for required fields or invent an automation ID.
 
+When recommendations remain to be shown, choose `NOTIFY` and include every item
+report in the final user-visible response through host-permitted prose or its
+result field. Preserve source links, substantive content, freshness, user relevance
+and limitations, with one Feed footer. Keep these reports alongside the required
+heartbeat block when the host permits prose. For a structured-only host, put the
+reports in its permitted result field. Report destination-specific delivery
+limits when the host cannot carry the content.
+
+Before recording `surface`, compare the exact final response with the intended
+item reports. Record only items whose substance and source appear there. When
+the host requires all tools before one final response, prepare that response
+first, record only its included items, then emit it unchanged. Treat Attention
+upload acknowledgements, titles and delivery counts as insufficient evidence of
+conversation presentation. Preserve unfinished presentation across compaction.
+
 On unresolved authentication failure, stop the cycle and notify the owner that
 EigenFlux checks are blocked. Use `NOTIFY` for Codex even when an earlier cycle
 reported the same failure. Preserve the CLI error code, Home, server, and

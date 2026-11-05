@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"cli.eigenflux.ai/internal/auth"
@@ -82,7 +85,7 @@ func TestV2ProvisionRetriesSavedInstallAfterReportFailure(t *testing.T) {
 			if err != nil || credentials.AccessToken != "new-token" {
 				t.Errorf("report ran before credential save: %v", err)
 			}
-			if reportCalls == 1 {
+			if reportCalls <= 3 {
 				w.WriteHeader(503)
 				fmt.Fprint(w, `{"code":1}`)
 				return
@@ -121,14 +124,119 @@ func TestV2ProvisionRetriesSavedInstallAfterReportFailure(t *testing.T) {
 			t.Fatalf("attempt %d result=%s err=%v", i, data, err)
 		}
 	}
-	if reportCalls != 3 {
+	if reportCalls != 5 {
 		t.Fatalf("report calls=%d", reportCalls)
 	}
 	provisionFail = true
 	if _, err := captureHeartbeatStdout(t, func() error { return agentV2ProvisionCmd.RunE(command, nil) }); err == nil {
 		t.Fatal("failed provision accepted")
 	}
-	if reportCalls != 3 {
+	if reportCalls != 5 {
 		t.Fatal("failed provision reported an installation")
+	}
+}
+
+func TestProvisionInstallReportRetryBudget(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		status    int
+		recover   bool
+		wantCalls int
+		wantOK    bool
+	}{
+		{"temporary unavailable", 503, true, 2, true},
+		{"rate limited", 429, true, 2, true},
+		{"request timeout", 408, true, 2, true},
+		{"transport interrupted", 0, true, 2, true},
+		{"retry exhausted", 503, false, 3, false},
+		{"permanent rejection", 404, false, 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				var body struct {
+					Ref string `json:"ref"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Ref != "EF-Abcd1234" {
+					t.Errorf("retry lost referral: %+v %v", body, err)
+				}
+				if tc.recover && calls > 1 {
+					fmt.Fprint(w, `{"code":0,"data":{"converted":false,"attribution":{"ref":"EF-Abcd1234"}}}`)
+					return
+				}
+				if tc.status == 0 {
+					connection, _, err := w.(http.Hijacker).Hijack()
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					_ = connection.Close()
+					return
+				}
+				w.WriteHeader(tc.status)
+				fmt.Fprint(w, `{"code":1}`)
+			}))
+			defer endpoint.Close()
+			err := reportProvisionedInstall(config.Server{Endpoint: endpoint.URL}, "EF-Abcd1234", client.Meta{})
+			if (err == nil) != tc.wantOK || calls != tc.wantCalls {
+				t.Fatalf("calls=%d err=%v, want calls=%d ok=%v", calls, err, tc.wantCalls, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestV2ProvisionReportsInstallDespiteCredentialPersistenceFailure(t *testing.T) {
+	const ref = "EF-Abcd1234"
+	reportCalls := 0
+	var credentialsPath string
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/agent-identities/registration-challenges":
+			fmt.Fprint(w, `{"code":0,"data":{"bootstrap_grant":"grant","nonce":"nonce"}}`)
+		case "/api/v2/agent-identities/provision":
+			if err := os.MkdirAll(credentialsPath, 0700); err != nil {
+				t.Error(err)
+			}
+			fmt.Fprint(w, `{"code":0,"data":{"agent_id":"agent-1","access_token":"new-token","refresh_token":"refresh","expires_at":4102444800000,"created":true}}`)
+		case "/api/v1/install/report":
+			reportCalls++
+			var body struct {
+				Ref string `json:"ref"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Ref != ref {
+				t.Errorf("saved ref lost: %+v %v", body, err)
+			}
+			fmt.Fprint(w, `{"code":0,"data":{"converted":true,"attribution":{"ref":"EF-Abcd1234"}}}`)
+		default:
+			t.Errorf("unexpected route %s", r.URL.Path)
+			w.WriteHeader(404)
+		}
+	}))
+	defer endpoint.Close()
+	cfg, _ := runtimeTestConfig(t, "http://127.0.0.1:1", false)
+	if err := cfg.AddServer("selected", endpoint.URL); err != nil {
+		t.Fatal(err)
+	}
+	serverFlag = "selected"
+	selected, err := cfg.GetActive(serverFlag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := auth.RememberInstallRef(*selected, selected.Endpoint, ref); err != nil {
+		t.Fatal(err)
+	}
+	credentialsPath = filepath.Join(config.HomeDir(), "servers", "selected", "agent-v2-credentials.json")
+	command := &cobra.Command{}
+	command.Flags().String("mode", "skill", "")
+	command.Flags().String("runtime-name", "codex", "")
+	command.Flags().Bool("no-handoff", true, "")
+	_, err = captureHeartbeatStdout(t, func() error { return agentV2ProvisionCmd.RunE(command, nil) })
+	if err == nil || !strings.Contains(err.Error(), "agent-v2-credentials.json") || reportCalls != 1 {
+		t.Fatalf("local save error not preserved or installation not reported: calls=%d err=%v", reportCalls, err)
+	}
+	record, err := auth.LoadInstallRef(*selected)
+	if err != nil || record == nil || record.Ref != ref {
+		t.Fatalf("saved ref lost: %+v %v", record, err)
 	}
 }

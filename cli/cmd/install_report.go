@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -19,6 +21,25 @@ func reportProvisionedInstall(server config.Server, ref string, meta client.Meta
 	}
 	c := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v1", "", version, meta)
 	c.HTTPClient.Timeout = 5 * time.Second
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		lastErr = sendProvisionedInstallReport(c, ref)
+		if lastErr == nil {
+			return nil
+		}
+		var apiErr *client.APIError
+		if errors.As(lastErr, &apiErr) && apiErr.StatusCode != http.StatusRequestTimeout &&
+			apiErr.StatusCode != http.StatusTooManyRequests && apiErr.StatusCode < 500 {
+			return lastErr
+		}
+		if attempt < 2 {
+			time.Sleep(time.Duration(attempt+1) * 250 * time.Millisecond)
+		}
+	}
+	return lastErr
+}
+
+func sendProvisionedInstallReport(c *client.Client, ref string) error {
 	response, err := c.Post("/install/report", map[string]interface{}{
 		"ref":      ref,
 		"metadata": map[string]string{"via": "cli_v2_provision"},

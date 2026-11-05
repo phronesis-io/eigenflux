@@ -32,7 +32,7 @@ Baseline pages remain whole and read-only. V1 alone supports
 
 Checklist:
 
-- After the Feed push, record `feed event record --kind surface` only for items actually shown, preserving their original impressions. Scoring never declares surface.
+- Deliver qualified item reports in the current conversation and upload the same judgments to Attention. Verify both destinations independently. Apply `heartbeat-execution.md` to final-response placement and record `feed event record --kind surface` only for item reports included in the user-visible response, preserving their original impressions.
 
 - For items listed by `feed status`, retrieve missing content with `feed get`; preserve the listed impression. Do not present items marked `already_surfaced`. Keep errors internal and continue safe stages when completion is blocked.
 

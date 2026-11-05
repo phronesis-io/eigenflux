@@ -101,6 +101,14 @@ func (s *FeedServiceImpl) FetchFeed(ctx context.Context, req *feed.FetchFeedReq)
 	}
 
 	logger.Ctx(ctx).Info("FetchFeed called", "agentID", req.AgentId, "action", action, "limit", limit)
+	if req.ManagedMatchingVersion != nil {
+		if s.config == nil || !s.config.EnableSDKIntegrations || *req.ManagedMatchingVersion <= 0 || action != "refresh" {
+			return &feed.FetchFeedResp{Items: []*feed.FeedItem{}, BaseResp: &base.BaseResp{Code: 503, Msg: "managed_feed_unavailable"}}, nil
+		}
+		// Enterprise MVP consumes broadcast Feed data through the existing
+		// ranking/delivery chain, independently of personal onboarding cutovers.
+		return s.handleRefresh(ctx, req.AgentId, limit, req.ManagedMatchingVersion)
+	}
 
 	if s.config != nil && s.config.EnableNeedSearch {
 		return s.fetchDiscoveryFeed(ctx, req.AgentId, action, int(limit))
@@ -120,7 +128,7 @@ func (s *FeedServiceImpl) FetchFeed(ctx context.Context, req *feed.FetchFeedReq)
 	}
 }
 
-func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limit int32) (*feed.FetchFeedResp, error) {
+func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limit int32, managedVersion ...*int64) (*feed.FetchFeedResp, error) {
 	logger.Ctx(ctx).Info("handleRefresh", "agentID", agentID, "limit", limit)
 
 	impressionID, err := s.newImpressionID()
@@ -143,9 +151,14 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 		fetchLimit = 500
 	}
 
+	var expectedVersion *int64
+	if len(managedVersion) > 0 {
+		expectedVersion = managedVersion[0]
+	}
 	sortResp, err := sortClient.SortItems(ctx, &sort.SortItemsReq{
-		AgentId: agentID,
-		Limit:   int32Ptr(fetchLimit),
+		AgentId:                agentID,
+		Limit:                  int32Ptr(fetchLimit),
+		ManagedMatchingVersion: expectedVersion,
 	})
 	if err != nil {
 		logger.Ctx(ctx).Error("SortService error", "err", err)
@@ -184,10 +197,11 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 
 	if len(sortResp.ItemIds) == 0 {
 		return &feed.FetchFeedResp{
-			Items:        []*feed.FeedItem{},
-			HasMore:      false,
-			ImpressionId: impressionID,
-			BaseResp:     &base.BaseResp{Code: 0, Msg: "success"},
+			ManagedMatchingVersion: sortResp.ManagedMatchingVersion,
+			Items:                  []*feed.FeedItem{},
+			HasMore:                false,
+			ImpressionId:           impressionID,
+			BaseResp:               &base.BaseResp{Code: 0, Msg: "success"},
 		}, nil
 	}
 
@@ -246,10 +260,11 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 
 	if len(rankedEntries) == 0 {
 		return &feed.FetchFeedResp{
-			Items:        []*feed.FeedItem{},
-			HasMore:      false,
-			ImpressionId: impressionID,
-			BaseResp:     &base.BaseResp{Code: 0, Msg: "success"},
+			ManagedMatchingVersion: sortResp.ManagedMatchingVersion,
+			Items:                  []*feed.FeedItem{},
+			HasMore:                false,
+			ImpressionId:           impressionID,
+			BaseResp:               &base.BaseResp{Code: 0, Msg: "success"},
 		}, nil
 	}
 
@@ -283,10 +298,11 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 	logger.Ctx(ctx).Info("returning items", "count", len(feedItems), "hasMore", hasMore)
 
 	return &feed.FetchFeedResp{
-		Items:        feedItems,
-		HasMore:      hasMore,
-		ImpressionId: impressionID,
-		BaseResp:     &base.BaseResp{Code: 0, Msg: "success"},
+		Items:                  feedItems,
+		ManagedMatchingVersion: sortResp.ManagedMatchingVersion,
+		HasMore:                hasMore,
+		ImpressionId:           impressionID,
+		BaseResp:               &base.BaseResp{Code: 0, Msg: "success"},
 	}, nil
 }
 

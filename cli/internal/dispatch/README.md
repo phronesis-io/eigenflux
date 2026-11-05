@@ -308,6 +308,13 @@ Persist a new private output directory inside the bound WorkDir before invoking 
 
 Preserve output directories, including partial/unknown work; temporary input copies are removed. CLI 1.0.26 persists `CommissionCheckpoint` after validating an `artifacts_ready` decision and its files, before subsequent identity/configuration checks. Report actual account changes separately from configuration changes and unavailable local reads; transient read checks have bounded retries. A true identity or configuration change never permits delivery.
 
+The checkpoint regression exercises missing credentials and a deterministic
+identity-guard cancellation after verified generation. The foreground read may
+report `commission_local_state_missing`, while an earlier guard or timeout may
+report `commission_local_check_cancelled`. Both must retain the pending checkpoint
+and original session, resume without another Agent call after local recovery,
+and reject changed identities, Orders, inputs or artifact bytes.
+
 An explicit retry of a failed/needs-user job with a checkpoint reuses its verified directory and original Agent result, without another model call. Revalidate the current seller, paid Order version, input fingerprint, signed rules and exact artifact hashes before continuing. Changed files or stale Orders block recovery. Old jobs without a checkpoint retain the existing retry behavior; do not infer a checkpoint from loose files or reconstruct one for uncertain work.
 
 CLI 1.0.27 persists a separate delivery retry record after verified `artifacts_ready` output. It allows at most five total attempts, including the first, with 1/2/5/10-minute delays. Due times and attempt counts survive restart; a waiting job does not block other fulfillment jobs. Retry only the retained artifacts, never the Agent invocation. Revalidate the original identity, configuration, order parties/version, inputs, signed rules and exact output bytes before continuing.

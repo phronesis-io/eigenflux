@@ -111,6 +111,52 @@
     "pr": "https://github.com/phronesis-io/eigenflux/pull/466"
   },
   {
+    "id": "managed-enterprise-identities-v1",
+    "kind": "behavior",
+    "deploy_scope": "full",
+    "dashboards": [
+      "user-growth"
+    ],
+    "title": "Managed enterprise registration available",
+    "description": "Default off. Approved integrations can create anonymous Agent identities without personal onboarding; growth counts include these identities only after explicit integration activation. Deployment alone does not activate access.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/469"
+  },
+  {
+    "id": "managed-context-private-matching-v1",
+    "kind": "behavior",
+    "deploy_scope": "full",
+    "dashboards": [
+      "card-refresh",
+      "recommendation-effect"
+    ],
+    "title": "Managed context updates private matching",
+    "description": "Default off. Approved enterprise context can update Card facts and dedicated matching projections after API, pipeline and Sort activation. Private summaries are excluded from public Cards; existing personal CLI routes and experiment assignments retain their behavior. Deployment alone does not enable enterprise access.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/470"
+  },
+  {
+    "id": "managed-feed-durable-admission-v1",
+    "kind": "behavior",
+    "deploy_scope": "full",
+    "dashboards": [
+      "recommendation-effect"
+    ],
+    "title": "Managed Feed batches use durable admission",
+    "description": "Default off. Activated enterprise requests reserve shared application quota and Agent cadence before generation, and retry saved batches without extra source calls. Unknown outcomes conservatively consume a round. Existing personal CLI Feed cadence and authorization are unchanged. Full API, Feed and Sort rollout is required; deployment alone does not activate enterprise access.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/471"
+  },
+  {
+    "id": "managed-integration-observation-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "full",
+    "dashboards": [
+      "user-growth",
+      "recommendation-effect"
+    ],
+    "title": "Managed integration request diagnostics available",
+    "description": "Default off. Activated enterprise routes observe mapped Agent request counts, recent activity and fixed failure codes for operator inspection. Observations are best effort and not billing totals; admitted generation counters stay transactional. No historical backfill or personal CLI authorization/cadence change. SDK adoption and explicit enterprise activation are separate from deployment.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/472"
+  },
+  {
     "id": "feed-v2-baseline-context-v1",
     "kind": "behavior",
     "deploy_scope": "api",
@@ -198,5 +244,16 @@
     "title": "Observe CLI versions on passive Agent reads",
     "description": "After API rollout, successful authenticated CLI settings and pending-notification reads refresh only the CLI version, without counting as activity or runtime readiness. Existing clients benefit on their next read; historical snapshots and missing execution receipts are not backfilled. Correlated execution receipts and deduplicated policy warnings require the new CLI.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/505"
+  },
+  {
+    "id": "install-safety-scanner-filter-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "api",
+    "dashboards": [
+      "user-growth"
+    ],
+    "title": "Exclude safety scanners from install landings",
+    "description": "After API rollout, Google-Safety requests no longer create landing records. Historical rows remain. Referral and reporting repairs require the updated website, installers and CLI; this marker records only API activation.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/508"
   }
 ]

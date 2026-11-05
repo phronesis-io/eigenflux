@@ -113,3 +113,21 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertEqual(gate['env']['CLI_RUN_ID'], '${{ github.event.workflow_run.id }}')
         self.assertEqual(jobs['plan']['steps'][0]['with']['ref'], 'main')
         self.assertEqual(fallback['if'], "steps.ci.outputs.trusted_ci != 'true'")
+
+
+    def test_duplicate_gate_precedes_all_preparation_and_records_only_success(self):
+        jobs = workflow('release-skills.yml')['jobs']
+        self.assertIn("needs.plan.outputs.duplicate_release != 'true'", jobs['prepare']['if'])
+        decision = next(s for s in jobs['plan']['steps'] if s.get('id') == 'plan')
+        self.assertIn('--check-duplicate', decision['run'])
+        self.assertNotIn('SKILLS_SIGNING_KEY', json.dumps(jobs['plan']))
+        self.assertIn('duplicate_release', jobs['plan']['outputs'])
+        receipt = jobs['publish']['steps'][-1]
+        self.assertIn('upload-artifact@', receipt['uses'])
+        self.assertNotIn('if', receipt)
+        self.assertEqual(receipt['with']['path'], 'build/cli/manifest.json')
+        self.assertEqual(receipt['with']['name'], '${{ needs.plan.outputs.publication_receipt }}')
+        self.assertGreaterEqual(receipt['with']['retention-days'], 14)
+        triggers = workflow('release-skills.yml')
+        triggers = triggers.get('on', triggers.get('true'))
+        self.assertFalse(triggers['workflow_dispatch']['inputs']['force']['default'])

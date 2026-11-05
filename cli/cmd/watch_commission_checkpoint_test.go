@@ -18,7 +18,7 @@ import (
 )
 
 func TestCommissionVerifiedCheckpointResumesWithoutAgent(t *testing.T) {
-	for _, scenario := range []string{"resume", "changed_bytes", "missing_file", "symlink_directory", "order_changed", "inputs_changed", "identity_changed", "binding_changed"} {
+	for _, scenario := range []string{"resume", "guard_cancelled", "changed_bytes", "missing_file", "symlink_directory", "order_changed", "inputs_changed", "identity_changed", "binding_changed"} {
 		t.Run(scenario, func(t *testing.T) {
 			var current atomic.Pointer[commissionIntakeOrder]
 			order := paidCommissionTestOrder()
@@ -26,6 +26,9 @@ func TestCommissionVerifiedCheckpointResumesWithoutAgent(t *testing.T) {
 			server := commissionFulfillmentServer(t, func() commissionIntakeOrder { return *current.Load() }, true)
 			defer server.Close()
 			w := newCommissionWatch(t, server.URL, "commission_order")
+			if scenario == "guard_cancelled" {
+				w.binding.TimeoutSeconds = 30
+			}
 			installCommissionIntakeRules(t, w)
 			job := claimPaidCommission(t, w)
 			credentials, err := auth.LoadV2Credentials(w.server.Name)
@@ -43,6 +46,18 @@ func TestCommissionVerifiedCheckpointResumesWithoutAgent(t *testing.T) {
 				// imply another account was selected.
 				if err := auth.DeleteV2Credentials(w.server.Name); err != nil {
 					t.Fatal(err)
+				}
+				if scenario == "guard_cancelled" {
+					// Let the real identity guard observe missing credentials before
+					// returning otherwise valid, completed generation evidence.
+					select {
+					case <-ctx.Done():
+						if !errors.Is(ctx.Err(), context.Canceled) {
+							t.Fatalf("identity guard did not cancel: %v", ctx.Err())
+						}
+					case <-time.After(10 * time.Second):
+						t.Fatal("identity guard did not observe missing credentials")
+					}
 				}
 				decision := dispatch.CommissionFulfillmentDecision{Version: 1, RequestID: job.ID, OrderID: "901", OrderVersion: 3, Outcome: "artifacts_ready", Summary: "Report generated", SelfCheck: "Read actual report", Artifacts: []dispatch.CommissionArtifact{{LogicalPath: "outputs/report.txt", RelativePath: "report.txt"}}}
 				raw, _ := json.Marshal(decision)
@@ -65,8 +80,18 @@ func TestCommissionVerifiedCheckpointResumesWithoutAgent(t *testing.T) {
 					stopped = candidate
 				}
 			}
-			if stopped.Status != "pending" || stopped.Code != "commission_delivery_retry_pending" || stopped.CommissionDelivery == nil || stopped.CommissionDelivery.LastCode != "commission_local_state_missing" || stopped.CommissionCheckpoint == nil || stopped.CommissionFulfillment != nil {
-				t.Fatalf("verified pre-upload evidence lost or mislabeled: %+v", stopped)
+			// The foreground read and the identity guard race after deletion.
+			// Either missing state or guard/timeout cancellation must retain the
+			// same verified checkpoint; neither outcome may rerun the Agent.
+			localCode := ""
+			if stopped.CommissionDelivery != nil {
+				localCode = stopped.CommissionDelivery.LastCode
+			}
+			if stopped.Status != "pending" || stopped.Code != "commission_delivery_retry_pending" || (localCode != "commission_local_state_missing" && localCode != "commission_local_check_cancelled") || stopped.CommissionCheckpoint == nil || stopped.CommissionFulfillment != nil {
+				t.Fatalf("verified pre-upload evidence lost or mislabeled: job=%+v retry=%+v", stopped, stopped.CommissionDelivery)
+			}
+			if scenario == "guard_cancelled" && localCode != "commission_local_check_cancelled" {
+				t.Fatalf("guard cancellation was not classified: %s", localCode)
 			}
 			job = dueCommissionDelivery(t, w, job.ID)
 			if job.CommissionCheckpoint == nil {
@@ -120,7 +145,7 @@ func TestCommissionVerifiedCheckpointResumesWithoutAgent(t *testing.T) {
 					final = candidate
 				}
 			}
-			if scenario == "resume" {
+			if scenario == "resume" || scenario == "guard_cancelled" {
 				if final.Status != "completed" || final.Code != "commission_delivery_confirmed" || final.CommissionCheckpoint != nil || final.CommissionFulfillment == nil || final.CommissionDirectory != stopped.CommissionDirectory || final.SessionID != "generated-once" {
 					t.Fatalf("checkpoint did not deliver original bytes: %+v", final)
 				}

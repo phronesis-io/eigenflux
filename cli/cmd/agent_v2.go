@@ -516,6 +516,11 @@ var agentV2ProvisionCmd = &cobra.Command{
 			AgentID: provisioned.AgentID, PrincipalID: provisioned.PrincipalID,
 			ExpiresAt: provisioned.ExpiresAt, Scopes: provisioned.Scopes,
 		}); err != nil {
+			// The server has already provisioned the identity. Local credential
+			// persistence must not hide that this CLI installation completed.
+			if ref != "" {
+				_ = reportProvisionedInstall(*server, ref, meta)
+			}
 			return err
 		}
 		result := map[string]interface{}{

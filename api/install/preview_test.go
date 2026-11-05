@@ -25,6 +25,8 @@ func TestPreviewUAClassification(t *testing.T) {
 		"Mozilla/5.0 HeadlessChrome/120.0", "Pinterestbot/1.0",
 		"Mozilla/5.0 (compatible; Googlebot-News/2.1)",
 		"Mozilla/5.0 (compatible; +https://developers.google.com/+/web/snippet)",
+		"Google-Safety", "google-safety/1.0",
+		"Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X) Chrome/156.0 Mobile Safari/537.36 (compatible; Google-Safety; +http://www.google.com/bot.html)",
 	} {
 		t.Run(ua, func(t *testing.T) {
 			if !isPreviewBot(ua) {
@@ -47,6 +49,8 @@ func TestPreviewUAClassification(t *testing.T) {
 		"Mozilla/5.0 BiliApp/9150300 metadata/bot",
 		"Mozilla/5.0 app_preview/1.0 feature=preview",
 		"Mozilla/5.0 +https://example.invalid/bot",
+		"Mozilla/5.0 Chrome/156.0 Safari/537.36 Google-SafetyBrowser/1.0",
+		"Mozilla/5.0 metadata/Google-Safety feature=Google-Safety",
 	} {
 		t.Run(ua, func(t *testing.T) {
 			if isPreviewBot(ua) {
@@ -78,6 +82,8 @@ func TestMintPreviewExitsBeforeAttribution(t *testing.T) {
 		{"User-Agent", "Mozilla/5.0 Chrome/91.0 Safari/537.36 LarkUrl"},
 		{"User-Agent", "redditbot/1.0"},
 		{"User-Agent", "Bytespider"},
+		{"User-Agent", "Google-Safety"},
+		{"User-Agent", "Mozilla/5.0 (compatible; Google-Safety; +http://www.google.com/bot.html)"},
 		{"Purpose", "prefetch"}, {"Sec-Purpose", "prefetch;prerender"},
 		{"X-Purpose", "preview"}, {"X-Moz", "prefetch"},
 	} {
@@ -104,6 +110,17 @@ func TestMintPreviewExitsBeforeAttribution(t *testing.T) {
 				t.Fatal("preview response must not be cached")
 			}
 		})
+	}
+}
+
+func TestGoogleSafetyPreviewIdentity(t *testing.T) {
+	c := app.NewContext(0)
+	c.Request.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Google-Safety; +http://www.google.com/bot.html)")
+	if got := previewBotIdentity(string(c.GetHeader("User-Agent"))); got != "google-safety" {
+		t.Fatalf("scanner identity=%q", got)
+	}
+	if got := previewReason(c); got != "crawler_user_agent" {
+		t.Fatalf("scanner reason=%q", got)
 	}
 }
 

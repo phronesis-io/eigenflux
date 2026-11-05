@@ -24,7 +24,9 @@ import (
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/es"
 
+	"eigenflux_server/pkg/agentcard"
 	"eigenflux_server/pkg/idgen"
+	"eigenflux_server/pkg/integrationprofile"
 	"eigenflux_server/pkg/itemdispatch"
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/metrics"
@@ -242,6 +244,10 @@ func main() {
 
 	go profileConsumer.Start(ctx)
 	go agentCardConsumer.Start(ctx)
+	if cfg.EnableSDKIntegrations {
+		processor := &integrationprofile.Processor{Store: &integrationprofile.Store{DB: db.DB}, Extractor: llm.NewClient(cfg, prompts), Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions), Rebuild: func(ctx context.Context, id int64) error { return agentcard.Rebuild(ctx, db.DB, mq.RDB, id) }}
+		go processor.Run(ctx)
+	}
 	if cfg.EnableNeedSearch {
 		needWorker := &consumer.NeedEmbeddingWorker{Cache: needembedding.New(cfg, db.DB, mq.RDB), Embedder: embedding.NewClient(cfg.EmbeddingProvider, cfg.EmbeddingApiKey, cfg.EmbeddingBaseURL, cfg.EmbeddingModel, cfg.EmbeddingDimensions)}
 		go needWorker.Start(ctx)
