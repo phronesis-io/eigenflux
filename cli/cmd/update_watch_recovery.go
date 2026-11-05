@@ -25,6 +25,7 @@ type updateWatchRecovery struct {
 	Reason               string                     `json:"reason,omitempty"`
 	Action               string                     `json:"action,omitempty"`
 	Notification         string                     `json:"notification,omitempty"`
+	NotificationID       string                     `json:"notification_id,omitempty"`
 	RuntimeReady         bool                       `json:"runtime_ready"`
 	AgentCallVerified    bool                       `json:"agent_call_verified"`
 	DesktopStatus        string                     `json:"desktop_status,omitempty"`
@@ -38,13 +39,14 @@ type updateWatchRecovery struct {
 }
 
 type updateRecoveryDeps struct {
-	idle   func() error
-	busy   func(dispatch.Binding) (bool, error)
-	probe  func(context.Context, dispatch.Binding) dispatch.MainNoticeProbe
-	verify func() error
-	sync   func(dispatch.Binding) error
-	start  func(context.Context, watchservice.NotificationTask) (watchservice.Result, error)
-	live   func(dispatch.Binding, bool) watchLiveStatus
+	ordinaryWatch bool
+	idle          func() error
+	busy          func(dispatch.Binding) (bool, error)
+	probe         func(context.Context, dispatch.Binding) dispatch.MainNoticeProbe
+	verify        func() error
+	sync          func(dispatch.Binding) error
+	start         func(context.Context, watchservice.NotificationTask) (watchservice.Result, error)
+	live          func(dispatch.Binding, bool) watchLiveStatus
 }
 
 func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding *dispatch.Binding, cli string, deps updateRecoveryDeps) updateWatchRecovery {
@@ -56,6 +58,9 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 	}
 	stage("identity")
 	r := updateWatchRecovery{Status: "blocked", Mode: "notifications_only", TargetCommit: commit}
+	if deps.ordinaryWatch {
+		r.Mode = "watch"
+	}
 	if binding != nil {
 		if !sameBindingIdentity(*binding, expected) {
 			r.Reason = "identity_changed"
@@ -70,7 +75,12 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 	}
 
 	stage("task_prepare")
-	running := deps.live(expected, binding == nil).Running
+	notificationsOnly := binding == nil && !deps.ordinaryWatch
+	running := deps.live(expected, notificationsOnly).Running
+	if !running && deps.ordinaryWatch {
+		r.Status, r.Reason = "pending", "runtime_not_ready"
+		return r
+	}
 	// Wait for admitted work without killing the owner or replacing its rules.
 	if running && deps.busy != nil {
 		for {
@@ -144,16 +154,16 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 			r.Reason = "identity_changed"
 			return r
 		}
-		live := deps.live(expected, binding == nil)
+		live := deps.live(expected, notificationsOnly)
 
 		r.RuntimeReady = live.Running && live.Ready
 		r.RunningCommit = live.Commit
 		r.VersionVerified = live.Running && live.Commit == commit
-		r.AgentCallVerified = live.AgentCallVerified
+		r.AgentCallVerified = !deps.ordinaryWatch && live.AgentCallVerified
 		r.DesktopStatus = live.DesktopStatus
 		if r.RuntimeReady && r.VersionVerified {
 			r.Status = "ready"
-			if expected.Host == "codex" {
+			if expected.Host == "codex" && !deps.ordinaryWatch {
 				if binding == nil {
 					r.Status = "pending"
 					r.Reason = "main_session_bootstrap_required"
@@ -262,6 +272,7 @@ func recoverWatchAfterUpdateOnPlatform(cmd *cobra.Command, cfg *config.Config, m
 	}
 	var binding *dispatch.Binding
 	requireLinuxOwner := false
+	ordinaryWatch := false
 	verify := func() error {
 		current, err := watchBindingIdentity()
 		if err != nil {
@@ -281,6 +292,9 @@ func recoverWatchAfterUpdateOnPlatform(cmd *cobra.Command, cfg *config.Config, m
 				return errWatchConfiguration
 			}
 			owner, ownerErr := readNotificationWatch(expected.Home, expected.Server)
+			if ordinaryWatch && ownerErr == nil {
+				return errWatchConfiguration
+			}
 			if ownerErr == nil && !sameBindingIdentity(owner, expected) {
 				return errWatchIdentity
 			}
@@ -311,6 +325,9 @@ func recoverWatchAfterUpdateOnPlatform(cmd *cobra.Command, cfg *config.Config, m
 		} else if _, err := readNotificationWatch(expected.Home, expected.Server); err == nil {
 			requireLinuxOwner = true
 			live = readWatchLiveStatus(liveBinding, true, time.Now())
+		} else if errors.Is(err, os.ErrNotExist) {
+			ordinaryWatch = true
+			live = readWatchLiveStatus(liveBinding, false, time.Now())
 		}
 		if err := verify(); err != nil {
 			r.Status, r.Reason = "blocked", "identity_changed"
@@ -374,7 +391,7 @@ func recoverWatchAfterUpdateOnPlatform(cmd *cobra.Command, cfg *config.Config, m
 	}
 	ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
 	defer cancel()
-	r = recoverUpdatedWatch(ctx, expected, binding, cli, updateRecoveryDeps{idle: func() error {
+	r = recoverUpdatedWatch(ctx, expected, binding, cli, updateRecoveryDeps{ordinaryWatch: ordinaryWatch, idle: func() error {
 		release, err := watchstate.Acquire(expected.Home, expected.Server)
 		if err == nil {
 			release()

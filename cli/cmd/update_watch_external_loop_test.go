@@ -2,16 +2,194 @@ package cmd
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/dispatch"
 	"cli.eigenflux.ai/internal/maintenance"
 	watchstate "cli.eigenflux.ai/internal/watch"
+	"cli.eigenflux.ai/internal/watchservice"
 	"github.com/spf13/cobra"
 )
+
+func TestLinuxRecoveryPreservesOrdinaryWatch(t *testing.T) {
+	api := outerLoopTestAPI(t)
+	cfg, _ := runtimeTestConfig(t, api.URL, true)
+	installHeartbeatTestRules(t)
+	clientMeta.Host, clientMeta.Mode = "codex", "skill"
+	t.Setenv("EIGENFLUX_SKIP_AGENT_SETUP", "")
+	expected, err := watchBindingIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := watchLiveStatus{State: "ready", Running: true, Ready: true, Commit: commit,
+		Home: expected.Home, Server: expected.Server, Endpoint: expected.Endpoint,
+		Scope: expected.Scope, UpdatedAt: time.Now()}
+	if err := dispatch.WriteJSON(watchLivePath(expected), live); err != nil {
+		t.Fatal(err)
+	}
+	release, err := watchstate.Acquire(expected.Home, expected.Server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	before, err := os.ReadFile(watchLivePath(expected))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := &cobra.Command{}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	cmd.SetContext(ctx)
+	cmd.SetErr(&bytes.Buffer{})
+	r := recoverWatchAfterUpdateOnPlatform(cmd, cfg, false, "linux")
+	if r.Status != "ready" || r.Mode != "watch" || !r.RuntimeReady || !r.VersionVerified || !r.SkillsVerified || r.AgentCallVerified || r.MainSession != nil {
+		t.Fatalf("ordinary watch was not verified in its existing mode: %+v", r)
+	}
+	after, err := os.ReadFile(watchLivePath(expected))
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("recovery rewrote the ordinary watch pulse: %v", err)
+	}
+	for _, path := range []string{dispatch.BindingPath(expected.Home, expected.Server), notificationWatchPath(expected.Home, expected.Server)} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("ordinary watch recovery created another ownership mode at %s: %v", path, err)
+		}
+	}
+}
+
+func TestLinuxRecoveryRejectsInvalidOrdinaryWatch(t *testing.T) {
+	for _, scenario := range []string{"missing", "stale", "future", "account_changed", "configuration_changed", "revision_changed", "notifications_only", "unlocked", "stopped"} {
+		t.Run(scenario, func(t *testing.T) {
+			api := outerLoopTestAPI(t)
+			cfg, server := runtimeTestConfig(t, api.URL, true)
+			t.Setenv("EIGENFLUX_SKIP_AGENT_SETUP", "")
+			expected, err := watchBindingIdentity()
+			if err != nil {
+				t.Fatal(err)
+			}
+			live := watchLiveStatus{State: "ready", Running: true, Ready: true, Commit: commit,
+				Home: expected.Home, Server: expected.Server, Endpoint: expected.Endpoint,
+				Scope: expected.Scope, UpdatedAt: time.Now()}
+			switch scenario {
+			case "stale":
+				live.UpdatedAt = time.Now().Add(-time.Minute)
+			case "future":
+				live.UpdatedAt = time.Now().Add(time.Minute)
+			case "account_changed":
+				credentials, err := auth.LoadV2Credentials(server)
+				if err != nil {
+					t.Fatal(err)
+				}
+				credentials.AgentID = "another-account"
+				if err := auth.SaveV2Credentials(server, credentials); err != nil {
+					t.Fatal(err)
+				}
+			case "configuration_changed":
+				if err := cfg.UpdateServer(server, "https://changed.example.invalid", ""); err != nil {
+					t.Fatal(err)
+				}
+			case "revision_changed":
+				live.Revision = "new-binding"
+			case "notifications_only":
+				live.NotificationsOnly = true
+			case "stopped":
+				live.Running = false
+			}
+			if scenario != "missing" {
+				if err := dispatch.WriteJSON(watchLivePath(expected), live); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if scenario != "unlocked" {
+				release, err := watchstate.Acquire(expected.Home, expected.Server)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer release()
+			}
+			before, _ := os.ReadFile(watchLivePath(expected))
+			cmd := &cobra.Command{}
+			cmd.SetErr(&bytes.Buffer{})
+			r := recoverWatchAfterUpdateOnPlatform(cmd, cfg, false, "linux")
+			if r.Status != "pending" || r.Reason != "external_loop_unverified" || r.RuntimeReady || r.VersionVerified || r.SkillsVerified {
+				t.Fatalf("invalid ordinary watch was accepted: %+v", r)
+			}
+			after, _ := os.ReadFile(watchLivePath(expected))
+			if !bytes.Equal(before, after) {
+				t.Fatal("recovery changed the existing pulse")
+			}
+			for _, path := range []string{dispatch.BindingPath(expected.Home, server), notificationWatchPath(expected.Home, server)} {
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Fatalf("recovery created another owner at %s: %v", path, err)
+				}
+			}
+		})
+	}
+}
+
+func TestOrdinaryWatchRecoveryDoesNotStartOrPromoteItsOwner(t *testing.T) {
+	for _, scenario := range []string{"ready", "stopped_before_checks", "stopped_during_checks", "identity_changed", "configuration_changed", "old_version"} {
+		t.Run(scenario, func(t *testing.T) {
+			expected := dispatch.Binding{Home: t.TempDir(), Server: "test", Endpoint: "https://test.invalid", AgentID: "agent", Scope: "scope", Host: "codex"}
+			var reads, checks, starts, probes int
+			deps := updateRecoveryDeps{ordinaryWatch: true,
+				verify: func() error {
+					checks++
+					if checks > 1 {
+						if scenario == "identity_changed" {
+							return errWatchIdentity
+						}
+						if scenario == "configuration_changed" {
+							return errWatchConfiguration
+						}
+					}
+					return nil
+				},
+				sync: func(dispatch.Binding) error { return nil },
+				start: func(context.Context, watchservice.NotificationTask) (watchservice.Result, error) {
+					starts++
+					return watchservice.Result{}, errors.New("must preserve the existing supervisor")
+				},
+				probe: func(context.Context, dispatch.Binding) dispatch.MainNoticeProbe {
+					probes++
+					return dispatch.MainNoticeProbe{}
+				},
+				live: func(_ dispatch.Binding, notificationsOnly bool) watchLiveStatus {
+					reads++
+					if notificationsOnly {
+						t.Fatal("ordinary watch was read as notifications-only")
+					}
+					if scenario == "stopped_before_checks" || scenario == "stopped_during_checks" && reads > 1 {
+						return watchLiveStatus{}
+					}
+					runningCommit := commit
+					if scenario == "old_version" {
+						runningCommit = commit + "-old"
+					}
+					return watchLiveStatus{Running: true, Ready: true, Commit: runningCommit, AgentCallVerified: true}
+				},
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+			defer cancel()
+			r := recoverUpdatedWatch(ctx, expected, nil, "/unused-cli", deps)
+			if starts != 0 || probes != 0 || r.Mode != "watch" || r.AgentCallVerified || r.MainSession != nil {
+				t.Fatalf("ordinary watch was started or promoted to Agent dispatch: starts=%d probes=%d result=%+v", starts, probes, r)
+			}
+			if scenario == "ready" {
+				if r.Status != "ready" || !r.RuntimeReady || !r.VersionVerified {
+					t.Fatalf("existing ordinary owner was not accepted: %+v", r)
+				}
+			} else if r.Status == "ready" {
+				t.Fatalf("changed or unavailable owner counted as ready: %+v", r)
+			}
+		})
+	}
+}
 
 func TestLinuxRecoveryDoesNotTreatPluginModeAsReadiness(t *testing.T) {
 	api := outerLoopTestAPI(t)

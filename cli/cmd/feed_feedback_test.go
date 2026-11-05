@@ -353,7 +353,7 @@ func TestExpiredCredentialRefreshOutageKeepsFeedbackDurable(t *testing.T) {
 }
 
 func TestLifecycleCommandsDoNotFlushFeedQueue(t *testing.T) {
-	for _, args := range [][]string{{"uninstall"}, {"skills", "uninstall"}, {"uninstall-finalize"}, {"installation"}, {"migrate"}, {"version"}} {
+	for _, args := range [][]string{{"uninstall"}, {"skills", "uninstall"}, {"uninstall-finalize"}, {"installation"}, {"migrate"}, {"version"}, {"heartbeat", "recovery-notice-ack"}} {
 		cmd, _, err := rootCmd.Find(args)
 		if err != nil || cmd == rootCmd {
 			t.Fatalf("%v not found: %v", args, err)

@@ -86,12 +86,15 @@ attempts print a bounded local-only diagnostic without Agent attribution.
 Authenticated failures use the existing identity-pinned queue and offline retry;
 observation failures never change the setup result.
 
-Actionable recovery output includes a local notification decision: `required`
-for the first or changed action, `unchanged` for the same account/endpoint and
-action, and `recovered` once after verified readiness. The local maintenance
-receipt contains only scope/outcome hashes and active state. It deduplicates
-notification intent, not host delivery. State failures retain the actionable
-result with a bounded local diagnostic; they never block business stages.
+Actionable recovery output remains `required` with the same `notification_id`
+until the host acknowledges that notice through `heartbeat recovery-notice-ack
+--notice`. Plan prefetch, Feed failure and cycle observations never consume it.
+Only an acknowledged matching outcome becomes `unchanged`; verified recovery
+gets a separate pending ID. The local receipt contains scope/outcome hashes,
+the opaque ID and acknowledgement state, with no owner-facing content.
+Acknowledgement describes the host's handling assertion, not proof that the
+human read it. State failures retain the actionable result with a bounded local
+diagnostic; they never block business stages or enable telemetry.
 
 Automatic recovery and commands invoked with `--origin heartbeat` record
 `trigger: auto`; owner-requested commands record `trigger: manual`. Recovery
