@@ -79,18 +79,21 @@ func (p *slimPool) Query(ctx context.Context, c discovery.Context, channel strin
 		return nil, err
 	}
 	q["size"] = limit
-	line, err := p.exchange(ctx, map[string]any{"query": q, "exclusion_text": len(c.Filters.ExcludeTerms) > 0})
+	return p.RawQuery(ctx, q, channel, len(c.Filters.ExcludeTerms) > 0)
+}
+func (p *slimPool) RawQuery(ctx context.Context, q map[string]any, channel string, fullText bool) ([]discovery.Document, error) {
+	line, err := p.exchange(ctx, map[string]any{"query": q, "exclusion_text": fullText})
 	if err != nil {
 		return nil, err
 	}
 	var response struct {
 		Error string `json:"error"`
 		Hits  []struct {
-			ID, Author string
-			Group      int64
-			Score      float64
-			Hash, Text string
-			Slots      searchindex.Slots
+			ID, Author          string
+			Group               int64
+			Score               float64
+			Hash, Text, Preview string
+			Slots               searchindex.Slots
 		} `json:"hits"`
 	}
 	if err = json.Unmarshal(line, &response); err != nil {
@@ -112,7 +115,7 @@ func (p *slimPool) Query(ctx context.Context, c discovery.Context, channel strin
 		if err != nil {
 			return nil, err
 		}
-		d := discovery.Document{Ref: discovery.SourceRef{Type: discovery.Broadcast, ID: id}, AuthorID: author, GroupID: h.Group, Version: h.Hash, Text: h.Text, Slots: h.Slots}
+		d := discovery.Document{Ref: discovery.SourceRef{Type: discovery.Broadcast, ID: id}, AuthorID: author, GroupID: h.Group, Version: h.Hash, Text: h.Text, Preview: h.Preview, Slots: h.Slots}
 		if channel == "lexical" {
 			d.Lexical = h.Score
 		} else {

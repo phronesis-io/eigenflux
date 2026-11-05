@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"eigenflux_server/pkg/config"
@@ -166,7 +167,7 @@ func loadSnapshots(dir string) []*snapshot {
 		must(err)
 		var s snapshot
 		must(json.Unmarshal(b, &s))
-		if s.CaptureError != "" || len(s.Inventory) == 0 {
+		if s.CaptureError != "" || (len(s.Inventory) == 0 && s.Serving == nil) {
 			panic(fmt.Sprintf("incomplete Agent %d", s.Owner))
 		}
 		for i := range s.Contexts {
@@ -233,6 +234,15 @@ func counterfactual(cfg *config.Config, dir string) {
 		}
 	}
 	snapshots := loadSnapshots(dir)
+	var newItems []supplyItem
+	if os.Getenv("FIDELITY_NEW_SUPPLY") == "true" {
+		replayAll(cfg, dir)
+		newItems, err = loadNewSupply(dir, snapshots)
+		must(err)
+		for _, x := range newItems {
+			byID[x.Evidence.ItemID] = x.Evidence
+		}
+	}
 	bodyArms := [2]map[int64]bodyArm{{}, {}}
 	baselineOnly, sourceContextOnly, variant := replayVariant()
 	if os.Getenv("FIDELITY_PGC_COUPLED") == "true" {
@@ -257,6 +267,11 @@ func counterfactual(cfg *config.Config, dir string) {
 			}
 			inventory[d.Ref.ID] = d
 		}
+	}
+	for _, x := range newItems {
+		d := restoreDocs([]storedDocument{x.Document})[0]
+		inventory[d.Ref.ID] = d
+		classes[d.Ref.ID] = "pgc"
 	}
 	// Same analyzers/mappings as production. Corpus statistics here are those of
 	// the full captured union, not the two-million-document production corpus.
@@ -301,6 +316,18 @@ func counterfactual(cfg *config.Config, dir string) {
 		sort.Slice(orderedIDs, func(i, j int) bool { return orderedIDs[i] < orderedIDs[j] })
 		for _, id := range orderedIDs {
 			d := inventory[id]
+			isNew := false
+			for _, x := range newItems {
+				if x.Document.Ref.ID == id {
+					isNew = true
+					armVectors[1][id] = x.Vector
+					armChanged[1][id] = true
+					break
+				}
+			}
+			if isNew && i == 0 {
+				continue
+			}
 			item, ok := byID[id]
 			if !ok {
 				panic(fmt.Sprintf("missing source evidence %d", id))
@@ -313,7 +340,7 @@ func counterfactual(cfg *config.Config, dir string) {
 					fmt.Printf("inactive/seen/hard-filtered source %d has a stale authority fingerprint; retained in both pools\n", id)
 				}
 			}
-			if i == 0 {
+			if i == 0 && !isNew {
 				doc := replayIndexDocument(id, d, item, item.Content, item.Summary)
 				doc["replay_arm"] = "reference"
 				originalPayloads = append(originalPayloads, doc)
@@ -414,18 +441,26 @@ func counterfactual(cfg *config.Config, dir string) {
 		}
 		runs := []discovery.Execution{}
 		for i, index := range names {
+			armSnapshot := s
+			armIDs := append([]int64(nil), ids...)
+			if i == 1 && len(newItems) > 0 {
+				armSnapshot = supplySnapshot(s, newItems)
+				for _, x := range newItems {
+					armIDs = append(armIDs, x.Document.Ref.ID)
+				}
+			}
 			alias := index + "-agent-" + strconv.FormatInt(s.Owner, 10)
 			referenceAlias := index + "-reference-agent-" + strconv.FormatInt(s.Owner, 10)
 			actions := []any{}
 			for _, pair := range [][2]string{{alias, strconv.Itoa(i)}, {referenceAlias, "reference"}} {
-				filters := []any{map[string]any{"terms": map[string]any{"id": ids}}, map[string]any{"term": map[string]any{"replay_arm": pair[1]}}}
+				filters := []any{map[string]any{"terms": map[string]any{"id": armIDs}}, map[string]any{"term": map[string]any{"replay_arm": pair[1]}}}
 				actions = append(actions, map[string]any{"add": map[string]any{"index": index, "alias": pair[0], "filter": map[string]any{"bool": map[string]any{"filter": filters}}}})
 			}
 			local.request("POST", "/_aliases", map[string]any{"actions": actions})
 			docs := map[int64]discovery.Document{}
 			vectors := map[int64][]float32{}
 			changed := map[int64]bool{}
-			for _, d := range restoreDocs(s.Inventory) {
+			for _, d := range restoreDocs(armSnapshot.Inventory) {
 				if next, ok := armDocs[i][d.Ref.ID]; ok {
 					if armChanged[i][d.Ref.ID] {
 						changed[d.Ref.ID] = true
@@ -445,18 +480,66 @@ func counterfactual(cfg *config.Config, dir string) {
 					}
 				}
 			}
-			source := &poolSource{snap: s, docs: docs, dropped: armDrops[i], vectors: vectors, stale: stale, changed: changed, reference: referenceAlias, lexical: &discovery.Source{BroadcastIndex: alias}}
+			source := &poolSource{snap: armSnapshot, docs: docs, dropped: armDrops[i], vectors: vectors, stale: stale, changed: changed, reference: referenceAlias, lexical: &discovery.Source{BroadcastIndex: alias}}
 
-			engine, close := engine(cfg, dir, s, source)
-			run, err := engine.ReplayContexts(context.Background(), s.Owner, s.Contexts, []discovery.Kind{discovery.Broadcast}, 20, s.At)
+			var replaySource discovery.Sources = frozenServing(armSnapshot, source)
+			if i == 1 && len(newItems) > 0 {
+				extras := map[int64][]float32{}
+				for _, x := range newItems {
+					extras[x.Document.Ref.ID] = x.Vector
+				}
+				replaySource = &supplySource{poolSource: source, serving: &servingSource{Sources: source, snap: armSnapshot, mu: &sync.Mutex{}}, additions: extras, refreshedNewRecall: os.Getenv("FIDELITY_NEW_SUPPLY_NEW_RECALL") == "true"}
+			}
+			replayEngine, close := engine(cfg, dir, armSnapshot, replaySource)
+			var run discovery.Execution
+			var err error
+			if len(newItems) > 0 {
+				run, err = replayFeedPage(replayEngine, s)
+			} else {
+				run, err = replayEngine.ReplayContexts(context.Background(), s.Owner, s.Contexts, []discovery.Kind{discovery.Broadcast}, 20, s.At)
+			}
 			close()
 			must(err)
+			if armSnapshot.CaptureError != "" {
+				panic(armSnapshot.CaptureError)
+			}
+			if len(newItems) > 0 && len(run.PartialReasons) > 0 {
+				for _, r := range run.PartialReasons {
+					knownAbsentProfile := r == "profile_semantic:no_vector" && armSnapshot.Serving != nil && armSnapshot.Serving.ProfileRead && len(armSnapshot.Serving.Profile) == 0
+					if !knownAbsentProfile && (strings.Contains(r, "unavailable") || strings.Contains(r, "profile_semantic:") || strings.Contains(r, "need_semantic:")) {
+						panic("incomplete new supply serving evidence: " + r)
+					}
+				}
+			}
 			if len(run.PartialReasons) > 0 {
 				for _, r := range run.PartialReasons {
 					if strings.Contains(r, "unavailable") {
 						panic("partial counterfactual execution")
 					}
 				}
+			}
+			if len(newItems) > 0 && i == 0 {
+				baselineEngine, finish := engineForBaseline(cfg, dir, s)
+				expected, e := replayFeedPage(baselineEngine, s)
+				finish()
+				must(e)
+				want, _ := json.Marshal(expected)
+				got, _ := json.Marshal(run)
+				if !bytes.Equal(want, got) {
+					panic("new-supply baseline differs from captured serving execution")
+				}
+				// Admission machinery itself must be inert with no new items.
+				shadowSource := &supplySource{poolSource: source, serving: &servingSource{Sources: source, snap: s, mu: &sync.Mutex{}}, additions: map[int64][]float32{}}
+				shadowEngine, shadowClose := engine(cfg, dir, s, shadowSource)
+				shadow, shadowErr := replayFeedPage(shadowEngine, s)
+				shadowClose()
+				must(shadowErr)
+				shadowJSON, _ := json.Marshal(shadow)
+				if !bytes.Equal(want, shadowJSON) {
+					save(filepath.Join(dir, fmt.Sprintf("empty-supply-mismatch-%d.json", s.Owner)), map[string]any{"expected": expected, "actual": shadow})
+					panic(fmt.Sprintf("empty new-supply wrapper changes baseline for %d", s.Owner))
+				}
+
 			}
 			runs = append(runs, run)
 		}
@@ -468,7 +551,31 @@ func counterfactual(cfg *config.Config, dir string) {
 	if sourceContextOnly {
 		lifecycle = "item IDs/creation times fixed; changed PGC expiry re-extracted in both arms"
 	}
-	save(filepath.Join(dir, "counterfactual-"+variant+"-manifest.json"), map[string]any{"variant": variant, "indices": names, "agents": reports, "method": "full captured candidate-union counterfactual; changed PGC extraction and embeddings rerun, other dense scores frozen; production rules/model/policies; production-score-anchored lexical deltas from finite-corpus ratios; " + lifecycle + "; changed PGC groups rerun against preceding production items"})
+	method := "full captured candidate-union counterfactual; changed PGC extraction and embeddings rerun, other dense scores frozen; production rules/model/policies; production-score-anchored lexical deltas from finite-corpus ratios; " + lifecycle + "; changed PGC groups rerun against preceding production items"
+	if len(newItems) > 0 {
+		method = "one frozen Feed refresh per Agent, 200-candidate prefetch then 20-slot page with source ceilings; unchanged baseline A/A exact; current captured serving switches and frozen rating LR; candidate-only new PGC admission; exact cosine competition against captured dense top-k (approximate production kNN); lexical new-match scores estimated from median production/local BM25 calibration; original PGC/UGC content unchanged; explicit assumed publication times and retained-corpus grouping; frozen consumption/claims; no causal daily-uplift claim"
+	}
+	hashes := map[string]string{}
+	if len(newItems) > 0 {
+		for _, name := range []string{"cohort.json", "rules.json", "model.json", "rating-model.json", "rerank.yaml", "new-supply.json", "new-supply-provenance.json", "items.json", "index-template.json", "feedback-history.json", "production-source.json"} {
+			raw, e := os.ReadFile(filepath.Join(dir, name))
+			must(e)
+			hashes[name] = fmt.Sprintf("%x", sha256.Sum256(raw))
+		}
+		for _, s := range snapshots {
+			name := fmt.Sprintf("agent-%d.json", s.Owner)
+			raw, e := os.ReadFile(filepath.Join(dir, name))
+			must(e)
+			hashes[name] = fmt.Sprintf("%x", sha256.Sum256(raw))
+		}
+	}
+	save(filepath.Join(dir, "counterfactual-"+variant+"-manifest.json"), map[string]any{"input_sha256": hashes, "new_recall_sensitivity": os.Getenv("FIDELITY_NEW_SUPPLY_NEW_RECALL") == "true", "new_supply_classes": func() map[int64]string {
+		out := map[int64]string{}
+		for _, x := range newItems {
+			out[x.Document.Ref.ID] = "pgc"
+		}
+		return out
+	}(), "variant": variant, "indices": names, "agents": reports, "method": method})
 }
 
 func auditInputHash(item itemEvidence) string {
@@ -547,6 +654,15 @@ func replayIndexDocument(id int64, d discovery.Document, item itemEvidence, cont
 // Source metadata sensitivity starts from the already deployed auditor. It must
 // not also apply the separate summary-fidelity rollout to unchanged documents.
 func replayVariant() (baselineOnly, sourceContextOnly bool, variant string) {
+	if os.Getenv("FIDELITY_NEW_SUPPLY") == "true" {
+		if os.Getenv("FIDELITY_BASELINE_ONLY") == "true" || os.Getenv("FIDELITY_SOURCE_CONTEXT_ONLY") == "true" || os.Getenv("FIDELITY_PGC_COUPLED") == "true" {
+			panic("new-supply mode cannot mix other interventions")
+		}
+		if os.Getenv("FIDELITY_NEW_SUPPLY_NEW_RECALL") == "true" {
+			return false, true, "new-supply-refreshed"
+		}
+		return false, true, "new-supply"
+	}
 	baselineOnly = os.Getenv("FIDELITY_BASELINE_ONLY") == "true"
 	sourceContextOnly = os.Getenv("FIDELITY_SOURCE_CONTEXT_ONLY") == "true"
 	coupled := os.Getenv("FIDELITY_PGC_COUPLED") == "true"
@@ -567,4 +683,16 @@ func replayVariant() (baselineOnly, sourceContextOnly bool, variant string) {
 		variant = "source-context"
 	}
 	return
+}
+
+func engineForBaseline(cfg *config.Config, dir string, s *snapshot) (*discovery.Engine, func()) {
+	return engine(cfg, dir, s, frozenServing(s, newFrozenSource(s)))
+}
+func replayFeedPage(e *discovery.Engine, s *snapshot) (discovery.Execution, error) {
+	x, err := e.ReplayPrefetchContexts(context.Background(), s.Owner, s.Contexts, []discovery.Kind{discovery.Broadcast}, 20, s.At)
+	if err != nil {
+		return x, err
+	}
+	x.Candidates, _ = discovery.SelectRecommendationPage(x.Candidates, 20, x.SourceLimits)
+	return x, nil
 }

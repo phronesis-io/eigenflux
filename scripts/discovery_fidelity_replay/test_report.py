@@ -55,5 +55,42 @@ class PositiveEstimateTests(unittest.TestCase):
             self.assertIn("gate-only", report["method"])
 
 
+    def test_new_supply_uses_matched_history_and_counts_displaced_ugc(self):
+        for variant in ("new-supply", "new-supply-refreshed"):
+            with self.subTest(variant=variant), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                def save(name, value):
+                    (root / name).write_text(json.dumps(value))
+                save(f"counterfactual-{variant}-manifest.json", {
+                    "method": "conditional frozen refresh",
+                    "new_supply_classes": {"2": "pgc"},
+                    "agents": [{"agent_id": "99", "pool": 2, "captured_delivered": 1}],
+                })
+                save("agent-99.json", {"Classes": {"1": "ugc"}})
+                def arm(item, origin):
+                    return {"candidates": [{"document": {"source_ref": {"id": item}},
+                                            "context": {"input_origin": origin}}]}
+                save(f"comparison-{variant}-99.json", {
+                    "before": arm("1", "need_input"), "after": arm("2", "agent_context")})
+                history = {"delivery_start": "start", "delivery_end": "end", "cells": [
+                    {"agent_id": "99", "lane": "pgc", "deliveries": 80, "positive_events": 8},
+                    {"agent_id": "99", "lane": "ugc", "deliveries": 80, "positive_events": 32}]}
+                save("feedback-history.json", history)
+                command = [sys.executable, str(Path(__file__).with_name("report.py")),
+                           "--dir", tmp, "--variant", variant]
+                subprocess.run(command, check=True, capture_output=True)
+                result = json.loads((root / f"{variant}-effect-estimates.json").read_text())
+                self.assertEqual(result["new_supply_delivered"], 1)
+                self.assertEqual(result["displaced"], {"pgc": 0, "ugc": 1})
+                self.assertEqual(result["rows"][0]["positive_delta"], -.3)
+                self.assertEqual(result["rows"][0]["before_need"], 1)
+                self.assertEqual(result["rows"][0]["after_profile"], 1)
+                history["cells"][0]["deliveries"] = 0
+                save("feedback-history.json", history)
+                failed = subprocess.run(command, capture_output=True, text=True)
+                self.assertNotEqual(failed.returncode, 0)
+                self.assertIn("Missing historical exposure support", failed.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

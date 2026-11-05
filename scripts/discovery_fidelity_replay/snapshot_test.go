@@ -53,3 +53,15 @@ func TestReadOnlyRedisAllowsHandshakeAndReadsButRejectsWrites(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "value", got)
 }
+
+func TestFrozenHydrationAcceptsMapOrderButRejectsChangedEvidence(t *testing.T) {
+	a := discovery.Document{Ref: discovery.SourceRef{Type: discovery.Broadcast, ID: 1}, Text: "one"}
+	b := discovery.Document{Ref: discovery.SourceRef{Type: discovery.Broadcast, ID: 2}, Text: "two"}
+	snapshot := &snapshot{Hydration: []hydrationBatch{{Input: storeDocs([]discovery.Document{a, b}), Output: storeDocs([]discovery.Document{a, b})}}}
+	got, err := newFrozenSource(snapshot).Hydrate(context.Background(), 1, discovery.Recommendation, []discovery.Document{b, a})
+	require.NoError(t, err)
+	require.Equal(t, []discovery.Document{b, a}, got)
+	b.Text = "different"
+	_, err = newFrozenSource(snapshot).Hydrate(context.Background(), 1, discovery.Recommendation, []discovery.Document{b, a})
+	require.ErrorContains(t, err, "differs")
+}
