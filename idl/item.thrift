@@ -26,6 +26,7 @@ struct ProcessedItem {
     11: optional i64 group_id
     12: required i64 updated_at
     13: optional string suggestion
+    30: optional string summary_origin
 }
 
 struct PublishItemReq {
@@ -89,6 +90,7 @@ struct ItemWithStats {
     11: optional i64 reply_count
     12: optional bool retracted
     13: optional i64 created_at   // publish time (item_stats.created_at); updated_at moves on stat recalcs
+    30: optional string summary_origin
 }
 
 struct GetMyItemsReq {

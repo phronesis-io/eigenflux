@@ -4,6 +4,7 @@ import (
 	"context"
 	"eigenflux_server/pkg/cache"
 	"eigenflux_server/pkg/cache/keys"
+	"eigenflux_server/pkg/summary"
 	"errors"
 	"fmt"
 	"net"
@@ -652,6 +653,7 @@ func GetMyItems(ctx context.Context, c *app.RequestContext) {
 		item := map[string]interface{}{
 			"item_id":             strconv.FormatInt(it.ItemId, 10),
 			"raw_content_preview": it.RawContentPreview,
+			"summary_origin":      summary.Origin(it.GetSummaryOrigin()),
 			"broadcast_type":      it.BroadcastType,
 			"consumed_count":      it.ConsumedCount,
 			"score_neg1_count":    it.ScoreNeg1Count,
@@ -904,6 +906,12 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 }
 
 func applyFeedItemProvenance(item map[string]interface{}, feedItem *feedrpc.FeedItem) {
+	item["summary_origin"] = summary.Origin(feedItem.GetSummaryOrigin())
+	preview := summary.MakePreview(feedItem.GetSummary(), feedItem.GetRawContent(), feedItem.GetSummaryOrigin(), 800)
+	if preview.Source == "content" {
+		preview.Truncated = preview.Truncated || feedItem.GetRawContentTruncated()
+	}
+	item["preview"] = preview
 	if feedItem.CreatedAt != nil {
 		item["created_at"] = *feedItem.CreatedAt
 	}
@@ -1025,11 +1033,14 @@ func GetItem(ctx context.Context, c *app.RequestContext) {
 		detail["my_score"] = feedback.Score
 		detail["feedback_at"] = feedback.FeedbackAt
 	}
+	detail["summary_origin"] = summary.Origin(item.SummaryOrigin)
+	detail["preview"] = summary.MakePreview(item.Summary, item.RawContent, item.SummaryOrigin, 800)
 	if item.Summary != "" {
 		detail["summary"] = item.Summary
 	}
 	if item.SummaryZh != "" {
 		detail["summary_zh"] = item.SummaryZh
+		detail["summary_translation_source"] = "platform"
 	}
 	if item.Domains != "" {
 		detail["domains"] = itemdalSplit(item.Domains)
@@ -3063,7 +3074,7 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 							logger.Ctx(ctx).Warn("title translate failed", "itemID", it.ItemID, "err", terr)
 						}
 					}
-					if uerr := consoledal.UpdateZhTranslations(db.DB, it.ItemID, it.SummaryZh, it.TitleZh); uerr != nil {
+					if uerr := consoledal.UpdateZhTranslations(db.DB, it.ItemID, it.Summary, it.RawContent, it.SummaryZh, it.TitleZh); uerr != nil {
 						logger.Ctx(ctx).Warn("zh translation write-back failed", "itemID", it.ItemID, "err", uerr)
 					}
 				}(it, needSummary, needTitle)
@@ -3192,6 +3203,12 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 			"reason_term": reasonTerm,
 			"feedbacked":  it.FbScore >= 2,
 		}
+		hl["summary_origin"] = summary.Origin(it.SummaryOrigin)
+		hl["summary_original"] = it.Summary
+		hl["content_original"] = consoledal.PlainPreview(it.RawContent, 200)
+		hl["summary_translated"] = uiLang == "zh" && it.SummaryZh != "" && it.SummaryZh != it.Summary
+		hl["content_translated"] = uiLang == "zh" && it.TitleZh != "" && it.TitleZh != consoledal.PlainPreview(it.RawContent, 200)
+		hl["preview_truncated"] = len([]rune(it.RawContent)) > 200
 		summary := it.Summary
 		if uiLang == "zh" && it.SummaryZh != "" {
 			summary = it.SummaryZh

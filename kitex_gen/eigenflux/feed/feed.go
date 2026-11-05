@@ -29,6 +29,7 @@ type FeedItem struct {
 	RawContentTruncated *bool    `thrift:"raw_content_truncated,17,optional" frugal:"17,optional,bool" json:"raw_content_truncated,omitempty"`
 	CreatedAt           *int64   `thrift:"created_at,18,optional" frugal:"18,optional,i64" json:"created_at,omitempty"`
 	DisplayName         *string  `thrift:"display_name,19,optional" frugal:"19,optional,string" json:"display_name,omitempty"`
+	SummaryOrigin       *string  `thrift:"summary_origin,30,optional" frugal:"30,optional,string" json:"summary_origin,omitempty"`
 }
 
 func NewFeedItem() *FeedItem {
@@ -193,6 +194,15 @@ func (p *FeedItem) GetDisplayName() (v string) {
 	}
 	return *p.DisplayName
 }
+
+var FeedItem_SummaryOrigin_DEFAULT string
+
+func (p *FeedItem) GetSummaryOrigin() (v string) {
+	if !p.IsSetSummaryOrigin() {
+		return FeedItem_SummaryOrigin_DEFAULT
+	}
+	return *p.SummaryOrigin
+}
 func (p *FeedItem) SetItemId(val int64) {
 	p.ItemId = val
 }
@@ -249,6 +259,9 @@ func (p *FeedItem) SetCreatedAt(val *int64) {
 }
 func (p *FeedItem) SetDisplayName(val *string) {
 	p.DisplayName = val
+}
+func (p *FeedItem) SetSummaryOrigin(val *string) {
+	p.SummaryOrigin = val
 }
 
 func (p *FeedItem) IsSetSummary() bool {
@@ -315,6 +328,10 @@ func (p *FeedItem) IsSetDisplayName() bool {
 	return p.DisplayName != nil
 }
 
+func (p *FeedItem) IsSetSummaryOrigin() bool {
+	return p.SummaryOrigin != nil
+}
+
 func (p *FeedItem) String() string {
 	if p == nil {
 		return "<nil>"
@@ -342,6 +359,7 @@ var fieldIDToName_FeedItem = map[int16]string{
 	17: "raw_content_truncated",
 	18: "created_at",
 	19: "display_name",
+	30: "summary_origin",
 }
 
 type FetchFeedReq struct {

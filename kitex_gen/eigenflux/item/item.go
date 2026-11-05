@@ -115,6 +115,7 @@ type ProcessedItem struct {
 	GroupId          *int64   `thrift:"group_id,11,optional" frugal:"11,optional,i64" json:"group_id,omitempty"`
 	UpdatedAt        int64    `thrift:"updated_at,12,required" frugal:"12,required,i64" json:"updated_at"`
 	Suggestion       *string  `thrift:"suggestion,13,optional" frugal:"13,optional,string" json:"suggestion,omitempty"`
+	SummaryOrigin    *string  `thrift:"summary_origin,30,optional" frugal:"30,optional,string" json:"summary_origin,omitempty"`
 }
 
 func NewProcessedItem() *ProcessedItem {
@@ -220,6 +221,15 @@ func (p *ProcessedItem) GetSuggestion() (v string) {
 	}
 	return *p.Suggestion
 }
+
+var ProcessedItem_SummaryOrigin_DEFAULT string
+
+func (p *ProcessedItem) GetSummaryOrigin() (v string) {
+	if !p.IsSetSummaryOrigin() {
+		return ProcessedItem_SummaryOrigin_DEFAULT
+	}
+	return *p.SummaryOrigin
+}
 func (p *ProcessedItem) SetItemId(val int64) {
 	p.ItemId = val
 }
@@ -259,6 +269,9 @@ func (p *ProcessedItem) SetUpdatedAt(val int64) {
 func (p *ProcessedItem) SetSuggestion(val *string) {
 	p.Suggestion = val
 }
+func (p *ProcessedItem) SetSummaryOrigin(val *string) {
+	p.SummaryOrigin = val
+}
 
 func (p *ProcessedItem) IsSetSummary() bool {
 	return p.Summary != nil
@@ -296,6 +309,10 @@ func (p *ProcessedItem) IsSetSuggestion() bool {
 	return p.Suggestion != nil
 }
 
+func (p *ProcessedItem) IsSetSummaryOrigin() bool {
+	return p.SummaryOrigin != nil
+}
+
 func (p *ProcessedItem) String() string {
 	if p == nil {
 		return "<nil>"
@@ -317,6 +334,7 @@ var fieldIDToName_ProcessedItem = map[int16]string{
 	11: "group_id",
 	12: "updated_at",
 	13: "suggestion",
+	30: "summary_origin",
 }
 
 type PublishItemReq struct {
@@ -779,6 +797,7 @@ type ItemWithStats struct {
 	ReplyCount        *int64  `thrift:"reply_count,11,optional" frugal:"11,optional,i64" json:"reply_count,omitempty"`
 	Retracted         *bool   `thrift:"retracted,12,optional" frugal:"12,optional,bool" json:"retracted,omitempty"`
 	CreatedAt         *int64  `thrift:"created_at,13,optional" frugal:"13,optional,i64" json:"created_at,omitempty"`
+	SummaryOrigin     *string `thrift:"summary_origin,30,optional" frugal:"30,optional,string" json:"summary_origin,omitempty"`
 }
 
 func NewItemWithStats() *ItemWithStats {
@@ -859,6 +878,15 @@ func (p *ItemWithStats) GetCreatedAt() (v int64) {
 	}
 	return *p.CreatedAt
 }
+
+var ItemWithStats_SummaryOrigin_DEFAULT string
+
+func (p *ItemWithStats) GetSummaryOrigin() (v string) {
+	if !p.IsSetSummaryOrigin() {
+		return ItemWithStats_SummaryOrigin_DEFAULT
+	}
+	return *p.SummaryOrigin
+}
 func (p *ItemWithStats) SetItemId(val int64) {
 	p.ItemId = val
 }
@@ -898,6 +926,9 @@ func (p *ItemWithStats) SetRetracted(val *bool) {
 func (p *ItemWithStats) SetCreatedAt(val *int64) {
 	p.CreatedAt = val
 }
+func (p *ItemWithStats) SetSummaryOrigin(val *string) {
+	p.SummaryOrigin = val
+}
 
 func (p *ItemWithStats) IsSetSummary() bool {
 	return p.Summary != nil
@@ -913,6 +944,10 @@ func (p *ItemWithStats) IsSetRetracted() bool {
 
 func (p *ItemWithStats) IsSetCreatedAt() bool {
 	return p.CreatedAt != nil
+}
+
+func (p *ItemWithStats) IsSetSummaryOrigin() bool {
+	return p.SummaryOrigin != nil
 }
 
 func (p *ItemWithStats) String() string {
@@ -936,6 +971,7 @@ var fieldIDToName_ItemWithStats = map[int16]string{
 	11: "reply_count",
 	12: "retracted",
 	13: "created_at",
+	30: "summary_origin",
 }
 
 type GetMyItemsReq struct {

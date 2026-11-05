@@ -59,7 +59,7 @@ func main() {
 	listenAddr := cfg.ListenAddr(cfg.ItemRPCPort)
 	addr, _ := net.ResolveTCPAddr("tcp", listenAddr)
 	svr := itemservice.NewServer(
-		&ItemServiceImpl{itemIDGen: itemIDGen},
+		&ItemServiceImpl{itemIDGen: itemIDGen, ugcPublisherSummary: cfg.UGCPublisherSummary, pgcEmailSuffixes: cfg.PGCEmailSuffixes},
 		rpcx.ServerOptions(addr, r, "ItemService", metrics.KitexServerMW())...,
 	)
 

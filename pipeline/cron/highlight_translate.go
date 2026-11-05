@@ -96,7 +96,7 @@ func translateHighlightsWithLock(ctx context.Context, rdb *redis.Client, tc *llm
 				}
 			}
 			if titleZh == "" && it.RawContent != "" {
-				preview := dal.PlainPreview(it.RawContent, 80)
+				preview := dal.PlainPreview(it.RawContent, 200)
 				if dal.IsLikelyChinese(preview) {
 					titleZh = preview
 				} else if zh, terr := tc.TranslateToChinese(ctx, preview); terr == nil && zh != "" {
@@ -108,7 +108,7 @@ func translateHighlightsWithLock(ctx context.Context, rdb *redis.Client, tc *llm
 			if summaryZh == it.SummaryZh && titleZh == it.TitleZh {
 				return // nothing new; retried next tick
 			}
-			if uerr := dal.UpdateZhTranslations(db.DB, it.ItemID, summaryZh, titleZh); uerr != nil {
+			if uerr := dal.UpdateZhTranslations(db.DB, it.ItemID, it.Summary, it.RawContent, summaryZh, titleZh); uerr != nil {
 				logger.Default().Warn("highlight translate write-back failed", "itemID", it.ItemID, "err", uerr)
 			}
 		}()

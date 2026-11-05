@@ -23,7 +23,7 @@ func TestGetItemStatsByAuthorPagination(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
-		"CREATE TABLE processed_items (item_id BIGINT PRIMARY KEY, status INTEGER, summary TEXT, broadcast_type TEXT)",
+		"CREATE TABLE processed_items (item_id BIGINT PRIMARY KEY, status INTEGER, summary TEXT, summary_origin TEXT DEFAULT 'unknown', broadcast_type TEXT)",
 		"CREATE TABLE raw_items (item_id BIGINT PRIMARY KEY, raw_content TEXT)",
 		"CREATE TABLE conversations (origin_id BIGINT, origin_type TEXT)",
 	} {
@@ -45,7 +45,7 @@ func TestGetItemStatsByAuthorPagination(t *testing.T) {
 		if err := db.Create(&row).Error; err != nil {
 			t.Fatal(err)
 		}
-		if err := db.Exec("INSERT INTO processed_items VALUES (?, 3, 'summary', 'info')", row.ItemID).Error; err != nil {
+		if err := db.Exec("INSERT INTO processed_items (item_id,status,summary,broadcast_type) VALUES (?, 3, 'summary', 'info')", row.ItemID).Error; err != nil {
 			t.Fatal(err)
 		}
 		if err := db.Exec("INSERT INTO raw_items VALUES (?, 'content')", row.ItemID).Error; err != nil {
