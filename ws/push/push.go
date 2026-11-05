@@ -15,6 +15,7 @@ import (
 	"eigenflux_server/kitex_gen/eigenflux/pm"
 	"eigenflux_server/kitex_gen/eigenflux/pm/pmservice"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/notificationpayload"
 	"eigenflux_server/ws/hub"
 )
@@ -233,12 +234,23 @@ func fetchPendingNotificationData(ctx context.Context, client notificationservic
 	}
 	data := NotificationFetchData{HasMore: response.GetHasMore(), NextCursor: response.GetNextCursor()}
 	for _, notification := range response.Notifications {
-		if notification == nil || notification.SourceType != "commission_order" || notification.PayloadJson == nil || !json.Valid([]byte(*notification.PayloadJson)) {
+		if notification == nil || (notification.SourceType != "commission_order" && notification.SourceType != notificationpayload.SourceCommissionModeration) {
 			continue
 		}
-		payload, err := notificationpayload.NormalizeCommissionOrderIDs(*notification.PayloadJson)
-		if err != nil {
-			continue
+		payload := json.RawMessage(notification.GetPayloadJson())
+		if notification.SourceType == notificationpayload.SourceCommissionModeration {
+			_, err := notificationpayload.ModerationForAgent(notification.GetPayloadJson(), agentID)
+			if err != nil {
+				metrics.ModerationNotificationSkippedTotal.WithLabelValues("ws").Inc()
+				logger.Ctx(ctx).Warn("invalid moderation notification skipped", "event", "notification.moderation_skipped", "notificationID", notification.NotificationId, "agentID", agentID)
+				continue
+			}
+		} else {
+			normalized, err := notificationpayload.NormalizeCommissionOrderIDs(notification.GetPayloadJson())
+			if err != nil {
+				continue
+			}
+			payload = normalized
 		}
 		data.Notifications = append(data.Notifications, NotificationData{
 			NotificationID: strconv.FormatInt(notification.NotificationId, 10), SourceType: notification.SourceType,

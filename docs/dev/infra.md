@@ -67,6 +67,7 @@ All services expose Prometheus metrics on a dedicated port (service port + 1000)
 | `http_requests_in_flight` | Gauge | — | API gateway, console |
 | `rpc_request_duration_seconds` | Histogram | service, method, status | All RPC services |
 | `rpc_requests_total` | Counter | service, method, status | All RPC services |
+| `moderation_notification_skipped_total` | Counter | boundary (`rpc`, `api`, `legacy_api`, `ws`) | Invalid moderation delivery attempts; repeated reads count again |
 | `consumer_messages_processed_total` | Counter | stream, status | Pipeline consumers |
 | `consumer_message_duration_seconds` | Histogram | stream | Pipeline consumers |
 | `consumer_lag` | Gauge | stream, consumer_group | Pipeline lag poller |

@@ -4,6 +4,14 @@ Console is an independent subsystem with its own Go module (`console.eigenflux.a
 
 ## Build & Start
 
+The Console API retains Go 1.25+ and its existing dependency versions. Its
+minimal Commission admin RPC client is generated locally from
+`console/console_api/idl/commission_review.thrift` with
+`scripts/generate_review_rpc.sh`; it imports neither server implementation
+module. Keep the field IDs and method signatures synchronized with Commission's
+`idl/commission.thrift` and `idl/base.thrift`. The HTTP review routes follow
+`idl/service_review.thrift`, the normal Hertz generator, and Swagger generation.
+
 ```bash
 # Build console only
 ./console/console_api/scripts/build.sh
@@ -69,6 +77,19 @@ Console must not import any root module packages (`eigenflux_server/pkg/*`, `eig
 | DELETE | `/console/api/v1/dashboard/snapshots/:snapshot_id` | -- | Delete a dashboard snapshot |
 | GET | `/console/api/v1/dashboard/trends` | -- | Get trend data points extracted from all snapshots |
 
+## Service Review
+
+The private `/service-reviews` page opens the human-review queue by default. It supports status filtering and next/previous cursor pages, and displays the exact frozen listing snapshot rather than the seller's current draft. Only rows in `review` offer approve/reject actions. Both decisions require an operator name (up to 200 UTF-8 bytes) and a reason (up to 8000 UTF-8 bytes), written in the listing's language. The operator is entered audit metadata, not an authenticated username. A concurrent resolution returns HTTP 409 and the page refreshes the queue.
+
+| Method | Path | Parameters | Description |
+|--------|------|------------|-------------|
+| GET | `/console/api/v1/service-reviews` | `status` (default `review`), decimal-string `cursor` (default `0`), `limit` (1–100, default 20) | List frozen snapshots and moderation records; `data.items` and decimal-string `data.next_cursor` (empty at end) |
+| POST | `/console/api/v1/service-reviews/:id/resolve` | JSON `{ "decision": "pass" or "reject", "operator": "...", "reason": "..." }` | Resolve a human-review record through Commission; returns `data` with the updated moderation record |
+
+Console uses its locally generated, wire-compatible client for Commission’s internal `ListModerations` / `ResolveModeration` RPCs. It never updates moderation tables directly. The connection is fixed to `127.0.0.1:${COMMISSION_RPC_PORT}` (default `8889`), uses TTHeader metadata and a bounded timeout, and relies on Commission's internal-only guard and publication/version checks. Manual approval remains subject to the current draft/lifecycle, seller risk and payment checks before automatic publication.
+
+This page and its API share the existing private Console/Tailscale access boundary. The API retains its existing listen and CORS configuration; network controls must restrict access, and these routes must not be exposed publicly. Deploy the compatible Commission RPC before enabling the page, and deploy Console separately. RPC transport/storage details are never returned to the browser. IDs remain decimal strings throughout the browser and HTTP responses.
+
 ### Common Query Parameters
 
 - `page`: Page number, starts from 1, default 1
@@ -88,7 +109,7 @@ All external console HTTP IDs must be serialized as strings in JSON, query param
 ## Frontend Development
 
 Console frontend built with Vite + Refine + Ant Design.
-Currently includes 7 pages: `/agents`, `/items`, `/impr`, `/milestone-rules`, `/system-notifications`, `/blacklist-keywords`, `/conversations`. The root route redirects to `/agents`.
+Currently includes 8 pages: `/agents`, `/items`, `/impr`, `/milestone-rules`, `/system-notifications`, `/blacklist-keywords`, `/conversations`, `/service-reviews`. The root route redirects to `/agents`.
 
 ```bash
 cd console/webapp
@@ -131,3 +152,9 @@ The snapshot JSON structure is defined in `console/console_api/internal/dashboar
 - `keyword_analysis`: Top item keywords (supply), top user keywords (demand), overlap, supply-only, demand-only
 - `domain_analysis`: Broadcast type distribution, top domains with avg consumed count
 - `engagement`: Quality score distribution, consumed rate by keyword, top 50 items by engagement
+
+Review rejection and approval reasons are intentionally seller-visible guidance.
+Operator identity and review timestamps remain private audit metadata. The
+Console displays original model evidence separately from the effective outcome
+and operator decision. Each immutable review can be resolved once; retries of
+publication preserve that approval rather than creating a new review cycle.

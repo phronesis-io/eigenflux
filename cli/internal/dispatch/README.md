@@ -130,6 +130,61 @@ checks only the main route and cannot replace the actual publication trial.
 7. Require one JSON decision: `version=1`, matching `request_id`, `action`, `reply_text`. Actions: `reply`, `no_reply`, `needs_user`. Reject missing/unknown/duplicate fields and trailing output.
 8. Validate reply content, persist `sending`, then recheck identity and permission under the credential lock. POST only to the original conversation with `request_id=pm-reply:<original-message-id>`; disable POST refresh/replay. The gateway and PM RPC preserve this ID so different inbound messages can receive identical text, while repeated sends for one message reuse its first receipt within the server's 60-second window. Record `replied` only with a valid matching receipt; emit redacted status. Interrupted sends remain `unknown`; this key does not enable automatic replay. Deploy the updated PM RPC and gateway before relying on this behavior in the CLI.
 
+## Listing moderation notices
+
+Every account watch receives `commission_moderation`, including plain watch and
+PM-only bindings. Order intake and execution still require `commission_order`.
+Moderation notices are informational: validate the recipient and payload, then
+atomically save the latest 100 notices in `watch/moderation-<scope>.json` before
+ACK. `watch notices` reads this account-scoped inbox as JSON, including on Linux
+or with desktop notifications disabled. A corrupt/unwritable inbox prevents ACK.
+Lightweight ID receipts deduplicate across restart and socket/poll retries for
+90 days from their first local receipt, independently of the latest 100 payloads.
+Only expired receipts are pruned on writes. The store is capped at 100,000
+unexpired receipts / 8 MiB; exhaustion prevents ACK rather than evicting valid
+receipts. Pre-receipt inboxes seed retained payload IDs at upgrade time.
+The inbox is authoritative: if output fails after persistence, retry may ACK the
+saved notice without emitting it again. `watch notices` still exposes it.
+A newly saved notice emits `commission_moderation_notification`; this event has
+no Order, PM, cursor or dispatch job fields. Socket `notification_push` output
+retains every non-moderation entry, including unknown sources and unsubscribed
+Orders, with their raw fields and envelope extensions. HTTP reconciliation for
+ordinary/PM-only watches emits moderation only; explicit Order owners retain
+the generic HTTP output contract. Forwarding an Order is
+separate from CLI execution/ACK ownership. Pure legacy socket batches use the
+existing local identity check without HTTP token refresh or Commission lookup.
+Neither path creates a moderation execution or main-Agent job. Installed host
+adapters can ignore the informational event and users can still read the inbox.
+
+When configured, desktop delivery enqueues the same notice with a scoped ID
+before the completed inbox receipt is saved. An enqueue failure leaves no
+receipt and no ACK. If enqueue succeeds but inbox persistence fails, retry
+reuses the desktop queue's stable ID; the completed receipt is written only
+after both durable sinks succeed. Legacy stream saves and renders moderation before ACK
+when no watch owns that source; a persisted PM-only binding owns moderation but
+leaves Orders to legacy consumption. Invalid moderation entries remain pending
+and emit a fixed diagnostic in watch; they do not block valid neighbors' ACKs.
+A moderation inbox or desktop enqueue failure also leaves only that row pending:
+independently durable neighbors can be ACKed, and bounded HTTP reconciliation
+continues through later cursor pages before reporting the failure. Socket intake
+emits a checked, fixed diagnostic and keeps reading subsequent frames. A shared
+desktop outage still blocks Orders requiring that queue. Identity changes,
+cancellation, ACK failures and output failures stop intake immediately.
+Status, draft version, field and reason come from the immutable event; `pass` is
+awaiting publication, while only `published` confirms public availability.
+Desktop links open the Trade page without claiming a specific selected account
+or a service deep-link. Payload eviction does not remove its 90-day receipt.
+Duplicate receipts neither emit another host event nor enqueue desktop delivery.
+
+Ordinary/PM-only watches use the existing PM fallback tick for moderation:
+reconcile each minute while the socket is unavailable and every 15 minutes while
+healthy to recover missed wake-ups. Socket connection/reconnection already
+replays pending notices, so these watches start no separate notification loop.
+Explicit Order and notification-only owners retain their initial/minute HTTP
+reconciliation. Bindings with neither PM nor Orders use initial/15-minute HTTP
+reconciliation because they have no socket. Seller state remains durable on the
+server between reconciliations.
+
 ## Commission input inspection
 
 CLI 1.0.11 adds `watch --notifications-only` for hosts without an execution
@@ -140,7 +195,10 @@ Legacy stream respects this ownership while the task is stopped. An existing
 execution binding is never replaced by notification setup. `watch start` installs
 an interactive current-user Windows logon task, or reports `pending_auth` /
 `host_managed`. `notifications_ready` means a successful order poll, separately
-from OS submission and Agent `runtime_ready`. Disabled tasks remain disabled.
+from OS submission and Agent `runtime_ready`. Its `notification_push.count`
+counts successfully ACKed owned Order rows only, excluding moderation, generic
+notices and skipped internal coordination. No count event is emitted for zero
+Orders. Disabled tasks remain disabled.
 
 `commission_order` explicitly enables durable intake and a separate seller inspection worker. It also queues paid local fulfillment after a ready check. After actual Agent readiness it accepts awaiting-seller orders; after paid fulfillment it uploads verified contractual artifacts and submits delivery. Subscription alone does not prove host execution readiness or establish a buyer SLA.
 

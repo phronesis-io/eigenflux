@@ -13,6 +13,8 @@ import (
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
 	"eigenflux_server/pkg/audience"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/metrics"
+	"eigenflux_server/pkg/notificationpayload"
 	"eigenflux_server/pkg/reqinfo"
 	"eigenflux_server/rpc/notification/dal"
 
@@ -121,20 +123,30 @@ func (s *NotificationServiceImpl) ListPending(ctx context.Context, req *notifica
 		}
 	}
 
-	// 4. Durable Commission Order notifications from PostgreSQL.
+	// 4. Durable Commission notifications from PostgreSQL.
 	inboxNotifications, err := dal.ListInboxNotifications(ctx, s.db, req.AgentId, time.Now().UnixMilli())
 	if err != nil {
-		logger.Ctx(ctx).Error("failed to list Commission Order notifications", "agentID", req.AgentId, "err", err)
+		logger.Ctx(ctx).Error("failed to list Commission notifications", "agentID", req.AgentId, "err", err)
 		return listPendingError(500, "failed to list durable notifications"), nil
 	}
 	for i := range inboxNotifications {
 		row := &inboxNotifications[i]
 		payloadJSON := row.PayloadJSON
+		content := ""
+		if row.SourceType == notificationpayload.SourceCommissionModeration {
+			payload, err := notificationpayload.ModerationForAgent(payloadJSON, req.AgentId)
+			if err != nil {
+				metrics.ModerationNotificationSkippedTotal.WithLabelValues("rpc").Inc()
+				logger.Ctx(ctx).Warn("invalid moderation notification skipped", "event", "notification.moderation_skipped", "notificationID", row.NotificationID, "agentID", req.AgentId)
+				continue
+			}
+			content = payload.Content()
+		}
 		all = append(all, &notificationrpc.PendingNotification{
 			NotificationId: row.NotificationID,
-			SourceType:     dal.SourceTypeCommissionOrder,
+			SourceType:     row.SourceType,
 			Type:           row.EventKind,
-			Content:        "",
+			Content:        content,
 			CreatedAt:      row.OccurredAt,
 			PayloadJson:    &payloadJSON,
 		})
@@ -253,7 +265,7 @@ func (s *NotificationServiceImpl) AckNotifications(ctx context.Context, req *not
 	var milestoneIDs []int64
 	var systemItems []dal.NotificationDelivery
 	var pmIDs []int64
-	var commissionOrderIDs []int64
+	durableIDs := make(map[string][]int64)
 	now := time.Now().UnixMilli()
 
 	for _, item := range req.Items {
@@ -272,8 +284,8 @@ func (s *NotificationServiceImpl) AckNotifications(ctx context.Context, req *not
 			})
 		case dal.SourceTypeFriendRequest:
 			pmIDs = append(pmIDs, item.NotificationId)
-		case dal.SourceTypeCommissionOrder:
-			commissionOrderIDs = append(commissionOrderIDs, item.NotificationId)
+		case dal.SourceTypeCommissionOrder, notificationpayload.SourceCommissionModeration:
+			durableIDs[item.SourceType] = append(durableIDs[item.SourceType], item.NotificationId)
 		default:
 			logger.Ctx(ctx).Warn("unknown source_type in ack", "sourceType", item.SourceType)
 		}
@@ -281,9 +293,22 @@ func (s *NotificationServiceImpl) AckNotifications(ctx context.Context, req *not
 
 	// Durable business notifications use strong acknowledgement semantics.
 	// Validate ownership and persist them before applying legacy best-effort ACKs.
-	if len(commissionOrderIDs) > 0 {
-		if err := dal.AckInboxNotifications(ctx, s.db, req.AgentId, commissionOrderIDs, now); err != nil {
-			logger.Ctx(ctx).Error("failed to acknowledge Commission Order notifications", "agentID", req.AgentId, "err", err)
+	if len(durableIDs) > 0 {
+		if s.db == nil {
+			return &notificationrpc.AckNotificationsResp{BaseResp: &base.BaseResp{Code: 500, Msg: "durable notifications unavailable"}}, nil
+		}
+		err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			for _, source := range []string{dal.SourceTypeCommissionOrder, notificationpayload.SourceCommissionModeration} {
+				if ids := durableIDs[source]; len(ids) > 0 {
+					if err := dal.AckInboxNotificationsBySource(ctx, tx, req.AgentId, source, ids, now); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			logger.Ctx(ctx).Error("failed to acknowledge Commission notifications", "agentID", req.AgentId, "err", err)
 			return &notificationrpc.AckNotificationsResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to acknowledge durable notifications"}}, nil
 		}
 	}

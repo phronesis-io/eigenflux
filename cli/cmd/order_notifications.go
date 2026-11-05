@@ -17,12 +17,6 @@ import (
 	watchstate "cli.eigenflux.ai/internal/watch"
 )
 
-type orderNotificationPage struct {
-	Notifications []orderNotification `json:"notifications"`
-	HasMore       bool                `json:"has_more"`
-	NextCursor    string              `json:"next_cursor"`
-}
-
 type orderNotification struct {
 	NotificationID string                   `json:"notification_id"`
 	SourceType     string                   `json:"source_type"`
@@ -74,13 +68,16 @@ func (id notificationID) MarshalJSON() ([]byte, error) {
 	return json.Marshal(strconv.FormatInt(int64(id), 10))
 }
 
-func drainOrderNotifications(api *client.Client, format, language string, writer io.Writer) error {
+func drainCommissionNotifications(api *client.Client, format, language string, writer io.Writer) error {
 	if api == nil {
 		return nil
 	}
 	owned, err := orderNotificationsOwnedByWatch(api)
-	if err != nil || owned {
+	if err != nil {
 		return err
+	}
+	if owned {
+		return nil
 	}
 	expected, err := watchBindingIdentity()
 	if err != nil {
@@ -115,7 +112,7 @@ func drainOrderNotifications(api *client.Client, format, language string, writer
 		if response.Code != 0 {
 			return fmt.Errorf("list pending notifications: %s", response.Msg)
 		}
-		var page orderNotificationPage
+		var page commissionNotificationPage
 		if err := json.Unmarshal(response.Data, &page); err != nil {
 			return fmt.Errorf("parse pending notifications: %w", err)
 		}
@@ -128,7 +125,7 @@ func drainOrderNotifications(api *client.Client, format, language string, writer
 				return errWatchIdentity
 			}
 			owned, err = orderNotificationsOwnedByWatch(api)
-			if err != nil || owned {
+			if err != nil {
 				return err
 			}
 			credentials, err := auth.LoadV2Credentials(expected.Server)
@@ -137,10 +134,48 @@ func drainOrderNotifications(api *client.Client, format, language string, writer
 			}
 			ackAPI := *api
 			ackAPI.Token, ackAPI.OnUnauthorized = credentials.AccessToken, nil
+			moderationOwned, moderationOwnerKnown := false, false
 			ackItems := make([]map[string]string, 0, len(page.Notifications))
-			for _, notification := range page.Notifications {
-				if notification.SourceType != "commission_order" {
+			for _, raw := range page.Notifications {
+				var header struct {
+					Source string `json:"source_type"`
+				}
+				if json.Unmarshal(raw, &header) != nil {
 					continue
+				}
+				if header.Source == moderationNotificationSource {
+					if !moderationOwnerKnown {
+						moderationOwned, err = moderationNotificationsOwnedByWatch(api)
+						if err != nil {
+							return err
+						}
+						moderationOwnerKnown = true
+					}
+					if moderationOwned {
+						continue
+					}
+					notice, err := parseModerationNotification(raw, expected.AgentID)
+					if err != nil {
+						continue
+					}
+					fresh, err := saveModerationNotice(expected.Home, expected.Scope, expected.AgentID, notice)
+					if err != nil {
+						return err
+					}
+					if fresh {
+						if err := renderModerationNotification(writer, format, language, notice); err != nil {
+							return err
+						}
+					}
+					ackItems = append(ackItems, map[string]string{"notification_id": strconv.FormatInt(int64(notice.ID), 10), "source_type": moderationNotificationSource})
+					continue
+				}
+				if header.Source != "commission_order" || owned {
+					continue
+				}
+				var notification orderNotification
+				if err := json.Unmarshal(raw, &notification); err != nil {
+					return err
 				}
 				if err := validateOrderNotification(notification); err != nil {
 					return err
@@ -164,7 +199,7 @@ func drainOrderNotifications(api *client.Client, format, language string, writer
 			}
 			return nil
 		})
-		if err != nil || owned {
+		if err != nil {
 			return err
 		}
 		if !page.HasMore {
@@ -180,6 +215,12 @@ func drainOrderNotifications(api *client.Client, format, language string, writer
 // A persisted binding keeps ownership while watch is stopped. A legacy stream
 // must not render and ACK work already assigned to the durable dispatch inbox.
 func orderNotificationsOwnedByWatch(api *client.Client) (bool, error) {
+	return notificationsOwnedByWatch(api, false)
+}
+func moderationNotificationsOwnedByWatch(api *client.Client) (bool, error) {
+	return notificationsOwnedByWatch(api, true)
+}
+func notificationsOwnedByWatch(api *client.Client, moderation bool) (bool, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return false, err
@@ -218,7 +259,7 @@ func orderNotificationsOwnedByWatch(api *client.Client) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if !binding.Handles("commission_order") {
+	if !moderation && !binding.Handles("commission_order") {
 		return false, nil
 	}
 	expected, err := watchBindingIdentity()

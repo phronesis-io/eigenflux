@@ -5,6 +5,7 @@ import (
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/featureindex"
 	"eigenflux_server/pkg/metrics"
+	"eigenflux_server/pkg/notificationpayload"
 	"fmt"
 	"strconv"
 	"strings"
@@ -36,6 +37,9 @@ func NewCommissionIndexConsumer(cfg *config.Config, source featureindex.Commissi
 func (c *CommissionIndexConsumer) Start(ctx context.Context) { c.runtime.Run(ctx) }
 
 func (c *CommissionIndexConsumer) Handle(ctx context.Context, _ string, values map[string]any) HandleResult {
+	if streamText(values["topic"]) == notificationpayload.CommissionModerationTopic {
+		return HandleSuccess
+	}
 	event, err := parseCommissionEvent(values)
 	if err != nil {
 		return HandleFailure
@@ -100,14 +104,11 @@ func parseCommissionEvent(values map[string]any) (commissionEvent, error) {
 		if !ok {
 			return "", fmt.Errorf("missing %s", key)
 		}
-		switch v := value.(type) {
-		case string:
-			return v, nil
-		case []byte:
-			return string(v), nil
-		default:
-			return fmt.Sprint(v), nil
+		text := streamText(value)
+		if text == "" {
+			return "", fmt.Errorf("invalid %s", key)
 		}
+		return text, nil
 	}
 	for _, key := range []string{"event_id", "schema_version", "topic", "aggregate_type", "aggregate_id", "aggregate_version", "occurred_at", "payload_json"} {
 		if _, err := read(key); err != nil {

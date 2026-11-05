@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"eigenflux_server/pkg/notificationpayload"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -37,8 +39,8 @@ func (InboxNotification) TableName() string { return "notification_inbox" }
 
 func InsertInboxNotification(ctx context.Context, db *gorm.DB, value *InboxNotification) (bool, error) {
 	if db == nil || value == nil || value.NotificationID <= 0 || value.AgentID <= 0 ||
-		value.SourceType != SourceTypeCommissionOrder || value.SourceID <= 0 || value.DedupeKey == "" ||
-		value.EventKind == "" || value.OrderID <= 0 || value.OrderVersion <= 0 || value.PayloadJSON == "" ||
+		!validInboxSource(value.SourceType) || value.SourceID <= 0 || value.DedupeKey == "" ||
+		value.EventKind == "" || !validInboxOrderFields(value) || value.PayloadJSON == "" ||
 		value.OccurredAt <= 0 || value.ReceivedAt <= 0 || value.ExpiresAt <= value.ReceivedAt {
 		return false, errors.New("invalid inbox notification")
 	}
@@ -62,6 +64,17 @@ func InsertInboxNotification(ctx context.Context, db *gorm.DB, value *InboxNotif
 	return false, nil
 }
 
+func validInboxSource(source string) bool {
+	return source == SourceTypeCommissionOrder || source == notificationpayload.SourceCommissionModeration
+}
+
+func validInboxOrderFields(value *InboxNotification) bool {
+	if value.SourceType == notificationpayload.SourceCommissionModeration {
+		return value.OrderID == 0 && value.OrderVersion == 0
+	}
+	return value.OrderID > 0 && value.OrderVersion > 0
+}
+
 func sameJSON(left, right string) bool {
 	var leftValue, rightValue interface{}
 	return json.Unmarshal([]byte(left), &leftValue) == nil && json.Unmarshal([]byte(right), &rightValue) == nil &&
@@ -77,7 +90,7 @@ func SetInboxDeliveryError(ctx context.Context, db *gorm.DB, notificationID, age
 		deliveryError = string(runes[:maxDeliveryErrorRunes])
 	}
 	return db.WithContext(ctx).Model(&InboxNotification{}).
-		Where("notification_id = ? AND agent_id = ? AND source_type = ?", notificationID, agentID, SourceTypeCommissionOrder).
+		Where("notification_id = ? AND agent_id = ? AND source_type IN ?", notificationID, agentID, []string{SourceTypeCommissionOrder, notificationpayload.SourceCommissionModeration}).
 		Update("last_delivery_error", deliveryError).Error
 }
 
@@ -87,13 +100,13 @@ func ListInboxNotifications(ctx context.Context, db *gorm.DB, agentID, now int64
 	}
 	var rows []InboxNotification
 	err := db.WithContext(ctx).
-		Where("agent_id = ? AND source_type = ? AND acknowledged_at IS NULL AND expires_at > ?", agentID, SourceTypeCommissionOrder, now).
+		Where("agent_id = ? AND source_type IN ? AND acknowledged_at IS NULL AND expires_at > ?", agentID, []string{SourceTypeCommissionOrder, notificationpayload.SourceCommissionModeration}, now).
 		Order("occurred_at ASC, order_version ASC, notification_id ASC").Find(&rows).Error
 	return rows, err
 }
 
-func AckInboxNotifications(ctx context.Context, db *gorm.DB, agentID int64, notificationIDs []int64, acknowledgedAt int64) error {
-	if db == nil || agentID <= 0 || len(notificationIDs) == 0 || acknowledgedAt <= 0 {
+func AckInboxNotificationsBySource(ctx context.Context, db *gorm.DB, agentID int64, source string, notificationIDs []int64, acknowledgedAt int64) error {
+	if db == nil || agentID <= 0 || !validInboxSource(source) || len(notificationIDs) == 0 || acknowledgedAt <= 0 {
 		return errors.New("invalid inbox acknowledgement")
 	}
 	uniqueIDs := make([]int64, 0, len(notificationIDs))
@@ -112,7 +125,7 @@ func AckInboxNotifications(ctx context.Context, db *gorm.DB, agentID int64, noti
 		var ownedIDs []int64
 		if err := tx.Model(&InboxNotification{}).
 			Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("agent_id = ? AND source_type = ? AND notification_id IN ?", agentID, SourceTypeCommissionOrder, uniqueIDs).
+			Where("agent_id = ? AND source_type = ? AND notification_id IN ?", agentID, source, uniqueIDs).
 			Pluck("notification_id", &ownedIDs).Error; err != nil {
 			return err
 		}
@@ -120,7 +133,7 @@ func AckInboxNotifications(ctx context.Context, db *gorm.DB, agentID int64, noti
 			return gorm.ErrRecordNotFound
 		}
 		return tx.Model(&InboxNotification{}).
-			Where("agent_id = ? AND source_type = ? AND notification_id IN ?", agentID, SourceTypeCommissionOrder, uniqueIDs).
+			Where("agent_id = ? AND source_type = ? AND notification_id IN ?", agentID, source, uniqueIDs).
 			Where("acknowledged_at IS NULL").
 			Update("acknowledged_at", acknowledgedAt).Error
 	})

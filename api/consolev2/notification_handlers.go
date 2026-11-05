@@ -12,6 +12,7 @@ import (
 
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/notificationpayload"
 )
 
@@ -38,7 +39,7 @@ func notificationIssuerIdentity(notification *notificationrpc.PendingNotificatio
 		sourceType = notification.SourceType
 	}
 	switch strings.ToLower(strings.TrimSpace(sourceType)) {
-	case "system", "milestone", "trade", "commission_order":
+	case "system", "milestone", "trade", "commission_order", notificationpayload.SourceCommissionModeration:
 		return platformIssuerIdentity()
 	default:
 		// Friend requests and unknown legacy notification types are not
@@ -92,6 +93,14 @@ func (s *Service) listPendingNotifications(ctx context.Context, c *app.RequestCo
 	for _, notification := range response.Notifications {
 		if notification == nil {
 			continue
+		}
+		if notification.SourceType == notificationpayload.SourceCommissionModeration {
+			_, err := notificationpayload.ModerationForAgent(notification.GetPayloadJson(), agentIDValue)
+			if err != nil {
+				metrics.ModerationNotificationSkippedTotal.WithLabelValues("api").Inc()
+				logger.Ctx(ctx).Warn("invalid moderation notification skipped", "event", "notification.moderation_skipped", "notificationID", notification.NotificationId, "agentID", agentIDValue)
+				continue
+			}
 		}
 		content, truncated := truncateRunes(notification.Content, 2000)
 		item := map[string]interface{}{

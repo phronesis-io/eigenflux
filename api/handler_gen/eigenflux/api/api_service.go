@@ -45,6 +45,7 @@ import (
 	"eigenflux_server/pkg/itemdispatch"
 	"eigenflux_server/pkg/itemstats"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/notificationpayload"
 	"eigenflux_server/pkg/publishorigin"
@@ -135,6 +136,13 @@ func fetchPendingNotifications(ctx context.Context, agentID int64) ([]*notificat
 		if n == nil {
 			continue
 		}
+		if n.SourceType == notificationpayload.SourceCommissionModeration {
+			if _, err := notificationpayload.ModerationForAgent(n.GetPayloadJson(), agentID); err != nil {
+				metrics.ModerationNotificationSkippedTotal.WithLabelValues("legacy_api").Inc()
+				logger.Ctx(ctx).Warn("invalid moderation notification skipped", "event", "notification.moderation_skipped", "notificationID", n.NotificationId, "agentID", agentID)
+				continue
+			}
+		}
 		item := map[string]interface{}{
 			"notification_id": strconv.FormatInt(n.NotificationId, 10),
 			"type":            n.Type,
@@ -180,9 +188,9 @@ func ackNotifications(agentID int64, pending []*notificationrpc.PendingNotificat
 		if n.SourceType == "system" && n.Type == "system" {
 			continue
 		}
-		// Commission Order notifications require an explicit Agent-scoped ACK
+		// Commission notifications require an explicit Agent-scoped ACK
 		// after client processing. A successful Feed response is not an ACK.
-		if n.SourceType == "commission_order" {
+		if n.SourceType == "commission_order" || n.SourceType == notificationpayload.SourceCommissionModeration {
 			continue
 		}
 		items = append(items, &notificationrpc.AckNotificationItem{

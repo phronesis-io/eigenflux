@@ -16,6 +16,7 @@ type Config struct {
 	RedisPassword        string
 	EtcdAddr             string
 	ConsoleApiPort       int
+	CommissionRPCPort    int
 	IDWorkerPrefix       string
 	IDSnowflakeEpoch     int64
 	IDWorkerLeaseTTL     int
@@ -39,6 +40,7 @@ func Load() *Config {
 		RedisPassword:        getEnv("REDIS_PASSWORD", ""),
 		EtcdAddr:             getEnv("ETCD_ADDR", "localhost:"+etcdPort),
 		ConsoleApiPort:       getEnvInt("CONSOLE_API_PORT", 8090),
+		CommissionRPCPort:    getEnvInt("COMMISSION_RPC_PORT", 8889),
 		IDWorkerPrefix:       getEnv("ID_WORKER_PREFIX", "/eigenflux/idgen/workers"),
 		IDSnowflakeEpoch:     getEnvInt64("ID_SNOWFLAKE_EPOCH_MS", 1704067200000),
 		IDWorkerLeaseTTL:     getEnvInt("ID_WORKER_LEASE_TTL", 30),

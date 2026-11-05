@@ -11,7 +11,7 @@ import (
 	"cli.eigenflux.ai/internal/client"
 )
 
-func TestDrainOrderNotificationsRendersThenAcknowledges(t *testing.T) {
+func TestDrainCommissionNotificationsRendersThenAcknowledges(t *testing.T) {
 	ackCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -38,7 +38,7 @@ func TestDrainOrderNotificationsRendersThenAcknowledges(t *testing.T) {
 	}
 	api := client.New(server.URL+"/api/v2", "token", "test", client.Meta{})
 	var output strings.Builder
-	if err := drainOrderNotifications(api, "table", "zh", &output); err != nil {
+	if err := drainCommissionNotifications(api, "table", "zh", &output); err != nil {
 		t.Fatal(err)
 	}
 	if ackCalls != 1 {
@@ -49,7 +49,7 @@ func TestDrainOrderNotificationsRendersThenAcknowledges(t *testing.T) {
 	}
 }
 
-func TestDrainOrderNotificationsDoesNotAckInvalidPayload(t *testing.T) {
+func TestDrainCommissionNotificationsDoesNotAckInvalidPayload(t *testing.T) {
 	ackCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v2/notifications/ack" {
@@ -63,7 +63,7 @@ func TestDrainOrderNotificationsDoesNotAckInvalidPayload(t *testing.T) {
 		t.Fatal(err)
 	}
 	api := client.New(server.URL+"/api/v2", "token", "test", client.Meta{})
-	if err := drainOrderNotifications(api, "json", "en", &strings.Builder{}); err == nil {
+	if err := drainCommissionNotifications(api, "json", "en", &strings.Builder{}); err == nil {
 		t.Fatal("invalid payload was accepted")
 	}
 	if ackCalls != 0 {

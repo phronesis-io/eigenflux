@@ -13,4 +13,5 @@ fi
 
 echo "Regenerating console API from idl/console.thrift..."
 $HZ update -idl "$MODULE_DIR/idl/console.thrift" -module console.eigenflux.ai
+$HZ update -idl "$MODULE_DIR/idl/service_review.thrift" -module console.eigenflux.ai
 echo "Done."

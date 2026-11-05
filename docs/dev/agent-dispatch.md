@@ -253,6 +253,40 @@ Deploy the API receiver before the matching CLI. See the
 
 The explicit `commission_order` subscription enables durable notification intake and a separate seller input-check worker. It reads the frozen contract and bound Skill, verifies downloaded inputs, invokes a fresh Agent session and saves a strict `commission_result` in `watch status`. Files are capped at 128 / 64 MiB; preparation and execution have a local 180-second ceiling after queue claim. Paid `ready` results atomically queue a separate local fulfillment worker. It saves output paths before execution, verifies real files and retains them with hashes and self-check evidence in `commission_fulfillment`. Awaiting-seller `ready` invokes seller-authenticated acceptance; unavailable Agents leave orders waiting. Paid `artifacts_ready` persists evidence before fixed-key uploads and delivery, then reads back the order before confirming submission. Recoverable deliveries retain evidence and follow the bounded idempotent retry schedule; legacy uncertain mutations require reconciliation. Buyer confirmation remains separate. Local readiness or artifacts alone are not delivery receipts.
 
+Every account watch receives listing moderation independently of `commission_order`.
+Before ACK, it atomically saves the latest 100 notices in the account-scoped
+informational inbox, readable as JSON through `watch notices`, including Linux
+and desktop-disabled hosts. Recent IDs deduplicate across retries and restarts.
+Where enabled, desktop delivery queues the notice before its completed inbox
+receipt; failure leaves it pending for a safe retry. Neither path
+starts Agent or Order execution. Host adapters must treat the dedicated
+`commission_moderation_notification` event as display data, never Order or PM
+work. Socket `notification_push` output preserves all non-moderation entries and
+unknown fields; only subscribed Orders enter CLI execution and ACK. Ordinary and
+PM-only HTTP reconciliation emits moderation only, avoiding repeated generic
+notices from pending pages.
+Approval is shown as awaiting publication until a separate published
+notice arrives. Malformed moderation notices remain pending without blocking
+valid neighbors. A moderation persistence failure also leaves its row pending
+while independently durable neighbors and later HTTP pages continue. The socket
+reports a fixed diagnostic and stays connected to receive later frames. Required
+Order sinks are never bypassed; identity, cancellation, ACK and output failures
+still stop intake. Notification-only count events include only successfully
+ACKed owned Orders and are omitted when none were ACKed.
+A PM-only binding owns moderation intake while leaving Orders
+to the legacy stream; without a binding the stream saves and renders before ACK.
+
+Moderation notification IDs retain separate lightweight deduplication receipts
+for 90 days from first local receipt, even after the payload leaves the latest
+100 notices. Retries do not extend that retention. Expired receipts are pruned
+on writes; capacity exhaustion retains server pending work rather than removing
+unexpired receipts.
+
+Ordinary/PM-only watches reuse the PM fallback tick: moderation reconciles every
+minute while disconnected and every 15 minutes while connected. Connection and
+reconnection replay pending notices immediately. They have no separate minute
+notification loop; bindings without PM or Orders use initial/15-minute HTTP.
+
 PM + Commission subscriptions share the Socket. A Commission-only subscription uses an initial HTTP request and 60-second reconciliation, because the current server Socket always consumes PM. The same account's ordinary stream skips Commission notification draining while watch owns it. Stop and inspect unresolved jobs before rebinding. The implementation and pending business decisions are in [Commission dispatch](commission-dispatch.md).
 
 ### Explicit seller acceptance

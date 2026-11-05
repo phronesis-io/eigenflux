@@ -11,8 +11,8 @@ before ACK; an unavailable/full queue prevents ACK. Account ownership checks
 and retry/submission semantics remain the same.
 
 1. `watch --dispatch` enables desktop notifications by default on macOS/Windows
-   for a binding subscribed to `commission_order`. Both buyer and seller events
-   become notifications; displaying one never invokes an Agent.
+   for listing moderation; subscribed `commission_order` buyer and seller events
+   also become notifications. Displaying one never invokes an Agent.
 2. `deliverCommissionNotifications` validates and saves the execution job, then
    saves its desktop message, then ACKs the remote notification. Either save
    failing prevents ACK. Socket and HTTP use this same path.
@@ -21,6 +21,21 @@ and retry/submission semantics remain the same.
 4. `Journal.CommissionBlockers` supplies validated routing metadata for local
    `needs_user`, `failed`, and `unknown` work. Recover these notifications after
    crashes without exposing task bodies or changing execution state.
+
+Listing moderation uses the same durable queue with IDs scoped by account and
+notification ID. It does not create an Order execution job. Its message includes
+the service ID, draft version, status and bounded seller guidance; the link opens
+`/dashboard/trade`. No payload-supplied URL is accepted. Moderation also persists
+in the independent 100-entry informational inbox exposed by `watch notices`.
+That inbox enables ACK and retrieval without desktop support or an Order
+subscription; desktop permission failures do not remove those saved notices.
+When a desktop queue is enabled, enqueue must succeed before the informational
+inbox records a completed 90-day receipt. Failed enqueue leaves the remote notice
+pending with no completed receipt. If the later inbox write fails, the desktop
+queue's stable ID makes retry safe. A completed receipt skips duplicate enqueue.
+A failed moderation enqueue does not prevent independent, already durable
+notifications from being ACKed. Orders that require the same unavailable queue
+remain blocked until their own required sinks succeed; no sink is bypassed.
 
 ## Persistence and retry
 
@@ -53,9 +68,9 @@ observations before delivery. Retention, capacity or local I/O failure can still
 lose diagnostic evidence; no exactly-once audit guarantee is made.
 
 OS failures retain pending work with 1/2/4/8/16-minute retry delays; setup retries
-every five minutes. These failures do not stop Agent workers. Queue persistence
-failure or exhausted capacity stops watch; ingestion never ACKs an unsaved
-desktop message. Submission followed by a crash before receipt persistence can
+every five minutes. These failures do not stop Agent workers. Desktop-worker persistence
+failure stops watch. Intake never ACKs an unsaved desktop message: moderation
+rows are isolated as above, while required Order sink failures stop that batch. Submission followed by a crash before receipt persistence can
 repeat the same stable message ID. OS acceptance does not prove banner visibility
 or a user click.
 

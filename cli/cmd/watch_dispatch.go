@@ -69,9 +69,17 @@ func (w *accountWatch) pmFallbackLoop(ctx context.Context) error {
 	if !w.receivesPM() {
 		return nil
 	}
+	lastModeration := time.Now()
 	for watchPause(ctx, time.Minute) {
 		if err := w.pollPM(ctx); err != nil {
 			if fatal := w.diagnostic("pm_poll", err); fatal != nil {
+				return fatal
+			}
+		}
+		var err error
+		lastModeration, err = w.reconcileModeration(ctx, lastModeration, time.Now())
+		if err != nil {
+			if fatal := w.diagnostic("moderation_poll", err); fatal != nil {
 				return fatal
 			}
 		}
@@ -139,12 +147,14 @@ func (w *accountWatch) dispatchIdentityOK() error {
 	if w.notificationsOnly {
 		return w.notificationIdentityOK()
 	}
-	b, err := dispatch.ReadBinding(w.home, w.server.Name)
-	if err != nil {
-		return err
-	}
-	if b.Revision != w.binding.Revision || b.MainSessionID != w.binding.MainSessionID || b.Env["CODEX_HOME"] != w.binding.Env["CODEX_HOME"] || !sameBindingIdentity(b, *w.binding) {
-		return errWatchConfiguration
+	if w.binding != nil {
+		b, err := dispatch.ReadBinding(w.home, w.server.Name)
+		if err != nil {
+			return err
+		}
+		if b.Revision != w.binding.Revision || b.MainSessionID != w.binding.MainSessionID || b.Env["CODEX_HOME"] != w.binding.Env["CODEX_HOME"] || !sameBindingIdentity(b, *w.binding) {
+			return errWatchConfiguration
+		}
 	}
 	cred, err := auth.LoadV2Credentials(w.server.Name)
 	if err != nil {

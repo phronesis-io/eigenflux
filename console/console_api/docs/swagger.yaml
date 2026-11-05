@@ -536,6 +536,27 @@ definitions:
       msg:
         type: string
     type: object
+  servicereview.ResolveServiceReviewBody:
+    properties:
+      decision:
+        enum:
+        - pass
+        - reject
+        type: string
+      operator:
+        type: string
+      reason:
+        type: string
+    type: object
+  servicereview.ServiceReviewEnvelope:
+    properties:
+      code:
+        type: integer
+      data:
+        type: object
+      msg:
+        type: string
+    type: object
 host: localhost:8090
 info:
   contact: {}
@@ -1094,6 +1115,88 @@ paths:
       summary: Replace milestone rule
       tags:
       - console
+  /console/api/v1/service-reviews:
+    get:
+      parameters:
+      - default: review
+        description: Moderation status
+        in: query
+        name: status
+        type: string
+      - default: "0"
+        description: Decimal-string review ID cursor
+        in: query
+        name: cursor
+        type: string
+      - default: 20
+        description: Page size (1–100)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/servicereview.ServiceReviewEnvelope'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/servicereview.ServiceReviewEnvelope'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/servicereview.ServiceReviewEnvelope'
+      summary: List service moderation reviews
+      tags:
+      - Service Review
+  /console/api/v1/service-reviews/{id}/resolve:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Decimal-string review ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Decision, operator identity and seller-visible reason
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/servicereview.ResolveServiceReviewBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/servicereview.ServiceReviewEnvelope'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/servicereview.ServiceReviewEnvelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/servicereview.ServiceReviewEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/servicereview.ServiceReviewEnvelope'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/servicereview.ServiceReviewEnvelope'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/servicereview.ServiceReviewEnvelope'
+      summary: Resolve a service moderation review
+      tags:
+      - Service Review
   /console/api/v1/system-notifications:
     get:
       parameters:
