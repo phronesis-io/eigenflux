@@ -93,6 +93,7 @@ func TestLinuxRecoveryPreservesNotificationOwnership(t *testing.T) {
 			cfg, _ := runtimeTestConfig(t, api.URL, true)
 			clientMeta.Host, clientMeta.Mode = "workbuddy", "skill"
 			t.Setenv("EIGENFLUX_SKIP_AGENT_SETUP", "")
+			t.Setenv("EIGENFLUX_SKILLS_DIR", t.TempDir())
 			expected, err := watchBindingIdentity()
 			if err != nil {
 				t.Fatal(err)
