@@ -2,11 +2,19 @@
 
 ## Release boundary
 
-PGC PR #474 (`9f7f966c55ee0f6da4fc85f5132898f6b2196ec5`) remains draft.
-This server change is offline tooling, not a serving rollout. Both PGC feature
-switches remain disabled pending a complete fixed-cohort delivery comparison.
-Querit remains retired. No new production item, impression, feedback, queue entry
-or retry was created during this investigation.
+On November 5 the owner explicitly removed the unfinished replay as a release
+blocker and requested immediate PGC deployment. PGC PR #474 was merged as
+`4d808ca771034a78c103d117e01f0b41b1a2f388` (tree-identical to tested head
+`9f7f966c55ee0f6da4fc85f5132898f6b2196ec5`) and deployed at 17:23 +08.
+Both feature switches are enabled with the 50/day review cap and existing total
+budget. Querit remains retired. Six articles published naturally; four sampled
+server receipts have status 3 without skip reasons. No manual requeue,
+publication, impression or feedback was created for verification.
+
+This server PR remains draft and changes offline tooling only; the repaired PGC
+code does not depend on it. All 50 original executions reproduce exactly, but
+the final full-cohort new-supply effect report is incomplete. Do not interpret
+the owner's release decision as a passed delivery-effect gate.
 
 The server baseline is `0919be90`, with the deployed server at `a044bff4`.
 There are no differences between those commits in the serving sort,

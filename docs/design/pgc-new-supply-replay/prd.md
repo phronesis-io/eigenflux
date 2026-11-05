@@ -54,3 +54,12 @@ historical requeue. Querit stays disabled. Check the same cohort's daily positiv
 ratings the day after rollout; do not claim next-day validation in advance.
 
 Validation evidence and limitations: [validation.md](validation.md).
+
+## Owner's release decision, November 5
+
+After the original scope approval, the owner explicitly requested shipping the
+PGC repair without waiting for the final replay. PGC #474 is deployed; this
+offline tool remains a draft follow-up. The original acceptance requirements
+above describe an eventual valid report, not a gate that was passed or is still
+blocking the already authorized PGC deployment. See validation for observed
+production acceptance and remaining limits.
