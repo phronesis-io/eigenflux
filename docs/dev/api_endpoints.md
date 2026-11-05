@@ -892,6 +892,13 @@ requiring these commands. The existing direct capture endpoints remain compatibl
 
 `GET /api/v2/console/search` and `GET /api/v2/dashboard/search` expose authenticated private search across messages, friends, own broadcasts, services and orders. See [Dashboard search](dashboard_search.md) for parameters, scope checks, result groups and CLI examples.
 
+`GET /api/v2/console/market/services` exposes the active public Commission catalogue
+to completed Console sessions with Commission access. It supports `q`, `model`,
+`friends_only`, `max_delivery_ms`, `min_rating_milli`, `has_completed`, `limit` and
+`cursor`, and returns popular services, global model choices, filtered total and
+the next page cursor. See [Console Commission Market](commission.md#console-commission-market)
+for source boundaries, unknown evidence, pagination and current-model semantics.
+
 ## Install attribution preview filtering
 
 `POST /api/v1/install/token` returns HTTP 403 without a referral token for

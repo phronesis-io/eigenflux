@@ -384,6 +384,7 @@ func main() {
 			log.Printf("Home Commission catalogue unavailable: commission=%v order=%v", sourceErr, orderErr)
 		}
 		consoleV2Service.RegisterHomeServices(h, homeSource, commissionAccess.ConsoleMiddleware())
+		consoleV2Service.RegisterMarketServices(h, homeSource, commissionAccess.ConsoleMiddleware())
 
 		log.Print("Console V2 routes registered")
 	}
