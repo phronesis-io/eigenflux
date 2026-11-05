@@ -257,3 +257,10 @@ CI evidence is checked immediately before fallback tests, after unconditional
 release-specific checks. Only completed successful main-push CI for the exact
 source SHA may suppress covered tests. Pending CI still requires fallback tests;
 starting a release before CI finishes does not establish reusable evidence.
+
+## Doctor release diagnostics
+
+Doctor reads `cli/v2/latest/version.txt`, matching the installer release lane,
+and falls back to the legacy pointer only on HTTP 404. It reports a stable CLI
+as outdated only when its numeric version is lower than the published version.
+An equal or newer version does not produce an upgrade warning.
