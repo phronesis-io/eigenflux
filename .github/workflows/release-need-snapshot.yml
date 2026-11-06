@@ -66,6 +66,14 @@ jobs:
           R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: python3 scripts/snapshots/build.py --out build/snapshot --origin "$R2_PUBLIC_URL" --helpers "$GITHUB_WORKSPACE/build/formal-helpers"
+      - name: Verify packaged Apps against immutable notarization receipts
+        env:
+          EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY: ${{ secrets.EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          source cli/.cli.config
+          python3 cli/scripts/notifier-release.py verify-packages --version "$NOTIFIER_VERSION" --helpers-dir build/formal-helpers --work-dir build/notifier-proof --build-dir "build/snapshot/public/cli/$CLI_VERSION" --team-id "$APPLE_TEAM_ID"
       - name: Publish only the new snapshot namespace and verify public bytes
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
