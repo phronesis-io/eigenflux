@@ -16,6 +16,14 @@ Read this file before modifying anything under `skills/`.
 - Raise `SKILLS_MIN_CLI_VERSION` in `cli/.cli.config` when new instructions
   require a newer CLI.
 
+## Onboarding prefill regression
+
+When changing onboarding draft-generation instructions, run both behavioral
+cases in [the prefill regression suite](../tests/onboarding_prefill/README.md).
+Generate fresh drafts in independent Agents without inherited history or
+expected outcomes. Complete structural checks and semantic review before
+reporting validation. Keep regression fixtures outside the Skills bundle.
+
 ## Automatic publishing
 
 Changes under `skills/**` merged into `main` trigger

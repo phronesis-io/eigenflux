@@ -6,6 +6,7 @@ Tests live beside the packages they exercise and in the service integration suit
 
 | Directory | Description | Run Command |
 |-----------|-------------|-------------|
+| `tests/onboarding_prefill/` | Paired isolated-Agent prefill regressions: capabilities/history versus an explicit ongoing commission goal | See [prefill regression procedure](../../tests/onboarding_prefill/README.md) |
 | `tests/dashboardsearch/` | Opt-in deployed Dashboard search, Console cookie and CLI checks; requires a disposable EigenFlux + Commission stack | See [Dashboard search](dashboard_search.md#validation) |
 | `tests/testutil/` | Shared test utilities (DB, Redis, HTTP, Auth, Agent helpers) | Not directly run |
 | `tests/e2e/` | End-to-end full flow tests (register -> publish -> Feed -> dedup) | `go test -v ./tests/e2e/` |
