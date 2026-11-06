@@ -47,11 +47,35 @@ abstract class HubApi {
   /// `GET /hub/sessions/{id}/snapshot`, the resume path after a disconnect.
   Future<SessionView> snapshot(String sessionId);
 
+  /// `GET /hub/sessions/{id}` with the spectator credential instead of a bearer
+  /// token. A spectator has no owner account; the Hub accepts this token for the
+  /// two read-only session views (contracts §3), because refusing it would let a
+  /// spectator watch every event and still not see the seats or the metrics.
+  Future<SessionView> spectatorState(String sessionId, {required String spectatorToken});
+
   /// `GET /hub/sessions/{id}/events?seat_id=...` with `X-Seat-Token`.
+  ///
+  /// [lastEventId] is sent as `Last-Event-ID`, so a reconnect receives the events
+  /// missed while offline instead of starting from the tail. The Hub keeps a
+  /// retained log precisely for this.
   ///
   /// The stream ends when the Hub finishes the match; the caller must not
   /// assume it stays open forever.
-  Stream<HubEvent> events(String sessionId, {required String seatId, required String seatToken});
+  Stream<HubEvent> events(
+    String sessionId, {
+    required String seatId,
+    required String seatToken,
+    int lastEventId = 0,
+  });
+
+  /// `GET /hub/sessions/{id}/spectate` with `X-Spectator-Token`: the omniscient
+  /// view, which is what an owner watching a match actually wants. Same
+  /// [lastEventId] semantics as [events].
+  Stream<HubEvent> spectate(
+    String sessionId, {
+    required String spectatorToken,
+    int lastEventId = 0,
+  });
 
   /// `POST /hub/sessions/{id}/discussion`.
   Future<void> postDiscussion(

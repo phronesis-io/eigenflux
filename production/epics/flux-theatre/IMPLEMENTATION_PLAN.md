@@ -161,11 +161,22 @@ Three behaviours are deliberate rather than incidental:
    (`401 AUTH_REQUIRED`). The client treats exactly that code as "running
    anonymous" and says so in the log; any other binding refusal stops the connect.
 
-`flutter analyze` reports **No issues found!** and `flutter test` **PASSES — 39
-tests, 1 skipped** (the live smoke below). The 39 are: 8 on the Hub client
-against a recording `HttpClientAdapter`, 8 on SSE framing (split reads, CRLF,
-comments, multi-line data, tail flush), 17 on the controller against a scripted
-Hub, 2 widget tests on the console, 3 scaffold tests, plus the table DDL test.
+`flutter analyze` reports **No issues found!** and `flutter test` **PASSES — 47
+tests, 2 skipped** (both skips are the live Hub smokes below). The 47 are: 13 on
+the Hub client against a recording `HttpClientAdapter`, 8 on SSE framing (split
+reads, CRLF, comments, multi-line data, tail flush), 21 on the controller against
+a scripted Hub, 2 widget tests on the console, and 3 scaffold tests (routes, table
+DDL, port collision).
+
+**Watching, and resuming what was missed.** `SessionController.watch()` reads the
+session with `X-Spectator-Token` and opens `/spectate`, so the Theatre page shows
+the omniscient view an owner actually wants rather than the participant view it
+had. `reconnect()` reopens the same stream with `Last-Event-ID` set to the last
+event this client processed — and deliberately does **not** reload the snapshot
+first, because reloading would advance the state to the Hub's present and the
+replay would then be skipped as already-known, losing exactly the events a
+reconnect exists for. `lastEventId` is surfaced in the console so the resume point
+is a number the player can compare against the log.
 
 **End-to-end against a real Hub process** (`test/live_hub_smoke_test.dart`,
 skipped unless `FLUXSPACE_LIVE_HUB` is set): the Hub is started with
@@ -184,10 +195,10 @@ Two things the first live run taught, both now pinned in the test:
   id, so a repeat run must name its own.
 
 Not done in the client: the 2.5D theatre and the Rive artboards (S3, blocked on
-procurement); `Last-Event-ID` reconnects (the controller resumes from the
-snapshot plus the stored seat token, which is enough to reload state but not to
-replay the events missed while offline); the archive and governance screens; and
-the local `drift` database is still schema-only.
+procurement); the archive and governance screens; and the local `drift` database
+is still schema-only. `flutter test` cannot exercise the keychain
+(`SecureTokenStore` is only constructed by the page), so token persistence itself
+is covered by the interface contract rather than by a test.
 
 `flutter pub get` rewrites every `pubspec.lock` URL to the configured mirror
 (`pub.flutter-io.cn` on this host). The lock is committed normalised to
@@ -254,8 +265,10 @@ succeeded.
 | `flutter --version` (3.47.9 / Dart 3.13.7) | **PASS** — 2026-11-06, installed SDK verified byte-for-byte against official sha256 |
 | `flutter pub get` | **PASS** — 122 packages resolved, `pubspec.lock` generated |
 | `flutter analyze` | **PASS** — `No issues found!` (0 issues / 0 errors / 0 warnings) |
-| `flutter test` | **PASS — 39 tests, 1 skipped** (`All tests passed!`). The skip is the live Hub smoke, which needs `FLUXSPACE_LIVE_HUB`. Required two environment-only workarounds: priming the `sqlite3` hook cache with the sha256-verified official DLL, and unsetting proxy vars for the local `flutter_tester` WebSocket. No source change. |
+| `flutter test` | **PASS — 47 tests, 2 skipped** (`All tests passed!`). Both skips are the live Hub smokes, which need `FLUXSPACE_LIVE_HUB`. Required two environment-only workarounds: priming the `sqlite3` hook cache with the sha256-verified official DLL, and unsetting proxy vars for the local `flutter_tester` WebSocket. No source change. |
 | Live Hub smoke (client) | **PASS** — one match from invitation to settlement against `fluxspace-hub` on `:8399`, unauthenticated: three proposals, both parties confirmed, two seats joined, every round advanced and decided, settlement non-empty, and the SSE stream carried `round_begin` / `decision` / `match_end` with strictly increasing ids |
+| Live Hub smoke (spectator) | **PASS** — the same Hub with `HUB_SPECTATOR_TOKEN`: the session view is readable with the spectator token and returns both seats, and a `spectate` resumed from event *n* returned event *n+1* first with no duplicate |
+| Spectator boundary (authenticated Hub) | **PASS — `curl`, real binary**: `GET /hub/sessions/{id}` with no credential `401`, with only `X-Spectator-Token` passes the middleware and answers `404 SESSION_NOT_FOUND` (it got through), a write with the spectator token is `401`, and a wrong spectator token is `401` |
 | EigenFlux live-stack e2e | **NOT RUN** — `docker info` cannot reach the daemon; WSL feature absent and `wsl.exe`/`reg.exe` blocked by command-security policy (G10) |
 
 Reproduce:

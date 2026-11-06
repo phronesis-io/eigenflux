@@ -49,6 +49,18 @@ ResponseBody errorBody(String code, String message, {int status = 400}) => json(
       status: status,
     );
 
+/// A finite SSE body: the stream closes when the frames run out, which is what
+/// the Hub does at match end.
+ResponseBody sseBody(List<String> frames) => ResponseBody(
+      Stream<Uint8List>.fromIterable(<Uint8List>[
+        Uint8List.fromList(utf8.encode(frames.join())),
+      ]),
+      200,
+      headers: <String, List<String>>{
+        Headers.contentTypeHeader: <String>['text/event-stream'],
+      },
+    );
+
 HubClient clientWith(RecordingAdapter adapter, {String? token, String? ownerId}) => HubClient(
       ownerToken: token,
       ownerId: ownerId,
@@ -212,5 +224,57 @@ void main() {
       clientWith(adapter, token: 'tok-alpha').state('sess_1'),
       throwsA(isA<HubException>().having((HubException e) => e.code, 'code', 'UNEXPECTED_RESPONSE')),
     );
+  });
+
+  test('the spectator stream carries its own credential and resumes from an event id', () async {
+    final RecordingAdapter adapter = RecordingAdapter((RequestOptions options) {
+      expect(options.path, '/hub/sessions/sess_1/spectate');
+      expect(options.headers['X-Spectator-Token'], 'spec-secret');
+      // Resuming is the whole point: without this header the Hub answers from
+      // the live tail and the gap is lost.
+      expect(options.headers['Last-Event-ID'], '42');
+      // Spectating is not acting; it must not need an owner token.
+      expect(options.headers.containsKey('Authorization'), isFalse);
+      return sseBody(<String>[
+        'id: 43\ndata: {"id":43,"type":"match_end","session_id":"sess_1"}\n\n',
+      ]);
+    });
+
+    final List<HubEvent> events = await clientWith(adapter)
+        .spectate('sess_1', spectatorToken: 'spec-secret', lastEventId: 42)
+        .toList();
+
+    expect(events.single.id, 43);
+    expect(events.single.type, 'match_end');
+  });
+
+  test('the seat stream only sends Last-Event-ID when resuming', () async {
+    int seen = 0;
+    final RecordingAdapter adapter = RecordingAdapter((RequestOptions options) {
+      seen++;
+      if (seen == 1) {
+        expect(options.headers.containsKey('Last-Event-ID'), isFalse);
+      } else {
+        expect(options.headers['Last-Event-ID'], '7');
+      }
+      return sseBody(<String>['id: 8\ndata: {"id":8,"type":"round_begin","session_id":"sess_1"}\n\n']);
+    });
+
+    await clientWith(adapter).events('sess_1', seatId: 'seat_0', seatToken: 't').toList();
+    await clientWith(adapter).events('sess_1', seatId: 'seat_0', seatToken: 't', lastEventId: 7).toList();
+    expect(adapter.requests, hasLength(2));
+  });
+
+  test('reading a session as a spectator sends the spectator token, not a bearer', () async {
+    final RecordingAdapter adapter = RecordingAdapter((RequestOptions options) {
+      expect(options.headers['X-Spectator-Token'], 'spec-secret');
+      expect(options.headers.containsKey('Authorization'), isFalse);
+      return json(sessionJson());
+    });
+
+    final SessionView view = await clientWith(adapter)
+        .spectatorState('sess_1', spectatorToken: 'spec-secret');
+
+    expect(view.sessionId, 'sess_1');
   });
 }

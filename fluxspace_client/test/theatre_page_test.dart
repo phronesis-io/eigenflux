@@ -24,7 +24,9 @@ void main() {
 
     expect(find.text('Hub'), findsOneWidget);
     expect(find.text('Connect'), findsOneWidget);
-    expect(find.text('Open a match'), findsOneWidget);
+    // The setup cards stack taller than the test viewport, so only the first
+    // two are asserted here; the rest are covered by the seated case.
+    expect(find.text('Watch a match'), findsOneWidget);
     // The log sits below the fold on a test-sized viewport; it is asserted in
     // the seated case instead of scrolling for it here.
   });

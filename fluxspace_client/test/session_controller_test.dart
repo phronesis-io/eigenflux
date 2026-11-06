@@ -102,7 +102,7 @@ void main() {
           'accept:inv_demo_1:agent_beta',
           'createSession:inv_demo_1',
           'join:sess_1:seat_0:owner_alpha',
-          'events:sess_1:seat_0:token_seat_0',
+          'events:sess_1:seat_0:token_seat_0:0',
         ],
       );
       expect(controller.stage, SessionStage.seated);
@@ -213,7 +213,7 @@ void main() {
 
       expect(resumed.stage, SessionStage.seated);
       expect(api.calls, contains('snapshot:sess_1'));
-      expect(api.calls, contains('events:sess_1:seat_0:stored_token'));
+      expect(api.calls, contains('events:sess_1:seat_0:stored_token:7'));
       expect(api.calls.where((String c) => c.startsWith('join:')), isEmpty);
     });
 
@@ -230,5 +230,60 @@ void main() {
     await controller.startMatch(setup());
     await controller.advance('discuss');
     expect(api.calls, contains('advance:discuss'));
+  });
+
+  group('watch', () {
+    test('watching reads the view with the spectator credential and opens the omniscient stream', () async {
+      await controller.watch('sess_1', spectatorToken: 'spec-secret');
+
+      expect(api.calls, <String>[
+        'spectatorState:sess_1:spec-secret',
+        'spectate:sess_1:spec-secret:0',
+      ]);
+      expect(controller.watching, isTrue);
+      // Spectating is not acting: no seat, so no seat-scoped writes.
+      expect(controller.isSeated, isFalse);
+      expect(controller.stage, SessionStage.watching);
+    });
+
+    test('a finished match watched from the start reports finished, not watching', () async {
+      api.status = 'finished';
+      api.phase = 'resolve';
+      await controller.watch('sess_1', spectatorToken: 'spec-secret');
+      expect(controller.stage, SessionStage.finished);
+    });
+
+    test('reconnect replays from the last event seen, not from the tail', () async {
+      await controller.watch('sess_1', spectatorToken: 'spec-secret');
+      await api.emit(<String, dynamic>{
+        'id': 5,
+        'type': 'discussion',
+        'session_id': 'sess_1',
+        'seat_id': 'seat_1',
+        'text': 'the chart was moved',
+      });
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.lastEventId, 5);
+      await controller.reconnect();
+
+      expect(api.calls.last, 'spectate:sess_1:spec-secret:5');
+    });
+
+    test('reconnect without a match refuses rather than opening an empty stream', () async {
+      await controller.reconnect();
+      expect(controller.error?.code, 'NO_SESSION');
+      expect(api.calls, isEmpty);
+    });
+  });
+
+  test('a seated client reconnects its own stream from the last event', () async {
+    await controller.startMatch(setup());
+    await api.emit(<String, dynamic>{'id': 9, 'type': 'decision', 'session_id': 'sess_1'});
+    await Future<void>.delayed(Duration.zero);
+
+    await controller.reconnect();
+
+    expect(api.calls.last, 'events:sess_1:seat_0:token_seat_0:9');
   });
 }

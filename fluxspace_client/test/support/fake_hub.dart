@@ -231,8 +231,27 @@ class FakeHubApi implements HubApi {
   }
 
   @override
-  Stream<HubEvent> events(String sessionId, {required String seatId, required String seatToken}) {
-    calls.add('events:$sessionId:$seatId:$seatToken');
+  Future<SessionView> spectatorState(String sessionId, {required String spectatorToken}) async {
+    calls.add('spectatorState:$sessionId:$spectatorToken');
+    return SessionView.fromJson(
+      sessionJson(sessionId: sessionId, status: status, joined: joined, phase: phase, round: round),
+    );
+  }
+
+  @override
+  Stream<HubEvent> events(
+    String sessionId, {
+    required String seatId,
+    required String seatToken,
+    int lastEventId = 0,
+  }) {
+    calls.add('events:$sessionId:$seatId:$seatToken:$lastEventId');
+    return eventsController.stream;
+  }
+
+  @override
+  Stream<HubEvent> spectate(String sessionId, {required String spectatorToken, int lastEventId = 0}) {
+    calls.add('spectate:$sessionId:$spectatorToken:$lastEventId');
     return eventsController.stream;
   }
 

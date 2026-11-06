@@ -46,6 +46,15 @@ their own credential: `/health` (open), `/spectate` (`X-Spectator-Token`) and
 `/events` (`X-Seat-Token`). Without tokens the Hub refuses to start unless
 `HUB_ALLOW_UNAUTHENTICATED=1` is set, and `/health` reports `auth: "disabled"`.
 
+`GET /hub/sessions/{id}` and `GET /hub/sessions/{id}/snapshot` additionally accept
+`X-Spectator-Token` in place of a bearer token. This is not an extra privilege: the
+omniscient stream already delivers everything those two reads return, so requiring
+an owner token for them let a spectator watch every event and still not know the
+seat names, the metrics or the round. Writes stay owner-only — the spectator token
+reads the theatre, it does not play in it. A request that presents neither
+credential is still `401 AUTH_REQUIRED`, and a wrong spectator token is `401`
+rather than `403`, because it is not a recognised credential at all.
+
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/health` | Liveness; `200 {"status":"ok","service":"fluxspace-hub"}` |
@@ -99,6 +108,10 @@ Implementation notes that are part of the contract:
   polls the retained event log rather than holding a subscriber channel, so a
   slow observer cannot drop, reorder or block an event. `Last-Event-ID` (or
   `?last_event_id=`) recovery uses the same read path.
+- `/events` and `/spectate` honour `Last-Event-ID` (header, or `?last_event_id=`)
+  and replay every retained event after it, which is what makes a reconnect lossless
+  instead of "state reloaded, narrative lost". A resume from event *n* returns
+  event *n+1* first; it never re-sends *n*.
 - `/events` requires `?seat_id=` **and** the `X-Seat-Token` issued by that seat's
   join, and filters out private and omniscient-only events not intended for that
   seat. The seat id alone grants nothing: before ADR-0009 it was the whole

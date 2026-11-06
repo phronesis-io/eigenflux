@@ -37,6 +37,8 @@ class _TheatrePageState extends State<TheatrePage> {
   final TextEditingController _partnerAgent = TextEditingController(text: 'agent_beta');
   final TextEditingController _partnerCompanion = TextEditingController(text: 'comp_beta');
   final TextEditingController _say = TextEditingController();
+  final TextEditingController _watchSessionId = TextEditingController();
+  final TextEditingController _spectatorToken = TextEditingController();
 
   @override
   void initState() {
@@ -59,6 +61,8 @@ class _TheatrePageState extends State<TheatrePage> {
       _partnerAgent,
       _partnerCompanion,
       _say,
+      _watchSessionId,
+      _spectatorToken,
     ]) {
       c.dispose();
     }
@@ -121,9 +125,25 @@ class _TheatrePageState extends State<TheatrePage> {
           return ListView(
             padding: const EdgeInsets.all(12),
             children: <Widget>[
-              _connectionCard(context),
-              const SizedBox(height: 12),
-              if (view == null) _openMatchCard(context) else _matchCard(context, view),
+              // Once a match is open it goes first: the setup cards were the
+              // way in, and leaving them on top of a live match pushes the thing
+              // the player is watching off the screen.
+              if (view == null) ...<Widget>[
+                _connectionCard(context),
+                const SizedBox(height: 12),
+                _watchCard(context),
+                const SizedBox(height: 12),
+                _openMatchCard(context),
+              ] else ...<Widget>[
+                _matchCard(context, view),
+                const SizedBox(height: 12),
+                ExpansionTile(
+                  title: const Text('Connection & setup'),
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.only(bottom: 8),
+                  children: <Widget>[_connectionCard(context), _watchCard(context)],
+                ),
+              ],
               const SizedBox(height: 12),
               _logCard(context),
             ],
@@ -173,6 +193,42 @@ class _TheatrePageState extends State<TheatrePage> {
         ),
       ),
     );
+  }
+
+  Widget _watchCard(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text('Watch a match', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            _field(_watchSessionId, 'Session id'),
+            _field(_spectatorToken, 'Spectator token (HUB_SPECTATOR_TOKEN)', obscure: true),
+            const SizedBox(height: 4),
+            FilledButton.tonalIcon(
+              onPressed: _controller.busy ? null : _watch,
+              icon: const Icon(Icons.visibility_outlined),
+              label: const Text('Watch as spectator'),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'This is the owner\'s view: the omniscient stream, which shows every seat\'s '
+              'private decisions. It needs a spectator token, not an owner token — spectating '
+              'is not acting, and the Hub keeps writes owner-only.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _watch() {
+    final String sessionId = _watchSessionId.text.trim();
+    if (sessionId.isEmpty) return;
+    _controller.watch(sessionId, spectatorToken: _spectatorToken.text.trim());
   }
 
   Widget _openMatchCard(BuildContext context) {
@@ -234,6 +290,7 @@ class _TheatrePageState extends State<TheatrePage> {
                   children: <Widget>[
                     Chip(label: Text('${view.status} · ${view.phase}')),
                     Chip(label: Text('round ${view.round}/${view.totalRounds}')),
+                    if (_controller.watching) const Chip(label: Text('omniscient')),
                     Chip(label: Text('$joined/${view.seats.length} seated')),
                     if (view.skeleton?.dedupDegraded ?? false)
                       const Chip(label: Text('dedup degraded')),
@@ -325,7 +382,12 @@ class _TheatrePageState extends State<TheatrePage> {
                     style: theme.textTheme.bodySmall,
                   ),
                   const SizedBox(height: 8),
-                  Row(
+                  // Wrap, not Row: three buttons plus their labels do not fit a
+                  // narrow window, and a RenderFlex overflow is a visible defect
+                  // (the debug stripe) rather than a graceful wrap.
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: <Widget>[
                       FilledButton.tonal(
                         onPressed: _controller.busy || !live || _nextPhase(view.phase).isEmpty
@@ -333,10 +395,18 @@ class _TheatrePageState extends State<TheatrePage> {
                             : () => _controller.advance(_nextPhase(view.phase)),
                         child: Text('Advance to ${_nextPhase(view.phase).isEmpty ? '—' : _nextPhase(view.phase)}'),
                       ),
-                      const SizedBox(width: 8),
                       OutlinedButton(
                         onPressed: _controller.busy ? null : _controller.refresh,
                         child: const Text('Refresh'),
+                      ),
+                      OutlinedButton.icon(
+                        // Resumes from the last event this client processed, so
+                        // the gap is replayed rather than skipped.
+                        onPressed: _controller.busy || _controller.view == null
+                            ? null
+                            : _controller.reconnect,
+                        icon: const Icon(Icons.sync),
+                        label: Text('Reconnect from ${_controller.lastEventId}'),
                       ),
                     ],
                   ),

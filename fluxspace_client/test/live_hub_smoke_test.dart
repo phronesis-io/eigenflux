@@ -143,4 +143,67 @@ void main() {
       expect(events[i].id, greaterThan(events[i - 1].id));
     }
   }, skip: base == null ? 'set FLUXSPACE_LIVE_HUB=http://127.0.0.1:8399 to run' : false);
+
+  // The spectator path needs HUB_SPECTATOR_TOKEN on the Hub; without it the
+  // route answers 503 SPECTATOR_AUTH_UNCONFIGURED by design.
+  final String? spectatorToken = Platform.environment['FLUXSPACE_SPECTATOR_TOKEN'];
+
+  test('a spectator reads the view and resumes the stream from an event id', () async {
+    final HubClient client = HubClient(baseUrl: base);
+
+    final String invitationId = 'inv_spectate_${DateTime.now().microsecondsSinceEpoch}';
+    final NegotiationView offered = await client.createInvitation(MatchDraft(
+      invitationId: invitationId,
+      initiator: const HubParty(
+        agentId: 'agent_alpha',
+        companionId: 'comp_alpha',
+        ownerId: 'owner_alpha',
+        displayName: 'Lin Shen',
+      ),
+      responder: const HubParty(
+        agentId: 'agent_beta',
+        companionId: 'comp_beta',
+        ownerId: 'owner_beta',
+        displayName: 'Su Wan',
+      ),
+    ));
+    await client.acceptInvitation(offered.id, agentId: 'agent_beta', selectedProposal: 1);
+    final SessionView created = await client.createSessionFromInvitation(offered.id);
+    await client.join(created.sessionId, seatId: 'seat_0', ownerId: 'owner_alpha');
+    await client.join(created.sessionId, seatId: 'seat_1', ownerId: 'owner_beta');
+
+    // A spectator has no seat. The Hub accepts the spectator token for the two
+    // read-only session views, so the seats and metrics are reachable.
+    final SessionView watched =
+        await client.spectatorState(created.sessionId, spectatorToken: spectatorToken!);
+    expect(watched.sessionId, created.sessionId);
+    expect(watched.seats, hasLength(2));
+
+    // Replay from the beginning, then resume from the middle and require the
+    // replay to continue exactly where it left off — no gap, no duplicate.
+    final List<HubEvent> opening = await client
+        .spectate(created.sessionId, spectatorToken: spectatorToken)
+        .take(3)
+        .toList()
+        .timeout(const Duration(seconds: 10));
+    expect(opening, hasLength(3));
+    expect(opening.map((HubEvent e) => e.id).toSet(), hasLength(3));
+
+    final int resumeFrom = opening[1].id;
+    // Produce at least one more event so the resumed stream has something to
+    // deliver beyond what the first read already saw.
+    await client.advance(created.sessionId, 'discuss');
+
+    final List<HubEvent> resumed = await client
+        .spectate(created.sessionId, spectatorToken: spectatorToken, lastEventId: resumeFrom)
+        .take(2)
+        .toList()
+        .timeout(const Duration(seconds: 10));
+
+    expect(resumed.first.id, opening[2].id,
+        reason: 'a resume must replay the event after the resume point, not skip to the tail');
+    expect(resumed.map((HubEvent e) => e.id), isNot(contains(resumeFrom)));
+  }, skip: base == null || spectatorToken == null
+      ? 'set FLUXSPACE_LIVE_HUB and FLUXSPACE_SPECTATOR_TOKEN to run'
+      : false);
 }

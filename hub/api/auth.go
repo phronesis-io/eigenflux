@@ -52,12 +52,48 @@ func (s *Server) ownerForToken(token string) (string, bool) {
 	return matched, found == 1
 }
 
+// validSpectator reports whether the request carries the configured spectator
+// token, comparing in constant time. A Hub without HUB_SPECTATOR_TOKEN has no
+// spectators at all, so the answer is false rather than "any token matches".
+func (s *Server) validSpectator(r *http.Request) bool {
+	if s.SpectatorToken == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare(
+		[]byte(r.Header.Get("X-Spectator-Token")),
+		[]byte(s.SpectatorToken),
+	) == 1
+}
+
+// spectatorReadable reports whether this path is a read-only session view.
+//
+// The omniscient stream already tells a spectator everything these two routes
+// return, so gating them behind an owner token granted strictly less access than
+// the stream it accompanied: a spectator could receive every event and still not
+// know the seat names, the metrics or the round. That is an inconsistency, not a
+// boundary, and it is why these reads accept the spectator token.
+func spectatorReadable(path string) bool {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) < 3 || parts[0] != "hub" || parts[1] != "sessions" || parts[2] == "" {
+		return false
+	}
+	if len(parts) == 3 {
+		return true
+	}
+	return len(parts) == 4 && parts[3] == "snapshot"
+}
+
 // WithAuth wraps the mux with owner authentication.
 //
 // Three routes keep their own mechanisms and are exempt:
 //   - /health, so a deployment can be checked with one curl and no credential;
 //   - /spectate, which requires X-Spectator-Token and admits non-owners;
 //   - /events, which requires the per-seat stream token issued at join.
+//
+// Two read-only session views are additionally reachable with a valid spectator
+// token, because a spectator who can watch every event must be able to read the
+// view those events describe. Writes stay owner-only: the spectator token reads
+// the theatre, it does not play in it.
 //
 // Everything else under /hub/ requires a bearer token when the Hub is
 // authenticated. A request that carries no token is 401, not 403: the caller has
@@ -71,6 +107,10 @@ func WithAuth(next http.Handler, srv *Server) http.Handler {
 		}
 		path := r.URL.Path
 		if path == "/health" || strings.HasSuffix(path, "/spectate") || strings.HasSuffix(path, "/events") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if r.Method == http.MethodGet && spectatorReadable(path) && srv.validSpectator(r) {
 			next.ServeHTTP(w, r)
 			return
 		}

@@ -147,23 +147,67 @@ class HubClient implements HubApi {
       });
 
   @override
+  Future<SessionView> spectatorState(String sessionId, {required String spectatorToken}) =>
+      _guard<SessionView>(() async {
+        final Response<dynamic> response = await _dio.get<dynamic>(
+          '/hub/sessions/$sessionId',
+          options: Options(headers: <String, dynamic>{'X-Spectator-Token': spectatorToken}),
+        );
+        return _requireView(_map(response.data));
+      });
+
+  @override
   Stream<HubEvent> events(
     String sessionId, {
     required String seatId,
     required String seatToken,
+    int lastEventId = 0,
+  }) =>
+      _eventStream(
+        '/hub/sessions/$sessionId/events',
+        query: <String, dynamic>{'seat_id': seatId},
+        headers: <String, String>{
+          // The header is preferred to a query parameter because query strings
+          // land in server logs and shell history (contracts §3).
+          'X-Seat-Token': seatToken,
+        },
+        lastEventId: lastEventId,
+      );
+
+  @override
+  Stream<HubEvent> spectate(
+    String sessionId, {
+    required String spectatorToken,
+    int lastEventId = 0,
+  }) =>
+      _eventStream(
+        '/hub/sessions/$sessionId/spectate',
+        headers: <String, String>{'X-Spectator-Token': spectatorToken},
+        lastEventId: lastEventId,
+      );
+
+  /// One SSE request and its framing.
+  ///
+  /// The seat stream and the omniscient stream differ only in path and in which
+  /// credential they carry, so they share this. Duplicating the framing logic
+  /// would mean two places to forget `Last-Event-ID`.
+  Stream<HubEvent> _eventStream(
+    String path, {
+    Map<String, dynamic>? query,
+    required Map<String, String> headers,
+    int lastEventId = 0,
   }) async* {
     final Response<ResponseBody> response;
     try {
       response = await _dio.get<ResponseBody>(
-        '/hub/sessions/$sessionId/events',
-        queryParameters: <String, dynamic>{'seat_id': seatId},
+        path,
+        queryParameters: query,
         options: Options(
           responseType: ResponseType.stream,
           headers: <String, dynamic>{
-            // The header is preferred to a query parameter because query
-            // strings land in server logs and shell history (contracts §3).
-            'X-Seat-Token': seatToken,
+            ...headers,
             'Accept': 'text/event-stream',
+            if (lastEventId > 0) 'Last-Event-ID': '$lastEventId',
           },
           // A refusal arrives as a normal JSON body even when the request asked
           // for a stream, so the status is inspected below instead of thrown.

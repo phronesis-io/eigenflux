@@ -20,6 +20,7 @@ import (
 type authedServer struct {
 	url      string
 	governor *Governance
+	manager  *session.Manager
 }
 
 func newAuthedServer(t *testing.T) authedServer {
@@ -30,8 +31,9 @@ func newAuthedServer(t *testing.T) authedServer {
 		"tok-alpha": "owner_alpha",
 		"tok-beta":  "owner_beta",
 	}
+	mgr := session.NewManagerWithClock(clock)
 	api := &Server{
-		Manager:        session.NewManagerWithClock(clock),
+		Manager:        mgr,
 		SpectatorToken: "spectator-secret",
 		Archives:       archive.NewStore(),
 		Governance:     &Governance{Components: components},
@@ -46,7 +48,7 @@ func newAuthedServer(t *testing.T) authedServer {
 	RegisterCompanions(mux, api)
 	srv := httptest.NewServer(WithAuth(mux, api))
 	t.Cleanup(srv.Close)
-	return authedServer{url: srv.URL, governor: api.Governance}
+	return authedServer{url: srv.URL, governor: api.Governance, manager: mgr}
 }
 
 func doAuthed(t *testing.T, method, url, token string, body any) (int, map[string]any) {
@@ -246,5 +248,65 @@ func TestJoinRequiresTheOwnersTokenAndIssuesASeatToken(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("stream with seat token = %d", resp.StatusCode)
+	}
+}
+
+// doSpectator sends a request that carries only the spectator token.
+func doSpectator(t *testing.T, method, url, token string) (int, map[string]any) {
+	t.Helper()
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	if token != "" {
+		req.Header.Set("X-Spectator-Token", token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, url, err)
+	}
+	defer resp.Body.Close()
+	var body map[string]any
+	raw, _ := io.ReadAll(resp.Body)
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &body)
+	}
+	return resp.StatusCode, body
+}
+
+// TestSpectatorTokenReadsTheViewItCanWatch covers the gap ADR-0009 left: the
+// omniscient stream was exempt from owner authentication, but the two read-only
+// views describing that same stream were not. A spectator could receive every
+// event and still not learn the seat names, the metrics or the round.
+func TestSpectatorTokenReadsTheViewItCanWatch(t *testing.T) {
+	srv := newAuthedServer(t)
+	view, err := srv.manager.Create(session.CreateRequest{
+		Invitation: invitation("inv_spectate"), Claims: claims(), Seed: 42,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	path := srv.url + "/hub/sessions/" + view.SessionID
+
+	if status, _ := doSpectator(t, http.MethodGet, path, ""); status != http.StatusUnauthorized {
+		t.Fatalf("no credential = %d, want 401", status)
+	}
+	if status, _ := doSpectator(t, http.MethodGet, path, "wrong-token"); status != http.StatusUnauthorized {
+		t.Fatalf("wrong spectator token = %d, want 401", status)
+	}
+
+	status, body := doSpectator(t, http.MethodGet, path, "spectator-secret")
+	if status != http.StatusOK || body["session_id"] != view.SessionID {
+		t.Fatalf("spectator read = %d %v", status, body)
+	}
+	if status, _ := doSpectator(t, http.MethodGet, path+"/snapshot", "spectator-secret"); status != http.StatusOK {
+		t.Fatalf("spectator snapshot = %d, want 200", status)
+	}
+
+	// The spectator token reads the theatre; it does not play in it.
+	for _, route := range []string{"/advance", "/discussion", "/actions", "/join"} {
+		if status, _ := doSpectator(t, http.MethodPost, path+route, "spectator-secret"); status != http.StatusUnauthorized {
+			t.Fatalf("spectator POST %s = %d, want 401", route, status)
+		}
 	}
 }

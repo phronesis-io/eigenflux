@@ -22,6 +22,10 @@ enum SessionStage {
   /// A match exists and this client holds a seat in it.
   seated,
 
+  /// Watching a match this client has no seat in: the omniscient view, which is
+  /// what the Theatre page is for.
+  watching,
+
   /// The Hub finished the match.
   finished,
 
@@ -100,6 +104,11 @@ class SessionController extends ChangeNotifier {
   HubException? _error;
   String _seatId = '';
   String _seatToken = '';
+  bool _watching = false;
+  String _spectatorToken = '';
+  /// The highest event id this client has processed. Sent as `Last-Event-ID` on
+  /// reconnect so the gap is replayed rather than skipped.
+  int _lastEventId = 0;
   String _companionId = '';
   final List<LogLine> _log = <LogLine>[];
   StreamSubscription<HubEvent>? _events;
@@ -115,7 +124,14 @@ class SessionController extends ChangeNotifier {
 
   /// True when this client holds a seat token for the current session, i.e.
   /// it can read that seat's private stream.
-  bool get isSeated => _seatToken.isNotEmpty && _seatId.isNotEmpty;
+  bool get isSeated => _seatToken.isNotEmpty && _seatId.isNotEmpty && !_watching;
+
+  /// True when the view is being read through the omniscient spectator stream.
+  bool get watching => _watching;
+
+  /// The last event id seen. Exposed so the console can show where a reconnect
+  /// resumes from — a number the player can compare against the log.
+  int get lastEventId => _lastEventId;
 
   List<LogLine> get log => List<LogLine>.unmodifiable(_log);
 
@@ -225,9 +241,52 @@ class SessionController extends ChangeNotifier {
       _view = await _api.snapshot(sessionId);
       _seatId = seatId;
       _seatToken = stored;
+      // The snapshot is current by definition, so its event id is where the
+      // stream must resume: earlier events are already reflected in the state.
+      _lastEventId = _view!.lastEventId;
       _stage = _view!.isFinished ? SessionStage.finished : SessionStage.seated;
       _note('resumed ${_view!.sessionId} at round ${_view!.round}/${_view!.totalRounds}');
+      _listen(fromEventId: _lastEventId);
+    });
+  }
+
+  /// Watches a match through the omniscient stream.
+  ///
+  /// This is the owner's view: four companions play, the owner sees everything.
+  /// It needs a spectator token, not an owner token, because spectating is not
+  /// acting — the Hub accepts that token for `/spectate` and for the two
+  /// read-only session views (contracts §3).
+  Future<void> watch(String sessionId, {required String spectatorToken}) async {
+    await _run(() async {
+      _view = await _api.spectatorState(sessionId, spectatorToken: spectatorToken);
+      _watching = true;
+      _spectatorToken = spectatorToken;
+      _seatId = '';
+      _seatToken = '';
+      _lastEventId = 0;
+      _stage = _view!.isFinished ? SessionStage.finished : SessionStage.watching;
+      _note('watching ${_view!.sessionId} at round ${_view!.round}/${_view!.totalRounds}');
       _listen();
+    });
+  }
+
+  /// Reopens the stream from the last event this client processed.
+  ///
+  /// Deliberately does not reload the snapshot first: reloading would advance the
+  /// state to the Hub's present and then the replay would be skipped as
+  /// "already known", losing exactly the events a reconnect is for.
+  Future<void> reconnect() async {
+    await _run(() async {
+      final SessionView? view = _view;
+      if (view == null) {
+        throw const HubException(
+          status: 0,
+          code: 'NO_SESSION',
+          message: 'nothing to reconnect to; open or watch a match first',
+        );
+      }
+      _note('reconnecting from event $_lastEventId');
+      _listen(fromEventId: _lastEventId);
     });
   }
 
@@ -282,7 +341,9 @@ class SessionController extends ChangeNotifier {
   Future<void> refresh() async {
     if (_view == null) return;
     await _run(() async {
-      _view = await _api.state(_view!.sessionId);
+      _view = _watching
+          ? await _api.spectatorState(_view!.sessionId, spectatorToken: _spectatorToken)
+          : await _api.state(_view!.sessionId);
     }, quiet: true);
   }
 
@@ -308,19 +369,34 @@ class SessionController extends ChangeNotifier {
     _view = joined.session;
     _seatId = seatId;
     _seatToken = joined.streamToken;
+    // Joining is the opposite of spectating: a client that was watching and then
+    // sits down must read its own seat stream from here on.
+    _watching = false;
     _stage = SessionStage.seated;
     await _tokens.write(TokenKeys.seatToken(sessionId), joined.streamToken);
     _note('seated as $seatId (${joined.session.seat(seatId)?.displayName ?? 'unknown'})');
     _listen();
   }
 
-  void _listen() {
+  void _listen({int fromEventId = 0}) {
     unawaited(_events?.cancel());
     final SessionView? view = _view;
-    if (view == null || _seatToken.isEmpty) return;
-    _events = _api
-        .events(view.sessionId, seatId: _seatId, seatToken: _seatToken)
-        .listen(_onEvent, onError: (Object error) {
+    if (view == null) return;
+    if (!_watching && _seatToken.isEmpty) return;
+
+    final Stream<HubEvent> stream = _watching
+        ? _api.spectate(view.sessionId, spectatorToken: _spectatorToken, lastEventId: fromEventId)
+        : _api.events(view.sessionId, seatId: _seatId, seatToken: _seatToken, lastEventId: fromEventId);
+
+    _events = stream.listen(_onEvent, onDone: () {
+      _append(LogLine(
+        at: _clock(),
+        kind: LogKind.notice,
+        text: _view?.isFinished ?? false
+            ? 'stream closed: the match is finished'
+            : 'stream closed before the match finished',
+      ));
+    }, onError: (Object error) {
       final HubException failure = hubExceptionFrom(error);
       // A closed stream is normal at match end; anything else is not.
       if (failure.code == 'TRANSPORT' && (_view?.isFinished ?? false)) return;
@@ -334,6 +410,9 @@ class SessionController extends ChangeNotifier {
   }
 
   void _onEvent(HubEvent event) {
+    // Monotonic per session, so max() protects against a replayed event being
+    // older than what this client already applied.
+    if (event.id > _lastEventId) _lastEventId = event.id;
     _append(LogLine(
       at: _clock(),
       kind: LogKind.event,

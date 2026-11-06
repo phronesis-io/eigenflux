@@ -1,7 +1,6 @@
 package api
 
 import (
-	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -272,9 +271,11 @@ func (s *Server) spectatorEvents(w http.ResponseWriter, r *http.Request) {
 			Message: "omniscient stream disabled: HUB_SPECTATOR_TOKEN is not configured"})
 		return
 	}
-	// Constant-time compare: this is the only credential the Hub accepts, and a
-	// byte-by-byte comparison leaks its prefix to anyone who can time responses.
-	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Spectator-Token")), []byte(s.SpectatorToken)) != 1 {
+	// The comparison is constant-time and lives in one place: this route and the
+	// two read-only views a spectator may fetch (auth.go: spectatorReadable) must
+	// agree on what a valid spectator token is, and two copies would eventually
+	// drift.
+	if !s.validSpectator(r) {
 		writeDomainError(w, &apperr.Error{Status: http.StatusForbidden,
 			Code: "SPECTATOR_AUTH_REQUIRED", Message: "invalid spectator token"})
 		return

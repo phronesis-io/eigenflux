@@ -201,3 +201,25 @@ absorbed:
    Hub had been deployed with governance persistence, so no history was lost. A
    Hub that later needs to upgrade real history must re-chain it by migration
    rather than accept a broken `Verify`.
+
+## Addendum 2026-11-07: what a spectator may read
+
+§2.1 exempted `/spectate` and `/events` from bearer authentication because those
+routes carry their own credentials. It exempted nothing else, which left
+`GET /hub/sessions/{id}` and `/snapshot` owner-only — and that is incoherent
+rather than strict: a spectator could receive every omniscient event and still not
+learn the seat names, the metrics or which round the match was in. The client could
+not render a watched match at all.
+
+Those two read-only views now accept `X-Spectator-Token` in place of a bearer
+token. The reasoning that keeps this from being a widening of authority:
+
+- The token already grants strictly more (the whole event log), so refusing it the
+  summary protected nothing.
+- Only `GET` is affected. Every write path remains owner-only and is covered by a
+  test that asserts `401` when a spectator token is presented to `advance`,
+  `discussion`, `actions` and `join`.
+- No new credential is introduced, so there is nothing new to distribute or leak.
+
+Recorded here rather than in a new ADR because it corrects this decision's
+exemption list rather than deciding anything new. `contracts` §3 states the rule.
