@@ -12,6 +12,7 @@ type Cycle struct {
 	StartedAt         int64             `json:"started_at"`
 	Mode              string            `json:"mode"`
 	Stages            map[string]string `json:"stages"`
+	FailureCodes      map[string]string `json:"failure_codes,omitempty"`
 	Result            string            `json:"result,omitempty"`
 	ExecutionObserved bool              `json:"execution_observed,omitempty"`
 }
@@ -72,8 +73,17 @@ func StartCycle(scope Scope, mode string, stages []string, env RuntimeObservatio
 // Stage receipts are client assertions. A complete cycle requires every planned stage;
 // neither plan creation nor an arbitrary terminal receipt can establish completion.
 func ReportCycle(scope Scope, id, stage, result string) error {
+	return ReportCycleWithErrorCode(scope, id, stage, result, "")
+}
+
+// ReportCycleWithErrorCode adds optional classified evidence to a failed stage.
+// Existing callers and old state retain their original receipt semantics.
+func ReportCycleWithErrorCode(scope Scope, id, stage, result, code string) error {
 	if !idValue.MatchString(id) || (result != "completed" && result != "failed") {
 		return fmt.Errorf("invalid cycle receipt")
+	}
+	if code != "" && (result != "failed" || stage == "cycle" || !RuntimeFailureCode(code)) {
+		return fmt.Errorf("error code requires a confirmed stage failure category")
 	}
 	return update(scope, func(st *State) error {
 		c, ok := st.Cycles[id]
@@ -82,6 +92,9 @@ func ReportCycle(scope Scope, id, stage, result string) error {
 		}
 		if c.Result != "" {
 			if (stage == "cycle" && result == c.Result) || (stage != "cycle" && c.Stages[stage] == result) {
+				if c.FailureCodes[stage] != code {
+					return fmt.Errorf("stage failure category already recorded")
+				}
 				return nil
 			}
 			return fmt.Errorf("cycle already ended")
@@ -113,14 +126,24 @@ func ReportCycle(scope Scope, id, stage, result string) error {
 				return fmt.Errorf("stage not in this cycle")
 			}
 			if old == result {
+				if c.FailureCodes[stage] != code {
+					return fmt.Errorf("stage failure category already recorded")
+				}
 				return nil
 			}
 			if old != "" {
 				return fmt.Errorf("stage already reported; start a new cycle to retry")
 			}
 			c.Stages[stage] = result
+			if code != "" {
+				if c.FailureCodes == nil {
+					c.FailureCodes = map[string]string{}
+				}
+				c.FailureCodes[stage] = code
+			}
 		}
 		e := cycleEvent(c, stage, result)
+		e.ErrorCode = code
 		if err := Validate(e); err != nil {
 			return err
 		}
