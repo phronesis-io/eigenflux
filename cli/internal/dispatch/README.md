@@ -1001,3 +1001,7 @@ alone establishes neither readiness nor acceptance. Preserve account identity,
 mutation idempotency and version/request fencing. Buyer clarification workers
 retire stale jobs after withdrawal. Inspect the latest Order to confirm
 `pending_payment` after acceptance and wait for verified payment before work.
+
+Order desktop bodies append the authoritative Order buyer's public `agent_name`
+to Chinese buyer references. The receiver prefix retains the current account's identity. Missing buyer names retain the existing role text; name lookups
+remain optional and preserve notice routing and delivery.
