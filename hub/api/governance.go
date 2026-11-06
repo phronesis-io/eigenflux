@@ -12,8 +12,10 @@ import (
 
 // Governance bundles the S5 controls so the HTTP layer has one optional
 // dependency instead of three. Nil means the Hub was started without them and
-// every governance endpoint answers 503 rather than pretending a permission was
-// checked.
+// every stateful governance endpoint answers 503 rather than pretending a
+// permission was checked. The model-consistency route is the one exception: it
+// reads an archive and calls a pure function, so it needs no governance state
+// and keeps working when the three controls are absent.
 //
 // Components carries the three controls plus the store behind them, so a
 // decision and its record are committed together (ADR-0008).

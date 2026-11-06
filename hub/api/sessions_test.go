@@ -23,6 +23,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *session.Manager) {
 	RegisterSessions(mux, &Server{
 		Manager: mgr, SpectatorToken: "spectator-secret",
 		PollInterval: 5 * time.Millisecond,
+		Clock:        func() int64 { return 1700000000000 },
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -356,8 +357,34 @@ func TestSnapshotEndpoint(t *testing.T) {
 		TS          int64              `json:"ts"`
 	}
 	call(t, http.MethodGet, srv.URL+"/hub/sessions/"+view.SessionID+"/snapshot", nil, http.StatusOK, &payload)
-	if payload.Session.SessionID != view.SessionID || payload.LastEventID == 0 || payload.TS == 0 {
+	if payload.Session.SessionID != view.SessionID || payload.LastEventID == 0 {
 		t.Fatalf("snapshot = %+v", payload)
+	}
+	// The timestamp must come from the server clock, not the wall clock: a
+	// response that mixes the two breaks any assertion built on a fixed clock.
+	if payload.TS != 1700000000000 {
+		t.Fatalf("snapshot ts = %d, want the injected clock's 1700000000000", payload.TS)
+	}
+}
+
+func TestOversizedBodyIsRejected(t *testing.T) {
+	srv, _ := newTestServer(t)
+	huge := strings.Repeat("a", maxBodyBytes+1024)
+	resp, err := http.Post(srv.URL+"/hub/sessions", "application/json",
+		strings.NewReader(`{"invitation_id":"`+huge+`"}`))
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("oversized body = %d, want 400", resp.StatusCode)
+	}
+	var body apiError
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode error body: %v", err)
+	}
+	if body.Error.Code != "INVALID_BODY" {
+		t.Fatalf("code = %q, want INVALID_BODY", body.Error.Code)
 	}
 }
 

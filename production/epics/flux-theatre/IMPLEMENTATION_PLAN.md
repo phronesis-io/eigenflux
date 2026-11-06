@@ -171,7 +171,7 @@ succeeded.
 |---|---|
 | `go build ./...` (hub) | PASS |
 | `go vet ./...` (hub) | PASS |
-| `go test -count=1 -v ./...` (hub) | PASS — **129 passing tests** across api, archive, followup, generator, govern, invitation, models, referee, services, session (apperr has no tests of its own) |
+| `go test -count=1 -v ./...` (hub) | PASS — **130 passing tests** across api, archive, followup, generator, govern, invitation, models, referee, services, session (apperr has no tests of its own) |
 | `python hub/scripts/check_balance.py` | PASS — the S2 gate. 5 x 480 = 2,400 matches aggregated; measured 9.38%–11.25% across 20 consecutive runs, 0 failures. Floor is 0.08, the three-sigma lower bound of the 10% baseline (see ADR-0003 amendment) |
 | S4 replay archive | PASS — `hub/archive/` 15 tests (build, tamper detection, six modes, consent policies, reprise divergence) plus 3 HTTP tests covering the full S4 flow |
 | Archive integrity | PASS — SHA-256 over `{version, session_id, config, events, settlement}` plus a skeleton hash; `Load` refuses tampered bytes; six tamper cases assert the exact mismatch |
@@ -183,6 +183,7 @@ succeeded.
 | Five-match fingerprint window | PASS — `TestCreateExcludesLastFiveMatchFingerprints` builds a five-match history from the exact skeletons this seed would emit, then asserts all three proposals and a modify-round regeneration avoid every one |
 | `bash scripts/build.sh` (hub) | PASS — `hub/build/fluxspace-hub` |
 | Golden comparison vs `fluxspace/_check.js` | PASS — every case matched |
+| Pre-review self-audit | PASS — `SELF_AUDIT_2026-11-07.md`: 40 routes vs 39 documented (0 phantom, 0 undocumented), every documented test count matches, 4 findings fixed (false 503 claim, unbounded request body, non-constant-time token compare, snapshot bypassing the injected clock), 6 recorded open with reasons |
 | `cd fluxspace && node _balance.js` | 480 matches: 7 wins / 41 losses / 432 timeouts (unchanged; see G1) |
 | Hub HTTP e2e (5 rounds, 4 seats) | PASS — `TestSessionHTTPEndToEndFiveRounds`; outcome is never a neutral `rounds_out` |
 | **S1 full loop over HTTP** | PASS — `TestS1FullLoopOverHTTP`: negotiation -> PM send/reply/poll -> confirmed -> session -> 5 rounds -> follow-up PMs -> idempotent re-send |

@@ -29,8 +29,10 @@ Two constraints shape the rest:
 
 `hub/govern` owns the three stateful controls — budget ledger, permission
 registry, audit log — and `hub/api/governance.go` exposes eleven endpoints over
-them. Unconfigured, every governance endpoint answers `503
-GOVERNANCE_UNCONFIGURED`; there is no permissive default.
+them. Unconfigured, the ten endpoints that depend on that state answer `503
+GOVERNANCE_UNCONFIGURED`; there is no permissive default. The eleventh, the
+model-consistency check, reads an archive and calls a pure function, so it holds
+no governance state and is not gated on one.
 
 This does not move persona data to the Hub. The Hub stores a *permission tier*
 and a *token count* per companion, neither of which is personality.

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -83,8 +84,14 @@ func writeDomainError(w http.ResponseWriter, err error) {
 	writeJSON(w, http.StatusInternalServerError, out)
 }
 
+// maxBodyBytes bounds every JSON request body. Without it a single client can
+// make the Hub allocate without limit before any validation runs; 1 MiB is far
+// above the largest legitimate payload (a full decision submission) and far
+// below anything that threatens the process.
+const maxBodyBytes = 1 << 20
+
 func decodeBody(r *http.Request, out any) error {
-	dec := json.NewDecoder(r.Body)
+	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxBodyBytes))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(out); err != nil {
 		return &apperr.Error{Status: http.StatusBadRequest, Code: "INVALID_BODY", Message: err.Error()}
@@ -185,7 +192,10 @@ func (s *Server) getSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"session": view, "last_event_id": view.LastEventID, "ts": time.Now().UnixMilli(),
+		// s.now(), not time.Now(): a test that fixes the clock must see the same
+		// instant here as everywhere else, or a snapshot assertion becomes a
+		// flaky assertion.
+		"session": view, "last_event_id": view.LastEventID, "ts": s.now(),
 	})
 }
 
@@ -223,7 +233,9 @@ func (s *Server) spectatorEvents(w http.ResponseWriter, r *http.Request) {
 			Message: "omniscient stream disabled: HUB_SPECTATOR_TOKEN is not configured"})
 		return
 	}
-	if r.Header.Get("X-Spectator-Token") != s.SpectatorToken {
+	// Constant-time compare: this is the only credential the Hub accepts, and a
+	// byte-by-byte comparison leaks its prefix to anyone who can time responses.
+	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Spectator-Token")), []byte(s.SpectatorToken)) != 1 {
 		writeDomainError(w, &apperr.Error{Status: http.StatusForbidden,
 			Code: "SPECTATOR_AUTH_REQUIRED", Message: "invalid spectator token"})
 		return

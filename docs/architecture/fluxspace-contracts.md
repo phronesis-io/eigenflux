@@ -502,9 +502,12 @@ round in which any seat's `action_id` differs, with the specific seat recorded.
 ## 11. Governance — budget, permissions, audit, model consistency (S5)
 
 S5's controls are Hub-authoritative (ADR-0007): the client requests, the Hub
-decides and records. All eleven endpoints answer `503 GOVERNANCE_UNCONFIGURED`
-when the Hub was started without them, and `503 GOVERNANCE_DEGRADED` after a
-decision could not be recorded (ADR-0008).
+decides and records. Ten of the eleven endpoints answer `503
+GOVERNANCE_UNCONFIGURED` when the Hub was started without the three controls, and
+`503 GOVERNANCE_DEGRADED` after a decision could not be recorded (ADR-0008). The
+eleventh — `GET /hub/archives/{id}/model-consistency` — reads an archive and calls
+a pure function, holds no governance state, and therefore keeps working: refusing
+it would have been a rule with no reason behind it.
 
 ### Endpoints
 
