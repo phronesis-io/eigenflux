@@ -112,13 +112,18 @@ single highest integration risk.
   permissions with deny-by-default and single-use high-impact approvals; a
   hash-chained audit log that records refusals as well as successes; and a
   model-version check that treats an unrecorded version as a failure (ADR-0007).
+  `persist.go` makes the three stateful controls durable under
+  `HUB_GOVERNANCE_DIR`: an append-only `audit.jsonl` and an atomically replaced
+  `state.json`, with load refusing a broken chain or a snapshot ahead of the log
+  (ADR-0008). Unset directory = memory-only, logged explicitly.
 - `api/`: `GET /health`, nine session endpoints, six negotiation endpoints,
   two follow-up endpoints, eleven archive/reprise endpoints and eleven
   governance endpoints. `main.go` listens on `:8095`;
   `HUB_SPECTATOR_TOKEN` gates the omniscient stream;
   `HUB_GATEWAY_URL`, `HUB_AGENT_TOKENS` and `HUB_AGENT_ID` configure the real
-  gateway client. Unconfigured gateway paths return explicit 503s. SSE polls
-  the retained event log so no observer can drop an event.
+  gateway client; `HUB_GOVERNANCE_DIR` makes governance state durable and a
+  failed load is fatal. Unconfigured gateway paths return explicit 503s. SSE
+  polls the retained event log so no observer can drop an event.
 - `services/eigenflux.go`: the §7 `EigenFluxPort` contract and a real HTTP
   `GatewayPort` (PM send/fetch, friend request, injectable token refresh with
   one 401 retry, Agent Card field patch with verified optimistic-lock shape).
@@ -166,14 +171,15 @@ succeeded.
 |---|---|
 | `go build ./...` (hub) | PASS |
 | `go vet ./...` (hub) | PASS |
-| `go test -count=1 -v ./...` (hub) | PASS — **118 passing tests** across api, archive, followup, generator, invitation, models, referee, services, session (apperr has no tests of its own) |
+| `go test -count=1 -v ./...` (hub) | PASS — **129 passing tests** across api, archive, followup, generator, govern, invitation, models, referee, services, session (apperr has no tests of its own) |
 | `python hub/scripts/check_balance.py` | PASS — the S2 gate. 5 x 480 = 2,400 matches aggregated; measured 9.38%–11.25% across 20 consecutive runs, 0 failures. Floor is 0.08, the three-sigma lower bound of the 10% baseline (see ADR-0003 amendment) |
 | S4 replay archive | PASS — `hub/archive/` 15 tests (build, tamper detection, six modes, consent policies, reprise divergence) plus 3 HTTP tests covering the full S4 flow |
 | Archive integrity | PASS — SHA-256 over `{version, session_id, config, events, settlement}` plus a skeleton hash; `Load` refuses tampered bytes; six tamper cases assert the exact mismatch |
 | Six viewing modes | PASS — full, accelerated (2x/4x, other speeds rejected), single_character (private events of other seats are filtered), omniscient_comparison (seat-ordered), key_moments (derived and deterministic), same_spec_comparison (divergence point) |
 | All-participant consent | PASS — fail-closed policy, majority = strictly more than half, officials excluded, reprise always requires every participant |
 | Agent Card projection (G11) | PASS — 2 `services` tests plus 3 `followup` tests: only a blank public descriptor is written, an occupied field is skipped as `owner_content_present` with no PUT issued, an unconfigured sender touches the gateway zero times, and no personality/memory/relationship key can reach the write body |
-| S5 governance | PASS — `hub/govern` 12 tests plus 5 HTTP tests: budget refuses over-cap with `downgrade: rule_engine` and books nothing; permissions deny by default and never leak between companions; a high-impact approval is single-use, operation-specific and expiring; the audit chain detects edited, removed and reordered entries; model consistency treats a missing version as a failure |
+| S5 governance | PASS — `hub/govern` 21 tests plus 7 HTTP tests: budget refuses over-cap with `downgrade: rule_engine` and books nothing; permissions deny by default and never leak between companions; a high-impact approval is single-use, operation-specific and expiring; the audit chain detects edited, removed and reordered entries; model consistency treats a missing version as a failure |
+| S5 governance persistence (ADR-0008) | PASS — 9 `govern` tests plus 2 HTTP tests: permissions, spend and the chain survive a full reload; the chain continues at seq N+1 instead of restarting; outstanding approvals are dropped across a restart; an edited entry, a snapshot ahead of the log and an unknown schema version all refuse to load; an interrupted append is truncated and reported; a write failure returns `500 GOVERNANCE_PERSIST_FAILED` and every later call returns `503 GOVERNANCE_DEGRADED` |
 | Five-match fingerprint window | PASS — `TestCreateExcludesLastFiveMatchFingerprints` builds a five-match history from the exact skeletons this seed would emit, then asserts all three proposals and a modify-round regeneration avoid every one |
 | `bash scripts/build.sh` (hub) | PASS — `hub/build/fluxspace-hub` |
 | Golden comparison vs `fluxspace/_check.js` | PASS — every case matched |

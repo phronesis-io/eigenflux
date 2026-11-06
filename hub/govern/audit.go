@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 )
@@ -32,13 +33,55 @@ type AuditEntry struct {
 // AuditLog is an append-only, hash-chained record. Chaining is what makes it
 // tamper-evident without a trust anchor: editing, deleting or reordering an
 // entry breaks every hash after it.
+//
+// store is optional. When it is set, every entry is written to disk before it is
+// recorded in memory, so a restart replays the same chain and the in-memory log
+// is never ahead of the durable one.
 type AuditLog struct {
 	mu      sync.Mutex
 	entries []AuditEntry
+	store   *Store
+
+	// loadNote records a repair made while loading — currently only a torn
+	// tail left by an interrupted append. It is reported to the operator by
+	// Components.LoadNote instead of being swallowed.
+	loadNote error
 }
 
-// NewAuditLog returns an empty log.
+// NewAuditLog returns an empty, memory-only log.
 func NewAuditLog() *AuditLog { return &AuditLog{} }
+
+// OpenAuditLog loads the chain from store and verifies it before returning.
+//
+// A chain that does not verify is refused, not repaired: "the first broken
+// sequence number" is the only honest statement when entries were edited or
+// removed, and continuing to append to a broken chain would launder the
+// damage into a valid-looking log.
+func OpenAuditLog(store *Store) (*AuditLog, error) {
+	log := &AuditLog{store: store}
+	entries, err := store.LoadAudit()
+	if err != nil {
+		// A repaired torn tail is reported with the entries that survived; any
+		// other error means the log is unusable.
+		var torn *TornTailError
+		if !errors.As(err, &torn) {
+			return nil, err
+		}
+		log.loadNote = torn
+	}
+	if err := verifyChain(entries); err != nil {
+		return nil, fmt.Errorf("audit chain in %s does not verify: %w", store.Dir(), err)
+	}
+	log.entries = entries
+	return log, nil
+}
+
+// LoadNote reports a repair made while loading the chain, if any.
+func (l *AuditLog) LoadNote() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.loadNote
+}
 
 // Append records one entry and returns it with its chain fields filled in.
 func (l *AuditLog) Append(entry AuditEntry) (AuditEntry, error) {
@@ -60,6 +103,11 @@ func (l *AuditLog) Append(entry AuditEntry) (AuditEntry, error) {
 		return AuditEntry{}, err
 	}
 	entry.Hash = hash
+	if l.store != nil {
+		if err := l.store.AppendAudit(entry); err != nil {
+			return AuditEntry{}, err
+		}
+	}
 	l.entries = append(l.entries, entry)
 	return entry, nil
 }
@@ -85,14 +133,29 @@ func (l *AuditLog) Len() int {
 	return len(l.entries)
 }
 
+// LastSeq reports the sequence number of the newest entry, or zero when the log
+// is empty. It names the log position a state snapshot corresponds to.
+func (l *AuditLog) LastSeq() int64 {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if n := len(l.entries); n > 0 {
+		return l.entries[n-1].Seq
+	}
+	return 0
+}
+
 // Verify recomputes the whole chain. It reports the first broken entry by
 // sequence number instead of returning a bare boolean, because "the log is
 // wrong" is not actionable.
 func (l *AuditLog) Verify() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	return verifyChain(l.entries)
+}
+
+func verifyChain(entries []AuditEntry) error {
 	prev := ""
-	for i, e := range l.entries {
+	for i, e := range entries {
 		if e.Seq != int64(i+1) {
 			return fmt.Errorf("audit entry %d has seq %d: entries were reordered or removed", i+1, e.Seq)
 		}

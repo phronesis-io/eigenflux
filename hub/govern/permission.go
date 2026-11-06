@@ -2,6 +2,7 @@ package govern
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 )
 
@@ -214,4 +215,42 @@ func (r *Registry) Approvals(companionID string) []Approval {
 		out = append(out, *a)
 	}
 	return out
+}
+
+// Snapshot returns the durable part of the registry, sorted by companion id so
+// the state file is byte-stable across runs.
+//
+// Outstanding approvals are deliberately excluded: an approval authorises one
+// high-impact action at the moment of execution, and carrying it across a
+// restart would let a grant issued before the process died authorise an action
+// after it came back.
+func (r *Registry) Snapshot() []PermissionConfig {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]PermissionConfig, 0, len(r.configs))
+	for _, cfg := range r.configs {
+		out = append(out, cfg)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CompanionID < out[j].CompanionID })
+	return out
+}
+
+// Restore loads permissions from a snapshot. It rejects what Set would reject
+// rather than trusting the file: a state file is an input like any other, and an
+// unknown tier read back from disk must not become a working grant.
+func (r *Registry) Restore(configs []PermissionConfig) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, cfg := range configs {
+		if cfg.CompanionID == "" {
+			return fmt.Errorf("restored permission entry has no companion_id")
+		}
+		if _, ok := tierRank[cfg.Tier]; !ok {
+			return fmt.Errorf("restored permission for %q has unknown tier %q", cfg.CompanionID, cfg.Tier)
+		}
+	}
+	for _, cfg := range configs {
+		r.configs[cfg.CompanionID] = cfg
+	}
+	return nil
 }

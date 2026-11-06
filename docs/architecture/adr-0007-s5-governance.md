@@ -122,9 +122,11 @@ Building a second consent mechanism would create two answers to one question.
   reconciled; spend is what the client reported. A dishonest client can under-
   report. Closing that needs per-call attestation or a Hub-side model proxy,
   neither of which exists.
-- **Governance state is in memory**, like the rest of the Hub. A restart resets
-  permissions, spend and the audit log. This is the largest remaining gap in
-  S5 and is recorded below rather than glossed.
+- **Governance state is in memory in this ADR**, like the rest of the Hub. A
+  restart resets permissions, spend and the audit log. ADR-0008 addresses this
+  with an append-only audit log plus an atomic state snapshot, and is the
+  authority on the persistence semantics; the in-memory descriptions above
+  remain correct for the components themselves.
 - **Endpoint authentication is still phase-1 only.** Anyone who can reach the
   Hub can set a permission tier. That is the same trust level as every other
   phase-1 endpoint; it is why the audit log matters, and why S5's "trust" work
@@ -132,7 +134,11 @@ Building a second consent mechanism would create two answers to one question.
 
 ## Not claimed done
 
-- No persistence for permissions, budget or audit — all reset on restart.
+- ~~No persistence for permissions, budget or audit — all reset on restart.~~
+  Closed by ADR-0008: `HUB_GOVERNANCE_DIR` makes the three controls durable
+  (append-only hash-chained log + atomic snapshot), refuses to start on a
+  snapshot ahead of the log, and drops outstanding approvals on restart by
+  design.
 - No authentication or authorisation on the Hub's own endpoints, so the
   governance API is only as trustworthy as the network it sits on.
 - No guided runtime setup flow (model, budget, permission onboarding). That is a

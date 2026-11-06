@@ -66,6 +66,29 @@ func cardProjectionFields() []string {
 	return fields
 }
 
+// governanceComponents opens the S5 governance state, or returns memory-only
+// components when HUB_GOVERNANCE_DIR is unset.
+//
+// A load failure is fatal, not downgraded to memory mode: silently forgetting
+// permissions, spend and the audit chain because a file would not parse is the
+// one failure a governance store must not have (ADR-0008).
+func governanceComponents() *govern.Components {
+	dir := strings.TrimSpace(os.Getenv("HUB_GOVERNANCE_DIR"))
+	components, err := govern.Open(dir)
+	if err != nil {
+		log.Fatalf("governance state refused: %v", err)
+	}
+	if note := components.LoadNote(); note != nil {
+		log.Printf("governance state loaded with a note: %v", note)
+	}
+	if components.Store == nil {
+		log.Printf("HUB_GOVERNANCE_DIR unset: permissions, budget and audit are memory-only and reset on restart")
+	} else {
+		log.Printf("governance state persisted under %s", components.Store.Dir())
+	}
+	return components
+}
+
 func main() {
 	addr := os.Getenv("HUB_ADDR")
 	if addr == "" {
@@ -79,12 +102,8 @@ func main() {
 		SpectatorToken: os.Getenv("HUB_SPECTATOR_TOKEN"),
 		Invitations:    invitation.NewManager(),
 		Archives:       archive.NewStore(),
-		Governance: &api.Governance{
-			Registry: govern.NewRegistry(),
-			Budget:   govern.NewBudgetLedger(),
-			Audit:    govern.NewAuditLog(),
-		},
-		Port: port,
+		Governance:     &api.Governance{Components: governanceComponents()},
+		Port:           port,
 	}
 	if port != nil {
 		srv.FollowUp = &followup.Sender{

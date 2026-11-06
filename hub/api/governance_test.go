@@ -16,13 +16,9 @@ func governanceTestServer(t *testing.T) (*httptest.Server, *session.Manager) {
 	mgr := session.NewManagerWithClock(func() int64 { return 1794000000000 }) // 2026-11
 	mux := http.NewServeMux()
 	srv := &Server{
-		Manager:  mgr,
-		Archives: archive.NewStore(),
-		Governance: &Governance{
-			Registry: govern.NewRegistry(),
-			Budget:   govern.NewBudgetLedger(),
-			Audit:    govern.NewAuditLog(),
-		},
+		Manager:    mgr,
+		Archives:   archive.NewStore(),
+		Governance: &Governance{Components: govern.NewMemory()},
 	}
 	RegisterSessions(mux, srv)
 	RegisterArchives(mux, srv)
@@ -239,6 +235,121 @@ func TestGovernanceUnconfiguredIsExplicit(t *testing.T) {
 		t.Fatalf("unconfigured governance = %d %v", status, body)
 	}
 	if code := nested(body, "error", "code"); code != "GOVERNANCE_UNCONFIGURED" {
+		t.Fatalf("code = %v", code)
+	}
+}
+
+// governanceServerAt starts a Hub whose governance state is backed by dir, so a
+// test can restart it and check what survived.
+func governanceServerAt(t *testing.T, dir string) (*httptest.Server, *Governance, func()) {
+	t.Helper()
+	components, err := govern.Open(dir)
+	if err != nil {
+		t.Fatalf("open governance state in %s: %v", dir, err)
+	}
+	if note := components.LoadNote(); note != nil {
+		t.Logf("governance load note: %v", note)
+	}
+	clock := func() int64 { return 1794000000000 } // 2026-11
+	mux := http.NewServeMux()
+	srv := &Server{
+		Manager:    session.NewManagerWithClock(clock),
+		Archives:   archive.NewStore(),
+		Governance: &Governance{Components: components},
+		Clock:      clock,
+	}
+	RegisterGovernance(mux, srv)
+	httpSrv := httptest.NewServer(mux)
+	stop := func() {
+		httpSrv.Close()
+		if err := components.Store.Close(); err != nil {
+			t.Logf("close governance store: %v", err)
+		}
+	}
+	t.Cleanup(stop)
+	return httpSrv, srv.Governance, stop
+}
+
+func TestGovernanceSurvivesHubRestartOverHTTP(t *testing.T) {
+	dir := t.TempDir()
+	first, _, stopFirst := governanceServerAt(t, dir)
+	base := first.URL + "/hub/companions/comp_r"
+
+	if status, body := doJSON(t, http.MethodPut, base+"/permissions",
+		map[string]any{"tier": govern.TierRestrictedWrite}); status != http.StatusOK {
+		t.Fatalf("set permissions = %d %v", status, body)
+	}
+	if status, body := doJSON(t, http.MethodPut, base+"/budget",
+		map[string]any{"monthly_tokens": 900}); status != http.StatusOK {
+		t.Fatalf("set budget = %d %v", status, body)
+	}
+	if status, decision := doJSON(t, http.MethodPost, base+"/budget/usage",
+		map[string]any{"tokens": 150}); status != http.StatusOK || decision["allowed"] != true {
+		t.Fatalf("record usage = %d %v", status, decision)
+	}
+	stopFirst()
+
+	// A fresh Hub process over the same directory: the permission, the spend and
+	// the audit chain must all be the ones written before.
+	second, _, _ := governanceServerAt(t, dir)
+	base = second.URL + "/hub/companions/comp_r"
+	status, cfg := doJSON(t, http.MethodGet, base+"/permissions", nil)
+	if status != http.StatusOK || cfg["tier"] != govern.TierRestrictedWrite {
+		t.Fatalf("permissions after restart = %d %v", status, cfg)
+	}
+
+	status, budget := doJSON(t, http.MethodGet, base+"/budget", nil)
+	if status != http.StatusOK {
+		t.Fatalf("budget after restart = %d %v", status, budget)
+	}
+	if spent, _ := budget["spent_tokens"].(float64); spent != 150 {
+		t.Fatalf("spent after restart = %v, want 150", budget["spent_tokens"])
+	}
+	if limit, _ := budget["monthly_tokens"].(float64); limit != 900 {
+		t.Fatalf("limit after restart = %v, want 900", budget["monthly_tokens"])
+	}
+
+	status, audit := doJSON(t, http.MethodGet, second.URL+"/hub/audit", nil)
+	if status != http.StatusOK {
+		t.Fatalf("audit after restart = %d %v", status, audit)
+	}
+	if count, _ := audit["count"].(float64); count != 3 {
+		t.Fatalf("audit entries after restart = %v, want 3", audit["count"])
+	}
+	status, verify := doJSON(t, http.MethodGet, second.URL+"/hub/audit/verify", nil)
+	if status != http.StatusOK || verify["verified"] != true {
+		t.Fatalf("restored chain does not verify: %d %v", status, verify)
+	}
+}
+
+func TestGovernanceDegradesWhenADecisionCannotBeRecorded(t *testing.T) {
+	dir := t.TempDir()
+	ts, gov, _ := governanceServerAt(t, dir)
+	base := ts.URL + "/hub/companions/comp_s"
+
+	// Break the durable half without stopping the server: the next decision
+	// cannot be recorded, so the Hub must refuse to make it.
+	if err := gov.Store.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+
+	status, body := doJSON(t, http.MethodPut, base+"/permissions",
+		map[string]any{"tier": govern.TierReadOnly})
+	if status != http.StatusInternalServerError {
+		t.Fatalf("recording failure = %d %v, want 500", status, body)
+	}
+	if code := nested(body, "error", "code"); code != "GOVERNANCE_PERSIST_FAILED" {
+		t.Fatalf("code = %v", code)
+	}
+	if gov.Degraded() == nil {
+		t.Fatal("a failed write must degrade governance")
+	}
+
+	status, body = doJSON(t, http.MethodGet, base+"/permissions", nil)
+	if status != http.StatusServiceUnavailable {
+		t.Fatalf("degraded governance = %d %v, want 503", status, body)
+	}
+	if code := nested(body, "error", "code"); code != "GOVERNANCE_DEGRADED" {
 		t.Fatalf("code = %v", code)
 	}
 }

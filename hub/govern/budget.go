@@ -118,7 +118,12 @@ func (b *BudgetLedger) decideLocked(companionID string, requested int, now time.
 		decision.Reason = fmt.Sprintf("requested token count must not be negative, got %d", requested)
 	case spent+requested <= limit:
 		decision.Allowed = true
-		decision.Reason = fmt.Sprintf("%d of %d tokens remain this month", limit-spent, limit)
+		// The number is post-request: Record books the spend before returning,
+		// so "all 1000 remain" for a 300-token call would be a lie in the audit
+		// log. Decide does not book, and the same wording still reads correctly
+		// as a projection.
+		decision.Reason = fmt.Sprintf("%d of %d tokens remain this month after this %d-token request",
+			limit-spent-requested, limit, requested)
 	default:
 		decision.Downgrade = DowngradeRuleEngine
 		decision.Reason = fmt.Sprintf("request of %d tokens exceeds the %d-token monthly cap (%d already spent); downgrade to the local rule engine",
@@ -140,4 +145,54 @@ func (b *BudgetLedger) Record(companionID string, used int, now time.Time) Budge
 		b.spent[spendKey(companionID, decision.Month)] += used
 	}
 	return decision
+}
+
+// Snapshot returns the durable part of the ledger. Spend is keyed by
+// "companion|month" exactly as the ledger keys it, so a restore cannot shift a
+// month's spend into a different month.
+func (b *BudgetLedger) Snapshot() BudgetSnapshot {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	snap := BudgetSnapshot{
+		Limits: make(map[string]int, len(b.limits)),
+		Spent:  make(map[string]int, len(b.spent)),
+	}
+	for k, v := range b.limits {
+		snap.Limits[k] = v
+	}
+	for k, v := range b.spent {
+		snap.Spent[k] = v
+	}
+	return snap
+}
+
+// Restore loads a snapshot, validating every entry. A restored limit must be
+// positive and a restored spend must not be negative: a corrupted file must fail
+// loudly instead of turning into a negative balance that spends forever.
+func (b *BudgetLedger) Restore(snap BudgetSnapshot) error {
+	for companionID, limit := range snap.Limits {
+		if companionID == "" {
+			return fmt.Errorf("restored budget limit has no companion_id")
+		}
+		if limit <= 0 {
+			return fmt.Errorf("restored limit for %q must be positive, got %d", companionID, limit)
+		}
+	}
+	for key, spent := range snap.Spent {
+		if key == "" {
+			return fmt.Errorf("restored spend entry has no key")
+		}
+		if spent < 0 {
+			return fmt.Errorf("restored spend for %q must not be negative, got %d", key, spent)
+		}
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for companionID, limit := range snap.Limits {
+		b.limits[companionID] = limit
+	}
+	for key, spent := range snap.Spent {
+		b.spent[key] = spent
+	}
+	return nil
 }

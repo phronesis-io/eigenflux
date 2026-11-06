@@ -26,6 +26,11 @@ func TestBudgetAllowsWithinCapAndRefusesWithDowngrade(t *testing.T) {
 	if !first.Allowed || first.Downgrade != "" {
 		t.Fatalf("600 of 1000 should be allowed: %+v", first)
 	}
+	// The reason is written into the audit log, so it must describe the position
+	// after the spend, not before it.
+	if !strings.Contains(first.Reason, "400") {
+		t.Fatalf("allowed reason must report the post-request remainder: %q", first.Reason)
+	}
 
 	second := ledger.Record("comp_a", 500, now)
 	if second.Allowed {

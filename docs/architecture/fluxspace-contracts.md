@@ -503,7 +503,8 @@ round in which any seat's `action_id` differs, with the specific seat recorded.
 
 S5's controls are Hub-authoritative (ADR-0007): the client requests, the Hub
 decides and records. All eleven endpoints answer `503 GOVERNANCE_UNCONFIGURED`
-when the Hub was started without them.
+when the Hub was started without them, and `503 GOVERNANCE_DEGRADED` after a
+decision could not be recorded (ADR-0008).
 
 ### Endpoints
 
@@ -556,3 +557,41 @@ the log exists to answer. This is tamper evidence, not authentication.
 certified, and official backfills are excluded because they are not a user's
 model choice. A reprise that changes the model must be declared as a
 `different_model` reprise or `CheckRepriseModelChange` rejects it.
+
+### Persistence (ADR-0008)
+
+Set `HUB_GOVERNANCE_DIR` and the three controls become durable; leave it unset
+and they are memory-only and reset on restart (the Hub logs that explicitly). A
+configured directory that fails to load is fatal — the Hub never falls back to
+memory, because forgetting governance state is the failure being fixed.
+
+```
+<dir>/audit.jsonl   append-only, one AuditEntry per line, fsynced per append
+<dir>/state.json    {version, audit_seq, permissions[], budget{limits,spent}}
+```
+
+Write order is audit then snapshot. The invariant is *no authority change
+without a record*: a crash between the two writes leaves a recorded decision
+that was never applied, which load detects and reports. The reverse order is not
+used, because an applied change with no record is the failure the log exists to
+prevent.
+
+| Load-time finding | Behaviour |
+|---|---|
+| Chain does not verify | Refuse to start |
+| `audit_seq` greater than the log length | Refuse to start: a change was applied without a record |
+| Log longer than `audit_seq` | Start, report the unapplied decisions |
+| Torn final line | Truncate to the last newline, report `TornTailError` |
+| Unknown `version` | Refuse to start |
+
+`state.json` is validated on load like any other input: unknown permission tiers,
+non-positive limits and negative spend are all rejected. Approvals are **not**
+persisted — a restart drops every outstanding high-impact approval, so the next
+one needs `approval_required` again.
+
+A failed write degrades the whole governance surface: the failing call returns
+`500 GOVERNANCE_PERSIST_FAILED` and later calls return `503 GOVERNANCE_DEGRADED`
+until the Hub is restarted, at which point the unrecorded change is discarded.
+
+Not provided: multi-process locking (one Hub per directory), log rotation or
+compaction, signing, and encryption at rest.
