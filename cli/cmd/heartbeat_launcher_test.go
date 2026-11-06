@@ -56,6 +56,32 @@ func TestNativeLauncherPreservesSelectedShell(t *testing.T) {
 	}
 }
 
+func TestNativeLauncherRunsWithoutLoginPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX unattended environment")
+	}
+	home := filepath.Join(t.TempDir(), "agent home")
+	bin := filepath.Join(t.TempDir(), "stable cli")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	launcher, err := renderHeartbeatLauncher(bin, home, "selected-server", "skill", "posix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("/bin/sh", "-c", launcher)
+	cmd.Env = []string{"PATH=/usr/bin:/bin"}
+	cmd.Dir = t.TempDir()
+	got, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("unattended launcher depended on the login environment: %v", err)
+	}
+	want := "--homedir\n" + home + "\n--server\nselected-server\n--runtime-mode\nskill\nheartbeat\nplan\n--shell\nposix\n--format\nagent\n"
+	if string(got) != want {
+		t.Fatalf("unattended launcher changed account or command: %q", got)
+	}
+}
+
 func TestNativeCLIPrefixUsesShellInvocation(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "owner's home")
 	ps, err := renderHeartbeatCLIPrefix("C:\\Program Files\\eigenflux.exe", home, "owner's server", "powershell")

@@ -275,18 +275,9 @@ function Migrate-Config {
 
 # ── Step 4: Detect and configure AI agents ────────────────────
 
-function Setup-Agents {
-    $openclawCmd = Get-Command openclaw -ErrorAction SilentlyContinue
-    if (-not $openclawCmd) { return }
-
-    Info ""
-    Info "OpenClaw environment detected."
-
-    # Determine the plugin specifier based on OpenClaw version.
-    # >= 2026.5.2 uses latest; 2026.3.x-2026.5.1 pins @0.0.8.
-    # Override with OPENCLAW_VERSION env var when auto-detection is unreliable
-    # (e.g. non-interactive shells, CI, agent-driven installs).
-    $pluginSpec = "@phronesis-io/openclaw-eigenflux"
+# Keep these boundaries aligned with the published plugins' minGatewayVersion
+# and static/install.sh: current 2026.5.7, pinned 0.0.8 2026.3.1.
+function Select-OpenClawPlugin {
     $ocVersion = $null
     if ($env:OPENCLAW_VERSION) {
         $ocVersion = $env:OPENCLAW_VERSION
@@ -294,30 +285,43 @@ function Setup-Agents {
     } else {
         try {
             $ocRaw = & openclaw --version 2>&1 | Out-String
-        } catch {
-            $ocRaw = ""
-        }
-    }
-    if (-not $ocVersion -and $ocRaw -and $ocRaw -match '(\d+\.\d+\.\d+)') {
-        $ocVersion = $Matches[1]
-    }
-    if ($ocVersion) {
-        $parts = $ocVersion.Split('.')
-        $ocMajor = [int]$parts[0]
-        $ocMinor = [int]$parts[1]
-        $ocPatch = [int]$parts[2]
-        if ($ocMajor -eq 2026) {
-            if ($ocMinor -lt 3) {
-                Info "OpenClaw ${ocVersion} is too old; please upgrade to 2026.3.0 or later."
-                return
-            } elseif ($ocMinor -lt 5 -or ($ocMinor -eq 5 -and $ocPatch -lt 2)) {
-                $pluginSpec = "@phronesis-io/openclaw-eigenflux@0.0.8"
+            if ($LASTEXITCODE -eq 0) {
+                $versionMatch = [regex]::Match($ocRaw, '(?m)(?<!\S)v?([0-9]+\.[0-9]+\.[0-9]+\S*)')
+                if ($versionMatch.Success) { $ocVersion = $versionMatch.Groups[1].Value }
             }
+        } catch {
+            $ocVersion = $null
         }
-        Info "OpenClaw version: ${ocVersion} -> plugin: ${pluginSpec}"
-    } else {
-        Info "Could not detect OpenClaw version; installing latest plugin"
     }
+    $parsedVersion = $null
+    if (-not $ocVersion -or $ocVersion -cnotmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' -or
+        -not [version]::TryParse($ocVersion, [ref]$parsedVersion)) {
+        Write-Warning "Could not verify a stable OpenClaw version; plugin setup skipped. Check openclaw --version, upgrade to 2026.5.7 or later, then retry."
+        Write-Host '{"component":"openclaw-eigenflux","status":"skipped","reason":"unverified_gateway_version"}'
+        return $null
+    }
+    if ($parsedVersion -ge [version]'2026.5.7') {
+        $pluginSpec = "@phronesis-io/openclaw-eigenflux"
+    } elseif ($parsedVersion -ge [version]'2026.3.1' -and $parsedVersion -lt [version]'2026.5.2') {
+        $pluginSpec = "@phronesis-io/openclaw-eigenflux@0.0.8"
+    } else {
+        Write-Warning "OpenClaw ${ocVersion} has no verified compatible plugin selection; plugin setup skipped. Upgrade OpenClaw to 2026.5.7 or later, then retry."
+        Write-Host '{"component":"openclaw-eigenflux","status":"skipped","reason":"unsupported_gateway_version"}'
+        return $null
+    }
+    return [pscustomobject]@{ Version = $ocVersion; Spec = $pluginSpec }
+}
+
+function Setup-Agents {
+    $openclawCmd = Get-Command openclaw -ErrorAction SilentlyContinue
+    if (-not $openclawCmd) { return }
+
+    Info ""
+    Info "OpenClaw environment detected."
+    $selection = Select-OpenClawPlugin
+    if (-not $selection) { return }
+    $pluginSpec = $selection.Spec
+    Info "OpenClaw version: $($selection.Version) -> plugin: ${pluginSpec}"
 
     function Install-OpenClawPlugin {
         param(
