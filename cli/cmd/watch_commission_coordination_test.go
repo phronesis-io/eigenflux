@@ -21,7 +21,7 @@ func inputCoordinationNotice(event string) json.RawMessage {
 }
 
 func TestCommissionInputCoordinationIsDurableAndSilent(t *testing.T) {
-	for _, event := range []string{"order.inputs.requested.v1", "order.inputs.supplied.v1"} {
+	for _, event := range []string{"order.inputs.requested.v1", "order.inputs.supplied.v1", "order.inputs.withdrawn.v1"} {
 		t.Run(event, func(t *testing.T) {
 			var watch *accountWatch
 			var ack atomic.Int32
@@ -64,8 +64,10 @@ func TestNotificationsOnlyLeavesAgentCoordinationPending(t *testing.T) {
 	}))
 	defer server.Close()
 	watch := newNotificationWatch(t, server.URL)
-	if err := watch.deliverCommissionNotifications(context.Background(), commissionTestPage(inputCoordinationNotice("order.inputs.requested.v1")), "http_poll"); err != nil {
-		t.Fatal(err)
+	for _, event := range []string{"order.inputs.requested.v1", "order.inputs.supplied.v1", "order.inputs.withdrawn.v1"} {
+		if err := watch.deliverCommissionNotifications(context.Background(), commissionTestPage(inputCoordinationNotice(event)), "http_poll"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if ack.Load() != 0 || watch.mainNotices != nil {
 		t.Fatal("notifications-only consumer swallowed Agent coordination")

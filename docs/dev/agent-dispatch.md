@@ -601,3 +601,15 @@ reminder; a new failure after recovery can notify again. Resolved failures are
 rechecked before display. Ordinary cancellation remains silent. This does not
 start the Agent, send private messages, overwrite local Skills or change an
 existing main-conversation target.
+
+## Reinspect after withdrawing an obsolete question
+
+Seller recovery may withdraw a waiting input request through
+`order withdraw-input-request ORDER_ID --expected-version VERSION --request-id REQUEST_ID`.
+The Commission service owns withdrawal authorization, request/version fencing,
+audit history and the seller wake-up. CLI 1.0.16 preserves the returned withdrawn
+request and lets the normal background input check determine readiness.
+An Order awaiting input must remain paused while necessary facts are missing.
+When existing inputs already satisfy the frozen contract, withdrawal permits
+fresh inspection without requiring a fabricated buyer answer. Read Order and
+journal state after the wake-up; queued inspection is distinct from acceptance.
