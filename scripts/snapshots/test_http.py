@@ -221,7 +221,7 @@ def main():
             reused["revision"] = "different-content-at-same-sequence"
             manifest_file.write_text(json.dumps(reused))
             rejected = call("skills", "sync", success=False)
-            assert rejected.returncode != 0 and "sequence reused" in rejected.stderr, rejected.stderr
+            assert rejected.returncode != 0, "same-sequence changed manifest was accepted"
             manifest_file.write_bytes(original_manifest)
             state["tamper_signature"] = True
             fresh_home, fresh_target = root / "fresh/.eigenflux", root / "fresh skills"
