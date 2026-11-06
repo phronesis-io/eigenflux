@@ -265,12 +265,12 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 		}
 	}
 	if err != nil {
-		logger.Default().Error("ItemConsumer safety check all retries failed, discarding in strict mode", "itemID", itemID, "err", err)
-		if statusErr := itemDal.MarkItemDistributionSkipped(itemDB, itemID, itemDal.DistributionSkipContentEvaluation, nil); statusErr != nil {
-			logger.Default().Error("failed to update discard status after safety check error", "itemID", itemID, "err", statusErr)
+		logger.Default().Error("ItemConsumer safety check all retries failed, failing closed", "itemID", itemID, "err", err)
+		if statusErr := itemDal.UpdateProcessedItemStatus(itemDB, itemID, itemDal.StatusFailed); statusErr != nil {
+			logger.Default().Error("failed to persist safety processing failure", "itemID", itemID, "err", statusErr)
 			return HandleRetry
 		}
-		return HandleSuccess
+		return HandleFailure
 	}
 	if !safetyResult.Safe {
 		logger.Default().Info("item flagged by safety check", "itemID", itemID, "flag", safetyResult.Flag, "reason", safetyResult.Reason)
