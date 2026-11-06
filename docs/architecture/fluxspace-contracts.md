@@ -291,6 +291,14 @@ type EigenFluxPort interface {
 }
 ```
 
+`services.CardProjector` is a separate, optional interface carrying
+`ProjectAgentCardFields`. It is deliberately not part of `EigenFluxPort` so
+existing port implementations keep compiling. The follow-up sender type-asserts
+for it and records `port does not implement Agent Card projection` when absent.
+Projection is opt-in (`HUB_CARD_PROJECTION_FIELDS`), fills only a blank
+`agent_description` / `human_description`, and never replaces owner text; see
+ADR-0006.
+
 `hub/services/eigenflux.go` implements this with a real HTTP client, not a
 mock. Verified against `idl/api.thrift`: `POST /api/v1/pm/send`,
 `GET /api/v1/pm/fetch`, `POST /api/v1/relations/apply`. The PM `content` field
@@ -347,7 +355,8 @@ into Agent Card projections.
 | Per-companion monthly cap | 200,000 tokens | Ratified 2026-11-06 by owner; see `adr-0004-signed-design-decisions.md` (G8/§8 option A). GDD is silent; this is an owner decision, not a GDD citation. |
 
 Phase 1 spends zero tokens (local rule engine). Over-limit behaviour is a
-downgrade to the local rule engine, never a silent quality reduction.
+downgrade to the local rule engine, never a silent quality reduction. The cap is
+enforced by `hub/govern.BudgetLedger`, which refuses with `downgrade:/n"rule_engine"` and books nothing for a refused call; see §11.
 
 ## 9. Known gaps (tracked, not hidden)
 
@@ -363,13 +372,13 @@ downgrade to the local rule engine, never a silent quality reduction.
 | G8 | Legacy stories are Chinese and horizontally sliced | AGENTS.md requires English docs; GDD build order is five vertical slices. `IMPLEMENTATION_PLAN.md` supersedes them; `EPIC.md` now marks all ten `Superseded`. |
 | G9 | ~~Two EigenFlux endpoints are unverified~~ **RESOLVED (static)** | See §7: the fabricated `/api/v1/auth/refresh` was removed in favour of an injected `TokenRefresher`, and the profile-fields request/response shape was corrected against `api/agentcard/handlers.go` and `pkg/agentcard/registry.go`. Both are covered by tests in `hub/services/eigenflux_test.go`. Runtime confirmation against the live gateway is folded into G10. |
 | G10 | Live-stack e2e has never run | Docker CLI 29.9.2 is present but `docker info` reports the daemon pipe is missing; WSL is not enabled and `wsl.exe`/`reg.exe` are blocked by host command-security policy. `TestS1FullLoopOverHTTP` now drives invitation send -> PM reply -> fetch -> confirm -> 5-round match -> follow-up PM over **real HTTP against a local gateway stand-in**. The S1 exit criterion wording says "through EigenFlux", so a running EigenFlux stack is still required before sign-off. |
-| G11 | Post-match Agent Card projection not invoked | ADR-0001 decision 2 says post-match social propagation goes back through PM **and** the profile/fields API. `GatewayPort.PublishAgentCardFields` is implemented and its shape is now verified, but the follow-up sender only sends PMs. Publishing a public recap is deliberately deferred to S4 (memory/relationship persistence), where the owning client holds the Agent token. Tracked, not claimed as done. |
+| G11 | ~~Post-match Agent Card projection not invoked~~ **RESOLVED (2026-11-07, ADR-0006)** | The follow-up sender now projects into the Agent Card, but only when an operator opts in with `HUB_CARD_PROJECTION_FIELDS`, and only into a **blank** public descriptor (`agent_description` / `human_description`). An occupied field is never overwritten; the delivery record reports what was written or why nothing was. Default is disabled and makes no claim. ADR-0001 decision 2 is satisfied: propagation goes back through both PM and profile/fields. `pkg/agentcard/registry.go` still has no FluxSpace-specific field, which ADR-0006 records as the remaining product gap. |
 
-G10/G11 are environment and scope gaps, not design gaps. No code in this
+G10 is an environment gap and is not a design gap. No code in this
 repository fakes a successful live round trip: the port issues real HTTP
 requests, unconfigured paths fail loudly, and tests assert request shapes
 against a local HTTP server. G1-G7 are now adjudicated by ADR-0003/ADR-0004;
-G10/G11 remain environment/scope gaps unaffected by this sign-off.
+G10 remains an environment gap unaffected by this sign-off.
 
 **Owner decisions recorded 2026-11-06 in `adr-0002-s1-acceptance-and-g1-baseline.md`:**
 the S1 exit criterion wording is kept verbatim (S1 stays *code complete,
@@ -489,3 +498,61 @@ consent. `POST /hub/archives/{id}/reprise` therefore fails with
 `NOT_A_SAME_SPEC_REPRISE` unless the skeleton hashes match and the seat
 configuration, contract and round count are identical. Divergence is the first
 round in which any seat's `action_id` differs, with the specific seat recorded.
+
+## 11. Governance — budget, permissions, audit, model consistency (S5)
+
+S5's controls are Hub-authoritative (ADR-0007): the client requests, the Hub
+decides and records. All eleven endpoints answer `503 GOVERNANCE_UNCONFIGURED`
+when the Hub was started without them.
+
+### Endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/hub/companions/{id}/permissions` | Read one companion's tier |
+| PUT | `/hub/companions/{id}/permissions` | Set `read_only` / `restricted_write` / `high_impact` |
+| POST | `/hub/companions/{id}/permissions/revoke` | Revoke, keeping the tier for audit |
+| POST | `/hub/companions/{id}/approvals` | Single-use approval for one high-impact operation |
+| POST | `/hub/companions/{id}/authorize` | The gate every tool use passes through |
+| GET | `/hub/companions/{id}/budget` | Limit, spend and remainder for this month |
+| PUT | `/hub/companions/{id}/budget` | Set the monthly token limit |
+| POST | `/hub/companions/{id}/budget/usage` | Book spend; returns the budget decision |
+| GET | `/hub/audit` | Audit entries, optionally `?companion_id=` |
+| GET | `/hub/audit/verify` | Recompute the hash chain |
+| GET | `/hub/archives/{id}/model-consistency` | Model-version check for an archive |
+
+### Permission rules
+
+`read_only < restricted_write < high_impact`, compared by rank. Deny-by-default:
+a companion with no configuration is refused with `no_permission_configured`, a
+revoked one with `permissions_revoked`, an under-tier request with
+`tier_too_low`. `high_impact` additionally needs an unexpired, unused approval
+for that exact operation, otherwise `approval_required`.
+
+Lookups are per companion id, so a grant for one companion never satisfies
+another's request.
+
+### Budget rules
+
+Accounting is per companion per UTC month, using the server clock. Over the cap
+the answer is `allowed: false` with `downgrade: "rule_engine"` and a reason that
+contains the spend, the cap and the request; the GDD forbids a silent quality
+reduction. A refused request books nothing. The default cap is 200,000 tokens
+(ADR-0004) and a refusal against the default says so. `monthly_tokens: 0` is
+rejected, so "zero" never means "unlimited".
+
+### Audit rules
+
+Entries are append-only and hash-chained: `seq`, `prev_hash` and a `sha256` over
+every descriptive field. `GET /hub/audit/verify` recomputes the chain and
+reports the first broken sequence number. Every authorisation and every budget
+answer is recorded, refusals included, because "what was denied" is the question
+the log exists to answer. This is tamper evidence, not authentication.
+
+### Model consistency rules
+
+`consistent` (all real seats share one version), `mixed_versions`, or
+`version_unknown`. The last is a **failure**: an unrecorded version cannot be
+certified, and official backfills are excluded because they are not a user's
+model choice. A reprise that changes the model must be declared as a
+`different_model` reprise or `CheckRepriseModelChange` rejects it.

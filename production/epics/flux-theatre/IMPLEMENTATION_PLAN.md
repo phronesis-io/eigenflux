@@ -62,10 +62,9 @@ and delivery, then re-delivery idempotency. 68 Go tests pass across 9 packages.
 
 **S1 is still not signed off.** The exit criterion says the PM must round-trip
 "through EigenFlux"; the loop above runs against a local HTTP gateway stand-in
-because the Docker daemon is down and WSL is not enabled (G10). G11 records
-the deferred Agent Card projection. Nothing here claims a live-stack pass.
-S2's design blocker (G1) is resolved by ADR-0003, but S2 is not yet implemented
-or verified against the rewritten criterion.
+because the Docker daemon is down and WSL is not enabled (G10). Nothing here
+claims a live-stack pass. S2's exit criteria were implemented and verified on
+2026-11-07; G11 was closed on the same day (ADR-0006).
 
 **Owner ruling 2026-11-06:** the criterion is kept verbatim rather than
 relaxed; S1 is labelled *code complete, live-stack sign-off pending*. See
@@ -108,8 +107,14 @@ single highest integration risk.
   projections, a fail-closed consent ledger and same-spec reprise comparison
   with a divergence point (ADR-0005). Archives are in memory and hold no
   persistence yet.
+- `govern/`: S5 controls. Per-companion monthly token ledger whose refusal names
+  the rule-engine downgrade instead of silently reducing quality; three-tier
+  permissions with deny-by-default and single-use high-impact approvals; a
+  hash-chained audit log that records refusals as well as successes; and a
+  model-version check that treats an unrecorded version as a failure (ADR-0007).
 - `api/`: `GET /health`, nine session endpoints, six negotiation endpoints,
-  two follow-up endpoints and eleven archive/reprise endpoints. `main.go` listens on `:8095`;
+  two follow-up endpoints, eleven archive/reprise endpoints and eleven
+  governance endpoints. `main.go` listens on `:8095`;
   `HUB_SPECTATOR_TOKEN` gates the omniscient stream;
   `HUB_GATEWAY_URL`, `HUB_AGENT_TOKENS` and `HUB_AGENT_ID` configure the real
   gateway client. Unconfigured gateway paths return explicit 503s. SSE polls
@@ -161,12 +166,14 @@ succeeded.
 |---|---|
 | `go build ./...` (hub) | PASS |
 | `go vet ./...` (hub) | PASS |
-| `go test -count=1 -v ./...` (hub) | PASS — **96 passing tests** across api, archive, followup, generator, invitation, models, referee, services, session (apperr has no tests of its own) |
+| `go test -count=1 -v ./...` (hub) | PASS — **118 passing tests** across api, archive, followup, generator, invitation, models, referee, services, session (apperr has no tests of its own) |
 | `python hub/scripts/check_balance.py` | PASS — the S2 gate. 5 x 480 = 2,400 matches aggregated; measured 9.38%–11.25% across 20 consecutive runs, 0 failures. Floor is 0.08, the three-sigma lower bound of the 10% baseline (see ADR-0003 amendment) |
 | S4 replay archive | PASS — `hub/archive/` 15 tests (build, tamper detection, six modes, consent policies, reprise divergence) plus 3 HTTP tests covering the full S4 flow |
 | Archive integrity | PASS — SHA-256 over `{version, session_id, config, events, settlement}` plus a skeleton hash; `Load` refuses tampered bytes; six tamper cases assert the exact mismatch |
 | Six viewing modes | PASS — full, accelerated (2x/4x, other speeds rejected), single_character (private events of other seats are filtered), omniscient_comparison (seat-ordered), key_moments (derived and deterministic), same_spec_comparison (divergence point) |
 | All-participant consent | PASS — fail-closed policy, majority = strictly more than half, officials excluded, reprise always requires every participant |
+| Agent Card projection (G11) | PASS — 2 `services` tests plus 3 `followup` tests: only a blank public descriptor is written, an occupied field is skipped as `owner_content_present` with no PUT issued, an unconfigured sender touches the gateway zero times, and no personality/memory/relationship key can reach the write body |
+| S5 governance | PASS — `hub/govern` 12 tests plus 5 HTTP tests: budget refuses over-cap with `downgrade: rule_engine` and books nothing; permissions deny by default and never leak between companions; a high-impact approval is single-use, operation-specific and expiring; the audit chain detects edited, removed and reordered entries; model consistency treats a missing version as a failure |
 | Five-match fingerprint window | PASS — `TestCreateExcludesLastFiveMatchFingerprints` builds a five-match history from the exact skeletons this seed would emit, then asserts all three proposals and a modify-round regeneration avoid every one |
 | `bash scripts/build.sh` (hub) | PASS — `hub/build/fluxspace-hub` |
 | Golden comparison vs `fluxspace/_check.js` | PASS — every case matched |
@@ -315,10 +322,14 @@ See `docs/architecture/fluxspace-contracts.md` §9 (G1–G8). Most important:
   over real HTTP against a local gateway stand-in, but the EigenFlux stack
   (WSL 2 + Docker daemon) has never run here. S1 cannot be signed off until a
   real PM invitation round-trips through that stack.
-- **G11 — Agent Card projection after a match is not invoked.** ADR-0001
-  decision 2 names PM *and* profile/fields; the port method is ready and
-  verified, but the follow-up sender only uses PM. Deferred to S4, where the
-  owning client holds the Agent token.
+- ~~**G11 — Agent Card projection after a match is not invoked.**~~ **Closed
+  2026-11-07 (ADR-0006).** The follow-up sender now projects into the Agent
+  Card when `HUB_CARD_PROJECTION_FIELDS` opts in, and only into a blank
+  `agent_description` / `human_description`; occupied fields are never replaced
+  and the delivery record says what was written, skipped or failed. Default is
+  disabled. `pkg/agentcard/registry.go` still has no FluxSpace-owned field, so
+  projection can only fill a descriptor once - recorded as the remaining
+  product gap in ADR-0006.
 
 **Documentation status:** `EPIC.md` now marks the ten legacy stories
 `Superseded`, names the four authoritative sources and indexes the five

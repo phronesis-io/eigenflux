@@ -31,6 +31,7 @@ type Server struct {
 	Port           services.EigenFluxPort
 	FollowUp       *followup.Sender
 	Archives       *archive.Store
+	Governance     *Governance
 	Clock          func() int64
 }
 

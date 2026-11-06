@@ -8,10 +8,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"fluxspace.ai/hub/api"
 	"fluxspace.ai/hub/archive"
 	"fluxspace.ai/hub/followup"
+	"fluxspace.ai/hub/govern"
 	"fluxspace.ai/hub/invitation"
 	"fluxspace.ai/hub/services"
 	"fluxspace.ai/hub/session"
@@ -41,6 +43,29 @@ func gatewayPort() services.EigenFluxPort {
 	return services.NewGatewayPort(base, tokens)
 }
 
+// cardProjectionFields reads the opt-in Agent Card projection list. Empty is
+// the default and means the Hub never writes to an owner's public card; when it
+// is set, only the blank-filling descriptor fields survive the whitelist in
+// services.ProjectAgentCardFields.
+//
+// HUB_CARD_PROJECTION_FIELDS=agent_description,human_description
+func cardProjectionFields() []string {
+	raw := strings.TrimSpace(os.Getenv("HUB_CARD_PROJECTION_FIELDS"))
+	if raw == "" {
+		log.Printf("HUB_CARD_PROJECTION_FIELDS unset: post-match Agent Card projection is disabled")
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	fields := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if field := strings.TrimSpace(part); field != "" {
+			fields = append(fields, field)
+		}
+	}
+	log.Printf("post-match Agent Card projection enabled for %v (blank public fields only)", fields)
+	return fields
+}
+
 func main() {
 	addr := os.Getenv("HUB_ADDR")
 	if addr == "" {
@@ -54,11 +79,17 @@ func main() {
 		SpectatorToken: os.Getenv("HUB_SPECTATOR_TOKEN"),
 		Invitations:    invitation.NewManager(),
 		Archives:       archive.NewStore(),
-		Port:           port,
+		Governance: &api.Governance{
+			Registry: govern.NewRegistry(),
+			Budget:   govern.NewBudgetLedger(),
+			Audit:    govern.NewAuditLog(),
+		},
+		Port: port,
 	}
 	if port != nil {
 		srv.FollowUp = &followup.Sender{
 			Port: port, HubAgentID: os.Getenv("HUB_AGENT_ID"),
+			CardFields: cardProjectionFields(),
 		}
 	}
 
@@ -68,6 +99,7 @@ func main() {
 	api.RegisterInvitations(mux, srv)
 	api.RegisterFollowUps(mux, srv)
 	api.RegisterArchives(mux, srv)
+	api.RegisterGovernance(mux, srv)
 	log.Printf("FluxSpace Hub listening on %s", addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatal(err)

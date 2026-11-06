@@ -340,3 +340,106 @@ func TestPublishAgentCardFieldsRequiresProfileVersion(t *testing.T) {
 		t.Fatalf("must stop after the context read, got %d requests", len(rec.all()))
 	}
 }
+
+func TestProjectAgentCardFieldsFillsOnlyBlankPublicDescriptors(t *testing.T) {
+	port, rec, _ := gateway(t, func(w http.ResponseWriter, got capturedRequest) {
+		switch got.Path {
+		case "/api/v1/agents/me/card/refresh-context":
+			ok(w, `{"profile_version":9,"editable_fields":{
+				"agent_description":{"current_value":""},
+				"human_description":{"current_value":"the owner wrote this"},
+				"agent_name":{"current_value":null},
+				"seeking":{"current_value":[]}
+			}}`)
+		case "/api/v1/agents/me/profile/fields":
+			ok(w, `{}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+	summary := "FluxSpace: completed a 5-round deduction theatre on 2026-11-07 (outcome: partial)."
+	projection, err := port.ProjectAgentCardFields(context.Background(), "agent_alpha", map[string]string{
+		"agent_description": summary,
+		"human_description": "would overwrite owner text",
+		"agent_name":        "not a descriptor the Hub may set",
+		"seeking":           "not a descriptor the Hub may set",
+	})
+	if err != nil {
+		t.Fatalf("ProjectAgentCardFields: %v", err)
+	}
+	if len(projection.Written) != 1 || projection.Written[0] != "agent_description" {
+		t.Fatalf("written = %v, want only agent_description", projection.Written)
+	}
+	reasons := map[string]string{}
+	for _, skip := range projection.Skipped {
+		reasons[skip.Field] = skip.Reason
+	}
+	if reasons["human_description"] != SkipOwnerContent {
+		t.Fatalf("human_description reason = %q", reasons["human_description"])
+	}
+	if reasons["agent_name"] != SkipNotProjectable || reasons["seeking"] != SkipNotProjectable {
+		t.Fatalf("non-descriptor reasons = %v", reasons)
+	}
+
+	var put *capturedRequest
+	gets := 0
+	for _, req := range rec.all() {
+		switch {
+		case req.Path == "/api/v1/agents/me/card/refresh-context":
+			gets++
+		case req.Path == "/api/v1/agents/me/profile/fields":
+			copied := req
+			put = &copied
+		}
+	}
+	if gets != 1 {
+		t.Fatalf("refresh-context calls = %d", gets)
+	}
+	if put == nil || put.Method != http.MethodPut {
+		t.Fatalf("PUT never issued: %+v", put)
+	}
+	if put.Body["expected_version"] != float64(9) {
+		t.Fatalf("expected_version = %v", put.Body["expected_version"])
+	}
+	if put.Body["source"] != "fluxspace_hub" {
+		t.Fatalf("source = %v", put.Body["source"])
+	}
+	updates, _ := put.Body["updates"].(map[string]any)
+	if len(updates) != 1 || updates["agent_description"] != summary {
+		t.Fatalf("updates = %v", updates)
+	}
+	for key := range updates {
+		for _, forbidden := range []string{"personality", "memory", "memories", "relationship", "risk", "empathy"} {
+			if strings.Contains(strings.ToLower(key), forbidden) {
+				t.Fatalf("projection included %q, which must never enter an Agent Card", key)
+			}
+		}
+	}
+}
+
+func TestProjectAgentCardFieldsWritesNothingWhenEveryFieldIsOccupied(t *testing.T) {
+	port, rec, _ := gateway(t, func(w http.ResponseWriter, got capturedRequest) {
+		if got.Path == "/api/v1/agents/me/card/refresh-context" {
+			ok(w, `{"profile_version":4,"editable_fields":{"agent_description":{"current_value":"already mine"}}}`)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	})
+	projection, err := port.ProjectAgentCardFields(context.Background(), "agent_alpha", map[string]string{
+		"agent_description": "FluxSpace summary",
+	})
+	if err != nil {
+		t.Fatalf("ProjectAgentCardFields: %v", err)
+	}
+	if !projection.Empty() {
+		t.Fatalf("projection wrote %v", projection.Written)
+	}
+	if len(projection.Skipped) != 1 || projection.Skipped[0].Reason != SkipOwnerContent {
+		t.Fatalf("skipped = %+v", projection.Skipped)
+	}
+	for _, req := range rec.all() {
+		if req.Method == http.MethodPut {
+			t.Fatalf("a fully occupied card must not be written to: %+v", req)
+		}
+	}
+}

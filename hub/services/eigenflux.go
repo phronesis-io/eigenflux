@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -25,6 +26,14 @@ type EigenFluxPort interface {
 	ListPM(ctx context.Context, agentID string, sinceID string) ([]RawMessage, error)
 	RefreshAccessToken(ctx context.Context, agentID string) (token string, err error)
 	PublishAgentCardFields(ctx context.Context, agentID string, fields map[string]string) error
+}
+
+// CardProjector is an optional capability of an EigenFluxPort. It is a separate
+// interface so adding Agent Card projection never breaks an existing port
+// implementation or test double: callers type-assert for it and report an
+// explicit error when the port does not provide it.
+type CardProjector interface {
+	ProjectAgentCardFields(ctx context.Context, agentID string, candidates map[string]string) (CardProjection, error)
 }
 
 // RawMessage is one PM as returned by GET /api/v1/pm/fetch. Fetching marks
@@ -333,6 +342,146 @@ func (g *GatewayPort) PublishAgentCardFields(ctx context.Context, agentID string
 		return fmt.Errorf("PublishAgentCardFields: %w", err)
 	}
 	return nil
+}
+
+// Reasons a field was not written. They are stable strings so a delivery record
+// can explain a skipped projection without a client guessing.
+const (
+	SkipNotProjectable = "not_projectable_by_hub"
+	SkipEmptyValue     = "empty_value"
+	SkipOwnerContent   = "owner_content_present"
+)
+
+// CardProjectionField is one field's fate in a projection attempt.
+type CardProjectionField struct {
+	Field  string `json:"field"`
+	Reason string `json:"reason"`
+}
+
+// CardProjection reports exactly what happened, including the refusals. A
+// projection that wrote nothing must say so rather than look like a no-op.
+type CardProjection struct {
+	AgentID string                `json:"agent_id"`
+	Written []string              `json:"written"`
+	Skipped []CardProjectionField `json:"skipped"`
+	Version int64                 `json:"profile_version,omitempty"`
+}
+
+// Empty reports whether nothing was written.
+func (p CardProjection) Empty() bool { return len(p.Written) == 0 }
+
+// projectableCardFields is the only subset of the Agent Card registry a
+// Hub-generated summary may fill. It deliberately excludes every field the
+// owner writes as self-description of intent (seeking, offering, current_focus,
+// status) and every private field.
+//
+// Why so narrow: pkg/agentcard/registry.go exposes no FluxSpace/match field at
+// all - every public entry is owner-authored prose. Writing match state into
+// prose would either overwrite the owner's words or freeze a stale sentence
+// there forever. So the Hub may only fill a *blank* public description, and
+// never replaces text that already exists.
+var projectableCardFields = map[string]bool{
+	"agent_description": true,
+	"human_description": true,
+}
+
+// ProjectAgentCardFields fills blank public descriptor fields with a
+// Hub-generated summary and reports every field it refused.
+//
+// Contract, in the order the checks run:
+//   - a field outside projectableCardFields is skipped as not_projectable;
+//   - an empty candidate value is skipped as empty_value;
+//   - a field that already holds owner content is skipped as owner_content_present,
+//     so this can never overwrite a human's description;
+//   - only what survives all three is sent as one optimistic-locked PUT.
+//
+// Personality, memories and relationships are not candidates at all: this
+// function only accepts prose values from its caller and only for the two
+// descriptor fields above.
+func (g *GatewayPort) ProjectAgentCardFields(ctx context.Context, agentID string, candidates map[string]string) (CardProjection, error) {
+	projection := CardProjection{AgentID: agentID, Written: []string{}, Skipped: []CardProjectionField{}}
+	names := make([]string, 0, len(candidates))
+	for name := range candidates {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		return projection, nil
+	}
+
+	eligible := make([]string, 0, len(names))
+	for _, name := range names {
+		if !projectableCardFields[name] {
+			projection.Skipped = append(projection.Skipped, CardProjectionField{Field: name, Reason: SkipNotProjectable})
+			continue
+		}
+		if candidates[name] == "" {
+			projection.Skipped = append(projection.Skipped, CardProjectionField{Field: name, Reason: SkipEmptyValue})
+			continue
+		}
+		eligible = append(eligible, name)
+	}
+	if len(eligible) == 0 {
+		return projection, nil
+	}
+
+	contextPath := g.ContextPath
+	if contextPath == "" {
+		contextPath = "/api/v1/agents/me/card/refresh-context"
+	}
+	var contextData struct {
+		ProfileVersion *int64 `json:"profile_version"`
+		EditableFields map[string]struct {
+			CurrentValue json.RawMessage `json:"current_value"`
+		} `json:"editable_fields"`
+	}
+	if err := g.do(ctx, agentID, http.MethodGet, contextPath, nil, &contextData); err != nil {
+		return projection, fmt.Errorf("ProjectAgentCardFields context: %w", err)
+	}
+	if contextData.ProfileVersion == nil {
+		return projection, fmt.Errorf("ProjectAgentCardFields: refresh-context returned no profile_version")
+	}
+	projection.Version = *contextData.ProfileVersion
+
+	updates := make(map[string]any, len(eligible))
+	for _, name := range eligible {
+		if !isEmptyCardValue(contextData.EditableFields[name].CurrentValue) {
+			projection.Skipped = append(projection.Skipped, CardProjectionField{Field: name, Reason: SkipOwnerContent})
+			continue
+		}
+		updates[name] = candidates[name]
+	}
+	if len(updates) == 0 {
+		return projection, nil
+	}
+
+	fieldsPath := g.FieldsPath
+	if fieldsPath == "" {
+		fieldsPath = "/api/v1/agents/me/profile/fields"
+	}
+	if err := g.do(ctx, agentID, http.MethodPut, fieldsPath, map[string]any{
+		"expected_version": *contextData.ProfileVersion,
+		"updates":          updates,
+		"source":           "fluxspace_hub",
+	}, nil); err != nil {
+		return projection, fmt.Errorf("ProjectAgentCardFields: %w", err)
+	}
+	for name := range updates {
+		projection.Written = append(projection.Written, name)
+	}
+	sort.Strings(projection.Written)
+	return projection, nil
+}
+
+// isEmptyCardValue treats an absent, null, empty-string or empty-list value as
+// blank. Anything else counts as owner content and is left alone.
+func isEmptyCardValue(raw json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(raw))
+	switch trimmed {
+	case "", "null", `""`, "[]", "{}":
+		return true
+	}
+	return false
 }
 
 // do performs a request with one token-refresh retry on HTTP 401. Access

@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"fluxspace.ai/hub/apperr"
 	"fluxspace.ai/hub/models"
@@ -66,14 +67,31 @@ type Delivery struct {
 	MessageID    string `json:"message_id"`
 	MemoryCount  int    `json:"memory_count"`
 	Relationship int    `json:"relationship_draft_count"`
+	// Card reports the post-match Agent Card projection for this recipient.
+	// Nil means projection was not configured; a non-nil record always says
+	// what was written or why nothing was.
+	Card *CardProjectionRecord `json:"card_projection,omitempty"`
+}
+
+// CardProjectionRecord is the delivery-side view of one Agent Card projection.
+type CardProjectionRecord struct {
+	Written []string                       `json:"written,omitempty"`
+	Skipped []services.CardProjectionField `json:"skipped,omitempty"`
+	Error   string                         `json:"error,omitempty"`
 }
 
 // Sender delivers follow-ups through the real EigenFluxPort. HubAgentID is the
 // Agent identity the Hub sends from; it must be configured explicitly so the
 // product never pretends an unauthenticated send succeeded.
+//
+// CardFields is the opt-in list of Agent Card fields the Hub may fill with a
+// post-match summary. It is empty by default: the Hub does not touch an owner's
+// public card unless an operator asked for it, and even then only blank fields
+// are filled (services.GatewayPort.ProjectAgentCardFields enforces that).
 type Sender struct {
 	Port       services.EigenFluxPort
 	HubAgentID string
+	CardFields []string
 
 	mu      sync.Mutex
 	history map[string][]Delivery
@@ -376,6 +394,7 @@ func (s *Sender) Send(ctx context.Context, view models.SessionView, doc Document
 			AgentID: seat.AgentID, CompanionID: seat.CompanionID,
 			MessageID: msgID, MemoryCount: len(recipient.Memories),
 			Relationship: len(recipient.RelationshipUpdates),
+			Card:         s.projectCard(ctx, view, seat, recipient.GeneratedAt),
 		})
 	}
 
@@ -401,4 +420,40 @@ func (s *Sender) Send(ctx context.Context, view models.SessionView, doc Document
 	out := append([]Delivery(nil), s.history[view.SessionID]...)
 	s.mu.Unlock()
 	return out, nil
+}
+
+// projectCard fills the configured Agent Card fields for one recipient and
+// records the outcome. It never affects the PM delivery: a projection failure is
+// reported in the delivery record, not raised, because losing the follow-up
+// message over a card write would be the worse failure.
+//
+// Returns nil when projection is not configured, so an unconfigured Hub makes
+// no claim about the card at all.
+func (s *Sender) projectCard(ctx context.Context, view models.SessionView, seat models.Seat, generatedAt int64) *CardProjectionRecord {
+	if len(s.CardFields) == 0 {
+		return nil
+	}
+	projector, ok := s.Port.(services.CardProjector)
+	if !ok {
+		return &CardProjectionRecord{Error: "port does not implement Agent Card projection"}
+	}
+	candidates := make(map[string]string, len(s.CardFields))
+	summary := cardSummary(view, generatedAt)
+	for _, field := range s.CardFields {
+		candidates[field] = summary
+	}
+	projection, err := projector.ProjectAgentCardFields(ctx, seat.AgentID, candidates)
+	if err != nil {
+		return &CardProjectionRecord{Error: err.Error()}
+	}
+	return &CardProjectionRecord{Written: projection.Written, Skipped: projection.Skipped}
+}
+
+// cardSummary is the only text the Hub may project. It states the match facts
+// the Hub itself produced, with the date, and nothing about personality,
+// memories, relationships or motives.
+func cardSummary(view models.SessionView, at int64) string {
+	day := time.UnixMilli(at).UTC().Format("2006-01-02")
+	return fmt.Sprintf("FluxSpace: completed a %d-round deduction theatre on %s (outcome: %s).",
+		view.Round, day, view.Outcome)
 }

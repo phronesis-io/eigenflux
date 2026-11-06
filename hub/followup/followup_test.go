@@ -257,3 +257,135 @@ func TestSendRefusesMisconfigurationAndUnfinishedMatches(t *testing.T) {
 		t.Fatal("misconfigured sends must not touch the network")
 	}
 }
+
+// cardServer serves a PM endpoint plus the two Agent Card endpoints, recording
+// every profile write so a test can assert exactly what reached the gateway.
+type cardServer struct {
+	mu        sync.Mutex
+	writes    []map[string]any
+	refreshes int
+}
+
+func newCardServer(t *testing.T, currentValue string) (*services.GatewayPort, *cardServer) {
+	t.Helper()
+	rec := &cardServer{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/pm/send":
+			_, _ = io.WriteString(w, `{"code":0,"msg":"ok","data":{"msg_id":"msg_followup_1"}}`)
+		case "/api/v1/agents/me/card/refresh-context":
+			rec.mu.Lock()
+			rec.refreshes++
+			rec.mu.Unlock()
+			_, _ = io.WriteString(w, `{"code":0,"msg":"ok","data":{"profile_version":3,
+				"editable_fields":{"agent_description":{"current_value":`+currentValue+`}}}}`)
+		case "/api/v1/agents/me/profile/fields":
+			var parsed map[string]any
+			_ = json.Unmarshal(body, &parsed)
+			rec.mu.Lock()
+			rec.writes = append(rec.writes, parsed)
+			rec.mu.Unlock()
+			_, _ = io.WriteString(w, `{"code":0,"msg":"ok","data":{}}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return services.NewGatewayPort(srv.URL, map[string]string{"hub_agent": "token-hub"}), rec
+}
+
+func TestSendProjectsOnlyBlankCardFields(t *testing.T) {
+	view := finishedView()
+	doc, err := Build(view, events(), 1730000009999)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, rec := newCardServer(t, `""`)
+	sender := &Sender{Port: port, HubAgentID: "hub_agent", CardFields: []string{"agent_description"}}
+	deliveries, err := sender.Send(context.Background(), view, doc)
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if len(deliveries) != 2 {
+		t.Fatalf("deliveries = %d", len(deliveries))
+	}
+	for _, d := range deliveries {
+		if d.Card == nil {
+			t.Fatalf("delivery to %s makes no card claim at all", d.AgentID)
+		}
+		if d.Card.Error != "" {
+			t.Fatalf("projection error for %s: %s", d.AgentID, d.Card.Error)
+		}
+		if len(d.Card.Written) != 1 || d.Card.Written[0] != "agent_description" {
+			t.Fatalf("written for %s = %v", d.AgentID, d.Card.Written)
+		}
+	}
+	if rec.refreshes != 2 {
+		t.Fatalf("refresh-context calls = %d, want one per real owner", rec.refreshes)
+	}
+	if len(rec.writes) != 2 {
+		t.Fatalf("profile writes = %d", len(rec.writes))
+	}
+	for _, write := range rec.writes {
+		updates, _ := write["updates"].(map[string]any)
+		text, _ := updates["agent_description"].(string)
+		if !strings.HasPrefix(text, "FluxSpace: completed a 5-round deduction theatre") {
+			t.Fatalf("projected text = %q", text)
+		}
+		if !strings.Contains(text, "outcome: partial") {
+			t.Fatalf("projected text omits the outcome: %q", text)
+		}
+		if write["expected_version"] != float64(3) || write["source"] != "fluxspace_hub" {
+			t.Fatalf("write body = %v", write)
+		}
+	}
+}
+
+func TestSendWithoutCardFieldsMakesNoCardClaim(t *testing.T) {
+	view := finishedView()
+	doc, err := Build(view, events(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, rec := newCardServer(t, `""`)
+	sender := &Sender{Port: port, HubAgentID: "hub_agent"}
+	deliveries, err := sender.Send(context.Background(), view, doc)
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	for _, d := range deliveries {
+		if d.Card != nil {
+			t.Fatalf("unconfigured projection claimed something: %+v", d.Card)
+		}
+	}
+	if rec.refreshes != 0 || len(rec.writes) != 0 {
+		t.Fatalf("unconfigured projection touched the gateway: refreshes=%d writes=%d", rec.refreshes, len(rec.writes))
+	}
+}
+
+func TestSendReportsOccupiedCardWithoutOverwriting(t *testing.T) {
+	view := finishedView()
+	doc, err := Build(view, events(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, rec := newCardServer(t, `"my own words"`)
+	sender := &Sender{Port: port, HubAgentID: "hub_agent", CardFields: []string{"agent_description"}}
+	deliveries, err := sender.Send(context.Background(), view, doc)
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	for _, d := range deliveries {
+		if d.Card == nil || len(d.Card.Written) != 0 {
+			t.Fatalf("occupied field was written: %+v", d.Card)
+		}
+		if len(d.Card.Skipped) != 1 || d.Card.Skipped[0].Reason != services.SkipOwnerContent {
+			t.Fatalf("skip reason = %+v", d.Card.Skipped)
+		}
+	}
+	if len(rec.writes) != 0 {
+		t.Fatalf("owner text was overwritten: %v", rec.writes)
+	}
+}
