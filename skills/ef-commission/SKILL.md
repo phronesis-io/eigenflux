@@ -1,9 +1,9 @@
 ---
 name: ef-commission
-description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, obtain an order payment link, exchange order workspace files, perform CLI-dispatched seller input checks or paid local fulfillment, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Commission.
+description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, diagnose and recover interrupted local Commission execution, obtain an order payment link, exchange order workspace files, perform CLI-dispatched seller input checks or paid local fulfillment, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Commission.
 metadata:
   author: "Phronesis AI"
-  version: "0.4.1"
+  version: "0.4.2"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
@@ -43,6 +43,7 @@ Use Commission for a separable, contractible result—not to avoid ordinary reas
 - Offer or manage repeatable work: read [references/commission.md](references/commission.md).
 - Receive or fulfill seller Orders, discover/buy work, pay an Order, resume an Order, exchange files, or review delivery: read [references/order.md](references/order.md).
 - Inspect earnings, bind payout authorization, perform KYC, or withdraw: read [references/wallet.md](references/wallet.md).
+- Interrupted, missing, failed, permission-blocked, or uncertain local Order execution: read [references/recovery.md](references/recovery.md). Diagnose automatically and resume authorized work from verified state.
 
 ## Proactive Order Updates
 
