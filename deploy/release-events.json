@@ -255,5 +255,17 @@
     "title": "Exclude safety scanners from install landings",
     "description": "After API rollout, Google-Safety requests no longer create landing records. Historical rows remain. Referral and reporting repairs require the updated website, installers and CLI; this marker records only API activation.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/508"
+  },
+  {
+    "id": "runtime-stage-failure-categories-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "api",
+    "dashboards": [
+      "update-maintenance",
+      "user-growth"
+    ],
+    "title": "Classified runtime stage failures accepted",
+    "description": "API accepts bounded categories on confirmed failed stages after deployment. Coverage starts only when compatible CLI callers adopt the optional flag; old receipts remain unknown and missing receipts do not establish failure. No historical backfill.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/522"
   }
 ]
