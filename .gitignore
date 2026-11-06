@@ -66,3 +66,8 @@ docs/superpowers/
 .agents/
 docs/agents/
 docs/research/
+
+# Flux Theatre build artifacts
+/hub/build/
+/fluxspace_client/build/
+/fluxspace_client/.dart_tool/

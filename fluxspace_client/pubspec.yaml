@@ -1,0 +1,36 @@
+name: fluxspace_client
+description: FluxSpace desktop spectator client (MVP).
+publish_to: none
+version: 0.1.0+1
+
+# Flutter 3.47.9 ships Dart 3.13.7 (verified 2026-11-04).
+environment:
+  sdk: ">=3.13.7 <4.0.0"
+
+# Dependency versions are pinned to the versions resolved in `pubspec.lock`.
+# See ADR-0002 (2026-11-06) for the decision and rationale.
+dependencies:
+  flutter:
+    sdk: flutter
+  flame: ^1.38.2
+  rive: ^0.14.11
+  drift: ^2.35.3
+  dio: ^5.11.1
+  flutter_riverpod: ^3.5.0
+  freezed_annotation: ^3.1.0
+  encrypt: ^5.0.3
+  # Windows Credential Manager / macOS Keychain / libsecret.
+  flutter_secure_storage: ^11.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  build_runner: ^2.17.1
+  drift_dev: ^2.35.2
+  freezed: ^4.0.3
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/personas/

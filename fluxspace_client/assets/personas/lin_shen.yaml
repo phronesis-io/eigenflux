@@ -1,0 +1,26 @@
+# Source: design/game-brief.md "Persona storage format" + "Four MVP personas".
+# This is the only persona whose behavior_notes / family_bias exist in the GDD.
+persona:
+  id: "lin-shen"
+  name: "林深"
+  occupation: "古籍修复师"
+  tagline: "每一页纸都有话要说"
+  traits:
+    risk: -2
+    information: 2
+    social: -1
+    commitment: 2
+    expression: -1
+    competition: -1
+  behavior_notes:
+    - "Won't take unnecessary risks out of curiosity"
+    - "Must see evidence before deciding"
+    - "Prefers solving problems alone but accepts necessary cooperation"
+    - "Once committed, never reneges"
+    - "Emotions run deep but rarely surface"
+    - "Cares more about doing things right than who wins"
+  family_bias:
+    deduction: 0.45
+    social_deduction: 0.15
+    resource_mgmt: 0.25
+    versus: 0.15
