@@ -36,7 +36,7 @@ on the client side).
 |---|---|---|---|
 | S1 | Prove the riskiest loop: real invitation + isolated-seat match | PM invitation round-trips through EigenFlux; 5-round match runs on the Hub; seat uniqueness and one-live-match-per-owner enforced | **Code complete, live-stack sign-off pending** - negotiation (3 proposals -> PM -> accept/reject/modify -> all confirmed), seat-isolated 5-round match and post-match follow-up PMs all run end to end over real HTTP against a local gateway. The wording "through EigenFlux" still requires a running stack (WSL 2 + Docker daemon) before S1 is signed off. See `IMPLEMENTATION_PLAN.md` §S1 status |
 | S2 | One reliably solvable theatre | Non-`rounds_out` rate must not regress below the recorded 10% baseline; 480-match run completes; structural fingerprints do not repeat within 5 matches | **Exit criteria met (2026-11-07)** - `hub/scripts/check_balance.py` is the executable gate (5x480 matches, floor = three-sigma lower bound of the 10% baseline, see ADR-0003 amendment); `TestCreateExcludesLastFiveMatchFingerprints` proves the window. Match-history persistence stays caller-side (S4) |
-| S3 | Four personas and the 2.5D director | 60fps Flame scene; Rive idle/walk/expression for four personas; retained screenshot evidence | Blocked - external Rive/2.5D asset procurement is the ADR-0004-selected path and has not happened. **Procurement package ready (2026-11-07)**: `S3_ASSET_PROCUREMENT.md` carries the three lots, the Rive input contract, the performance envelope, three purchase tiers with a two-wave recommendation, a vendor RFP and ten testable acceptance criteria. Remaining work is the owner's: pick a tier, a vendor, a budget. Flutter SDK installed; scaffold passes `flutter analyze` and `flutter test` (3 tests) |
+| S3 | Four personas and the 2.5D director | 60fps Flame scene; Rive idle/walk/expression for four personas; retained screenshot evidence | Blocked - external Rive/2.5D asset procurement is the ADR-0004-selected path and has not happened. **Procurement package ready (2026-11-07)**: `S3_ASSET_PROCUREMENT.md` carries the three lots, the Rive input contract, the performance envelope, three purchase tiers with a two-wave recommendation, a vendor RFP and ten testable acceptance criteria. Remaining work is the owner's: pick a tier, a vendor, a budget. Flutter client now plays a full match against the Hub (`flutter analyze` clean; `flutter test` 39 pass, 1 skipped; live smoke against a real Hub passes). The theatre itself is still the text console |
 | S4 | Memory, consequences, replays | SHA-256 archive verification; six viewing modes; all-participant consent | **Backend complete (2026-11-07)** - `hub/archive/` + 11 endpoints: immutable event-sourced archive, tamper detection, six projections, fail-closed consent, same-spec reprise with divergence point (ADR-0005). Replay UI and persistence are NOT done; G11 Agent Card projection closed by ADR-0006 (opt-in, blank-fill only) |
 | S5 | Harden before expanding | Budget downgrade, per-companion permission isolation, audit log, consent gate, model-version check | **Hub-side complete (2026-11-07)** - `hub/govern/` + 11 endpoints: monthly ledger refusing with an explicit rule-engine downgrade, deny-by-default tiers with single-use high-impact approval, hash-chained audit log, fail-closed model-version check (ADR-0007), made durable by an append-only audit log plus an atomic state snapshot under `HUB_GOVERNANCE_DIR` (ADR-0008). Consent gate is ADR-0005. Per-owner bearer auth with a companion→owner registry and per-seat stream tokens (ADR-0009). No multi-process locking, no log rotation, no composition UI, no guided setup UI |
 
@@ -50,7 +50,7 @@ All ten are `Status: Superseded`. None has passed a readiness gate.
 
 | # | Legacy story | Original type | Superseded by | Blocking design gap |
 |---|---|---|---|---|
-| 001 | Flutter scaffold and local storage | Integration | S1 | - (compiled 2026-11-06: `flutter analyze` clean, `flutter test` 3/3 pass) |
+| 001 | Flutter scaffold and local storage | Integration | S1 | Scaffold delivered 2026-11-06; **session loop implemented 2026-11-07** — negotiation, join, SSE, discussion, decisions, advance (`flutter analyze` clean, `flutter test` 39/40 with the live smoke skipped by default). The `drift` database is still schema-only |
 | 002 | Guest onboarding and companion activation | UI | S3 | G2, G3, G4, G7 |
 | 003 | Async invitation and match creation | Integration | S1 | - (wire contract defined in contracts §4, §7) |
 | 004 | Match runtime and deterministic referee | Logic | S1, S2 | File layout contradicts ADR-0001 decision 3 |
@@ -88,7 +88,7 @@ the official URL in `README.md` L222 resolves (`main` =
 this 2,081-file snapshot is a stale derivative of it, so the owner must choose
 a merge strategy (ADR-0002 "Still open" item 2). Flutter 3.47.9 and the
 English design-decision ADR draft were delivered by the AI on 2026-11-06;
-`flutter analyze` and `flutter test` now pass. Pinning the `any` dependencies
+`flutter analyze` and `flutter test` pass, and as of 2026-11-07 the client plays a complete match against a real Hub process. Pinning the `any` dependencies
 and normalising the mirror URLs in `pubspec.lock` remain open. The Go toolchain
 is present and the Hub module builds and tests cleanly.
 As of

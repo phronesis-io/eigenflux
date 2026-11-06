@@ -131,19 +131,75 @@ single highest integration risk.
   20 duration, 1 fingerprint, 4 settlement, 4 scoring, 6 condition cases —
   all exported from the frozen prototype and asserted value-for-value in Go.
 
-**Flutter scaffold `fluxspace_client/` — compiled and analysed (2026-11-06).**
+**Flutter client `fluxspace_client/` — session loop implemented (2026-11-07).**
 
-`pubspec.yaml`, `main.dart`, four-tab navigation, four page widgets,
-`HubClient`, the six-table `LocalDatabaseSchema`, a scaffold test and four
-persona YAML files. Flutter 3.47.9 / Dart 3.13.7 is installed at
-`C:\Users\louvr\.workbuddy\toolchains\flutter` (not on system PATH; invoke by
-absolute path). `flutter pub get` resolved 122 packages and produced
-`pubspec.lock`; `flutter analyze` reports **No issues found!**. Dependency
-constraints in `pubspec.yaml` are still `any` — pin them before distributing.
+The client can now play a match: negotiate, open a session, join a seat, read the
+private event stream, discuss, decide and advance. Files that carry it:
 
-`flutter test` **PASSES — 3 tests** (four navigation destinations, six-table DDL,
-Hub port collision). Two environment obstacles had to be cleared first, both
-without touching source code:
+| File | Role |
+|---|---|
+| `lib/models/hub_models.dart` | Wire models for contracts §3-§5, hand-written so a clean checkout tests without `build_runner` |
+| `lib/services/hub_api.dart` | The operations as an interface, so the controller is testable without a socket; `HubException` carries the wire code |
+| `lib/services/hub_client.dart` | Dio implementation: bearer token per request, SSE, refusal-code mapping |
+| `lib/services/sse.dart` | Incremental SSE framing, split out from the transport |
+| `lib/services/token_store.dart` | Keychain-backed token storage behind an interface; memory store for tests |
+| `lib/session/session_controller.dart` | The loop as a `ChangeNotifier`; no widgets, no `Dio` |
+| `lib/pages/theatre_page.dart` | The text console: connection, seats, metrics, round actions, log |
+
+Three behaviours are deliberate rather than incidental:
+
+1. **A refusal keeps its code.** `HubException` carries `status` and `code`, and
+   the console branches on `COMPANION_NOT_YOURS` / `AUTH_INVALID` rather than on
+   message text. `HubClient` also refuses a 200 whose body has no `session_id`
+   (`UNEXPECTED_RESPONSE`): the tolerant field decoders would otherwise render an
+   empty match instead of reporting that the response shape changed. This guard
+   caught a real mistake — `POST /hub/invitations/{id}/session` wraps the view in
+   `{"session": ...}` while its neighbours answer a bare view.
+2. **A failure inside a live match keeps the seat.** The seat token is what makes
+   a retry possible; dropping to `failed` would strand a match the Hub still has.
+3. **An open Hub cannot bind a companion**, because there is no owner to bind to
+   (`401 AUTH_REQUIRED`). The client treats exactly that code as "running
+   anonymous" and says so in the log; any other binding refusal stops the connect.
+
+`flutter analyze` reports **No issues found!** and `flutter test` **PASSES — 39
+tests, 1 skipped** (the live smoke below). The 39 are: 8 on the Hub client
+against a recording `HttpClientAdapter`, 8 on SSE framing (split reads, CRLF,
+comments, multi-line data, tail flush), 17 on the controller against a scripted
+Hub, 2 widget tests on the console, 3 scaffold tests, plus the table DDL test.
+
+**End-to-end against a real Hub process** (`test/live_hub_smoke_test.dart`,
+skipped unless `FLUXSPACE_LIVE_HUB` is set): the Hub is started with
+`HUB_ALLOW_UNAUTHENTICATED=1`, the test negotiates an invitation, confirms both
+parties, creates the session, joins both seats, plays every round to settlement
+and asserts the SSE stream carried `round_begin`, `decision` and `match_end` with
+monotonic ids. It runs unauthenticated on purpose: with tokens on, joining
+`seat_1` needs owner_beta's token, which is the property ADR-0009 added.
+
+Two things the first live run taught, both now pinned in the test:
+
+- A match can settle **before** the last round when a win or lose condition
+  fires (the run finished at round 3 of 5), so `round == totalRounds` is a false
+  assertion.
+- The Hub keeps invitations for the life of the process and refuses a duplicate
+  id, so a repeat run must name its own.
+
+Not done in the client: the 2.5D theatre and the Rive artboards (S3, blocked on
+procurement); `Last-Event-ID` reconnects (the controller resumes from the
+snapshot plus the stored seat token, which is enough to reload state but not to
+replay the events missed while offline); the archive and governance screens; and
+the local `drift` database is still schema-only.
+
+`flutter pub get` rewrites every `pubspec.lock` URL to the configured mirror
+(`pub.flutter-io.cn` on this host). The lock is committed normalised to
+`pub.dev` because committing mirror URLs would pin every future clone to a
+Chinese mirror; the rewrite has to be undone before each commit that follows a
+`pub get`. Flutter 3.47.9 / Dart 3.13.7 is installed at
+`C://Users//louvr//.workbuddy//toolchains//flutter` (not on system PATH; invoke by
+absolute path). Dependency constraints in `pubspec.yaml` are still `any` — pin
+them before distributing.
+
+Two environment obstacles had to be cleared for `flutter test`, both without
+touching source code:
 
 1. `drift`'s transitive `sqlite3 3.9.0` native-asset hook downloads
    `sqlite3.x64.windows.dll` from `github.com` releases, which the host proxy
@@ -198,7 +254,8 @@ succeeded.
 | `flutter --version` (3.47.9 / Dart 3.13.7) | **PASS** — 2026-11-06, installed SDK verified byte-for-byte against official sha256 |
 | `flutter pub get` | **PASS** — 122 packages resolved, `pubspec.lock` generated |
 | `flutter analyze` | **PASS** — `No issues found!` (0 issues / 0 errors / 0 warnings) |
-| `flutter test` | **PASS — 3 tests** (`All tests passed!`). Required two environment-only workarounds: priming the `sqlite3` hook cache with the sha256-verified official DLL, and unsetting proxy vars for the local `flutter_tester` WebSocket. No source change. |
+| `flutter test` | **PASS — 39 tests, 1 skipped** (`All tests passed!`). The skip is the live Hub smoke, which needs `FLUXSPACE_LIVE_HUB`. Required two environment-only workarounds: priming the `sqlite3` hook cache with the sha256-verified official DLL, and unsetting proxy vars for the local `flutter_tester` WebSocket. No source change. |
+| Live Hub smoke (client) | **PASS** — one match from invitation to settlement against `fluxspace-hub` on `:8399`, unauthenticated: three proposals, both parties confirmed, two seats joined, every round advanced and decided, settlement non-empty, and the SSE stream carried `round_begin` / `decision` / `match_end` with strictly increasing ids |
 | EigenFlux live-stack e2e | **NOT RUN** — `docker info` cannot reach the daemon; WSL feature absent and `wsl.exe`/`reg.exe` blocked by command-security policy (G10) |
 
 Reproduce:
