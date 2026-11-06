@@ -20,7 +20,7 @@ func TestAttentionSkillConsumesHumanResponsesBeforeFeed(t *testing.T) {
 	}
 	skill := string(skillBody)
 	commandStep := strings.Index(skill, "1. **Commands**")
-	feedStep := strings.Index(skill, "2. **Feed**")
+	feedStep := strings.Index(skill, "3. **Feed**")
 	if commandStep < 0 || feedStep < 0 || commandStep >= feedStep {
 		t.Fatal("ef-broadcast heartbeat must process durable commands before Feed")
 	}

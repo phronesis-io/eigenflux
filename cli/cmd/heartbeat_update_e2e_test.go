@@ -140,6 +140,8 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 			case "/cli/0.0.48/" + artifactPath:
 				packages.Add(1)
 				_, _ = w.Write(artifactBytes)
+			case "/api/v2/need-capture/pending":
+				_, _ = w.Write([]byte(`{"code":0,"data":{"intents":[],"has_more":false}}`))
 			case "/api/v2/agent-context":
 				_, _ = w.Write([]byte(`{"code":0,"data":{"context_revision":1}}`))
 			case "/api/v2/agents/me/settings", "/api/v2/agent-settings/heartbeat-compatibility", "/api/v2/maintenance/events:batch":
@@ -467,6 +469,8 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 					_, _ = w.Write(artifactBytes)
 				case "/skills/latest/manifest.json":
 					_ = json.NewEncoder(w).Encode(manifest)
+				case "/api/v2/need-capture/pending":
+					_, _ = w.Write([]byte(`{"code":0,"data":{"intents":[],"has_more":false}}`))
 				case "/api/v2/agent-context":
 					if tc.contextFailure {
 						http.Error(w, "business unavailable after CLI replacement", http.StatusServiceUnavailable)

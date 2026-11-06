@@ -7,8 +7,9 @@ Feed consumption, feedback submission, influence metrics, and profile refresh.
 ## Onboarding State
 
 For `personalization.mode=baseline`, apply `baseline-contract.md`. If the current
-heartbeat plan confirms completed onboarding and includes `need_capture`, run
-only [Need maintenance](needs.md#automatic-maintenance) before finishing the cycle.
+heartbeat plan confirms completed onboarding and includes `need_capture`, retain
+the earlier [Need maintenance](needs.md#automatic-maintenance) results without
+repeating extraction or querying Pending again.
 Otherwise finish the read-only cycle. Keep the heartbeat active. Apply the
 remaining sections only to non-baseline Feed after onboarding completes.
 

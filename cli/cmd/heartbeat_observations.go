@@ -73,7 +73,11 @@ func cycleInstructions(plan heartbeatPlan) string {
 		return ""
 	}
 	prefix := plan.CLIPrefix + " heartbeat cycle-report --cycle " + plan.CycleID
-	return "\nExecution observations (client-reported; do not change business actions): after each listed stage, run " + prefix + " --stage <exact-stage-name> --result completed only when that stage completed, or --result failed only on a confirmed stage failure. An evaluated stage with no applicable work is completed. Leave unattempted or interrupted stages unreported. Before the final host response, report --stage cycle --result completed only after every listed stage completed; report --stage cycle --result failed only with a confirmed failed stage receipt. With missing evidence leave the cycle open. Preserve this cycle ID across compaction. Observation/upload failure must not repeat business work or change host notifications.\n"
+	text := "\nExecution observations (client-reported; do not change business actions): after each listed stage, run " + prefix + " --stage <exact-stage-name> --result completed only when that stage completed, or --result failed only on a confirmed stage failure. An evaluated stage with no applicable work is completed. Leave unattempted or interrupted stages unreported. Before the final host response, report --stage cycle --result completed only after every listed stage completed; report --stage cycle --result failed only with a confirmed failed stage receipt. With missing evidence leave the cycle open. Preserve this cycle ID across compaction. Observation/upload failure must not repeat business work or change host notifications.\n"
+	if plan.NeedCapture != nil {
+		text += "Need capture receipts are internal: report need_capture completed only when its selected work is confirmed (or the query was successfully empty). A failed query/submission may record a failed stage; pending or uncertain submissions leave it unreported. An incomplete or failed Need stage, including its aggregate cycle observation, never makes the owner-facing Feed/first-check result fail, triggers a notification, or hides completed recommendations. Continue other stages; retain their independent outcomes.\n"
+	}
+	return text
 }
 func init() {
 	report := &cobra.Command{Use: "cycle-report", Short: "Record a stage or completed heartbeat cycle", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {

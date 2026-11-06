@@ -41,6 +41,15 @@ Process only complete, visible items; do not invent missing IDs or feedback.
 Never repoll to reconstruct a page. Continue independent safe stages and mark
 the cycle incomplete if required content remains unavailable.
 
+## Internal Need maintenance
+
+Run the plan's Need pass before Feed using `needs.md#automatic-maintenance`.
+Keep successful, failed, skipped and unconfirmed Need work internal. Need-only
+failure or an open aggregate execution observation does not select a host failure
+notification, invalidate the visible first check, or suppress/replace completed
+Feed or Agent recommendations. Continue all later safe stages and preserve their
+independent results. This does not hide failures of Feed or shared authentication.
+
 ## Feed completion
 
 Follow the inline contract core in every batch. Read the named full contract before actions whose procedures live in its details; skip those actions if unread.
