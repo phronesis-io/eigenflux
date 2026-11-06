@@ -100,7 +100,7 @@ def main():
             bindir.mkdir()
             binary = bindir / "eigenflux"
             # Regression: same semver, wrong bytes must still be replaced.
-            binary.write_text("#!/bin/sh\nprintf '0.0.55\\n'\n")
+            binary.write_text("#!/bin/sh\nprintf '%s\\n' '" + proof["cli_version"] + "'\n")
             binary.chmod(0o755)
             # A prior independently signed release can leave its manifest after
             # managed folders are removed. Reproduce the observed sequence-33
