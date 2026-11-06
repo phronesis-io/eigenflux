@@ -131,3 +131,72 @@ support is an error; unlinked feedback is not classified as negative. Event lag,
 missing impression linkage and exposure selection prevent interpreting these
 as calibrated positive probabilities or causal daily uplift. Keep credentials,
 cohort IDs, queries and item snapshots out of the repository and PR.
+
+## New PGC supply
+
+`FIDELITY_CURRENT_SERVING=true -mode capture` freezes the active Need-budget,
+semantic, rating-LR and consumed-refill branches in each snapshot, including
+profile vectors, cosine presence, consumption and optional recall results.
+Supply the deployed `rating-model.json` as well as the original model/policies.
+Capture uses at most two Agent workers. Forward projections are copied from
+production before local-only read-through repair. A missing author, cosine,
+model or recall fact invalidates acceptance rather than becoming zero.
+The rating-count challenger is rejected until its evidence is supported.
+
+For slow links, `REFILL_CAPTURE_SSH_HOST=<read-host>` also applies to this mode.
+The existing bounded read-only workers execute search and consumption queries
+near the stores. Full text is retained privately for new-supply lexical replay.
+Offline cosine collection uses a 30-second read budget within a ten-minute
+Agent capture deadline, independent of the serving 300 ms optional-stage budget.
+Whole-union hydration uses the Agent deadline, with bounded individual store
+reads; bulk Redis transfer has a 120-second transport timeout. Completed source
+export batches are saved atomically and resume only after fingerprint validation.
+Frozen execution retains serving deadlines. This is a healthy-dependency
+counterfactual, not a test or estimate of production latency/fallback frequency.
+
+Prepare `new-supply-unverified.json` with 1–50 real rescued candidates: private
+synthetic IDs, source content/notes, current server extraction and embeddings,
+explicit assumed creation times, retained-corpus group assignments and hashed
+provenance. `pgc_pipeline_replay -audit-both -publisher-summary` matches the
+publisher-notes summary route when that route is deployed. Source publisher
+classification must be established separately; inputs are explicitly PGC.
+
+`-mode supply-evidence` checks ID collisions, exact-content duplication, quality,
+PGC author visibility, both-direction relations and each cohort owner's consumed
+groups. It writes admitted `new-supply.json` and explicit rejections. It never
+publishes, records impressions or changes production stores. Every owner needs
+an explicit fact, including false values. Keep the provenance in
+`new-supply-provenance.json`; never invent an online item receipt.
+
+Run `FIDELITY_NEW_SUPPLY=true -mode compare` against isolated loopback ES. This
+mode cannot be combined with summary/body interventions. It requires current
+serving snapshots and exact original A/A reproduction. The baseline retains
+all original PGC/UGC; only the treatment admits new sources to lexical, Need
+dense and profile dense competition. It executes the 200-candidate Feed
+prefetch and normal 20-slot page source ceilings. Baseline page reconstruction
+must also equal the unchanged frozen source. Group consumption, exclusions,
+expiry and source policies remain active. A treatment refill without its exact
+captured query fails acceptance instead of assuming an unobserved deeper pool.
+
+New lexical scores use the median production/local BM25 scale; an uncalibrated
+new match is an error. Dense additions use exact cosine against the captured
+production kNN top-k, which is still an approximation to rerunning production
+ANN. No new-item promotion is forced. The manifest binds the cohort, snapshots,
+models, rules, policies, source evidence, feedback history, index mapping, new
+supply and provenance by SHA-256. Empty-admission execution must also reproduce
+the baseline. Duplicate recall rows and captured tie order remain intact; the
+replay does not repair production index-version conflicts.
+`report.py --variant new-supply` adds admitted/displaced counts and uses matched
+historical positive events with a 20-delivery source prior. Report each Agent's
+PGC/UGC, Need/Profile, delivery and expected-positive changes. The workload is
+one frozen refresh, not a simulated historical day; empirical rates are neither
+calibrated probabilities nor causal uplift. Preserve these limits with results.
+
+Run a second comparison with `FIDELITY_NEW_SUPPLY_NEW_RECALL=true` and report
+`--variant new-supply-refreshed`. This explicitly admits the rescued items into
+the next hourly new-PGC exposure queue before its top-k cutoff, displacing the
+last original queue entries. It still applies normal hydration, ranking and
+page ceilings. The first scenario leaves the offline queue frozen. These are
+conditional membership sensitivities, not a reconstruction of the hourly job,
+a mathematical bound or guaranteed exposure. Newly published items have no
+interaction history to enter hot or item-to-item queues initially.

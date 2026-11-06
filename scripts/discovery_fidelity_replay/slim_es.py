@@ -101,7 +101,7 @@ def main():
                 if source.get("lang"):
                     slots["lang"] = [source["lang"]]
                 digest, text = fingerprint(source, slots)
-                out.append({"id": str(source["id"]), "author": str(source.get("author_agent_id") or 0), "group": source.get("group_id", 0), "score": hit["_score"], "hash": digest, "slots": slots, "text": text if request.get("exclusion_text") else ""})
+                out.append({"id": str(source["id"]), "author": str(source.get("author_agent_id") or 0), "group": source.get("group_id", 0), "score": hit["_score"], "hash": digest, "preview": source.get("summary") or "", "slots": slots, "text": text if request.get("exclusion_text") else ""})
             print(json.dumps({"hits": out}, ensure_ascii=False), flush=True)
         except Exception as exc:
             print(json.dumps({"error": type(exc).__name__}), flush=True)

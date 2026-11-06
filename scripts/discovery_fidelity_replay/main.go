@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"eigenflux_server/pkg/config"
@@ -107,7 +108,9 @@ func engine(cfg *config.Config, dir string, s *snapshot, source discovery.Source
 	must(rules.Validate())
 	m := discoverylr.New(cfg.DiscoveryLREnabled, filepath.Join(dir, "model.json"), 24*time.Hour)
 	policy := legacy.NewDiscoveryReplayPolicies(cfg, filepath.Join(dir, "rerank.yaml"), time.UnixMilli(s.At), s.Classes, s.Claims)
-	return &discovery.Engine{Sources: source, Rules: rules, Learned: m, Policies: policy.DiscoveryPolicies, SourceLimits: policy.DiscoverySourceLimits(), NeedMix: policy.DiscoveryNeedMix()}, m.Close
+	e := &discovery.Engine{Sources: source, Rules: rules, Learned: m, Policies: policy.DiscoveryPolicies, SourceLimits: policy.DiscoverySourceLimits(), NeedMix: policy.DiscoveryNeedMix()}
+	closeServing := applyServing(e, dir, s)
+	return e, func() { closeServing(); m.Close() }
 }
 func main() {
 	mode := flag.String("mode", "capture", "capture or replay")
@@ -135,7 +138,7 @@ func main() {
 		replayAll(cfg, *dir)
 		return
 	}
-	if *mode != "capture" && *mode != "evidence" && *mode != "history" && *mode != "observed" && *mode != "refill-capture" {
+	if *mode != "capture" && *mode != "evidence" && *mode != "history" && *mode != "observed" && *mode != "refill-capture" && *mode != "supply-evidence" {
 		panic("invalid mode")
 	}
 	// Require server-enforced read-only PG sessions, not a caller promise.
@@ -180,13 +183,18 @@ func main() {
 	}
 	scratch := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
 	defer scratch.Close()
-	remote := redis.NewClient(&redis.Options{Addr: os.Getenv("FROZEN_REMOTE_REDIS_ADDR"), Password: cfg.RedisPassword, ReadTimeout: 30 * time.Second, WriteTimeout: 10 * time.Second, PoolSize: 6, ReadBufferSize: 1 << 20, WriteBufferSize: 1 << 20, MaxRetries: -1, Protocol: 2, MaintNotificationsConfig: &maintnotifications.Config{Mode: maintnotifications.ModeDisabled}})
+	remote := redis.NewClient(&redis.Options{Addr: os.Getenv("FROZEN_REMOTE_REDIS_ADDR"), Password: cfg.RedisPassword, ReadTimeout: 120 * time.Second, WriteTimeout: 10 * time.Second, PoolSize: 6, ReadBufferSize: 1 << 20, WriteBufferSize: 1 << 20, MaxRetries: -1, Protocol: 2, MaintNotificationsConfig: &maintnotifications.Config{Mode: maintnotifications.ModeDisabled}})
 	remote.AddHook(readOnlyRedis{})
+	if *mode == "supply-evidence" {
+		defer remote.Close()
+		captureNewSupply(cfg, *dir, db, remote)
+		return
+	}
 	defer remote.Close()
 	// The offline client crosses an SSH tunnel; use a bounded transport suited
 	// to that latency rather than the production in-VPC five-second header budget.
 	var transport http.RoundTripper = &http.Transport{MaxIdleConnsPerHost: 6, MaxConnsPerHost: 6, ResponseHeaderTimeout: 60 * time.Second}
-	if *mode == "refill-capture" {
+	if *mode == "refill-capture" || os.Getenv("FIDELITY_CURRENT_SERVING") == "true" {
 		transport = captureESTransport{next: transport}
 	}
 	es.Client, err = elasticsearch.NewClient(elasticsearch.Config{Addresses: []string{os.Getenv("ES_URL")}, Username: os.Getenv("ES_USERNAME"), Password: os.Getenv("ES_PASSWORD"), DisableRetry: true, Transport: transport})
@@ -194,6 +202,11 @@ func main() {
 	if *mode == "refill-capture" {
 		captureRefill(cfg, *dir, db, remote, scratch)
 		return
+	}
+	if host := os.Getenv("REFILL_CAPTURE_SSH_HOST"); host != "" {
+		captureSlim, err = startSlimPool(host)
+		must(err)
+		defer captureSlim.Close()
 	}
 	// All contexts from the most recent broadcast recommendation for each Agent;
 	// all channels are executed afresh, including candidates never delivered.
@@ -217,7 +230,7 @@ func main() {
 
 	vectors := needembedding.New(cfg, db, remote)
 	reader := recall.NewRedisRecallReader(remote, cfg.RecallRedisNamespace)
-	live := &discovery.Source{DB: db, Redis: remote, RecallNamespace: cfg.RecallRedisNamespace, BlockedAuthorEmails: cfg.BlockedAgentEmails,
+	live := &discovery.Source{ManagedIntegrations: cfg.EnableSDKIntegrations, DisableDedup: cfg.ShouldDisableDedup(), DB: db, Redis: remote, RecallNamespace: cfg.RecallRedisNamespace, BlockedAuthorEmails: cfg.BlockedAgentEmails,
 		FriendFeedMaxAuthors: cfg.FriendFeedMaxAuthors, FriendFeedWindowHours: cfg.FriendFeedWindowHours, FriendFeedMaxItems: cfg.FriendFeedMaxItems,
 		SwingRecall:      recallsource.NewSwingI2IRecallSource(reader, recall.NewSurfaceHistoryStore(scratch, cfg.RecallRedisNamespace), remote, cfg.SwingI2IRecallSeeds, cfg.SwingI2IRecallK),
 		DisabledChannels: map[string]bool{"friend": !cfg.FriendFeedEnabled, "swing_i2i": !cfg.EnableSwingI2IRecall, "hot_recall": !cfg.EnableHotRecall, "new_recall": !cfg.EnableNewRecall, "new_ugc_recall": !cfg.EnableNewUGCRecall}}
@@ -233,115 +246,156 @@ func main() {
 	}
 	hydration := *live
 	hydration.Redis = scratch
+	var captures sync.WaitGroup
+	slots := make(chan struct{}, 2)
 	for _, row := range rows {
-		file := filepath.Join(*dir, fmt.Sprintf("agent-%d.json", row.AgentID))
-		if b, e := os.ReadFile(file); e == nil {
-			var old snapshot
-			if json.Unmarshal(b, &old) == nil && old.CaptureError == "" && len(old.Hydration) > 0 {
-				fmt.Printf("agent %d: valid snapshot retained\n", row.AgentID)
-				continue
-			}
-		}
-		key := recall.SurfaceHistoryKey(cfg.RecallRedisNamespace, row.AgentID)
-		history, err := remote.ZRevRangeWithScores(context.Background(), key, 0, -1).Result()
-		must(err)
-		must(scratch.Del(context.Background(), key).Err())
-		if len(history) > 0 {
-			must(scratch.ZAdd(context.Background(), key, history...).Err())
-		}
-		s := &snapshot{Owner: row.AgentID, At: time.Now().UnixMilli(), Channels: map[string]channel{}, Hydrated: map[string]discovery.Document{}, Seen: map[string]bool{}, Classes: map[int64]string{}, Claims: map[int64]bool{}, Vectors: map[int64][]float32{}}
-		var contexts []discovery.Context
-		must(json.Unmarshal([]byte(row.Contexts), &contexts))
-		for _, c := range contexts {
-			has := false
-			for _, k := range c.Kinds {
-				has = has || k == discovery.Broadcast
-			}
-			if !has {
-				continue
-			}
-			c.Kinds = []discovery.Kind{discovery.Broadcast}
-			if c.CapturedNeed != nil && c.CapturedNeed.InputID > 0 && c.QueryAnalysis != nil {
-				v, e := vectors.Read(context.Background(), c.QueryAnalysis.Normalized)
-				if e == nil {
-					c.Vector = v
-				} else if !strings.Contains(e.Error(), "pending") {
-					s.CaptureError = "Need vector unavailable"
+		slots <- struct{}{}
+		captures.Add(1)
+		go func(row struct {
+			AgentID  int64
+			Contexts string
+		}) {
+			defer captures.Done()
+			defer func() { <-slots }()
+			file := filepath.Join(*dir, fmt.Sprintf("agent-%d.json", row.AgentID))
+			if b, e := os.ReadFile(file); e == nil {
+				var old snapshot
+				if json.Unmarshal(b, &old) == nil && old.CaptureError == "" && len(old.Hydration) > 0 && (os.Getenv("FIDELITY_CURRENT_SERVING") != "true" || old.Serving != nil && old.Serving.Format == servingCaptureFormat) {
+					fmt.Printf("agent %d: valid snapshot retained\n", row.AgentID)
+					return
 				}
 			}
-			s.Contexts = append(s.Contexts, c)
-			s.Vectors[c.ID] = c.Vector
-		}
-		recorder := &recordedSource{pools: pools, live: live, hydrate: &hydration, snap: s}
-		recorder.facts = func(ctx context.Context, docs []discovery.Document) error {
-			ids := []int64{}
-			authors := []int64{}
-			for _, d := range docs {
-				ids = append(ids, d.Ref.ID)
-				authors = append(authors, d.AuthorID)
+			key := recall.SurfaceHistoryKey(cfg.RecallRedisNamespace, row.AgentID)
+			history, err := remote.ZRevRangeWithScores(context.Background(), key, 0, -1).Result()
+			must(err)
+			must(scratch.Del(context.Background(), key).Err())
+			if len(history) > 0 {
+				must(scratch.ZAdd(context.Background(), key, history...).Err())
 			}
-			var people []struct {
-				AgentID int64
-				Email   string
+			s := &snapshot{Owner: row.AgentID, At: time.Now().UnixMilli(), Channels: map[string]channel{}, Hydrated: map[string]discovery.Document{}, Seen: map[string]bool{}, Classes: map[int64]string{}, Claims: map[int64]bool{}, Vectors: map[int64][]float32{}}
+			var contexts []discovery.Context
+			must(json.Unmarshal([]byte(row.Contexts), &contexts))
+			for _, c := range contexts {
+				has := false
+				for _, k := range c.Kinds {
+					has = has || k == discovery.Broadcast
+				}
+				if !has {
+					continue
+				}
+				c.Kinds = []discovery.Kind{discovery.Broadcast}
+				if c.CapturedNeed != nil && c.CapturedNeed.InputID > 0 && c.QueryAnalysis != nil {
+					v, e := vectors.Read(context.Background(), c.QueryAnalysis.Normalized)
+					if e == nil {
+						c.Vector = v
+					} else if !strings.Contains(e.Error(), "pending") {
+						s.CaptureError = "Need vector unavailable"
+					}
+				}
+				s.Contexts = append(s.Contexts, c)
+				s.Vectors[c.ID] = c.Vector
 			}
-			if len(authors) > 0 {
-				if err := db.WithContext(ctx).Table("agents").Select("agent_id,email").Where("agent_id IN ?", authors).Scan(&people).Error; err != nil {
+			recorder := &recordedSource{pools: pools, live: live, hydrate: &hydration, snap: s}
+			recorder.beforeHydrate = func(ctx context.Context, docs []discovery.Document) error {
+				values, err := captureForward(ctx, remote, docs)
+				if err != nil {
 					return err
 				}
-			}
-			pgc := map[int64]bool{}
-			for _, p := range people {
-				pgc[p.AgentID] = config.EmailMatchesAnySuffix(p.Email, cfg.PGCEmailSuffixes)
-			}
-			pipe := remote.Pipeline()
-			claims := map[int64]*redis.IntCmd{}
-			for _, id := range ids {
-				claims[id] = pipe.Exists(ctx, fmt.Sprintf("sort:inject:claim:%d", id))
-			}
-			if _, err := pipe.Exec(ctx); err != nil {
+				pipe := scratch.TxPipeline()
+				for key, value := range values {
+					pipe.Del(ctx, key)
+					if len(value) > 0 {
+						pipe.HSet(ctx, key, value)
+					}
+				}
+				_, err = pipe.Exec(ctx)
 				return err
 			}
-			for _, d := range docs {
-				class := "ugc"
-				if pgc[d.AuthorID] {
-					class = "pgc"
+
+			recorder.facts = func(ctx context.Context, docs []discovery.Document) error {
+				ids := []int64{}
+				authors := []int64{}
+				for _, d := range docs {
+					ids = append(ids, d.Ref.ID)
+					authors = append(authors, d.AuthorID)
 				}
-				s.Classes[d.Ref.ID] = class
-				s.Claims[d.Ref.ID] = claims[d.Ref.ID].Val() > 0
+				var people []struct {
+					AgentID int64
+					Email   string
+				}
+				if len(authors) > 0 {
+					if err := db.WithContext(ctx).Table("agents").Select("agent_id,email").Where("agent_id IN ?", authors).Scan(&people).Error; err != nil {
+						return err
+					}
+				}
+				pgc := map[int64]bool{}
+				for _, p := range people {
+					pgc[p.AgentID] = config.EmailMatchesAnySuffix(p.Email, cfg.PGCEmailSuffixes)
+				}
+				pipe := remote.Pipeline()
+				claims := map[int64]*redis.IntCmd{}
+				for _, id := range ids {
+					claims[id] = pipe.Exists(ctx, fmt.Sprintf("sort:inject:claim:%d", id))
+				}
+				if _, err := pipe.Exec(ctx); err != nil {
+					return err
+				}
+				for _, d := range docs {
+					class := "ugc"
+					if _, ok := pgc[d.AuthorID]; !ok {
+						return fmt.Errorf("uncaptured author identity")
+					}
+					if pgc[d.AuthorID] {
+						class = "pgc"
+					}
+					s.Classes[d.Ref.ID] = class
+					s.Claims[d.Ref.ID] = claims[d.Ref.ID].Val() > 0
+				}
+				return nil
 			}
-			return nil
-		}
-		e, close := engine(cfg, *dir, s, recorder)
-		work, cancel := context.WithTimeout(context.Background(), 180*time.Second)
-		result, err := e.ReplayContexts(work, s.Owner, s.Contexts, []discovery.Kind{discovery.Broadcast}, 20, s.At)
-		cancel()
-		close()
-		s.Before = result
-		for _, c := range s.Channels {
-			if c.Error != "" {
-				s.CaptureError = "incomplete recall: " + c.Name
+			work, cancel := context.WithTimeout(context.Background(), 600*time.Second)
+			var source discovery.Sources = recorder
+			if os.Getenv("FIDELITY_CURRENT_SERVING") == "true" {
+				current := captureServing(work, cfg, s, recorder)
+				_, _, e := current.ConsumedGroups(work, s.Owner)
+				must(e)
+				source = current
 			}
-		}
-		for _, reason := range result.PartialReasons {
-			if strings.Contains(reason, "unavailable") {
-				s.CaptureError = "partial execution: " + reason
+			e, close := engine(cfg, *dir, s, source)
+			result, err := e.ReplayContexts(work, s.Owner, s.Contexts, []discovery.Kind{discovery.Broadcast}, 20, s.At)
+			cancel()
+			close()
+			s.Before = result
+			for _, c := range s.Channels {
+				if c.Error != "" {
+					s.CaptureError = "incomplete recall: " + c.Name
+				}
 			}
-		}
-		if err != nil {
-			s.CaptureError = err.Error()
-		}
-		save(filepath.Join(*dir, fmt.Sprintf("agent-%d.json", s.Owner)), s)
-		fmt.Printf("agent %d: channels=%d hydrated=%d delivered=%d error=%t\n", s.Owner, len(s.Channels), len(s.Hydrated), len(result.Candidates), s.CaptureError != "")
+			for _, reason := range result.PartialReasons {
+				if strings.Contains(reason, "unavailable") {
+					s.CaptureError = "partial execution: " + reason
+				}
+			}
+			if err != nil {
+				s.CaptureError = err.Error()
+			}
+			save(filepath.Join(*dir, fmt.Sprintf("agent-%d.json", s.Owner)), s)
+			fmt.Printf("agent %d: channels=%d hydrated=%d delivered=%d error=%t\n", s.Owner, len(s.Channels), len(s.Hydrated), len(result.Candidates), s.CaptureError != "")
+		}(row)
 	}
+	captures.Wait()
 }
 func replayAll(cfg *config.Config, dir string) {
 	snapshots := loadSnapshots(dir)
 	for _, entry := range snapshots {
 		s := *entry
-		e, close := engine(cfg, dir, &s, newFrozenSource(&s))
+		e, close := engine(cfg, dir, &s, frozenServing(&s, newFrozenSource(&s)))
 		got, err := e.ReplayContexts(context.Background(), s.Owner, s.Contexts, []discovery.Kind{discovery.Broadcast}, 20, s.At)
 		close()
 		must(err)
+		if s.CaptureError != "" {
+			panic(s.CaptureError)
+		}
 		a, _ := json.Marshal(got)
 		b, _ := json.Marshal(s.Before)
 		if string(a) != string(b) {
