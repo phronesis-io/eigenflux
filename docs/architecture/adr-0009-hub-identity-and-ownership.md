@@ -165,9 +165,9 @@ S1 is: no verified full-stack environment (G10).
   not unify it.
 - Nothing here authorises *companions* acting on their own behalf; that is the
   high-impact approval path in ADR-0007, and it is unaffected.
-- Live-match reservation is still taken at session creation, so an authenticated
-  caller can spend another owner's slot without joining (see "Found while
-  implementing" above).
+- Live-match reservation happens at join, which means two lobbies may both name
+  the same owner and one loses at join time rather than at creation. That is the
+  intended trade: a slot belongs to a participant, not to a claim.
 
 ## The four signatures (recorded 2026-11-07)
 
@@ -183,14 +183,19 @@ S1 is: no verified full-stack environment (G10).
 Two gaps surfaced during implementation. Both are recorded rather than quietly
 absorbed:
 
-1. **Claim reservation is still a griefing vector.** `POST /hub/sessions` accepts
-   claims naming *other* owners (the invitation flow assembles all seats before
-   anyone joins), and `session.Manager` reserves a live-match slot for every
-   claimed owner at creation. An authenticated caller can therefore create a
-   lobby naming someone else's owner id and block that owner from starting a
-   match. The rule that would close it — reserve on **join**, not on create — was
-   not part of the signed decision, so it is left open. Note that this predates
-   ADR-0009: authentication did not create the hole, it just made an existing one
+1. ~~**Claim reservation is a griefing vector.**~~ **Resolved on 2026-11-07**,
+   after the ADR was signed: reservation moved from creation to join, so a lobby
+   holds no slot and naming another owner's id costs nothing and gains nothing.
+   Creation still fails fast when a named owner is already live, and the join
+   returns `OWNER_HAS_LIVE_MATCH` if another lobby won the race.
+
+   The original finding, kept because it explains why the rule exists:
+   `POST /hub/sessions` accepts claims naming *other* owners (the invitation flow
+   assembles all seats before anyone joins), and `session.Manager` used to
+   reserve a live-match slot for every claimed owner at creation. An
+   authenticated caller could therefore create a lobby naming someone else's
+   owner id and block that owner from starting a match. Note that this predates
+   ADR-0009: authentication did not create the hole, it made an existing one
    attributable.
 2. **Adding `owner_id` to the hash preimage invalidates pre-ADR-0009 logs.** No
    Hub had been deployed with governance persistence, so no history was lost. A

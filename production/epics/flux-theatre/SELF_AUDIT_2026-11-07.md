@@ -10,9 +10,9 @@
 > **Resolution update (same day, after ADR-0009 was signed).** Findings 5 and 6 are
 > closed by ADR-0009 and implemented: `/events` now requires the seat token issued
 > at join, and governance routes resolve a companion→owner registry before any
-> decision. One residue of finding 6 remains open — live-match reservation is
-> still taken at session creation, so an authenticated caller can spend another
-> owner's slot without joining (ADR-0009, "Found while implementing").
+> decision. The residue of finding 6 is closed too: live-match reservation moved
+> from creation to join, so a lobby holds no slot for an owner who never showed
+> up.
 > The table below is otherwise left as written: an audit is a snapshot, not a
 > document that improves retrospectively.
 

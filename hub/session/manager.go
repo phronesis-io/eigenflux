@@ -222,9 +222,12 @@ func (m *Manager) Create(req CreateRequest) (models.SessionView, error) {
 		decisions:  make(map[string]models.Decision),
 	}
 	m.sessions[id] = s
-	for owner := range seenOwners {
-		m.owners[owner] = id
-	}
+	// No reservation here. A lobby reserves an owner's live-match slot only when
+	// that owner actually joins, because claiming is free and joining costs a
+	// seat: reserving on create let one caller name another owner's id in its
+	// claims and spend that owner's slot without ever showing up (ADR-0009,
+	// "Found while implementing"). The per-claim check above still fails fast
+	// when a named owner already has a live match.
 
 	m.publish(s, models.EventMatchStart, models.VisibilityPublic, "", map[string]any{
 		"invitation_id":     inv.InvitationID,

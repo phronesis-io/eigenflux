@@ -171,7 +171,7 @@ succeeded.
 |---|---|
 | `go build ./...` (hub) | PASS |
 | `go vet ./...` (hub) | PASS |
-| `go test -count=1 -v ./...` (hub) | PASS — **139 passing tests** across api, archive, followup, generator, govern, invitation, models, referee, services, session (apperr has no tests of its own) |
+| `go test -count=1 -v ./...` (hub) | PASS — **140 passing tests** across api, archive, followup, generator, govern, invitation, models, referee, services, session (apperr has no tests of its own) |
 | `python hub/scripts/check_balance.py` | PASS — the S2 gate. 5 x 480 = 2,400 matches aggregated; measured 9.38%–11.25% across 20 consecutive runs, 0 failures. Floor is 0.08, the three-sigma lower bound of the 10% baseline (see ADR-0003 amendment) |
 | S4 replay archive | PASS — `hub/archive/` 15 tests (build, tamper detection, six modes, consent policies, reprise divergence) plus 3 HTTP tests covering the full S4 flow |
 | Archive integrity | PASS — SHA-256 over `{version, session_id, config, events, settlement}` plus a skeleton hash; `Load` refuses tampered bytes; six tamper cases assert the exact mismatch |

@@ -136,13 +136,44 @@ func TestCreateEnforcesSeatUniqueness(t *testing.T) {
 
 func TestCreateEnforcesOneLiveMatchPerOwner(t *testing.T) {
 	m := newManager()
-	if _, err := m.Create(createRequest("inv_first")); err != nil {
+	first, err := m.Create(createRequest("inv_first"))
+	if err != nil {
 		t.Fatalf("first create: %v", err)
 	}
-	_, err := m.Create(createRequest("inv_second"))
+	joinAll(t, m, first.SessionID)
+	_, err = m.Create(createRequest("inv_second"))
 	domain, ok := AsError(err)
 	if !ok || domain.Code != "OWNER_HAS_LIVE_MATCH" {
 		t.Fatalf("got %v, want OWNER_HAS_LIVE_MATCH", err)
+	}
+}
+
+// TestLobbyDoesNotReserveOwnerUntilJoin covers ADR-0009 "Found while
+// implementing": claiming is free, so a lobby must not spend another owner's
+// live-match slot before that owner joins.
+func TestLobbyDoesNotReserveOwnerUntilJoin(t *testing.T) {
+	m := newManager()
+	first, err := m.Create(createRequest("inv_lobby_a"))
+	if err != nil {
+		t.Fatalf("create A: %v", err)
+	}
+	second, err := m.Create(createRequest("inv_lobby_b"))
+	if err != nil {
+		t.Fatalf("a second lobby naming the same owners must be allowed: %v", err)
+	}
+
+	if _, _, err := m.Join(first.SessionID, "seat_0", "owner_alpha"); err != nil {
+		t.Fatalf("join A: %v", err)
+	}
+	// Joining reserves the slot; the second lobby can no longer take it.
+	_, _, err = m.Join(second.SessionID, "seat_0", "owner_alpha")
+	domain, ok := AsError(err)
+	if !ok || domain.Code != "OWNER_HAS_LIVE_MATCH" {
+		t.Fatalf("got %v, want OWNER_HAS_LIVE_MATCH", err)
+	}
+	// Another owner is unaffected: one owner's join does not block the others.
+	if _, _, err := m.Join(second.SessionID, "seat_1", "owner_beta"); err != nil {
+		t.Fatalf("join B as owner_beta: %v", err)
 	}
 }
 

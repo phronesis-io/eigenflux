@@ -81,9 +81,15 @@ Implementation notes that are part of the contract:
 - `POST /hub/sessions` accepts `{invitation, claims, seed, companion_count,
   pace, mode}`. The Hub generates the skeleton from `seed` via
   `generator.GenerateSkeleton`; callers cannot inject a skeleton. Two invariants
-  are enforced at creation and at join: one seat per owner, and one live match
-  per owner. Violations return `409 OWNER_SEAT_CONFLICT` /
-  `409 OWNER_HAS_LIVE_MATCH`. Owner locks are released when the match finishes.
+  are enforced: one seat per owner per match (`409 OWNER_SEAT_CONFLICT`), and one
+  live match per owner (`409 OWNER_HAS_LIVE_MATCH`).
+
+  The live-match invariant is **reserved at join, not at creation**: a lobby
+  checks the named owners but holds no slot, so naming someone's owner id in a
+  claim cannot spend their slot. Creation fails fast with
+  `OWNER_HAS_LIVE_MATCH` when a named owner is already in a live match, and the
+  join fails with the same code if another lobby took the slot first. Owner locks
+  are released when the match finishes.
 - `POST .../actions` re-validates `action_id` against the current round's
   action pool (`400 ILLEGAL_ACTION_ID`), caps `reasoning_summary` at 200
   characters and `confidence` to `[0,100]`. Duplicate submissions return
