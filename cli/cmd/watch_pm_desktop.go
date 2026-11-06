@@ -19,7 +19,7 @@ func (w *accountWatch) pmDesktopBlockers() []desktopnotify.Message {
 	if err != nil {
 		return nil
 	}
-	u.Path, u.RawPath, u.RawQuery, u.Fragment = "/dashboard", "", "", ""
+	u.Path, u.RawPath, u.RawQuery, u.Fragment = "/dashboard/messages", "", "", ""
 	if desktopnotify.ValidateURL(u.String()) != nil {
 		return nil
 	}

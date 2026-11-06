@@ -51,7 +51,7 @@ func TestPMDesktopBlockerDedupAndRecovery(t *testing.T) {
 		t.Fatalf("same conversation/reason notified %d times", pending)
 	}
 	entry, ok := q.Next(time.Now())
-	if !ok || strings.Contains(entry.Message.Body, "private diagnostic") || strings.Contains(entry.Message.Body, "incoming") {
+	if !ok || !strings.HasSuffix(entry.Message.URL, "/dashboard/messages") || strings.Contains(entry.Message.Body, "private diagnostic") || strings.Contains(entry.Message.Body, "incoming") {
 		t.Fatalf("private data in alert: %+v", entry)
 	}
 	if err := q.Complete(entry.Message.ID, true, time.Now()); err != nil {
