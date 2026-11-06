@@ -13,6 +13,11 @@
 package session
 
 import (
+	crand "crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -72,6 +77,9 @@ type state struct {
 	usage      map[string]int
 	entries    []referee.RoundEntry
 	talkCounts map[string]int
+	// seatTokens holds SHA-256 hashes of the per-seat stream tokens issued at
+	// join (ADR-0009 §2.3). The plaintext exists only in the join response.
+	seatTokens map[string]string
 	decisions  map[string]models.Decision
 }
 
@@ -230,31 +238,44 @@ func (m *Manager) Create(req CreateRequest) (models.SessionView, error) {
 	return copyView(s.view), nil
 }
 
-// Join binds a seat to its owner. A session goes live when every seat joined.
-func (m *Manager) Join(sessionID, seatID, ownerID string) (models.SessionView, error) {
+// Join binds a seat to its owner and returns that seat's stream token.
+//
+// The token is the credential for the seat's subjective event stream. It is
+// strictly less authority than an owner token — it reads one seat of one session
+// and can do nothing else — so it is issued here rather than derived from the
+// owner's identity (ADR-0009 §2.3).
+func (m *Manager) Join(sessionID, seatID, ownerID string) (models.SessionView, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s, err := m.lookup(sessionID)
 	if err != nil {
-		return models.SessionView{}, err
+		return models.SessionView{}, "", err
 	}
 	if s.view.Status == models.SessionFinished {
-		return models.SessionView{}, fail(409, "SESSION_FINISHED", "session %s is finished", sessionID)
+		return models.SessionView{}, "", fail(409, "SESSION_FINISHED", "session %s is finished", sessionID)
 	}
 	idx := seatIndex(s, seatID)
 	if idx < 0 {
-		return models.SessionView{}, fail(404, "SEAT_NOT_FOUND", "seat %q is not in session %s", seatID, sessionID)
+		return models.SessionView{}, "", fail(404, "SEAT_NOT_FOUND", "seat %q is not in session %s", seatID, sessionID)
 	}
 	seat := &s.view.Seats[idx]
 	if seat.OwnerID != ownerID {
-		return models.SessionView{}, fail(403, "OWNER_MISMATCH", "seat %q belongs to owner %q, not %q", seatID, seat.OwnerID, ownerID)
+		return models.SessionView{}, "", fail(403, "OWNER_MISMATCH", "seat %q belongs to owner %q, not %q", seatID, seat.OwnerID, ownerID)
 	}
 	if live, busy := m.owners[ownerID]; busy && live != sessionID {
-		return models.SessionView{}, fail(409, "OWNER_HAS_LIVE_MATCH", "owner %q already has live session %s", ownerID, live)
+		return models.SessionView{}, "", fail(409, "OWNER_HAS_LIVE_MATCH", "owner %q already has live session %s", ownerID, live)
 	}
 	if seat.Joined {
-		return models.SessionView{}, fail(409, "SEAT_ALREADY_JOINED", "seat %q already joined", seatID)
+		return models.SessionView{}, "", fail(409, "SEAT_ALREADY_JOINED", "seat %q already joined", seatID)
 	}
+	token, hash, err := newSeatToken()
+	if err != nil {
+		return models.SessionView{}, "", fail(500, "TOKEN_GENERATION_FAILED", "issue seat stream token: %v", err)
+	}
+	if s.seatTokens == nil {
+		s.seatTokens = make(map[string]string, len(s.view.Seats))
+	}
+	s.seatTokens[seatID] = hash
 	seat.Joined = true
 	m.owners[ownerID] = sessionID
 
@@ -271,7 +292,36 @@ func (m *Manager) Join(sessionID, seatID, ownerID string) (models.SessionView, e
 		"action": "join", "seat_id": seatID, "official": seat.Official,
 		"joined": joined, "total": len(s.view.Seats), "status": s.view.Status,
 	})
-	return copyView(s.view), nil
+	return copyView(s.view), token, nil
+}
+
+// VerifySeatToken reports whether token is the one issued to that seat.
+//
+// The comparison is over SHA-256 digests through subtle.ConstantTimeCompare, so
+// a timing signal cannot be used to recover the token one byte at a time, and the
+// Hub never needs to store the plaintext.
+func (m *Manager) VerifySeatToken(sessionID, seatID, token string) error {
+	if token == "" {
+		return fail(401, "SEAT_TOKEN_REQUIRED", "this stream requires the seat token issued at join")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, err := m.lookup(sessionID)
+	if err != nil {
+		return err
+	}
+	if seatIndex(s, seatID) < 0 {
+		return fail(404, "SEAT_NOT_FOUND", "seat %q is not in session %s", seatID, sessionID)
+	}
+	want, ok := s.seatTokens[seatID]
+	if !ok {
+		return fail(401, "SEAT_TOKEN_REQUIRED", "seat %q has not joined, so it has no stream token", seatID)
+	}
+	got := hashSeatToken(token)
+	if subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+		return fail(403, "SEAT_TOKEN_INVALID", "the seat token does not match this seat")
+	}
+	return nil
 }
 
 // Advance moves the phase forward along observe -> discuss -> act. Resolve is
@@ -683,4 +733,20 @@ func copyView(v models.SessionView) models.SessionView {
 		return v
 	}
 	return out
+}
+
+// newSeatToken returns a fresh random token plus the digest the Hub stores for
+// it. The plaintext is returned to the joiner once and never persisted.
+func newSeatToken() (token, digest string, err error) {
+	buf := make([]byte, 32)
+	if _, err := crand.Read(buf); err != nil {
+		return "", "", err
+	}
+	token = base64.RawURLEncoding.EncodeToString(buf)
+	return token, hashSeatToken(token), nil
+}
+
+func hashSeatToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }

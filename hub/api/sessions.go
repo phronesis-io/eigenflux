@@ -33,7 +33,11 @@ type Server struct {
 	FollowUp       *followup.Sender
 	Archives       *archive.Store
 	Governance     *Governance
-	Clock          func() int64
+	// OwnerTokens maps a bearer token to the owner id it authenticates. Empty
+	// means unauthenticated; main refuses to start that way without an explicit
+	// HUB_ALLOW_UNAUTHENTICATED=1 (ADR-0009 §2.1).
+	OwnerTokens map[string]string
+	Clock       func() int64
 }
 
 func (s *Server) now() int64 {
@@ -105,6 +109,24 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err)
 		return
 	}
+	// An authenticated caller must be in the match it is creating. Claims for
+	// other owners are allowed — the invitation flow assembles all seats before
+	// anyone joins — but a caller that is not among them would be reserving
+	// other people's match slots with no seat of its own.
+	if owner := ownerFrom(r); owner != "" {
+		mine := false
+		for _, claim := range req.Claims {
+			if claim.OwnerID == owner {
+				mine = true
+				break
+			}
+		}
+		if !mine {
+			writeDomainError(w, apperr.New(http.StatusForbidden, "CREATOR_NOT_IN_MATCH",
+				"an authenticated caller must claim at least one seat as %q", owner))
+			return
+		}
+	}
 	view, err := s.Manager.Create(req)
 	if err != nil {
 		writeDomainError(w, err)
@@ -122,12 +144,22 @@ func (s *Server) joinSession(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err)
 		return
 	}
-	view, err := s.Manager.Join(r.PathValue("id"), body.SeatID, body.OwnerID)
+	// A caller may only join as itself. The manager also checks the seat's
+	// owner, but that check compares two client-supplied strings; this one
+	// compares a client-supplied string against a token.
+	if owner := ownerFrom(r); owner != "" && body.OwnerID != owner {
+		writeDomainError(w, apperr.New(http.StatusForbidden, "OWNER_MISMATCH",
+			"this token belongs to %q, not %q", owner, body.OwnerID))
+		return
+	}
+	view, token, err := s.Manager.Join(r.PathValue("id"), body.SeatID, body.OwnerID)
 	if err != nil {
 		writeDomainError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, view)
+	// The token is returned once, to the seat that just joined. It is not part
+	// of the session view, because every other seat can read that view.
+	writeJSON(w, http.StatusOK, map[string]any{"session": view, "stream_token": token})
 }
 
 func (s *Server) submitAction(w http.ResponseWriter, r *http.Request) {
@@ -223,6 +255,13 @@ func (s *Server) participantEvents(w http.ResponseWriter, r *http.Request) {
 			Code: "UNKNOWN_SEAT", Message: fmt.Sprintf("seat %q is not a participant", seatID)})
 		return
 	}
+	// The seat token is the credential (ADR-0009 §2.3). ?seat_id= is a hint that
+	// must agree with the token; before this check, knowing a session id and a
+	// seat id was enough to read that seat's private decisions.
+	if err := s.Manager.VerifySeatToken(r.PathValue("id"), seatID, seatToken(r)); err != nil {
+		writeDomainError(w, err)
+		return
+	}
 	s.stream(w, r, seatID, false)
 }
 
@@ -312,4 +351,14 @@ func lastEventID(r *http.Request) int64 {
 		return 0
 	}
 	return parsed
+}
+
+// seatToken reads the seat stream token. A header is preferred because query
+// strings end up in logs and browser history; the query form exists for clients
+// that cannot set headers on an EventSource request.
+func seatToken(r *http.Request) string {
+	if token := r.Header.Get("X-Seat-Token"); token != "" {
+		return token
+	}
+	return r.URL.Query().Get("seat_token")
 }

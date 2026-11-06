@@ -53,6 +53,7 @@ type State struct {
 	AuditSeq    int64              `json:"audit_seq"`
 	Permissions []PermissionConfig `json:"permissions"`
 	Budget      BudgetSnapshot     `json:"budget"`
+	Companions  []CompanionBinding `json:"companions"`
 }
 
 // Store is the durable governance store. A nil *Store means "in memory only":
@@ -296,6 +297,7 @@ type Components struct {
 	Registry *Registry
 	Budget   *BudgetLedger
 	Audit    *AuditLog
+	Owners   *Ownership
 	Store    *Store
 
 	// loadNotes records what was repaired or left half-applied at load. They are
@@ -313,6 +315,7 @@ func NewMemory() *Components {
 		Registry: NewRegistry(),
 		Budget:   NewBudgetLedger(),
 		Audit:    NewAuditLog(),
+		Owners:   NewOwnership(),
 	}
 }
 
@@ -365,7 +368,11 @@ func Load(store *Store) (*Components, error) {
 	if err := budget.Restore(state.Budget); err != nil {
 		return nil, fmt.Errorf("restore budget: %w", err)
 	}
-	components := &Components{Registry: registry, Budget: budget, Audit: audit, Store: store}
+	owners := NewOwnership()
+	if err := owners.Restore(state.Companions); err != nil {
+		return nil, fmt.Errorf("restore companion ownership: %w", err)
+	}
+	components := &Components{Registry: registry, Budget: budget, Audit: audit, Owners: owners, Store: store}
 	if note := audit.LoadNote(); note != nil {
 		components.loadNotes = append(components.loadNotes, note)
 	}
@@ -398,6 +405,7 @@ func (c *Components) SnapshotState() State {
 		AuditSeq:    c.Audit.LastSeq(),
 		Permissions: c.Registry.Snapshot(),
 		Budget:      c.Budget.Snapshot(),
+		Companions:  c.Owners.Snapshot(),
 	}
 }
 

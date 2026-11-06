@@ -48,7 +48,7 @@ func newManager() *Manager {
 func joinAll(t *testing.T, m *Manager, sessionID string) {
 	t.Helper()
 	for _, claim := range testClaims() {
-		if _, err := m.Join(sessionID, claim.SeatID, claim.OwnerID); err != nil {
+		if _, _, err := m.Join(sessionID, claim.SeatID, claim.OwnerID); err != nil {
 			t.Fatalf("Join(%s): %v", claim.SeatID, err)
 		}
 	}
@@ -165,13 +165,13 @@ func TestOwnerReleasedAfterMatchFinishes(t *testing.T) {
 func TestJoinRejectsOwnerMismatchAndDuplicate(t *testing.T) {
 	m := newManager()
 	view, _ := m.Create(createRequest("inv_join"))
-	if _, err := m.Join(view.SessionID, "seat_0", "impostor"); err == nil || !strings.Contains(err.Error(), "OWNER_MISMATCH") {
+	if _, _, err := m.Join(view.SessionID, "seat_0", "impostor"); err == nil || !strings.Contains(err.Error(), "OWNER_MISMATCH") {
 		t.Fatalf("expected OWNER_MISMATCH, got %v", err)
 	}
-	if _, err := m.Join(view.SessionID, "seat_0", "owner_alpha"); err != nil {
+	if _, _, err := m.Join(view.SessionID, "seat_0", "owner_alpha"); err != nil {
 		t.Fatalf("valid join: %v", err)
 	}
-	if _, err := m.Join(view.SessionID, "seat_0", "owner_alpha"); err == nil || !strings.Contains(err.Error(), "SEAT_ALREADY_JOINED") {
+	if _, _, err := m.Join(view.SessionID, "seat_0", "owner_alpha"); err == nil || !strings.Contains(err.Error(), "SEAT_ALREADY_JOINED") {
 		t.Fatalf("expected SEAT_ALREADY_JOINED, got %v", err)
 	}
 }
@@ -412,5 +412,40 @@ func TestSnapshotIsDetached(t *testing.T) {
 	after, _ := m.State(view.SessionID)
 	if after.Metrics["truth"].Value == 9999 || after.Seats[0].DisplayName == "mutated" || after.Skeleton.Title == "mutated" {
 		t.Fatal("snapshot aliases manager state")
+	}
+}
+
+// TestSeatStreamTokenIsPerSeatAndUnguessable covers ADR-0009 §2.3: a seat's
+// private stream used to be readable from the seat id alone.
+func TestSeatStreamTokenIsPerSeatAndUnguessable(t *testing.T) {
+	m := newManager()
+	view, _ := m.Create(createRequest("inv_seat_token"))
+	if err := m.VerifySeatToken(view.SessionID, "seat_0", "anything"); err == nil {
+		t.Fatal("an unjoined seat accepted a stream token")
+	}
+	var tokenA string
+	{
+		var err error
+		if _, tokenA, err = m.Join(view.SessionID, "seat_0", "owner_alpha"); err != nil {
+			t.Fatalf("join seat_0: %v", err)
+		}
+		if len(tokenA) < 32 {
+			t.Fatalf("token %q is too short to be unguessable", tokenA)
+		}
+	}
+	_, tokenB, err := m.Join(view.SessionID, "seat_1", "owner_beta")
+	if err != nil {
+		t.Fatalf("join seat_1: %v", err)
+	}
+
+	if err := m.VerifySeatToken(view.SessionID, "seat_0", tokenA); err != nil {
+		t.Fatalf("own token rejected: %v", err)
+	}
+	// A token from another seat of the same session must not open this stream.
+	if err := m.VerifySeatToken(view.SessionID, "seat_0", tokenB); err == nil {
+		t.Fatal("seat_1's token opened seat_0's stream")
+	}
+	if err := m.VerifySeatToken(view.SessionID, "seat_0", ""); err == nil {
+		t.Fatal("an empty token was accepted")
 	}
 }

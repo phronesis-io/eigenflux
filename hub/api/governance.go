@@ -71,7 +71,8 @@ func (s *Server) nowTime() time.Time { return time.UnixMilli(s.now()) }
 
 func (s *Server) governance() (*Governance, error) {
 	if s.Governance == nil || s.Governance.Components == nil ||
-		s.Governance.Registry == nil || s.Governance.Budget == nil || s.Governance.Audit == nil {
+		s.Governance.Registry == nil || s.Governance.Budget == nil ||
+		s.Governance.Audit == nil || s.Governance.Owners == nil {
 		return nil, apperr.New(http.StatusServiceUnavailable, "GOVERNANCE_UNCONFIGURED",
 			"permissions, budget and audit are not configured on this Hub")
 	}
@@ -88,8 +89,11 @@ func (s *Server) governance() (*Governance, error) {
 // answers "what was allowed or refused" rather than only "what succeeded". If
 // the write fails the process degrades instead of continuing: an authority
 // decision that cannot be recorded is not one this Hub is allowed to make.
-func (s *Server) commit(gov *Governance, entry govern.AuditEntry) error {
+func (s *Server) commit(gov *Governance, r *http.Request, entry govern.AuditEntry) error {
 	entry.At = s.now()
+	// The owner comes from the token, never from the body: an audit entry that
+	// repeats the client's claim records the forgery, not the actor.
+	entry.OwnerID = ownerFrom(r)
 	if err := gov.Components.Commit(entry); err != nil {
 		gov.degrade(err)
 		return apperr.New(http.StatusInternalServerError, "GOVERNANCE_PERSIST_FAILED",
@@ -105,6 +109,9 @@ func (s *Server) getPermissions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	companionID := r.PathValue("id")
+	if !s.authorizeCompanion(w, r, gov, companionID) {
+		return
+	}
 	cfg, ok := gov.Registry.Get(companionID)
 	if !ok {
 		writeDomainError(w, apperr.New(http.StatusNotFound, "PERMISSIONS_NOT_CONFIGURED",
@@ -128,12 +135,15 @@ func (s *Server) setPermissions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	companionID := r.PathValue("id")
+	if !s.authorizeCompanion(w, r, gov, companionID) {
+		return
+	}
 	cfg, err := gov.Registry.Set(companionID, body.Tier, s.now())
 	if err != nil {
 		writeDomainError(w, apperr.New(http.StatusBadRequest, "INVALID_PERMISSION_TIER", "%v", err))
 		return
 	}
-	if err := s.commit(gov, govern.AuditEntry{
+	if err := s.commit(gov, r, govern.AuditEntry{
 		CompanionID: companionID, Operation: "set_permissions", Tier: body.Tier,
 		Outcome: govern.OutcomeAllowed, Detail: "permission tier set to " + body.Tier,
 	}); err != nil {
@@ -150,12 +160,15 @@ func (s *Server) revokePermissions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	companionID := r.PathValue("id")
+	if !s.authorizeCompanion(w, r, gov, companionID) {
+		return
+	}
 	cfg, err := gov.Registry.Revoke(companionID, s.now())
 	if err != nil {
 		writeDomainError(w, apperr.New(http.StatusNotFound, "PERMISSIONS_NOT_CONFIGURED", "%v", err))
 		return
 	}
-	if err := s.commit(gov, govern.AuditEntry{
+	if err := s.commit(gov, r, govern.AuditEntry{
 		CompanionID: companionID, Operation: "revoke_permissions", Tier: cfg.Tier,
 		Outcome: govern.OutcomeAllowed, Detail: "permissions revoked; tier retained for audit",
 	}); err != nil {
@@ -180,12 +193,15 @@ func (s *Server) createApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	companionID := r.PathValue("id")
+	if !s.authorizeCompanion(w, r, gov, companionID) {
+		return
+	}
 	approval, err := gov.Registry.Approve(companionID, body.Operation, body.TTLSeconds, s.now())
 	if err != nil {
 		writeDomainError(w, apperr.New(http.StatusBadRequest, "INVALID_APPROVAL", "%v", err))
 		return
 	}
-	if err := s.commit(gov, govern.AuditEntry{
+	if err := s.commit(gov, r, govern.AuditEntry{
 		CompanionID: companionID, Operation: body.Operation, Tier: govern.TierHighImpact,
 		Outcome: govern.OutcomeAllowed, Detail: "single-use approval " + approval.ID + " issued",
 	}); err != nil {
@@ -212,6 +228,9 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	companionID := r.PathValue("id")
+	if !s.authorizeCompanion(w, r, gov, companionID) {
+		return
+	}
 	result := gov.Registry.Authorize(companionID, body.Operation, body.RequiredTier, s.now())
 	outcome := govern.OutcomeDenied
 	status := http.StatusForbidden
@@ -219,7 +238,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		outcome = govern.OutcomeAllowed
 		status = http.StatusOK
 	}
-	if err := s.commit(gov, govern.AuditEntry{
+	if err := s.commit(gov, r, govern.AuditEntry{
 		CompanionID: companionID, Operation: body.Operation, Tier: body.RequiredTier,
 		Outcome: outcome, Detail: result.Code,
 	}); err != nil {
@@ -236,6 +255,9 @@ func (s *Server) getBudget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	companionID := r.PathValue("id")
+	if !s.authorizeCompanion(w, r, gov, companionID) {
+		return
+	}
 	limit, spent, configured := gov.Budget.Usage(companionID, s.nowTime())
 	writeJSON(w, http.StatusOK, map[string]any{
 		"companion_id": companionID, "month": govern.MonthKey(s.nowTime()),
@@ -258,11 +280,14 @@ func (s *Server) setBudget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	companionID := r.PathValue("id")
+	if !s.authorizeCompanion(w, r, gov, companionID) {
+		return
+	}
 	if err := gov.Budget.SetLimit(companionID, body.MonthlyTokens); err != nil {
 		writeDomainError(w, apperr.New(http.StatusBadRequest, "INVALID_BUDGET_LIMIT", "%v", err))
 		return
 	}
-	if err := s.commit(gov, govern.AuditEntry{
+	if err := s.commit(gov, r, govern.AuditEntry{
 		CompanionID: companionID, Operation: "set_budget", Tier: "budget",
 		Outcome: govern.OutcomeAllowed,
 		Detail:  "monthly token limit set to " + strconv.Itoa(body.MonthlyTokens),
@@ -292,6 +317,9 @@ func (s *Server) recordUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	companionID := r.PathValue("id")
+	if !s.authorizeCompanion(w, r, gov, companionID) {
+		return
+	}
 	decision := gov.Budget.Record(companionID, body.Tokens, s.nowTime())
 	outcome := govern.OutcomeAllowed
 	status := http.StatusOK
@@ -299,7 +327,7 @@ func (s *Server) recordUsage(w http.ResponseWriter, r *http.Request) {
 		outcome = govern.OutcomeDenied
 		status = http.StatusOK // the answer is a decision, not a transport failure
 	}
-	if err := s.commit(gov, govern.AuditEntry{
+	if err := s.commit(gov, r, govern.AuditEntry{
 		CompanionID: companionID, Operation: "model_call", Tier: "budget",
 		Outcome: outcome, Detail: decision.Reason,
 	}); err != nil {
@@ -316,6 +344,18 @@ func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	entries := gov.Audit.Entries(r.URL.Query().Get("companion_id"))
+	// An authenticated caller sees its own decisions only. The chain is one log,
+	// but "show me the audit log" must not become a directory of everyone else's
+	// companions.
+	if owner := ownerFrom(r); owner != "" {
+		scoped := make([]govern.AuditEntry, 0, len(entries))
+		for _, entry := range entries {
+			if entry.OwnerID == owner {
+				scoped = append(scoped, entry)
+			}
+		}
+		entries = scoped
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"entries": entries, "count": len(entries)})
 }
 

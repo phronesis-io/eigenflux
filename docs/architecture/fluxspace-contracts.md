@@ -39,14 +39,21 @@ Pending design sign-off` in-file. Do not treat them as GDD-authored content.
 
 Base URL `http://127.0.0.1:8095`, overridable with `HUB_ADDR`.
 
+**Authentication (ADR-0009).** With `HUB_OWNER_TOKENS` set, every `/hub/*` route
+requires `Authorization: Bearer <token>` and the caller's `owner_id` is derived
+from the token, never from the body. Three routes are exempt because they carry
+their own credential: `/health` (open), `/spectate` (`X-Spectator-Token`) and
+`/events` (`X-Seat-Token`). Without tokens the Hub refuses to start unless
+`HUB_ALLOW_UNAUTHENTICATED=1` is set, and `/health` reports `auth: "disabled"`.
+
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/health` | Liveness; `200 {"status":"ok","service":"fluxspace-hub"}` |
 | POST | `/hub/sessions` | Create session, returns `session_id` + SSE endpoints |
-| POST | `/hub/sessions/{id}/join` | Join a seat |
+| POST | `/hub/sessions/{id}/join` | Join a seat; returns `{session, stream_token}` |
 | POST | `/hub/sessions/{id}/actions` | Submit a validated decision |
 | GET | `/hub/sessions/{id}` | State query |
-| GET | `/hub/sessions/{id}/events` | SSE state changes for a participant |
+| GET | `/hub/sessions/{id}/events` | SSE state changes for a participant; needs `X-Seat-Token` |
 | GET | `/hub/sessions/{id}/spectate` | SSE omniscient stream, spectator role auth |
 | GET | `/hub/sessions/{id}/snapshot` | Full state for reconnect recovery |
 | POST | `/hub/sessions/{id}/advance` | Advance `observe -> discuss -> act`; resolve is implicit |
@@ -86,10 +93,16 @@ Implementation notes that are part of the contract:
   polls the retained event log rather than holding a subscriber channel, so a
   slow observer cannot drop, reorder or block an event. `Last-Event-ID` (or
   `?last_event_id=`) recovery uses the same read path.
-- `/events` requires `?seat_id=` and filters out private and omniscient-only
-  events not intended for that seat. `/spectate` requires
-  `X-Spectator-Token`; when `HUB_SPECTATOR_TOKEN` is unset the route returns
-  `503 SPECTATOR_AUTH_UNCONFIGURED` rather than exposing game secrets.
+- `/events` requires `?seat_id=` **and** the `X-Seat-Token` issued by that seat's
+  join, and filters out private and omniscient-only events not intended for that
+  seat. The seat id alone grants nothing: before ADR-0009 it was the whole
+  credential, so anyone who knew a session id and a seat id could read that
+  seat's private decisions. Tokens are stored SHA-256-hashed and compared in
+  constant time.
+- `/spectate` requires `X-Spectator-Token`; when `HUB_SPECTATOR_TOKEN` is unset
+  the route returns `503 SPECTATOR_AUTH_UNCONFIGURED` rather than exposing game
+  secrets. Spectators need not be owners, which is why this route is outside
+  bearer authentication.
 - `EventPhaseChanged` is a phase-1 event type added alongside the eight replay
   events below. It records joins and phase transitions for replay archives.
 
@@ -509,6 +522,24 @@ eleventh — `GET /hub/archives/{id}/model-consistency` — reads an archive and
 a pure function, holds no governance state, and therefore keeps working: refusing
 it would have been a rule with no reason behind it.
 
+### Ownership (ADR-0009 §2.2)
+
+A companion must be bound to an owner before any governance route will act on it.
+Binding is on the Hub because a client that asserts its own ownership proves
+nothing, and transfer is refused rather than performed — a silent transfer would
+be one request away from taking over someone else's companion.
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/hub/companions` | Bind `{companion_id}` to the token's owner (idempotent; 409 on transfer) |
+| GET | `/hub/companions/{id}` | Read the binding (403 `COMPANION_NOT_YOURS`, 404 `COMPANION_NOT_REGISTERED`) |
+
+With authentication on, every governance route below resolves this registry first:
+an unregistered companion is `404 COMPANION_NOT_REGISTERED`, another owner's is
+`403 COMPANION_NOT_YOURS`, and neither answer is dressed up as a governance
+refusal. An anonymous Hub has no caller to check, so the registry is a record
+rather than a gate — which is why that mode must be chosen explicitly.
+
 ### Endpoints
 
 | Method | Path | Purpose |
@@ -547,8 +578,11 @@ rejected, so "zero" never means "unlimited".
 
 ### Audit rules
 
-Entries are append-only and hash-chained: `seq`, `prev_hash` and a `sha256` over
-every descriptive field. `GET /hub/audit/verify` recomputes the chain and
+Entries are append-only and hash-chained: `seq`, `owner_id`, `prev_hash` and a
+`sha256` over every descriptive field. `owner_id` is derived from the caller's
+token and is inside the preimage, so re-attributing an entry to another owner
+breaks the chain. A log written before ADR-0009 does not verify after the upgrade;
+nothing was deployed at the time, so no history was lost. `GET /hub/audit/verify` recomputes the chain and
 reports the first broken sequence number. Every authorisation and every budget
 answer is recorded, refusals included, because "what was denied" is the question
 the log exists to answer. This is tamper evidence, not authentication.
@@ -560,6 +594,13 @@ the log exists to answer. This is tamper evidence, not authentication.
 certified, and official backfills are excluded because they are not a user's
 model choice. A reprise that changes the model must be declared as a
 `different_model` reprise or `CheckRepriseModelChange` rejects it.
+
+### Who sees the audit log
+
+An authenticated caller sees only entries attributed to its own owner. The chain
+is one log, but "show me the audit log" must not become a directory of everyone
+else's companions. `GET /hub/audit/verify` still checks the whole chain and
+returns only a count.
 
 ### Persistence (ADR-0008)
 

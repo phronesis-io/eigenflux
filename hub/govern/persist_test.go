@@ -344,3 +344,53 @@ func (s State) toJSON(t *testing.T) ([]byte, error) {
 	t.Helper()
 	return json.Marshal(s)
 }
+
+// TestOwnershipBindingSurvivesRestartAndRefusesTransfer covers ADR-0009 §2.2:
+// ownership is a Hub fact, and a silent transfer would be a hijack primitive.
+func TestOwnershipBindingSurvivesRestartAndRefusesTransfer(t *testing.T) {
+	dir := t.TempDir()
+	first := openTestComponents(t, dir)
+	if _, err := first.Owners.Bind("comp_own", "owner_a", 1000); err != nil {
+		t.Fatalf("bind: %v", err)
+	}
+	if err := first.Commit(AuditEntry{
+		OwnerID: "owner_a", CompanionID: "comp_own", Operation: "bind_companion",
+		Tier: "ownership", Outcome: OutcomeAllowed, At: 1000,
+	}); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if _, err := first.Owners.Bind("comp_own", "owner_b", 1001); err == nil {
+		t.Fatal("a second owner rebound the companion")
+	}
+	if err := first.Store.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	second := openTestComponents(t, dir)
+	owner, ok := second.Owners.OwnerOf("comp_own")
+	if !ok || owner != "owner_a" {
+		t.Fatalf("ownership not restored: %q ok=%v", owner, ok)
+	}
+	// The binding is part of the state the chain covers, so it still verifies.
+	if err := second.Audit.Verify(); err != nil {
+		t.Fatalf("chain with owner attribution does not verify: %v", err)
+	}
+	entries := second.Audit.Entries("")
+	if len(entries) != 1 || entries[0].OwnerID != "owner_a" {
+		t.Fatalf("owner attribution lost: %+v", entries)
+	}
+}
+
+func TestOwnershipRestoreRejectsConflictingBindings(t *testing.T) {
+	owners := NewOwnership()
+	err := owners.Restore([]CompanionBinding{
+		{CompanionID: "comp_x", OwnerID: "owner_a"},
+		{CompanionID: "comp_x", OwnerID: "owner_b"},
+	})
+	if err == nil {
+		t.Fatal("Restore accepted one companion bound to two owners")
+	}
+	if err := owners.Restore([]CompanionBinding{{CompanionID: "comp_x"}}); err == nil {
+		t.Fatal("Restore accepted a binding with no owner")
+	}
+}

@@ -7,6 +7,15 @@
 - **Why**: a public review finds drift faster than an author does. Four issues were real and
   are fixed below; six are recorded as open with the reason each was not fixed
 
+> **Resolution update (same day, after ADR-0009 was signed).** Findings 5 and 6 are
+> closed by ADR-0009 and implemented: `/events` now requires the seat token issued
+> at join, and governance routes resolve a companion→owner registry before any
+> decision. One residue of finding 6 remains open — live-match reservation is
+> still taken at session creation, so an authenticated caller can spend another
+> owner's slot without joining (ADR-0009, "Found while implementing").
+> The table below is otherwise left as written: an audit is a snapshot, not a
+> document that improves retrospectively.
+
 ## Fixed in this pass
 
 | # | Severity | Finding | Evidence | Fix |

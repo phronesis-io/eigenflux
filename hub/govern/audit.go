@@ -19,7 +19,11 @@ const (
 
 // AuditEntry is one recorded tool operation.
 type AuditEntry struct {
-	Seq         int64  `json:"seq"`
+	Seq int64 `json:"seq"`
+	// OwnerID is the authenticated owner, derived from the caller's token and
+	// never from the request body (ADR-0009 §3). It is empty when the Hub runs
+	// unauthenticated, which is itself worth seeing in the log.
+	OwnerID     string `json:"owner_id,omitempty"`
 	CompanionID string `json:"companion_id"`
 	Operation   string `json:"operation"`
 	Tier        string `json:"tier"`
@@ -174,11 +178,18 @@ func verifyChain(entries []AuditEntry) error {
 	return nil
 }
 
-// hash covers every field that describes what happened. Seq and PrevHash are
-// included, so moving an entry breaks the chain in two places.
+// hash covers every field that describes what happened. Seq, OwnerID and
+// PrevHash are included, so moving an entry — or re-attributing it to another
+// owner — breaks the chain in two places.
+//
+// OwnerID joined the preimage in ADR-0009. A log written before that change
+// therefore no longer verifies; the change landed before any deployment, so no
+// real history was lost. If a Hub with pre-ADR-0009 history ever needs upgrading,
+// the entries must be re-chained by a migration, not silently accepted.
 func (e AuditEntry) hash() (string, error) {
 	payload, err := json.Marshal(struct {
 		Seq         int64  `json:"seq"`
+		OwnerID     string `json:"owner_id"`
 		CompanionID string `json:"companion_id"`
 		Operation   string `json:"operation"`
 		Tier        string `json:"tier"`
@@ -186,7 +197,7 @@ func (e AuditEntry) hash() (string, error) {
 		Detail      string `json:"detail"`
 		At          int64  `json:"at"`
 		PrevHash    string `json:"prev_hash"`
-	}{e.Seq, e.CompanionID, e.Operation, e.Tier, e.Outcome, e.Detail, e.At, e.PrevHash})
+	}{e.Seq, e.OwnerID, e.CompanionID, e.Operation, e.Tier, e.Outcome, e.Detail, e.At, e.PrevHash})
 	if err != nil {
 		return "", fmt.Errorf("hash audit entry: %w", err)
 	}

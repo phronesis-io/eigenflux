@@ -116,7 +116,7 @@ func newS1Server(t *testing.T, gw *s1Gateway) *httptest.Server {
 		Clock:        func() int64 { return 1700000000123 },
 	}
 	mux := http.NewServeMux()
-	RegisterHealth(mux)
+	RegisterHealth(mux, srv)
 	RegisterSessions(mux, srv)
 	RegisterInvitations(mux, srv)
 	RegisterFollowUps(mux, srv)

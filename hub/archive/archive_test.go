@@ -62,7 +62,7 @@ func fixtureWithSeed(t *testing.T, invitationID string, actionOffset int, seed i
 		t.Fatalf("Create: %v", err)
 	}
 	for _, claim := range testClaims() {
-		if _, err := m.Join(view.SessionID, claim.SeatID, claim.OwnerID); err != nil {
+		if _, _, err := m.Join(view.SessionID, claim.SeatID, claim.OwnerID); err != nil {
 			t.Fatalf("Join(%s): %v", claim.SeatID, err)
 		}
 	}

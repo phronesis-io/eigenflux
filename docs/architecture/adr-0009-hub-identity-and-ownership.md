@@ -1,6 +1,7 @@
 # ADR-0009 — Hub identity and companion ownership
 
-- **Status:** **Proposed** — needs owner sign-off on §2.1, §2.2 and §2.3 before implementation
+- **Status:** **Accepted** — the owner signed all four decisions as option A on
+  2026-11-07, and they are implemented
 - **Date:** 2026-11-07
 - **Relates to:** ADR-0007 (governance controls), ADR-0008 (governance persistence), ADR-0001 decision 3, self-audit findings 5 and 6
 
@@ -164,11 +165,34 @@ S1 is: no verified full-stack environment (G10).
   not unify it.
 - Nothing here authorises *companions* acting on their own behalf; that is the
   high-impact approval path in ADR-0007, and it is unaffected.
+- Live-match reservation is still taken at session creation, so an authenticated
+  caller can spend another owner's slot without joining (see "Found while
+  implementing" above).
 
-## The three signatures required
+## The four signatures (recorded 2026-11-07)
 
-1. **§2.1** — per-owner bearer tokens + fail-closed startup, versus delegated
-   platform tokens later.
-2. **§2.2** — a Hub-side companion registry, accepting the breaking change that
-   unregistered companions are denied.
-3. **§2.3** — per-seat stream tokens issued at join, shipping independently.
+| # | Decision | Signed |
+|---|---|---|
+| 1 | **§2.1** per-owner bearer tokens, `owner_id` derived from the token | A — local token map, delegated platform tokens deferred to §4 |
+| 2 | **§2.1** fail-closed startup: no tokens means no start without `HUB_ALLOW_UNAUTHENTICATED=1` | A — an open Hub must be chosen |
+| 3 | **§2.2** Hub-side companion registry, unregistered companions denied | A — accepts the breaking change |
+| 4 | **§2.3** per-seat stream tokens issued at join, hashed at rest | A — ships independently of §2.1/§2.2 |
+
+## Found while implementing, not foreseen here
+
+Two gaps surfaced during implementation. Both are recorded rather than quietly
+absorbed:
+
+1. **Claim reservation is still a griefing vector.** `POST /hub/sessions` accepts
+   claims naming *other* owners (the invitation flow assembles all seats before
+   anyone joins), and `session.Manager` reserves a live-match slot for every
+   claimed owner at creation. An authenticated caller can therefore create a
+   lobby naming someone else's owner id and block that owner from starting a
+   match. The rule that would close it — reserve on **join**, not on create — was
+   not part of the signed decision, so it is left open. Note that this predates
+   ADR-0009: authentication did not create the hole, it just made an existing one
+   attributable.
+2. **Adding `owner_id` to the hash preimage invalidates pre-ADR-0009 logs.** No
+   Hub had been deployed with governance persistence, so no history was lost. A
+   Hub that later needs to upgrade real history must re-chain it by migration
+   rather than accept a broken `Verify`.

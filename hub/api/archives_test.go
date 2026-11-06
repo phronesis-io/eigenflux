@@ -44,7 +44,7 @@ func finishedSession(t *testing.T, mgr *session.Manager, invitationID string, ac
 		t.Fatalf("Create: %v", err)
 	}
 	for _, claim := range claims {
-		if _, err := mgr.Join(view.SessionID, claim.SeatID, claim.OwnerID); err != nil {
+		if _, _, err := mgr.Join(view.SessionID, claim.SeatID, claim.OwnerID); err != nil {
 			t.Fatalf("Join(%s): %v", claim.SeatID, err)
 		}
 	}

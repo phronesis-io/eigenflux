@@ -18,13 +18,14 @@ import (
 func newTestServer(t *testing.T) (*httptest.Server, *session.Manager) {
 	t.Helper()
 	mgr := session.NewManagerWithClock(func() int64 { return 1700000000000 })
-	mux := http.NewServeMux()
-	RegisterHealth(mux)
-	RegisterSessions(mux, &Server{
+	api := &Server{
 		Manager: mgr, SpectatorToken: "spectator-secret",
 		PollInterval: 5 * time.Millisecond,
 		Clock:        func() int64 { return 1700000000000 },
-	})
+	}
+	mux := http.NewServeMux()
+	RegisterHealth(mux, api)
+	RegisterSessions(mux, api)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv, mgr
@@ -99,13 +100,24 @@ func createSession(t *testing.T, srv *httptest.Server, id string) models.Session
 	return view
 }
 
-func joinAllHTTP(t *testing.T, srv *httptest.Server, id string) {
+// joinAllHTTP joins every seat and returns the seat stream tokens, because a
+// participant stream is no longer readable from the seat id alone (ADR-0009).
+func joinAllHTTP(t *testing.T, srv *httptest.Server, id string) map[string]string {
 	t.Helper()
+	tokens := make(map[string]string, len(claims()))
 	for _, c := range claims() {
-		var view models.SessionView
+		var joined struct {
+			Session     models.SessionView `json:"session"`
+			StreamToken string             `json:"stream_token"`
+		}
 		call(t, http.MethodPost, srv.URL+"/hub/sessions/"+id+"/join",
-			map[string]string{"seat_id": c.SeatID, "owner_id": c.OwnerID}, http.StatusOK, &view)
+			map[string]string{"seat_id": c.SeatID, "owner_id": c.OwnerID}, http.StatusOK, &joined)
+		if joined.StreamToken == "" {
+			t.Fatalf("join for seat %s returned no stream_token", c.SeatID)
+		}
+		tokens[c.SeatID] = joined.StreamToken
 	}
+	return tokens
 }
 
 // runHTTPMatch drives the complete S1 loop over HTTP: create, join, then five
@@ -227,7 +239,7 @@ func parseSSE(t *testing.T, body string) []models.Event {
 	return out
 }
 
-func getSSE(t *testing.T, url, spectatorToken, lastEventID string) (int, string) {
+func getSSE(t *testing.T, url string, headers map[string]string, lastEventID string) (int, string) {
 	t.Helper()
 	if lastEventID != "" {
 		separator := "?"
@@ -240,8 +252,8 @@ func getSSE(t *testing.T, url, spectatorToken, lastEventID string) (int, string)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spectatorToken != "" {
-		req.Header.Set("X-Spectator-Token", spectatorToken)
+	for name, value := range headers {
+		req.Header.Set(name, value)
 	}
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
@@ -259,10 +271,11 @@ func getSSE(t *testing.T, url, spectatorToken, lastEventID string) (int, string)
 func TestSSEStreamsRespectRolesAndLastEventID(t *testing.T) {
 	srv, _ := newTestServer(t)
 	view := createSession(t, srv, "inv_sse")
-	joinAllHTTP(t, srv, view.SessionID)
+	tokens := joinAllHTTP(t, srv, view.SessionID)
 	_ = runHTTPMatch(t, srv, view.SessionID)
 
-	status, body := getSSE(t, srv.URL+"/hub/sessions/"+view.SessionID+"/events?seat_id=seat_1", "", "")
+	status, body := getSSE(t, srv.URL+"/hub/sessions/"+view.SessionID+"/events?seat_id=seat_1",
+		map[string]string{"X-Seat-Token": tokens["seat_1"]}, "")
 	if status != http.StatusOK {
 		t.Fatalf("participant stream = %d", status)
 	}
@@ -285,7 +298,8 @@ func TestSSEStreamsRespectRolesAndLastEventID(t *testing.T) {
 		t.Fatal("participant stream missing match_end")
 	}
 
-	status, body = getSSE(t, srv.URL+"/hub/sessions/"+view.SessionID+"/spectate", "spectator-secret", "")
+	status, body = getSSE(t, srv.URL+"/hub/sessions/"+view.SessionID+"/spectate",
+		map[string]string{"X-Spectator-Token": "spectator-secret"}, "")
 	if status != http.StatusOK {
 		t.Fatalf("spectator stream = %d", status)
 	}
@@ -304,7 +318,8 @@ func TestSSEStreamsRespectRolesAndLastEventID(t *testing.T) {
 	}
 
 	cutoff := omniscient[len(omniscient)/2].ID
-	_, recovered := getSSE(t, srv.URL+"/hub/sessions/"+view.SessionID+"/spectate", "spectator-secret",
+	_, recovered := getSSE(t, srv.URL+"/hub/sessions/"+view.SessionID+"/spectate",
+		map[string]string{"X-Spectator-Token": "spectator-secret"},
 		strconv.FormatInt(cutoff, 10))
 	resumed := parseSSE(t, recovered)
 	if len(resumed) == 0 {
