@@ -174,6 +174,45 @@ channels are delivered only to intended seats; the omniscient stream sees all.
 three proposals the participants confirmed before it creates a session. It is
 validated against `proposals[]` at `POST /hub/sessions`.
 
+**Create request (`POST /hub/invitations`).** The body is decoded into
+`invitation.Request`. Alongside the party/seat/pace/mode fields it accepts an
+optional `history_fingerprints` array carrying the partner group's most recent
+completed-match fingerprints:
+
+```json
+{
+  "invitation_id": "inv_...",
+  "initiator": { "agent_id": "agent_...", "owner_id": "owner_..." },
+  "responder": { "agent_id": "agent_...", "owner_id": "owner_..." },
+  "seats": 2,
+  "pace": "standard",
+  "mode": "coop",
+  "history_fingerprints": ["fp_...", "fp_...", "fp_...", "fp_...", "fp_..."]
+}
+```
+
+`history_fingerprints` is optional: omitted or empty means no cross-match dedup
+and proposal generation is unchanged. The Hub keeps only the last five entries
+in a `generator.FingerprintWindow` (deduplicated, empties dropped) and excludes
+those `generator.Fingerprint` values from all three generated proposals, so the
+same companion group does not see a repeated game structure within five matches
+(story-005 AC6 / the GDD Layer-2 rule). The comparison uses
+`generator.Fingerprint`, **not** `StructuralHash`, because the latter is
+topology-only and deliberately collides. The field is used solely for
+in-negotiation dedup: the Hub does not persist match history to any durable
+store (S1/S2 keep negotiations in memory), it is retained on the negotiation
+only to carry it across `modify` rounds, and generated proposal fingerprints
+are never written back as completed-match history. `decodeBody` uses
+`DisallowUnknownFields`, so the field is accepted only because it is declared
+on `invitation.Request`.
+
+Each entry in the returned `proposals[]` carries a `fingerprint` alongside
+`structural_hash` and `content_hash`. Callers must record the `fingerprint` of
+the proposal that was actually played and send it back in the next
+`history_fingerprints`: dedup runs on `generator.Fingerprint`, so without that
+field no client could build the five-match history at all. `structural_hash`
+is not a substitute — it is topology-only and deliberately collides.
+
 Replies use `kind: "fluxspace.invitation.reply.v1"`:
 
 ```json

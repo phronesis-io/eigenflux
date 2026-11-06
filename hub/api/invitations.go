@@ -38,6 +38,12 @@ func (s *Server) port() error {
 	return nil
 }
 
+// createInvitation handles POST /hub/invitations. The body decodes straight
+// into invitationpkg.Request, so the optional history_fingerprints field (the
+// partner group's recent generator.Fingerprint values) needs no extra wiring
+// here: it is declared on Request, which is also what lets decodeBody's
+// DisallowUnknownFields accept it. When the field is omitted the slice is nil
+// and proposal generation behaves exactly as before, with no cross-match dedup.
 func (s *Server) createInvitation(w http.ResponseWriter, r *http.Request) {
 	mgr, err := s.invitations()
 	if err != nil {

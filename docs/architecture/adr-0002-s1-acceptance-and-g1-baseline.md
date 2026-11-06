@@ -120,6 +120,27 @@ below. Two new facts surfaced while executing them and are recorded under
   No remote was configured, no fetch attempted, no credentials stored.
   `credential.helper` is `manager`; `gh` is not installed.
 
+  **Resolved later the same day (2026-11-06):** a read-only `git fetch
+  --depth=1 origin main` succeeded and an isolated worktree at
+  `C:\Users\louvr\Desktop\eigenflux-pr-worktree` was created from
+  `origin/main` = `6aefaa0`. Branch `pr/flux-theatre-s1` contains one commit
+  (`0cb05b8`) with the 69 Flux Theatre tracked files plus four `.gitignore`
+  lines; no existing EigenFlux file is modified. Nothing was pushed. This
+  implements decision 3 without touching the 2,081 untracked root-module
+  files. An initial PR commit omitted `fluxspace/` (the frozen executable
+  specification) and `design/game-brief.md` because they were local-only and
+  untracked, which left the ADRs and `hub/testdata/export_golden.js` with
+  dangling references: the golden re-export failed with
+  `ENOENT: fluxspace/_check.js` and the 480-match balance script could not run.
+  **The owner then chose to include them.** A second PR commit (`1924c13`)
+  adds the six `fluxspace/` files and the GDD. Verified in that worktree:
+  `node hub/testdata/export_golden.js` now succeeds and rewrites
+  `golden.json` byte-identically (Go port still matches the frozen prototype
+  value-for-value), and `cd fluxspace && node _balance.js` completes all 480
+  matches with 7 wins / 41 losses / 432 timeouts = 10% non-`rounds_out`,
+  matching the ADR-0003 recorded floor. The PR branch is
+  `pr/flux-theatre-s1` at `1924c13`, 2 commits, 76 files, still **not pushed**.
+
 - **G4 is now tracked as an open design decision.** `fluxspace-contracts.md`
   §9 lists G4 (story 002 needs a real authorised replay clip and a live model
   adapter but declares only story 001 as a dependency), yet `EPIC.md`'s open

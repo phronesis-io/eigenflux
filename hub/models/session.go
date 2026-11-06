@@ -47,11 +47,17 @@ const (
 
 // Proposal is one of the three generated game proposals in an invitation.
 type Proposal struct {
-	Index          int      `json:"index"`
-	Type           string   `json:"type"`
-	Seats          int      `json:"seats"`
-	Minutes        int      `json:"minutes"`
-	StructuralHash string   `json:"structural_hash"`
+	Index          int    `json:"index"`
+	Type           string `json:"type"`
+	Seats          int    `json:"seats"`
+	Minutes        int    `json:"minutes"`
+	StructuralHash string `json:"structural_hash"`
+	// Fingerprint is the dedup key for the five-match freshness rule. It must
+	// be exposed here: callers feed the fingerprints of completed matches back
+	// as invitation.Request.HistoryFingerprints, and dedup is enforced on
+	// Fingerprint (not StructuralHash, which deliberately collides), so without
+	// this field no client could ever build that history.
+	Fingerprint    string   `json:"fingerprint"`
 	ContentHash    string   `json:"content_hash"`
 	Summary        string   `json:"summary"`
 	ContractPoints []string `json:"contract_points"`

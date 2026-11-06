@@ -76,6 +76,11 @@ type Request struct {
 	Seed           int64                 `json:"seed"`
 	TTLSeconds     int                   `json:"ttl_seconds"`
 	SocialContract models.SocialContract `json:"social_contract"`
+	// HistoryFingerprints is the optional list of generator.Fingerprint values
+	// from the partner group's recently completed matches. The Hub keeps only
+	// the last FingerprintWindowSize entries and uses them for in-negotiation
+	// dedup; omitting it leaves proposal generation unchanged.
+	HistoryFingerprints []string `json:"history_fingerprints,omitempty"`
 }
 
 // Negotiation is the observable state machine. Inbox is retained because the
@@ -98,6 +103,10 @@ type Negotiation struct {
 	Mode           string                `json:"mode"`
 	Seed           int64                 `json:"seed"`
 	SessionID      string                `json:"session_id,omitempty"`
+	// HistoryFingerprints carries the recently completed-match fingerprints
+	// across modify rounds. Generated proposal fingerprints are never appended
+	// here: only matches that actually started count as history.
+	HistoryFingerprints []string `json:"history_fingerprints,omitempty"`
 
 	applied   map[string]bool
 	inboxSeen map[string]bool
@@ -220,7 +229,7 @@ func (m *Manager) Create(req Request) (Negotiation, error) {
 		_, _ = h.Write([]byte(id))
 		seed = int64(h.Sum64())
 	}
-	proposals, err := buildProposals(seed, seats, req.Pace, req.Mode, contract, 0)
+	proposals, err := buildProposals(seed, seats, req.Pace, req.Mode, contract, req.HistoryFingerprints, 0)
 	if err != nil {
 		return Negotiation{}, fail(400, "PROPOSAL_GENERATION_FAILED", "%v", err)
 	}
@@ -247,8 +256,9 @@ func (m *Manager) Create(req Request) (Negotiation, error) {
 		Initiator: initiator, Responder: responder,
 		CreatedAt: now, UpdatedAt: now, Seats: seats,
 		Pace: req.Pace, Mode: req.Mode, Seed: seed,
-		applied:   make(map[string]bool),
-		inboxSeen: make(map[string]bool),
+		HistoryFingerprints: req.HistoryFingerprints,
+		applied:             make(map[string]bool),
+		inboxSeen:           make(map[string]bool),
 	}
 	m.items[id] = n
 	return clone(n), nil
@@ -259,22 +269,44 @@ func (m *Manager) Create(req Request) (Negotiation, error) {
 // from. StructuralHash deliberately collides in the frozen prototype (it is
 // topology-only), so GDD's "no repeated structural fingerprints within five
 // matches" is enforced on generator.Fingerprint, not StructuralHash.
-func buildProposals(seed int64, seats int, pace, mode string, contract models.SocialContract, rotation int) ([]models.Proposal, error) {
+//
+// history holds the partner group's recently completed-match fingerprints.
+// NewFingerprintWindow trims them to the last five (dedup, drop empties) and is
+// the single dedup state for this call: it starts from the cross-match history
+// and rolls forward with each emitted proposal, so the three candidates are
+// distinct from the recent games AND from one another.
+func buildProposals(seed int64, seats int, pace, mode string, contract models.SocialContract, history []string, rotation int) ([]models.Proposal, error) {
 	out := make([]models.Proposal, 0, ProposalCount)
-	seen := make(map[string]bool)
+	window := generator.NewFingerprintWindow(history)
+	// completedMatches is a frozen snapshot of the recent games. Add() below
+	// rolls the window forward and can evict the oldest games from it (the
+	// window is capped at FingerprintWindowSize), but every proposal must still
+	// avoid ALL of the last five played games, not just those still resident in
+	// the rolling window. Unioning this snapshot with window.Slice() keeps the
+	// "last 5 matches" rule exact while window.Slice() still supplies this
+	// call's rolling dedup set.
+	completedMatches := window.Slice()
 	base := seed + int64(rotation)*7919
 	for attempt := 0; attempt < MaxProposalRetries && len(out) < ProposalCount; attempt++ {
+		blacklist := make([]string, 0, len(completedMatches)+generator.FingerprintWindowSize)
+		blacklist = append(blacklist, completedMatches...)
+		blacklist = append(blacklist, window.Slice()...)
 		sk, err := generator.GenerateSkeleton(generator.GenerateOptions{
 			Pace: pace, Mode: mode, CompanionCount: seats,
-			HistoryFingerprints: keys(seen),
+			HistoryFingerprints: blacklist,
 		}, rand.New(rand.NewSource(base+int64(attempt)*104729)))
 		if err != nil {
 			return nil, err
 		}
-		if seen[sk.Fingerprint] {
+		if window.Contains(sk.Fingerprint) {
 			continue
 		}
-		seen[sk.Fingerprint] = true
+		// Generated proposal fingerprints are an in-call dedup aid only. They
+		// are NOT completed-match history and are deliberately not written back
+		// to Negotiation.HistoryFingerprints; only fingerprints of matches that
+		// actually started belong there. Later modify rounds re-read the frozen
+		// cross-match history from Negotiation, never this rolling window.
+		window = window.Add(sk.Fingerprint)
 		summary := sk.Title
 		if sk.ThemeText != "" {
 			runes := []rune(sk.ThemeText)
@@ -295,6 +327,7 @@ func buildProposals(seed int64, seats int, pace, mode string, contract models.So
 		out = append(out, models.Proposal{
 			Index: len(out) + 1, Type: "deduction", Seats: seats,
 			Minutes: sk.EstimatedMinutes, StructuralHash: sk.StructuralHash,
+			Fingerprint: sk.Fingerprint,
 			ContentHash: sk.ContentHash, Summary: summary, ContractPoints: points,
 		})
 	}
@@ -302,14 +335,6 @@ func buildProposals(seed int64, seats int, pace, mode string, contract models.So
 		return nil, fmt.Errorf("only %d distinct proposals after %d attempts", len(out), MaxProposalRetries)
 	}
 	return out, nil
-}
-
-func keys(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
 }
 
 // Send delivers the invitation as a structured PM. EnsureFriend comes first
@@ -431,7 +456,7 @@ func applyReplyLocked(n *Negotiation, reply models.InvitationReply, clock func()
 		}
 		party.Amendments = append(party.Amendments, reply.Amendments...)
 		proposals, err := buildProposals(n.Seed, n.Seats, n.Pace, n.Mode,
-			n.Invitation.SocialContractDraft, n.ModifyRounds)
+			n.Invitation.SocialContractDraft, n.HistoryFingerprints, n.ModifyRounds)
 		if err != nil {
 			return fail(500, "PROPOSAL_REGENERATION_FAILED", "%v", err)
 		}

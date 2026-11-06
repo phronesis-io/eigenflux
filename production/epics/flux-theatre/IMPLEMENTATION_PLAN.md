@@ -156,7 +156,9 @@ succeeded.
 |---|---|
 | `go build ./...` (hub) | PASS |
 | `go vet ./...` (hub) | PASS |
-| `go test -count=1 -v ./...` (hub) | PASS — **68 passing tests** across api, followup, generator, invitation, models, referee, services, session (apperr has no tests of its own) |
+| `go test -count=1 -v ./...` (hub) | PASS — **78 passing tests** across api, followup, generator, invitation, models, referee, services, session (apperr has no tests of its own) |
+| `python hub/scripts/check_balance.py` | PASS — the S2 gate. 5 x 480 = 2,400 matches aggregated; measured 9.38%–11.25% across 20 consecutive runs, 0 failures. Floor is 0.08, the three-sigma lower bound of the 10% baseline (see ADR-0003 amendment) |
+| Five-match fingerprint window | PASS — `TestCreateExcludesLastFiveMatchFingerprints` builds a five-match history from the exact skeletons this seed would emit, then asserts all three proposals and a modify-round regeneration avoid every one |
 | `bash scripts/build.sh` (hub) | PASS — `hub/build/fluxspace-hub` |
 | Golden comparison vs `fluxspace/_check.js` | PASS — every case matched |
 | `cd fluxspace && node _balance.js` | 480 matches: 7 wins / 41 losses / 432 timeouts (unchanged; see G1) |

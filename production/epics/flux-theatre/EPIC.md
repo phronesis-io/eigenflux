@@ -35,7 +35,7 @@ on the client side).
 | Slice | Goal | Exit criterion | Status |
 |---|---|---|---|
 | S1 | Prove the riskiest loop: real invitation + isolated-seat match | PM invitation round-trips through EigenFlux; 5-round match runs on the Hub; seat uniqueness and one-live-match-per-owner enforced | **Code complete, live-stack sign-off pending** - negotiation (3 proposals -> PM -> accept/reject/modify -> all confirmed), seat-isolated 5-round match and post-match follow-up PMs all run end to end over real HTTP against a local gateway. The wording "through EigenFlux" still requires a running stack (WSL 2 + Docker daemon) before S1 is signed off. See `IMPLEMENTATION_PLAN.md` §S1 status |
-| S2 | One reliably solvable theatre | Non-`rounds_out` rate must not regress below the recorded 10% baseline; 480-match run completes; structural fingerprints do not repeat within 5 matches | **Unblocked by ADR-0003** - three-path win-rate and >=60% gates retired; not yet implemented/verified |
+| S2 | One reliably solvable theatre | Non-`rounds_out` rate must not regress below the recorded 10% baseline; 480-match run completes; structural fingerprints do not repeat within 5 matches | **Exit criteria met (2026-11-07)** - `hub/scripts/check_balance.py` is the executable gate (5x480 matches, floor = three-sigma lower bound of the 10% baseline, see ADR-0003 amendment); `TestCreateExcludesLastFiveMatchFingerprints` proves the window. Match-history persistence stays caller-side (S4) |
 | S3 | Four personas and the 2.5D director | 60fps Flame scene; Rive idle/walk/expression for four personas; retained screenshot evidence | Blocked - external Rive/2.5D asset procurement is now the ADR-0004-selected path and has not happened. Flutter SDK installed; scaffold passes `flutter analyze` and `flutter test` (3 tests) |
 | S4 | Memory, consequences, replays | SHA-256 archive verification; six viewing modes; all-participant consent | Not started |
 | S5 | Harden before expanding | Budget downgrade, per-companion permission isolation, audit log, consent gate, model-version check | Not started |
@@ -54,7 +54,7 @@ All ten are `Status: Superseded`. None has passed a readiness gate.
 | 002 | Guest onboarding and companion activation | UI | S3 | G2, G3, G4, G7 |
 | 003 | Async invitation and match creation | Integration | S1 | - (wire contract defined in contracts §4, §7) |
 | 004 | Match runtime and deterministic referee | Logic | S1, S2 | File layout contradicts ADR-0001 decision 3 |
-| 005 | Generator skeleton and reachability calibration | Logic | S2 | G1 resolved by ADR-0003 (targets relaxed); S2 verification still pending |
+| 005 | Generator skeleton and reachability calibration | Logic | S2 | G1 resolved by ADR-0003 (targets relaxed); S2 exit criteria verified 2026-11-07 |
 | 006 | Omniscient spectator client and 2.5D theatre | Visual/Feel | S3 | G6 - no Rive/2.5D assets, no art bible, no evidence directory |
 | 007 | Persistent memory and relationships | Logic | S4 | - |
 | 008 | Replay archives and same-spec reprise | Integration | S4 | G5 - Flux Points range conflicts with GDD |

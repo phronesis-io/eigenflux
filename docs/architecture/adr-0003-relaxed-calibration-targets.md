@@ -126,3 +126,42 @@ missing three-path measurement. Duplicating the frozen specification also
 risks a second, drifting source of truth. The work is therefore recorded as
 future work and is explicitly **not** a deliverable of this ADR. No
 percentage was fabricated as a "measured" value to fill the gap.
+
+## Amendment (2026-11-07): the executable gate and its statistical floor
+
+The decision above turned the 10% figure into an acceptance item, so S2 needed
+something executable rather than a number in a document. `hub/scripts/check_balance.py`
+now runs the frozen `fluxspace/_balance.js`, parses its stdout table, asserts
+the run is complete (6 rows, 480 matches, consistent decomposition) and asserts
+the aggregate non-`rounds_out` rate. `hub/scripts/check_balance.sh` wraps it and
+`.github/workflows/flux-theatre.yml` runs it in CI.
+
+**The floor is 0.08, not 0.10, and the 10% figure is unchanged.** The frozen
+spec is stochastic: `_check.js` draws from `Math.random()` and reads
+`Date.now()`, and both are inside `fluxspace/`, which ADR-0001 freezes. The
+baseline therefore cannot be seeded without editing the frozen prototype. One
+480-match run samples the true rate with a binomial standard error of about
+1.37 percentage points; a gate at exactly 0.10 would fail roughly 46% of the
+time on unchanged code. That is a broken gate, not a strict one.
+
+Measured on 2026-11-06 over ten independent 480-match runs: mean 0.1017,
+min 0.0854, max 0.1208, stdev 0.0133 — indistinguishable from binomial noise,
+so there is no drift to chase, only sampling variance. The gate consequently
+aggregates five runs (2,400 matches, se ~0.61pp) and rejects only a drop below
+the three-sigma lower bound, `0.10 - 3 * 0.0061 = 0.082`, rounded down to 0.08.
+A true regression to 6% sits beyond four sigma and still fails; a false failure
+needs a ~3.5 sigma fluctuation. Over 20 consecutive gate runs the aggregate
+ranged 9.21%–11.25% with zero failures.
+
+Two things this amendment does **not** do:
+
+- It does not lower the recorded baseline. 10% remains the registered MVP
+  figure and the gate prints it next to the floor on every run.
+- It does not make the Go calibrator authoritative. That remains a structural
+  self-check; the frozen prototype is the only baseline.
+
+`--floor 0.10` is available for anyone who wants the raw point estimate, and is
+documented in the script as expected to flake. `--runs` trades runtime for a
+tighter bound. No threshold was chosen by looking at a failing result and
+relaxing it until it went green: the 0.08 value is derived from the measured
+variance, and the underlying 10% target was never adjusted.

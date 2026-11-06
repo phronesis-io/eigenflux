@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 
+	"fluxspace.ai/hub/generator"
 	"fluxspace.ai/hub/models"
 	"fluxspace.ai/hub/services"
 	"fluxspace.ai/hub/session"
@@ -369,5 +371,75 @@ func TestBuildClaimsRequiresConfirmation(t *testing.T) {
 	}
 	if _, _, err := m.BuildClaims(n.ID, nil); err == nil || !strings.Contains(err.Error(), "INVITATION_NOT_CONFIRMED") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// TestCreateExcludesLastFiveMatchFingerprints is the S2 acceptance check:
+// "structural fingerprints do not repeat within the last 5 matches". It builds
+// a five-match history out of exactly the skeletons buildProposals would have
+// emitted for this seed (same rand.NewSource sequence), then asserts the three
+// returned proposals avoid all five, and that a modify-round regeneration
+// (rotation 1) avoids them too.
+func TestCreateExcludesLastFiveMatchFingerprints(t *testing.T) {
+	m := newManager()
+	req := baseRequest()
+
+	history := make([]string, 0, 5)
+	for attempt := 0; attempt < 5; attempt++ {
+		sk, err := generator.GenerateSkeleton(generator.GenerateOptions{
+			Pace: req.Pace, Mode: req.Mode, CompanionCount: req.Seats,
+		}, rand.New(rand.NewSource(req.Seed+int64(attempt)*104729)))
+		if err != nil {
+			t.Fatalf("generate history skeleton %d: %v", attempt, err)
+		}
+		history = append(history, sk.Fingerprint)
+	}
+	banned := make(map[string]bool, len(history))
+	for _, fp := range history {
+		banned[fp] = true
+	}
+	// Sanity: the history must be five distinct fingerprints, otherwise the
+	// assertions below would be vacuous.
+	if len(banned) != 5 {
+		t.Fatalf("history is not five distinct fingerprints: %v", history)
+	}
+
+	req.HistoryFingerprints = history
+	n, err := m.Create(req)
+	if err != nil {
+		t.Fatalf("Create with history: %v", err)
+	}
+	if len(n.HistoryFingerprints) != 5 {
+		t.Fatalf("negotiation kept %d history fingerprints, want 5", len(n.HistoryFingerprints))
+	}
+	for _, p := range n.Invitation.Proposals {
+		if p.Fingerprint == "" {
+			t.Fatalf("proposal %d exposes no fingerprint, so no client could ever supply history", p.Index)
+		}
+		if banned[p.Fingerprint] {
+			t.Fatalf("proposal %d reused a fingerprint from the last five matches: %s", p.Index, p.Fingerprint)
+		}
+	}
+
+	// A modify round re-generates proposals from the retained history; it must
+	// respect the same window (this is the path applyReplyLocked takes).
+	rotated, err := buildProposals(req.Seed, req.Seats, req.Pace, req.Mode,
+		models.SocialContract{}, n.HistoryFingerprints, 1)
+	if err != nil {
+		t.Fatalf("modify-round regeneration: %v", err)
+	}
+	for _, p := range rotated {
+		if banned[p.Fingerprint] {
+			t.Fatalf("modify round reused a fingerprint from the last five matches: %s", p.Fingerprint)
+		}
+	}
+
+	// Omitting the field must keep the old behaviour: no history, no exclusion.
+	plain, err := m.Create(baseRequest())
+	if err != nil {
+		t.Fatalf("Create without history: %v", err)
+	}
+	if len(plain.HistoryFingerprints) != 0 {
+		t.Fatalf("default request invented history: %v", plain.HistoryFingerprints)
 	}
 }
