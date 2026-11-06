@@ -42,7 +42,7 @@ func validCommissionInputRequest(request *commissionInputRequest) bool {
 			return false
 		}
 	}
-	return request.Status == "waiting_buyer" && request.Answer == "" || request.Status == "answered" && strings.TrimSpace(request.Answer) != ""
+	return (request.Status == "waiting_buyer" || request.Status == "withdrawn") && request.Answer == "" || request.Status == "answered" && strings.TrimSpace(request.Answer) != ""
 }
 
 func safeClarificationText(value string, limit int) bool {

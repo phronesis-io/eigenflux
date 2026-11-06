@@ -46,7 +46,7 @@ Use `completed` and `failed` for Commission jobs. Reserve `replied`, `no_reply` 
 
 ## Business Waits
 
-- `awaiting_seller` with `input_request.status=waiting_buyer`: wait for the buyer's formal Order-page submission. Submitted supplements wake seller reinspection; passing inspection permits acceptance, then payment is required.
+- `awaiting_seller` with `input_request.status=waiting_buyer`: wait for formal buyer submission while required facts remain missing. When the seller confirms the existing materials are sufficient under the frozen contract, withdraw the obsolete request through `order withdraw-input-request` using the current Order version and request ID, then verify fresh background inspection and acceptance. Preserve the buyer's original materials; derive the writing scope from them and the fulfillment skill. Submitted buyer supplements also wake seller reinspection. Passing inspection permits acceptance, then payment is required.
 - `pending_payment`: wait for verified payment. `in_progress` permits paid local fulfillment after ready input inspection.
 - `validating`: wait for platform validation. `awaiting_buyer_confirmation`: follow buyer artifact inspection and completion approval.
 - Report the observed Order, local recovery action, verified progress and remaining actor/action. Separate runtime readiness, job-stage completion, server delivery and buyer acceptance. Retain unverified status until the corresponding evidence exists.

@@ -969,3 +969,15 @@ fixture APIs. `TestPMPromptNativeDesktopFailureNotice` separately verifies faile
 preparation through the durable queue and installed native helper to a successful
 OS submission. They do not establish historical incident causes or visible banner
 receipt on another user's machine.
+
+### Seller withdrawal of obsolete clarification
+
+CLI 1.0.16 exposes `order withdraw-input-request` with the current expected
+Order version and active request ID. Seller-authenticated withdrawal records a
+`withdrawn` request without changing buyer input bytes or inventing an answer.
+The service emits the new Order version to wake the subscribed seller intake
+lane. A fresh real inspection must produce `ready` before acceptance; withdrawal
+alone establishes neither readiness nor acceptance. Preserve account identity,
+mutation idempotency and version/request fencing. Buyer clarification workers
+retire stale jobs after withdrawal. Inspect the latest Order to confirm
+`pending_payment` after acceptance and wait for verified payment before work.
