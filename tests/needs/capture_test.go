@@ -423,6 +423,31 @@ func TestNeedInputCLI(t *testing.T) {
 	if len(run("need", "capture", "pending")["intents"].([]any)) != 0 {
 		t.Fatal("completed work remains pending")
 	}
+	var selected int64
+	if err := h.db.Raw(`INSERT INTO agent_intent_actions(agent_id,watch_for,trigger_when,action_instruction,action_policy,priority,source,status,version,created_at,updated_at) VALUES (?,'Follow SQL reports','Useful updates','summarize','analyze_only',5,'human_edit','active',1,1,1) RETURNING intent_id`, h.owner).Scan(&selected).Error; err != nil {
+		t.Fatal(err)
+	}
+	write(reviewPath, map[string]any{"intent_id": fmt.Sprint(selected), "intent_version": 1, "outcome": "no_need", "reason": "Historical decision fixture", "inputs": []any{}})
+	run("need", "capture", "complete", "--file", reviewPath)
+	selectedID := fmt.Sprint(selected)
+	state := run("need", "capture", "review", "--intent-id", selectedID, "--intent-version", "1")
+	if state["state"] != "no_need" || state["capture_revision"] != float64(0) {
+		t.Fatal(state)
+	}
+	reopenArgs := []string{"need", "capture", "reopen", "--intent-id", selectedID, "--intent-version", "1", "--expected-capture-revision", "0"}
+	if run(reopenArgs...)["review"].(map[string]any)["state"] != "pending" {
+		t.Fatal("reopen did not enroll work")
+	}
+	pending = run("need", "capture", "pending")["intents"].([]any)
+	if len(pending) != 1 || pending[0].(map[string]any)["capture_revision"] != float64(1) {
+		t.Fatal(pending)
+	}
+	write(reviewPath, map[string]any{"intent_id": selectedID, "intent_version": 1, "capture_revision": 1, "outcome": "captured", "inputs": []json.RawMessage{reviewInput(selected, 1, "broadcast")}})
+	run("need", "capture", "complete", "--file", reviewPath)
+	retried := run(reopenArgs...)
+	if retried["replayed"] != true || retried["review"].(map[string]any)["state"] != "captured" {
+		t.Fatal("reopen retry reset a newer result", retried)
+	}
 }
 
 func TestNormalizedNeedIntegrityAndEligibility(t *testing.T) {

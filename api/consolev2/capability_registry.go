@@ -106,6 +106,8 @@ func capabilitySeeds() []capabilitySeed {
 		capability("need.input.create", "eigenflux need input create", "need", "write", "保存已确认意图的结构化输入", "Save structured input for a confirmed intent"),
 		capability("need.input.get", "eigenflux need input get", "need", "read", "读取需求输入", "Read an owned NeedInput"),
 		capability("need.capture.pending", "eigenflux need capture pending", "need", "read", "读取待整理意图", "Read pending Intent capture work"),
+		capability("need.capture.review", "eigenflux need capture review", "need", "read", "查看指定意图的提取审核", "Inspect one Intent capture review"),
+		capability("need.capture.reopen", "eigenflux need capture reopen", "need", "write", "重新审核指定的无需求判断", "Reopen one selected no_need review"),
 		capability("need.capture.complete", "eigenflux need capture complete", "need", "write", "完成意图需求整理", "Complete a confirmed Intent capture review"),
 		capability("need.input.list", "eigenflux need input list", "need", "read", "列出需求输入", "List owned NeedInputs"),
 		capability("discovery.search", "eigenflux search", "discovery", "read", "Search all source kinds", "Search all source kinds"),
@@ -281,6 +283,12 @@ func capabilitySeeds() []capabilitySeed {
 		}
 		if strings.HasPrefix(seed.id, "need.capture.") {
 			seed.minCLI = "0.0.56"
+		}
+		if seed.id == "need.capture.review" || seed.id == "need.capture.reopen" {
+			seed.minCLI = "1.0.16"
+		}
+		if seed.id == "need.capture.reopen" {
+			seed.confirmation = "explicit_user_instruction"
 		}
 		if strings.HasPrefix(seed.id, "discovery.") {
 			seed.minCLI = "0.0.55"

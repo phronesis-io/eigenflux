@@ -50,6 +50,7 @@ func newNeedCaptureCommand() *cobra.Command {
 	}}
 	complete.Long = `Complete one current confirmed Intent version without changing the Intent or action policy.
 The JSON object contains intent_id (decimal string), intent_version (integer),
+optional capture_revision (copy the Pending value when nonzero),
 outcome (captured or no_need), inputs (up to three need_input.v2 objects, one per
 missing type), and reason (required for no_need, at most 2000 UTF-8 bytes).
 Inspect pending.existing_inputs and reuse existing captures; do not resubmit their
@@ -57,7 +58,7 @@ kinds. captured accepts an empty inputs array when existing captures suffice.
 no_need requires no inputs and no existing captures. Preserve all supported types
 of the source Intent; never invent a Need to finish the review.
 The server atomically saves inputs and completion. Identical retries are safe.
-After a timeout retry the same file once. On stale Intent, concurrent capture, or a
+After a timeout retry the same file once. On stale Intent or capture revision, concurrent capture, or a
 completion conflict, leave that version for the next heartbeat's Pending selection.
 Never retry old content for a new version. --plan attaches local submission receipts
 for a version selected by heartbeat plan; status reads these receipts without a
@@ -87,15 +88,16 @@ Maximum file size: 100 KiB. Each input remains limited to 32 KiB.`
 		return nil
 	}}
 	status.Flags().String("plan", "", "Heartbeat Need plan ID")
-	group.AddCommand(pending, complete, status)
+	group.AddCommand(pending, complete, status, newNeedCaptureReviewCommand(false), newNeedCaptureReviewCommand(true))
 	return group
 }
 
 func submitNeedCapture(cli *client.Client, raw json.RawMessage, scope maintenance.Scope, plan string) (*client.APIResponse, error) {
 	var review struct {
-		IntentID      string `json:"intent_id"`
-		IntentVersion int64  `json:"intent_version"`
-		Outcome       string `json:"outcome"`
+		IntentID        string `json:"intent_id"`
+		IntentVersion   int64  `json:"intent_version"`
+		CaptureRevision int64  `json:"capture_revision,omitempty"`
+		Outcome         string `json:"outcome"`
 	}
 	if plan != "" {
 		if json.Unmarshal(raw, &review) != nil {
@@ -103,7 +105,7 @@ func submitNeedCapture(cli *client.Client, raw json.RawMessage, scope maintenanc
 		}
 		// Persist uncertainty before sending. A killed process or lost response
 		// cannot manufacture a success receipt; the next server Pending query decides retries.
-		if err := maintenance.RecordNeedCaptureResult(scope, plan, review.IntentID, review.IntentVersion, "unconfirmed", review.Outcome, ""); err != nil {
+		if err := maintenance.RecordNeedCaptureResult(scope, plan, review.IntentID, review.IntentVersion, review.CaptureRevision, "unconfirmed", review.Outcome, ""); err != nil {
 			return nil, err
 		}
 	}
@@ -125,7 +127,7 @@ func submitNeedCapture(cli *client.Client, raw json.RawMessage, scope maintenanc
 		}
 	}
 	if plan != "" {
-		if receiptErr := maintenance.RecordNeedCaptureResult(scope, plan, review.IntentID, review.IntentVersion, status, review.Outcome, code); receiptErr != nil && err == nil {
+		if receiptErr := maintenance.RecordNeedCaptureResult(scope, plan, review.IntentID, review.IntentVersion, review.CaptureRevision, status, review.Outcome, code); receiptErr != nil && err == nil {
 			// Preserve the successful server response even if local persistence fails.
 			var data map[string]json.RawMessage
 			if json.Unmarshal(response.Data, &data) == nil && data != nil {

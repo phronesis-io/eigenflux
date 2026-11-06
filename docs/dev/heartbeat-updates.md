@@ -30,7 +30,7 @@ return to the next heartbeat's server-derived Pending selection without an
 unbounded same-cycle refresh loop.
 
 `need capture complete --plan <plan_id> --file <path>` validates the selected
-Intent/version and records local submission uncertainty before the existing API
+Intent/version/capture-revision and records local submission uncertainty before the existing API
 call. Only a successful `completed: true` response confirms `captured` or
 `no_need`. A 4xx rejection is failed; transport/5xx errors, invalid responses and
 interrupted submissions remain unconfirmed. A confirmed receipt is never erased
@@ -50,8 +50,9 @@ as completed. A failed or open Need stage and its aggregate cycle receipt never
 replace, suppress or turn otherwise completed Feed/Agent recommendations or a
 foreground first-check result into a user-visible failure. Later server Pending
 queries decide retries; saved completions are excluded even after response loss.
-No server endpoint, schema migration, historical review reset, priority rotation
-or quality-classification change is part of this contract.
+The plan never resets historical reviews or changes priority. Explicit selected
+reopens use the [capture re-review contract](discovery.md#selected-no_need-re-review);
+the same bounded pass processes them with their selected capture revision.
 
 Follow-up: evaluate lowering only the internal scheduling priority of repeatedly
 unfinished Intent versions if observed failures monopolize the two selected slots.

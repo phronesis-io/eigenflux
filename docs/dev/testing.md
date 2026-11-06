@@ -422,3 +422,11 @@ details. Run `go test -short ./cmd ./internal/feedevent ./internal/cache` from
 API preview provenance and health snapshots are covered by
 `go test ./api/consolev2 ./api/dal ./pkg/feedcontract`. Apply migration 000125
 before validating settings against a real local database.
+
+
+Selected Need re-review validation uses migration 000132 and the lifecycle,
+concurrency and Prompt cases in [Need capture validation](../design/need-capture/e2e.md#selected-re-review).
+Use an isolated local PostgreSQL DSN; do not run reset/migration checks on a
+production database. CLI tests verify `capture_revision` propagation and the
+`review`/`reopen` command contracts; model-level no_need accuracy is a separate
+manual acceptance measure.

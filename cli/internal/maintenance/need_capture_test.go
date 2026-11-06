@@ -11,7 +11,7 @@ func TestNeedCaptureReceiptsAreVersionedIsolatedAndMonotonic(t *testing.T) {
 	if err := SaveNeedCaptureRun(scope, run); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordNeedCaptureResult(scope, run.ID, "42", 4, "confirmed", "captured", ""); err == nil {
+	if err := RecordNeedCaptureResult(scope, run.ID, "42", 4, 0, "confirmed", "captured", ""); err == nil {
 		t.Fatal("accepted unselected version")
 	}
 	other := scope
@@ -25,7 +25,7 @@ func TestNeedCaptureReceiptsAreVersionedIsolatedAndMonotonic(t *testing.T) {
 		t.Fatal("cross-server receipt")
 	}
 	for _, status := range []string{"unconfirmed", "failed", "confirmed", "unconfirmed"} {
-		if err := RecordNeedCaptureResult(scope, run.ID, "42", 3, status, "no_need", ""); err != nil {
+		if err := RecordNeedCaptureResult(scope, run.ID, "42", 3, 0, status, "no_need", ""); err != nil {
 			t.Fatal(err)
 		}
 	}

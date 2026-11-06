@@ -17,6 +17,8 @@ import (
 
 func (s *Service) registerNeeds(h *server.Hertz) {
 	h.GET("/api/v2/need-capture/pending", s.agentAuth("context:read"), s.requireCompleted, s.pendingNeedCaptures)
+	h.GET("/api/v2/need-capture/review", s.agentAuth("context:read"), s.requireCompleted, s.getNeedCaptureReview)
+	h.POST("/api/v2/need-capture/reopen", s.agentAuth("context:write"), s.requireCompleted, s.reopenNeedCapture)
 	h.POST("/api/v2/need-capture/complete", s.agentAuth("context:write"), s.requireCompleted, s.completeNeedCapture)
 	h.POST("/api/v2/need-inputs", s.agentAuth("context:write"), s.requireCompleted, s.createNeedInput)
 	h.GET("/api/v2/need-inputs", s.agentAuth("context:read"), s.requireCompleted, s.listNeedInputs)
@@ -36,6 +38,10 @@ func needFailure(ctx context.Context, c *app.RequestContext, err error) {
 		fail(c, 404, "NEED_INPUT_NOT_FOUND", "NeedInput not found", nil)
 	case errors.Is(err, need.ErrConflict):
 		fail(c, 409, "IDEMPOTENCY_CONFLICT", "key was used with different input", nil)
+	case errors.Is(err, need.ErrStaleCapture):
+		fail(c, 409, "NEED_CAPTURE_REVISION_STALE", "capture review is no longer the submitted revision", nil)
+	case errors.Is(err, need.ErrReopenNotAllowed):
+		fail(c, 409, "NEED_CAPTURE_REOPEN_NOT_ALLOWED", "only a completed no_need review can be reopened", nil)
 	case errors.Is(err, need.ErrStaleIntent):
 		fail(c, 409, "INTENT_REVISION_STALE", "intent is no longer the submitted version", nil)
 	default:
@@ -151,4 +157,47 @@ func (s *Service) completeNeedCapture(ctx context.Context, c *app.RequestContext
 	}
 	cache.InvalidateDiscovery(ctx, s.redisClient, owner)
 	needReply(c, 200, map[string]any{"completed": true, "replayed": replayed})
+}
+
+func (s *Service) getNeedCaptureReview(ctx context.Context, c *app.RequestContext) {
+	owner, _ := agentID(c)
+	values := make([]int64, 2)
+	for i, key := range []string{"intent_id", "intent_version"} {
+		raw := c.Query(key)
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || value <= 0 || strconv.FormatInt(value, 10) != raw {
+			needFailure(ctx, c, &need.FieldError{Path: key, Reason: "invalid_positive_integer"})
+			return
+		}
+		values[i] = value
+	}
+	out, err := s.needStore().CaptureReviewState(ctx, owner, values[0], values[1])
+	if err != nil {
+		needFailure(ctx, c, err)
+		return
+	}
+	needReply(c, 200, out)
+}
+func (s *Service) reopenNeedCapture(ctx context.Context, c *app.RequestContext) {
+	owner, _ := agentID(c)
+	raw, err := c.Body()
+	if err != nil {
+		needFailure(ctx, c, &need.FieldError{Path: "review", Reason: "invalid_body"})
+		return
+	}
+	if len(raw) > 4096 {
+		fail(c, 413, "NEED_REVIEW_TOO_LARGE", "reopen request exceeds 4 KiB", nil)
+		return
+	}
+	request, err := need.DecodeReopenCapture(raw)
+	if err != nil {
+		needFailure(ctx, c, err)
+		return
+	}
+	out, replayed, err := s.needStore().ReopenCapture(ctx, owner, request, time.Now().UnixMilli())
+	if err != nil {
+		needFailure(ctx, c, err)
+		return
+	}
+	needReply(c, 200, map[string]any{"review": out, "replayed": replayed})
 }

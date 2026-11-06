@@ -17,16 +17,18 @@ const MaxReviewBytes = 100 << 10
 // CaptureReview completes one Agent interpretation of a confirmed Intent version.
 // Inputs contains at most one missing input per kind; existing inputs stay intact.
 type CaptureReview struct {
-	IntentID      int64             `json:"intent_id,string"`
-	IntentVersion int64             `json:"intent_version"`
-	Outcome       string            `json:"outcome"`
-	Reason        string            `json:"reason,omitempty"`
-	Inputs        []json.RawMessage `json:"inputs"`
+	IntentID        int64             `json:"intent_id,string"`
+	IntentVersion   int64             `json:"intent_version"`
+	CaptureRevision int64             `json:"capture_revision,omitempty"`
+	Outcome         string            `json:"outcome"`
+	Reason          string            `json:"reason,omitempty"`
+	Inputs          []json.RawMessage `json:"inputs"`
 }
 
 type PendingCapture struct {
 	IntentID          int64           `json:"intent_id,string"`
 	IntentVersion     int64           `json:"intent_version"`
+	CaptureRevision   int64           `json:"capture_revision,omitempty"`
 	WatchFor          string          `json:"watch_for"`
 	TriggerWhen       string          `json:"trigger_when"`
 	ActionInstruction string          `json:"action_instruction"`
@@ -56,13 +58,17 @@ func DecodeCaptureReview(raw []byte) (CaptureReview, error) {
 		return r, invalid("review", "invalid_fields")
 	}
 	var link struct {
-		IntentID string `json:"intent_id"`
+		IntentID        string          `json:"intent_id"`
+		CaptureRevision json.RawMessage `json:"capture_revision"`
 	}
 	if err := json.Unmarshal(raw, &link); err != nil || link.IntentID != strconv.FormatInt(r.IntentID, 10) {
 		return r, invalid("intent_id", "canonical_positive_int64_required")
 	}
 	if r.Inputs == nil {
 		return r, invalid("inputs", "require_array")
+	}
+	if r.CaptureRevision < 0 || bytes.Equal(bytes.TrimSpace(link.CaptureRevision), []byte("null")) {
+		return r, invalid("capture_revision", "require_nonnegative_integer")
 	}
 	if r.IntentID <= 0 || r.IntentVersion <= 0 {
 		return r, invalid("intent", "invalid_link")
@@ -101,13 +107,15 @@ func (s Store) PendingCaptures(ctx context.Context, owner int64, limit int) (Pen
 		return out, invalid("limit", "require_1_to_10")
 	}
 	err := s.DB.WithContext(ctx).Raw(`SELECT a.intent_id, a.version AS intent_version,
+ COALESCE(r.capture_revision,0) AS capture_revision,
  a.watch_for, a.trigger_when, a.action_instruction, a.action_policy, a.priority,
  COALESCE((SELECT jsonb_agg(jsonb_build_object('need_input_id',n.need_input_id::text,
  'need_type',n.input->>'need_type') ORDER BY n.need_input_id)
  FROM current_need_inputs n WHERE n.agent_id=a.agent_id AND n.intent_id=a.intent_id), '[]'::jsonb) AS existing_inputs
- FROM agent_intent_actions a WHERE a.agent_id=? AND a.status='active'
- AND NOT EXISTS (SELECT 1 FROM need_capture_reviews r WHERE r.agent_id=a.agent_id
- AND r.intent_id=a.intent_id AND r.intent_version=a.version)
+ FROM agent_intent_actions a LEFT JOIN need_capture_reviews r
+ ON r.agent_id=a.agent_id AND r.intent_id=a.intent_id AND r.intent_version=a.version
+ WHERE a.agent_id=? AND a.status='active'
+ AND (r.intent_id IS NULL OR r.reopened_at IS NOT NULL)
  ORDER BY a.priority DESC, a.intent_id ASC LIMIT ?`, owner, limit+1).Scan(&out.Intents).Error
 	if len(out.Intents) > limit {
 		out.HasMore = true
@@ -150,12 +158,19 @@ func (s Store) CompleteCapture(ctx context.Context, owner int64, raw []byte, now
 		if intent.Status != "active" || intent.Version != r.IntentVersion {
 			return ErrStaleIntent
 		}
-		var previous string
-		if err := tx.Raw(`SELECT request_hash FROM need_capture_reviews WHERE agent_id=? AND intent_id=? AND intent_version=?`, owner, r.IntentID, r.IntentVersion).Scan(&previous).Error; err != nil {
+		var previous struct {
+			RequestHash     string
+			CaptureRevision int64
+			ReopenedAt      *int64
+		}
+		if err := tx.Raw(`SELECT request_hash,capture_revision,reopened_at FROM need_capture_reviews WHERE agent_id=? AND intent_id=? AND intent_version=?`, owner, r.IntentID, r.IntentVersion).Scan(&previous).Error; err != nil {
 			return err
 		}
-		if previous != "" {
-			if previous != hash {
+		if previous.CaptureRevision != r.CaptureRevision {
+			return ErrStaleCapture
+		}
+		if previous.RequestHash != "" && previous.ReopenedAt == nil {
+			if previous.RequestHash != hash {
 				return ErrConflict
 			}
 			replayed = true
@@ -185,8 +200,11 @@ func (s Store) CompleteCapture(ctx context.Context, owner int64, raw []byte, now
 				return err
 			}
 		}
-		return tx.Exec(`INSERT INTO need_capture_reviews(agent_id,intent_id,intent_version,outcome,reason,request_hash,completed_at)
- VALUES (?,?,?,?,?,?,?)`, owner, r.IntentID, r.IntentVersion, r.Outcome, r.Reason, hash, now).Error
+		return tx.Exec(`INSERT INTO need_capture_reviews(agent_id,intent_id,intent_version,outcome,reason,request_hash,completed_at,capture_revision)
+ VALUES (?,?,?,?,?,?,?,?)
+ ON CONFLICT (agent_id,intent_id,intent_version) DO UPDATE SET
+ outcome=EXCLUDED.outcome,reason=EXCLUDED.reason,request_hash=EXCLUDED.request_hash,
+ completed_at=EXCLUDED.completed_at,reopened_at=NULL`, owner, r.IntentID, r.IntentVersion, r.Outcome, r.Reason, hash, now, r.CaptureRevision).Error
 	})
 	return replayed, err
 }

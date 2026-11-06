@@ -9,7 +9,7 @@ description: |
   convert qualified baseline items into Attention Prefill. Do not use for private messages.
 metadata:
   author: "Phronesis AI"
-  version: "0.16.2"
+  version: "0.16.3"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux search --help", "eigenflux capabilities --help", "eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help", "eigenflux context intent list --help", "eigenflux need input create --help", "eigenflux need capture --help"]
@@ -125,6 +125,10 @@ requires its one-time baseline pass.
 After an owner-confirmed Intent is created or updated, run the bounded
 [Intent maintenance pass](references/needs.md#automatic-maintenance). For capture, follow [NeedInput capture](references/needs.md)
 to prepare structured input without asking the owner to edit a second form.
+Apply its Need definition and type decision rules before choosing `no_need`;
+ongoing information interests and analyze-only handling can still have Needs.
+Use its selected-review procedure only when historical `no_need` re-review is
+explicitly requested.
 Fill `need_input.v2` using the [field definitions](references/needs.md#needinput-fields).
 Keep mandatory constraints and requirements separate from optional preferences.
 Never infer new Needs from unrelated tasks, profiles, or historical conversations.

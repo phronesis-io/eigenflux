@@ -14,6 +14,7 @@ import (
 type plannedNeedIntent struct {
 	IntentID          string `json:"intent_id"`
 	IntentVersion     int64  `json:"intent_version"`
+	CaptureRevision   int64  `json:"capture_revision,omitempty"`
 	WatchFor          string `json:"watch_for"`
 	TriggerWhen       string `json:"trigger_when"`
 	ActionInstruction string `json:"action_instruction"`
@@ -41,7 +42,7 @@ func needCaptureErrorCode(err error) string {
 	if errors.As(err, &api) {
 		// Do not retain server text, arbitrary error codes or private payloads.
 		switch api.ErrorCode {
-		case "INTENT_REVISION_STALE", "IDEMPOTENCY_CONFLICT", "kind_already_captured_refresh_pending", "INVALID_NEED_INPUT":
+		case "NEED_CAPTURE_REVISION_STALE", "INTENT_REVISION_STALE", "IDEMPOTENCY_CONFLICT", "kind_already_captured_refresh_pending", "INVALID_NEED_INPUT":
 			return api.ErrorCode
 		}
 		if api.StatusCode == 401 || api.StatusCode == 403 {
@@ -73,7 +74,7 @@ func queryNeedCapturePlan(cli *client.Client) needCapturePlan {
 	}
 	seen := map[string]bool{}
 	for _, intent := range pending.Intents {
-		if validateNeedID(intent.IntentID) != nil || intent.IntentVersion <= 0 || seen[intent.IntentID] {
+		if validateNeedID(intent.IntentID) != nil || intent.IntentVersion <= 0 || intent.CaptureRevision < 0 || seen[intent.IntentID] {
 			p.ErrorCode = "need_response_invalid"
 			return p
 		}
@@ -110,7 +111,7 @@ func attachNeedCapturePlan(plan *heartbeatPlan) {
 		run := maintenance.NeedCaptureRun{ID: maintenance.NewID(), CreatedAt: time.Now().UnixMilli(), CLIVersion: plan.CLIVersion,
 			SkillRevision: plan.SkillRevision, QueryStatus: p.Status, ErrorCode: p.ErrorCode, Items: []maintenance.NeedCaptureItem{}}
 		for _, intent := range p.Intents {
-			run.Items = append(run.Items, maintenance.NeedCaptureItem{IntentID: intent.IntentID, IntentVersion: intent.IntentVersion, Status: "pending"})
+			run.Items = append(run.Items, maintenance.NeedCaptureItem{IntentID: intent.IntentID, IntentVersion: intent.IntentVersion, CaptureRevision: intent.CaptureRevision, Status: "pending"})
 		}
 		if err := maintenance.SaveNeedCaptureRun(scope, run); err == nil {
 			p.PlanID = run.ID

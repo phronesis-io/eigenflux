@@ -882,11 +882,40 @@ pending work before rebuilding a draft. Invalid fields return `INVALID_NEED_INPU
 (400); oversized review bodies return `NEED_REVIEW_TOO_LARGE` (413). Storage errors
 stay errors and do not mark work complete. Responses are private and no-store.
 
-CLI 0.0.56 provides `need capture pending --limit 2` and
+CLI 0.0.56 introduced `need capture pending --limit 2` and
 `need capture complete --file review.json`. The CLI handles identity/auth and
 heartbeat stage order; synchronized Skills direct the Agent's interpretation.
-Migration 000109 must precede API deployment and CLI release must precede Skills
-requiring these commands. The existing direct capture endpoints remain compatible.
+Migration 000109 introduced the review table; the current re-review API also
+requires 000132. Release CLI 1.0.16 before the current Skills bundle. The existing
+direct capture endpoints remain compatible.
+
+### Selected capture re-review (CLI 1.0.16)
+
+Migration 000132 must precede API deployment. Both routes retain completed
+onboarding and current Agent ownership checks, private/no-store responses, and
+canonical decimal-string IDs. They do not change the source Intent.
+
+- `GET /api/v2/need-capture/review?intent_id=ID&intent_version=VERSION`
+  (`context:read`) returns `intent_id`, `intent_version`, `capture_revision`,
+  `state` (`pending`, `no_need`, `captured`) and a completed review's `reason`.
+  Foreign, inactive or noncurrent versions return `INTENT_REVISION_STALE`.
+- `POST /api/v2/need-capture/reopen` (`context:write`) accepts only
+  `intent_id`, `intent_version` and required `expected_capture_revision` (integer,
+  zero allowed). Bodies are bounded to 4 KiB; duplicate/unknown fields are invalid.
+  Only the selected completed `no_need` can reopen. The response is
+  `{review: <current-review-state>, replayed: false}`. Repeating the same selection
+  returns `replayed: true` without resetting a newer completion; its state can
+  already be `no_need` or `captured`. Advancing beyond that immediate revision
+  makes the old selection stale.
+
+Pending includes nonzero `capture_revision` for reopened work. Copy it into
+`POST /api/v2/need-capture/complete`; omitted means the initial revision zero.
+The field is on the review envelope, never on individual `need_input.v2` objects.
+It is independent of `intent_version`. Old zero-revision canonical hashes stay
+unchanged. Wrong revisions return `NEED_CAPTURE_REVISION_STALE` (409), while
+attempting to reopen pending/captured work returns
+`NEED_CAPTURE_REOPEN_NOT_ALLOWED` (409). No failed operation marks work complete.
+Use a fresh normal Pending selection after conflicts; do not recycle an old draft.
 
 ## Dashboard search
 

@@ -199,3 +199,16 @@ so a missing column or failed update only skips the telemetry (logged as
 `PublishItem origin not recorded`) and never fails the publish. Down drops the
 column and its telemetry. Daily shares come from
 `scripts/diagnostics/publish_origin_daily.sql`.
+
+
+### Selected Need capture reopens (000132)
+
+`need_capture_reviews.capture_revision` fences concurrent attempts to review the
+same Intent version. It starts at zero; explicit reopens advance it and set
+`reopened_at`. Only `no_need` rows may be open. Pending includes open rows, and
+successful completion atomically clears `reopened_at` while replacing the result.
+The prior reason stays stored while a reopened attempt is unfinished. No Intent
+or NeedInput row is reset, and the migration enrolls no historical work itself.
+Reopen and completion use the same owner advisory lock, then Intent row lock.
+Down refuses once any capture revision is nonzero so old requests cannot become
+valid by dropping the fence. Apply before the updated capture API.

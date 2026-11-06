@@ -625,14 +625,16 @@ latency still includes on-demand embedding and must be measured separately.
 
 Completed Agents run a bounded maintenance pass after Commands and before Feed
 in each full heartbeat, and after a confirmed Intent add/update. `need capture pending --limit 2`
-reads current active Intent versions without a row in `need_capture_reviews`;
+reads current active Intent versions without a completed review, including
+explicitly reopened `no_need` rows in `need_capture_reviews`;
 this includes historical Intents and partially captured versions. It returns
 existing Need IDs/types so the Agent reuses them. `need capture complete --file`
 submits up to one missing input per type with the exact Intent version. The
 server persists all new inputs and the completed review in one transaction.
 Identical retries replay; competing different reviews conflict without duplicating
 inputs. A technical failure leaves the version pending. `no_need` requires a
-reason and no existing/new inputs, and avoids repeated work for that version.
+reason and no existing/new inputs, and avoids automatic repeated work for that
+version. Selected explicit reopens are the only same-version exception.
 Intent edits become pending automatically; inactive Intents are excluded.
 
 The user-side Agent performs interpretation according to
@@ -649,12 +651,46 @@ suppress Feed or Agent recommendations. Full plans select Pending work once;
 see [heartbeat updates](heartbeat-updates.md#need-capture-before-feed) for local
 submission receipts and the foreground first-check contract.
 
-Apply migration 000109 before deploying these API routes. Publish CLI 0.0.56
-before the updated Skills bundle; its minimum CLI version is 0.0.56. Existing
-clients retain their compatible bundle. Serving continues through per-kind
+Migration 000109 introduced the initial review table. The current re-review API
+also requires 000132 and the current Skills require CLI 1.0.16. Release the CLI
+before its Skills bundle; older clients retain their compatible bundle. Serving continues through per-kind
 fallback while active Agents gradually finish capture. Dormant Agents do not
 produce new inputs until they run again. This change does not switch missing-Need
 broadcast traffic back to the legacy ranker.
+
+### Selected no_need re-review
+
+Need capture uses the owner-confirmed discovery target, not action permissions or
+whether candidates already exist. Ongoing information interests can produce
+broadcast Needs; absent optional fields are not a `no_need` criterion. The
+[decision rules](../../skills/ef-broadcast/references/needs.md#decide-whether-the-intent-has-a-need)
+cover supported types and exclusions. This does not change ranking or add
+third-phase quality filtering.
+
+CLI 1.0.16 provides `need capture review --intent-id ID --intent-version VERSION`
+and `need capture reopen` with the same selection plus an explicit
+`--expected-capture-revision N` copied from the inspection. Only a completed
+`no_need` on the owner's current active Intent can enter a new review. The
+operator selects the exact Intent/version; upgrading Skills never resets history.
+No bulk selector, priority bypass or periodic reopen runs. The Intent's version,
+content, policy and existing inputs remain unchanged.
+
+Migration 000132 adds `capture_revision` (initially zero) and `reopened_at` to
+reviews. Reopen advances the capture revision and makes the row Pending while
+retaining its previous result/reason until successful completion. A new review
+may legitimately be `no_need` again. Identical reopen retries do not enroll that
+later result again; selecting a later review requires its newly inspected revision.
+Completion must match the current capture revision. This fences late submissions
+from other Homes or older plans; an old `no_need` cannot consume newly reopened
+work. Reopen and completion share the existing owner/Intent transaction lock order.
+
+Deploy migration 000132, then the updated API, then CLI/Skills 1.0.16-compatible
+clients before selecting historical reopens. Initial reviews omit the zero
+revision and retain their original request hashes. Older clients continue initial
+reviews but cannot complete reopened work: keep these Agents upgraded before
+selection. Rollback refuses to drop revision fencing after any reopen. No
+historical row is reset by the migration. Local `status --plan` pins the selected
+capture revision but remains local submission evidence; `review` reads the server.
 
 ### Asynchronous Need embeddings
 

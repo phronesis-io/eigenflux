@@ -10,11 +10,12 @@ import (
 // Need capture receipts stay local. They contain no Intent text or Need payloads
 // and are not uploaded as new server event types.
 type NeedCaptureItem struct {
-	IntentID      string `json:"intent_id"`
-	IntentVersion int64  `json:"intent_version"`
-	Status        string `json:"status"`
-	Outcome       string `json:"outcome,omitempty"`
-	ErrorCode     string `json:"error_code,omitempty"`
+	IntentID        string `json:"intent_id"`
+	IntentVersion   int64  `json:"intent_version"`
+	CaptureRevision int64  `json:"capture_revision,omitempty"`
+	Status          string `json:"status"`
+	Outcome         string `json:"outcome,omitempty"`
+	ErrorCode       string `json:"error_code,omitempty"`
 }
 
 type NeedCaptureRun struct {
@@ -38,7 +39,7 @@ func SaveNeedCaptureRun(scope Scope, run NeedCaptureRun) error {
 	seen := map[string]bool{}
 	for _, item := range run.Items {
 		id, err := strconv.ParseInt(item.IntentID, 10, 64)
-		if err != nil || id <= 0 || strconv.FormatInt(id, 10) != item.IntentID || item.IntentVersion <= 0 ||
+		if err != nil || id <= 0 || strconv.FormatInt(id, 10) != item.IntentID || item.IntentVersion <= 0 || item.CaptureRevision < 0 ||
 			item.Status != "pending" || item.Outcome != "" || item.ErrorCode != "" || seen[item.IntentID] {
 			return fmt.Errorf("invalid selected Intent")
 		}
@@ -72,8 +73,8 @@ func ReadNeedCaptureRun(scope Scope, id string) (NeedCaptureRun, error) {
 	return run, err
 }
 
-func RecordNeedCaptureResult(scope Scope, plan, intent string, version int64, status, outcome, code string) error {
-	if !idValue.MatchString(plan) || !contains([]string{"unconfirmed", "failed", "confirmed"}, status) ||
+func RecordNeedCaptureResult(scope Scope, plan, intent string, version, captureRevision int64, status, outcome, code string) error {
+	if captureRevision < 0 || !idValue.MatchString(plan) || !contains([]string{"unconfirmed", "failed", "confirmed"}, status) ||
 		!contains([]string{"captured", "no_need"}, outcome) || !safeValue.MatchString(code) || status == "confirmed" && code != "" {
 		return fmt.Errorf("invalid Need capture result")
 	}
@@ -84,7 +85,7 @@ func RecordNeedCaptureResult(scope Scope, plan, intent string, version int64, st
 		}
 		for i := range run.Items {
 			item := &run.Items[i]
-			if item.IntentID != intent || item.IntentVersion != version {
+			if item.IntentID != intent || item.IntentVersion != version || item.CaptureRevision != captureRevision {
 				continue
 			}
 			// An uncertain or failed retry cannot erase an observed successful save.
@@ -95,7 +96,7 @@ func RecordNeedCaptureResult(scope Scope, plan, intent string, version int64, st
 			st.NeedCaptures[plan] = run
 			return nil
 		}
-		return fmt.Errorf("Intent version was not selected in this Need capture plan")
+		return fmt.Errorf("Intent version or capture revision was not selected in this Need capture plan")
 	})
 }
 
