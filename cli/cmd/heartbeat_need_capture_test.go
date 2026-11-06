@@ -284,3 +284,57 @@ func TestNeedCaptureCLIEndToEndAndNextCycleRetry(t *testing.T) {
 		})
 	}
 }
+
+func TestNeedCaptureReceiptFailureDoesNotPreventServerSubmission(t *testing.T) {
+	for _, mode := range []string{"missing", "unwritable", "server_rejection"} {
+		t.Run(mode, func(t *testing.T) {
+			calls := 0
+			raw := json.RawMessage(`{"intent_id":"42","intent_version":3,"outcome":"captured","inputs":[]}`)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				body, _ := io.ReadAll(r.Body)
+				if r.URL.Path != "/need-capture/complete" || string(body) != string(raw) {
+					t.Errorf("changed submission: %s %s", r.URL.Path, body)
+				}
+				if mode == "server_rejection" {
+					w.WriteHeader(409)
+					io.WriteString(w, `{"error":{"code":"INTENT_REVISION_STALE"}}`)
+					return
+				}
+				io.WriteString(w, `{"code":0,"data":{"completed":true}}`)
+			}))
+			defer server.Close()
+			scope := maintenance.Scope{Home: t.TempDir(), Server: "test", AgentID: "1"}
+			if mode == "unwritable" {
+				scope.Home = filepath.Join(scope.Home, "file-not-directory")
+				if err := os.WriteFile(scope.Home, []byte("blocked"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			plan := maintenance.NewID()
+			response, err := submitNeedCapture(client.New(server.URL, "", "test", client.Meta{}), raw, scope, plan)
+			if calls != 1 {
+				t.Fatalf("local receipt blocked server: %v", err)
+			}
+			if mode == "server_rejection" {
+				if err == nil {
+					t.Fatal("server rejection hidden")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var data struct {
+				Completed    bool   `json:"completed"`
+				ReceiptError string `json:"local_receipt_error"`
+			}
+			if json.Unmarshal(response.Data, &data) != nil || !data.Completed || data.ReceiptError != "need_receipt_unavailable" {
+				t.Fatalf("lost server confirmation or local uncertainty: %s", response.Data)
+			}
+			if _, err := maintenance.ReadNeedCaptureRun(scope, plan); err == nil {
+				t.Fatal("invented a local success receipt")
+			}
+		})
+	}
+}

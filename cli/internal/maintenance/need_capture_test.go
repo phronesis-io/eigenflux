@@ -1,6 +1,8 @@
 package maintenance
 
 import (
+	"encoding/json"
+	"os"
 	"testing"
 	"time"
 )
@@ -54,5 +56,47 @@ func TestNeedCaptureRetentionIsBoundedAndExpires(t *testing.T) {
 	}
 	if _, ok := st.NeedCaptures[old]; ok {
 		t.Fatal("expired record retained")
+	}
+}
+
+// Reproduce a legacy CLI rewriting the shared event file without new fields.
+func TestNeedCaptureSurvivesLegacyMaintenanceWriter(t *testing.T) {
+	scope := Scope{Home: t.TempDir(), Server: "legacy-shared", AgentID: "42"}
+	if err := Record(scope, NewEvent(NewID(), "cli", "auto", "check", "no_update")); err != nil {
+		t.Fatal(err)
+	}
+	run := NeedCaptureRun{ID: NewID(), CreatedAt: time.Now().UnixMilli(), QueryStatus: "ready", Items: []NeedCaptureItem{{IntentID: "73", IntentVersion: 2, Status: "pending"}}}
+	if err := SaveNeedCaptureRun(scope, run); err != nil {
+		t.Fatal(err)
+	}
+	path, _ := scope.path()
+	for _, status := range []string{"pending", "confirmed"} {
+		if status == "confirmed" {
+			if err := RecordNeedCaptureResult(scope, run.ID, "73", 2, "confirmed", "captured", ""); err != nil {
+				t.Fatal(err)
+			}
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var legacy struct {
+			Events []Event          `json:"events"`
+			Cycles map[string]Cycle `json:"cycles,omitempty"`
+		}
+		if err := json.Unmarshal(data, &legacy); err != nil {
+			t.Fatal(err)
+		}
+		rewritten, err := json.Marshal(legacy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, rewritten, 0600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := ReadNeedCaptureRun(scope, run.ID)
+		if err != nil || got.Items[0].Status != status {
+			t.Fatalf("legacy writer lost %s receipt: %+v %v", status, got, err)
+		}
 	}
 }

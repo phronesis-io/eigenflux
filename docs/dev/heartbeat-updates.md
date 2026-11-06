@@ -41,9 +41,16 @@ receipt persistence fails; the response exposes `local_receipt_error` internally
 server query. Its `all_confirmed` is evidence from this Home, not authoritative
 current server review state. Records are account/server scoped, retain at most 64
 plans for seven days, and store IDs, versions, CLI/Skills versions and fixed error
-codes, never Intent text or Need payloads. They are independent of optional
+codes, never Intent text or Need payloads. Capture records use a separate
+`*-need-capture.json` file so a legacy CLI/watch rewriting the maintenance event
+queue cannot erase them. They are independent of optional
 runtime telemetry and are not uploaded as new event types. A receipt storage
-failure during planning does not block capture or Feed.
+failure during planning does not block capture or Feed. Missing, expired or
+unwritable receipts during submission likewise do not block the existing server
+API; its ownership, version and payload validation remain authoritative. A known
+selection mismatch or invalid local arguments still fail before network access.
+A successful submission with unavailable local evidence returns
+`local_receipt_error`; status must not invent a completion record.
 
 All Need outcomes remain internal. Pending/unconfirmed work must not be reported
 as completed. A failed or open Need stage and its aggregate cycle receipt never

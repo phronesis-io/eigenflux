@@ -97,6 +97,7 @@ func submitNeedCapture(cli *client.Client, raw json.RawMessage, scope maintenanc
 		IntentVersion int64  `json:"intent_version"`
 		Outcome       string `json:"outcome"`
 	}
+	receiptUnavailable := false
 	if plan != "" {
 		if json.Unmarshal(raw, &review) != nil {
 			return nil, fmt.Errorf("invalid capture review")
@@ -104,7 +105,13 @@ func submitNeedCapture(cli *client.Client, raw json.RawMessage, scope maintenanc
 		// Persist uncertainty before sending. A killed process or lost response
 		// cannot manufacture a success receipt; the next server Pending query decides retries.
 		if err := maintenance.RecordNeedCaptureResult(scope, plan, review.IntentID, review.IntentVersion, "unconfirmed", review.Outcome, ""); err != nil {
-			return nil, err
+			if errors.Is(err, maintenance.ErrNeedCaptureSelection) {
+				return nil, err
+			}
+			// Local bookkeeping is not the authority for ownership or Intent
+			// versions. Preserve the original payload and let the server validate
+			// it even when the receipt is missing, expired or unwritable.
+			receiptUnavailable = true
 		}
 	}
 	response, err := cli.Post("/need-capture/complete", raw)
@@ -125,7 +132,10 @@ func submitNeedCapture(cli *client.Client, raw json.RawMessage, scope maintenanc
 		}
 	}
 	if plan != "" {
-		if receiptErr := maintenance.RecordNeedCaptureResult(scope, plan, review.IntentID, review.IntentVersion, status, review.Outcome, code); receiptErr != nil && err == nil {
+		if receiptErr := maintenance.RecordNeedCaptureResult(scope, plan, review.IntentID, review.IntentVersion, status, review.Outcome, code); receiptErr != nil {
+			receiptUnavailable = true
+		}
+		if receiptUnavailable && err == nil {
 			// Preserve the successful server response even if local persistence fails.
 			var data map[string]json.RawMessage
 			if json.Unmarshal(response.Data, &data) == nil && data != nil {

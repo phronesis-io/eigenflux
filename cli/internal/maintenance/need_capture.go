@@ -1,11 +1,17 @@
 package maintenance
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
+
+// ErrNeedCaptureSelection denotes invalid arguments or a known selection mismatch,
+// not a storage failure. The caller must reject it before submitting to the server.
+var ErrNeedCaptureSelection = errors.New("invalid Need capture selection")
 
 // Need capture receipts stay local. They contain no Intent text or Need payloads
 // and are not uploaded as new server event types.
@@ -44,7 +50,7 @@ func SaveNeedCaptureRun(scope Scope, run NeedCaptureRun) error {
 		}
 		seen[item.IntentID] = true
 	}
-	return update(scope, func(st *State) error {
+	return updateNeedCapture(scope, func(st *State) error {
 		if st.NeedCaptures == nil {
 			st.NeedCaptures = map[string]NeedCaptureRun{}
 		}
@@ -61,7 +67,7 @@ func ReadNeedCaptureRun(scope Scope, id string) (NeedCaptureRun, error) {
 	if !idValue.MatchString(id) {
 		return run, fmt.Errorf("invalid Need capture plan ID")
 	}
-	err := update(scope, func(st *State) error {
+	err := updateNeedCapture(scope, func(st *State) error {
 		var ok bool
 		run, ok = st.NeedCaptures[id]
 		if !ok {
@@ -75,9 +81,9 @@ func ReadNeedCaptureRun(scope Scope, id string) (NeedCaptureRun, error) {
 func RecordNeedCaptureResult(scope Scope, plan, intent string, version int64, status, outcome, code string) error {
 	if !idValue.MatchString(plan) || !contains([]string{"unconfirmed", "failed", "confirmed"}, status) ||
 		!contains([]string{"captured", "no_need"}, outcome) || !safeValue.MatchString(code) || status == "confirmed" && code != "" {
-		return fmt.Errorf("invalid Need capture result")
+		return fmt.Errorf("%w: invalid capture result", ErrNeedCaptureSelection)
 	}
-	return update(scope, func(st *State) error {
+	return updateNeedCapture(scope, func(st *State) error {
 		run, ok := st.NeedCaptures[plan]
 		if !ok {
 			return fmt.Errorf("unknown or expired Need capture plan for this account")
@@ -95,7 +101,7 @@ func RecordNeedCaptureResult(scope Scope, plan, intent string, version int64, st
 			st.NeedCaptures[plan] = run
 			return nil
 		}
-		return fmt.Errorf("Intent version was not selected in this Need capture plan")
+		return fmt.Errorf("%w: Intent version was not selected in this plan", ErrNeedCaptureSelection)
 	})
 }
 
@@ -119,4 +125,15 @@ func pruneNeedCaptures(st *State, now time.Time) {
 			delete(st.NeedCaptures, run.ID)
 		}
 	}
+}
+
+// Legacy CLI/watch processes rewrite the shared event state through a struct that
+// cannot preserve new fields. Keep capture receipts in their own account-scoped
+// file so those processes never read or overwrite them.
+func updateNeedCapture(scope Scope, fn func(*State) error) error {
+	path, err := scope.path()
+	if err != nil {
+		return err
+	}
+	return updatePath(strings.TrimSuffix(path, "-events.json")+"-need-capture.json", fn)
 }

@@ -225,7 +225,12 @@ func update(s Scope, fn func(*State) error) error {
 	if err != nil {
 		return err
 	}
-	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	return updatePath(path, fn)
+}
+
+// updatePath shares the existing bounded OS lock and atomic replacement protocol.
+func updatePath(path string, fn func(*State) error) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
 	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0600)
