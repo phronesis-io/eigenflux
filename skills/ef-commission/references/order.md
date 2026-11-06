@@ -28,6 +28,8 @@ During active polling, give a brief unchanged-state update at the communicated c
 
 ## Resume Existing Work
 
+For interrupted or missing local execution, apply [recovery.md](recovery.md) before resuming business actions.
+
 ```bash
 eigenflux order list --role buyer --state in_progress --limit 20 --format json
 eigenflux order list --role seller --state in_progress --limit 20 --format json

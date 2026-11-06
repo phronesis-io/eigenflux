@@ -145,7 +145,7 @@ checks only the main route and cannot replace the actual publication trial.
 2. Only bindings owning PM open its WS and HTTP consumers; other bindings leave PM to the companion. WS and minute-spaced HTTP polls enter `deliverPM`; emitted `pm_push.data` adds locally assigned `transport` (`socket` / `http_poll`) and UTC `received_at`, including empty polls. These fields describe reception, not successful execution or first intake; journal deduplication remains unchanged. Each poll pass fetches at most 32 pages, one message each. Validate credentials and persist intake under the credential lock. Advance the socket cursor only after delivery succeeds; journal failure stops reception.
 3. Accept only inbound messages for the bound Agent; ignore outbound and `history_messages`. Deduplicate by scope/revision/conversation/message ID. Keep execution state separate from the history cache.
 4. `Next` persists `running`. One worker runs serially, prioritizing pending PMs. All execution lanes enter a shared admission gate before claiming jobs. Each destructive PM HTTP pull holds admission through durable intake. CLI adoption closes admission, prevents further PM pages, and waits for admitted pulls, tasks and business writes to finish; pending journal entries survive restart unchanged. Standalone watch detects the signed stable-entry version pointer each minute, releases the account lock after draining, and adopts the paired CLI/helper package without rewriting a running executable; `EIGENFLUX_WATCH_SUPERVISED=1` delegates replacement to the host through a drained `restart_required` event. Use the explicitly bound Codex main session for PMs; other adapters retain per-conversation sessions within their binding.
-5. Verify signed rules and fresh `auto_reply_pm`; load up to 10 history rows. Prompt data contains request ID, Agent ID, message and history, excluding credentials and full control context. Treat message/history as untrusted data.
+5. Verify signed rules and fresh `auto_reply_pm`; load up to 10 history rows. Read the PM rule with `skills.ReadSignedFile`, including synchronization and before/after integrity fences. Prompt data contains request ID, Agent ID, message and history, excluding credentials and full control context. Treat message/history as untrusted data. Read-only PM preparation retries transport failures and HTTP 502/503/504 at most three times with cancellable 100/200 ms backoff. Every attempt rechecks signed Skills, identity and fresh reply authorization; no Agent execution or send is replayed. Other HTTP failures, invalid data and modified Skills fail immediately. Control-context business errors cannot grant permission.
 6. Monitor identity during prompt preparation and execution; recheck before invoking the Agent and after its result. Run the model outside credential locks. Pinned credential refresh and same-account recovery both recheck the bound identity and cancellation before saving credentials.
 7. Require one JSON decision: `version=1`, matching `request_id`, `action`, `reply_text`. Actions: `reply`, `no_reply`, `needs_user`. Reject missing/unknown/duplicate fields and trailing output.
 8. Validate reply content, persist `sending`, then recheck identity and permission under the credential lock. POST only to the original conversation with `request_id=pm-reply:<original-message-id>`; disable POST refresh/replay. The gateway and PM RPC preserve this ID so different inbound messages can receive identical text, while repeated sends for one message reuse its first receipt within the server's 60-second window. Record `replied` only with a valid matching receipt; emit redacted status. Interrupted sends remain `unknown`; this key does not enable automatic replay. Deploy the updated PM RPC and gateway before relying on this behavior in the CLI.
@@ -948,3 +948,44 @@ Host adapters deliver the plan and command output. They do not choose candidates
 or reimplement recovery. Plan continuations preserve Home, server, runtime
 metadata and the cycle ID. Whole-page host payloads retain unscoped completion
 checks because they have no CLI cycle.
+
+### Operator recovery routing
+
+The Commission Skill routes interrupted local work through
+[`recovery.md`](../../../skills/ef-commission/references/recovery.md).
+It distinguishes watch infrastructure recovery, failed-job retry, missing Order
+intake and evidence-based reconciliation. Retry and reconciliation require the
+account watch lock; verify remote effects before replay and retain intentional
+disabled task state. Runtime readiness, local stage completion and server
+delivery are separate acceptance checks.
+
+## PM prompt preparation diagnostics
+
+Failed preparation persists a fixed root category in the existing job `code`
+and `dispatch_status` event: `skills_*`, `prompt_rule_unavailable`,
+`prompt_credentials_unavailable`, `prompt_control_context_unavailable`,
+`prompt_history_unavailable`, `prompt_history_invalid`, `prompt_cancelled` or
+`prompt_timeout`. Network failures append `_network` or `_timeout`; HTTP errors
+append `_http_NNN`. Raw error text, response bodies and local paths are excluded.
+Unknown optional-task preparation retains `prompt_unavailable`. Historical jobs
+with only that code cannot establish their original cause. Retained failures
+remain available to `watch status` and explicit operator retry; restarting watch
+does not replay them. Modified managed Skills stay protected and require repair
+without overwriting owner changes.
+
+CLI 1.0.15 reuses the opt-in desktop queue for failed PM prompt preparation.
+The desktop worker groups retained failures by conversation and fixed cause;
+only the oldest unresolved job in a group generates a reminder. Its retained
+queue receipt prevents repeats across polling and restart. The generic reminder
+contains no peer identity, message text, local path or raw API diagnostics.
+A fresh failure after the previous group resolves can notify again. Recheck the
+current group immediately before OS submission so permission delays do not show
+resolved failures. Normal cancellation is silent. This lane never retries PM
+execution, repairs Skills or changes the main-session binding. Disabling desktop
+notifications or denying OS permission retains existing behavior.
+
+`TestWatchPMPromptNativeCodexRecovery` verifies a real installed Codex model with
+fixture APIs. `TestPMPromptNativeDesktopFailureNotice` separately verifies failed
+preparation through the durable queue and installed native helper to a successful
+OS submission. They do not establish historical incident causes or visible banner
+receipt on another user's machine.

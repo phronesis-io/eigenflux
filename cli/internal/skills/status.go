@@ -71,7 +71,7 @@ func LocalManifestVersion(into, host string) string {
 	return m.CLIVersion
 }
 
-// FetchLatestVersion reads cli/latest/version.txt from the CDN. Best-effort:
+// FetchLatestVersion reads cli/v2/latest/version.txt from the CDN. Best-effort:
 // returns "" on any failure so doctor degrades to "unknown".
 func FetchLatestVersion(cdnBase string, hc *http.Client) string {
 	if cdnBase == "" {
@@ -80,10 +80,17 @@ func FetchLatestVersion(cdnBase string, hc *http.Client) string {
 	if hc == nil {
 		hc = &http.Client{Timeout: 10 * time.Second}
 	}
-	url := strings.TrimRight(cdnBase, "/") + "/cli/latest/version.txt"
+	url := strings.TrimRight(cdnBase, "/") + "/cli/v2/latest/version.txt"
 	resp, err := hc.Get(url)
 	if err != nil {
 		return ""
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		resp.Body.Close()
+		resp, err = hc.Get(strings.TrimRight(cdnBase, "/") + "/cli/latest/version.txt")
+		if err != nil {
+			return ""
+		}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {

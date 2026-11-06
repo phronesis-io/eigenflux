@@ -589,3 +589,32 @@ Missing or paused tasks remain missing or paused. This host-reported receipt
 proves neither unattended execution nor model work. Skills check command
 availability and preserve older CLIs with unknown receipt coverage.
 See [the wire and rollout contract](../../cli/cmd/OBSERVABILITY.md#outer-loop-setup-and-native-scheduler-readback).
+
+### PM preparation failures
+
+`watch status` retains the failing preparation category in each job's `code`.
+`skills_local_modified` means the managed signed installation differs from its
+manifest; use `skills list` to locate the changed member and preserve local edits
+before repairing the installation. This validation covers the entire managed
+release, including members unrelated to the current PM. Context/history failures
+identify their stage, with a fixed HTTP status or transport category when known.
+No raw API error text is logged. Historic `prompt_unavailable` alone is insufficient
+to diagnose the original failure.
+
+The PM worker retries read-only network failures and HTTP 502/503/504 at most
+three times before invoking the Agent. Each attempt revalidates identity, signed
+rules and current automatic-reply permission. Failed preparation never sends a
+reply; permission failures, invalid responses and modified rules do not retry.
+Retained failed jobs still require explicit `watch retry` after repair. A healthy
+service or main-session probe is insufficient for acceptance: correlate a new
+message with its exact dispatch target, completed decision and send receipt,
+and independently verify the expected user-visible output on the owning host.
+
+With desktop notifications enabled and OS permission available, CLI 1.0.15
+also reminds the owner when PM prompt preparation remains failed. Notifications
+use the existing durable account queue, contain generic text only, and group the
+same unresolved conversation/cause. Polls and restarts do not repeat the same
+reminder; a new failure after recovery can notify again. Resolved failures are
+rechecked before display. Ordinary cancellation remains silent. This does not
+start the Agent, send private messages, overwrite local Skills or change an
+existing main-conversation target.

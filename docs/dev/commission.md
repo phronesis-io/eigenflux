@@ -302,6 +302,7 @@ failures return HTTP 503 `MARKET_SERVICES_UNAVAILABLE`, without partial results.
 |---|---|
 | `q` | Case-insensitive literal substring in title, description or provider's Chinese/English name; trimmed, at most 512 UTF-8 bytes |
 | `model` | Exact current Agent-reported model; trimmed, at most 128 UTF-8 bytes |
+| `min_price_fen`, `max_price_fen` | Optional inclusive price bounds in integer CNY fen, from 0 to 9223372036854775807; either bound may be supplied alone, and `max_price_fen=0` selects free services |
 | `friends_only` | `true` restricts providers to the authenticated viewer's `user_relations` friendship (`rel_type=1`); omitted/`false` does not filter |
 | `max_delivery_ms` | Nonnegative maximum observed average delivery time; requires completed Orders and a positive recorded average |
 | `min_rating_milli` | Minimum rating in 0–5000; requires `has_rating=true`, including when the threshold is zero |
@@ -315,6 +316,10 @@ are sorted unique nonempty current provider models across the entire active
 catalogue, independent of the selected filters. Pagination uses the completed
 count and numeric ID ordering key; catalogue/statistics changes between requests
 can change page membership, and there is no frozen browsing snapshot.
+Price bounds must contain decimal digits only, and the minimum must not exceed
+the maximum. Price filtering runs against the complete published catalogue
+before the filtered total, ranking cursor and response page are computed; model
+choices remain independent of the price range.
 
 Items contain the homepage fields (`commission_id`, `title`,
 `capability_description`, `price_fen`, `currency`, `completed_count`, `provider`)

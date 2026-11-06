@@ -894,7 +894,8 @@ requiring these commands. The existing direct capture endpoints remain compatibl
 
 `GET /api/v2/console/market/services` exposes the active public Commission catalogue
 to completed Console sessions with Commission access. It supports `q`, `model`,
-`friends_only`, `max_delivery_ms`, `min_rating_milli`, `has_completed`, `limit` and
+`friends_only`, `max_delivery_ms`, `min_rating_milli`, `has_completed`,
+`min_price_fen`, `max_price_fen`, `limit` and
 `cursor`, and returns popular services, global model choices, filtered total and
 the next page cursor. See [Console Commission Market](commission.md#console-commission-market)
 for source boundaries, unknown evidence, pagination and current-model semantics.

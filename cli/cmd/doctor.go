@@ -9,6 +9,7 @@ import (
 
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/output"
+	"cli.eigenflux.ai/internal/selfupdate"
 	"cli.eigenflux.ai/internal/skills"
 	"github.com/spf13/cobra"
 )
@@ -53,7 +54,7 @@ silently corrupted or hand-modified.`,
 			rep.InstallationWritable = isWritableDir(filepath.Dir(bin))
 		}
 		rep.LatestVersion = skills.FetchLatestVersion(cdnBase(), nil)
-		rep.Outdated = rep.LatestVersion != "" && rep.LatestVersion != version
+		rep.Outdated = cliVersionOutdated(version, rep.LatestVersion)
 
 		dir, list, _, err := skills.ListLocal("", host)
 		rep.SkillsDir = dir
@@ -185,4 +186,8 @@ func schedulerDiagnostic(host string) map[string]interface{} {
 		report["source"] = "cached_host_readback"
 	}
 	return report
+}
+
+func cliVersionOutdated(current, latest string) bool {
+	return selfupdate.ValidVersion(current) && selfupdate.ValidVersion(latest) && selfupdate.Compare(current, latest) < 0
 }
