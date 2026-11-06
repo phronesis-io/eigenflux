@@ -26,9 +26,6 @@ func dispatchPromptFailureCode(err error) string {
 	if errors.Is(err, context.Canceled) {
 		return "prompt_cancelled"
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return "prompt_timeout"
-	}
 	var failure *dispatchPromptError
 	if errors.As(err, &failure) {
 		var api *client.APIError
@@ -43,6 +40,9 @@ func dispatchPromptFailureCode(err error) string {
 			return failure.code + "_network"
 		}
 		return failure.code
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "prompt_timeout"
 	}
 	return "prompt_unavailable"
 }

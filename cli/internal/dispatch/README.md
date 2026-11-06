@@ -952,3 +952,20 @@ with only that code cannot establish their original cause. Retained failures
 remain available to `watch status` and explicit operator retry; restarting watch
 does not replay them. Modified managed Skills stay protected and require repair
 without overwriting owner changes.
+
+CLI 1.0.15 reuses the opt-in desktop queue for failed PM prompt preparation.
+The desktop worker groups retained failures by conversation and fixed cause;
+only the oldest unresolved job in a group generates a reminder. Its retained
+queue receipt prevents repeats across polling and restart. The generic reminder
+contains no peer identity, message text, local path or raw API diagnostics.
+A fresh failure after the previous group resolves can notify again. Recheck the
+current group immediately before OS submission so permission delays do not show
+resolved failures. Normal cancellation is silent. This lane never retries PM
+execution, repairs Skills or changes the main-session binding. Disabling desktop
+notifications or denying OS permission retains existing behavior.
+
+`TestWatchPMPromptNativeCodexRecovery` verifies a real installed Codex model with
+fixture APIs. `TestPMPromptNativeDesktopFailureNotice` separately verifies failed
+preparation through the durable queue and installed native helper to a successful
+OS submission. They do not establish historical incident causes or visible banner
+receipt on another user's machine.

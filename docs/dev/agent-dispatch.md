@@ -592,3 +592,12 @@ Retained failed jobs still require explicit `watch retry` after repair. A health
 service or main-session probe is insufficient for acceptance: correlate a new
 message with its exact dispatch target, completed decision and send receipt,
 and independently verify the expected user-visible output on the owning host.
+
+With desktop notifications enabled and OS permission available, CLI 1.0.15
+also reminds the owner when PM prompt preparation remains failed. Notifications
+use the existing durable account queue, contain generic text only, and group the
+same unresolved conversation/cause. Polls and restarts do not repeat the same
+reminder; a new failure after recovery can notify again. Resolved failures are
+rechecked before display. Ordinary cancellation remains silent. This does not
+start the Agent, send private messages, overwrite local Skills or change an
+existing main-conversation target.
