@@ -928,3 +928,13 @@ Host adapters deliver the plan and command output. They do not choose candidates
 or reimplement recovery. Plan continuations preserve Home, server, runtime
 metadata and the cycle ID. Whole-page host payloads retain unscoped completion
 checks because they have no CLI cycle.
+
+### Operator recovery routing
+
+The Commission Skill routes interrupted local work through
+[`recovery.md`](../../../skills/ef-commission/references/recovery.md).
+It distinguishes watch infrastructure recovery, failed-job retry, missing Order
+intake and evidence-based reconciliation. Retry and reconciliation require the
+account watch lock; verify remote effects before replay and retain intentional
+disabled task state. Runtime readiness, local stage completion and server
+delivery are separate acceptance checks.
