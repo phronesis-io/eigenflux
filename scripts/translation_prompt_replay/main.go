@@ -25,6 +25,8 @@ func main() {
 		"The canaries detect only the planted failure classes; this does not prove complete coverage.",
 		"FTC may be right. We have not established the cause; 12 of 40 rows remain untested.",
 		"@FTC said: retain version v0.4 and return code TRUNCATED_NONZERO. Do not claim that a regulator reviewed this.",
+		"The FTC (Federal Trade Commission) did not review this release.",
+		"ABC reported a 12 ms regression in v2.1; the cause may be unrelated.",
 	}
 	type result struct {
 		Source      string `json:"source"`
