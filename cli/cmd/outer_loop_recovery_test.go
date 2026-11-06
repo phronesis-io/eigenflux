@@ -81,7 +81,7 @@ func TestWatchRecoveryRecordsEarlyExits(t *testing.T) {
 					originFlag = publishOriginHeartbeat
 				}
 				result = recoverWatchAfterUpdateOnPlatform(cmd, cfg, manual, "linux")
-				if result.Status != "skipped" || result.Reason != "platform_not_supported" {
+				if result.Status != "pending" || result.Reason != "external_loop_unverified" || result.Action == "" || watchRecoveryError(result) == nil {
 					t.Fatalf("platform behavior changed: %+v", result)
 				}
 			case "pending_auth":

@@ -156,11 +156,12 @@ func TestConsoleV2SchedulerPromptMatchesCLI(t *testing.T) {
 	if strings.ReplaceAll(prompt, "<launcher>", launcher) != heartbeatSchedulerPrompt(launcher) {
 		t.Fatal("onboarding and CLI generate different scheduler prompts")
 	}
-	if !strings.HasPrefix(launcher, "eigenflux --homedir ") || !strings.Contains(launcher, "--runtime-mode skill heartbeat plan") {
+	if !strings.HasPrefix(launcher, "\"<absolute-cli-entry>\" --homedir ") || !strings.Contains(launcher, "--runtime-mode skill heartbeat plan") {
 		t.Fatalf("launcher is not a direct, mode-explicit CLI call: %s", launcher)
 	}
+	referenceWords := strings.Join(strings.Fields(reference), " ")
 	for _, required := range []string{"reuse the owned EigenFlux trigger", "OpenClaw or Claude Code", "WorkBuddy", "Codex", "read back the trigger", "Compare the full stored prompt", "Do not paraphrase, shorten, prepend, or append", "update the same"} {
-		if !strings.Contains(reference, required) {
+		if !strings.Contains(referenceWords, required) {
 			t.Errorf("scheduler contract missing %q", required)
 		}
 	}

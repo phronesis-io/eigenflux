@@ -73,16 +73,18 @@ func TestOptionalDispatchRequiresBusinessEvidence(t *testing.T) {
 }
 
 type dispatchWatchFixture struct {
-	watch     *accountWatch
-	sends     atomic.Int32
-	histories atomic.Int32
-	polls     atomic.Int32
-	sockets   atomic.Int32
-	autoReply atomic.Bool
-	contexts  atomic.Int32
-	mu        sync.Mutex
-	sent      map[string]string
-	onHistory func()
+	watch           *accountWatch
+	sends           atomic.Int32
+	histories       atomic.Int32
+	polls           atomic.Int32
+	sockets         atomic.Int32
+	autoReply       atomic.Bool
+	contexts        atomic.Int32
+	mu              sync.Mutex
+	sent            map[string]string
+	onHistory       func()
+	historyFailures atomic.Int32
+	historyStatus   atomic.Int32
 }
 
 func newDispatchWatchFixture(t *testing.T, sendMode string) *dispatchWatchFixture {
@@ -138,6 +140,15 @@ func newDispatchWatchFixture(t *testing.T, sendMode string) *dispatchWatchFixtur
 				f.onHistory()
 			}
 			f.histories.Add(1)
+			if f.historyFailures.Add(-1) >= 0 {
+				status := int(f.historyStatus.Load())
+				if status == 0 {
+					status = http.StatusServiceUnavailable
+				}
+				w.WriteHeader(status)
+				_, _ = io.WriteString(w, `{"code":1,"msg":"private diagnostic must not leak"}`)
+				return
+			}
 			if r.Method != http.MethodGet || r.URL.Query().Get("conv_id") != "fixed-conversation" || r.URL.Query().Get("limit") != "10" {
 				t.Errorf("unexpected history request: %s %s", r.Method, r.URL)
 			}
@@ -487,6 +498,7 @@ func (w dispatchWatchEventWriter) Write(p []byte) (int, error) {
 
 func TestWatchDispatchSocketThroughRunAndPoll(t *testing.T) {
 	f := newDispatchWatchFixture(t, "")
+	f.historyFailures.Store(2)
 	w := f.watch
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
@@ -548,7 +560,7 @@ func TestWatchDispatchSocketThroughRunAndPoll(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("watch did not stop all workers")
 	}
-	if calls.Load() != 1 || f.sends.Load() != 1 || f.polls.Load() != 1 {
+	if calls.Load() != 1 || f.sends.Load() != 1 || f.polls.Load() != 1 || f.histories.Load() != 3 {
 		t.Fatalf("socket/poll duplicate ran twice: calls=%d sends=%d polls=%d", calls.Load(), f.sends.Load(), f.polls.Load())
 	}
 	jobs := w.journal.Snapshot()

@@ -23,6 +23,9 @@ type updateWatchRecovery struct {
 	Status               string                     `json:"status"`
 	Mode                 string                     `json:"mode,omitempty"`
 	Reason               string                     `json:"reason,omitempty"`
+	Action               string                     `json:"action,omitempty"`
+	Notification         string                     `json:"notification,omitempty"`
+	NotificationID       string                     `json:"notification_id,omitempty"`
 	RuntimeReady         bool                       `json:"runtime_ready"`
 	AgentCallVerified    bool                       `json:"agent_call_verified"`
 	DesktopStatus        string                     `json:"desktop_status,omitempty"`
@@ -36,13 +39,14 @@ type updateWatchRecovery struct {
 }
 
 type updateRecoveryDeps struct {
-	idle   func() error
-	busy   func(dispatch.Binding) (bool, error)
-	probe  func(context.Context, dispatch.Binding) dispatch.MainNoticeProbe
-	verify func() error
-	sync   func(dispatch.Binding) error
-	start  func(context.Context, watchservice.NotificationTask) (watchservice.Result, error)
-	live   func(dispatch.Binding, bool) watchLiveStatus
+	ordinaryWatch bool
+	idle          func() error
+	busy          func(dispatch.Binding) (bool, error)
+	probe         func(context.Context, dispatch.Binding) dispatch.MainNoticeProbe
+	verify        func() error
+	sync          func(dispatch.Binding) error
+	start         func(context.Context, watchservice.NotificationTask) (watchservice.Result, error)
+	live          func(dispatch.Binding, bool) watchLiveStatus
 }
 
 func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding *dispatch.Binding, cli string, deps updateRecoveryDeps) updateWatchRecovery {
@@ -54,6 +58,9 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 	}
 	stage("identity")
 	r := updateWatchRecovery{Status: "blocked", Mode: "notifications_only", TargetCommit: commit}
+	if deps.ordinaryWatch {
+		r.Mode = "watch"
+	}
 	if binding != nil {
 		if !sameBindingIdentity(*binding, expected) {
 			r.Reason = "identity_changed"
@@ -68,7 +75,12 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 	}
 
 	stage("task_prepare")
-	running := deps.live(expected, binding == nil).Running
+	notificationsOnly := binding == nil && !deps.ordinaryWatch
+	running := deps.live(expected, notificationsOnly).Running
+	if !running && deps.ordinaryWatch {
+		r.Status, r.Reason = "pending", "runtime_not_ready"
+		return r
+	}
 	// Wait for admitted work without killing the owner or replacing its rules.
 	if running && deps.busy != nil {
 		for {
@@ -142,16 +154,16 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 			r.Reason = "identity_changed"
 			return r
 		}
-		live := deps.live(expected, binding == nil)
+		live := deps.live(expected, notificationsOnly)
 
 		r.RuntimeReady = live.Running && live.Ready
 		r.RunningCommit = live.Commit
 		r.VersionVerified = live.Running && live.Commit == commit
-		r.AgentCallVerified = live.AgentCallVerified
+		r.AgentCallVerified = !deps.ordinaryWatch && live.AgentCallVerified
 		r.DesktopStatus = live.DesktopStatus
 		if r.RuntimeReady && r.VersionVerified {
 			r.Status = "ready"
-			if expected.Host == "codex" {
+			if expected.Host == "codex" && !deps.ordinaryWatch {
 				if binding == nil {
 					r.Status = "pending"
 					r.Reason = "main_session_bootstrap_required"
@@ -190,7 +202,9 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 }
 
 func recoverWatchAfterUpdate(cmd *cobra.Command, cfg *config.Config, manual bool) updateWatchRecovery {
-	return recoverWatchAfterUpdateOnPlatform(cmd, cfg, manual, runtime.GOOS)
+	r := recoverWatchAfterUpdateOnPlatform(cmd, cfg, manual, runtime.GOOS)
+	annotateWatchRecoveryNotice(cmd, cfg, &r)
+	return r
 }
 
 func recoverWatchAfterUpdateOnPlatform(cmd *cobra.Command, cfg *config.Config, manual bool, goos string) (r updateWatchRecovery) {
@@ -202,9 +216,16 @@ func recoverWatchAfterUpdateOnPlatform(cmd *cobra.Command, cfg *config.Config, m
 	}
 	cmd.SetContext(context.WithValue(parent, watchSetupObservationKey{}, observation))
 	defer func() {
+		if goos == "linux" && watchRecoveryError(r) != nil && r.Action == "" {
+			r.Action = "Resolve the reported recovery reason in the existing host or supervisor for this Home/server, then verify its current runtime. Preserve the existing binding and paused state; do not install a second loop."
+		}
 		switch r.Reason {
 		case "platform_not_supported":
 			watchSetupOutcome(cmd, "blocked", "unsupported_platform")
+		case "external_loop_unverified":
+			watchSetupOutcome(cmd, "blocked", "unsupported_platform")
+		case "host_managed_unverified":
+			watchSetupOutcome(cmd, "skipped", "host_managed")
 		case "owner_setup_disabled", "owner_disabled":
 			watchSetupOutcome(cmd, "skipped", "user_disabled")
 		case "pending_auth":
@@ -222,7 +243,9 @@ func recoverWatchAfterUpdateOnPlatform(cmd *cobra.Command, cfg *config.Config, m
 		r.Reason = "owner_setup_disabled"
 		return r
 	}
-	if goos != "darwin" && goos != "windows" {
+	if goos != "darwin" && goos != "windows" && goos != "linux" {
+		r.Status = "blocked"
+		r.Action = "Verify an existing host-owned persistent loop; automatic watch lifecycle is unavailable on this platform."
 		return r
 	}
 	watchSetupStage(cmd, "identity")
@@ -248,6 +271,8 @@ func recoverWatchAfterUpdateOnPlatform(cmd *cobra.Command, cfg *config.Config, m
 		return r
 	}
 	var binding *dispatch.Binding
+	requireLinuxOwner := false
+	ordinaryWatch := false
 	verify := func() error {
 		current, err := watchBindingIdentity()
 		if err != nil {
@@ -267,11 +292,17 @@ func recoverWatchAfterUpdateOnPlatform(cmd *cobra.Command, cfg *config.Config, m
 				return errWatchConfiguration
 			}
 			owner, ownerErr := readNotificationWatch(expected.Home, expected.Server)
+			if ordinaryWatch && ownerErr == nil {
+				return errWatchConfiguration
+			}
 			if ownerErr == nil && !sameBindingIdentity(owner, expected) {
 				return errWatchIdentity
 			}
 			if ownerErr != nil && !errors.Is(ownerErr, os.ErrNotExist) {
 				return ownerErr
+			}
+			if requireLinuxOwner && ownerErr != nil {
+				return errWatchConfiguration
 			}
 		}
 		return nil
@@ -285,6 +316,27 @@ func recoverWatchAfterUpdateOnPlatform(cmd *cobra.Command, cfg *config.Config, m
 		r.Reason = "binding_invalid"
 		return r
 	}
+	if goos == "linux" {
+		live := watchLiveStatus{}
+		liveBinding := expected
+		if binding != nil {
+			liveBinding = *binding
+			live = readWatchLiveStatus(liveBinding, false, time.Now())
+		} else if _, err := readNotificationWatch(expected.Home, expected.Server); err == nil {
+			requireLinuxOwner = true
+			live = readWatchLiveStatus(liveBinding, true, time.Now())
+		} else if errors.Is(err, os.ErrNotExist) {
+			ordinaryWatch = true
+			live = readWatchLiveStatus(liveBinding, false, time.Now())
+		}
+		if err := verify(); err != nil {
+			r.Status, r.Reason = "blocked", "identity_changed"
+			return r
+		}
+		if result, proceed := linuxWatchRecoveryStatus(clientMetaForServerName(expected.Server).Mode, live); !proceed {
+			return result
+		}
+	}
 	// A host owns its existing binding. Do not discover or rebind another installed Agent.
 	watchSetupStage(cmd, "task_prepare")
 	cli, err := stableInstalledExecutable()
@@ -297,7 +349,7 @@ func recoverWatchAfterUpdateOnPlatform(cmd *cobra.Command, cfg *config.Config, m
 
 	if binding == nil {
 		expected.Host = clientMetaForServerName(expected.Server).Host
-		if expected.Host == "workbuddy" {
+		if expected.Host == "workbuddy" && goos != "linux" {
 			watchSetupStage(cmd, "skills")
 			if err := syncRules(expected); err != nil {
 				r.Status = "blocked"
@@ -339,7 +391,7 @@ func recoverWatchAfterUpdateOnPlatform(cmd *cobra.Command, cfg *config.Config, m
 	}
 	ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
 	defer cancel()
-	r = recoverUpdatedWatch(ctx, expected, binding, cli, updateRecoveryDeps{idle: func() error {
+	r = recoverUpdatedWatch(ctx, expected, binding, cli, updateRecoveryDeps{ordinaryWatch: ordinaryWatch, idle: func() error {
 		release, err := watchstate.Acquire(expected.Home, expected.Server)
 		if err == nil {
 			release()
@@ -361,7 +413,12 @@ func recoverWatchAfterUpdateOnPlatform(cmd *cobra.Command, cfg *config.Config, m
 		return false, nil
 	}, probe: func(ctx context.Context, b dispatch.Binding) dispatch.MainNoticeProbe {
 		return dispatch.ProbeMainNotice(ctx, dispatch.MainNoticeTarget{Host: b.Host, SessionID: b.MainSessionID, Binding: b})
-	}, verify: verify, sync: syncRules, start: watchservice.StartNotifications, live: func(b dispatch.Binding, n bool) watchLiveStatus { return readWatchLiveStatus(b, n, time.Now()) }})
+	}, verify: verify, sync: syncRules, start: func(ctx context.Context, task watchservice.NotificationTask) (watchservice.Result, error) {
+		if goos == "linux" {
+			return watchservice.Result{}, errors.New("restart the existing Linux watch through its supervisor")
+		}
+		return watchservice.StartNotifications(ctx, task)
+	}, live: func(b dispatch.Binding, n bool) watchLiveStatus { return readWatchLiveStatus(b, n, time.Now()) }})
 	if r.SkillsVerified {
 		r.SkillsLatestVerified = manual || automaticMaintenanceEnabled(cfg, autoSkillSyncKey)
 		r.SkillsStatus = "latest_verified"
@@ -369,12 +426,43 @@ func recoverWatchAfterUpdateOnPlatform(cmd *cobra.Command, cfg *config.Config, m
 			r.SkillsStatus = "local_verified_auto_sync_disabled"
 		}
 	}
+	if goos == "linux" && r.Status == "ready" {
+		watchSetupOutcome(cmd, "skipped", "host_managed")
+	}
 	return r
+}
+
+// Linux lifecycle belongs to the existing host or supervisor. A fresh watch
+// pulse can be verified through the ordinary recovery path; configured mode or
+// a cached scheduler receipt cannot establish a running loop.
+func linuxWatchRecoveryStatus(mode string, live watchLiveStatus) (updateWatchRecovery, bool) {
+	if live.Running {
+		return updateWatchRecovery{}, true
+	}
+	r := updateWatchRecovery{
+		Status: "pending", Mode: mode, Reason: "external_loop_unverified",
+		Action: "Read back the existing host-native or OS scheduler for this Home/server and verify its first unattended cycle and result destination. Preserve paused tasks and reuse the owned trigger; do not create a duplicate. Linux watch lifecycle is not installed by this command.",
+	}
+	if mode == "plugin" {
+		r.Reason = "host_managed_unverified"
+		r.Action = "Verify that the existing host plugin owns a persistent loop for this Home/server and completes an unattended cycle. Plugin mode alone does not prove readiness; do not add a second scheduler."
+	}
+	return r, false
+}
+
+func watchRecoveryError(r updateWatchRecovery) error {
+	if r.Status == "blocked" || r.Status == "starting" || r.Status == "pending" {
+		if r.Action != "" {
+			return fmt.Errorf("watch recovery incomplete: %s; %s", r.Reason, r.Action)
+		}
+		return fmt.Errorf("watch recovery incomplete: %s", r.Reason)
+	}
+	return nil
 }
 
 func reportUpdateWatchRecovery(cmd *cobra.Command, cfg *config.Config, manual bool) updateWatchRecovery {
 	r := recoverWatchAfterUpdate(cmd, cfg, manual)
-	if r.Status == "blocked" || r.Status == "starting" {
+	if r.Status == "blocked" || r.Status == "starting" || r.Status == "pending" && r.Action != "" {
 		raw, _ := json.Marshal(r)
 		fmt.Fprintf(cmd.ErrOrStderr(), "[eigenflux:upgrade-watch] %s\n", raw)
 	}
@@ -394,9 +482,6 @@ func init() {
 		if err := json.NewEncoder(cmd.OutOrStdout()).Encode(r); err != nil {
 			return err
 		}
-		if r.Status == "blocked" || r.Status == "starting" || r.Status == "pending" {
-			return fmt.Errorf("watch recovery incomplete: %s", r.Reason)
-		}
-		return nil
+		return watchRecoveryError(r)
 	}})
 }

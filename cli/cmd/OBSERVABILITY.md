@@ -72,8 +72,12 @@ output, retries a business request or changes its outcome. See the
 # Outer-loop setup and native scheduler readback
 
 `watch start` and the shared upgrade/post-authentication recovery entry record
-a `watch` attempt before platform/host checks. Recovery retains its existing
-return status while reporting unsupported platforms and setup failures. Bounded
+a `watch` attempt before platform/host checks. Linux recovery without a verified
+current watch returns pending with a concrete host/scheduler verification
+action. Configured plugin mode records `skipped/host_managed`, without a runtime
+readiness claim; other Linux modes record `blocked/unsupported_platform` for the
+unavailable automatic watch lifecycle. A verified existing Linux watch records
+`skipped/host_managed` and retains separate runtime/version/Skills results. Bounded
 phases distinguish preflight, identity, Skills, host discovery/probe, task
 preparation, binding and task startup. Failures retain the original local
 error and queue only its stage/category. Disabled tasks remain skipped;
@@ -81,6 +85,16 @@ installation does not claim runtime readiness or model work. Unauthenticated
 attempts print a bounded local-only diagnostic without Agent attribution.
 Authenticated failures use the existing identity-pinned queue and offline retry;
 observation failures never change the setup result.
+
+Actionable recovery output remains `required` with the same `notification_id`
+until the host acknowledges that notice through `heartbeat recovery-notice-ack
+--notice`. Plan prefetch, Feed failure and cycle observations never consume it.
+Only an acknowledged matching outcome becomes `unchanged`; verified recovery
+gets a separate pending ID. The local receipt contains scope/outcome hashes,
+the opaque ID and acknowledgement state, with no owner-facing content.
+Acknowledgement describes the host's handling assertion, not proof that the
+human read it. State failures retain the actionable result with a bounded local
+diagnostic; they never block business stages or enable telemetry.
 
 Automatic recovery and commands invoked with `--origin heartbeat` record
 `trigger: auto`; owner-requested commands record `trigger: manual`. Recovery
