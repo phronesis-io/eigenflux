@@ -260,8 +260,6 @@ def make(build_dir, base, platforms, helpers=None):
     (v2 / "version.txt").write_text(version + "\n")
     for name in ("release", "package-release"):
         shutil.copy2(bindir / (name + "-v2.json"), v2 / (name + ".json"))
-        # Version-addressed verification must use the same v2 signing domain.
-        shutil.copy2(bindir / (name + "-v2.json"), bindir / (name + ".json"))
     latest = public / "cli/latest"
     latest.mkdir(parents=True)
     (latest / "version.txt").write_text(version + "\n")
