@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"fluxspace.ai/hub/apperr"
+	"fluxspace.ai/hub/archive"
 	"fluxspace.ai/hub/followup"
 	invitationpkg "fluxspace.ai/hub/invitation"
 	"fluxspace.ai/hub/models"
@@ -29,6 +30,7 @@ type Server struct {
 	Invitations    *invitationpkg.Manager
 	Port           services.EigenFluxPort
 	FollowUp       *followup.Sender
+	Archives       *archive.Store
 	Clock          func() int64
 }
 

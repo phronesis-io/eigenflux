@@ -103,8 +103,13 @@ single highest integration risk.
   PM sender scoped to each real owner. Relationship updates are drafts only.
 - `apperr/`: shared domain error type so business packages do not import
   `session` just to build an HTTP-status error.
-- `api/`: `GET /health`, nine session endpoints, six negotiation endpoints and
-  two follow-up endpoints. `main.go` listens on `:8095`;
+- `archive/`: immutable S4 replay archives over the retained event stream.
+  SHA-256 content and skeleton hashes, tamper-detecting `Load`, six viewing-mode
+  projections, a fail-closed consent ledger and same-spec reprise comparison
+  with a divergence point (ADR-0005). Archives are in memory and hold no
+  persistence yet.
+- `api/`: `GET /health`, nine session endpoints, six negotiation endpoints,
+  two follow-up endpoints and eleven archive/reprise endpoints. `main.go` listens on `:8095`;
   `HUB_SPECTATOR_TOKEN` gates the omniscient stream;
   `HUB_GATEWAY_URL`, `HUB_AGENT_TOKENS` and `HUB_AGENT_ID` configure the real
   gateway client. Unconfigured gateway paths return explicit 503s. SSE polls
@@ -156,8 +161,12 @@ succeeded.
 |---|---|
 | `go build ./...` (hub) | PASS |
 | `go vet ./...` (hub) | PASS |
-| `go test -count=1 -v ./...` (hub) | PASS — **78 passing tests** across api, followup, generator, invitation, models, referee, services, session (apperr has no tests of its own) |
+| `go test -count=1 -v ./...` (hub) | PASS — **96 passing tests** across api, archive, followup, generator, invitation, models, referee, services, session (apperr has no tests of its own) |
 | `python hub/scripts/check_balance.py` | PASS — the S2 gate. 5 x 480 = 2,400 matches aggregated; measured 9.38%–11.25% across 20 consecutive runs, 0 failures. Floor is 0.08, the three-sigma lower bound of the 10% baseline (see ADR-0003 amendment) |
+| S4 replay archive | PASS — `hub/archive/` 15 tests (build, tamper detection, six modes, consent policies, reprise divergence) plus 3 HTTP tests covering the full S4 flow |
+| Archive integrity | PASS — SHA-256 over `{version, session_id, config, events, settlement}` plus a skeleton hash; `Load` refuses tampered bytes; six tamper cases assert the exact mismatch |
+| Six viewing modes | PASS — full, accelerated (2x/4x, other speeds rejected), single_character (private events of other seats are filtered), omniscient_comparison (seat-ordered), key_moments (derived and deterministic), same_spec_comparison (divergence point) |
+| All-participant consent | PASS — fail-closed policy, majority = strictly more than half, officials excluded, reprise always requires every participant |
 | Five-match fingerprint window | PASS — `TestCreateExcludesLastFiveMatchFingerprints` builds a five-match history from the exact skeletons this seed would emit, then asserts all three proposals and a modify-round regeneration avoid every one |
 | `bash scripts/build.sh` (hub) | PASS — `hub/build/fluxspace-hub` |
 | Golden comparison vs `fluxspace/_check.js` | PASS — every case matched |

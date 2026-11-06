@@ -10,6 +10,7 @@ import (
 	"os"
 
 	"fluxspace.ai/hub/api"
+	"fluxspace.ai/hub/archive"
 	"fluxspace.ai/hub/followup"
 	"fluxspace.ai/hub/invitation"
 	"fluxspace.ai/hub/services"
@@ -52,6 +53,7 @@ func main() {
 		Manager:        session.NewManager(),
 		SpectatorToken: os.Getenv("HUB_SPECTATOR_TOKEN"),
 		Invitations:    invitation.NewManager(),
+		Archives:       archive.NewStore(),
 		Port:           port,
 	}
 	if port != nil {
@@ -65,6 +67,7 @@ func main() {
 	api.RegisterSessions(mux, srv)
 	api.RegisterInvitations(mux, srv)
 	api.RegisterFollowUps(mux, srv)
+	api.RegisterArchives(mux, srv)
 	log.Printf("FluxSpace Hub listening on %s", addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatal(err)

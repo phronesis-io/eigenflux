@@ -146,6 +146,8 @@ reconnect uses `Last-Event-ID` plus `/snapshot`.
 `one_liner`, `structured`, `comparison`, plus `state_snapshot`. Private
 channels are delivered only to intended seats; the omniscient stream sees all.
 
+Replay archive endpoints are a separate surface; see §10.
+
 ## 4. Invitation JSON (PM `content` field)
 
 ```json
@@ -400,3 +402,90 @@ or `adr-0002-*` exist upstream; all Flux Theatre work is new. The exact
 historical base commit is undetermined. No remote was configured, no fetch
 attempted and no credentials stored. ADR-0002 decision 3 therefore now waits
 on a merge-strategy decision, not on network access.
+
+## 10. Replay archive, viewing modes and consent (S4)
+
+An archive is a frozen, event-sourced record of one finished match. It is
+immutable in the strict sense: everything that defines the match is captured
+once at `Build` time, both hashes cover that capture, and the mutable state
+(publication, consent) lives in the store, never in the archive. Publishing
+therefore cannot invalidate an integrity check.
+
+### Endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/hub/sessions/{id}/archive` | Freeze a finished session; optional `seats[]` enrichment and `archive_id` |
+| GET | `/hub/archives` | List archive summaries |
+| GET | `/hub/archives/{id}` | Archive metadata (no event stream) |
+| GET | `/hub/archives/{id}/verify` | Recompute both hashes and the event count |
+| GET | `/hub/archives/{id}/views/{mode}` | One of the six modes; see query parameters below |
+| POST | `/hub/archives/{id}/consent` | Record one participant owner's grant or refusal |
+| POST | `/hub/archives/{id}/publish` | Evaluate the consent policy and publish |
+| POST | `/hub/archives/{id}/reprise` | Authorise a same-spec re-run |
+| GET | `/hub/archives/{id}/reprises` | List reprises for an archive |
+| GET | `/hub/reprises/{id}` | One reprise record |
+| POST | `/hub/reprises/{id}/complete` | Attach the replayed archive and compute divergence |
+
+`POST .../archive` refuses anything that is not a finished match, and refuses
+an event stream without exactly one `match_start` and one trailing `match_end`
+- the six modes all assume a terminal event.
+
+### Integrity
+
+`integrity.content_hash` is `sha256` over `{version, session_id, config,
+events, settlement}`; `integrity.skeleton_hash` is `sha256` over the skeleton
+alone, which is what a same-spec reprise compares. `event_count` is stored
+alongside and re-checked on every load: `Load` decodes, re-verifies and refuses
+to return bytes that do not match, so a tampered file fails instead of playing.
+
+`integrity.complete` is false, and `integrity.missing_fields` names exactly
+which seat fields the Hub could not capture. The Hub does not know persona ids
+or model versions; it records their absence rather than a plausible default.
+A caller may supply them in `seats[]` at archive time, which flips
+`persona_source` to `client_supplied`; the six-dimension `PersonaSnapshot` the
+seat claim carried is always present.
+
+### Viewing modes
+
+`mode` is one of `full`, `accelerated`, `single_character`,
+`omniscient_comparison`, `key_moments`, `same_spec_comparison`.
+
+| Mode | Query | What it returns |
+|---|---|---|
+| `full` | - | Every event in sequence, with `offset_ms` from the first event |
+| `accelerated` | `speed=2\|4` | Same events, compressed timeline; any other speed is a 422, not a silent rounding |
+| `single_character` | `seat_id=` | Public events plus that seat's own private events; omniscient-only events never appear |
+| `omniscient_comparison` | - | Round-by-round decisions for every seat, in seat order, with the round's agreement, synergy and metric delta |
+| `key_moments` | `moment_limit=` | Branch events, the highest-magnitude metric swings and the terminal outcome, each with the numbers that justified it |
+| `same_spec_comparison` | `compare_with=<archive_id>` | Divergence point, per-round per-seat action differences, outcome change |
+
+`key_moments` is derived, never editorial: it uses branch effects and metric
+deltas only, is deterministic for a given archive, and always ends with the
+outcome event.
+
+### Consent and publication
+
+The policy comes from the archive's frozen `social_contract.replay_consent`:
+
+| Policy | Publication requires |
+|---|---|
+| `all` (and any unspecified value) | every signing participant |
+| `majority` | strictly more than half, so a two-seat match still needs both owners |
+| `none` | never |
+
+Fail-closed: an unspecified policy is treated as `all`, and an unrecognised
+policy is an error rather than a permissive default. Signing participants are
+the non-official seats' companions, in seat order; official backfills have no
+owner, so asking them would be theatre rather than consent. A refusal is a
+`403 REPLAY_CONSENT_INCOMPLETE` whose body names the missing participants.
+
+A same-spec reprise always requires **every** participant, regardless of the
+publication policy, because the GDD ties reprises to the original owners'
+consent. `POST /hub/archives/{id}/reprise` therefore fails with
+`403 REPRISE_CONSENT_INCOMPLETE` until all have granted.
+
+`POST /hub/reprises/{id}/complete` compares two archives and rejects
+`NOT_A_SAME_SPEC_REPRISE` unless the skeleton hashes match and the seat
+configuration, contract and round count are identical. Divergence is the first
+round in which any seat's `action_id` differs, with the specific seat recorded.
