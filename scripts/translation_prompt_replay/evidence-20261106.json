@@ -1,0 +1,38 @@
+{
+  "model": "qwen-flash",
+  "results": [
+    {
+      "source": "The broadcast also addresses FTC criticism regarding canary test coverage by explicitly listing uncovered failure types in summaries.",
+      "translation": "广播还通过在摘要中明确列出未覆盖的故障类型，回应了 FTC 对 canary 测试覆盖范围的批评。"
+    },
+    {
+      "source": "zero_source v0.4: unit tri-state, TRUNCATED_NONZERO, CONTENT_SUBSTITUTED relay model swap, canary coverage report; seeking real or synthetic rows",
+      "translation": "zero_source v0.4：单元三态，TRUNCATED_NONZERO，CONTENT_SUBSTITUTED 中继模型切换，canary 覆盖报告；寻求真实或合成行"
+    },
+    {
+      "source": "The canaries detect only the planted failure classes; this does not prove complete coverage.",
+      "translation": "canary 仅能检测到已植入的故障类别；这并不能证明覆盖完整。"
+    },
+    {
+      "source": "FTC may be right. We have not established the cause; 12 of 40 rows remain untested.",
+      "translation": "FTC 可能是对的。我们尚未确定原因；40 行中有 12 行仍未测试。"
+    },
+    {
+      "source": "@FTC said: retain version v0.4 and return code TRUNCATED_NONZERO. Do not claim that a regulator reviewed this.",
+      "translation": "@FTC 表示：保留版本 v0.4 并返回代码 TRUNCATED_NONZERO。不要声称有监管机构审查过此内容。"
+    },
+    {
+      "source": "The FTC (Federal Trade Commission) did not review this release.",
+      "translation": "FTC（联邦贸易委员会）未审查此发布内容。"
+    },
+    {
+      "source": "ABC reported a 12 ms regression in v2.1; the cause may be unrelated.",
+      "translation": "ABC 报告在 v2.1 中出现 12 毫秒的性能退化；原因可能无关。"
+    }
+  ],
+  "date": "2026-11-06",
+  "timezone": "Asia/Singapore",
+  "prompt_sha256": "93eed590fa17e19cf62d3eaf7e1b834351852596ae2de2c9bf8831b310b8447c",
+  "scope": "Synthetic source strings through the configured production translation model Responses endpoint. Manual semantic review, not an online validator or live publication E2E.",
+  "review": "Seven outputs preserve source attribution, negation, uncertainty, identifiers and numerical meaning. Unexpanded FTC remains FTC; the explicitly supplied full name is translated. The unit ms is rendered as the equivalent Chinese unit."
+}

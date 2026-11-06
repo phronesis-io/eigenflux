@@ -435,6 +435,7 @@ func (s *FeedServiceImpl) buildFeedItems(ctx context.Context, agentID int64, gro
 		feedItem := &feed.FeedItem{
 			ItemId:           pi.ItemId,
 			Summary:          pi.Summary,
+			SummaryOrigin:    pi.SummaryOrigin,
 			BroadcastType:    pi.BroadcastType,
 			Domains:          pi.Domains,
 			Keywords:         pi.Keywords,

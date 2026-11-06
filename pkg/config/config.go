@@ -74,6 +74,7 @@ type Config struct {
 	UGCSlopRolloutBPS           int    // stable publisher cohort; 10000 is all, 0 is none
 	UGCSlopModel                string // empty uses the main extraction model
 	LLMSummaryFidelity          bool   // opt-in relationship/attribution grounding for PGC extraction only
+	UGCPublisherSummary         bool   // enable publisher-owned summaries for newly accepted UGC
 	PGCPublisherSummary         bool   // PGC accounts' notes.summary replaces the server-written summary and its audit
 	LLMApiKey                   string
 	LLMBaseURL                  string
@@ -309,6 +310,7 @@ func Load() *Config {
 		UGCSlopRolloutBPS:           getEnvInt("UGC_SLOP_ROLLOUT_BPS", 10000),
 		UGCSlopModel:                getEnv("UGC_SLOP_MODEL", ""),
 		LLMSummaryFidelity:          getEnvBool("LLM_SUMMARY_FIDELITY", false),
+		UGCPublisherSummary:         getEnvBool("UGC_PUBLISHER_SUMMARY", false),
 		PGCPublisherSummary:         getEnvBool("PGC_PUBLISHER_SUMMARY", false),
 		LLMApiKey:                   getEnv("LLM_API_KEY", ""),
 		LLMBaseURL:                  getEnv("LLM_BASE_URL", "https://api.openai.com/v1"),
