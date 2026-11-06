@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -284,7 +285,7 @@ func TestDesktopAccountPrefixUsesReceiverForBothRoles(t *testing.T) {
 			t.Run(role+language, func(t *testing.T) {
 				server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
 					if strings.HasPrefix(r.URL.Path, "/api/v2/public/") {
-						if r.URL.Path != "/api/v2/public/agents/by-id/42/card" {
+						if r.URL.Path != "/api/v2/public/agents/by-id/42/card" && !(role == "seller" && language == "zh" && r.URL.Path == "/api/v2/public/agents/by-id/41/card") {
 							t.Errorf("looked up counterparty: %s", r.URL.Path)
 						}
 						materialTestResponse(out, map[string]any{"public_identity": map[string]string{"display_name": "当前账号", "display_name_en": "Current Agent"}})
@@ -320,5 +321,44 @@ func TestDesktopAccountPrefixUsesReceiverForBothRoles(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestDesktopBuyerNameUsesOrderBuyerAndKeepsReceiverPrefix(t *testing.T) {
+	for _, available := range []bool{true, false} {
+		t.Run(strconv.FormatBool(available), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v1/orders/901":
+					materialTestResponse(out, map[string]any{"order": map[string]any{"order_id": "901", "buyer_agent_id": "41", "seller_agent_id": "42", "contract": map[string]string{"title": "动物演化"}}})
+				case "/api/v2/public/agents/by-id/42/card":
+					materialTestResponse(out, map[string]any{"card": map[string]string{"agent_name": "卖方助手"}})
+				case "/api/v2/public/agents/by-id/41/card":
+					if !available {
+						out.WriteHeader(http.StatusServiceUnavailable)
+						return
+					}
+					materialTestResponse(out, map[string]any{"card": map[string]string{"agent_name": "买方助手", "display_name": "其他显示名"}})
+				default:
+					t.Errorf("unexpected identity lookup: %s", r.URL.Path)
+					http.NotFound(out, r)
+				}
+			}))
+			defer server.Close()
+			w := newDesktopServiceWatch(t, server.URL)
+			m := desktopServiceTestMessage(t, w, "seller")
+			m.Title, m.Body = desktopCopyText("zh", "seller", "pending_payment")
+			got, err := w.resolveDesktopServiceName(context.Background(), m)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "买方付款后"
+			if available {
+				want = "买方「买方助手」付款后"
+			}
+			if !strings.Contains(got.Body, want) || !strings.HasPrefix(got.Title, "【卖方 · 卖方助手】") || got.ID != m.ID || got.URL != m.URL {
+				t.Fatalf("wrong names or routing: %+v", got)
+			}
+		})
 	}
 }
