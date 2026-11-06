@@ -10,4 +10,4 @@ Keep this cycle read-only: skip feedback, behavior-event writes, private message
 
 Treat `ONBOARDING_REQUIRED` and `AGENT_SCOPE_REQUIRED` as operation restrictions. Continue available Feed reads. Explain the restriction when the user requests that operation; retain the current identity and recurring trigger.
 
-If the current heartbeat plan confirms completed onboarding and includes `need_capture`, run only that internal Intent capture maintenance stage before finishing. This exception does not authorize the other skipped actions. Incomplete onboarding remains read-only.
+If the current heartbeat plan confirms completed onboarding and includes `need_capture`, execute that internal Intent capture maintenance stage before Feed. When already at Feed, retain the earlier pass and its receipts without repeating it. Failed or unfinished Need work never suppresses baseline content. This exception does not authorize the other skipped actions. Incomplete onboarding remains read-only.

@@ -23,6 +23,14 @@ Tests live beside the packages they exercise and in the service integration suit
 | `tests/installv2/` | Install ref through signed V2 provision, email binding, identity reuse, and transaction rollback | `go test -v ./tests/installv2/` |
 | `tests/replay/` | Offline replay service tests (sort simulation with custom params, inline profiles) | `go test -v ./tests/replay/` |
 
+Need heartbeat planning and submission receipts are exercised from `cli/` with
+`go test ./cmd ./internal/maintenance -run 'TestNeedCapture|TestHeartbeatPlan|TestHeartbeatNarrow'`.
+Fixtures cover a single bounded Pending query, selected source fields, query
+failure versus an empty response, Need-before-Feed ordering, narrow-mode exclusion,
+version/account isolation, uncertain submissions, identical retries, and bounded
+local retention. These tests use local HTTP fixtures; they do not establish model
+adherence to the soft 120-second new-item budget or production completion rates.
+
 ## Local Agent dispatch
 
 Windows regressions close queue readers before atomic replacement and preserve

@@ -9,6 +9,54 @@ deliver its `agent_prompt`. Their plan subprocess timeout is five minutes to
 allow CLI update attempts and Skills synchronization; ordinary CLI calls keep
 their existing timeout. No plugin implements a second updater or update policy.
 
+## Need capture before Feed
+
+Completed-onboarding full plans query `/need-capture/pending?limit=2` once and
+include the selected Intent versions, source fields and existing Need references
+in `need_capture`. Control-only, maintenance-only and incomplete-onboarding plans
+do not query or schedule capture. The business order is commands, Need capture,
+Feed, then the remaining stages. The explicit foreground first check uses the
+same plan and procedure. A host-supplied Feed payload remains that cycle's pull;
+moving capture earlier does not repoll or promise an immediately refreshed ranking.
+
+The query status distinguishes `ready`, `empty` and `failed`; malformed responses
+are failures, not empty selections. Query failure remains internal and does not
+prevent plan delivery or later Feed work. The Agent uses the selected source data
+without another Pending request. At most two versions are reviewed. The 120-second
+budget starts at Need stage entry and only stops starting another review; finish
+and submit the current review even after the threshold. It is not a hard timeout.
+Timeout retries reuse the identical file once. Stale versions and other failures
+return to the next heartbeat's server-derived Pending selection without an
+unbounded same-cycle refresh loop.
+
+`need capture complete --plan <plan_id> --file <path>` validates the selected
+Intent/version and records local submission uncertainty before the existing API
+call. Only a successful `completed: true` response confirms `captured` or
+`no_need`. A 4xx rejection is failed; transport/5xx errors, invalid responses and
+interrupted submissions remain unconfirmed. A confirmed receipt is never erased
+by a later unsuccessful retry. Successful server saves stay successful if local
+receipt persistence fails; the response exposes `local_receipt_error` internally.
+
+`need capture status --plan <plan_id>` reads local receipts only, without a new
+server query. Its `all_confirmed` is evidence from this Home, not authoritative
+current server review state. Records are account/server scoped, retain at most 64
+plans for seven days, and store IDs, versions, CLI/Skills versions and fixed error
+codes, never Intent text or Need payloads. They are independent of optional
+runtime telemetry and are not uploaded as new event types. A receipt storage
+failure during planning does not block capture or Feed.
+
+All Need outcomes remain internal. Pending/unconfirmed work must not be reported
+as completed. A failed or open Need stage and its aggregate cycle receipt never
+replace, suppress or turn otherwise completed Feed/Agent recommendations or a
+foreground first-check result into a user-visible failure. Later server Pending
+queries decide retries; saved completions are excluded even after response loss.
+No server endpoint, schema migration, historical review reset, priority rotation
+or quality-classification change is part of this contract.
+
+Follow-up: evaluate lowering only the internal scheduling priority of repeatedly
+unfinished Intent versions if observed failures monopolize the two selected slots.
+Do not change the owner's Intent priority or count a saved `no_need` as failure.
+
 ## Binary updates
 
 Explicit skill and plugin modes enable maintenance. Unknown modes leave it

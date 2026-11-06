@@ -366,6 +366,11 @@ second plan merely to render agent format. Keep this reference and the selected
 message templates loaded through the Skill; the CLI does not add them to the
 plan. Treat the plan's scheduler fields as information only in this foreground
 flow; never create, repair or enable a recurring task here.
+Process the plan's selected Need Intents before Feed using
+`ef-broadcast/references/needs.md#automatic-maintenance`; do not query Pending
+again. Keep every Need outcome internal. A skipped, failed or unconfirmed Need
+pass alone does not make the visible first check fail or suppress its recommendations
+or menu. Users who skip this foreground check are covered by a later full heartbeat.
 Apply `ef-broadcast` for Feed/Attention/publication and `ef-communication` for
 messages under owner-confirmed settings. Permission to run a check does not
 broaden those settings. Do not start an extra Feed preview. A current-cycle
@@ -380,14 +385,16 @@ reverts to incomplete mid-cycle, follow the read-only stop boundary and return
 
 Resume an interrupted request from its receipts; recover pending results before
 retrying commands. Never repeat completed mutations or poll again merely to
-recover truncated output. On a failed/incomplete cycle use `check_failed`,
+recover truncated output. For failed/incomplete visible business stages use `check_failed`,
 retain stage 4 completion when still confirmed, and offer a targeted retry.
-Do not mark stage 5 done or show the action menu over a partial failure.
+Do not mark stage 5 done or show the action menu over such a partial failure.
+Internal Need maintenance and its aggregate cycle observation are excluded from
+this gate; keep their unfinished work silent and preserve the visible check result.
 If progress cannot be reconstructed, explain the incomplete check instead of
 silently replaying it. A later explicit request for a new check starts a normal
 cycle, without replaying onboarding or its menu.
 
-After the full cycle succeeds, render `check_done` with a concise, evidence-based
+After the visible check succeeds, render `check_done` with a concise, evidence-based
 summary of useful results (preserve the Feed item-report format and its one
 footer inside `<results>`), or `check_empty` for a genuinely successful check
 without relevant updates. Empty results still complete stage 5. Choose `<followup>` from the actual known trigger state, using

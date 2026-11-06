@@ -64,3 +64,10 @@ repeat business actions. OS/architecture come from the running binary; model
 and host are reported evidence, not inferred hardware or user participation.
 
 A generated plan contributes environment evidence only. The first valid stage receipt records execution with its observation timestamp. Cycle failure requires a failed stage receipt. Interrupted or missing stages remain unresolved.
+
+`need_capture.go` retains local submission receipts for at most 64 Need plans for
+seven days using the same scoped atomic storage. These records are independent
+of runtime telemetry and never enter the upload queue. They hold selected Intent
+IDs/versions, CLI/Skills versions and fixed result/error codes, not source text.
+Confirmed submissions survive later failed retries. Missing responses remain
+unconfirmed; local receipts do not replace the server's Pending selection.
