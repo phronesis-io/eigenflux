@@ -1,0 +1,84 @@
+name: Publish immutable Need phase-one snapshot
+
+on:
+  push:
+    branches: [codex/need-phase1-snapshot-r2]
+    paths:
+      - scripts/snapshots/**
+      - .github/workflows/release-need-snapshot.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: need-snapshot-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    if: github.ref == 'refs/heads/codex/need-phase1-snapshot-r2'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+      - name: Provide publication tools
+        run: brew list awscli >/dev/null 2>&1 || brew install awscli
+      - name: Verify distribution contract and product regressions
+        run: |
+          python3 scripts/snapshots/test_contract.py
+          cd cli
+          go test ./...
+      - name: Restore existing signed and notarized notification Apps (read only)
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY: ${{ secrets.EIGENFLUX_SKILLS_VERIFY_PUBLIC_KEY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          source cli/.cli.config
+          source_hash=$(python3 - <<'PY'
+          import hashlib, pathlib
+          files = sorted(pathlib.Path('cli/internal/desktopnotify/macos').rglob('*'))
+          files += [pathlib.Path('cli/scripts/build-notifier-macos.sh')]
+          h = hashlib.sha256()
+          for p in files:
+              if p.is_file():
+                  h.update(str(p).encode() + b'\0' + p.read_bytes() + b'\0')
+          print(h.hexdigest())
+          PY
+          )
+          python3 cli/scripts/notifier-release.py restore --version "$NOTIFIER_VERSION" --source "$source_hash" --helpers-dir build/formal-helpers --work-dir build/notifier-proof --team-id "$APPLE_TEAM_ID"
+      - name: Verify native fresh-process HTTP installation
+        env:
+          SNAPSHOT_HELPERS: ${{ github.workspace }}/build/formal-helpers
+        run: python3 scripts/snapshots/test_http.py
+      - name: Build immutable public artifacts
+        env:
+          R2_PUBLIC_URL: ${{ secrets.R2_PUBLIC_URL }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: python3 scripts/snapshots/build.py --out build/snapshot --origin "$R2_PUBLIC_URL" --helpers "$GITHUB_WORKSPACE/build/formal-helpers"
+      - name: Publish only the new snapshot namespace and verify public bytes
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python3 scripts/snapshots/publish.py build/snapshot/public
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: need-phase1-snapshot-audit
+          path: |
+            build/snapshot/audit
+            build/snapshot/public/provenance.json
+            build/snapshot/public/checksums.json
+            build/notifier-proof/ready.json
