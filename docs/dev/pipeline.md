@@ -455,3 +455,9 @@ Absent evidence keeps the release draft. After an approved rollout, compare
 fixed-cohort daily positives the next day; record the actual activation time.
 Turning off new publication ownership does not undo existing search projections.
 A projection rollback plan and translation quality examples remain release gates.
+
+Set `SUMMARY_TRANSLATIONS_DISABLED=true` and restart API, Item RPC and cron to roll back
+summary/body translation display and new translation calls to source-language
+text. Cached translations and original content are retained; switching back
+restores only source/version-matching translations. This does not disable
+unrelated Agent-name translation.

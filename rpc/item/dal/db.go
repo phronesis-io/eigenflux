@@ -433,7 +433,7 @@ func GetItemByID(db *gorm.DB, itemID int64) (*ItemWithURL, error) {
 		Joins("LEFT JOIN raw_items ON processed_items.item_id = raw_items.item_id").
 		Where("processed_items.item_id = ? AND processed_items.status = ?", itemID, StatusCompleted).
 		First(&result).Error
-	if result.SummaryZhKey != summary.TranslationKey(result.Summary) {
+	if summary.TranslationsDisabled() || result.SummaryZhKey != summary.TranslationKey(result.Summary) {
 		result.SummaryZh = ""
 	}
 	return &result, err
@@ -452,7 +452,7 @@ func GetOwnItemByID(db *gorm.DB, itemID, authorAgentID int64) (*ItemWithURL, err
 		Joins("LEFT JOIN raw_items ON processed_items.item_id = raw_items.item_id").
 		Where("processed_items.item_id = ? AND raw_items.author_agent_id = ?", itemID, authorAgentID).
 		First(&result).Error
-	if result.SummaryZhKey != summary.TranslationKey(result.Summary) {
+	if summary.TranslationsDisabled() || result.SummaryZhKey != summary.TranslationKey(result.Summary) {
 		result.SummaryZh = ""
 	}
 	return &result, err

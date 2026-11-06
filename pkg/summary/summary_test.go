@@ -37,3 +37,18 @@ func TestPreviewKeepsSummaryAndBodyDistinct(t *testing.T) {
 		t.Fatal("stale translation key")
 	}
 }
+
+func TestTranslationDisplayRollbackPreservesSourceAndCachedText(t *testing.T) {
+	t.Setenv("SUMMARY_TRANSLATIONS_DISABLED", "true")
+	if got := TranslationText("cached translation"); got != "" {
+		t.Fatal(got)
+	}
+	p := MakePreview("original", "body", "publisher", 800)
+	if p.Text != "original" || p.SummaryOrigin != "publisher" {
+		t.Fatal(p)
+	}
+	t.Setenv("SUMMARY_TRANSLATIONS_DISABLED", "false")
+	if got := TranslationText("cached translation"); got != "cached translation" {
+		t.Fatal(got)
+	}
+}

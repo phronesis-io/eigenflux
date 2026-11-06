@@ -9,6 +9,7 @@ import (
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/summary"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -27,8 +28,8 @@ const (
 // top-served items into Chinese every 30 minutes, so zh-UI users get instant
 // highlights instead of waiting on the first-view lazy translation.
 func StartHighlightTranslate(ctx context.Context, cfg *config.Config, rdb *redis.Client, client *llm.Client) {
-	if cfg.LLMApiKey == "" {
-		logger.Default().Info("highlight translate cron disabled (no LLM_API_KEY)")
+	if cfg.LLMApiKey == "" || summary.TranslationsDisabled() {
+		logger.Default().Info("highlight translate cron disabled (missing key or translation rollback switch)")
 		return
 	}
 	tc := client.WithModel(cfg.LLMTranslateModel)

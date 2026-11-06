@@ -3038,6 +3038,12 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 	// the result back to processed_items.summary_zh (shared by all viewers).
 	// Translation failures silently fall back to the original summary.
 	uiLang := string(c.Query("lang"))
+	if summary.TranslationsDisabled() {
+		for i := range rows {
+			rows[i].SummaryZh = ""
+			rows[i].TitleZh = ""
+		}
+	}
 	if uiLang == "zh" {
 		if tc := translateClient(); tc != nil {
 			var wg sync.WaitGroup
@@ -3242,6 +3248,9 @@ var (
 )
 
 func translateClient() *llm.Client {
+	if summary.TranslationsDisabled() {
+		return nil
+	}
 	translateOnce.Do(func() {
 		cfg := config.Load()
 		if cfg.LLMApiKey != "" {

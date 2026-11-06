@@ -82,6 +82,19 @@ func TestRecordSearchPostgresIsolationLiteralsPagination(t *testing.T) {
 		t.Fatal(g)
 	}
 
+	exec(`UPDATE processed_items SET summary_zh_literal='独特译文',summary_zh_key='literal-zh-v1:' || md5(summary) WHERE item_id=201`)
+	t.Setenv("SUMMARY_TRANSLATIONS_DISABLED", "false")
+	if len(find("broadcast", "独特译文", "", 0, 10).Items) != 1 {
+		t.Fatal("valid translation missing")
+	}
+	t.Setenv("SUMMARY_TRANSLATIONS_DISABLED", "true")
+	if len(find("broadcast", "独特译文", "", 0, 10).Items) != 0 {
+		t.Fatal("disabled translation searchable")
+	}
+	if len(find("broadcast", "summary", "", 0, 10).Items) != 1 {
+		t.Fatal("original hidden during rollback")
+	}
+
 	cached := find("broadcast", "合同", "", 0, 10)
 	exec(`UPDATE raw_items SET author_agent_id=2 WHERE author_agent_id=1`)
 	if err := FilterSearchVisibility(context.Background(), tx, 1, "broadcast", cached); err != nil || len(cached.Items) != 0 {

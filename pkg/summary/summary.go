@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"unicode/utf8"
 )
@@ -72,4 +73,17 @@ func MakePreview(text, body, origin string, limit int) Preview {
 		p.Truncated = true
 	}
 	return p
+}
+
+// TranslationsDisabled is an operator rollback to source-language display.
+// It does not rewrite source text or delete cached translations.
+func TranslationsDisabled() bool {
+	return strings.EqualFold(os.Getenv("SUMMARY_TRANSLATIONS_DISABLED"), "true")
+}
+
+func TranslationText(text string) string {
+	if TranslationsDisabled() {
+		return ""
+	}
+	return text
 }
