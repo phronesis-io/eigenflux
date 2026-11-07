@@ -1,27 +1,26 @@
 package govern
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 )
 
-// Persistence layout. Two files, deliberately different in shape because the
-// two kinds of state have different failure modes:
+// Persistence layout. Two kinds of state, deliberately different in shape
+// because they fail differently:
 //
-//	audit.jsonl  append-only, one AuditEntry per line, fsynced per append
-//	state.json   whole snapshot, replaced atomically (temp file + rename)
+//	audit.jsonl (+ audit.<seq>.jsonl shards)  append-only, fsynced per append,
+//	                                          rotated by size or on demand
+//	state.json                                whole snapshot, replaced atomically
 //
-// The audit log is never rewritten, because rewriting it is exactly the
-// tampering the hash chain exists to detect. The permission and budget snapshot
-// is tiny and changes wholesale, so an atomic replace is cheaper and safer than
-// a second log.
+// The audit log is never rewritten in place, because rewriting it is exactly
+// the tampering the hash chain exists to detect. The permission and budget
+// snapshot is tiny and changes wholesale, so an atomic replace is cheaper and
+// safer than a second log. See rotate.go for the shard layout.
 const (
 	// StateVersion is the on-disk snapshot schema. A file written by a newer
 	// Hub is rejected rather than half-understood.
@@ -29,7 +28,40 @@ const (
 
 	AuditFileName = "audit.jsonl"
 	StateFileName = "state.json"
+
+	// DefaultRotateThreshold is the byte size at which the active audit file is
+	// automatically rotated (8 MiB). It is the default for Open/OpenStore; see
+	// WithRotateThreshold to change or disable it.
+	DefaultRotateThreshold int64 = 8 << 20
 )
+
+// Rotation is a new, additive config knob. Omitting the option keeps the
+// documented 8 MiB default, so the existing Open/OpenStore call sites (which
+// cannot be changed here) get rotation without edits. Passing a value <= 0
+// disables size-based rotation entirely, which reproduces the exact
+// pre-rotation ("old") behaviour: a single, ever-growing audit.jsonl. Either
+// way, write order, fsync-per-write, and degraded-on-write-failure are
+// unchanged, and rotation never writes a fake audit entry.
+
+type storeConfig struct {
+	rotateThreshold int64
+}
+
+func defaultStoreConfig() storeConfig {
+	return storeConfig{rotateThreshold: DefaultRotateThreshold}
+}
+
+// StoreOption configures a durable store. It is additive: existing callers of
+// OpenStore/Open are unaffected.
+type StoreOption func(*storeConfig)
+
+// WithRotateThreshold sets the byte size at which the active audit file is
+// rotated before the next append. A value <= 0 disables automatic rotation
+// (the old behaviour); the fresh, empty active file is still created. Explicit
+// Store.Rotate() always works regardless of this value.
+func WithRotateThreshold(bytes int64) StoreOption {
+	return func(c *storeConfig) { c.rotateThreshold = bytes }
+}
 
 // BudgetSnapshot is the durable half of BudgetLedger. Spend keys are
 // "<companion_id>|<yyyy-mm>" exactly as the ledger uses them, so a restore does
@@ -59,28 +91,54 @@ type State struct {
 // Store is the durable governance store. A nil *Store means "in memory only":
 // every helper tolerates it so the Hub can run without a data directory.
 type Store struct {
-	mu        sync.Mutex
-	dir       string
-	auditPath string
-	statePath string
-	appendf   *os.File
+	mu              sync.Mutex
+	dir             string
+	auditPath       string
+	statePath       string
+	appendf         *os.File
+	rotateThreshold int64
+	lock            *processLockHandle
 }
 
-// OpenStore prepares dir for governance state, creating it when missing.
+// OpenStore prepares dir for governance state with the default config. It is
+// kept for backward compatibility; new callers may use OpenStoreWithOptions.
 func OpenStore(dir string) (*Store, error) {
+	return OpenStoreWithOptions(dir)
+}
+
+// OpenStoreWithOptions prepares dir for governance state, acquiring the
+// advisory process lock and creating the audit/state files when missing.
+// The lock is released on every error path here and by Store.Close on
+// shutdown.
+func OpenStoreWithOptions(dir string, opts ...StoreOption) (*Store, error) {
 	if strings.TrimSpace(dir) == "" {
 		return nil, fmt.Errorf("governance store requires a directory")
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("create governance dir %s: %w", dir, err)
+	cfg := defaultStoreConfig()
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve governance dir %s: %w", dir, err)
+	}
+	if err := os.MkdirAll(absDir, 0o700); err != nil {
+		return nil, fmt.Errorf("create governance dir %s: %w", absDir, err)
+	}
+	lock, err := acquireProcessLock(absDir)
+	if err != nil {
+		return nil, err
 	}
 	s := &Store{
-		dir:       dir,
-		auditPath: filepath.Join(dir, AuditFileName),
-		statePath: filepath.Join(dir, StateFileName),
+		dir:             absDir,
+		auditPath:       filepath.Join(absDir, AuditFileName),
+		statePath:       filepath.Join(absDir, StateFileName),
+		rotateThreshold: cfg.rotateThreshold,
+		lock:            lock,
 	}
 	f, err := os.OpenFile(s.auditPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
+		_ = lock.release()
 		return nil, fmt.Errorf("open audit log %s: %w", s.auditPath, err)
 	}
 	s.appendf = f
@@ -95,103 +153,31 @@ func (s *Store) Dir() string {
 	return s.dir
 }
 
-// Close releases the append handle. The store is unusable afterwards.
+// Close releases the append handle AND the advisory process lock. The store is
+// unusable afterwards; a second Close is a no-op. Releasing the lock here is
+// what lets a fresh process (or a restart test) take the directory over.
 func (s *Store) Close() error {
 	if s == nil {
 		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.appendf == nil {
-		return nil
+	var err error
+	if s.appendf != nil {
+		err = s.appendf.Close()
+		s.appendf = nil
 	}
-	err := s.appendf.Close()
-	s.appendf = nil
+	if s.lock != nil {
+		if lerr := s.lock.release(); lerr != nil && err == nil {
+			err = lerr
+		}
+		s.lock = nil
+	}
 	return err
 }
 
-// LoadAudit reads the whole chain. A missing file is an empty log, not an
-// error: a fresh Hub has no history yet.
-//
-// A torn final line is repaired rather than reported, because that is the shape
-// a crash leaves behind: the append was interrupted mid-record. The repair is a
-// truncation of the incomplete tail, which loses at most the one record that
-// was never fully written. A malformed line anywhere else is corruption and
-// fails loudly — a hole in the middle of a hash chain is not something to skip
-// past.
-func (s *Store) LoadAudit() ([]AuditEntry, error) {
-	if s == nil {
-		return nil, nil
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	f, err := os.Open(s.auditPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read audit log %s: %w", s.auditPath, err)
-	}
-	defer f.Close()
-
-	var (
-		entries  []AuditEntry
-		validEnd int64
-	)
-	reader := bufio.NewReaderSize(f, 64*1024)
-	for line := 1; ; line++ {
-		raw, readErr := reader.ReadString('\n')
-		complete := strings.HasSuffix(raw, "\n")
-		trimmed := strings.TrimSpace(raw)
-
-		if trimmed == "" {
-			if complete {
-				validEnd += int64(len(raw))
-			}
-			if readErr != nil {
-				break
-			}
-			continue
-		}
-
-		var entry AuditEntry
-		if err := json.Unmarshal([]byte(trimmed), &entry); err != nil {
-			if !complete {
-				// Interrupted append: drop the tail so the next append starts
-				// on a clean line boundary.
-				return entries, s.truncateAuditLocked(validEnd, err)
-			}
-			return nil, fmt.Errorf("audit log %s line %d is not a valid entry: %w", s.auditPath, line, err)
-		}
-		if !complete {
-			return entries, s.truncateAuditLocked(validEnd, nil)
-		}
-		entries = append(entries, entry)
-		validEnd += int64(len(raw))
-
-		if readErr != nil {
-			if errors.Is(readErr, io.EOF) {
-				break
-			}
-			return nil, fmt.Errorf("read audit log %s: %w", s.auditPath, readErr)
-		}
-	}
-	return entries, nil
-}
-
-// truncateAuditLocked cuts an incomplete tail record and reports it as a
-// warning-shaped error carrying how much was dropped, so the caller can log the
-// repair without treating it as a failure.
-func (s *Store) truncateAuditLocked(size int64, cause error) error {
-	if err := os.Truncate(s.auditPath, size); err != nil {
-		return fmt.Errorf("repair torn audit tail (%v): %w", cause, err)
-	}
-	return &TornTailError{Bytes: size}
-}
-
 // TornTailError reports that an interrupted append was removed from the end of
-// the audit log. It is not a failure: the chain before it is intact.
+// the active audit log. It is not a failure: the chain before it is intact.
 type TornTailError struct{ Bytes int64 }
 
 func (e *TornTailError) Error() string {
@@ -200,7 +186,9 @@ func (e *TornTailError) Error() string {
 
 // AppendAudit writes one entry and flushes it to the platform before returning.
 // The caller records it in memory only after this succeeds, so the in-memory
-// log is never ahead of the durable one.
+// log is never ahead of the durable one. A size-based rotation, when due, is
+// performed BEFORE the write so a rotation failure fails closed without a
+// recorded-but-unapplied decision.
 func (s *Store) AppendAudit(entry AuditEntry) error {
 	if s == nil {
 		return nil
@@ -215,6 +203,9 @@ func (s *Store) AppendAudit(entry AuditEntry) error {
 	defer s.mu.Unlock()
 	if s.appendf == nil {
 		return fmt.Errorf("governance store %s is closed", s.dir)
+	}
+	if err := s.maybeRotateLocked(); err != nil {
+		return err
 	}
 	if _, err := s.appendf.Write(line); err != nil {
 		return fmt.Errorf("append audit entry %d: %w", entry.Seq, err)
@@ -307,6 +298,15 @@ type Components struct {
 	loadNotes []error
 }
 
+// Close releases the store (and therefore the advisory process lock) held by
+// these components. It is safe on memory-only components (Store == nil).
+func (c *Components) Close() error {
+	if c == nil {
+		return nil
+	}
+	return c.Store.Close()
+}
+
 // NewMemory returns governance components with no durable backing. This is what
 // the Hub uses when no data directory is configured; the components behave
 // exactly as before ADR-0008.
@@ -319,18 +319,24 @@ func NewMemory() *Components {
 	}
 }
 
-// Open loads governance state from dir, verifying the audit chain and refusing
-// to start on a snapshot that claims to be newer than the log it backs.
+// Open loads governance state from dir with the default config, verifying the
+// audit chain and refusing to start on a snapshot that claims to be newer than
+// the log it backs. Kept for backward compatibility; see OpenWithOptions.
+func Open(dir string) (*Components, error) {
+	return OpenWithOptions(dir)
+}
+
+// OpenWithOptions is Open with StoreOptions (notably WithRotateThreshold).
 //
 // Both refusals are the point of the function. A chain that does not verify
 // means entries were edited, removed or reordered; a snapshot ahead of the log
 // means an authority change was applied without being recorded. Serving either
 // one would be a governance system that lies.
-func Open(dir string) (*Components, error) {
+func OpenWithOptions(dir string, opts ...StoreOption) (*Components, error) {
 	if strings.TrimSpace(dir) == "" {
 		return NewMemory(), nil
 	}
-	store, err := OpenStore(dir)
+	store, err := OpenStoreWithOptions(dir, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -397,8 +403,8 @@ func (c *Components) LoadNote() error {
 	return errors.Join(c.loadNotes...)
 }
 
-// LastSeq reports the sequence number of the most recent recorded decision, so
-// the state snapshot can name the log position it corresponds to.
+// SnapshotState reports the state a snapshot corresponds to: the sequence
+// number of the most recent recorded decision and the durable control state.
 func (c *Components) SnapshotState() State {
 	return State{
 		Version:     StateVersion,
