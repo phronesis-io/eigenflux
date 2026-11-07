@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'placeholder_assets.dart';
+import 'ai_art_assets.dart';
 import 'postmatch_replay.dart';
 import 'stage_view.dart';
 import 'theatre_models.dart';
@@ -15,7 +16,7 @@ import 'vote_spotlight.dart';
 ///   frames: <TheatreFrame>[frame1, frame2, ...],  // replay/archive: scrubber on
 ///   // OR
 ///   frame: myValueNotifier,   // ValueListenable<TheatreFrame>: live, no scrubber
-///   assets: const PlaceholderAssets(),  // swap here only when Rive/2.5D arrives
+///   assets: defaultTheatreAssets,      // ADR-0012: PlaceholderAssets or AI-art interim via flag
 ///   divergenceRound: 3,                // optional same-spec reprise marker
 ///   title: 'The Locked Ward',          // optional heading
 /// )
@@ -29,8 +30,10 @@ import 'vote_spotlight.dart';
 ///   scrubber is disabled.
 ///
 /// If both are supplied, [frame] takes precedence (a live match wins over a
-/// recorded one). [assets] defaults to [PlaceholderAssets] and is the ONLY
-/// argument that changes when the procured Rive/2.5D assets are integrated.
+/// recorded one). [assets] defaults to [PlaceholderAssets]; ADR-0012 adds
+/// [AiArtAssets] as an AI-generated, labelled interim selected by
+/// `defaultTheatreAssets` (off by default via `kUseAiArtInterim`). It is the
+/// only argument that changes when the art pack is swapped.
 ///
 /// The body is a [SingleChildScrollView] around a `mainAxisSize.min` [Column]:
 /// vertical content scrolls instead of overflowing a fixed-height [Column].
@@ -139,8 +142,12 @@ class _TheatreScreenState extends State<TheatreScreen> {
               widget.title ?? frame.title ?? 'Flux Theatre',
               style: theme.textTheme.titleLarge,
             ),
-            const Chip(
-              label: Text('placeholder art'),
+            Chip(
+              label: Text(
+                widget.assets is AiArtAssets
+                    ? 'AI-art interim — not S3 final'
+                    : 'placeholder art',
+              ),
               visualDensity: VisualDensity.compact,
             ),
             if (frame.viewMode != null)

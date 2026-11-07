@@ -12,6 +12,7 @@ library;
 import 'package:flutter/material.dart' hide Badge;
 import 'package:fluxspace_client/theatre/theatre_models.dart';
 import 'package:fluxspace_client/theatre/theatre_screen.dart';
+import 'package:fluxspace_client/theatre/theatre_config.dart';
 
 import 'archive_frames.dart';
 import 'panels_api.dart';
@@ -321,6 +322,7 @@ class _ArchivePanelState extends State<ArchivePanel> {
           frames: replay.frames,
           divergenceRound: replay.divergenceRound,
           title: title,
+          assets: defaultTheatreAssets,
         ),
       ),
     );

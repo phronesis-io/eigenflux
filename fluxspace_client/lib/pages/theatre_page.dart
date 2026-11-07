@@ -12,6 +12,7 @@ import '../setup/setup_result_bus.dart';
 import '../setup/setup_state.dart';
 import '../theatre/theatre_models.dart';
 import '../theatre/theatre_screen.dart';
+import '../theatre/theatre_config.dart';
 
 /// Inline hint shown after a guided setup result is applied, until Connect.
 const String kSetupAppliedHint = 'Hub setup applied - press Connect to use it.';
@@ -308,7 +309,10 @@ class _TheatrePageState extends State<TheatrePage> {
       ],
     });
     Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => TheatreScreen(frames: <TheatreFrame>[frame]),
+      builder: (_) => TheatreScreen(
+        frames: <TheatreFrame>[frame],
+        assets: defaultTheatreAssets,
+      ),
     ));
   }
 

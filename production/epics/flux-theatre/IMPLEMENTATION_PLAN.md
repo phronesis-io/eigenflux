@@ -28,7 +28,7 @@ gate evidence. This document replaces them as the build plan.
 |---|---|---|---|---|
 | S1 | 1 — prove the riskiest loop | 001, 003 | Two real users + two labelled official companions complete an authentic invitation, an isolated-seat match and a follow-up interaction | A real PM invitation round-trips through EigenFlux; one 5-round match runs end to end on the Hub; seat uniqueness and one-live-match-per-owner enforced |
 | S2 | 2 — one reliably solvable theatre | 004, 005 | Make one generated theatre solvable, non-repetitive, participative and watchable for its full 10+ minutes | Non-`rounds_out` rate does not regress below the recorded 10% baseline (ADR-0003); 480-match run completes; structural fingerprints do not repeat within 5 matches |
-| S3 | 3 — four characters and the 2.5D director | 002, 006 | Four recognisable personas, omniscient/subjective views, automatic event director, validated with target viewers | 60fps Flame scene; Rive idle/walk/expression for four personas; retained screenshot evidence under `production/qa/evidence/`. **Blocked on G6 procurement** — see `S3_ASSET_PROCUREMENT.md` for the quote package and acceptance tests |
+| S3 | 3 — four characters and the 2.5D director | 002, 006 | Four recognisable personas, omniscient/subjective views, automatic event director, validated with target viewers | 60fps Flame scene; Rive idle/walk/expression for four personas; retained screenshot evidence under `production/qa/evidence/`. **AI-art interim delivered (ADR-0012)** — see `S3_ASSET_PROCUREMENT.md` for the quote package and acceptance tests; the full Rive/2.5D procurement (ADR-0004 G6) is deferred but remains the route to S3's formal acceptance |
 | S4 | 4 — memory, consequences, replays | 007, 008 | Source-tagged memories, directional relationships, immutable archives, same-spec reprises, recaps, threads | SHA-256 archive verification; six viewing modes; all-participant consent for public replay |
 | S5 | 5 — harden before expanding | 009, 010 | Guided runtime setup, predictable cost, privacy, three-tier tool permissions, public consent | Budget downgrade path, per-companion permission isolation, audit log, consent gate, model-version consistency check |
 
@@ -195,8 +195,10 @@ Two things the first live run taught, both now pinned in the test:
 - The Hub keeps invitations for the life of the process and refuses a duplicate
   id, so a repeat run must name its own.
 
-Not done in the client: the 2.5D theatre and the Rive artboards (S3, blocked on
-procurement) — only the asset-agnostic render skeleton and its placeholder pack
+Not done in the client: the Rive rigs (S3 exit criterion). An AI-art interim exists
+(ADR-0012: AI portraits + 2.5D backdrop via pure-Flutter `AiArtAssets`, flagged
+in-UI and behind `kUseAiArtInterim`); the asset-agnostic render skeleton and its
+placeholder pack also remain
 exist; real-time event pacing / audio / wall-clock scrubbing in the replay
 player; and the local `drift` database is still schema-only. Read-only archive
 and governance panels DO exist (`lib/panels/`) and are reachable from the
@@ -282,7 +284,7 @@ succeeded.
 | `flutter --version` (3.47.9 / Dart 3.13.7) | **PASS** — 2026-11-06, installed SDK verified byte-for-byte against official sha256 |
 | `flutter pub get` | **PASS** — 122 packages resolved, `pubspec.lock` generated |
 | `flutter analyze` | **PASS** — `No issues found!` (0 issues / 0 errors / 0 warnings) |
-| `flutter test` | **PASS — 194 tests, 2 skipped** (`All tests passed!`). Both skips are the live Hub smokes, which need `FLUXSPACE_LIVE_HUB`. Cumulative: 46 session/reconnect tests (deterministic injected sleep), 12 S3 render-skeleton widget tests, 81 panel tests (49 S4/S5 + 32 archive-replay adapter and widget tests), 25 setup-wizard tests (state machine, probe success/failure, auth-on/auth-off, save, back navigation, widget smoke), and 4 wiring tests. Required two environment-only workarounds: priming the `sqlite3` hook cache with the sha256-verified official DLL, and unsetting proxy vars for the local `flutter_tester` WebSocket. No source change. |
+| `flutter test` | **PASS — 198 tests, 2 skipped** (`All tests passed!`). Both skips are the live Hub smokes, which need `FLUXSPACE_LIVE_HUB`. Cumulative: 46 session/reconnect tests (deterministic injected sleep), 12 S3 render-skeleton widget tests, 81 panel tests (49 S4/S5 + 32 archive-replay adapter and widget tests), 25 setup-wizard tests (state machine, probe success/failure, auth-on/auth-off, save, back navigation, widget smoke), 4 wiring tests, and 4 AiArtAssets tests. Required two environment-only workarounds: priming the `sqlite3` hook cache with the sha256-verified official DLL, and unsetting proxy vars for the local `flutter_tester` WebSocket. No source change. |
 | Live Hub smoke (client) | **PASS** — one match from invitation to settlement against `fluxspace-hub` on `:8399`, unauthenticated: three proposals, both parties confirmed, two seats joined, every round advanced and decided, settlement non-empty, and the SSE stream carried `round_begin` / `decision` / `match_end` with strictly increasing ids |
 | Live Hub smoke (spectator) | **PASS** — the same Hub with `HUB_SPECTATOR_TOKEN`: the session view is readable with the spectator token and returns both seats, and a `spectate` resumed from event *n* returned event *n+1* first with no duplicate |
 | Spectator boundary (authenticated Hub) | **PASS — `curl`, real binary**: `GET /hub/sessions/{id}` with no credential `401`, with only `X-Spectator-Token` passes the middleware and answers `404 SESSION_NOT_FOUND` (it got through), a write with the spectator token is `401`, and a wrong spectator token is `401` |
