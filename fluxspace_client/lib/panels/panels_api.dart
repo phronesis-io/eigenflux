@@ -142,6 +142,23 @@ class PanelsApi {
   }) async =>
       ArchiveView.fromJson(await _fetch(viewPath(id, mode), query: query));
 
+  /// `GET /hub/archives/{id}/views/{mode}` — the FULL raw wire document.
+  ///
+  /// Read-only (a GET) and the ONLY read needed to play a chosen archive view.
+  /// It returns the decoded `View` JSON verbatim rather than the intentionally
+  /// lossy [ArchiveView]: the typed model keeps only the fields the
+  /// observability cards display and drops `events[].phase`, `seat_id`,
+  /// `payload`, decision `seat_id`/`official`, `moments[].reason`, etc. The
+  /// replay adapter (`archive_frames.dart`) needs those genuinely recorded
+  /// fields to build a faithful timeline. It reuses [viewPath] and [_fetch], so
+  /// it can never become a consent grant, reprise creation or publish write.
+  Future<Map<String, dynamic>> fetchViewJson(
+    String id,
+    String mode, {
+    Map<String, dynamic>? query,
+  }) async =>
+      _fetch(viewPath(id, mode), query: query);
+
   /// `GET /hub/archives/{id}/reprises`.
   Future<List<Reprise>> fetchReprises(String archiveId) async {
     final Field<List<Reprise>> parsed = _listFromJson<Reprise>(

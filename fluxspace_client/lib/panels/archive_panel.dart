@@ -10,7 +10,10 @@
 library;
 
 import 'package:flutter/material.dart' hide Badge;
+import 'package:fluxspace_client/theatre/theatre_models.dart';
+import 'package:fluxspace_client/theatre/theatre_screen.dart';
 
+import 'archive_frames.dart';
 import 'panels_api.dart';
 import 'panels_models.dart';
 import 'panels_ui.dart';
@@ -46,6 +49,11 @@ class _ArchivePanelState extends State<ArchivePanel> {
   bool _loadingBundle = false;
   String? _firstSeatId;
 
+  /// The replay timeline adapted from the selected view's FULL raw JSON.
+  /// Null until a bundle has been loaded; an empty frame list is a genuine
+  /// "not recorded" state that gates the Play replay button.
+  ArchiveReplay? _replay;
+
   @override
   void initState() {
     super.initState();
@@ -71,14 +79,28 @@ class _ArchivePanelState extends State<ArchivePanel> {
   Future<void> _loadBundle(String id, String mode) async {
     if (!mounted) return;
     setState(() => _loadingBundle = true);
+    final Map<String, dynamic>? viewQuery = _viewQuery(mode);
     final ArchiveBundle bundle = await widget.api.loadArchiveBundle(
       archiveId: id,
       mode: mode,
-      viewQuery: _viewQuery(mode),
+      viewQuery: viewQuery,
     );
+    // The typed ArchiveView behind the observability cards is deliberately
+    // lossy (it drops events[].phase, seat ids, decision details, ...). Fetch
+    // the full raw `View` once so the replay adapter can build an honest
+    // timeline. This is the same read-only GET the cards already use.
+    Map<String, dynamic> viewJson = const <String, dynamic>{};
+    try {
+      viewJson = await widget.api.fetchViewJson(id, mode, query: viewQuery);
+    } catch (_) {
+      // A failed or empty view yields no frames; the button stays gated and
+      // shows "not recorded". Nothing is fabricated.
+      viewJson = const <String, dynamic>{};
+    }
     if (!mounted) return;
     setState(() {
       _bundle = bundle;
+      _replay = adaptArchiveView(viewJson);
       _loadingBundle = false;
       _firstSeatId = bundle.detail.value?.config.firstSeatId;
     });
@@ -171,6 +193,7 @@ class _ArchivePanelState extends State<ArchivePanel> {
             DegradedBanner(code: degraded.code, message: degraded.message),
           _sessionListCard(context),
           _viewSelectorCard(),
+          _replayLaunchCard(),
           if (_selectedId.isEmpty)
             const EmptyHint('No archive selected (empty session list).'),
           if (_selectedId.isNotEmpty && _loadingBundle)
@@ -238,6 +261,70 @@ class _ArchivePanelState extends State<ArchivePanel> {
           ),
         ],
       );
+
+  // --- replay playback -----------------------------------------------------
+
+  /// The "Play replay" action. The button is gated on a selected archive AND a
+  /// non-empty adapted frame list; otherwise a clear "not recorded" state is
+  /// shown. Wrap (not an unbounded Row) keeps it overflow-safe at 800x600.
+  Widget _replayLaunchCard() {
+    final List<TheatreFrame> frames =
+        _replay?.frames ?? const <TheatreFrame>[];
+    final bool hasSelection = _selectedId.isNotEmpty;
+    final bool canPlay = hasSelection && frames.isNotEmpty && !_loadingBundle;
+    return PanelCard(
+      title: 'Replay playback',
+      children: <Widget>[
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: <Widget>[
+            FilledButton.icon(
+              key: const Key('play_replay_button'),
+              onPressed: canPlay ? _playReplay : null,
+              icon: const Icon(Icons.play_arrow),
+              label: const Text('Play replay'),
+            ),
+            if (frames.isNotEmpty)
+              Badge('${frames.length} frame(s)', color: Colors.blueGrey),
+            if (_replay?.divergenceRound != null)
+              Badge('divergence round ${_replay!.divergenceRound}',
+                  color: Colors.orange),
+          ],
+        ),
+        if (!hasSelection)
+          const EmptyHint('Not recorded — no archive selected.'),
+        if (hasSelection && !_loadingBundle && frames.isEmpty)
+          const EmptyHint('Not recorded — this view recorded no replay frames.'),
+        const Caption(
+          'Plays the selected six-view projection through TheatreScreen. Only '
+          'GET /hub/archives/{id}/views/{mode} is read; no consent grant, '
+          'reprise creation or publish is triggered. A field the Hub did not '
+          'record (speaker, seat state, winner, tally) stays "not recorded".',
+        ),
+      ],
+    );
+  }
+
+  /// Pushes the recorded timeline into the existing TheatreScreen replay.
+  Future<void> _playReplay() async {
+    final ArchiveReplay? replay = _replay;
+    if (replay == null || !replay.hasFrames || _selectedId.isEmpty) return;
+    // The heading is the archive id: prefer the genuinely recorded
+    // View.archive_id, falling back to the selected id (never invented).
+    final String title =
+        replay.archiveId.isNotEmpty ? replay.archiveId : _selectedId;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => TheatreScreen(
+          frames: replay.frames,
+          divergenceRound: replay.divergenceRound,
+          title: title,
+        ),
+      ),
+    );
+  }
 
   // --- bundle cards --------------------------------------------------------
 
