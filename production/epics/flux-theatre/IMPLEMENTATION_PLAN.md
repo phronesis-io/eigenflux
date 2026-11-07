@@ -195,8 +195,14 @@ Two things the first live run taught, both now pinned in the test:
   id, so a repeat run must name its own.
 
 Not done in the client: the 2.5D theatre and the Rive artboards (S3, blocked on
-procurement); the archive and governance screens; and the local `drift` database
-is still schema-only. `flutter test` cannot exercise the keychain
+procurement) — only the asset-agnostic render skeleton and its placeholder pack
+exist; a full replay player wired to real archive frames; and the local `drift`
+database is still schema-only. Read-only archive and governance panels DO exist
+(`lib/panels/`) and are reachable from the console; see
+`OBSERVABILITY_PANELS.md` for the nine backend capabilities that still have no
+GET endpoint and are therefore deliberately not shown. The stream now reconnects
+automatically with bounded exponential backoff and a visible state strip; see
+ADR-0010. `flutter test` cannot exercise the keychain
 (`SecureTokenStore` is only constructed by the page), so token persistence itself
 is covered by the interface contract rather than by a test.
 
@@ -238,7 +244,11 @@ succeeded.
 |---|---|
 | `go build ./...` (hub) | PASS |
 | `go vet ./...` (hub) | PASS |
-| `go test -count=1 -v ./...` (hub) | PASS — **140 passing tests** across api, archive, followup, generator, govern, invitation, models, referee, services, session (apperr has no tests of its own) |
+| `go test -count=1 -v ./...` (hub) | PASS — **161 passing tests** across api (37), govern (35), archive, followup, generator, invitation, models, referee, services, session (apperr has no tests of its own) |
+| `GOOS=linux GOARCH=amd64 go build ./...` (hub) | PASS — the stdlib advisory lock compiles for both Windows and Linux |
+| Hub auth coverage (ADR-0010) | PASS — `TestRouteAuditDefaultDeny` walks all 42 registered routes; `TestAuthGateIsMethodQualified` proves non-GET requests to the three exempt paths are 401 rather than falling through the gate; `TestSpectatorCannotReachMutatingRoutes` covers all 23 mutating routes |
+| Governance lock and rotation (ADR-0010) | PASS — chain verification across >=3 shards, multi-shard load, snapshot-ahead refusal, torn tail in the active shard only, stale-lock recovery and a real second process being refused; rotation does not change budget or permission state |
+| Graceful shutdown (ADR-0010) | PASS — `TestRunShutsDownAndReleasesListener` cancels the context, `Run` returns in 0.02s and `ln.Accept()` proves the listener was released; serve errors are surfaced, not swallowed |
 | `python hub/scripts/check_balance.py` | PASS — the S2 gate. 5 x 480 = 2,400 matches aggregated; measured 9.38%–11.25% across 20 consecutive runs, 0 failures. Floor is 0.08, the three-sigma lower bound of the 10% baseline (see ADR-0003 amendment) |
 | S4 replay archive | PASS — `hub/archive/` 15 tests (build, tamper detection, six modes, consent policies, reprise divergence) plus 3 HTTP tests covering the full S4 flow |
 | Archive integrity | PASS — SHA-256 over `{version, session_id, config, events, settlement}` plus a skeleton hash; `Load` refuses tampered bytes; six tamper cases assert the exact mismatch |
@@ -265,7 +275,7 @@ succeeded.
 | `flutter --version` (3.47.9 / Dart 3.13.7) | **PASS** — 2026-11-06, installed SDK verified byte-for-byte against official sha256 |
 | `flutter pub get` | **PASS** — 122 packages resolved, `pubspec.lock` generated |
 | `flutter analyze` | **PASS** — `No issues found!` (0 issues / 0 errors / 0 warnings) |
-| `flutter test` | **PASS — 47 tests, 2 skipped** (`All tests passed!`). Both skips are the live Hub smokes, which need `FLUXSPACE_LIVE_HUB`. Required two environment-only workarounds: priming the `sqlite3` hook cache with the sha256-verified official DLL, and unsetting proxy vars for the local `flutter_tester` WebSocket. No source change. |
+| `flutter test` | **PASS — 136 tests, 2 skipped** (`All tests passed!`). Both skips are the live Hub smokes, which need `FLUXSPACE_LIVE_HUB`. Added in this batch: 46 session/reconnect tests (deterministic injected sleep — backoff curve, jitter bounds, reset, exhaustion, dispose, dedupe, `Last-Event-ID` replay), 12 S3 render-skeleton widget tests (including no-overflow assertions with a meta-test proving the overflow trap works), 49 S4/S5 panel tests, and 3 wiring tests. Required two environment-only workarounds: priming the `sqlite3` hook cache with the sha256-verified official DLL, and unsetting proxy vars for the local `flutter_tester` WebSocket. No source change. |
 | Live Hub smoke (client) | **PASS** — one match from invitation to settlement against `fluxspace-hub` on `:8399`, unauthenticated: three proposals, both parties confirmed, two seats joined, every round advanced and decided, settlement non-empty, and the SSE stream carried `round_begin` / `decision` / `match_end` with strictly increasing ids |
 | Live Hub smoke (spectator) | **PASS** — the same Hub with `HUB_SPECTATOR_TOKEN`: the session view is readable with the spectator token and returns both seats, and a `spectate` resumed from event *n* returned event *n+1* first with no duplicate |
 | Spectator boundary (authenticated Hub) | **PASS — `curl`, real binary**: `GET /hub/sessions/{id}` with no credential `401`, with only `X-Spectator-Token` passes the middleware and answers `404 SESSION_NOT_FOUND` (it got through), a write with the spectator token is `401`, and a wrong spectator token is `401` |
