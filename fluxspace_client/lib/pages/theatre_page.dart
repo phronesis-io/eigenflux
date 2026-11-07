@@ -1,9 +1,15 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import '../models/hub_models.dart';
+import '../panels/panels_api.dart';
+import '../panels/panels_screen.dart';
+import '../services/hub_api.dart';
 import '../services/hub_client.dart';
 import '../services/token_store.dart';
 import '../session/session_controller.dart';
+import '../theatre/theatre_models.dart';
+import '../theatre/theatre_screen.dart';
 
 /// The match console: a text view of a real Hub session.
 ///
@@ -125,6 +131,8 @@ class _TheatrePageState extends State<TheatrePage> {
           return ListView(
             padding: const EdgeInsets.all(12),
             children: <Widget>[
+              _connectionBanner(context),
+              const SizedBox(height: 12),
               // Once a match is open it goes first: the setup cards were the
               // way in, and leaving them on top of a live match pushes the thing
               // the player is watching off the screen.
@@ -145,12 +153,141 @@ class _TheatrePageState extends State<TheatrePage> {
                 ),
               ],
               const SizedBox(height: 12),
+              _extrasCard(context, view),
+              const SizedBox(height: 12),
               _logCard(context),
             ],
           );
         },
       ),
     );
+  }
+
+  /// The stream now reconnects on its own. Without this strip a dropped SSE
+  /// connection looks exactly like a frozen match, which is worse than a
+  /// visible failure.
+  Widget _connectionBanner(BuildContext context) {
+    return ValueListenableBuilder<SessionConnectionState>(
+      valueListenable: _controller.connectionState,
+      builder: (BuildContext context, SessionConnectionState state, Widget? _) {
+        final bool degraded = state == SessionConnectionState.reconnecting ||
+            state == SessionConnectionState.failed;
+        final String label = switch (state) {
+          SessionConnectionState.idle => 'Stream: idle',
+          SessionConnectionState.connecting => 'Stream: connecting',
+          SessionConnectionState.live => 'Stream: live',
+          SessionConnectionState.reconnecting =>
+            'Stream: reconnecting (${_controller.attemptCount}/${_controller.maxReconnectAttempts})',
+          SessionConnectionState.failed => 'Stream: reconnect failed',
+          SessionConnectionState.closed => 'Stream: closed',
+        };
+        final HubException? failure = _controller.lastConnectionError;
+        return Card(
+          color: degraded ? Theme.of(context).colorScheme.errorContainer : null,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: <Widget>[
+                Icon(degraded ? Icons.sync_problem : Icons.sync, size: 16),
+                Text(label, style: Theme.of(context).textTheme.bodySmall),
+                if (state == SessionConnectionState.failed && failure != null)
+                  Text(failure.code, style: Theme.of(context).textTheme.bodySmall),
+                if (state == SessionConnectionState.failed)
+                  TextButton.icon(
+                    onPressed: _controller.reconnectNow,
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: const Text('Retry now'),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Entry points to the S3 render skeleton and the S4/S5 read-only panels.
+  Widget _extrasCard(BuildContext context, SessionView? view) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text('Stage & records', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                OutlinedButton.icon(
+                  onPressed: view == null ? null : () => _openStage(context, view),
+                  icon: const Icon(Icons.theater_comedy_outlined),
+                  label: const Text('Visual stage (placeholder)'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => _openPanels(context),
+                  icon: const Icon(Icons.fact_check_outlined),
+                  label: const Text('Governance & archives'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'The visual stage uses placeholder art: it is the S3 render skeleton, '
+              'not the procured Rive/2.5D assets. Records are read-only.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Adapter from the Hub wire view to the render layer's plain vocabulary.
+  ///
+  /// A `SessionView` does not record an active speaker, seat states, ballots or
+  /// a reveal, so those fields are deliberately left out — they render as
+  /// "not recorded" instead of being guessed.
+  void _openStage(BuildContext context, SessionView view) {
+    final TheatreFrame frame = TheatreFrame.fromMap(<String, dynamic>{
+      'round': view.round,
+      'total_rounds': view.totalRounds,
+      'phase': view.phase,
+      'title': view.sessionId.isEmpty ? null : view.sessionId,
+      'summary': view.outcome.isEmpty ? null : view.outcome,
+      'seats': <Map<String, dynamic>>[
+        for (final HubSeat seat in view.seats)
+          <String, dynamic>{
+            'id': seat.seatId,
+            'display_name': seat.displayName,
+            'persona_id': seat.companionId,
+            'official': seat.official,
+          },
+      ],
+    });
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => TheatreScreen(frames: <TheatreFrame>[frame]),
+    ));
+  }
+
+  void _openPanels(BuildContext context) {
+    final String token = _token.text.trim();
+    final Dio dio = Dio(BaseOptions(
+      baseUrl: _baseUrl.text.trim(),
+      headers: <String, dynamic>{
+        if (token.isNotEmpty) 'Authorization': 'Bearer $token',
+      },
+    ));
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => PanelsScreen(
+        api: PanelsApi.fromDio(dio),
+        companionId: _companionId.text.trim(),
+      ),
+    ));
   }
 
   Widget _connectionCard(BuildContext context) {
