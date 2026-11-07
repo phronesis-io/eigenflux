@@ -29,12 +29,37 @@ class AiArtAssets extends TheatreAssets {
     'shen-mo': 'assets/personas/shen_mo.png',
   };
 
+  /// Stable pool used for ids the Hub actually emits (companion ids), which are
+  /// not the four character keys above.
+  static const List<String> _portraitPool = <String>[
+    'assets/personas/lin_shen.png',
+    'assets/personas/su_wan.png',
+    'assets/personas/gu_yuan.png',
+    'assets/personas/shen_mo.png',
+  ];
+
+  /// Resolve a persona id to a bundled portrait path.
+  ///
+  /// Exact character keys win. Otherwise (real matches emit opaque companion
+  /// ids) we hash the id so each companion gets a stable, distinct portrait
+  /// instead of a neutral placeholder. Returns '' only for a null id.
+  static String _resolve(String? personaId) {
+    if (personaId == null) return '';
+    final String? exact = _portraits[personaId];
+    if (exact != null) return exact;
+    int hash = 0;
+    for (final int code in personaId.codeUnits) {
+      hash = (hash * 31 + code) & 0x7fffffff;
+    }
+    return _portraitPool[hash % _portraitPool.length];
+  }
+
   @override
   Widget portrait(String? personaId, double size) {
     final double edge = size <= 0 ? 1.0 : size;
-    final String? path = personaId == null ? null : _portraits[personaId];
-    if (path == null) {
-      // Neutral, clearly-labelled fallback for unknown / "not recorded" ids.
+    final String path = _resolve(personaId);
+    if (path.isEmpty) {
+      // Neutral, clearly-labelled fallback for a null / "not recorded" id.
       // Never requests a missing asset (which would throw on load).
       return SizedBox(
         width: edge,

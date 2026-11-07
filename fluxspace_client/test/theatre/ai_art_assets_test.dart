@@ -40,10 +40,23 @@ void main() {
     expect(find.byType(Image), findsOneWidget);
   });
 
-  testWidgets('unknown persona id never requests a missing asset', (WidgetTester tester) async {
+  testWidgets('unknown persona id resolves to a stable portrait without throwing',
+      (WidgetTester tester) async {
     const AiArtAssets assets = AiArtAssets();
     await tester.pumpWidget(MaterialApp(
       home: SizedBox(width: 64, height: 64, child: assets.portrait('mystery', 64)),
+    ));
+    await tester.pumpAndSettle();
+    // Real matches emit opaque companion ids (not the four character keys), so
+    // unknown ids are hashed to a stable portrait instead of a missing asset.
+    expect(tester.takeException(), isNull);
+    expect(find.byType(Image), findsOneWidget);
+  });
+
+  testWidgets('null persona id shows the neutral fallback', (WidgetTester tester) async {
+    const AiArtAssets assets = AiArtAssets();
+    await tester.pumpWidget(MaterialApp(
+      home: SizedBox(width: 64, height: 64, child: assets.portrait(null, 64)),
     ));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);

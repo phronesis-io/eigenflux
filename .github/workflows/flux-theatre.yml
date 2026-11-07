@@ -6,11 +6,17 @@ on:
     paths:
       - 'hub/**'
       - 'fluxspace/**'
+      - 'fluxspace_client/**'
+      - 'production/**'
+      - 'docs/**'
       - '.github/workflows/flux-theatre.yml'
   pull_request:
     paths:
       - 'hub/**'
       - 'fluxspace/**'
+      - 'fluxspace_client/**'
+      - 'production/**'
+      - 'docs/**'
       - '.github/workflows/flux-theatre.yml'
   workflow_dispatch:
 
@@ -67,3 +73,27 @@ jobs:
       # Node + Python stdlib, no Windows-only deps, so no step is skipped.
       - name: Balance regression gate (ADR-0003 10% baseline, 3-sigma floor)
         run: python hub/scripts/check_balance.py
+
+  client:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: 'stable'
+
+      - name: flutter pub get
+        working-directory: fluxspace_client
+        run: flutter pub get
+
+      - name: flutter analyze
+        working-directory: fluxspace_client
+        run: flutter analyze
+
+      - name: flutter test
+        working-directory: fluxspace_client
+        run: flutter test
