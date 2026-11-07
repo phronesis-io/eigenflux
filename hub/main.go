@@ -4,11 +4,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"fluxspace.ai/hub/api"
 	"fluxspace.ai/hub/archive"
@@ -132,12 +136,13 @@ func main() {
 		addr = ":8095"
 	}
 	port := gatewayPort()
+	components := governanceComponents()
 	srv := &api.Server{
 		Manager:        session.NewManager(),
 		SpectatorToken: os.Getenv("HUB_SPECTATOR_TOKEN"),
 		Invitations:    invitation.NewManager(),
 		Archives:       archive.NewStore(),
-		Governance:     &api.Governance{Components: governanceComponents()},
+		Governance:     &api.Governance{Components: components},
 		OwnerTokens:    ownerTokens(),
 		Port:           port,
 	}
@@ -156,8 +161,23 @@ func main() {
 	api.RegisterArchives(mux, srv)
 	api.RegisterGovernance(mux, srv)
 	api.RegisterCompanions(mux, srv)
+
+	// An explicit Server (rather than http.ListenAndServe) lets shutdown be
+	// driven by OS signals through a bounded, testable lifecycle helper.
+	httpServer := &http.Server{
+		Addr:    addr,
+		Handler: api.WithAuth(mux, srv),
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Fatalf("listen on %s: %v", addr, err)
+	}
 	log.Printf("FluxSpace Hub listening on %s", addr)
-	if err := http.ListenAndServe(addr, api.WithAuth(mux, srv)); err != nil {
+	if err := api.Run(ctx, httpServer, ln, components); err != nil {
 		log.Fatal(err)
 	}
 }

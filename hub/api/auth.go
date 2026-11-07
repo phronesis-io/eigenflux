@@ -83,22 +83,56 @@ func spectatorReadable(path string) bool {
 	return len(parts) == 4 && parts[3] == "snapshot"
 }
 
+// publicExempt reports whether a request is one of the three documented routes
+// that authenticate themselves and therefore bypass the owner bearer gate
+// (ADR-0009 §2.1 addendum, fluxspace-contracts.md §3):
+//
+//	GET /health                       open liveness check
+//	GET /hub/sessions/{id}/events     per-seat X-Seat-Token
+//	GET /hub/sessions/{id}/spectate   X-Spectator-Token
+//
+// The match is exact and restricted to GET. An earlier version used three
+// method-agnostic suffix checks, so a POST/PUT/DELETE to /health or to any path
+// ending in /events or /spectate skipped the token gate entirely (it reached the
+// mux as an unauthenticated 405). Default-deny requires every exemption to be
+// deliberate: anything not listed here falls through to the bearer-token check.
+func publicExempt(method, path string) bool {
+	if method != http.MethodGet {
+		return false
+	}
+	if path == "/health" {
+		return true
+	}
+	return sessionStreamPath(path, "events") || sessionStreamPath(path, "spectate")
+}
+
+// sessionStreamPath reports whether path is /hub/sessions/{id}/<leaf> with a
+// non-empty id. It replaces the loose strings.HasSuffix exemption so a path such
+// as /anything/events cannot inherit the stream routes' exemption.
+func sessionStreamPath(path, leaf string) bool {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	return len(parts) == 4 && parts[0] == "hub" && parts[1] == "sessions" &&
+		parts[2] != "" && parts[3] == leaf
+}
+
 // WithAuth wraps the mux with owner authentication.
 //
-// Three routes keep their own mechanisms and are exempt:
+// Three GET routes keep their own mechanisms and are exempt (see publicExempt):
 //   - /health, so a deployment can be checked with one curl and no credential;
-//   - /spectate, which requires X-Spectator-Token and admits non-owners;
-//   - /events, which requires the per-seat stream token issued at join.
+//   - /hub/sessions/{id}/spectate, which requires X-Spectator-Token and admits
+//     non-owners;
+//   - /hub/sessions/{id}/events, which requires the per-seat stream token
+//     issued at join.
 //
 // Two read-only session views are additionally reachable with a valid spectator
-// token, because a spectator who can watch every event must be able to read the
-// view those events describe. Writes stay owner-only: the spectator token reads
-// the theatre, it does not play in it.
+// token (GET only, compared in constant time), because a spectator who can watch
+// every event must be able to read the view those events describe. Writes stay
+// owner-only: the spectator token reads the theatre, it does not play in it.
 //
-// Everything else under /hub/ requires a bearer token when the Hub is
-// authenticated. A request that carries no token is 401, not 403: the caller has
-// not identified itself, which is a different failure from being identified and
-// refused.
+// Everything else — every write and every privileged read — is default-denied:
+// it requires a bearer token when the Hub is authenticated. A request that
+// carries no token is 401, not 403: the caller has not identified itself, which
+// is a different failure from being identified and refused.
 func WithAuth(next http.Handler, srv *Server) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !srv.authenticated() {
@@ -106,7 +140,7 @@ func WithAuth(next http.Handler, srv *Server) http.Handler {
 			return
 		}
 		path := r.URL.Path
-		if path == "/health" || strings.HasSuffix(path, "/spectate") || strings.HasSuffix(path, "/events") {
+		if publicExempt(r.Method, path) {
 			next.ServeHTTP(w, r)
 			return
 		}
