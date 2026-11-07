@@ -286,4 +286,37 @@ void main() {
 
     expect(api.calls.last, 'events:sess_1:seat_0:token_seat_0:9');
   });
+
+  // The automatic-recovery API is additive: the members above keep working
+  // exactly as before, while the new observable connection state is exposed
+  // for the UI. These use the stock fake and the default (production) policy,
+  // so no wall-clock sleep is ever reached.
+  group('connection state (additive API)', () {
+    test('starts idle with a clean attempt budget and no error', () {
+      expect(controller.connectionState.value, SessionConnectionState.idle);
+      expect(controller.attemptCount, 0);
+      expect(controller.lastConnectionError, isNull);
+    });
+
+    test('opening a stream moves the connection to live', () async {
+      await controller.watch('sess_1', spectatorToken: 'spec-secret');
+      expect(controller.connectionState.value, SessionConnectionState.live);
+    });
+
+    test('disconnect reports closed', () async {
+      await controller.watch('sess_1', spectatorToken: 'spec-secret');
+      await controller.disconnect();
+      expect(controller.connectionState.value, SessionConnectionState.closed);
+    });
+
+    test('reconnectNow reopens from the last processed event', () async {
+      await controller.watch('sess_1', spectatorToken: 'spec-secret');
+      await api.emit(<String, dynamic>{'id': 4, 'type': 'discussion', 'session_id': 'sess_1'});
+      await Future<void>.delayed(Duration.zero);
+
+      await controller.reconnectNow();
+
+      expect(api.calls.last, 'spectate:sess_1:spec-secret:4');
+    });
+  });
 }

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../models/hub_models.dart';
 import '../services/hub_api.dart';
 import '../services/token_store.dart';
+import 'reconnect_policy.dart';
 
 /// What the client is doing right now. Kept coarse on purpose: a finer
 /// enumeration would encode Hub internals, and the Hub already reports the
@@ -31,6 +32,38 @@ enum SessionStage {
 
   /// The last operation failed; [SessionController.error] says how.
   failed,
+}
+
+/// The state of the SSE connection, exposed for the UI through
+/// [SessionController.connectionState].
+///
+/// Deliberately separate from [SessionStage]: the stage describes the match,
+/// this enum describes the transport that delivers the match to this client.
+/// A match can be mid-round ([SessionStage.seated]) while the connection is
+/// [reconnecting]; conflating the two is how a client ends up hiding a gap it
+/// is actively trying to repair.
+enum SessionConnectionState {
+  /// No stream has been opened yet.
+  idle,
+
+  /// A fresh stream is being established.
+  connecting,
+
+  /// A stream subscription is open and healthy (an event has been received or
+  /// a fresh subscription has just been attached).
+  live,
+
+  /// The stream failed or ended while the session was still live; a bounded
+  /// [ReconnectPolicy] retry is in progress.
+  reconnecting,
+
+  /// The retry budget was exhausted; automatic recovery stopped. An explicit
+  /// [SessionController.reconnect] is still possible.
+  failed,
+
+  /// The stream was closed explicitly (disconnect/close/dispose); no automatic
+  /// retry will run until a fresh stream is opened.
+  closed,
 }
 
 /// One line in the match log: an SSE event, a discussion line, or a client
@@ -85,14 +118,25 @@ class MatchSetup {
 /// "what does the client do when the Hub says 409 INVITATION_NOT_CONFIRMED"
 /// and "does it keep the seat token across a reconnect", not "does the button
 /// sit at the right offset".
+///
+/// The SSE stream is self-healing. If it errors or ends while the match is
+/// still live, the controller reopens it from the last processed
+/// `Last-Event-ID` using a bounded [ReconnectPolicy]. Replayed ids are
+/// deduplicated, so no event is lost and none is delivered twice. An explicit
+/// [disconnect]/[close] and [dispose] stop all automatic retry.
 class SessionController extends ChangeNotifier {
   SessionController({
     required HubApi api,
     required TokenStore tokens,
     DateTime Function()? clock,
+    ReconnectPolicy? reconnectPolicy,
   })  : _api = api,
         _tokens = tokens,
-        _clock = clock ?? DateTime.now;
+        _clock = clock ?? DateTime.now {
+    // When the controller owns the policy it supplies a sleep it can actually
+    // cancel; a bare `Future.delayed` timer would otherwise outlive dispose().
+    _policy = reconnectPolicy ?? ReconnectPolicy(sleep: _cancellableSleep);
+  }
 
   final HubApi _api;
   final TokenStore _tokens;
@@ -107,12 +151,45 @@ class SessionController extends ChangeNotifier {
   bool _watching = false;
   String _spectatorToken = '';
   /// The highest event id this client has processed. Sent as `Last-Event-ID` on
-  /// reconnect so the gap is replayed rather than skipped.
+  /// every reconnect so the gap is replayed rather than skipped.
   int _lastEventId = 0;
+  /// Ids of events already delivered. Kept across retries (a replay must be
+  /// suppressed) but cleared when a fresh session is opened.
+  final Set<int> _seenEventIds = <int>{};
   String _companionId = '';
   final List<LogLine> _log = <LogLine>[];
   StreamSubscription<HubEvent>? _events;
   bool _busy = false;
+
+  // --- connection recovery state ------------------------------------------
+
+  late final ReconnectPolicy _policy;
+
+  /// Public, listenable state of the SSE connection. The UI can bind a
+  /// `ValueListenableBuilder` to this without polling the controller.
+  final ValueNotifier<SessionConnectionState> connectionState =
+      ValueNotifier<SessionConnectionState>(SessionConnectionState.idle);
+
+  /// Incremented on every "stop retrying" event (fresh open, explicit close,
+  /// dispose). An in-flight retry only proceeds if its generation still
+  /// matches, which is what guarantees no live loop survives a close/dispose.
+  int _generation = 0;
+
+  bool _disposed = false;
+  bool _connectionClosed = false;
+
+  /// Completes to wake the `Future.any` that is racing a backoff sleep, so a
+  /// pending wait unblocks immediately on close/dispose/fresh-open.
+  Completer<void>? _cancelWake;
+
+  /// Timer + gate backing the controller-owned cancellable sleep.
+  Timer? _retryTimer;
+  Completer<void>? _sleepGate;
+
+  /// Consecutive automatic retries attempted for the current outage, and the
+  /// most recent error that started one. Both are for the UI to render.
+  int _attemptCount = 0;
+  HubException? _lastConnectionError;
 
   SessionStage get stage => _stage;
   SessionView? get view => _view;
@@ -121,6 +198,18 @@ class SessionController extends ChangeNotifier {
   String get seatId => _seatId;
   String get companionId => _companionId;
   bool get busy => _busy;
+
+  /// How many consecutive automatic retries have been started for the current
+  /// outage. Resets to zero on a successfully received event and on any fresh
+  /// stream. Read together with [connectionState].
+  int get attemptCount => _attemptCount;
+
+  /// The last stream error that triggered (or kept) a retry. Kept for display
+  /// even after a successful recovery; cleared when a fresh session opens.
+  HubException? get lastConnectionError => _lastConnectionError;
+
+  /// The retry budget, exposed so the UI can render "attempt 2 / 8".
+  int get maxReconnectAttempts => _policy.maxAttempts;
 
   /// True when this client holds a seat token for the current session, i.e.
   /// it can read that seat's private stream.
@@ -246,7 +335,7 @@ class SessionController extends ChangeNotifier {
       _lastEventId = _view!.lastEventId;
       _stage = _view!.isFinished ? SessionStage.finished : SessionStage.seated;
       _note('resumed ${_view!.sessionId} at round ${_view!.round}/${_view!.totalRounds}');
-      _listen(fromEventId: _lastEventId);
+      _openFresh(fromEventId: _lastEventId);
     });
   }
 
@@ -266,7 +355,7 @@ class SessionController extends ChangeNotifier {
       _lastEventId = 0;
       _stage = _view!.isFinished ? SessionStage.finished : SessionStage.watching;
       _note('watching ${_view!.sessionId} at round ${_view!.round}/${_view!.totalRounds}');
-      _listen();
+      _openFresh(fromEventId: 0);
     });
   }
 
@@ -286,9 +375,14 @@ class SessionController extends ChangeNotifier {
         );
       }
       _note('reconnecting from event $_lastEventId');
-      _listen(fromEventId: _lastEventId);
+      _openFresh(fromEventId: _lastEventId, clearSeen: false);
     });
   }
+
+  /// An immediate manual reconnect. Alias of [reconnect], kept as a distinct
+  /// name for callers that want to express "retry now, bypassing the backoff".
+  /// It resets the backoff budget and reopens from [_lastEventId] right away.
+  Future<void> reconnectNow() => reconnect();
 
   /// Joins another seat: the path used by the second client of a match.
   Future<void> joinSeat(String sessionId, String seatId, String ownerId) => _run(() async {
@@ -347,18 +441,29 @@ class SessionController extends ChangeNotifier {
     }, quiet: true);
   }
 
-  /// Closes the stream. The Hub keeps the match; resuming needs the stored token.
+  /// Closes the stream and stops all automatic retry. The Hub keeps the match;
+  /// resuming needs the stored token or an explicit [reconnect].
   Future<void> disconnect() async {
+    _connectionClosed = true;
+    _cancelPendingRetry();
     await _events?.cancel();
     _events = null;
+    _setConnectionState(SessionConnectionState.closed);
   }
+
+  /// Explicit close. Alias of [disconnect].
+  Future<void> close() => disconnect();
 
   @override
   void dispose() {
-    // Not awaited: dispose cannot be async, and the subscription's own cancel
-    // future has no failure mode worth surfacing here.
+    if (_disposed) return; // idempotent: the widget and tests may both call it
+    _disposed = true;
+    _cancelPendingRetry();
     unawaited(_events?.cancel());
     _events = null;
+    // `connectionState` is intentionally NOT disposed: the UI owns a
+    // long-lived reference to it and removing a listener after disposal would
+    // throw. It is garbage-collected with the controller.
     super.dispose();
   }
 
@@ -375,11 +480,30 @@ class SessionController extends ChangeNotifier {
     _stage = SessionStage.seated;
     await _tokens.write(TokenKeys.seatToken(sessionId), joined.streamToken);
     _note('seated as $seatId (${joined.session.seat(seatId)?.displayName ?? 'unknown'})');
-    _listen();
+    _openFresh(fromEventId: 0);
   }
 
-  void _listen({int fromEventId = 0}) {
+  /// Opens a brand-new stream for a (re)established session. Cancels any
+  /// in-flight automatic retry and resets the backoff budget. [clearSeen] is
+  /// false only for a manual reconnect of the SAME session, where replayed ids
+  /// must stay deduplicated.
+  void _openFresh({required int fromEventId, bool clearSeen = true}) {
+    _connectionClosed = false;
+    _cancelPendingRetry();
+    _policy.reset();
+    _attemptCount = 0;
+    _lastConnectionError = null;
+    if (clearSeen) _seenEventIds.clear();
+    _setConnectionState(SessionConnectionState.connecting);
+    _openStream(fromEventId: fromEventId, isRetry: false, generation: _generation);
+  }
+
+  /// Attaches a fresh subscription to the Hub event stream. [generation] is
+  /// captured by the done/error handlers so a stale subscription can never
+  /// schedule a retry for a connection that has since been replaced.
+  void _openStream({required int fromEventId, required bool isRetry, required int generation}) {
     unawaited(_events?.cancel());
+    _events = null;
     final SessionView? view = _view;
     if (view == null) return;
     if (!_watching && _seatToken.isEmpty) return;
@@ -388,31 +512,130 @@ class SessionController extends ChangeNotifier {
         ? _api.spectate(view.sessionId, spectatorToken: _spectatorToken, lastEventId: fromEventId)
         : _api.events(view.sessionId, seatId: _seatId, seatToken: _seatToken, lastEventId: fromEventId);
 
-    _events = stream.listen(_onEvent, onDone: () {
-      _append(LogLine(
-        at: _clock(),
-        kind: LogKind.notice,
-        text: _view?.isFinished ?? false
-            ? 'stream closed: the match is finished'
-            : 'stream closed before the match finished',
-      ));
-    }, onError: (Object error) {
-      final HubException failure = hubExceptionFrom(error);
-      // A closed stream is normal at match end; anything else is not.
-      if (failure.code == 'TRANSPORT' && (_view?.isFinished ?? false)) return;
-      _error = failure;
-      _append(LogLine(
-        at: _clock(),
-        kind: LogKind.failure,
-        text: 'stream: ${failure.code} ${failure.message}',
-      ));
-    }, cancelOnError: false);
+    _events = stream.listen(
+      _onEvent,
+      onDone: () => _onStreamDone(generation),
+      onError: (Object error) => _onStreamError(error, generation),
+      cancelOnError: true,
+    );
+    if (!isRetry) _setConnectionState(SessionConnectionState.live);
+  }
+
+  void _onStreamDone(int generation) {
+    _append(LogLine(
+      at: _clock(),
+      kind: LogKind.notice,
+      text: _view?.isFinished ?? false
+          ? 'stream closed: the match is finished'
+          : 'stream closed before the match finished',
+    ));
+    // An end while the match is still live is unexpected: recover. For a
+    // finished match (or a closed/disposed controller) this is a no-op.
+    _scheduleReconnect(generation);
+  }
+
+  void _onStreamError(Object error, int generation) {
+    final HubException failure = hubExceptionFrom(error);
+    // A closed stream is normal at match end; anything else is not.
+    if (failure.code == 'TRANSPORT' && (_view?.isFinished ?? false)) return;
+    _error = failure;
+    _lastConnectionError = failure;
+    _append(LogLine(
+      at: _clock(),
+      kind: LogKind.failure,
+      text: 'stream: ${failure.code} ${failure.message}',
+    ));
+    _scheduleReconnect(generation);
+  }
+
+  /// The session is "live" from the transport's point of view: there is a view,
+  /// the Hub has not finished the match, and we have not marked it finished
+  /// ourselves (e.g. after a `match_end` event).
+  bool get _sessionLive =>
+      _view != null && !_view!.isFinished && _stage != SessionStage.finished;
+
+  bool _activeForReconnect(int generation) =>
+      !_disposed && !_connectionClosed && generation == _generation && _sessionLive;
+
+  /// Called on an error or an unexpected end. Moves to [reconnecting] and
+  /// starts one bounded backoff wait; the next failure repeats the cycle. A
+  /// successfully received event resets everything (see [_onEvent]).
+  void _scheduleReconnect(int generation) {
+    if (!_activeForReconnect(generation)) return;
+    unawaited(_events?.cancel());
+    _events = null;
+    if (_policy.exhausted) {
+      _setConnectionState(SessionConnectionState.failed);
+      return;
+    }
+    _attemptCount = _policy.attempt + 1;
+    _setConnectionState(SessionConnectionState.reconnecting);
+    unawaited(_runReconnect(generation));
+  }
+
+  /// Races the policy's backoff sleep against controller-level cancellation so
+  /// a pending wait always unblocks promptly on close/dispose/fresh-open. The
+  /// generation check afterwards is what actually prevents a reopen.
+  Future<void> _runReconnect(int generation) async {
+    final Completer<void> wake = Completer<void>();
+    _cancelWake = wake;
+    final Future<void> wait = _policy.waitBeforeRetry();
+    try {
+      await Future.any<void>(<Future<void>>[wait, wake.future]);
+    } catch (_) {
+      // An injected sleep that throws is treated like a cancelled retry.
+    }
+    if (_cancelWake == wake) _cancelWake = null;
+    if (!wake.isCompleted) wake.complete();
+    if (!_activeForReconnect(generation)) return;
+    _notify();
+    // Resume exactly from the last processed id: the Hub replays the gap and
+    // [_onEvent] drops any id we have already delivered.
+    _openStream(fromEventId: _lastEventId, isRetry: true, generation: generation);
+  }
+
+  /// Stops every pending retry and invalidates any in-flight one. Called on a
+  /// fresh open, an explicit close, and dispose.
+  void _cancelPendingRetry() {
+    _generation++;
+    final Completer<void>? wake = _cancelWake;
+    _cancelWake = null;
+    if (wake != null && !wake.isCompleted) wake.complete();
+    _cancelSleep();
+  }
+
+  /// Controller-owned sleep for the default policy: a `Timer` we can cancel on
+  /// demand, so dispose leaves no live timer behind.
+  Future<void> _cancellableSleep(Duration duration) {
+    final Completer<void> gate = Completer<void>();
+    _sleepGate = gate;
+    _retryTimer = Timer(duration, () {
+      _retryTimer = null;
+      if (!gate.isCompleted) gate.complete();
+    });
+    return gate.future;
+  }
+
+  void _cancelSleep() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    final Completer<void>? gate = _sleepGate;
+    _sleepGate = null;
+    if (gate != null && !gate.isCompleted) gate.complete();
   }
 
   void _onEvent(HubEvent event) {
+    // A replayed id (from a Last-Event-ID resume) must not be delivered twice.
+    // Ids of 0 carry no SSE id and cannot be deduplicated.
+    if (event.id > 0 && !_seenEventIds.add(event.id)) return;
     // Monotonic per session, so max() protects against a replayed event being
     // older than what this client already applied.
     if (event.id > _lastEventId) _lastEventId = event.id;
+    // A real event proves the connection works: reset the outage budget and
+    // report the connection live. This is the recovery signal after a retry.
+    _policy.reset();
+    _attemptCount = 0;
+    _setConnectionState(SessionConnectionState.live);
     _append(LogLine(
       at: _clock(),
       kind: LogKind.event,
@@ -464,7 +687,7 @@ class SessionController extends ChangeNotifier {
   Future<void> _run(Future<void> Function() body, {bool quiet = false}) async {
     _busy = true;
     _error = null;
-    if (!quiet) notifyListeners();
+    if (!quiet) _notify();
     try {
       await body();
     } on HubException catch (failure) {
@@ -484,11 +707,25 @@ class SessionController extends ChangeNotifier {
       _append(LogLine(at: _clock(), kind: LogKind.failure, text: '$error'));
     } finally {
       _busy = false;
-      notifyListeners();
+      _notify();
     }
   }
 
   void _note(String text) => _append(LogLine(at: _clock(), kind: LogKind.notice, text: text));
+
+  /// Sets [connectionState] and notifies both its own listeners and the
+  /// controller's (so the existing `AnimatedBuilder` in the UI also rebuilds).
+  /// No-op after dispose.
+  void _setConnectionState(SessionConnectionState next) {
+    if (_disposed) return;
+    if (connectionState.value == next) return;
+    connectionState.value = next;
+    _notify();
+  }
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
 
   void _append(LogLine line) {
     _log.add(line);
@@ -496,6 +733,6 @@ class SessionController extends ChangeNotifier {
     // the authoritative event history. Capping keeps a long match from growing
     // the widget tree without bound.
     if (_log.length > 500) _log.removeRange(0, _log.length - 500);
-    notifyListeners();
+    _notify();
   }
 }
