@@ -16,6 +16,11 @@ abstract class TokenStore {
 abstract class TokenKeys {
   const TokenKeys._();
 
+  /// The Hub base URL chosen in the first-run setup wizard. Stored beside the
+  /// credentials so a restarted client reconnects to the same Hub rather than
+  /// silently falling back to the default address.
+  static const String hubUrl = 'fluxspace.hub.url';
+
   /// The owner bearer token (ADR-0009 §2.1).
   static const String ownerToken = 'fluxspace.hub.owner_token';
 
@@ -23,6 +28,11 @@ abstract class TokenKeys {
   /// Hub derives the id from the token and the client must agree with it, not
   /// guess it.
   static const String ownerId = 'fluxspace.hub.owner_id';
+
+  /// The companion id the client acts for, collected by the setup wizard. On an
+  /// authenticated Hub the owner derives from the token, but the companion is
+  /// still a piece of client configuration the rest of the app needs.
+  static const String companionId = 'fluxspace.hub.companion_id';
 
   /// Per-seat stream token, issued once at join. Keyed by session so joining a
   /// second match cannot overwrite the first one's credential.
