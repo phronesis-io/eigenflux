@@ -1,0 +1,3653 @@
+
+"use strict";
+/* =========================================================================
+   FluxSpace · FluxSpace AI 电子伴侣游戏
+   ------------------------------------------------------------------------
+   单文件实现，按模块分区，无构建步骤，可直接双击打开运行。
+   分区索引：
+     §0  工具与常量
+     §1  伴侣图鉴（20 位固定伴侣）
+     §2  持久化 Store（localStorage）
+     §3  性格决策引擎（persona → 决策权重 → 五段思维日志）
+     §4  游戏生成器（4 类模板 + 分支池 + 指纹去重）
+     §5  对局状态机与运行时引擎
+     §6  后端适配层（EigenFlux API / SSE）
+     §7  视图渲染层
+     §8  启动与自检
+   ========================================================================= */
+
+const HAS_DOM = typeof document !== "undefined";
+
+/* =========================================================================
+   §0 工具与常量
+   ========================================================================= */
+const FS_VERSION = "1.0.0";
+
+/** 关键调参集中在此，避免散落 magic number */
+const TUNING = {
+  MAX_SELECTED: 4,
+  ROUNDS_MIN: 4,
+  ROUNDS_MAX: 6,
+  TARGET_MINUTES_MIN: 10,      // 硬约束：单局时长下限
+  THINK_CHAR_MS_STANDARD: 28,  // 标准节奏每字符 28ms ≈ 36 字/秒（略慢于阅读，留出"思考"的仪式感）
+  THINK_CHAR_MS_FAST: 6,
+  AVG_LOG_CHARS: 565,          // 实测单条日志字数，用于预估单局时长
+  SECTION_GAP_MS_STANDARD: 260,
+  SECTION_GAP_MS_FAST: 60,
+  AFFINITY_PER_WIN: 6,
+  AFFINITY_PER_LOSE: 2,
+  FLUX_WIN_BASE: 150,
+  FLUX_LOSE_BASE: 60,
+  FLUX_PER_ROUND: 18,
+  CREATE_COMPANION_COST: 120,
+  DEDUP_MAX_ATTEMPTS: 60,
+};
+
+const GAME_TYPES = {
+  deduction: { label: "连环线索推理", accent: "#a78bfa", icon: "◈" },
+  economy:   { label: "资源经营博弈", accent: "#67e8f9", icon: "◉" },
+  coop:      { label: "多人协作解谜", accent: "#6ee7b7", icon: "❖" },
+  versus:    { label: "分组策略对抗", accent: "#f0abfc", icon: "⚔" },
+};
+
+const MODES = {
+  solo:    { label: "单人陪玩", desc: "你 VS 一位伴侣，纯粹的心理对读", seats: "1v1" },
+  coop:    { label: "协作模式", desc: "你 + 伴侣组队完成任务，AI 之间会交换推理结论", seats: "全队" },
+  versus:  { label: "对抗模式", desc: "分成两队，AI 会预判并针对对手策略", seats: "分队" },
+};
+
+const RISK_META = {
+  low:  { label: "低风险", color: "#6ee7b7", dot: "●" },
+  mid:  { label: "中风险", color: "#fcd34d", dot: "◐" },
+  high: { label: "高风险", color: "#fb7185", dot: "○" },
+};
+
+const $ = (sel, root) => (root || document).querySelector(sel);
+const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
+const el = (tag, attrs, html) => {
+  const n = document.createElement(tag);
+  if (attrs) for (const k in attrs) {
+    if (k === "class") n.className = attrs[k];
+    else if (k === "style") n.style.cssText = attrs[k];
+    else if (k.startsWith("on")) n.addEventListener(k.slice(2), attrs[k]);
+    else n.setAttribute(k, attrs[k]);
+  }
+  if (html !== undefined) n.innerHTML = html;
+  return n;
+};
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const randInt = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const shuffle = (arr) => {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+};
+const uid = (prefix) => (prefix || "id") + "_" + Math.random().toString(36).slice(2, 10);
+const sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
+const fmtTime = (ts) => {
+  const d = new Date(ts);
+  const p = (n) => String(n).padStart(2, "0");
+  return p(d.getHours()) + ":" + p(d.getMinutes());
+};
+const pct = (v, max) => clamp(Math.round((v / (max || 100)) * 100), 0, 100);
+
+/** 稳定字符串哈希（FNV-1a 32bit），用于游戏指纹去重 */
+function hashStr(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+  }
+  return h.toString(36);
+}
+
+/* =========================================================================
+   §1 伴侣图鉴 —— 20 位固定伴侣
+   ------------------------------------------------------------------------
+   vector 六维（0-100）是决策引擎的真实输入，不是展示文案：
+     risk      面对不确定性的承担意愿（高 = 更愿押注未验证信息）
+     logic     对证据链的依赖度（高 = 要求结论可被线索支持）
+     empathy   对他人处境的读取能力（高 = 更愿为队友让步）
+     coop      协作倾向（高 = 主动共享结论、附和集体方案）
+     intuition 对隐性信号的敏感度（高 = 更敢用"感觉"补全推理）
+     aggression对抗性（高 = 对抗模式更愿压制对手而非自保）
+   注：name/age/gender/tags 一旦写入存档即固定；好感（affinity）与情绪（mood）随对局变化。
+   未满 18 岁的伴侣，affinity 语义为「信赖度」，仅表达陪伴与信任，不做任何恋爱化表达。
+   ========================================================================= */
+
+const COMPANION_SEED = [
+  { id: "c_cheng", name: "星野澄", age: 9,  gender: "m", tags: ["好奇", "直白", "记性好"],
+    vector: { risk: 68, logic: 46, empathy: 54, coop: 80, intuition: 84, aggression: 20 },
+    palette: ["#a5f3fc", "#a78bfa"], bio: "会把每一条线索抄在手腕上，然后问你为什么大人总爱绕弯。", quip: "这个我知道，我记着呢。" },
+  { id: "c_zhixia", name: "林知夏", age: 11, gender: "f", tags: ["谨慎", "细心", "爱操心"],
+    vector: { risk: 28, logic: 74, empathy: 86, coop: 78, intuition: 60, aggression: 22 },
+    palette: ["#c4b5fd", "#f0abfc"], bio: "随身带三支笔，一支出水，两支备用。", quip: "先别急，我把顺序理一下。" },
+  { id: "c_agu", name: "阿骨", age: 14, gender: "m", tags: ["冲动", "护短", "嘴硬"],
+    vector: { risk: 88, logic: 40, empathy: 62, coop: 70, intuition: 58, aggression: 86 },
+    palette: ["#fca5a5", "#a78bfa"], bio: "输一次能记一星期，但下次还是先冲。", quip: "管他呢，先上。" },
+  { id: "c_suwei", name: "苏未", age: 16, gender: "f", tags: ["安静", "观察者", "共情"],
+    vector: { risk: 34, logic: 66, empathy: 92, coop: 64, intuition: 88, aggression: 18 },
+    palette: ["#a5f3fc", "#c4b5fd"], bio: "话不多，但记得谁在哪一轮捏了下袖口。", quip: "……他刚才停顿了一下。" },
+  { id: "c_luxingye", name: "陆星野", age: 17, gender: "m", tags: ["好胜", "计算", "爱赌"],
+    vector: { risk: 82, logic: 86, empathy: 30, coop: 44, intuition: 62, aggression: 80 },
+    palette: ["#fcd34d", "#f0abfc"], bio: "把每一局都当排位，连聊天都在算期望值。", quip: "期望值是正的，为什么不押。" },
+  { id: "c_bailu", name: "白露", age: 18, gender: "f", tags: ["温和", "调停者", "犹豫"],
+    vector: { risk: 24, logic: 58, empathy: 90, coop: 93, intuition: 66, aggression: 14 },
+    palette: ["#c4b5fd", "#a5f3fc"], bio: "两队吵起来的时候，她是唯一还在倒水的人。", quip: "要不……我们先听听他的想法？" },
+  { id: "c_jiangchi", name: "江迟", age: 19, gender: "m", tags: ["寡言", "直觉准", "不解释"],
+    vector: { risk: 55, logic: 62, empathy: 48, coop: 55, intuition: 96, aggression: 44 },
+    palette: ["#94a3b8", "#67e8f9"], bio: "判断从不给理由，但十次里对八次。", quip: "不对。就这儿不对。" },
+  { id: "c_wenning", name: "温宁", age: 21, gender: "f", tags: ["秩序癖", "掌控", "精确"],
+    vector: { risk: 22, logic: 93, empathy: 42, coop: 66, intuition: 54, aggression: 58 },
+    palette: ["#a78bfa", "#67e8f9"], bio: "会用表格管理自己的情绪，第七列是备注。", quip: "按流程走，偏差我记下了。" },
+  { id: "c_shenyan", name: "沈砚", age: 22, gender: "m", tags: ["老派", "守规则", "固执"],
+    vector: { risk: 40, logic: 87, empathy: 50, coop: 72, intuition: 48, aggression: 52 },
+    palette: ["#c4b5fd", "#94a3b8"], bio: "规则对他不是建议，是地板。", quip: "规矩就是规矩，破了就没得谈。" },
+  { id: "c_qye", name: "祁野", age: 24, gender: "m", tags: ["豪爽", "冒进", "赌徒"],
+    vector: { risk: 94, logic: 55, empathy: 58, coop: 60, intuition: 70, aggression: 88 },
+    palette: ["#fbbf24", "#fb7185"], bio: "赢了请大家喝东西，输了自己扛。", quip: "一把梭，输了我认。" },
+  { id: "c_roi", name: "罗伊", age: 25, gender: "f", tags: ["冷面", "毒舌", "高效率"],
+    vector: { risk: 48, logic: 95, empathy: 27, coop: 40, intuition: 58, aggression: 76 },
+    palette: ["#67e8f9", "#a78bfa"], bio: "讲话像在提交 bug 报告，附复现步骤。", quip: "你的推理有个空指针。" },
+  { id: "c_sangyu", name: "桑榆", age: 27, gender: "f", tags: ["护崽", "耐心", "母性"],
+    vector: { risk: 32, logic: 64, empathy: 96, coop: 90, intuition: 74, aggression: 30 },
+    palette: ["#f0abfc", "#c4b5fd"], bio: "永远最后一个选，因为要先看别人够不够。", quip: "没事，我这份给你。" },
+  { id: "c_shijin", name: "时烬", age: 29, gender: "m", tags: ["战术", "预判", "控制狂"],
+    vector: { risk: 62, logic: 90, empathy: 38, coop: 58, intuition: 66, aggression: 82 },
+    palette: ["#818cf8", "#22d3ee"], bio: "会提前三步写好对手的台词。", quip: "他下一步只能这么走。" },
+  { id: "c_amanda", name: "阿曼达", age: 31, gender: "f", tags: ["谈判专家", "务实", "现实"],
+    vector: { risk: 58, logic: 81, empathy: 62, coop: 74, intuition: 60, aggression: 60 },
+    palette: ["#5eead4", "#a78bfa"], bio: "先把底线说清楚，再谈感情。", quip: "说条件吧，别绕。" },
+  { id: "c_zhoumu", name: "周牧", age: 33, gender: "m", tags: ["沉稳", "长线", "保守"],
+    vector: { risk: 24, logic: 83, empathy: 70, coop: 85, intuition: 52, aggression: 34 },
+    palette: ["#93c5fd", "#a5f3fc"], bio: "宁愿少拿，也不愿把底牌亮出去。", quip: "留着，后面还有用。" },
+  { id: "c_yelan", name: "叶蓝", age: 34, gender: "f", tags: ["直觉派", "诗意", "跳跃"],
+    vector: { risk: 66, logic: 52, empathy: 84, coop: 68, intuition: 93, aggression: 36 },
+    palette: ["#d8b4fe", "#67e8f9"], bio: "把逻辑当参考书，把感觉当地图。", quip: "这个局……闻起来是假的。" },
+  { id: "c_taco", name: "塔可", age: 35, gender: "m", tags: ["工程师", "拆解", "幽默"],
+    vector: { risk: 44, logic: 96, empathy: 46, coop: 62, intuition: 50, aggression: 40 },
+    palette: ["#67e8f9", "#6ee7b7"], bio: "任何规则他都要先问一句：边界在哪。", quip: "先把系统拆开看，别猜。" },
+  { id: "c_heyanqiu", name: "何砚秋", age: 36, gender: "f", tags: ["领导者", "担当", "压场"],
+    vector: { risk: 52, logic: 78, empathy: 76, coop: 95, intuition: 62, aggression: 64 },
+    palette: ["#a78bfa", "#f0abfc"], bio: "决定她来下，责任她来背。", quip: "听我说，这一轮我们守。" },
+  { id: "c_laomai", name: "老麦", age: 38, gender: "m", tags: ["老兵", "经验", "佛系"],
+    vector: { risk: 38, logic: 74, empathy: 66, coop: 86, intuition: 72, aggression: 46 },
+    palette: ["#a8a29e", "#93c5fd"], bio: "见过的局太多，输了也只是笑一下。", quip: "这种局我见过，别慌。" },
+  { id: "c_chenmo", name: "陈默", age: 7,  gender: "f", tags: ["天才", "古怪", "直接"],
+    vector: { risk: 76, logic: 88, empathy: 34, coop: 50, intuition: 86, aggression: 26 },
+    palette: ["#f0abfc", "#a5f3fc"], bio: "七岁，但纠正过三个大人的推理，还都说对了。", quip: "你们都算错了，我算过。" },
+];
+
+/** 自定义伴侣可选标签库：标签 → 六维修正（决定"性格红利"落在哪） */
+const TAG_LIBRARY = {
+  "冷静":   { logic: 12, risk: -8 },
+  "冲动":   { risk: 18, logic: -8, aggression: 14 },
+  "共情":   { empathy: 16 },
+  "护短":   { coop: 12, aggression: 8, empathy: 8 },
+  "好胜":   { aggression: 16, risk: 10 },
+  "谨慎":   { risk: -16, logic: 10 },
+  "直觉":   { intuition: 16 },
+  "秩序":   { logic: 12, coop: 6, risk: -10 },
+  "乐观":   { empathy: 8, intuition: 6 },
+  "毒舌":   { aggression: 12, empathy: -10, logic: 6 },
+  "耐心":   { coop: 10, empathy: 8, risk: -10 },
+  "叛逆":   { risk: 14, aggression: 12, coop: -12 },
+};
+
+const VECTOR_KEYS = ["risk", "logic", "empathy", "coop", "intuition", "aggression"];
+const VECTOR_LABEL = {
+  risk: "风险承担", logic: "逻辑依赖", empathy: "共情读取",
+  coop: "协作倾向", intuition: "直觉权重", aggression: "对抗倾向",
+};
+
+/** 能力倾向由六维派生并落库（推理 / 经营 / 协作 / 对抗 / 洞察） */
+function deriveTalents(v) {
+  return {
+    reasoning: Math.round((v.logic * 0.62 + v.intuition * 0.24 + v.risk * 0.14)),
+    management: Math.round((v.logic * 0.48 + v.risk * 0.32 + v.coop * 0.20)),
+    cooperation: Math.round((v.coop * 0.58 + v.empathy * 0.30 + v.logic * 0.12)),
+    versus: Math.round((v.aggression * 0.52 + v.risk * 0.28 + v.logic * 0.20)),
+    insight: Math.round((v.intuition * 0.54 + v.empathy * 0.30 + v.logic * 0.16)),
+  };
+}
+const TALENT_LABEL = { reasoning: "推理", management: "经营", cooperation: "协作", versus: "对抗", insight: "洞察" };
+
+/** 初始情绪基线也由性格决定：高共情者基线略高，高对抗者基线略低 */
+function baseMood(v) {
+  return clamp(Math.round(56 + v.empathy * 0.16 + v.coop * 0.12 - v.aggression * 0.10), 30, 88);
+}
+
+/** 把种子数据转成可存档的完整档案 */
+function buildCompanion(seed) {
+  const vector = {};
+  VECTOR_KEYS.forEach((k) => { vector[k] = clamp(seed.vector[k] || 50, 0, 100); });
+  return {
+    id: seed.id,
+    name: seed.name,
+    age: seed.age,
+    gender: seed.gender,
+    tags: seed.tags.slice(),
+    vector,
+    talents: deriveTalents(vector),
+    palette: seed.palette.slice(),
+    bio: seed.bio,
+    quip: seed.quip,
+    custom: false,
+    affinity: randInt(6, 18),          // 羁绊/信赖
+    mood: baseMood(vector),            // 情绪值
+    memory: [],                        // 长期记忆：{ts, gameId, title, text}
+    stats: { plays: 0, wins: 0, rounds: 0 },
+  };
+}
+
+/* =========================================================================
+   §2 持久化 Store
+   ------------------------------------------------------------------------
+   存储位置：localStorage["fluxspace.v1"]
+   保存内容：积分 / 全部伴侣档案（含好感、情绪、记忆、能力倾向）/
+             选中态 / 历史对局索引与回放 / 设置
+   容量策略：历史对局最多 40 条索引；完整回放只保留最近 12 局（旧局仅保留摘要）
+   ========================================================================= */
+const Store = (() => {
+  const KEY = "fluxspace.v1";
+  const MAX_HISTORY = 40;
+  const MAX_REPLAY = 12;
+
+  const defaults = () => ({
+    version: FS_VERSION,
+    flux: 320,
+    companions: COMPANION_SEED.map(buildCompanion),
+    selected: [],
+    history: [],
+    settings: { backend: "", pace: "standard", gameType: "auto", speed: 1 },
+    createdAt: Date.now(),
+  });
+
+  let state = defaults();
+  let saveTimer = null;
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (!raw) { state = defaults(); save(); return state; }
+      const parsed = JSON.parse(raw);
+      state = Object.assign(defaults(), parsed);
+
+      // 版本升级兜底：补齐新增的固定伴侣，保留玩家已有的好感/情绪/记忆
+      const byId = new Map(state.companions.map((c) => [c.id, c]));
+      COMPANION_SEED.forEach((seed) => {
+        if (!byId.has(seed.id)) {
+          const fresh = buildCompanion(seed);
+          state.companions.push(fresh);
+          byId.set(seed.id, fresh);
+        }
+      });
+      // 清洗历史选中里已不存在的 id
+      state.selected = (state.selected || []).filter((id) => byId.has(id)).slice(0, TUNING.MAX_SELECTED);
+      state.settings = Object.assign({ backend: "", pace: "standard", gameType: "auto", speed: 1 }, state.settings || {});
+    } catch (err) {
+      console.warn("[FluxSpace] 存档读取失败，已重置为默认档案：", err);
+      state = defaults();
+    }
+    return state;
+  }
+
+  function save() {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(flush, 180);
+  }
+  function flush() {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+    try {
+      localStorage.setItem(KEY, JSON.stringify(state));
+    } catch (err) {
+      // 配额溢出：先丢最旧的完整回放，再重试一次
+      console.warn("[FluxSpace] 存档写入失败，尝试丢弃旧回放：", err);
+      state.history.forEach((h, i) => { if (i > 4) h.replay = null; });
+      try { localStorage.setItem(KEY, JSON.stringify(state)); }
+      catch (e2) { console.error("[FluxSpace] 存档仍写入失败：", e2); }
+    }
+  }
+
+  const api = {
+    load,
+    save,
+    flush,
+    get state() { return state; },
+    get flux() { return state.flux; },
+    addFlux(n) { state.flux = Math.max(0, state.flux + n); save(); },
+    spendFlux(n) {
+      if (state.flux < n) return false;
+      state.flux -= n; save(); return true;
+    },
+    getCompanion(id) { return state.companions.find((c) => c.id === id) || null; },
+    get selectedCompanions() { return state.selected.map((id) => api.getCompanion(id)).filter(Boolean); },
+
+    toggleSelect(id) {
+      const i = state.selected.indexOf(id);
+      if (i >= 0) state.selected.splice(i, 1);
+      else {
+        if (state.selected.length >= TUNING.MAX_SELECTED) return { ok: false, reason: "最多同时选择 4 位伴侣" };
+        state.selected.push(id);
+      }
+      save();
+      return { ok: true };
+    },
+    setSelection(ids) { state.selected = ids.slice(0, TUNING.MAX_SELECTED); save(); },
+    clearSelection() { state.selected = []; save(); },
+
+    addCompanion(profile) { state.companions.push(profile); save(); },
+    updateCompanion(id, patch) {
+      const c = api.getCompanion(id);
+      if (c) { Object.assign(c, patch); save(); }
+      return c;
+    },
+
+    /** 历史指纹列表 —— 提交给后端用于避开已生成的游戏 */
+    get fingerprints() { return state.history.map((h) => h.fingerprint).filter(Boolean); },
+    get gameIds() { return state.history.map((h) => h.gameId).filter(Boolean); },
+
+    recordGame(entry) {
+      state.history.unshift(entry);
+      // 只保留最近 N 局的完整回放，其余降级为摘要以控制 localStorage 体积
+      let withReplay = 0;
+      state.history.forEach((h) => {
+        if (h.replay) { withReplay++; if (withReplay > MAX_REPLAY) h.replay = null; }
+      });
+      state.history = state.history.slice(0, MAX_HISTORY);
+      save();
+    },
+
+    reset() { state = defaults(); flush(); },
+  };
+  return api;
+})();
+
+/* =========================================================================
+   §3 性格决策引擎
+   ------------------------------------------------------------------------
+   这一节是整个游戏的设计地基：性格标签不是贴纸，它是打分函数的系数。
+   同一局面下，risk=88 的阿骨与 risk=22 的温宁会选出不同的动作，
+   并且在日志里给出**不同但都成立**的理由。
+
+   打分公式（每项都可在日志第③④段中被引用为真实数字）：
+     utility = 1.35 * infoGain                        // 信息增量，本作唯一的硬通货
+             + 0.95 * teamHarm                        // 对局指标的收益（负值=损害）
+             + 1.90 * riskNorm * riskSign             // 风险偏好 × 动作风险档
+             + 0.80 * logicNorm * evidenceSupport     // 逻辑型只在有线索支撑时吃信息红利
+             - 1.50 * empathyNorm * harmExposure      // 共情型对团队受损动作强负分
+             + 1.60 * coopNorm * agreement            // 协作型跟随队友多数倾向
+             + 1.40 * aggrNorm * contest * modeWeight // 对抗型在对抗模式放大压制欲
+             + 1.20 * intuNorm * intuitionBias        // 直觉型偏好"低信息高赔率"
+             + affinityBias                           // 对你的羁绊：愿意押注你的判断
+             + moodBias                               // 情绪：低落时性格被放大
+             + noise                                  // 探索噪声，直觉越高越"确信"
+   ========================================================================= */
+
+const RISK_SIGN = { low: -1, mid: 0, high: 1 };
+const norm = (v) => (v - 50) / 50;   // 0-100 → -1..1
+
+/** 单个动作的期望打分，返回总量与可解释的分项 */
+function scoreAction(a, ctx) {
+  const c = ctx.companion.vector;
+  const b = {};
+
+  b.info = 1.35 * (a.infoGain || 0);
+  b.team = 0.95 * (a.teamHarm || 0);
+  b.risk = 1.90 * norm(c.risk) * (RISK_SIGN[a.risk] || 0);
+
+  // 证据支撑度：已解锁线索数 / (本轮+2)。无线索时逻辑型不敢吃信息红利
+  const support = clamp(ctx.evidenceCount / (ctx.roundIndex + 2), 0, 1);
+  b.logic = 0.80 * norm(c.logic) * (a.infoGain > 0 ? support : -0.4);
+
+  const harmExposure = Math.max(0, -(a.teamHarm || 0));
+  b.empathy = -1.50 * norm(c.empathy) * harmExposure;
+
+  const agreement = ctx.teamIntent == null ? 0
+    : (a.id === ctx.teamIntent ? 1 : (a.family && a.family === ctx.teamFamily ? 0.3 : -0.2));
+  b.coop = 1.60 * norm(c.coop) * agreement;
+
+  const modeWeight = ctx.mode === "versus" ? 1 : 0.15;
+  b.aggr = 1.40 * norm(c.aggression) * (a.contest || 0) * modeWeight;
+
+  b.intuition = 1.20 * norm(c.intuition) * ((a.infoGain || 0) < 1 ? 1 : 0.25);
+
+  // 羁绊：30 为中性点。信任越高，越愿意选择"玩家上次选过的同一动作族"
+  const sameFamilyAsPlayer = ctx.playerLastFamily && a.family === ctx.playerLastFamily;
+  b.affinity = sameFamilyAsPlayer ? ((ctx.affinity - 30) / 100) * 0.9 : 0;
+
+  // 情绪：低于 50 时，性格倾向被放大（畏缩的更畏缩，冒险的更冒险）
+  b.mood = ((50 - ctx.mood) / 50) * norm(c.risk) * (RISK_SIGN[a.risk] || 0) * 1.1;
+
+  // 探索噪声：直觉 90 的角色几乎不摇摆（±0.11），直觉 30 的会摇摆（±0.44）
+  b.noise = (Math.random() - 0.5) * (1.2 - (c.intuition / 100) * 0.9) * 1.6;
+
+  const total = Object.keys(b).reduce((s, k) => s + b[k], 0);
+  return { total, breakdown: b };
+}
+
+/** 五段式日志的文本组装：所有数字都来自真实计算，不写死 */
+/** 打分的分项中文名，日志里引用真实贡献值时用 */
+const BIG_LABEL = {
+  info: "信息增量", team: "局面收益", risk: "风险偏好", logic: "证据支撑",
+  empathy: "共情折价", coop: "协同加成", aggr: "压制收益", intuition: "直觉加权",
+  affinity: "羁绊修正", mood: "情绪偏移", noise: "临场波动",
+};
+
+/** 指标措辞必须区分"越高越好"与"越低越好"，否则会把好局面读成坏局面 */
+function metricPhrase(m, ratio) {
+  if (m.good === "low") return ratio >= 65 ? "已经偏高" : ratio >= 40 ? "还在中位" : "还压得住";
+  return ratio >= 65 ? "已经很高" : ratio >= 40 ? "处在中位" : "仍然偏低";
+}
+
+const OBSERVE_OPENERS = {
+  logic: [
+    "先把已知量摆出来。",
+    "做个最小化盘点。",
+    "剔除噪音，只留证据。",
+  ],
+  intuition: [
+    "先不看参数，看形状。",
+    "这局的骨架有点歪。",
+    "直觉先给一个粗糙判断。",
+  ],
+  empathy: [
+    "先看人，再看牌。",
+    "我在意的是谁在硬撑。",
+    "有几个人的语气变了。",
+  ],
+  neutral: [
+    "收到，接着往下推。",
+    "局面更新了。",
+  ],
+};
+
+function dominantStyle(c) {
+  const v = c.vector;
+  if (v.logic >= v.intuition && v.logic >= v.empathy) return "logic";
+  if (v.intuition >= v.empathy) return "intuition";
+  return "empathy";
+}
+
+function fmtSigned(n) {
+  const s = n >= 0 ? "+" : "";
+  return s + n.toFixed(2);
+}
+
+function moodLine(mood) {
+  if (mood >= 72) return "状态不错，我愿意多承担一点";
+  if (mood >= 55) return "情绪平稳，按判断走";
+  if (mood >= 38) return "有点闷，我会更保守一些";
+  return "情绪偏低，我的容错率变窄了";
+}
+
+/**
+ * 主决策入口
+ * @returns {{actionId, action, sections, scores, margin, confidence, sharedConclusion}}
+ */
+function decideAction(ctx) {
+  const c = ctx.companion;
+  const scored = ctx.actions.map((a) => ({ action: a, ...scoreAction(a, ctx) }));
+  scored.sort((x, y) => y.total - x.total);
+
+  const best = scored[0];
+  const second = scored[1] || null;
+  const margin = second ? best.total - second.total : best.total;
+  // 置信度：领先幅度映射到 0-100，幅度 <0.4 时视为"勉强"
+  const confidence = clamp(Math.round(46 + margin * 13), 20, 97);
+
+  const style = dominantStyle(c);
+  const sections = [];
+
+  /* ---- ① 观察局面：引用真实指标、真实线索、真实队友结论 ---- */
+  const ranked = Object.keys(ctx.metrics).map((k) => {
+    const m = ctx.metrics[k];
+    const ratio = pct(m.value, m.max);
+    return {
+      key: k, label: m.label, value: m.value, max: m.max, good: m.good, ratio,
+      danger: m.good === "low" ? ratio : 100 - ratio,
+    };
+  });
+  const urgent = ranked.slice().sort((a, b) => b.danger - a.danger)[0];
+  const full = ranked.slice().sort((a, b) => b.ratio - a.ratio)[0];
+  const top = full;
+
+  const obsLines = [pick(OBSERVE_OPENERS[style] || OBSERVE_OPENERS.neutral)];
+  let statusLine = "第 " + (ctx.roundIndex + 1) + "/" + ctx.totalRounds + " 轮。";
+  if (urgent && urgent.danger > 25) {
+    statusLine += "最需要盯的是「" + urgent.label + "」" + urgent.value + "/" + urgent.max + "，" +
+      metricPhrase(urgent, urgent.ratio) + "；";
+  }
+  if (full && (!urgent || full.key !== urgent.key)) {
+    statusLine += "「" + full.label + "」" + full.value + "/" + full.max + "（" + full.ratio + "%）。";
+  } else if (urgent) {
+    statusLine += "这是本局最脆弱的一环。";
+  }
+  obsLines.push(statusLine);
+  if (ctx.newClue) {
+    obsLines.push("新信息：「" + ctx.newClue.label + "」——" + ctx.newClue.text);
+  } else {
+    obsLines.push("本轮没有新增信息，只能从已有 " + ctx.evidenceCount + " 条线索里榨。");
+  }
+  if (ctx.priorDecision && ctx.mode !== "solo") {
+    const mate = ctx.priorDecision;
+    obsLines.push(
+      (ctx.mode === "versus" && mate.side !== ctx.side ? "对手 " : "队友 ") +
+      mate.name + " 刚才选了「" + mate.actionLabel + "」" +
+      (mate.sharedConclusion ? "，理由是：" + mate.sharedConclusion : "，没给理由。")
+    );
+  }
+  if (ctx.mode === "versus" && ctx.opponentPattern) {
+    obsLines.push("对方两轮都偏向「" + ctx.opponentPattern + "」，这是可以打的节奏。");
+  }
+  sections.push({ key: "observe", label: "观察局面", text: obsLines.join(" ") });
+
+  /* ---- ② 可选方案：把候选真的列出来 ---- */
+  const optLines = ctx.actions.map((a, i) => {
+    const meta = RISK_META[a.risk] || RISK_META.mid;
+    return "(" + (i + 1) + ") " + a.label + "  [" + meta.label + " · 信息+" + (a.infoGain || 0) + "]";
+  });
+  sections.push({ key: "options", label: "可选方案", text: "候选 " + ctx.actions.length + " 个：\n" + optLines.join("\n") });
+
+  /* ---- ③ 风险收益评估：用打分表说话 ---- */
+  const riskLines = scored.slice(0, 3).map((s, i) => {
+    const bd = s.breakdown;
+    const biggest = Object.keys(bd).sort((x, y) => Math.abs(bd[y]) - Math.abs(bd[x]))[0];
+    return (i === 0 ? "▶ " : "  ") + s.action.label + " → 净期望 " + fmtSigned(s.total) +
+      "（主导项 " + BIG_LABEL[biggest] + " " + fmtSigned(bd[biggest]) + "）";
+  });
+  if (second) {
+    // 找"首选真正领先的那一项"，而不是猜一个理由
+    const leadKey = Object.keys(best.breakdown)
+      .sort((x, y) => (best.breakdown[x] - second.breakdown[x]) - (best.breakdown[y] - second.breakdown[y]))
+      .pop();
+    riskLines.push(
+      "次选「" + second.action.label + "」只低 " + margin.toFixed(2) +
+      "，差距主要在「" + BIG_LABEL[leadKey] + "」这一项（" +
+      fmtSigned(best.breakdown[leadKey] - second.breakdown[leadKey]) + "）。"
+    );
+  }
+  if (ctx.metricsRisk) riskLines.push("如果这轮判断错，" + ctx.metricsRisk + "。");
+  sections.push({ key: "risk", label: "风险收益", text: riskLines.join("\n") });
+
+  /* ---- ④ 性格偏好加权：每个数字都是打分表里的真实分项，不编造百分比 ---- */
+  const prefLines = [];
+  const bd = best.breakdown;
+  prefLines.push("我的标签（" + c.tags.join(" / ") + "）不直接打分，它们换算成六维后参与计算：");
+  const terms = [
+    ["风险 " + c.vector.risk, "本动作属" + (RISK_META[best.action.risk] || RISK_META.mid).label, bd.risk],
+    ["逻辑 " + c.vector.logic, "证据支撑度", bd.logic],
+    ["共情 " + c.vector.empathy, "团队损耗折价", bd.empathy],
+  ];
+  if (Math.abs(bd.coop) > 0.01) terms.push(["协作 " + c.vector.coop, "与队友倾向的一致性", bd.coop]);
+  if (Math.abs(bd.aggr) > 0.01) terms.push(["对抗 " + c.vector.aggression, "压制收益", bd.aggr]);
+  if (Math.abs(bd.intuition) > 0.01) terms.push(["直觉 " + c.vector.intuition, "低信息动作偏好", bd.intuition]);
+  terms.forEach((row) => {
+    if (Math.abs(row[2]) < 0.005) return;   // 未参与打分的维度不列，避免堆 0
+    prefLines.push("  " + row[0] + " → " + row[1] + " " + fmtSigned(row[2]));
+  });
+  if (ctx.teamIntentLabel) {
+    prefLines.push("协同信号：队友多数倾向「" + ctx.teamIntentLabel + "」，我跟随的加成 " + fmtSigned(bd.coop) + "。");
+  } else {
+    prefLines.push("协同信号：我是本轮第一个表态的，没有队友倾向可参考。");
+  }
+  prefLines.push("羁绊修正：对你的信任 " + Math.round(ctx.affinity) + "/100，" +
+    (ctx.affinity >= 60 ? "我愿意押你的判断" : ctx.affinity >= 35 ? "我参考但不盲从" : "我还不太敢信你") +
+    "（本次 " + fmtSigned(bd.affinity) + "）。");
+  prefLines.push("情绪：" + Math.round(ctx.mood) + "/100，" + moodLine(ctx.mood) +
+    "，对打分的偏移 " + fmtSigned(bd.mood) + "。");
+  prefLines.push("临场波动：" + fmtSigned(bd.noise) + "（直觉 " + c.vector.intuition +
+    " 越高，我摇摆的幅度越小）。");
+  sections.push({ key: "persona", label: "性格加权", text: prefLines.join("\n") });
+
+  /* ---- ⑤ 最终决策 ---- */
+  const verdictLines = [];
+  verdictLines.push("→ " + best.action.label);
+  if (ctx.actions.length > 1) {
+    verdictLines.push(
+      (confidence >= 70 ? "这个选择我比较确定" : confidence >= 48 ? "我倾向它，但不是铁了心" : "只是先这么走") +
+      "（置信 " + confidence + "%）" + (second ? "，与次选「" + second.action.label + "」差 " + margin.toFixed(2) : "") + "。"
+    );
+  } else {
+    verdictLines.push("没得选，只能这样。");
+  }
+  if (c.quip) verdictLines.push("「" + c.quip + "」");
+  sections.push({ key: "verdict", label: "最终决策", text: verdictLines.join("\n") });
+
+  // AI 之间交换的推理结论（协作/对抗模式下会被后续 AI 读到）
+  const sharedConclusion = "我倾向「" + best.action.label + "」" +
+    (ctx.newClue ? "，依据是新线索「" + ctx.newClue.label + "」" : "，依据是" + (top ? top.label + "的当前水位" : "手上已有线索"));
+
+  return {
+    companionId: c.id,
+    companionName: c.name,
+    actionId: best.action.id,
+    actionLabel: best.action.label,
+    action: best.action,
+    sections,
+    scores: scored.map((s) => ({ id: s.action.id, label: s.action.label, total: s.total })),
+    margin,
+    confidence,
+    sharedConclusion,
+    style,
+  };
+}
+
+/* =========================================================================
+   §4 游戏生成器
+   ------------------------------------------------------------------------
+   产出严格等于后端契约的 JSON（见 docs/BACKEND_CONTRACT 说明段落）。
+   设计约束：
+     · 每局 4-6 轮，每轮 1 条新线索 + 3-4 个候选动作 + 分支池抽取
+     · 线索逐轮解锁，早期信息不足 → 中期矛盾 → 后期收束，保证 10 分钟以上的节奏
+     · 指纹 = 类型 + 主题 + 每轮标题 + 每轮线索 key + 分支 id 序列 的哈希
+       历史指纹命中即重抽（最多 60 次），彻底避免"同一局再来一次"
+   ========================================================================= */
+
+const LEX = {
+  place: ["第七号观测站", "无风港", "回声公寓", "雪线缆车站", "静默图书馆", "盐湖镜面区",
+          "旧钟楼", "南岸货场", "灯塔附楼", "三号温室", "北岭哨所", "沉箱码头"],
+  object: ["一盘磁带", "手写值班表", "铜制钥匙", "未寄出的信", "半枚齿轮", "湿透的船票",
+           "断线的风筝", "一张底片", "烧焦的账本", "刻字的镇纸", "缺页的登记簿", "生锈的怀表"],
+  person: ["值班员", "站长", "货主", "夜班护士", "守灯人", "抄写员", "列车长", "记账先生", "看门人", "调音师"],
+  org: ["港务处", "联合公会", "夜巡队", "旧城档案室", "灯油行会", "北岭邮路", "清算所"],
+  time: ["凌晨两点十七分", "雨停之前", "退潮后的第十一分钟", "头班车到站前", "熄灯号响过之后", "第二遍钟声落下时"],
+};
+
+function fill(tpl, dict) {
+  return String(tpl).replace(/\{(\w+)\}/g, (m, k) => (dict && dict[k] !== undefined ? dict[k] : m));
+}
+function lexDict() {
+  const d = {};
+  Object.keys(LEX).forEach((k) => { d[k] = pick(LEX[k]); });
+  return d;
+}
+
+const COMMON_STATE_SCHEMA = {
+  fields: [
+    { key: "round", type: "int", label: "当前轮次", desc: "从 1 开始" },
+    { key: "phase", type: "enum", label: "阶段", desc: "observe | think | act | resolve | branch" },
+    { key: "metrics", type: "map<string,int>", label: "对局指标", desc: "由 game.initialScene.metrics 初始化" },
+    { key: "resources", type: "map<string,int>", label: "资源", desc: "由 game.resources 初始化" },
+    { key: "revealed", type: "array<string>", label: "已解锁线索 key" },
+    { key: "flags", type: "array<string>", label: "标记位", desc: "分支事件写入，用于后续条件判定" },
+    { key: "decisions", type: "array<object>", label: "决策记录", desc: "每条含 round / actorId / actionId / sections" },
+  ],
+};
+
+/* ---------------- 类型 A：连环线索推理 ---------------- */
+const DEDUCTION_THEMES = [
+  { id: "d1", title: "{place}的失联信号", goal: "还原失联前的完整时序", role: "调查组",
+    scene: "{time}，{place}的通讯在 41 秒内全部中断。{person}最后留下的是一{object}，上面的内容与值班记录自相矛盾。",
+    stakes: "若不能在这一夜结束前锁定真相，{org}会以「设备故障」结案，所有记录封存。" },
+  { id: "d2", title: "无风之港的失踪货轮", goal: "找出货轮离港的真实时刻", role: "联合查证席",
+    scene: "货轮在无风带停了整整六小时，随后从雷达上消失。码头的{object}被人动过，{person}的说法前后不一。",
+    stakes: "潮水一涨，船骸就会散开，证据再也拼不回来。" },
+  { id: "d3", title: "{place}的录音带", goal: "确定录音里第三个声音是谁", role: "取证小组",
+    scene: "一段 11 分钟的录音里出现了三次不属于在场者的呼吸声。{person}坚持那只是{object}摩擦的声音。",
+    stakes: "录音母带将在明早被移交，届时你们再无权调取。" },
+  { id: "d4", title: "雪线之上的最后一班缆车", goal: "查明缆车为何提前 9 分钟启动", role: "事故复盘组",
+    scene: "缆车提前启动时，站台监控恰好被{object}挡住。{person}说自己当时在{org}签字。",
+    stakes: "雪崩预警将在四小时后生效，山上的人下不来。" },
+  { id: "d5", title: "静默图书馆的缺页手稿", goal: "找回被撕掉的第七页", role: "馆内调查席",
+    scene: "手稿第七页被整齐撕走，留下的{object}上还有半枚指纹。{person}是当晚唯一持钥匙的人。",
+    stakes: "闭馆期一到，书架会被整体转移，线索链会断。" },
+  { id: "d6", title: "盐湖镜面的双影事件", goal: "解释同一时刻出现的两个身影", role: "现场还原组",
+    scene: "盐湖结膜的那一夜，两个人影同时出现在相距四公里的两处。{person}交出的{object}记录着第三个坐标。",
+    stakes: "日出后镜面会碎，所有足迹都不再可读。" },
+];
+
+const DEDUCTION_ROUNDS = [
+  { key: "r1", title: "第一次交叉讯问", objective: "把说法对齐，找出第一处矛盾" },
+  { key: "r2", title: "物证出现裂缝", objective: "让物证与口供互相校验" },
+  { key: "r3", title: "被删掉的那一段", objective: "定位记录里缺失的时间窗" },
+  { key: "r4", title: "反证与伪证", objective: "区分谁在说谎、谁在替人隐瞒" },
+  { key: "r5", title: "收束：谁在说谎", objective: "锁定唯一成立的时序" },
+  { key: "r6", title: "余波：未说出口的动机", objective: "补上最后一块动机拼图" },
+];
+
+const DEDUCTION_CLUES = [
+  { key: "c_clock", label: "时钟误差", text: "现场所有钟表都比标准时慢 7 分钟，只有{object}是准的。", gain: 9 },
+  { key: "c_voice", label: "第三个声音", text: "录音第 4 分 12 秒有一声很轻的金属回响，位置在门后。", gain: 11 },
+  { key: "c_order", label: "调换的序", text: "交接记录的签名顺序与值班表的排班顺序相反，说明有人后补。", gain: 10 },
+  { key: "c_print", label: "半枚指纹", text: "指纹来自左手，而{person}三年前伤过左手，握不住重物。", gain: 12 },
+  { key: "c_door", label: "从内锁上的门", text: "门是从内侧反锁的，但钥匙一直挂在{org}的值班墙上。", gain: 10 },
+  { key: "c_tide", label: "潮位不合", text: "货轮声称离港的时刻，潮位还不足以让满载船通过浅滩。", gain: 13 },
+  { key: "c_page", label: "第七页的拓痕", text: "下一页纸背有压痕，能读出被撕走那句的开头两个字。", gain: 11 },
+  { key: "c_photo", label: "底片上的影子", text: "底片曝光时间 30 秒，画面里只有一个人移动过。", gain: 12 },
+  { key: "c_letter", label: "未寄出的信", text: "信里提到「那天晚上我不会去」，落款日期是事发前一天。", gain: 10 },
+  { key: "c_receipt", label: "一张收据", text: "{time}有人买了两份热食，但屋里只找到一副餐具。", gain: 9 },
+  { key: "c_witness", label: "看门人的证词", text: "{person}说熄灯后听到两次脚步声，间隔约九十秒。", gain: 8 },
+  { key: "c_gear", label: "半枚齿轮", text: "断口是新的，卡在缆车制动器里，位置不可能是自然脱落。", gain: 14 },
+];
+
+function genDeduction(dict, roundCount) {
+  const theme = pick(DEDUCTION_THEMES);
+  const chosenRounds = DEDUCTION_ROUNDS.slice(0, roundCount);
+  const cluePool = shuffle(DEDUCTION_CLUES);
+
+  const actionPool = [
+    { id: "a_testimony", label: "交叉核对证词", family: "verify", risk: "low", infoGain: 2, teamHarm: 1, contest: 0,
+      desc: "把两个人的说法逐句对照，找时间点上的岔口。",
+      effects: { metrics: { truth: 8, suspicion: 2 }, resources: {} } },
+    { id: "a_evidence", label: "追查物证链", family: "evidence", risk: "mid", infoGain: 3, teamHarm: 1, contest: 0,
+      desc: "顺着物证的流转记录往回倒，成本高但能撬开硬结论。",
+      effects: { metrics: { truth: 14, suspicion: 5 }, resources: {} } },
+    { id: "a_probe", label: "反向试探某人", family: "probe", risk: "high", infoGain: 2, teamHarm: -1, contest: 1,
+      desc: "故意抛出一个错误结论，看谁先纠正你。",
+      effects: { metrics: { truth: 10, suspicion: 12 }, resources: {} } },
+    { id: "a_declare", label: "公开当前推理", family: "declare", risk: "mid", infoGain: 1, teamHarm: 2, contest: 0,
+      desc: "把你的判断摊在桌上，换取其他人补充细节。",
+      effects: { metrics: { truth: 6, suspicion: -6 }, resources: {} } },
+    { id: "a_wait", label: "沉默观察一轮", family: "wait", risk: "low", infoGain: 0, teamHarm: -1, contest: 0,
+      desc: "什么都不问，只看谁先动。",
+      effects: { metrics: { truth: 2, suspicion: -8 }, resources: {} } },
+  ];
+
+  const branchPool = [
+    { id: "b_wipe", weight: 3, when: "resolve", text: "{person}突然改口，说记录「可能是我记错了」，真相推进受阻但怀疑下降。",
+      effects: { metrics: { truth: -6, suspicion: -8 } } },
+    { id: "b_new", weight: 2, when: "resolve", text: "一名沉默的证人主动递来{object}，里面有一份未登记的时间表。",
+      effects: { metrics: { truth: 12, suspicion: 3 } } },
+    { id: "b_leak", weight: 2, when: "resolve", text: "你们的调查方向被泄露，{org}提前锁走了部分档案。",
+      effects: { metrics: { truth: -4, suspicion: 9 } } },
+    { id: "b_rain", weight: 2, when: "observe", text: "雨提前落下，户外痕迹开始消失；室内线索反而更清晰。",
+      effects: { metrics: { truth: 4, suspicion: 0 } } },
+    { id: "b_pressure", weight: 2, when: "resolve", condition: { metric: "suspicion", op: ">=", value: 55 },
+      text: "上级开始施压要求结案，你必须在下一轮给出可交付的结论。",
+      effects: { metrics: { truth: -3, suspicion: 6 } } },
+    { id: "b_ally", weight: 2, when: "resolve", condition: { metric: "truth", op: ">=", value: 55 },
+      text: "你的推理被{org}内部一人认可，他愿意私下提供一份旧档案。",
+      effects: { metrics: { truth: 9, suspicion: -4 } } },
+  ];
+
+  return {
+    type: "deduction",
+    theme: theme.id,
+    title: fill(theme.title, dict),
+    themeText: fill(theme.scene, dict),
+    rules: [
+      "本局共 " + roundCount + " 轮，每轮解锁 1 条新线索。",
+      "每轮所有参与者各自选择一个调查方向，行动会同时生效（并行结算）。",
+      "「真相接近度」达到 " + 80 + " 且「怀疑指数」低于 70 即告破案。",
+      "「怀疑指数」≥ 92 会被上级强制结案，判定失败。",
+      "剩余时限每轮固定消耗，归零即失败。",
+    ],
+    winCondition: { all: [{ metric: "truth", op: ">=", value: 80 }, { metric: "suspicion", op: "<", value: 70 }],
+      text: "真相接近度 ≥ 80 且 怀疑指数 < 70" },
+    loseCondition: { any: [{ metric: "suspicion", op: ">=", value: 92 }, { metric: "time", op: "<=", value: 0 }],
+      text: "怀疑指数 ≥ 92 或 时限归零" },
+    initialScene: {
+      narrative: fill(theme.scene, dict) + " " + fill(theme.stakes, dict),
+      metrics: [
+        { key: "truth", label: "真相接近度", value: 12, max: 100, good: "high" },
+        { key: "suspicion", label: "怀疑指数", value: 22, max: 100, good: "low" },
+        { key: "time", label: "剩余时限", value: 100, max: 100, good: "high" },
+      ],
+    },
+    resources: [{ key: "influence", label: "话语权", value: 3, max: 8 }],
+    roles: [
+      { id: "lead", name: "主问者", desc: "决定本轮讯问顺序，可指定一人先发言" },
+      { id: "verify", name: "校验者", desc: "负责把口供与物证对齐" },
+      { id: "outsider", name: "旁听席", desc: "不发言，但每轮可额外读一条公共信息" },
+    ],
+    rounds: chosenRounds.map((r, i) => ({
+      index: i + 1,
+      title: r.title,
+      objective: r.objective,
+      reveal: [{
+        key: cluePool[i % cluePool.length].key,
+        label: cluePool[i % cluePool.length].label,
+        text: fill(cluePool[i % cluePool.length].text, dict),
+        gain: cluePool[i % cluePool.length].gain,
+      }],
+      actions: pickActions(actionPool, i),
+      branchPool,
+      tension: [2, 3, 4, 5, 6][i] || 4,
+    })),
+    branchPool,
+    stateSchema: COMMON_STATE_SCHEMA,
+    rewardPreview: { flux: 180, affinity: 7 },
+    roundTick: { time: -18 },
+    estimatePerRound: 155,
+    meta: { generator: "local", themeId: theme.id },
+  };
+}
+
+/* ---------------- 类型 B：资源经营博弈 ---------------- */
+const ECONOMY_THEMES = [
+  { id: "e1", title: "浮岛水权交易所", unit: "水票", goal: "在枯水季结束前稳住整座浮岛的供水",
+    scene: "{time}，{place}的水位跌破警戒线。{org}手里攥着最后一批{unit}，而三家买家已经开始互相压价。",
+    stakes: "如果价格失控，最下游的两百户会在三天内断水。" },
+  { id: "e2", title: "第七区的配给夜市", unit: "配给券", goal: "让夜市撑过这个冬天",
+    scene: "寒潮提前两周到货，{unit}在黑市上翻了三倍。{person}愿意出高价，但你的库存只够撑到下一次补给。",
+    stakes: "一旦有人开始囤积，整条街的价格会在两小时内崩掉。" },
+  { id: "e3", title: "沉船上的盐与灯油", unit: "货箱", goal: "在潮水退去前把货换成现金",
+    scene: "搁浅的货轮上有四十箱灯油和一批受潮的盐。{org}出价很低，但他们有唯一能运走的船。",
+    stakes: "下一次涨潮会带走整艘船，你只有几个小时的窗口。" },
+  { id: "e4", title: "边境驿站的冬储计划", unit: "粮袋", goal: "在封路前完成冬储",
+    scene: "封路通知已经贴上，{place}的粮价每过一个时辰就涨一轮。{person}提出用{object}抵押换粮。",
+    stakes: "雪一封山，再多的钱也换不来一袋粮。" },
+  { id: "e5", title: "云端算力黑市", unit: "算力时", goal: "把算力池卖给最需要的人而不是出价最高的人",
+    scene: "算力价格在四小时内翻了四倍。{org}要求优先供给，另有一批散户愿意付溢价。你的{object}里还有未结清的合约。",
+    stakes: "一旦违约，信誉评分会在整个市场公开。" },
+];
+
+const ECONOMY_ROUNDS = [
+  { key: "e_r1", title: "开盘：谁在压价", objective: "先摸清真实需求，别急着成交" },
+  { key: "e_r2", title: "第一波挤兑", objective: "在恐慌扩散前稳住价格" },
+  { key: "e_r3", title: "赊账与人情", objective: "用信任换时间，还是用现金换安全" },
+  { key: "e_r4", title: "稽查上门", objective: "账目必须经得起翻" },
+  { key: "e_r5", title: "收盘：谁在裸泳", objective: "清算所有口头承诺" },
+  { key: "e_r6", title: "季末结算", objective: "把浮盈变成真实库存" },
+];
+
+function genEconomy(dict, roundCount) {
+  const theme = pick(ECONOMY_THEMES);
+  const d = Object.assign({}, dict, { unit: theme.unit });
+
+  const actionPool = [
+    { id: "b_hoard", label: "囤积待涨", family: "long", risk: "high", infoGain: 1, teamHarm: 1, contest: 1,
+      desc: "压住库存不出手，赌下一轮价格更高。现金流会立刻吃紧。",
+      effects: { metrics: { stock: 8, cash: -7, exposure: 9, trust: -3 } } },
+    { id: "b_dump", label: "抛售回款", family: "short", risk: "low", infoGain: 0, teamHarm: 0, contest: 0,
+      desc: "把库存换成现金，安全但会压低市场价。",
+      effects: { metrics: { stock: -8, cash: 9, exposure: -6, trust: 1 } } },
+    { id: "b_credit", label: "赊账给熟人", family: "trust", risk: "mid", infoGain: 1, teamHarm: 2, contest: 0,
+      desc: "先把货给出去，换取长期人情与稳定渠道。",
+      effects: { metrics: { stock: -5, cash: -2, trust: 9, exposure: 4 } } },
+    { id: "b_loan", label: "借一笔短债", family: "leverage", risk: "high", infoGain: 0, teamHarm: -1, contest: 1,
+      desc: "用未来换现在，杠杆能放大收益也能放大崩盘。",
+      effects: { metrics: { cash: 14, exposure: 14, trust: -2 } } },
+    { id: "b_peg", label: "联合稳价", family: "cartel", risk: "mid", infoGain: 1, teamHarm: 2, contest: 1,
+      desc: "拉上同行一起定价，短期稳，长期容易被指垄断。",
+      effects: { metrics: { cash: 3, trust: 5, exposure: 5, stock: -2 } } },
+  ];
+
+  const branchPool = [
+    { id: "eb_crash", weight: 3, when: "resolve", text: "上游突然放量，{unit}价格一夜腰斩，囤货者浮亏扩大。",
+      effects: { metrics: { cash: -8, exposure: 8, trust: -2 } } },
+    { id: "eb_fake", weight: 2, when: "resolve", text: "一批{object}牵出假货传闻，买家要求验货，成交速度变慢。",
+      effects: { metrics: { cash: -4, trust: -5, exposure: 5 } } },
+    { id: "eb_audit", weight: 2, when: "resolve", condition: { metric: "exposure", op: ">=", value: 55 },
+      text: "{org}稽查队上门查账，杠杆部分必须当场说明来源。",
+      effects: { metrics: { cash: -9, trust: 3, exposure: -10 } } },
+    { id: "eb_gift", weight: 2, when: "observe", text: "一位老主顾送来{object}，表示愿意在原价上多等三天。",
+      effects: { metrics: { trust: 8, cash: 2 } } },
+    { id: "eb_shortage", weight: 2, when: "resolve", text: "补给车晚到，库存告急，所有人同时开始抢货。",
+      effects: { metrics: { stock: -6, cash: -3, exposure: 7 } } },
+  ];
+
+  return {
+    type: "economy",
+    theme: theme.id,
+    title: fill(theme.title, d),
+    themeText: fill(theme.scene, d),
+    rules: [
+      "本局共 " + roundCount + " 轮，每轮所有人同时下单，价格按总供需结算。",
+      "四项指标：库存、现金、信誉、风险敞口。任何一项触底都算经营失败。",
+      "风险敞口 ≥ 85 会触发强制平仓；现金 < 0 直接破产。",
+      "信誉 ≥ 70 且 期末库存 > 0 即达成目标。",
+      "口头承诺在收盘轮统一清算，赖账会一次性扣除信誉。",
+    ],
+    winCondition: { all: [{ metric: "trust", op: ">=", value: 70 }, { metric: "stock", op: ">", value: 0 }],
+      text: "信誉 ≥ 70 且 期末库存 > 0" },
+    loseCondition: { any: [{ metric: "exposure", op: ">=", value: 85 }, { metric: "cash", op: "<=", value: 0 }],
+      text: "风险敞口 ≥ 85 或 现金 ≤ 0" },
+    initialScene: {
+      narrative: fill(theme.scene, d) + " " + fill(theme.stakes, d),
+      metrics: [
+        { key: "stock", label: "库存（" + theme.unit + "）", value: 40, max: 100, good: "high" },
+        { key: "cash", label: "现金", value: 55, max: 100, good: "high" },
+        { key: "trust", label: "信誉", value: 45, max: 100, good: "high" },
+        { key: "exposure", label: "风险敞口", value: 20, max: 100, good: "low" },
+      ],
+    },
+    resources: [{ key: "contract", label: "合约位", value: 2, max: 5 }],
+    roles: [
+      { id: "trader", name: "主理人", desc: "拥有最终定价权" },
+      { id: "book", name: "账房", desc: "可查看一轮的隐藏成本" },
+      { id: "runner", name: "跑街", desc: "能提前半轮感知市场情绪" },
+    ],
+    rounds: ECONOMY_ROUNDS.slice(0, roundCount).map((r, i) => ({
+      index: i + 1,
+      title: r.title,
+      objective: r.objective,
+      reveal: [{
+        key: "em_" + i,
+        label: ["需求底牌", "库存水位", "同行动向", "账目缺口", "清算名单", "季末余量"][i] || "市场信号",
+        text: [
+          "真实需求比你估的高出约两成，但只有三家在真正买。",
+          "全市场可动用" + theme.unit + "只剩你手上的六成，谁先抛谁定调。",
+          "至少两家同行已经偷偷借了短债，他们的成本线在你之下。",
+          "有一笔三年前的旧账被翻了出来，金额不大，但足以影响信誉。",
+          "清算所列出五份未结口头合约，其中两份对你不利。",
+          "季末库存会在最后一次结算时按七折计价。",
+        ][i] || "市场给出一个模糊信号。",
+        gain: 8,
+      }],
+      actions: pickActions(actionPool, i),
+      branchPool,
+      tension: [2, 3, 4, 5, 6][i] || 4,
+    })),
+    branchPool,
+    stateSchema: COMMON_STATE_SCHEMA,
+    rewardPreview: { flux: 200, affinity: 6 },
+    roundTick: {},
+    estimatePerRound: 158,
+    meta: { generator: "local", themeId: theme.id },
+  };
+}
+
+/** 从动作池里挑 3-4 个，保证每轮都有"稳/中/险"三档，且不含重复 family */
+function pickActions(pool, roundIndex) {
+  const byRisk = { low: [], mid: [], high: [] };
+  pool.forEach((a) => { (byRisk[a.risk] || byRisk.mid).push(a); });
+  const out = [];
+  ["low", "mid", "high"].forEach((r) => {
+    if (byRisk[r].length) out.push(pick(byRisk[r]));
+  });
+  const rest = shuffle(pool.filter((a) => !out.includes(a)));
+  while (out.length < 4 && rest.length) out.push(rest.pop());
+  return shuffle(out);
+}
+
+/* ---------------- 类型 C：多人协作解谜 ---------------- */
+const COOP_THEMES = [
+  { id: "k1", title: "六棱回廊的同步门", goal: "让六扇门在同一秒开启",
+    scene: "回廊每 40 秒转动一次。六扇门各有一个校准盘，只有全部指向同一刻度，门才会开。你们被分在不同侧廊，看不到彼此的盘面。",
+    stakes: "再转三次，回廊会彻底锁死。" },
+  { id: "k2", title: "潮汐钟楼的三重校准", goal: "在涨潮前完成三重校准",
+    scene: "钟楼的机械需要三个人同时按下不同高度的配重杆。潮水已经漫到第二层，留给你们的窗口不到十轮。",
+    stakes: "水位每轮上升一格，漫过配重杆就再也压不下去。" },
+  { id: "k3", title: "深渊电梯的断电重启", goal: "恢复供电并让轿厢停在三层",
+    scene: "电梯卡在第七与第八层之间，轿厢里有一个人。配电盘被拆成四块，分别藏在不同楼层的检修口。",
+    stakes: "备用氧气只剩有限轮次。" },
+  { id: "k4", title: "纸鸢工坊的暗码风筝", goal: "拼出完整的暗码并放飞",
+    scene: "工坊里散着十几只半成品风筝，每只翅膀内侧写着一小段码。风只会在特定时刻起来。",
+    stakes: "风停之后，这批风筝再也飞不起来。" },
+];
+
+const COOP_ROUNDS = [
+  { key: "k_r1", title: "分头确认各自盘面", objective: "先建立可用的公共信息" },
+  { key: "k_r2", title: "第一次同步尝试", objective: "试错并记录偏差方向" },
+  { key: "k_r3", title: "信息缺口暴露", objective: "有人在隐瞒自己的读数" },
+  { key: "k_r4", title: "交叉校准", objective: "用两个人的读数推定第三个人的" },
+  { key: "k_r5", title: "最终同步", objective: "所有人必须同时动作" },
+  { key: "k_r6", title: "收束与撤离", objective: "开门之后还有最后一件事" },
+];
+
+function genCoop(dict, roundCount) {
+  const theme = pick(COOP_THEMES);
+  const actionPool = [
+    { id: "c_share", label: "交换碎片信息", family: "share", risk: "low", infoGain: 2, teamHarm: 1, contest: 0,
+      desc: "把自己的读数完整说出来，换取对方的。信息增益最高，但消耗一次行动窗口。",
+      effects: { metrics: { sync: 10, steps: -6 } } },
+    { id: "c_solo", label: "独自试错", family: "solo", risk: "high", infoGain: 1, teamHarm: -1, contest: 0,
+      desc: "不沟通，直接拨动装置。可能立刻对，也可能把结构弄坏。",
+      effects: { metrics: { sync: 4, integrity: -12, steps: -4 } } },
+    { id: "c_calib", label: "校准装置", family: "calib", risk: "mid", infoGain: 2, teamHarm: 2, contest: 0,
+      desc: "按当前共识调整刻度，收益高但需要队友同步动作。",
+      effects: { metrics: { sync: 14, steps: -12, integrity: -3 } } },
+    { id: "c_support", label: "托举队友", family: "support", risk: "low", infoGain: 1, teamHarm: 2, contest: 0,
+      desc: "替队友承担配重，让他腾出手做更精细的调整。",
+      effects: { metrics: { integrity: 8, sync: 5, steps: -4 } } },
+    { id: "c_listen", label: "静听机械回声", family: "listen", risk: "mid", infoGain: 2, teamHarm: 1, contest: 0,
+      desc: "不操作，靠声音判断齿轮咬合的位置。",
+      effects: { metrics: { sync: 7, steps: -3, integrity: 2 } } },
+  ];
+
+  const branchPool = [
+    { id: "kb_slip", weight: 3, when: "resolve", text: "某块配重滑脱，结构发出一声闷响，所有人被迫重来一次微调。",
+      effects: { metrics: { integrity: -9, sync: -6 } } },
+    { id: "kb_hidden", weight: 2, when: "resolve", text: "有人在检修口发现一行粉笔字：「第三块的读数不要信。」",
+      effects: { metrics: { sync: 8, steps: -2 } } },
+    { id: "kb_flood", weight: 2, when: "observe", condition: { metric: "steps", op: "<=", value: 60 },
+      text: "水位上涨速度加快，剩余步数被额外扣除。",
+      effects: { metrics: { steps: -10, integrity: -4 } } },
+    { id: "kb_sync_hi", weight: 2, when: "resolve", condition: { metric: "sync", op: ">=", value: 60 },
+      text: "六扇门短暂地同时亮起，同步率获得一次跃升。",
+      effects: { metrics: { sync: 12, integrity: 5 } } },
+    { id: "kb_doubt", weight: 2, when: "resolve", text: "有人开始怀疑队友给了假读数，队伍需要一次公开对账。",
+      effects: { metrics: { sync: -8, integrity: -2 } } },
+  ];
+
+  return {
+    type: "coop",
+    theme: theme.id,
+    title: fill(theme.title, dict),
+    themeText: fill(theme.scene, dict),
+    rules: [
+      "本局共 " + roundCount + " 轮。每人开局持有一块**私有信息碎片**，只有主动说出才会进入公共信息池。",
+      "同步率 ≥ 85 且 结构完整度 > 0 即成功。",
+      "结构完整度归零（装置损坏）或剩余步数归零（时间耗尽）即失败。",
+      "AI 队友会在每一轮之后互相交换推理结论；你也可以在发言阶段引用它们的结论。",
+      "「独自试错」收益快但会扣结构完整度——这是本局最主要的失败来源。",
+    ],
+    winCondition: { all: [{ metric: "sync", op: ">=", value: 85 }, { metric: "integrity", op: ">", value: 0 }],
+      text: "同步率 ≥ 85 且 结构完整度 > 0" },
+    loseCondition: { any: [{ metric: "integrity", op: "<=", value: 0 }, { metric: "steps", op: "<=", value: 0 }],
+      text: "结构损坏 或 步数耗尽" },
+    initialScene: {
+      narrative: fill(theme.scene, dict) + " " + fill(theme.stakes, dict),
+      metrics: [
+        { key: "sync", label: "同步率", value: 18, max: 100, good: "high" },
+        { key: "integrity", label: "结构完整度", value: 100, max: 100, good: "high" },
+        { key: "steps", label: "剩余步数", value: 100, max: 100, good: "high" },
+      ],
+    },
+    resources: [{ key: "fragment", label: "私有碎片", value: 1, max: 3 }],
+    roles: [
+      { id: "anchor", name: "锚点", desc: "持有最关键的读数，但只能看到一半" },
+      { id: "runner", name: "跑位", desc: "可在两层之间移动，代价是少一次操作" },
+      { id: "ear", name: "听音者", desc: "不操作时能获得额外线索" },
+    ],
+    rounds: COOP_ROUNDS.slice(0, roundCount).map((r, i) => ({
+      index: i + 1,
+      title: r.title,
+      objective: r.objective,
+      reveal: [{
+        key: "kc_" + i,
+        label: ["私有读数 A", "偏差方向", "被隐瞒的数字", "交叉推定", "最终刻度", "撤离通道"][i] || "公共信息",
+        text: [
+          "你手上的盘面读数是 3，但你只看得见自己这一侧。",
+          "上一轮所有人平均偏高 0.5 格，说明至少有一人的基准点错了。",
+          "有一名队友始终没报出自己的读数——他的碎片可能包含矛盾信息。",
+          "如果把 A 的读数减 1、C 的读数加 1，三个人的结果会同时对齐。",
+          "六个盘面的最终刻度必须是同一个数，且该数只能是 2 或 4。",
+          "门开之后只有一条通道能用，且需要两个人同时按住。",
+        ][i] || "公共信息池更新。",
+        gain: 9,
+      }],
+      actions: pickActions(actionPool, i),
+      branchPool,
+      tension: [2, 3, 4, 5, 6][i] || 4,
+    })),
+    branchPool,
+    stateSchema: COMMON_STATE_SCHEMA,
+    rewardPreview: { flux: 190, affinity: 8 },
+    roundTick: { steps: -8 },
+    estimatePerRound: 152,
+    meta: { generator: "local", themeId: theme.id },
+  };
+}
+
+/* ---------------- 类型 D：分组策略对抗 ---------------- */
+const VERSUS_THEMES = [
+  { id: "v1", title: "双塔议会的席位争夺", goal: "在五轮投票中拿下多数席位",
+    scene: "议会分东西两塔，每轮只提一个议题。谁先拿到第三票，谁就能改写下一轮的议程。中间席位有一位态度暧昧的议员。",
+    stakes: "输掉的一方会在下一季失去提案权。" },
+  { id: "v2", title: "雾港的旗帜战", goal: "在雾散前占领三处高点",
+    scene: "雾把港口切成碎片，旗帜插上高点才算占领。对方已经猜到你会先打东堤——也可能他们希望你这么想。",
+    stakes: "雾一散，所有未插旗的点位自动归对方。" },
+  { id: "v3", title: "环形竞技场的资源点", goal: "控制中央资源点超过半数回合",
+    scene: "环形场地每轮收缩一次，中央的高价值点会暴露所有站位。先抢的人占便宜，也最先被打。",
+    stakes: "场地收缩到最内圈时，没进圈的人直接出局。" },
+  { id: "v4", title: "两家报馆的头版之战", goal: "在发行前抢到独家",
+    scene: "两家报馆盯着同一条线报，印刷机凌晨四点开动。你抢先发布会被跟进，你压着不发会被别家抢走。",
+    stakes: "头版输了，广告主会在下季度换边。" },
+];
+
+const VERSUS_ROUNDS = [
+  { key: "v_r1", title: "开局：试探与站位", objective: "先暴露最小的信息，换取对方的意图" },
+  { key: "v_r2", title: "中盘：佯动", objective: "让对手为你的假动作付出成本" },
+  { key: "v_r3", title: "资源点争夺", objective: "把优势换成可计分的位置" },
+  { key: "v_r4", title: "对手的反制", objective: "他们预判了你的预判" },
+  { key: "v_r5", title: "终局：摊牌", objective: "最后一轮必须明确站队" },
+  { key: "v_r6", title: "加时", objective: "如果分差在一票之内" },
+];
+
+function genVersus(dict, roundCount) {
+  const theme = pick(VERSUS_THEMES);
+  const actionPool = [
+    { id: "d_push", label: "正面强攻", family: "push", risk: "high", infoGain: 0, teamHarm: 1, contest: 3,
+      desc: "把资源压在明面上，收益高但完全暴露意图。",
+      effects: { metrics: { my: 12, their: -4, momentum: -6 } } },
+    { id: "d_ambush", label: "设伏", family: "ambush", risk: "mid", infoGain: 2, teamHarm: 1, contest: 2,
+      desc: "故意让出一小块，等对手深入再反击。需要准确预判。",
+      effects: { metrics: { my: 7, their: -9, momentum: 4 } } },
+    { id: "d_ally", label: "拉拢中间方", family: "ally", risk: "mid", infoGain: 2, teamHarm: 2, contest: 1,
+      desc: "用承诺换支持，短期不涨分，但能改变后续每一轮的票型。",
+      effects: { metrics: { my: 5, their: -3, momentum: 7 } } },
+    { id: "d_hold", label: "收缩防守", family: "hold", risk: "low", infoGain: 1, teamHarm: 0, contest: 0,
+      desc: "放弃扩张，保住已有优势，把压力留给对手。",
+      effects: { metrics: { my: 3, their: 1, momentum: -2 } } },
+    { id: "d_bait", label: "放诱饵", family: "bait", risk: "high", infoGain: 3, teamHarm: -1, contest: 2,
+      desc: "主动露一个破绽，观察对手是否上钩；风险是破绽可能变成真损失。",
+      effects: { metrics: { my: -2, their: 3, momentum: 9 } } },
+  ];
+
+  const branchPool = [
+    { id: "vb_read", weight: 3, when: "resolve", text: "对手的动线被看清了：他们连续两轮在同一侧施压，中路是空的。",
+      effects: { metrics: { my: 9, their: -5, momentum: 5 } } },
+    { id: "vb_counter", weight: 3, when: "resolve", text: "对手提前一步反制，你的主攻方向正好撞在他们准备好的防线上。",
+      effects: { metrics: { my: -8, their: 7, momentum: -6 } } },
+    { id: "vb_defect", weight: 2, when: "resolve", text: "中间方临时倒戈，把关键一票投给了对手。",
+      effects: { metrics: { my: -6, their: 6, momentum: -8 } } },
+    { id: "vb_leak", weight: 2, when: "resolve", condition: { metric: "momentum", op: ">=", value: 62 },
+      text: "你们士气正盛，一名对手成员私下递来他们的下一轮计划。",
+      effects: { metrics: { my: 7, their: -4, momentum: 3 } } },
+    { id: "vb_collapse", weight: 2, when: "resolve", condition: { metric: "momentum", op: "<=", value: 35 },
+      text: "队伍内部开始互相指责，本轮所有收益减半。",
+      effects: { metrics: { my: -5, momentum: -6 } } },
+  ];
+
+  return {
+    type: "versus",
+    theme: theme.id,
+    title: fill(theme.title, dict),
+    themeText: fill(theme.scene, dict),
+    rules: [
+      "本局共 " + roundCount + " 轮，双方同时行动、同时揭晓。",
+      "影响力先到 65 且高于对手即获胜；双方都未达标则按分差判定。",
+      "「士气」低于 25 时全队收益打折，高于 75 时可获额外情报。",
+      "AI 会基于对手**前两轮的公开动作**建立策略模型，并在日志中显式预判。",
+      "最后一轮所有隐藏信息强制公开，不能继续藏牌。",
+    ],
+    winCondition: { all: [{ metric: "my", op: ">=", value: 65 }, { metric: "my", op: ">", value: "__their__" }],
+      text: "我方影响力 ≥ 65 且高于对手" },
+    loseCondition: { any: [{ metric: "their", op: ">=", value: 65 }, { metric: "momentum", op: "<=", value: 8 }],
+      text: "对手影响力 ≥ 65 或 士气崩溃" },
+    initialScene: {
+      narrative: fill(theme.scene, dict) + " " + fill(theme.stakes, dict),
+      metrics: [
+        { key: "my", label: "我方影响力", value: 20, max: 100, good: "high" },
+        { key: "their", label: "对方影响力", value: 20, max: 100, good: "low" },
+        { key: "momentum", label: "士气", value: 50, max: 100, good: "high" },
+      ],
+    },
+    resources: [{ key: "intel", label: "情报点", value: 1, max: 5 }],
+    roles: [
+      { id: "captain", name: "主事", desc: "决定本轮主攻方向" },
+      { id: "scout", name: "斥候", desc: "每轮可多看到一条对手动作" },
+      { id: "negotiator", name: "说客", desc: "能提高拉拢成功率" },
+    ],
+    rounds: VERSUS_ROUNDS.slice(0, roundCount).map((r, i) => ({
+      index: i + 1,
+      title: r.title,
+      objective: r.objective,
+      reveal: [{
+        key: "vc_" + i,
+        label: ["对手首轮偏好", "中间方态度", "对手资源余量", "对手的预判", "底牌公开", "加时规则"][i] || "战场情报",
+        text: [
+          "对手第一轮把七成资源压在东侧，说明他们更怕失位而不是失分。",
+          "中间方只关心一件事：谁能在下一轮给出可验证的承诺。",
+          "对手的资源余量只剩六成，他们撑不了两轮高强度对抗。",
+          "对手已经猜到你会设伏，正在准备反向包围。",
+          "双方所有未公开的承诺在最后一轮失效，只能靠已得分说话。",
+          "若分差在一票之内，进入单轮决胜。",
+        ][i] || "战场情报更新。",
+        gain: 8,
+      }],
+      actions: pickActions(actionPool, i),
+      branchPool,
+      tension: [2, 3, 4, 5, 6][i] || 4,
+    })),
+    branchPool,
+    stateSchema: COMMON_STATE_SCHEMA,
+    rewardPreview: { flux: 210, affinity: 6 },
+    roundTick: {},
+    estimatePerRound: 150,
+    meta: { generator: "local", themeId: theme.id },
+  };
+}
+
+/* ---------------- 指纹与总入口 ---------------- */
+function fingerprintOf(game) {
+  const clueKeys = game.rounds.map((r) => (r.reveal && r.reveal[0] ? r.reveal[0].key : "")).join(",");
+  const titles = game.rounds.map((r) => r.title).join("/");
+  const actSets = game.rounds.map((r) => r.actions.map((a) => a.id).sort().join("+")).join("/");
+  const raw = [game.type, game.meta.themeId, game.title, game.themeText, clueKeys, titles, actSets].join("|");
+  return "fp_" + hashStr(raw);
+}
+
+const BUILDERS = {
+  deduction: genDeduction,
+  economy: genEconomy,
+  coop: genCoop,
+  versus: genVersus,
+};
+
+/**
+ * 时长预估：由轮数、AI 人数、实测日志字数与流式速度共同决定。
+ * 这个函数是"单局 ≥10 分钟"这条硬约束的落地，不是营销文案。
+ */
+function estimateMinutes(roundCount, aiCount) {
+  const perAiSec = (TUNING.AVG_LOG_CHARS * TUNING.THINK_CHAR_MS_STANDARD) / 1000
+    + 4 * (TUNING.SECTION_GAP_MS_STANDARD / 1000) + 0.42;
+  // 20s 读线索 + 每人发言 + 35s 玩家决策 + 18s 结算
+  const perRoundSec = 20 + Math.max(1, aiCount) * perAiSec + 35 + 18;
+  return Math.max(TUNING.TARGET_MINUTES_MIN, Math.round((roundCount * perRoundSec + 120) / 60));
+}
+
+/**
+ * 生成一局全新游戏
+ * @param {object} opts
+ *   mode             'solo' | 'coop' | 'versus'
+ *   companions      选中伴侣数组
+ *   historyFingerprints  历史指纹（必须避开）
+ *   recentThemes    最近玩过的主题 id（尽量避开）
+ *   preferType      'auto' | 四类之一
+ *   pace            'standard' | 'fast'
+ *   typeCoverage    {type: count} 用于 auto 时优先补足没玩过的类型
+ */
+function generateGame(opts) {
+  const used = new Set(opts.historyFingerprints || []);
+  const bannedThemes = new Set(opts.recentThemes || []);
+  const pace = opts.pace || "standard";
+
+  // 轮数按模式反推时长：solo 只有 1 个 AI 发言，单轮更短，需要更多轮才够 10 分钟
+  const roundCount = pace === "fast" ? 3 : (opts.mode === "solo" ? 6 : 5);
+  const aiCount = (opts.companions || []).length;
+
+  let type = opts.preferType && opts.preferType !== "auto" ? opts.preferType : null;
+  if (!type) {
+    // auto：优先补足覆盖度最低的类型，避免连着三局都是推理
+    const cov = opts.typeCoverage || {};
+    const candidates = Object.keys(BUILDERS).sort((a, b) => (cov[a] || 0) - (cov[b] || 0));
+    const topTier = candidates.filter((t) => (cov[t] || 0) === (cov[candidates[0]] || 0));
+    type = pick(topTier);
+  }
+
+  let game = null;
+  let attempt = 0;
+  for (; attempt < TUNING.DEDUP_MAX_ATTEMPTS; attempt++) {
+    const dict = lexDict();
+    const candidate = BUILDERS[type](dict, roundCount);
+    candidate.fingerprint = fingerprintOf(candidate);
+    candidate.gameId = "g_" + hashStr(candidate.fingerprint + "|" + Date.now()) + "_" + attempt;
+    candidate.estimatedMinutes = estimateMinutes(roundCount, aiCount);
+
+    // 前 2/3 的尝试严格避开历史主题；后 1/3 放宽，只要求指纹唯一
+    const strictTheme = attempt < TUNING.DEDUP_MAX_ATTEMPTS * 0.66;
+    if (strictTheme && bannedThemes.has(candidate.meta.themeId)) continue;
+    if (used.has(candidate.fingerprint)) continue;
+    game = candidate;
+    break;
+  }
+
+  if (!game) {
+    // 极端兜底：仍然给一局可玩的，但标记为降级，UI 会提示
+    const dict = lexDict();
+    game = BUILDERS[type](dict, roundCount);
+    game.gameId = "g_" + hashStr(String(Date.now()) + Math.random());
+    game.fingerprint = fingerprintOf(game);
+    game.estimatedMinutes = estimateMinutes(roundCount, aiCount);
+    game.meta.dedupDegraded = true;
+  }
+
+  game.mode = opts.mode || "coop";
+  game.generatedAt = Date.now();
+  game.roundCount = game.rounds.length;
+  game.playerCount = (opts.companions || []).length + 1;
+
+  // 模式相关规则补丁：让规则文本与真实编排一致
+  const extraRules = {
+    solo: ["单人陪玩：你与 1 位伴侣直接对话，所有提示由对方给出。"],
+    coop: ["协作模式：你与 " + (opts.companions || []).length + " 位伴侣同队，AI 之间会交换推理结论。"],
+    versus: ["对抗模式：你与部分伴侣同队，其余伴侣组成对手队，对手会预判你的策略。"],
+  };
+  game.rules = (game.rules || []).concat(extraRules[game.mode] || []);
+  return game;
+}
+
+/* =========================================================================
+   §5 对局状态机与运行时引擎
+   ------------------------------------------------------------------------
+   状态机（显式声明，非法迁移会被拒绝并打警告，便于接入后端时定位问题）：
+
+     BOOT → GALLERY → LOBBY → GENERATING → BRIEFING
+                                              ↓
+                             ┌──────────── OBSERVE ←──────────┐
+                             ↓                ↓               │
+                           THINK → ACT → RESOLVE → BRANCH ───┘
+                                            ↓
+                                        SETTLEMENT → GALLERY / LOBBY / REPLAY
+
+   暂停：不改变状态，只冻结 gate()，恢复后从原状态继续（不丢进度）
+   中止：aborted 标记 + 抛出 ABORT，由 start() 的 try/catch 收口
+   ========================================================================= */
+
+const ABORT = { __abort: true };
+
+const TRANSITIONS = {
+  BOOT: ["GALLERY"],
+  GALLERY: ["LOBBY"],
+  LOBBY: ["GALLERY", "GENERATING"],
+  GENERATING: ["BRIEFING", "LOBBY"],
+  BRIEFING: ["OBSERVE", "SETTLEMENT"],
+  OBSERVE: ["THINK"],
+  THINK: ["ACT"],
+  ACT: ["RESOLVE"],
+  RESOLVE: ["BRANCH", "OBSERVE", "SETTLEMENT"],
+  BRANCH: ["OBSERVE", "SETTLEMENT"],
+  SETTLEMENT: ["GALLERY", "LOBBY", "REPLAY"],
+  REPLAY: ["SETTLEMENT", "GALLERY"],
+};
+
+const FSM = {
+  current: "BOOT",
+  history: [],
+  onChange: null,
+  can(next) { return (TRANSITIONS[this.current] || []).includes(next); },
+  go(next, payload) {
+    if (!this.can(next)) {
+      console.warn("[FluxSpace][FSM] 非法迁移被拒绝：" + this.current + " → " + next);
+      return false;
+    }
+    this.history.push({ from: this.current, to: next, at: Date.now() });
+    this.current = next;
+    if (typeof this.onChange === "function") this.onChange(next, payload);
+    return true;
+  },
+};
+
+/** 条件判定：支持 {all:[]} / {any:[]} / {metric,op,value}，字符串值 "__their__" 指向对手指标 */
+function cmp(a, op, b) {
+  switch (op) {
+    case ">=": return a >= b;
+    case ">": return a > b;
+    case "<=": return a <= b;
+    case "<": return a < b;
+    case "==": return a === b;
+    case "!=": return a !== b;
+    default: return false;
+  }
+}
+function resolveValue(v, metrics) {
+  if (v === "__their__") return metrics.their ? metrics.their.value : 0;
+  if (v === "__my__") return metrics.my ? metrics.my.value : 0;
+  return v;
+}
+function evalCondition(cond, metrics) {
+  if (!cond) return false;
+  if (Array.isArray(cond.all)) return cond.all.every((c) => evalCondition(c, metrics));
+  if (Array.isArray(cond.any)) return cond.any.some((c) => evalCondition(c, metrics));
+  const m = metrics[cond.metric];
+  if (!m) return false;
+  return cmp(m.value, cond.op, resolveValue(cond.value, metrics));
+}
+
+/**
+ * 一轮结算的核心数学 —— 这里是整个平衡的地基。
+ *
+ * 为什么要归一化：若把每个人的 effects 直接相加，4 人局每轮的推进量是单人局的 4 倍，
+ * 胜负会在第 2 轮就达成，10 分钟的流程被压缩成 3 分钟。所以按"加权平均 × 协同增益"结算，
+ * 让不同人数下的进度曲线基本一致。
+ *
+ * 三个修正因子：
+ *   weight      玩家 1.6 / AI 1.0 —— 让玩家的选择真正有分量（约 35% 影响力）
+ *   synergy     1 + 0.12 × 同族动作占比 —— 全员一致时有协同奖励，但幅度克制
+ *   fatigue     同一动作族在一局内重复使用会边际递减（第 3 次起 0.72，之后更低）
+ *               这是"不能靠一个最优解刷穿 5 轮"的关键阀门，也符合"线索会被挖尽"的直觉
+ *   paceScale   轮数越少每轮推进越多（6 轮 0.82 / 5 轮 1.0 / 3 轮 1.6），保证总时长一致
+ */
+function fatigueMul(timesUsed) {
+  if (timesUsed <= 1) return 1;
+  return Math.max(0.42, 1 - (timesUsed - 1) * 0.28);
+}
+
+function computeRoundDelta(entries, metrics, playerSide, mode, usage, roundCount) {
+  const W = { player: 1.6, ai: 1.0 };
+  const acc = {};
+  const contribution = {};
+  const fam = {};
+  let wSum = 0;
+
+  entries.forEach((e) => {
+    const w = e.isPlayer ? W.player : W.ai;
+    wSum += w;
+    const family = (e.action && e.action.family) || "misc";
+    fam[family] = (fam[family] || 0) + 1;
+    const fatigue = fatigueMul(usage[family] || 0);
+    const eff = (e.action && e.action.effects && e.action.effects.metrics) || {};
+    let gain = 0;
+
+    Object.keys(eff).forEach((k) => {
+      if (!metrics[k]) return;
+      let v = eff[k];
+      // 对抗模式下，对手动作反向作用于我方指标
+      if (mode === "versus" && e.side !== playerSide) {
+        if (k === "my") v = -Math.abs(v) * 0.7;
+        else if (k === "their") v = Math.abs(v) * 0.7;
+        else if (k === "momentum") v = -Math.abs(v) * 0.6;
+        else v = -v * 0.55;
+      }
+      const scaled = v * fatigue;
+      acc[k] = (acc[k] || 0) + scaled * w;
+      const m = metrics[k];
+      const positive = m.good === "low" ? -scaled : scaled;
+      if (e.side === playerSide) gain += Math.max(0, positive) * w;
+    });
+
+    if (e.side === playerSide) {
+      contribution[e.actorId] = (contribution[e.actorId] || 0) + Math.round(gain);
+    }
+  });
+
+  const maxFam = Math.max.apply(null, Object.keys(fam).map((k) => fam[k]).concat([1]));
+  const agreement = entries.length ? maxFam / entries.length : 0;
+  const synergy = 1 + 0.12 * agreement;
+  const paceScale = roundCount >= 6 ? 0.82 : roundCount <= 3 ? 1.6 : 1;
+
+  const delta = {};
+  Object.keys(acc).forEach((k) => {
+    delta[k] = (acc[k] / Math.max(1, wSum)) * synergy * paceScale;
+  });
+  return { delta, contribution, agreement, synergy };
+}
+
+const Runtime = (() => {
+  const R = {
+    game: null,
+    mode: "coop",
+    pace: "standard",
+    teams: { A: [], B: [] },
+    playerSide: "A",
+    partners: [],          // 同队 AI
+    opponents: [],         // 对手 AI
+    actors: [],            // 本轮发言顺序（AI）
+    state: null,
+    timeline: [],
+    logs: [],
+    turn: 0,
+    seq: 0,
+    paused: false,
+    aborted: false,
+    speed: 1,
+    startedAt: 0,
+    contribution: {},      // actorId → 累计正向贡献
+    _usage: {},            // 动作族 → 本局使用次数（驱动边际递减）
+    _pendingAction: null,
+    _pendingContinue: null,
+    currentActions: [],
+
+    /* ---------------- 生命周期 ---------------- */
+    async start(game, mode, companions) {
+      this.game = game;
+      this.mode = mode;
+      this.aborted = false;
+      this.paused = false;
+      this.timeline = [];
+      this.logs = [];
+      this.turn = 0;
+      this.seq = 0;
+      this.startedAt = Date.now();
+      this.contribution = {};
+      this._usage = {};
+
+      // 分队：对抗模式把选中的伴侣按序号交替分到 A/B；其余模式全部同队
+      const sorted = shuffle(companions.slice());
+      if (mode === "versus" && sorted.length >= 2) {
+        const half = Math.ceil(sorted.length / 2);
+        this.partners = sorted.slice(0, half);
+        this.opponents = sorted.slice(half);
+      } else if (mode === "solo") {
+        this.partners = sorted.slice(0, 1);
+        this.opponents = [];
+      } else {
+        this.partners = sorted.slice();
+        this.opponents = [];
+      }
+      this.teams = { A: this.partners, B: this.opponents };
+
+      // 初始化对局状态
+      const metrics = {};
+      game.initialScene.metrics.forEach((m) => {
+        metrics[m.key] = { key: m.key, label: m.label, value: m.value, max: m.max, good: m.good || "high" };
+      });
+      const resources = {};
+      (game.resources || []).forEach((r) => { resources[r.key] = { key: r.key, label: r.label, value: r.value, max: r.max }; });
+
+      this.state = {
+        gameId: game.gameId,
+        round: 0,
+        phase: "briefing",
+        metrics,
+        resources,
+        revealed: [],
+        flags: [],
+        decisions: [],
+        teamConclusions: [],
+        ended: false,
+      };
+
+      FSM.go("BRIEFING");
+
+      try {
+        await this.runBriefing();
+        await this.runLoop();
+      } catch (err) {
+        if (err === ABORT) {
+          console.info("[FluxSpace] 对局被主动中止");
+        } else {
+          console.error("[FluxSpace] 运行时异常：", err);
+          FS.ui.toast("对局出现异常，已中止：" + (err && err.message ? err.message : err), "bad");
+          // 不留半截状态：弹出结算，让玩家可以选择重开
+          this.finish("error");
+        }
+      }
+    },
+
+    /** 暂停感知的等待：暂停时冻结计时，恢复后继续 */
+    async gate(ms) {
+      let left = ms / (this.speed || 1);
+      while (left > 0) {
+        if (this.aborted) throw ABORT;
+        if (this.paused) { await sleep(90); continue; }
+        const step = Math.min(left, 50);
+        await sleep(step);
+        left -= step;
+      }
+    },
+
+    async gateNoSpeed(ms) {
+      let left = ms;
+      while (left > 0) {
+        if (this.aborted) throw ABORT;
+        if (this.paused) { await sleep(90); continue; }
+        const step = Math.min(left, 50);
+        await sleep(step);
+        left -= step;
+      }
+    },
+
+    pause() {
+      if (FSM.current === "SETTLEMENT" || !this.game) return false;
+      this.paused = true;
+      FS.ui.setPaused(true);
+      return true;
+    },
+    resume() {
+      this.paused = false;
+      FS.ui.setPaused(false);
+      return true;
+    },
+    abort() {
+      this.aborted = true;
+      this.paused = false;
+      const p = this._pendingAction; this._pendingAction = null; if (p) p(null);
+      const c = this._pendingContinue; this._pendingContinue = null; if (c) c(null);
+    },
+
+    /* ---------------- 阶段 0：简报 ---------------- */
+    async runBriefing() {
+      this.state.phase = "briefing";
+      FS.ui.renderGame(this);
+      FS.ui.pushSystemLog("对局载入：" + this.game.title + " · 预计 " + this.game.estimatedMinutes + " 分钟 · " + this.game.rounds.length + " 轮");
+      await FS.ui.waitContinue("阅读简报，准备开始");
+      if (this.aborted) throw ABORT;
+    },
+
+    /* ---------------- 主循环 ---------------- */
+    async runLoop() {
+      const total = this.game.rounds.length;
+      for (let i = 0; i < total; i++) {
+        if (this.aborted) throw ABORT;
+        this.state.round = i + 1;
+        this.turn = i;
+        const roundDef = this.game.rounds[i];
+
+        // OBSERVE
+        FSM.go("OBSERVE");
+        this.state.phase = "observe";
+        await this.runObserve(roundDef);
+        if (this.aborted) throw ABORT;
+
+        // THINK
+        FSM.go("THINK");
+        this.state.phase = "think";
+        await this.runThink(roundDef);
+        if (this.aborted) throw ABORT;
+
+        // ACT
+        FSM.go("ACT");
+        this.state.phase = "act";
+        this.currentActions = roundDef.actions;
+        FS.ui.renderGame(this);
+        const actionId = await FS.ui.promptAction(roundDef.actions, this);
+        if (this.aborted) throw ABORT;
+        const playerAction = roundDef.actions.find((a) => a.id === actionId) || roundDef.actions[0];
+
+        // RESOLVE
+        FSM.go("RESOLVE");
+        this.state.phase = "resolve";
+        const outcome = await this.resolveRound(roundDef, playerAction);
+
+        // 结束判定
+        const end = this.checkEnd();
+        if (end) { await this.finish(end); return; }
+
+        // BRANCH
+        if (outcome.branch) {
+          FSM.go("BRANCH");
+          this.state.phase = "branch";
+          await this.runBranch(outcome.branch);
+        }
+
+        // 轮末小结
+        await FS.ui.showRoundSummary(this, roundDef, outcome);
+        if (this.aborted) throw ABORT;
+
+        // 最后判定一次（分支可能改变指标）
+        const end2 = this.checkEnd();
+        if (end2) { await this.finish(end2); return; }
+      }
+      await this.finish("rounds_out");
+    },
+
+    /* ---------------- 观察：解锁线索 ---------------- */
+    async runObserve(roundDef) {
+      const reveals = roundDef.reveal || [];
+      reveals.forEach((rv) => {
+        if (!this.state.revealed.find((x) => x.key === rv.key)) {
+          this.state.revealed.push({ key: rv.key, label: rv.label, text: rv.text, round: this.state.round });
+        }
+      });
+      this.addTimeline({
+        kind: "reveal", round: this.state.round, actorName: "系统",
+        text: reveals.map((r) => "【" + r.label + "】" + r.text).join("\n"),
+        sections: [],
+      });
+      FS.ui.renderGame(this);
+      FS.ui.flashBoard("round");
+      await this.gateNoSpeed(this.pace === "fast" ? 200 : 900);
+    },
+
+    /* ---------------- 思考：逐个 AI 流式输出五段日志 ---------------- */
+    async runThink(roundDef) {
+      // 后端会话可用时优先消费 SSE 流；任何失败都自动回退到本地推理
+      if (FluxSpaceAPI.remoteReady()) {
+        const remote = await FluxSpaceAPI.streamRound(roundDef, this);
+        if (remote && remote.decisions && remote.decisions.length) {
+          this.partners.concat(this.opponents).forEach((c) => {
+            if (this.contribution[c.id] === undefined) this.contribution[c.id] = 0;
+          });
+          this._roundAiDecisions = remote.decisions;
+          this.state.decisions.push({ round: this.state.round, entries: remote.decisions, playerActionId: null });
+          return;
+        }
+      }
+
+      // 发言顺序：同队先发言（玩家先听到自己人的推理），对手后发言
+      const order = this.partners.concat(this.opponents);
+      this.actors = order;
+      this.partners.concat(this.opponents).forEach((c) => {
+        if (this.contribution[c.id] === undefined) this.contribution[c.id] = 0;
+      });
+
+      const roundDecisions = [];
+
+      for (let idx = 0; idx < order.length; idx++) {
+        if (this.aborted) throw ABORT;
+        const companion = order[idx];
+        const side = this.partners.includes(companion) ? this.playerSide : (this.playerSide === "A" ? "B" : "A");
+        const isOpponent = side !== this.playerSide;
+
+        const ctx = this.buildDecisionContext(companion, roundDef, side, roundDecisions);
+        const decision = decideAction(ctx);
+
+        // 对手的最终决策在结算前不公开（保留博弈悬念），但过程完全可见
+        const displaySections = decision.sections.map((s) => {
+          if (isOpponent && s.key === "verdict") {
+            return { key: s.key, label: s.label, text: "→ [已锁定]\n（对手的最终决策会在本轮结算时公开，完整版本保存在回放里）" };
+          }
+          return s;
+        });
+
+        const logEntry = {
+          id: "log_" + (++this.seq),
+          round: this.state.round,
+          actorId: companion.id,
+          actorName: companion.name,
+          side,
+          isOpponent,
+          sections: decision.sections,      // 完整版（回放用）
+          displaySections,                  // 展示版（对手隐去结论）
+          actionLabel: decision.actionLabel,
+          confidence: decision.confidence,
+          ts: Date.now(),
+        };
+        this.logs.push(logEntry);
+
+        FS.ui.beginThinkCard(companion, logEntry, isOpponent);
+        for (let si = 0; si < displaySections.length; si++) {
+          const sec = displaySections[si];
+          FS.ui.beginSection(logEntry.id, sec);
+          await this.streamSection(logEntry.id, sec, si);
+          if (this.aborted) throw ABORT;
+          await this.gateNoSpeed(this.pace === "fast" ? 40 : TUNING.SECTION_GAP_MS_STANDARD);
+        }
+        FS.ui.endThinkCard(logEntry.id);
+
+        // 结论进入公共池：这就是"AI 之间交换推理结论"
+        if (this.mode !== "solo" || !isOpponent) {
+          this.state.teamConclusions.push({
+            round: this.state.round,
+            actorId: companion.id,
+            name: companion.name,
+            side,
+            text: decision.sharedConclusion,
+          });
+          FS.ui.pushConcensusTag(companion, decision.sharedConclusion, isOpponent);
+        }
+
+        roundDecisions.push({
+          actorId: companion.id, name: companion.name, side, isOpponent,
+          actionId: decision.actionId, actionLabel: decision.actionLabel,
+          action: decision.action, sharedConclusion: decision.sharedConclusion,
+        });
+
+        await this.gateNoSpeed(this.pace === "fast" ? 60 : 420);
+      }
+
+      this.state.decisions.push({ round: this.state.round, entries: roundDecisions, playerActionId: null });
+      this._roundAiDecisions = roundDecisions;
+    },
+
+    /** 逐字符流式写入当前段落；intuition 高的角色打字更快（表现"确信"） */
+    async streamSection(logId, sec, index) {
+      const node = FS.ui.sectionBodyNode(logId, sec.key);
+      if (!node) return;
+      const text = sec.text || "";
+      const baseMs = this.pace === "fast" ? TUNING.THINK_CHAR_MS_FAST : TUNING.THINK_CHAR_MS_STANDARD;
+      // 段落越长单字间隔略短，避免最后一段过长
+      const charMs = clamp(baseMs * (1.15 - Math.min(text.length, 600) / 1600), 8, baseMs * 1.2);
+      let i = 0;
+      while (i < text.length) {
+        if (this.aborted) throw ABORT;
+        if (this.paused) { await sleep(90); continue; }
+        const step = text.length > 260 ? 2 : 1;
+        i = Math.min(text.length, i + step);
+        node.textContent = text.slice(0, i);
+        FS.ui.autoscrollIfPinned();
+        await this.gate(charMs * step);
+      }
+      node.textContent = text;
+      FS.ui.markSectionDone(logId, sec.key);
+    },
+
+    /** 组装决策上下文：这是"性格 × 局面 × 队友 × 对手"的完整输入 */
+    buildDecisionContext(companion, roundDef, side, roundDecisions) {
+      const st = this.state;
+      // 队友意图：本轮已决策的同侧成员的动作族众数
+      const sameSide = roundDecisions.filter((d) => d.side === side);
+      let teamIntent = null, teamIntentLabel = null, teamFamily = null;
+      if (sameSide.length) {
+        const freq = {};
+        sameSide.forEach((d) => { freq[d.actionId] = (freq[d.actionId] || 0) + 1; });
+        const topId = Object.keys(freq).sort((a, b) => freq[b] - freq[a])[0];
+        const found = roundDef.actions.find((a) => a.id === topId);
+        if (found) { teamIntent = found.id; teamIntentLabel = found.label; teamFamily = found.family; }
+      }
+
+      // 对手模式串：前两轮对手实际动作（用 name 做可读文本）
+      let opponentPattern = null;
+      if (this.mode === "versus" || this.mode === "solo") {
+        const prev = st.decisions.slice(-2)
+          .flatMap((d) => d.entries.filter((e) => e.side !== side))
+          .map((e) => e.actionLabel);
+        if (prev.length >= 2) {
+          const freq = {};
+          prev.forEach((l) => { freq[l] = (freq[l] || 0) + 1; });
+          opponentPattern = Object.keys(freq).sort((a, b) => freq[b] - freq[a])[0];
+        }
+      }
+
+      // 最近一条队友结论（用于日志第①段引用）
+      const prior = roundDecisions.filter((d) => d.side === side).slice(-1)[0] || null;
+
+      // 最危险的指标（用于"如果判断错会怎样"）
+      let metricsRisk = null;
+      const worst = Object.values(st.metrics)
+        .map((m) => ({ ...m, danger: m.good === "low" ? pct(m.value, m.max) : 100 - pct(m.value, m.max) }))
+        .sort((a, b) => b.danger - a.danger)[0];
+      if (worst && worst.danger > 50) {
+        metricsRisk = "「" + worst.label + "」会从 " + worst.value + " 继续朝不利方向走，它是本局最脆弱的一环";
+      }
+
+      return {
+        companion,
+        mode: this.mode,
+        side,
+        roundIndex: st.round - 1,
+        totalRounds: this.game.rounds.length,
+        metrics: st.metrics,
+        actions: roundDef.actions,
+        evidenceCount: st.revealed.length,
+        newClue: (roundDef.reveal || [])[0] || null,
+        priorDecision: prior ? {
+          name: prior.name, actionLabel: prior.actionLabel,
+          sharedConclusion: prior.sharedConclusion, side: prior.side,
+        } : null,
+        teamIntent, teamIntentLabel, teamFamily,
+        opponentPattern,
+        affinity: companion.affinity,
+        mood: companion.mood,
+        playerLastFamily: this._playerLastFamily || null,
+        metricsRisk,
+      };
+    },
+
+    /* ---------------- 玩家行动 ---------------- */
+    async promptPlayerAction(roundDef) {
+      return FS.ui.promptAction(roundDef.actions, this);
+    },
+
+    /* ---------------- 结算 ---------------- */
+    async resolveRound(roundDef, playerAction) {
+      const st = this.state;
+      const aiEntries = this._roundAiDecisions || [];
+
+      // 玩家动作也参与结算
+      const allActions = aiEntries.map((e) => ({ ...e, isPlayer: false }));
+      allActions.push({
+        actorId: "player", name: "你", side: this.playerSide, isOpponent: false,
+        actionId: playerAction.id, actionLabel: playerAction.label, action: playerAction, isPlayer: true,
+      });
+      this._playerLastFamily = playerAction.family;
+
+      const before = {};
+      Object.keys(st.metrics).forEach((k) => { before[k] = st.metrics[k].value; });
+
+      // 归一化结算：见 computeRoundDelta 的说明
+      const calc = computeRoundDelta(allActions, st.metrics, this.playerSide, this.mode, this._usage, this.game.rounds.length);
+      const totals = calc.delta;
+
+      // 累加动作族使用次数，驱动边际递减
+      allActions.forEach((e) => {
+        const f = (e.action && e.action.family) || "misc";
+        this._usage[f] = (this._usage[f] || 0) + 1;
+      });
+      Object.keys(calc.contribution).forEach((id) => {
+        this.contribution[id] = (this.contribution[id] || 0) + calc.contribution[id];
+      });
+
+      // 轮次固定消耗
+      const tick = this.game.roundTick || {};
+      Object.keys(tick).forEach((k) => {
+        if (st.metrics[k]) totals[k] = (totals[k] || 0) + tick[k];
+      });
+
+      // 应用 + 裁剪
+      Object.keys(totals).forEach((k) => {
+        const m = st.metrics[k];
+        m.value = clamp(Math.round(m.value + totals[k]), 0, m.max);
+      });
+
+      // 记录决策（把玩家动作补进去，供回放）
+      const rec = st.decisions[st.decisions.length - 1];
+      if (rec) rec.playerActionId = playerAction.id;
+
+      this.addTimeline({
+        kind: "action", round: st.round, actorName: "本轮结算",
+        text: allActions.map((e) => "· " + e.name + " → " + e.actionLabel).join("\n"),
+        playerActionLabel: playerAction.label,
+        sections: [],
+      });
+
+      // 分支抽取
+      const branch = this.rollBranch(roundDef);
+      if (branch) this.applyBranch(branch);
+
+      const after = {};
+      Object.keys(st.metrics).forEach((k) => { after[k] = st.metrics[k].value; });
+
+      FS.ui.renderGame(this);
+      FS.ui.flashMetrics(before, after);
+      await this.gateNoSpeed(this.pace === "fast" ? 100 : 700);
+
+      return { branch, before, after, aiEntries, playerAction };
+    },
+
+    rollBranch(roundDef) {
+      const pool = roundDef.branchPool || this.game.branchPool || [];
+      const eligible = pool.filter((b) => {
+        if (b.when && b.when !== "resolve") return false;
+        if (b.condition && !evalCondition(b.condition, this.state.metrics)) return false;
+        return true;
+      });
+      if (!eligible.length) return null;
+      // 35% 基础触发率 + 张力加成
+      const tensionBonus = ((roundDef.tension || 4) - 3) * 0.05;
+      if (Math.random() > clamp(0.35 + tensionBonus, 0, 0.72)) return null;
+      const totalW = eligible.reduce((s, b) => s + (b.weight || 1), 0);
+      let r = Math.random() * totalW;
+      for (const b of eligible) {
+        r -= (b.weight || 1);
+        if (r <= 0) return b;
+      }
+      return eligible[0];
+    },
+
+    applyBranch(branch) {
+      const eff = (branch.effects && branch.effects.metrics) || {};
+      Object.keys(eff).forEach((k) => {
+        if (!this.state.metrics[k]) return;
+        this.state.metrics[k].value = clamp(this.state.metrics[k].value + eff[k], 0, this.state.metrics[k].max);
+      });
+      if (branch.id) this.state.flags.push(branch.id);
+      this.addTimeline({
+        kind: "branch", round: this.state.round, actorName: "分支事件",
+        text: branch.text.replace(/\{(\w+)\}/g, (m, k) => (LEX[k] ? pick(LEX[k]) : m)),
+        sections: [],
+      });
+    },
+
+    async runBranch(branch) {
+      FS.ui.showBranch(branch);
+      await this.gateNoSpeed(this.pace === "fast" ? 200 : 1200);
+      await FS.ui.waitBranchSeen();
+    },
+
+    /* ---------------- 结束判定 ---------------- */
+    checkEnd() {
+      const g = this.game;
+      if (g.winCondition && evalCondition(g.winCondition, this.state.metrics)) return "win";
+      if (g.loseCondition && evalCondition(g.loseCondition, this.state.metrics)) return "lose";
+      return null;
+    },
+
+    /* ---------------- 结算与归档 ---------------- */
+    async finish(endType) {
+      const g = this.game;
+      const won = endType === "win";
+      const st = this.state;
+      st.ended = true;
+      st.phase = "settlement";
+
+      const roundsPlayed = st.round;
+      const durationMs = Date.now() - this.startedAt;
+
+      // 通量积分：胜负基准 + 轮次推进 + 达成度修正
+      const progress = Object.keys(st.metrics).reduce((s, k) => {
+        const m = st.metrics[k];
+        return s + (m.good === "low" ? 100 - pct(m.value, m.max) : pct(m.value, m.max));
+      }, 0) / Math.max(1, Object.keys(st.metrics).length);
+
+      let flux = won ? TUNING.FLUX_WIN_BASE : TUNING.FLUX_LOSE_BASE;
+      flux += roundsPlayed * TUNING.FLUX_PER_ROUND;
+      flux += Math.round(progress * 0.6);
+      if (endType === "rounds_out") flux += 30;          // 打满轮次给参与奖
+      if (endType === "error") flux = 0;
+      flux = Math.max(0, Math.round(flux));
+
+      // 伴侣结算：好感与情绪按"同队表现 + 结果"变化
+      const deltas = [];
+      const allCompanions = this.partners.concat(this.opponents);
+      allCompanions.forEach((c) => {
+        const live = Store.getCompanion(c.id);
+        if (!live) return;
+        const isPartner = this.partners.includes(c);
+        const contrib = this.contribution[c.id] || 0;
+        let affinityDelta = isPartner ? (won ? TUNING.AFFINITY_PER_WIN : TUNING.AFFINITY_PER_LOSE) : (won ? 1 : 2);
+        // 贡献度修正：出力多的人涨得快（上限 +4）
+        affinityDelta += clamp(Math.round(contrib / 28), 0, 4);
+        // 性格修正：高共情者更在意"一起经历过"
+        affinityDelta += live.vector.empathy > 70 ? 1 : 0;
+
+        let moodDelta = won ? randInt(6, 12) : -randInt(3, 9);
+        if (contrib > 25) moodDelta += 3;
+        if (isPartner && this.mode === "versus") moodDelta += 2;
+
+        live.affinity = clamp(live.affinity + affinityDelta, 0, 100);
+        live.mood = clamp(live.mood + moodDelta, 0, 100);
+        live.stats.plays += 1;
+        if (won) live.stats.wins += 1;
+        live.stats.rounds += roundsPlayed;
+
+        // 长期记忆：只记一条，含具体数字，避免变成流水账
+        live.memory.push({
+          ts: Date.now(),
+          gameId: g.gameId,
+          title: g.title,
+          text: (won ? "赢了" : "没赢") + "「" + g.title + "」，第 " + roundsPlayed + " 轮" +
+                (isPartner ? "同队" : "对阵") + "，贡献 " + contrib + " 点。",
+        });
+        if (live.memory.length > 20) live.memory = live.memory.slice(-20);
+
+        deltas.push({
+          id: c.id, name: c.name, isPartner,
+          affinityFrom: live.affinity - affinityDelta, affinityTo: live.affinity, affinityDelta,
+          moodFrom: live.mood - moodDelta, moodTo: live.mood, moodDelta,
+          contribution: contrib,
+        });
+      });
+
+      const result = {
+        outcome: endType,
+        won,
+        label: won ? "目标达成" : endType === "rounds_out" ? "轮次耗尽" : endType === "error" ? "对局异常终止" : "目标失败",
+        flux, progress: Math.round(progress), durationMs, roundsPlayed,
+        deltas,
+        bestContributor: Object.keys(this.contribution).sort((a, b) => this.contribution[b] - this.contribution[a])[0],
+      };
+
+      Store.addFlux(flux);
+      Store.save();
+
+      // 归档（含完整回放）
+      Store.recordGame({
+        gameId: g.gameId,
+        fingerprint: g.fingerprint,
+        themeId: g.meta ? g.meta.themeId : null,
+        type: g.type,
+        typeLabel: GAME_TYPES[g.type] ? GAME_TYPES[g.type].label : g.type,
+        title: g.title,
+        mode: this.mode,
+        playedAt: Date.now(),
+        result: won ? "win" : "lose",
+        rounds: roundsPlayed,
+        durationMs,
+        companions: allCompanions.map((c) => c.id),
+        logCount: this.logs.length,
+        replay: {
+          game: g,
+          timeline: this.timeline,
+          logs: this.logs,
+          result,
+        },
+      });
+
+      FSM.go("SETTLEMENT");
+      await FS.ui.showSettlement(result, this);
+    },
+
+    /* ---------------- 工具 ---------------- */
+    addTimeline(item) {
+      this.timeline.push(Object.assign({ seq: ++this.seq, ts: Date.now() }, item));
+    },
+    get elapsed() { return Date.now() - this.startedAt; },
+  };
+  return R;
+})();
+
+/* =========================================================================
+   §6 后端适配层（EigenFlux API / SSE）
+   ------------------------------------------------------------------------
+   ★ 所有后端接口位置都集中在这里，迁移到 React/Vue 时整段搬走即可。
+
+   接口约定（前后端契约）
+   ─────────────────────────────────────────────────────────────────────
+   1) 创建对局
+      POST {base}/sessions
+      {
+        companions: [{ id, name, age, gender, tags[], vector{6}, affinity, mood, talents{5} }],
+        mode: "solo" | "coop" | "versus",
+        historyGameIds: ["g_xxx", ...],          // 已玩过的 gameId
+        historyFingerprints: ["fp_xxx", ...],    // 已玩过的内容指纹（后端必须避开）
+        recentThemes: ["d1","e3", ...],          // 最近主题，建议避开
+        preferType: "auto" | "deduction" | "economy" | "coop" | "versus",
+        pace: "standard" | "fast",
+        requiredMinMinutes: 10,                  // 硬约束：单局时长下限
+        clientVersion: "1.0.0"
+      }
+      → 200 { sessionId: "s_xxx", game: <GameDefinition> }
+
+   2) 轮次流（SSE）
+      GET {base}/sessions/{sessionId}/stream?round={n}
+      事件：
+        think_start    { actorId, round, isOpponent }
+        think_section  { actorId, round, key, label }     key ∈ observe|options|risk|persona|verdict
+        think_chunk    { actorId, round, key, delta }     // 增量文本
+        think_end      { actorId, round, actionId }
+        action         { actorId, actionId, visible }
+        state_patch    { metrics:{k:v}, resources:{k:v} }
+        round_done     {}
+        error          { message }
+
+   3) 玩家行动
+      POST {base}/sessions/{sessionId}/actions   { round, actionId }
+
+   4) 结算（可选，若由后端发奖）
+      POST {base}/sessions/{sessionId}/settle
+      → { flux, affinities:[{companionId, delta}], moods:[{companionId, delta}] }
+
+   降级策略：任一步失败都会回退到本地生成引擎，对局不中断（右上角显示"本地引擎"）。
+   ========================================================================= */
+
+const FluxSpaceAPI = (() => {
+  const cfg = { baseUrl: "", sessionId: null, lastError: "", online: false };
+
+  function setBase(url) {
+    cfg.baseUrl = String(url || "").replace(/\/+$/, "");
+    cfg.online = false;
+    cfg.sessionId = null;
+    Store.state.settings.backend = cfg.baseUrl;
+    Store.save();
+    if (typeof FS !== "undefined" && FS.ui) FS.ui.refreshBackendBadge();
+  }
+
+  function remoteReady() { return !!cfg.baseUrl && cfg.online && !!cfg.sessionId; }
+  function isConfigured() { return !!cfg.baseUrl; }
+
+  /** 组装请求体：历史指纹是"不重复"的核心凭据 */
+  function buildPayload(opts) {
+    const companions = (opts.companions || []).map((c) => ({
+      id: c.id, name: c.name, age: c.age, gender: c.gender,
+      tags: c.tags, vector: c.vector, talents: c.talents,
+      affinity: Math.round(c.affinity), mood: Math.round(c.mood),
+    }));
+    const history = Store.state.history;
+    return {
+      companions,
+      mode: opts.mode,
+      historyGameIds: Store.gameIds,
+      historyFingerprints: Store.fingerprints,
+      recentThemes: history.slice(0, 6).map((h) => h.themeId).filter(Boolean),
+      preferType: opts.preferType || "auto",
+      pace: opts.pace || "standard",
+      requiredMinMinutes: TUNING.TARGET_MINUTES_MIN,
+      clientVersion: FS_VERSION,
+    };
+  }
+
+  /** 校验后端返回的游戏定义，缺字段直接抛错，避免坏数据把对局跑崩 */
+  function validateGame(g) {
+    ["gameId", "title", "type", "rules", "winCondition", "initialScene", "rounds"].forEach((k) => {
+      if (g[k] === undefined || g[k] === null) throw new Error("游戏定义缺少字段：" + k);
+    });
+    if (!Array.isArray(g.rounds) || g.rounds.length < 3) throw new Error("rounds 至少需要 3 轮");
+    if (!g.initialScene.metrics || !g.initialScene.metrics.length) throw new Error("initialScene.metrics 为空");
+    g.rounds.forEach((r, i) => {
+      if (!Array.isArray(r.actions) || !r.actions.length) throw new Error("第 " + (i + 1) + " 轮没有 actions");
+    });
+    if (!g.meta) g.meta = { generator: "remote" };
+    if (!g.fingerprint) g.fingerprint = fingerprintOf(g);
+    if (!g.roundCount) g.roundCount = g.rounds.length;
+    if (!g.estimatedMinutes) g.estimatedMinutes = Math.round((g.rounds.length * 155 + 120) / 60);
+    return g;
+  }
+
+  async function requestGame(opts) {
+    if (!cfg.baseUrl) return null;
+    const res = await fetch(cfg.baseUrl + "/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildPayload(opts)),
+    });
+    if (!res.ok) throw new Error("创建对局失败 HTTP " + res.status);
+    const data = await res.json();
+    if (!data || !data.game) throw new Error("响应缺少 game 字段");
+    if (data.sessionId) cfg.sessionId = data.sessionId;
+    cfg.online = !!data.sessionId;
+    return validateGame(data.game);
+  }
+
+  async function postAction(round, actionId) {
+    if (!remoteReady()) return null;
+    const res = await fetch(cfg.baseUrl + "/sessions/" + cfg.sessionId + "/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ round, actionId }),
+    });
+    if (!res.ok) throw new Error("提交行动失败 HTTP " + res.status);
+    return res.json();
+  }
+
+  /** 极简 SSE 解析：按空行切块，支持 data 多行 */
+  async function readSSE(url, onEvent) {
+    const res = await fetch(url, { headers: { Accept: "text/event-stream" } });
+    if (!res.ok || !res.body) throw new Error("SSE 连接失败 HTTP " + res.status);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+
+    const dispatch = (block) => {
+      let event = "message";
+      const dataLines = [];
+      block.split(/\r?\n/).forEach((line) => {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+      });
+      if (!dataLines.length) return;
+      let payload;
+      try { payload = JSON.parse(dataLines.join("\n")); }
+      catch (e) { payload = { raw: dataLines.join("\n") }; }
+      onEvent(event, payload);
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const block = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        if (block.trim()) dispatch(block);
+      }
+    }
+    if (buf.trim()) dispatch(buf);
+  }
+
+  /**
+   * 消费后端轮次流，把事件直接转成 UI 调用
+   * @returns {Promise<{decisions:Array}|null>} null 表示失败，调用方回退本地
+   */
+  async function streamRound(roundDef, rt) {
+    if (!remoteReady()) return null;
+    const url = cfg.baseUrl + "/sessions/" + cfg.sessionId + "/stream?round=" + rt.state.round;
+    const decisions = [];
+    let current = null;
+
+    try {
+      await readSSE(url, (event, data) => {
+        if (event === "think_start") {
+          const c = rt.partners.concat(rt.opponents).find((x) => x.id === data.actorId);
+          if (!c) return;
+          const side = rt.partners.includes(c) ? rt.playerSide : (rt.playerSide === "A" ? "B" : "A");
+          current = {
+            id: "log_" + (++rt.seq), round: rt.state.round, actorId: c.id, actorName: c.name,
+            side, isOpponent: side !== rt.playerSide, sections: [], displaySections: [],
+            actionLabel: "", confidence: 70, ts: Date.now(),
+          };
+          rt.logs.push(current);
+          FS.ui.beginThinkCard(c, current, current.isOpponent);
+        } else if (event === "think_section") {
+          if (!current) return;
+          const sec = { key: data.key, label: data.label || data.key, text: "" };
+          current.sections.push(sec);
+          current.displaySections.push(sec);
+          FS.ui.beginSection(current.id, sec);
+        } else if (event === "think_chunk") {
+          if (!current) return;
+          const sec = current.sections.find((s) => s.key === data.key);
+          if (!sec) return;
+          sec.text += data.delta || "";
+          FS.ui.setSectionText(current.id, data.key, sec.text);
+          FS.ui.autoscrollIfPinned();
+        } else if (event === "think_end") {
+          if (!current) return;
+          current.sections.forEach((s) => FS.ui.markSectionDone(current.id, s.key));
+          FS.ui.endThinkCard(current.id);
+          const act = roundDef.actions.find((a) => a.id === data.actionId);
+          current.actionLabel = act ? act.label : data.actionId;
+          decisions.push({
+            actorId: current.actorId, name: current.actorName, side: current.side,
+            isOpponent: current.isOpponent, actionId: data.actionId,
+            actionLabel: current.actionLabel, action: act || roundDef.actions[0],
+            sharedConclusion: "（后端给出）倾向「" + current.actionLabel + "」",
+          });
+          current = null;
+        } else if (event === "state_patch") {
+          if (!data.metrics) return;
+          Object.keys(data.metrics).forEach((k) => {
+            const m = rt.state.metrics[k];
+            if (m) m.value = clamp(data.metrics[k], 0, m.max);
+          });
+          FS.ui.renderGame(rt);
+        } else if (event === "error") {
+          cfg.lastError = data.message || "后端返回错误";
+          console.warn("[FluxSpace] 后端流错误：", cfg.lastError);
+        }
+      });
+      return decisions.length ? { decisions } : null;
+    } catch (err) {
+      cfg.online = false;
+      cfg.lastError = err && err.message ? err.message : String(err);
+      console.warn("[FluxSpace] SSE 降级到本地引擎：", cfg.lastError);
+      FS.ui.toast("后端流中断，已切换本地推理引擎", "bad");
+      FS.ui.refreshBackendBadge();
+      return null;
+    }
+  }
+
+  return {
+    cfg, setBase, remoteReady, isConfigured, requestGame, postAction, streamRound, buildPayload, validateGame,
+    reset() { cfg.sessionId = null; cfg.online = false; },
+  };
+})();
+
+/* =========================================================================
+   §7 视图渲染层
+   ------------------------------------------------------------------------
+   纯原生 DOM，无框架。所有用户输入（自定义伴侣名、bio）都经过 esc() 转义。
+   视图切换与 FSM 同步：navigate() 只负责 DOM，状态合法性由 FSM 保证。
+   ========================================================================= */
+
+const FS = { ui: null };
+
+function esc(s) {
+  return String(s === null || s === undefined ? "" : s).replace(/[&<>"']/g, (m) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]
+  ));
+}
+
+function avatarHTML(c, big) {
+  const p = c.palette || ["#a78bfa", "#67e8f9"];
+  return '<div class="avatar' + (big ? " avatar-lg" : "") + '" style="background:linear-gradient(135deg,' +
+    esc(p[0]) + "," + esc(p[1]) + ')">' + esc(String(c.name || "?").slice(0, 1)) + "</div>";
+}
+
+const UI = {
+  /* ---------------- 运行时 UI 状态 ---------------- */
+  view: "gallery",
+  lobbyMode: "coop",
+  selected: [],
+  scrollPinned: true,
+  _logNodes: new Map(),
+  _resume: null,
+  _paused: false,
+  _lastRt: null,
+
+  init() {
+    Store.load();
+    this.selected = Store.state.selected.slice();
+    $('#opt-backend').value = Store.state.settings.backend || "";
+    $('#opt-pace').value = Store.state.settings.pace || "standard";
+
+    this.bindGlobal();
+    this.renderGallery();
+    this.renderLobby();
+    this.refreshHud();
+    this.refreshBackendBadge();
+    this.startParticles();
+
+    FSM.go("GALLERY");
+    FSM.onChange = (next) => { /* 状态变化钩子：接入埋点时用 */ };
+
+    // 顶部 HUD 与设置回填
+    $('#opt-gametype').value = Store.state.settings.gameType || "auto";
+  },
+
+  /* ---------------- 全局事件 ---------------- */
+  bindGlobal() {
+    $('#btn-to-lobby').addEventListener("click", () => {
+      if (!this.selected.length) return this.toast("至少选择 1 位伴侣", "bad");
+      if (!FSM.go("LOBBY")) return;
+      this.navigate("lobby");
+      this.renderLobby();
+    });
+    $('#btn-back-gallery').addEventListener("click", () => { FSM.go("GALLERY"); this.navigate("gallery"); });
+    $('#btn-clear-sel').addEventListener("click", () => {
+      this.selected = []; Store.clearSelection(); this.renderGallery(); this.refreshHud();
+    });
+    $('#btn-create-comp').addEventListener("click", () => this.openCreateModal());
+    $('#btn-settings').addEventListener("click", () => this.openSettingsModal());
+    $('#btn-open-history').addEventListener("click", () => this.openHistoryModal());
+
+    $('#btn-start-game').addEventListener("click", () => this.startGame());
+
+    $('#btn-pause').addEventListener("click", () => this.togglePause());
+    $('#btn-review').addEventListener("click", () => this.openReviewModal("live"));
+    $('#btn-all-logs').addEventListener("click", () => this.openReviewModal("live"));
+    $('#btn-quit').addEventListener("click", () => this.confirmQuit());
+    $('#btn-scroll-lock').addEventListener("click", () => {
+      this.scrollPinned = !this.scrollPinned;
+      $('#btn-scroll-lock').style.opacity = this.scrollPinned ? "1" : ".45";
+      this.autoscrollIfPinned();
+    });
+
+    $$('#speed-ctl [data-speed]').forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const s = parseFloat(btn.dataset.speed);
+        Runtime.speed = s;
+        Store.state.settings.speed = s;
+        Store.save();
+        $$('#speed-ctl [data-speed]').forEach((b) => {
+          b.className = "btn btn-xs " + (parseFloat(b.dataset.speed) === s ? "" : "btn-ghost");
+        });
+        $('#stream-badge').innerHTML = '<span class="mono" style="font-size:9px">●</span> ' + (s > 1.5 ? "FAST" : s < 1 ? "SLOW" : "LIVE");
+      });
+    });
+
+    // 弹窗点击遮罩关闭（结算弹窗除外，避免误关丢结果）
+    ["modal-review", "modal-create", "modal-settings", "modal-history"].forEach((id) => {
+      $("#" + id).addEventListener("click", (e) => { if (e.target.id === id) $("#" + id).classList.remove("open"); });
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        ["modal-review", "modal-create", "modal-settings", "modal-history"].forEach((id) => $("#" + id).classList.remove("open"));
+      }
+      if (e.key === " " && this.view === "game" && document.activeElement === document.body) {
+        e.preventDefault(); this.togglePause();
+      }
+    });
+  },
+
+  navigate(view) {
+    this.view = view;
+    ["gallery", "lobby", "game"].forEach((v) => {
+      const node = $("#view-" + v);
+      if (node) node.classList.toggle("active", v === view);
+    });
+    const label = { gallery: "伴侣画廊", lobby: "对局配置", game: "对局进行中" }[view];
+    if (label) $('#hud-mode-label').textContent = label;
+  },
+
+  refreshHud() {
+    $('#hud-flux').textContent = Store.flux;
+    $('#gallery-sel-count').textContent = "已选 " + this.selected.length + " / " + TUNING.MAX_SELECTED;
+    $('#btn-to-lobby').disabled = this.selected.length === 0;
+  },
+
+  refreshBackendBadge() {
+    const badge = $('#hud-backend');
+    const on = FluxSpaceAPI.remoteReady();
+    badge.textContent = on ? "EigenFlux 已连接" : (FluxSpaceAPI.isConfigured() ? "后端待命" : "本地引擎");
+    badge.style.color = on ? "#6ee7b7" : "";
+  },
+
+  toast(msg, kind) {
+    const node = el("div", { class: "toast " + (kind || "") }, esc(msg));
+    $("#toasts").appendChild(node);
+    setTimeout(() => {
+      node.style.transition = "opacity .3s, transform .3s";
+      node.style.opacity = "0";
+      node.style.transform = "translateY(8px)";
+      setTimeout(() => node.remove(), 320);
+    }, 2600);
+  },
+
+  /* ---------------- 画廊 ---------------- */
+  renderGallery() {
+    const grid = $("#gallery-grid");
+    grid.innerHTML = "";
+    Store.state.companions.forEach((c) => {
+      const isSel = this.selected.includes(c.id);
+      const minor = c.age < 18;
+      const bestTalent = Object.keys(c.talents).sort((a, b) => c.talents[b] - c.talents[a])[0];
+      const card = el("div", {
+        class: "comp-card" + (isSel ? " selected" : ""),
+        "data-id": c.id,
+      }, `
+        <div class="sel-badge">✓</div>
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          ${avatarHTML(c)}
+          <div style="min-width:0;flex:1">
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="font-size:14px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.name)}</div>
+              ${c.custom ? '<span class="tag" style="font-size:9px;padding:1px 5px">自定义</span>' : ""}
+            </div>
+            <div class="mono" style="font-size:10px;color:var(--ink-faint);margin-top:1px">
+              ${c.age} 岁 · ${c.gender === "f" ? "女" : "男"}
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:9px">
+          ${c.tags.map((t, i) => `<span class="tag${i === 1 ? " tag-cyan" : ""}">${esc(t)}</span>`).join("")}
+        </div>
+        <div style="margin-top:10px">
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--ink-faint);margin-bottom:3px">
+            <span>${minor ? "信赖" : "羁绊"}</span><span class="mono">${Math.round(c.affinity)}</span>
+          </div>
+          <div class="meter"><i style="width:${c.affinity}%;background:linear-gradient(90deg,#a78bfa,#67e8f9)"></i></div>
+        </div>
+        <div style="margin-top:7px">
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--ink-faint);margin-bottom:3px">
+            <span>情绪</span><span class="mono">${Math.round(c.mood)}</span>
+          </div>
+          <div class="meter"><i style="width:${c.mood}%;background:linear-gradient(90deg,#6ee7b7,#fcd34d)"></i></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:9px;font-size:10px;color:var(--ink-faint)" class="mono">
+          <span>${TALENT_LABEL[bestTalent]} ${c.talents[bestTalent]}</span>
+          <span>${c.stats.plays} 局 ${c.stats.wins} 胜</span>
+        </div>
+      `);
+      card.addEventListener("click", () => this.onCardClick(c.id));
+      card.title = esc(c.bio || "");
+      grid.appendChild(card);
+    });
+
+    // 自定义伴侣入口卡
+    const add = el("div", {
+      class: "comp-card",
+      style: "display:grid;place-items:center;min-height:196px;border-style:dashed;opacity:.72",
+    }, `<div style="text-align:center">
+          <div style="font-size:26px;color:var(--violet);line-height:1">＋</div>
+          <div style="font-size:12px;font-weight:700;margin-top:7px">创建自定义伴侣</div>
+          <div style="font-size:10px;color:var(--ink-faint);margin-top:3px">消耗 ${TUNING.CREATE_COMPANION_COST} FLUX</div>
+        </div>`);
+    add.addEventListener("click", () => this.openCreateModal());
+    grid.appendChild(add);
+
+    this.refreshHud();
+  },
+
+  onCardClick(id) {
+    const res = Store.toggleSelect(id);
+    if (!res.ok) { this.toast(res.reason, "bad"); return; }
+    this.selected = Store.state.selected.slice();
+    this.renderGallery();
+  },
+
+  /* ---------------- 大厅 ---------------- */
+  renderLobby() {
+    const sel = this.selected.map((id) => Store.getCompanion(id)).filter(Boolean);
+
+    // 模式卡
+    const mg = $("#mode-grid");
+    mg.innerHTML = "";
+    Object.keys(MODES).forEach((key) => {
+      const m = MODES[key];
+      const card = el("div", { class: "mode-card" + (this.lobbyMode === key ? " active" : "") }, `
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="font-size:13.5px;font-weight:800">${m.label}</div>
+          <span class="tag${key === "versus" ? "" : " tag-cyan"}" style="font-size:9px">${m.seats}</span>
+        </div>
+        <div style="font-size:11px;color:var(--ink-dim);margin-top:5px;line-height:1.6">${m.desc}</div>
+      `);
+      card.addEventListener("click", () => { this.lobbyMode = key; this.renderLobby(); });
+      mg.appendChild(card);
+    });
+
+    // 座次
+    const board = $("#seat-board");
+    board.innerHTML = "";
+    const seat = (c, side) => {
+      const node = el("div", { class: "seat " + (side === "b" ? "team-b" : "team-a") }, `
+        ${avatarHTML(c)}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:700">${esc(c.name)}</div>
+          <div class="mono" style="font-size:9.5px;color:var(--ink-faint)">${c.age}岁 · ${c.tags[0]} · ${TALENT_LABEL[Object.keys(c.talents).sort((a,b)=>c.talents[b]-c.talents[a])[0]]}</div>
+        </div>
+        <div class="mono" style="font-size:10px;color:var(--cyan-soft)">${Math.round(c.affinity)}</div>
+      `);
+      return node;
+    };
+    const playerSeat = el("div", { class: "seat team-a" }, `
+      <div class="avatar" style="background:linear-gradient(135deg,#c4b5fd,#f0abfc)">你</div>
+      <div style="flex:1"><div style="font-size:12px;font-weight:800">你（玩家）</div>
+      <div class="mono" style="font-size:9.5px;color:var(--ink-faint)">Human · 行动自由</div></div>
+    `);
+
+    if (this.lobbyMode === "versus") {
+      const half = Math.ceil(sel.length / 2);
+      const a = sel.slice(0, half), b = sel.slice(half);
+      board.appendChild(el("div", { style: "font-size:10px;color:var(--cyan-soft);margin-bottom:-2px" }, "A 队（与你同队）"));
+      board.appendChild(playerSeat);
+      a.forEach((c) => board.appendChild(seat(c, "a")));
+      board.appendChild(el("div", { style: "font-size:10px;color:var(--bad);margin:6px 0 -2px" }, "B 队（对手）"));
+      if (!b.length) board.appendChild(el("div", { style: "font-size:11px;color:var(--ink-faint)" }, "至少需要 2 位伴侣才能分队对抗"));
+      b.forEach((c) => board.appendChild(seat(c, "b")));
+      $('#seat-hint').textContent = "A 队 " + (a.length + 1) + " 人 vs B 队 " + b.length + " 人";
+    } else if (this.lobbyMode === "solo") {
+      board.appendChild(playerSeat);
+      board.appendChild(el("div", { style: "font-size:10px;color:var(--ink-faint);text-align:center;margin:2px 0" }, "VS"));
+      sel.slice(0, 1).forEach((c) => board.appendChild(seat(c, "b")));
+      if (sel.length > 1) board.appendChild(el("div", { style: "font-size:10.5px;color:var(--ink-faint);margin-top:4px" }, "单人模式只使用第一位伴侣，其余 " + (sel.length - 1) + " 位本局休息"));
+      $('#seat-hint').textContent = "1 v 1";
+    } else {
+      board.appendChild(playerSeat);
+      sel.forEach((c) => board.appendChild(seat(c, "a")));
+      $('#seat-hint').textContent = "全队 " + (sel.length + 1) + " 人";
+    }
+
+    // 随身档案
+    const roster = $("#lobby-roster");
+    roster.innerHTML = "";
+    if (!sel.length) {
+      roster.appendChild(el("div", { style: "font-size:11.5px;color:var(--ink-faint)" }, "尚未选择伴侣，返回画廊挑选。"));
+    }
+    sel.forEach((c) => {
+      roster.appendChild(el("div", { style: "display:flex;align-items:center;gap:8px;font-size:11.5px" }, `
+        <span style="width:6px;height:6px;border-radius:99px;background:${esc(c.palette[0])};flex:0 0 auto"></span>
+        <span style="flex:1">${esc(c.name)}</span>
+        <span class="mono" style="color:var(--ink-faint)">羁绊 ${Math.round(c.affinity)} · 情绪 ${Math.round(c.mood)}</span>
+      `));
+    });
+
+    // 去重态势
+    const hist = Store.state.history;
+    $('#hist-count').textContent = String(hist.length);
+    const types = new Set(hist.map((h) => h.type));
+    $('#hist-types').textContent = types.size + " / 4";
+    $('#btn-open-history').textContent = "查看历史对局（" + hist.length + "）";
+
+    const rounds = ($('#opt-pace').value === "fast") ? 3 : (this.lobbyMode === "solo" ? 6 : 5);
+    const est = estimateMinutes(rounds, this.lobbyMode === "solo" ? 1 : sel.length);
+    $('#lobby-est').textContent = "预计 " + est + " 分钟 · " + rounds +
+      " 轮 · 每轮解锁 1 条线索 + 3~4 个分支候选 · 已避开 " + hist.length + " 局历史内容";
+  },
+
+  /* ---------------- 启动对局 ---------------- */
+  async startGame() {
+    const sel = this.selected.map((id) => Store.getCompanion(id)).filter(Boolean);
+    if (!sel.length) return this.toast("至少选择 1 位伴侣", "bad");
+    if (this.lobbyMode === "versus" && sel.length < 2) return this.toast("对抗模式需要至少 2 位伴侣", "bad");
+
+    const mode = this.lobbyMode;
+    const preferType = $('#opt-gametype').value;
+    const pace = $('#opt-pace').value;
+    const backend = $('#opt-backend').value.trim();
+
+    Store.state.settings.pace = pace;
+    Store.state.settings.gameType = preferType;
+    Store.save();
+    if (backend !== Store.state.settings.backend) FluxSpaceAPI.setBase(backend);
+
+    if (!FSM.go("GENERATING")) { FSM.current = "LOBBY"; FSM.go("GENERATING"); }
+    this.navigate("game");
+    this.showLoading();
+    this.clearLogStream();
+
+    let game = null;
+    let fromRemote = false;
+
+    if (FluxSpaceAPI.isConfigured()) {
+      try {
+        game = await FluxSpaceAPI.requestGame({ companions: sel, mode, preferType, pace });
+        fromRemote = !!game;
+      } catch (err) {
+        console.warn("[FluxSpace] 后端生成失败，回退本地：", err);
+        this.toast("后端生成失败，已切换本地引擎：" + (err.message || err), "bad");
+        FluxSpaceAPI.cfg.online = false;
+      }
+    }
+
+    if (!game) {
+      const cov = {};
+      Store.state.history.forEach((h) => { cov[h.type] = (cov[h.type] || 0) + 1; });
+      game = generateGame({
+        mode, companions: sel, preferType, pace,
+        historyFingerprints: Store.fingerprints,
+        recentThemes: Store.state.history.slice(0, 6).map((h) => h.themeId).filter(Boolean),
+        typeCoverage: cov,
+      });
+    }
+
+    if (game.meta && game.meta.dedupDegraded) {
+      this.toast("内容空间接近耗尽，已放宽去重条件", "bad");
+    }
+    if (fromRemote) this.toast("EigenFlux 已生成本局：" + game.title, "ok");
+
+    this.refreshBackendBadge();
+    this._lastRt = Runtime;
+    Runtime.speed = Store.state.settings.speed || 1;
+    await Runtime.start(game, mode, sel);
+  },
+
+  showLoading() {
+    $('#game-title').textContent = "正在生成全新对局…";
+    $('#game-theme').textContent = "向后端请求结构化游戏定义，并校验历史指纹";
+    $('#game-type-tag').textContent = "GENERATING";
+    $('#game-mode-tag').textContent = MODES[this.lobbyMode] ? MODES[this.lobbyMode].label : "—";
+    $('#game-id').textContent = "—";
+    $('#round-pips').innerHTML = "";
+    $('#phase-label').textContent = "STATE: GENERATING";
+    $('#board-narrative').innerHTML = `
+      <div class="skeleton" style="height:14px;width:42%;margin-bottom:9px"></div>
+      <div class="skeleton" style="height:11px;width:88%;margin-bottom:6px"></div>
+      <div class="skeleton" style="height:11px;width:74%"></div>`;
+    $('#board-metrics').innerHTML = `<div class="skeleton" style="height:36px;margin-top:12px"></div>`;
+    $('#board-clues').innerHTML = "";
+    $('#board-actions').innerHTML = `<div style="display:flex;align-items:center;gap:8px;color:var(--ink-faint);font-size:12px">
+      <span class="spin" style="display:inline-block;width:12px;height:12px;border:2px solid rgba(167,139,250,.3);border-top-color:#a78bfa;border-radius:99px"></span>
+      生成中的游戏会保证 ≥10 分钟完整流程</div>`;
+    $('#board-branch').innerHTML = "";
+  },
+
+  clearLogStream() {
+    this._logNodes.clear();
+    $('#log-stream').innerHTML = "";
+    $('#side-foot').textContent = "LOGS 0";
+    this.scrollPinned = true;
+  },
+
+  /* ---------------- 对局主渲染 ---------------- */
+  renderGame(rt) {
+    const g = rt.game;
+    if (!g) return;
+    const st = rt.state;
+
+    $('#game-title').textContent = g.title;
+    $('#game-theme').textContent = g.themeText || "";
+    const t = GAME_TYPES[g.type] || GAME_TYPES.deduction;
+    $('#game-type-tag').textContent = t.icon + " " + t.label;
+    $('#game-mode-tag').textContent = MODES[rt.mode].label;
+    $('#game-id').textContent = g.gameId + (g.meta && g.meta.dedupDegraded ? " · 降级" : "");
+    $('#game-round-chip').textContent = "第 " + Math.max(1, st.round) + " / " + g.rounds.length + " 轮";
+
+    // 轮次进度
+    const pips = $('#round-pips');
+    pips.innerHTML = "";
+    g.rounds.forEach((r, i) => {
+      const cls = i + 1 < st.round ? "done" : (i + 1 === st.round ? "now" : "");
+      pips.appendChild(el("div", { class: "pip " + cls }));
+    });
+
+    $('#phase-label').textContent = "STATE: " + FSM.current + (rt.paused ? " · PAUSED" : "") +
+      " · R" + Math.max(1, st.round) + "/" + g.rounds.length;
+
+    // 局面叙述
+    const narr = $('#board-narrative');
+    if (st.phase === "briefing") {
+      narr.innerHTML = `
+        <div class="eyebrow" style="margin-bottom:6px">对局简报 · 目标</div>
+        <div style="font-size:13px;line-height:1.75;color:var(--ink)">${esc(g.themeText || "")}</div>
+        <div class="divider" style="margin:12px 0"></div>
+        <div class="eyebrow" style="margin-bottom:6px">规则</div>
+        <ol style="margin:0;padding-left:17px;font-size:12px;line-height:1.85;color:var(--ink-dim)">
+          ${g.rules.map((r) => "<li>" + esc(r) + "</li>").join("")}
+        </ol>
+        <div style="display:flex;gap:14px;margin-top:11px;flex-wrap:wrap">
+          <div style="font-size:11.5px"><span style="color:var(--ok)">胜利</span> · ${esc((g.winCondition && g.winCondition.text) || "见规则")}</div>
+          <div style="font-size:11.5px"><span style="color:var(--bad)">失败</span> · ${esc((g.loseCondition && g.loseCondition.text) || "见规则")}</div>
+        </div>`;
+    } else {
+      const rd = g.rounds[Math.min(st.round, g.rounds.length) - 1];
+      narr.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
+          <div>
+            <div class="eyebrow">第 ${st.round} 轮 · ${esc(rd.title)}</div>
+            <div style="font-size:13px;color:var(--ink);margin-top:4px;line-height:1.6">${esc(rd.objective)}</div>
+          </div>
+          <div class="mono" style="font-size:9.5px;color:var(--ink-faint);white-space:nowrap">PHASE ${st.phase.toUpperCase()}</div>
+        </div>`;
+    }
+
+    // 指标
+    const mw = $('#board-metrics');
+    mw.innerHTML = "";
+    Object.values(st.metrics).forEach((m) => {
+      const ratio = pct(m.value, m.max);
+      const danger = m.good === "low" ? ratio : 100 - ratio;
+      const bg = danger > 70 ? "#fb7185" : danger > 45 ? "linear-gradient(90deg,#fcd34d,#fb7185)" : "linear-gradient(90deg,#a78bfa,#67e8f9)";
+      const row = el("div", { class: "metric-row", "data-metric": m.key }, `
+        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
+          <span style="color:var(--ink-dim)">${esc(m.label)}</span>
+          <span class="mono" style="color:${danger > 70 ? "#fb7185" : "var(--ink)"}">${m.value}<span style="color:var(--ink-faint)">/${m.max}</span></span>
+        </div>
+        <div class="meter"><i style="width:${ratio}%;background:${bg}"></i></div>`);
+      mw.appendChild(row);
+    });
+
+    // 线索
+    const cw = $('#board-clues');
+    if (!st.revealed.length) {
+      cw.innerHTML = `<div style="font-size:11px;color:var(--ink-faint);margin-top:8px" class="mono">// 暂无线索，进入第 1 轮后解锁</div>`;
+    } else {
+      cw.innerHTML = `<div class="eyebrow" style="margin:10px 0 6px">已解锁信息 · ${st.revealed.length}</div>` +
+        st.revealed.slice().reverse().map((c, i) => `
+          <div class="glass-soft" style="padding:9px 11px;margin-bottom:6px;${i === 0 ? "border-color:rgba(167,139,250,.4)" : ""}">
+            <div style="display:flex;justify-content:space-between;gap:8px">
+              <span style="font-size:11.5px;font-weight:700;color:${i === 0 ? "var(--violet-soft)" : "var(--ink-dim)"}">${esc(c.label)}</span>
+              <span class="mono" style="font-size:9px;color:var(--ink-faint)">R${c.round}</span>
+            </div>
+            <div style="font-size:11px;color:var(--ink-dim);line-height:1.6;margin-top:3px">${esc(c.text)}</div>
+          </div>`).join("");
+    }
+
+    $('#side-foot').textContent = "LOGS " + rt.logs.length;
+  },
+
+  flashBoard() {
+    const card = $('#board-card');
+    card.style.transition = "box-shadow .3s";
+    card.style.boxShadow = "0 0 0 1px rgba(167,139,250,.55), 0 22px 50px -26px rgba(124,92,240,.9)";
+    setTimeout(() => { card.style.boxShadow = ""; }, 700);
+  },
+
+  flashMetrics(before, after) {
+    Object.keys(after).forEach((k) => {
+      const d = after[k] - before[k];
+      if (!d) return;
+      const row = $('[data-metric="' + k + '"]', $('#board-metrics'));
+      if (!row) return;
+      const tag = el("span", {
+        class: "mono",
+        style: "font-size:9.5px;margin-left:6px;color:" + (d > 0 ? "#6ee7b7" : "#fb7185"),
+      }, (d > 0 ? "+" : "") + d);
+      const host = row.querySelector("span:last-child");
+      if (host) host.appendChild(tag);
+    });
+  },
+
+  /* ---------------- 思维日志流 ---------------- */
+  beginThinkCard(companion, logEntry, isOpponent) {
+    const stream = $('#log-stream');
+    if (!stream.querySelector(".think-card") && !this._logNodes.size) stream.innerHTML = "";
+
+    const card = el("div", {
+      class: "think-card active",
+      id: "card_" + logEntry.id,
+      "data-actor": companion.id,
+    }, `
+      <div style="display:flex;align-items:center;gap:7px;margin-bottom:2px">
+        <span style="width:7px;height:7px;border-radius:99px;background:${esc(companion.palette[0])};box-shadow:0 0 8px ${esc(companion.palette[0])};flex:0 0 auto"></span>
+        <span style="font-size:12px;font-weight:800">${esc(companion.name)}</span>
+        <span class="mono" style="font-size:9px;color:var(--ink-faint)">${companion.age}岁 · ${esc(companion.tags[0])}</span>
+        ${isOpponent ? '<span class="tag" style="font-size:8.5px;padding:1px 5px;background:rgba(251,113,133,.14);color:#fda4af;border-color:rgba(251,113,133,.24)">对手</span>' : ""}
+        <span class="mono" style="font-size:9px;color:var(--ink-faint);margin-left:auto">R${logEntry.round}</span>
+      </div>
+      <div data-role="sections"></div>
+    `);
+    stream.appendChild(card);
+    this._logNodes.set(logEntry.id, { card, sections: {} });
+    this.autoscrollIfPinned(true);
+  },
+
+  beginSection(logId, sec) {
+    const node = this._logNodes.get(logId);
+    if (!node) return;
+    const host = node.card.querySelector('[data-role="sections"]');
+    const wrap = el("div", { class: "think-sec", "data-sec": sec.key }, `
+      <div class="think-label"><span style="opacity:.6">▸</span>${esc(sec.label)}</div>
+      <div class="think-body" data-body="${esc(sec.key)}"><span class="caret"></span></div>
+    `);
+    host.appendChild(wrap);
+    node.sections[sec.key] = wrap;
+    this.autoscrollIfPinned(true);
+  },
+
+  sectionBodyNode(logId, key) {
+    const node = this._logNodes.get(logId);
+    if (!node || !node.sections[key]) return null;
+    return node.sections[key].querySelector("[data-body]");
+  },
+
+  setSectionText(logId, key, text) {
+    const body = this.sectionBodyNode(logId, key);
+    if (!body) return;
+    body.textContent = text;
+    if (!body.querySelector(".caret")) body.insertAdjacentHTML("beforeend", '<span class="caret"></span>');
+  },
+
+  appendSectionText(logId, key, delta) {
+    const body = this.sectionBodyNode(logId, key);
+    if (!body) return;
+    const caret = body.querySelector(".caret");
+    if (caret) caret.insertAdjacentText("beforebegin", delta);
+    else body.insertAdjacentText("beforeend", delta);
+  },
+
+  markSectionDone(logId, key) {
+    const node = this._logNodes.get(logId);
+    if (!node || !node.sections[key]) return;
+    node.sections[key].classList.add("done");
+    const caret = node.sections[key].querySelector(".caret");
+    if (caret) caret.remove();
+  },
+
+  endThinkCard(logId) {
+    const node = this._logNodes.get(logId);
+    if (!node) return;
+    node.card.classList.remove("active");
+    this.autoscrollIfPinned(true);
+  },
+
+  pushConcensusTag(companion, text, isOpponent) {
+    const stream = $('#log-stream');
+    const row = el("div", {
+      class: "mono",
+      style: "font-size:9.5px;line-height:1.6;padding:5px 9px;border-radius:8px;background:rgba(167,139,250,.07);border-left:2px solid rgba(167,139,250,.4);color:var(--ink-faint)",
+    }, "⇄ " + esc(companion.name) + " 的结论已进入公共池：" + esc(text));
+    if (isOpponent) row.style.borderLeftColor = "rgba(251,113,133,.45)";
+    stream.appendChild(row);
+    this.autoscrollIfPinned(true);
+  },
+
+  pushSystemLog(text) {
+    const stream = $('#log-stream');
+    const row = el("div", {
+      class: "mono",
+      style: "font-size:9.5px;color:var(--ink-faint);text-align:center;padding:3px 0",
+    }, "— " + esc(text) + " —");
+    stream.appendChild(row);
+    this.autoscrollIfPinned(true);
+  },
+
+  autoscrollIfPinned(force) {
+    if (!this.scrollPinned && !force) return;
+    const el2 = $('#log-stream');
+    if (!el2) return;
+    el2.scrollTop = el2.scrollHeight;
+  },
+
+  /* ---------------- 交互等待 ---------------- */
+  _waitBtn(container, label, value, cls) {
+    return new Promise((resolve) => {
+      container.innerHTML = "";
+      const btn = el("button", { class: "btn " + (cls || "btn-primary") }, esc(label));
+      btn.addEventListener("click", () => { container.innerHTML = ""; resolve(value); });
+      container.appendChild(btn);
+    });
+  },
+
+  promptAction(actions, rt) {
+    return new Promise((resolve) => {
+      const box = $('#board-actions');
+      box.innerHTML = "";
+      box.appendChild(el("div", { class: "eyebrow", style: "margin-bottom:8px" },
+        "你的行动 · 选定后与全部 AI 同时结算"));
+      const list = el("div", { style: "display:flex;flex-direction:column;gap:7px" });
+      actions.forEach((a) => {
+        const meta = RISK_META[a.risk] || RISK_META.mid;
+        const btn = el("button", { class: "action-btn" }, `
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+            <span style="font-size:12.5px;font-weight:700">${esc(a.label)}</span>
+            <span class="mono" style="font-size:9px;color:${meta.color};white-space:nowrap">${meta.dot} ${meta.label} · 信息+${a.infoGain || 0}</span>
+          </div>
+          <div style="font-size:11px;color:var(--ink-dim);line-height:1.55">${esc(a.desc || "")}</div>
+        `);
+        btn.addEventListener("click", () => {
+          $$(".action-btn", box).forEach((b) => { b.disabled = true; });
+          btn.classList.add("chosen");
+          setTimeout(() => { box.innerHTML = ""; resolve(a.id); }, 240);
+        });
+        list.appendChild(btn);
+      });
+      box.appendChild(list);
+      this.autoscrollIfPinned(true);
+    });
+  },
+
+  waitContinue(label) {
+    return this._waitBtn($('#board-actions'), label + " →", true);
+  },
+
+  showBranch(branch) {
+    const box = $('#board-branch');
+    const text = String(branch.text || "").replace(/\{(\w+)\}/g, (m, k) => (LEX[k] ? pick(LEX[k]) : m));
+    box.innerHTML = `
+      <div class="glass-soft" style="padding:12px 13px;border-color:rgba(240,171,252,.34);background:linear-gradient(150deg,rgba(240,171,252,.10),rgba(255,255,255,.02))">
+        <div class="eyebrow" style="color:var(--rose);margin-bottom:5px">⚡ 分支事件</div>
+        <div style="font-size:12px;line-height:1.7;color:var(--ink)">${esc(text)}</div>
+      </div>
+      <div id="branch-actions" style="margin-top:9px"></div>`;
+    this.autoscrollIfPinned(true);
+  },
+
+  waitBranchSeen() {
+    return this._waitBtn($('#branch-actions'), "确认，继续", true, "btn-sm");
+  },
+
+  async showRoundSummary(rt, roundDef, outcome) {
+    const box = $('#board-branch');
+    const changes = Object.keys(outcome.after).map((k) => {
+      const m = rt.state.metrics[k];
+      const d = outcome.after[k] - outcome.before[k];
+      return '<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0">' +
+        '<span style="color:var(--ink-dim)">' + esc(m.label) + "</span>" +
+        '<span class="mono" style="color:' + (d > 0 ? "#6ee7b7" : d < 0 ? "#fb7185" : "var(--ink-faint)") + '">' +
+        (d > 0 ? "+" : "") + d + " → " + m.value + "</span></div>";
+    }).join("");
+
+    const next = rt.state.round >= rt.game.rounds.length ? "进入最终结算" : "进入第 " + (rt.state.round + 1) + " 轮";
+    box.innerHTML = `
+      <div class="glass-soft" style="padding:12px 13px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px">
+          <div class="eyebrow">本轮结算</div>
+          <div class="mono" style="font-size:9.5px;color:var(--ink-faint)">R${rt.state.round} · 你选择了「${esc(outcome.playerAction.label)}」</div>
+        </div>
+        ${changes}
+      </div>
+      <div id="summary-actions" style="margin-top:9px"></div>`;
+    await this._waitBtn($('#summary-actions'), next, true);
+    box.innerHTML = "";
+  },
+
+  togglePause() {
+    if (!this._lastRt || !this._lastRt.game) return;
+    if (Runtime.paused) Runtime.resume(); else Runtime.pause();
+  },
+
+  setPaused(paused) {
+    const btn = $('#btn-pause');
+    btn.textContent = paused ? "▶ 继续" : "⏸ 暂停";
+    btn.className = "btn btn-xs" + (paused ? " btn-primary" : "");
+    $('#phase-label').textContent = paused ? "STATE: PAUSED · 计时已冻结" : $('#phase-label').textContent.replace(" · PAUSED", "");
+    const badge = $('#stream-badge');
+    if (paused) badge.innerHTML = '<span class="mono" style="font-size:9px">⏸</span> PAUSED';
+    else badge.innerHTML = '<span class="mono" style="font-size:9px">●</span> LIVE';
+  },
+
+  confirmQuit() {
+    if (!Runtime.game) { FSM.go("GALLERY"); this.navigate("gallery"); return; }
+    const ok = window.confirm("退出当前对局？本局进度不会计入历史，已获得的内容会丢失。");
+    if (!ok) return;
+    Runtime.abort();
+    this._lastRt = null;
+    FSM.current = "SETTLEMENT";
+    FSM.go("GALLERY");
+    this.navigate("gallery");
+    this.renderGallery();
+    this.toast("已退出对局");
+  },
+
+  /* ---------------- 结算 ---------------- */
+  showSettlement(result, rt) {
+    const g = rt.game;
+    const won = result.won;
+    const minutes = Math.max(1, Math.round(result.durationMs / 60000));
+    const content = $('#settlement-content');
+
+    const deltaRows = result.deltas.map((d) => {
+      const c = Store.getCompanion(d.id);
+      const minor = c && c.age < 18;
+      return `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px dashed rgba(255,255,255,.07)">
+          ${c ? avatarHTML(c) : ""}
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12.5px;font-weight:700">${esc(d.name)}
+              ${d.isPartner ? '<span class="tag" style="font-size:8.5px;padding:1px 5px">同队</span>' : '<span class="tag" style="font-size:8.5px;padding:1px 5px;background:rgba(251,113,133,.12);color:#fda4af">对阵</span>'}
+            </div>
+            <div class="mono" style="font-size:9.5px;color:var(--ink-faint)">贡献 ${d.contribution} 点</div>
+          </div>
+          <div style="text-align:right">
+            <div class="mono" style="font-size:10.5px;color:${d.affinityDelta >= 0 ? "#6ee7b7" : "#fb7185"}">
+              ${minor ? "信赖" : "羁绊"} ${d.affinityDelta >= 0 ? "+" : ""}${d.affinityDelta} → ${Math.round(d.affinityTo)}
+            </div>
+            <div class="mono" style="font-size:10.5px;color:${d.moodDelta >= 0 ? "#a5f3fc" : "#fda4af"}">
+              情绪 ${d.moodDelta >= 0 ? "+" : ""}${d.moodDelta} → ${Math.round(d.moodTo)}
+            </div>
+          </div>
+        </div>`;
+    }).join("");
+
+    content.innerHTML = `
+      <div class="result-banner ${won ? "win" : "lose"}">
+        <div class="eyebrow">${won ? "SUCCESS · 目标达成" : "FAILED · 目标未达成"}</div>
+        <div style="font-size:23px;font-weight:800;margin:7px 0 4px;letter-spacing:-.01em">${esc(result.label)}</div>
+        <div style="font-size:11.5px;color:var(--ink-dim)">${esc(g.title)}</div>
+        <div class="mono" style="font-size:10px;color:var(--ink-faint);margin-top:6px">
+          ${result.roundsPlayed} 轮 · ${minutes} 分钟 · ${g.type} · ${MODES[rt.mode].label}
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:16px">
+        <div class="glass-soft" style="padding:11px;text-align:center">
+          <div class="mono" style="font-size:9px;color:var(--ink-faint);letter-spacing:.1em">通量积分</div>
+          <div style="font-size:21px;font-weight:800;color:var(--cyan-soft);margin-top:2px">+${result.flux}</div>
+        </div>
+        <div class="glass-soft" style="padding:11px;text-align:center">
+          <div class="mono" style="font-size:9px;color:var(--ink-faint);letter-spacing:.1em">目标完成度</div>
+          <div style="font-size:21px;font-weight:800;margin-top:2px">${result.progress}%</div>
+        </div>
+        <div class="glass-soft" style="padding:11px;text-align:center">
+          <div class="mono" style="font-size:9px;color:var(--ink-faint);letter-spacing:.1em">当前余额</div>
+          <div style="font-size:21px;font-weight:800;color:var(--violet-soft);margin-top:2px">${Store.flux}</div>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div class="eyebrow">伴侣变化</div>
+        <div class="mono" style="font-size:9px;color:var(--ink-faint)">贡献最高：${esc((Store.getCompanion(result.bestContributor) || { name: "—" }).name)}</div>
+      </div>
+      ${deltaRows || '<div style="font-size:11.5px;color:var(--ink-faint)">本局没有伴侣参与。</div>'}
+
+      <div class="divider"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" id="btn-again" style="flex:1;min-width:130px">再来一局（全新生成）</button>
+        <button class="btn" id="btn-replay" style="flex:1;min-width:110px">查看本局回放</button>
+        <button class="btn btn-ghost" id="btn-home">返回画廊</button>
+      </div>
+      <div style="font-size:10px;color:var(--ink-faint);margin-top:9px;line-height:1.6">
+        本局指纹 <span class="mono">${esc(g.fingerprint)}</span> 已写入历史，下次生成时会被后端避开。
+      </div>`;
+
+    $('#modal-settlement').classList.add("open");
+
+    $('#btn-again', content).addEventListener("click", () => {
+      $('#modal-settlement').classList.remove("open");
+      FSM.go("LOBBY");
+      this.navigate("lobby");
+      this.renderLobby();
+      setTimeout(() => this.startGame(), 160);
+    });
+    $('#btn-replay', content).addEventListener("click", () => {
+      $('#modal-settlement').classList.remove("open");
+      this.openReviewModal("record", 0);
+    });
+    $('#btn-home', content).addEventListener("click", () => {
+      $('#modal-settlement').classList.remove("open");
+      FSM.go("GALLERY");
+      this.navigate("gallery");
+      this.renderGallery();
+      this.renderLobby();
+    });
+
+    this.refreshHud();
+  },
+
+  /* ---------------- 回看 / 回放 ---------------- */
+  openReviewModal(mode, index) {
+    let src = null, title = "", meta = "";
+    if (mode === "live") {
+      if (!Runtime.game) return this.toast("当前没有进行中的对局", "bad");
+      src = { timeline: Runtime.timeline, logs: Runtime.logs, game: Runtime.game, result: null };
+      title = Runtime.game.title;
+      meta = "实时记录 · 第 " + Runtime.state.round + " 轮 · 共 " + Runtime.logs.length + " 条思维日志";
+    } else {
+      const h = Store.state.history[index];
+      if (!h) return this.toast("找不到这条历史", "bad");
+      if (!h.replay) return this.toast("该局回放的完整内容已被清理（仅保留最近 12 局）", "bad");
+      src = h.replay;
+      title = h.title;
+      meta = h.typeLabel + " · " + MODES[h.mode].label + " · " + fmtTime(h.playedAt) + " · " + h.logCount + " 条日志";
+    }
+
+    const actors = Array.from(new Set((src.logs || []).map((l) => l.actorId)));
+    const nameOf = (id) => {
+      const c = Store.getCompanion(id);
+      if (c) return c.name;
+      const l = (src.logs || []).find((x) => x.actorId === id);
+      return l ? l.actorName : id;
+    };
+
+    const logHTML = (src.logs || []).map((l, i) => `
+      <details class="rev-log" data-actor="${esc(l.actorId)}" style="margin-bottom:7px">
+        <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:7px;padding:7px 9px;border-radius:9px;background:rgba(255,255,255,.045)">
+          <span class="mono" style="font-size:9px;color:var(--ink-faint);min-width:34px">R${l.round}</span>
+          <span style="font-size:11.5px;font-weight:700">${esc(l.actorName)}</span>
+          ${l.isOpponent ? '<span class="tag" style="font-size:8px;padding:0 4px;background:rgba(251,113,133,.12);color:#fda4af">对手</span>' : ""}
+          <span class="mono" style="font-size:9.5px;color:var(--cyan-soft);margin-left:auto">${esc(l.actionLabel || "")}</span>
+          <span class="mono" style="font-size:9px;color:var(--ink-faint)">${l.confidence ? l.confidence + "%" : ""}</span>
+        </summary>
+        <div style="padding:7px 9px 2px">
+          ${(l.sections || []).map((s) => `
+            <div class="think-sec done" style="margin-top:6px">
+              <div class="think-label">${esc(s.label)}</div>
+              <div class="review-body">${esc(s.text)}</div>
+            </div>`).join("")}
+        </div>
+      </details>`).join("");
+
+    const others = (src.timeline || []).filter((t) => t.kind !== "think").map((t) => `
+      <div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.06)">
+        <span class="mono" style="font-size:9px;color:var(--ink-faint);min-width:34px">R${t.round || "-"}</span>
+        <span class="mono" style="font-size:9px;color:var(--violet-soft);min-width:56px">${esc(t.kind)}</span>
+        <span style="font-size:11px;color:var(--ink-dim);line-height:1.6;white-space:pre-wrap">${esc(t.text || "")}</span>
+      </div>`).join("");
+
+    $('#review-content').innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px">
+        <div>
+          <div class="eyebrow">${mode === "live" ? "实时回看" : "对局回放"}</div>
+          <div style="font-size:17px;font-weight:800;margin-top:4px">${esc(title)}</div>
+          <div class="mono" style="font-size:10px;color:var(--ink-faint);margin-top:3px">${esc(meta)}</div>
+        </div>
+        <button class="btn btn-sm btn-ghost" onclick="document.getElementById('modal-review').classList.remove('open')">关闭</button>
+      </div>
+
+      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px" id="rev-filters">
+        <button class="btn btn-xs" data-f="all">全部</button>
+        ${actors.map((a) => `<button class="btn btn-xs btn-ghost" data-f="${esc(a)}">${esc(nameOf(a))}</button>`).join("")}
+      </div>
+
+      <div style="max-height:58vh;overflow-y:auto;padding-right:4px" id="rev-body">
+        ${logHTML || '<div style="font-size:11.5px;color:var(--ink-faint)">本局还没有思维日志。</div>'}
+        ${others ? '<div class="divider"></div><div class="eyebrow" style="margin-bottom:6px">事件与结算</div>' + others : ""}
+      </div>`;
+
+    $('#modal-review').classList.add("open");
+
+    $$('#rev-filters [data-f]').forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const f = btn.dataset.f;
+        $$('#rev-filters [data-f]').forEach((b) => { b.className = "btn btn-xs btn-ghost"; });
+        btn.className = "btn btn-xs";
+        $$('#rev-body .rev-log').forEach((node) => {
+          node.style.display = (f === "all" || node.dataset.actor === f) ? "" : "none";
+        });
+      });
+    });
+  },
+
+  /* ---------------- 创建自定义伴侣 ---------------- */
+  openCreateModal() {
+    let picked = [];
+    const renderForm = () => {
+      const v = this.computeVectorFromTags(picked);
+      const preview = VECTOR_KEYS.map((k) => `
+        <div style="margin-bottom:5px">
+          <div style="display:flex;justify-content:space-between;font-size:9.5px;color:var(--ink-faint)">
+            <span>${VECTOR_LABEL[k]}</span><span class="mono">${v[k]}</span>
+          </div>
+          <div class="meter"><i style="width:${v[k]}%;background:linear-gradient(90deg,#a78bfa,#67e8f9)"></i></div>
+        </div>`).join("");
+
+      $('#create-content').innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+          <div>
+            <div class="eyebrow">自定义伴侣</div>
+            <div style="font-size:17px;font-weight:800;margin-top:4px">造一个愿意陪你玩的人</div>
+          </div>
+          <div class="chip chip-flux mono">◈ ${TUNING.CREATE_COMPANION_COST}</div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <label class="field">名字</label>
+            <input type="text" id="cc-name" maxlength="8" placeholder="2-8 个字" />
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div>
+              <label class="field">年龄</label>
+              <input type="number" id="cc-age" min="7" max="99" value="22" />
+            </div>
+            <div>
+              <label class="field">性别</label>
+              <select id="cc-gender"><option value="f">女</option><option value="m">男</option></select>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:11px">
+          <label class="field">性格标签（选 1-3 个，直接决定决策权重）</label>
+          <div style="display:flex;flex-wrap:wrap;gap:5px" id="cc-tags">
+            ${Object.keys(TAG_LIBRARY).map((t) => `
+              <button class="btn btn-xs btn-ghost" data-tag="${esc(t)}" style="border-color:rgba(255,255,255,.1)">${esc(t)}</button>`).join("")}
+          </div>
+        </div>
+
+        <div style="margin-top:11px">
+          <label class="field">一句话背景（可选）</label>
+          <input type="text" id="cc-bio" maxlength="60" placeholder="他/她是个什么样的人" />
+        </div>
+
+        <div class="divider"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div>
+            <div class="eyebrow" style="margin-bottom:6px">六维预览</div>
+            ${preview}
+          </div>
+          <div>
+            <div class="eyebrow" style="margin-bottom:6px">能力倾向</div>
+            <div style="font-size:11px;line-height:1.9;color:var(--ink-dim)" class="mono">
+              ${Object.keys(deriveTalents(v)).map((k) => TALENT_LABEL[k] + " " + deriveTalents(v)[k]).join(" · ")}
+            </div>
+            <div style="font-size:10.5px;color:var(--ink-faint);margin-top:9px;line-height:1.6">
+              标签只调权重，不决定强弱——同一组标签放进不同局面会给出不同答案。
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:16px">
+          <button class="btn btn-primary" id="cc-submit" style="flex:1">创建并选中（消耗 ${TUNING.CREATE_COMPANION_COST} FLUX）</button>
+          <button class="btn btn-ghost" onclick="document.getElementById('modal-create').classList.remove('open')">取消</button>
+        </div>`;
+
+      $$('#cc-tags [data-tag]').forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const t = btn.dataset.tag;
+          const i = picked.indexOf(t);
+          if (i >= 0) picked.splice(i, 1);
+          else {
+            if (picked.length >= 3) return this.toast("最多选择 3 个标签", "bad");
+            picked.push(t);
+          }
+          const keepName = $('#cc-name').value;
+          const keepAge = $('#cc-age').value;
+          const keepBio = $('#cc-bio').value;
+          const keepGender = $('#cc-gender').value;
+          renderForm();
+          $('#cc-name').value = keepName;
+          $('#cc-age').value = keepAge;
+          $('#cc-bio').value = keepBio;
+          $('#cc-gender').value = keepGender;
+          $$('#cc-tags [data-tag]').forEach((b) => {
+            if (picked.includes(b.dataset.tag)) b.className = "btn btn-xs";
+          });
+        });
+        if (picked.includes(btn.dataset.tag)) btn.className = "btn btn-xs";
+      });
+
+      $('#cc-submit').addEventListener('click', () => {
+        const name = $('#cc-name').value.trim();
+        const age = clamp(parseInt($('#cc-age').value, 10) || 22, 7, 99);
+        const gender = $('#cc-gender').value;
+        const bio = $('#cc-bio').value.trim() || "一个还没被写进档案的人。";
+        if (name.length < 1) return this.toast("请填写名字", "bad");
+        if (!picked.length) return this.toast("至少选择 1 个性格标签", "bad");
+        if (Store.flux < TUNING.CREATE_COMPANION_COST) return this.toast("通量积分不足", "bad");
+        if (Store.state.companions.length >= 64) return this.toast("伴侣档案已达上限", "bad");
+
+        if (!Store.spendFlux(TUNING.CREATE_COMPANION_COST)) return this.toast("积分不足", "bad");
+        const vector = this.computeVectorFromTags(picked);
+        const profile = {
+          id: "c_custom_" + Math.random().toString(36).slice(2, 8),
+          name, age, gender, tags: picked.slice(), vector,
+          talents: deriveTalents(vector),
+          palette: [pick(["#a78bfa", "#67e8f9", "#f0abfc", "#6ee7b7"]), pick(["#c4b5fd", "#a5f3fc", "#fcd34d"])],
+          bio,
+          quip: "我记得你上次也是这么选的。",
+          custom: true,
+          affinity: 12, mood: baseMood(vector), memory: [],
+          stats: { plays: 0, wins: 0, rounds: 0 },
+        };
+        Store.addCompanion(profile);
+        if (Store.state.selected.length < TUNING.MAX_SELECTED) Store.toggleSelect(profile.id);
+        this.selected = Store.state.selected.slice();
+        $('#modal-create').classList.remove("open");
+        this.renderGallery();
+        this.refreshHud();
+        this.toast("已创建：" + name, "ok");
+      });
+    };
+
+    renderForm();
+    $('#modal-create').classList.add("open");
+  },
+
+  computeVectorFromTags(tags) {
+    const v = { risk: 50, logic: 50, empathy: 50, coop: 50, intuition: 50, aggression: 50 };
+    tags.forEach((t) => {
+      const lib = TAG_LIBRARY[t];
+      if (!lib) return;
+      Object.keys(lib).forEach((k) => { v[k] = clamp(v[k] + lib[k], 0, 100); });
+    });
+    return v;
+  },
+
+  /* ---------------- 设置 ---------------- */
+  openSettingsModal() {
+    $('#settings-content').innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+        <div>
+          <div class="eyebrow">设置</div>
+          <div style="font-size:17px;font-weight:800;margin-top:4px">FluxSpace v${FS_VERSION}</div>
+        </div>
+        <button class="btn btn-sm btn-ghost" onclick="document.getElementById('modal-settings').classList.remove('open')">关闭</button>
+      </div>
+
+      <label class="field">EigenFlux 后端地址</label>
+      <input type="text" id="st-backend" value="${esc(Store.state.settings.backend || "")}" placeholder="http://127.0.0.1:8080/api/fluxspace" />
+      <div style="font-size:10.5px;color:var(--ink-faint);margin-top:5px;line-height:1.6">
+        留空则使用内置本地生成引擎。填写后，创建对局会 POST /sessions，轮次从 SSE 流读取。
+      </div>
+
+      <div class="divider"></div>
+      <div class="eyebrow" style="margin-bottom:8px">数据</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-sm" id="st-export">导出存档 JSON</button>
+        <label class="btn btn-sm" style="cursor:pointer">导入存档<input type="file" id="st-import" accept="application/json" style="display:none" /></label>
+        <button class="btn btn-sm btn-ghost" id="st-reset" style="color:#fb7185">清空全部数据</button>
+      </div>
+      <div style="font-size:10.5px;color:var(--ink-faint);margin-top:9px;line-height:1.7" class="mono">
+        伴侣 ${Store.state.companions.length} 位 · 历史 ${Store.state.history.length} 局 · 积分 ${Store.flux} · 存档 ${(JSON.stringify(Store.state).length / 1024).toFixed(1)} KB
+      </div>
+
+      <div class="divider"></div>
+      <div class="eyebrow" style="margin-bottom:8px">关于数值</div>
+      <div style="font-size:11px;color:var(--ink-dim);line-height:1.8">
+        每局时长由轮数与流式节奏共同决定。标准节奏下 5 轮 ≈ 13-15 分钟；快速节奏用于调试（≈3 分钟）。
+        所有未经过真人 playtest 的数值都以 <span class="mono">[PLACEHOLDER]</span> 语义对待：它们是可调的，不是真理。
+      </div>`;
+
+    $('#st-backend').addEventListener('change', (e) => {
+      FluxSpaceAPI.setBase(e.target.value.trim());
+      $('#opt-backend').value = e.target.value.trim();
+      this.toast("后端地址已保存", "ok");
+    });
+    $('#st-export').addEventListener('click', () => {
+      const blob = new Blob([JSON.stringify(Store.state, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "fluxspace-save-" + new Date().toISOString().slice(0, 10) + ".json";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+    $('#st-import').addEventListener('change', (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const data = JSON.parse(reader.result);
+          if (!data.companions) throw new Error("不是有效的 FluxSpace 存档");
+          localStorage.setItem("fluxspace.v1", JSON.stringify(data));
+          location.reload();
+        } catch (err) { this.toast("导入失败：" + err.message, "bad"); }
+      };
+      reader.readAsText(f);
+    });
+    $('#st-reset').addEventListener('click', () => {
+      if (!window.confirm("将删除全部伴侣档案、羁绊、积分与历史对局。此操作不可撤销，确定吗？")) return;
+      if (!window.confirm("再确认一次：真的要清空吗？")) return;
+      Store.reset();
+      localStorage.removeItem("fluxspace.v1");
+      location.reload();
+    });
+
+    $('#modal-settings').classList.add("open");
+  },
+
+  /* ---------------- 历史对局 ---------------- */
+  openHistoryModal() {
+    const hist = Store.state.history;
+    const rows = hist.map((h, i) => `
+      <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px dashed rgba(255,255,255,.07)">
+        <div style="width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-size:12px;
+          background:${h.result === "win" ? "rgba(110,231,183,.16)" : "rgba(251,113,133,.14)"};
+          color:${h.result === "win" ? "#6ee7b7" : "#fb7185"}">${h.result === "win" ? "✓" : "✕"}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(h.title)}</div>
+          <div class="mono" style="font-size:9.5px;color:var(--ink-faint)">
+            ${esc(h.typeLabel)} · ${MODES[h.mode] ? MODES[h.mode].label : h.mode} · ${h.rounds}轮 · ${h.logCount}条日志 · ${fmtTime(h.playedAt)}
+          </div>
+        </div>
+        <button class="btn btn-xs ${h.replay ? "" : "btn-ghost"}" data-rev="${i}" ${h.replay ? "" : "disabled"}>
+          ${h.replay ? "回放" : "已清理"}
+        </button>
+      </div>`).join("");
+
+    $('#history-content').innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+        <div>
+          <div class="eyebrow">历史对局</div>
+          <div style="font-size:17px;font-weight:800;margin-top:4px">共 ${hist.length} 局 · 全量指纹已提交给后端去重</div>
+        </div>
+        <button class="btn btn-sm btn-ghost" onclick="document.getElementById('modal-history').classList.remove('open')">关闭</button>
+      </div>
+      <div style="max-height:62vh;overflow-y:auto">
+        ${rows || '<div style="font-size:12px;color:var(--ink-faint);padding:20px 0;text-align:center">还没有对局记录。去玩一局吧。</div>'}
+      </div>`;
+
+    $('#modal-history').classList.add("open");
+    $$('[data-rev]').forEach((btn) => {
+      btn.addEventListener("click", () => {
+        $('#modal-history').classList.remove("open");
+        this.openReviewModal("record", parseInt(btn.dataset.rev, 10));
+      });
+    });
+  },
+
+  /* ---------------- Soft Flux 粒子背景 ---------------- */
+  startParticles() {
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const canvas = document.getElementById("particles");
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    let w = 0, h = 0, dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const COUNT = 42;
+    const palette = ["167,139,250", "103,232,249", "240,171,252"];
+    const parts = [];
+
+    function resize() {
+      w = window.innerWidth; h = window.innerHeight;
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      canvas.style.width = w + "px"; canvas.style.height = h + "px";
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    resize();
+    window.addEventListener("resize", resize);
+
+    for (let i = 0; i < COUNT; i++) {
+      parts.push({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        r: 0.7 + Math.random() * 1.9,
+        vx: (Math.random() - 0.5) * 0.12,
+        vy: -0.06 - Math.random() * 0.16,
+        a: 0.05 + Math.random() * 0.13,
+        c: palette[i % palette.length],
+        phase: Math.random() * Math.PI * 2,
+      });
+    }
+
+    let raf = 0;
+    function tick(t) {
+      ctx.clearRect(0, 0, w, h);
+      parts.forEach((p) => {
+        p.x += p.vx; p.y += p.vy;
+        if (p.y < -10) { p.y = h + 10; p.x = Math.random() * w; }
+        if (p.x < -10) p.x = w + 10;
+        if (p.x > w + 10) p.x = -10;
+        const pulse = 0.7 + Math.sin(t / 2400 + p.phase) * 0.3;
+        const grd = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 7);
+        grd.addColorStop(0, "rgba(" + p.c + "," + (p.a * pulse) + ")");
+        grd.addColorStop(1, "rgba(" + p.c + ",0)");
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r * 7, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      raf = requestAnimationFrame(tick);
+    }
+    raf = requestAnimationFrame(tick);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) cancelAnimationFrame(raf);
+      else raf = requestAnimationFrame(tick);
+    });
+  },
+};
+
+/* =========================================================================
+   §8 启动与自检
+   --------------------------------------------------------------------------
+   自检不是"好看的日志"，它验证三件会直接影响可玩性的事：
+     1. 20 位伴侣的年龄/性别分布符合设定
+     2. 四类模板都能产出结构合法的游戏定义（缺字段会让对局跑到一半崩）
+     3. 性格真的改变决策 —— 极端性格在同一局面下的选择差异率
+   ========================================================================= */
+FS.ui = UI;
+
+function selfTest() {
+  const report = { passed: [], failed: [], stats: {} };
+
+  // 1. 伴侣分布
+  const comps = Store.state.companions;
+  const ages = comps.map((c) => c.age);
+  const males = comps.filter((c) => c.gender === "m").length;
+  report.stats.companions = comps.length;
+  report.stats.ageRange = Math.min(...ages) + "-" + Math.max(...ages);
+  report.stats.genderSplit = males + "M / " + (comps.length - males) + "F";
+  if (comps.length >= 20) report.passed.push("伴侣图鉴 ≥20 位");
+  else report.failed.push("伴侣数量不足：" + comps.length);
+  if (Math.min(...ages) <= 7 && Math.max(...ages) >= 38) report.passed.push("年龄覆盖 7-38");
+  else report.failed.push("年龄未覆盖 7-38：" + report.stats.ageRange);
+
+  // 2. 四类生成器结构校验
+  const typeStats = {};
+  Object.keys(BUILDERS).forEach((type) => {
+    try {
+      const g = generateGame({
+        mode: "coop", companions: [], historyFingerprints: [],
+        recentThemes: [], preferType: type, pace: "standard",
+      });
+      FlxValidate(g);
+      typeStats[type] = { rounds: g.rounds.length, actions: g.rounds[0].actions.length, branches: g.branchPool.length };
+      report.passed.push("模板 " + type + " 结构合法（" + g.rounds.length + " 轮 × " + g.rounds[0].actions.length + " 动作）");
+    } catch (err) {
+      report.failed.push("模板 " + type + " 校验失败：" + err.message);
+    }
+  });
+  report.stats.templates = typeStats;
+
+  // 3. 性格 → 决策差异率
+  try {
+    const mk = (risk, logic, empathy, coop, intuition, aggression) => ({
+      id: "test", name: "T", age: 20, gender: "f", tags: ["冷静"],
+      vector: { risk, logic, empathy, coop, intuition, aggression },
+      affinity: 30, mood: 60, quip: "",
+    });
+    const bold = mk(95, 40, 30, 35, 40, 90);
+    const careful = mk(5, 90, 90, 95, 45, 10);
+    let diff = 0, trials = 200;
+    for (let i = 0; i < trials; i++) {
+      const g = BUILDERS[Object.keys(BUILDERS)[i % 4]](lexDict(), 5);
+      const rd = g.rounds[0];
+      const metrics = {};
+      g.initialScene.metrics.forEach((m) => { metrics[m.key] = { ...m }; });
+      const base = {
+        mode: "coop", side: "A", roundIndex: 0, totalRounds: 5, metrics,
+        actions: rd.actions, evidenceCount: 1, newClue: rd.reveal[0],
+        priorDecision: null, teamIntent: null, teamIntentLabel: null, teamFamily: null,
+        opponentPattern: null, playerLastFamily: null, metricsRisk: null,
+      };
+      const a = decideAction({ ...base, companion: bold, affinity: bold.affinity, mood: bold.mood });
+      const b = decideAction({ ...base, companion: careful, affinity: careful.affinity, mood: careful.mood });
+      if (a.actionId !== b.actionId) diff++;
+    }
+    const rate = Math.round((diff / trials) * 100);
+    report.stats.personaDivergence = rate + "%";
+    if (rate >= 25) report.passed.push("性格分化有效（同一局面下选择差异率 " + rate + "%）");
+    else report.failed.push("性格分化偏弱（差异率 " + rate + "%，建议加大 vector 权重）");
+  } catch (err) {
+    report.failed.push("性格分化测试异常：" + err.message);
+  }
+
+  // 4. 指纹去重能力
+  try {
+    const fps = new Set();
+    for (let i = 0; i < 40; i++) {
+      const g = generateGame({ mode: "coop", companions: [], historyFingerprints: [], recentThemes: [], pace: "standard" });
+      fps.add(g.fingerprint);
+    }
+    report.stats.uniqueFingerprints = fps.size + "/40";
+    if (fps.size >= 34) report.passed.push("连续生成 40 局，指纹唯一 " + fps.size + " 个");
+    else report.failed.push("指纹重复偏高：" + fps.size + "/40");
+  } catch (err) {
+    report.failed.push("指纹测试异常：" + err.message);
+  }
+
+  return report;
+}
+
+/** 轻量结构校验：与后端返回的校验逻辑同源，保证"本地能跑 = 后端能接" */
+function FlxValidate(g) {
+  ["gameId", "title", "type", "rules", "winCondition", "loseCondition", "initialScene", "rounds", "branchPool", "stateSchema"]
+    .forEach((k) => { if (g[k] === undefined) throw new Error("缺少字段 " + k); });
+  if (!Array.isArray(g.rounds) || g.rounds.length < 3) throw new Error("轮次不足");
+  g.rounds.forEach((r, i) => {
+    if (!r.actions || !r.actions.length) throw new Error("第 " + (i + 1) + " 轮无动作");
+    if (!r.reveal || !r.reveal.length) throw new Error("第 " + (i + 1) + " 轮无信息解锁");
+    r.actions.forEach((a) => {
+      if (!a.id || !a.label || !a.effects) throw new Error("动作结构不完整：" + JSON.stringify(a).slice(0, 60));
+    });
+  });
+  return true;
+}
+
+function bootstrap() {
+  try {
+    UI.init();
+    const report = selfTest();
+    console.info(
+      "%cFluxSpace v" + FS_VERSION + " · 自检 " + report.passed.length + " 通过 / " + report.failed.length + " 失败",
+      "color:#a78bfa;font-weight:bold"
+    );
+    console.info("统计：", report.stats);
+    if (report.failed.length) console.warn("未通过项：", report.failed);
+    UI._selfTest = report;
+  } catch (err) {
+    console.error("[FluxSpace] 启动失败：", err);
+    document.body.innerHTML =
+      '<div style="display:grid;place-items:center;height:100vh;font-family:system-ui;color:#ece9f7;background:#0b0714;padding:30px;text-align:center">' +
+      '<div><div style="font-size:20px;font-weight:800;margin-bottom:10px">FluxSpace 启动失败</div>' +
+      '<div style="font-size:13px;color:#a9a3c6;max-width:520px;line-height:1.7">' + esc(err.message) +
+      "<br><br>请打开浏览器控制台查看完整堆栈。若使用了无痕模式，localStorage 可能被禁用。</div></div></div>";
+  }
+}
+
+// 暴露给控制台与外部调试（也用于 Node 侧逻辑测试）
+if (typeof window !== "undefined") {
+  window.FluxSpace = {
+    Store, Runtime, FSM, FluxSpaceAPI, UI,
+    generateGame, decideAction, fingerprintOf, selfTest, FlxValidate,
+    BUILDERS, COMPANION_SEED, TUNING, GAME_TYPES, MODES,
+  };
+}
+
+if (HAS_DOM) {
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bootstrap);
+  else bootstrap();
+}
+

@@ -1,0 +1,69 @@
+name: Flux Theatre Hub
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'hub/**'
+      - 'fluxspace/**'
+      - '.github/workflows/flux-theatre.yml'
+  pull_request:
+    paths:
+      - 'hub/**'
+      - 'fluxspace/**'
+      - '.github/workflows/flux-theatre.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hub:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go (version from hub/go.mod)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: hub/go.mod
+          # hub/ has no go.sum yet (stdlib-only module), so the explicit
+          # cache-dependency-path is omitted; setup-go falls back to **/go.sum.
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: gofmt check (no unformatted files)
+        working-directory: hub
+        run: test -z "$(gofmt -l .)"
+
+      - name: go build ./...
+        working-directory: hub
+        run: go build ./...
+
+      - name: go vet ./...
+        working-directory: hub
+        run: go vet ./...
+
+      - name: go test -count=1 ./...
+        working-directory: hub
+        run: go test -count=1 ./...
+
+      - name: Export golden fixture and verify it is unchanged
+        run: |
+          node hub/testdata/export_golden.js
+          git diff --exit-code -- hub/testdata/golden.json
+
+      # fluxspace/*.js and hub/scripts/check_balance.py were checked: pure
+      # Node + Python stdlib, no Windows-only deps, so no step is skipped.
+      - name: Balance regression gate (ADR-0003 10% baseline, 3-sigma floor)
+        run: python hub/scripts/check_balance.py
