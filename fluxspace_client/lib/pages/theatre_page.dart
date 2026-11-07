@@ -8,8 +8,13 @@ import '../services/hub_api.dart';
 import '../services/hub_client.dart';
 import '../services/token_store.dart';
 import '../session/session_controller.dart';
+import '../setup/setup_result_bus.dart';
+import '../setup/setup_state.dart';
 import '../theatre/theatre_models.dart';
 import '../theatre/theatre_screen.dart';
+
+/// Inline hint shown after a guided setup result is applied, until Connect.
+const String kSetupAppliedHint = 'Hub setup applied - press Connect to use it.';
 
 /// The match console: a text view of a real Hub session.
 ///
@@ -34,6 +39,9 @@ class _TheatrePageState extends State<TheatrePage> {
   late SessionController _controller;
   late final bool _ownsController;
 
+  /// True while a published setup result has not yet been used via Connect.
+  bool _showSetupHint = false;
+
   final TextEditingController _baseUrl = TextEditingController(text: HubClient.defaultBaseUrl);
   final TextEditingController _token = TextEditingController();
   final TextEditingController _ownerId = TextEditingController(text: 'owner_alpha');
@@ -52,10 +60,20 @@ class _TheatrePageState extends State<TheatrePage> {
     _ownsController = widget.controller == null;
     _controller = widget.controller ??
         SessionController(api: HubClient(), tokens: SecureTokenStore());
+    // An IndexedStack keeps sibling pages mounted, so the listener lives for
+    // as long as this state. A result published before this page mounted is
+    // applied here too; publishing never connects - the user presses Connect.
+    SetupResultBus.instance.addListener(_onSetupResult);
+    final SetupResult? pending = SetupResultBus.instance.value;
+    if (pending != null) {
+      _applySetupValues(pending);
+      _showSetupHint = true;
+    }
   }
 
   @override
   void dispose() {
+    SetupResultBus.instance.removeListener(_onSetupResult);
     if (_ownsController) _controller.dispose();
     for (final TextEditingController c in <TextEditingController>[
       _baseUrl,
@@ -75,7 +93,27 @@ class _TheatrePageState extends State<TheatrePage> {
     super.dispose();
   }
 
+  void _onSetupResult() {
+    if (!mounted) return;
+    final SetupResult? result = SetupResultBus.instance.value;
+    if (result == null) return;
+    _applySetupValues(result);
+    setState(() => _showSetupHint = true);
+  }
+
+  /// Copies the wizard's four values into the controllers only. No keychain
+  /// read, no HubClient rebuild and no connect: applying a result is inert until
+  /// the user presses Connect, and behaves the same with an injected controller.
+  void _applySetupValues(SetupResult result) {
+    _baseUrl.text = result.hubUrl;
+    _token.text = result.ownerToken;
+    _ownerId.text = result.ownerId;
+    _companionId.text = result.companionId;
+  }
+
   void _connect() {
+    // Using the applied configuration retires the "press Connect" hint.
+    if (_showSetupHint) setState(() => _showSetupHint = false);
     // The URL is applied before connecting: rebinding afterwards would leave
     // the controller talking to one Hub while the field shows another.
     final HubClient client = HubClient(
@@ -308,6 +346,16 @@ class _TheatrePageState extends State<TheatrePage> {
               Expanded(child: _field(_companionId, 'Companion id')),
             ]),
             const SizedBox(height: 8),
+            if (_showSetupHint)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  kSetupAppliedHint,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                ),
+              ),
             Row(
               children: <Widget>[
                 FilledButton.icon(
