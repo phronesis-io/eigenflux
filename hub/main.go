@@ -93,6 +93,29 @@ func governanceComponents() *govern.Components {
 	return components
 }
 
+// archiveStore opens the S4 archive registry, or returns a memory-only store
+// when HUB_ARCHIVE_DIR is unset.
+//
+// As with governance, a load failure is fatal rather than downgraded to memory
+// mode: an operator who configured durable archives must not silently get a
+// Hub that forgets every replay and every consent grant on restart (ADR-0011).
+func archiveStore() *archive.Store {
+	dir := strings.TrimSpace(os.Getenv("HUB_ARCHIVE_DIR"))
+	if dir == "" {
+		log.Printf("HUB_ARCHIVE_DIR unset: archives, publication state, consent and reprises are memory-only and reset on restart")
+		return archive.NewStore()
+	}
+	store, err := archive.OpenStore(dir)
+	if err != nil {
+		log.Fatalf("archive state refused: %v", err)
+	}
+	if note := store.LoadNote(); note != nil {
+		log.Printf("archive state loaded with a note: %v", note)
+	}
+	log.Printf("archives persisted under %s", store.Dir())
+	return store
+}
+
 // ownerTokens reads HUB_OWNER_TOKENS, a JSON object mapping owner id to bearer
 // token, and inverts it for lookup.
 //
@@ -137,11 +160,12 @@ func main() {
 	}
 	port := gatewayPort()
 	components := governanceComponents()
+	archives := archiveStore()
 	srv := &api.Server{
 		Manager:        session.NewManager(),
 		SpectatorToken: os.Getenv("HUB_SPECTATOR_TOKEN"),
 		Invitations:    invitation.NewManager(),
-		Archives:       archive.NewStore(),
+		Archives:       archives,
 		Governance:     &api.Governance{Components: components},
 		OwnerTokens:    ownerTokens(),
 		Port:           port,
@@ -177,7 +201,14 @@ func main() {
 		log.Fatalf("listen on %s: %v", addr, err)
 	}
 	log.Printf("FluxSpace Hub listening on %s", addr)
-	if err := api.Run(ctx, httpServer, ln, components); err != nil {
-		log.Fatal(err)
+	// api.Run closes the governance store. Archive state has its own append
+	// handle, so release it here once the listener has drained. log.Fatal skips
+	// defers, hence the explicit close before reporting a run error.
+	runErr := api.Run(ctx, httpServer, ln, components)
+	if err := archives.Close(); err != nil {
+		log.Printf("close archive store: %v", err)
+	}
+	if runErr != nil {
+		log.Fatal(runErr)
 	}
 }

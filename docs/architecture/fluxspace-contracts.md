@@ -656,5 +656,41 @@ A failed write degrades the whole governance surface: the failing call returns
 `500 GOVERNANCE_PERSIST_FAILED` and later calls return `503 GOVERNANCE_DEGRADED`
 until the Hub is restarted, at which point the unrecorded change is discarded.
 
-Not provided: multi-process locking (one Hub per directory), log rotation or
-compaction, signing, and encryption at rest.
+Not provided: signing, and encryption at rest. ADR-0010 later added an advisory
+cross-process lock and 8 MiB audit shards whose `seq + prev_hash` chain
+continues across files; ADR-0011 added `GET /hub/audit/shards`, a read-only
+inventory of those shards. **No shard is ever deleted, truncated or compacted** —
+the chain must remain verifiable from the first entry on every startup. The
+consequence, accepted by the owner, is unbounded disk growth until a human
+archives shards offline via `Store.ExportAudit`.
+
+## 12. Durable archives, audit inventory and setup (ADR-0011)
+
+`HUB_ARCHIVE_DIR` selects a durable S4 archive directory; unset preserves the
+original memory-only behaviour and logs that fact. `archive.OpenStore(dir)` keeps
+an append-only `archive.jsonl` event log plus an atomically replaced
+`state.json` snapshot. Write order is event then snapshot (same invariant as
+§11). Load re-verifies each archive with the package's existing
+`Verify()` / `ContentHash()`; publication state, consent grants and reprises
+are persisted but stay outside the immutable archive bytes.
+
+| Failure | Wire result |
+|---|---|
+| A durable write fails | `500 ARCHIVE_PERSIST_FAILED` (or `500 INTERNAL` on another mutating route) |
+| Any later archive call while degraded | `503 ARCHIVE_STORE_DEGRADED` |
+| Load refuses (tampering, unknown version, snapshot ahead of log) | Hub does not start |
+
+`POST /hub/archives/{id}/consent` routes through `Store.GrantConsent`, never
+`Ledger().Record` directly, so a grant survives a restart.
+
+`GET /hub/audit/shards` (43rd registered route, owner bearer only, default
+deny) returns `{count, shards[]}`; each shard reports `name`, `path`,
+`first_seq`, `last_seq`, `entries`, `bytes`, `first_hash`, `last_hash` and
+`active`. It is strictly read-only. Spectator tokens cannot reach it.
+
+Client-side, with no change to the wire contract: `lib/panels/archive_frames.dart`
+maps the six real view projections to `TheatreFrame` timelines (GET only,
+missing fields render as "not recorded"), and `lib/setup/` runs a guided
+first-run setup whose result is published on `SetupResultBus`. Applying a
+result fills the four console fields and shows "press Connect"; it never opens
+a network connection by itself.

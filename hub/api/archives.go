@@ -34,6 +34,13 @@ func (s *Server) archives() (*archive.Store, error) {
 		return nil, apperr.New(http.StatusServiceUnavailable, "ARCHIVE_STORE_UNCONFIGURED",
 			"archive store is not configured")
 	}
+	// A failed persistence write is not a local hiccup: the archive log and
+	// the snapshot may now disagree. Refusing the whole surface keeps a later
+	// read from presenting state that was never durably recorded (ADR-0011).
+	if s.Archives.Degraded() {
+		return nil, apperr.New(http.StatusServiceUnavailable, "ARCHIVE_STORE_DEGRADED",
+			"archive store stopped after a state change could not be recorded")
+	}
 	return s.Archives, nil
 }
 
@@ -243,8 +250,17 @@ func (s *Server) recordConsent(w http.ResponseWriter, r *http.Request) {
 			"companion %q has no seat to consent for in archive %s", body.CompanionID, rec.Archive.ID))
 		return
 	}
-	if err := store.Ledger().Record(rec.Archive.ID, body.CompanionID, body.OwnerID, body.Accepted, s.now()); err != nil {
-		writeDomainError(w, apperr.New(http.StatusBadRequest, "INVALID_CONSENT", "%v", err))
+	// GrantConsent goes through the store's durable commit path; calling
+	// Ledger().Record directly would leave a restarted Hub with a grant it
+	// never recorded (ADR-0011).
+	if err := store.GrantConsent(rec.Archive.ID, body.CompanionID, body.OwnerID, body.Accepted, s.now()); err != nil {
+		// A rejected grant is the caller's mistake; a failed durable write is
+		// the Hub's. Conflating them would turn a 500 into a 400.
+		if store.Degraded() {
+			writeDomainError(w, apperr.New(http.StatusInternalServerError, "ARCHIVE_PERSIST_FAILED", "%v", err))
+		} else {
+			writeDomainError(w, apperr.New(http.StatusBadRequest, "INVALID_CONSENT", "%v", err))
+		}
 		return
 	}
 	decision, err := store.Ledger().Evaluate(rec.Archive)
