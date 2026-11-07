@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -100,12 +101,24 @@ func (g *s1Gateway) followUpCount() int {
 }
 
 func newS1Server(t *testing.T, gw *s1Gateway) *httptest.Server {
-	t.Helper()
 	gatewaySrv := httptest.NewServer(gw.handler())
 	t.Cleanup(gatewaySrv.Close)
-	port := services.NewGatewayPort(gatewaySrv.URL, map[string]string{
+	port := services.NewGatewayPort(gatewaySrv.URL, s1Tokens())
+	return newS1ServerWithPort(t, port)
+}
+
+func s1Tokens() map[string]string {
+	return map[string]string{
 		"agent_alpha": "token-alpha", "agent_beta": "token-beta", "hub_agent": "token-hub",
-	})
+	}
+}
+
+// newS1ServerWithPort wires the Hub HTTP API around a caller-supplied
+// EigenFluxPort. The default test uses an in-process stand-in; the G10
+// live-stack e2e supplies the real GatewayPort client pointed at a gateway
+// running in a separate process/container.
+func newS1ServerWithPort(t *testing.T, port services.EigenFluxPort) *httptest.Server {
+	t.Helper()
 	mgr := session.NewManagerWithClock(func() int64 { return 1700000000000 })
 	srv := &Server{
 		Manager: mgr, SpectatorToken: "spectator-secret",
@@ -157,11 +170,46 @@ func runMatchWithViewSeats(t *testing.T, srv *httptest.Server, view models.Sessi
 // TestS1FullLoopOverHTTP is the vertical slice S1 was defined to prove:
 // a structured PM invitation is sent and answered, the confirmed negotiation
 // creates a seat-isolated match, five rounds settle, and a follow-up is
-// delivered to the real owners. The gateway here is a local HTTP stand-in;
-// the live EigenFlux stack remains G10.
+// delivered to the real owners. The gateway here is a local in-process
+// stand-in; the live EigenFlux stack remains G10 (see TestS1FullLoopLive).
 func TestS1FullLoopOverHTTP(t *testing.T) {
 	gw := &s1Gateway{}
 	srv := newS1Server(t, gw)
+	s1FullLoop(t, srv, func(want int) {
+		if gw.followUpCount() != want {
+			t.Fatalf("follow-up PMs on the wire = %d, want %d", gw.followUpCount(), want)
+		}
+	})
+}
+
+// TestS1FullLoopLive runs the exact same vertical slice as
+// TestS1FullLoopOverHTTP, but points the Hub's real GatewayPort client at a
+// gateway reachable over the network. Set HUB_GATEWAY_URL to a running
+// gateway's base URL (e.g. http://localhost:18080, the dockerized
+// gatewaystandin) to exercise the loop against a process in a separate
+// container — the closest available stand-in for the G10 live-stack e2e: a real
+// HTTP client, a real separate gateway process, real network hops. The only
+// thing that differs from production is the gateway implementation; the real
+// eigenflux_server needs its full microservice cluster, which is not in this
+// repository.
+func TestS1FullLoopLive(t *testing.T) {
+	base := os.Getenv("HUB_GATEWAY_URL")
+	if base == "" {
+		t.Skip("HUB_GATEWAY_URL unset: point it at a running gateway (e.g. the dockerized gatewaystandin) to exercise the live-stack loop")
+	}
+	port := services.NewGatewayPort(base, s1Tokens())
+	srv := newS1ServerWithPort(t, port)
+	s1FullLoop(t, srv, nil)
+}
+
+// s1FullLoop drives the whole slice over real HTTP: negotiation -> send PM ->
+// gateway parses it and answers -> fetch/parse/apply -> confirmed -> session ->
+// join four seats -> five rounds settle -> follow-up preview and delivery, then
+// re-delivery idempotency. wireCheck, when non-nil, asserts how many follow-up
+// PMs the gateway observed on the wire (only possible for an instrumented
+// in-process gateway; pass nil for an external gateway).
+func s1FullLoop(t *testing.T, srv *httptest.Server, wireCheck func(want int)) {
+	t.Helper()
 	base := srv.URL
 
 	var neg invitationpkg.Negotiation
@@ -237,12 +285,12 @@ func TestS1FullLoopOverHTTP(t *testing.T) {
 	if len(delivered.Deliveries) != 2 {
 		t.Fatalf("deliveries = %+v, want the two real owners only", delivered.Deliveries)
 	}
-	if gw.followUpCount() != 2 {
-		t.Fatalf("follow-up PMs on the wire = %d", gw.followUpCount())
+	if wireCheck != nil {
+		wireCheck(2)
 	}
 	call(t, http.MethodPost, base+"/hub/sessions/"+view.SessionID+"/followup", nil, http.StatusOK, &delivered)
-	if gw.followUpCount() != 2 {
-		t.Fatal("follow-up re-send was not idempotent")
+	if wireCheck != nil {
+		wireCheck(2)
 	}
 }
 
