@@ -161,8 +161,9 @@ Three behaviours are deliberate rather than incidental:
    (`401 AUTH_REQUIRED`). The client treats exactly that code as "running
    anonymous" and says so in the log; any other binding refusal stops the connect.
 
-`flutter analyze` reports **No issues found!** and `flutter test` **PASSES — 47
-tests, 2 skipped** (both skips are the live Hub smokes below). The 47 are: 13 on
+At S1 sign-off, `flutter analyze` reported **No issues found!** and `flutter
+test` **PASSED — 47 tests, 2 skipped** (both skips are the live Hub smokes
+below). The current totals are in the verification table. The 47 were: 13 on
 the Hub client against a recording `HttpClientAdapter`, 8 on SSE framing (split
 reads, CRLF, comments, multi-line data, tail flush), 21 on the controller against
 a scripted Hub, 2 widget tests on the console, and 3 scaffold tests (routes, table
@@ -196,13 +197,16 @@ Two things the first live run taught, both now pinned in the test:
 
 Not done in the client: the 2.5D theatre and the Rive artboards (S3, blocked on
 procurement) — only the asset-agnostic render skeleton and its placeholder pack
-exist; a full replay player wired to real archive frames; and the local `drift`
-database is still schema-only. Read-only archive and governance panels DO exist
-(`lib/panels/`) and are reachable from the console; see
-`OBSERVABILITY_PANELS.md` for the nine backend capabilities that still have no
-GET endpoint and are therefore deliberately not shown. The stream now reconnects
-automatically with bounded exponential backoff and a visible state strip; see
-ADR-0010. `flutter test` cannot exercise the keychain
+exist; real-time event pacing / audio / wall-clock scrubbing in the replay
+player; and the local `drift` database is still schema-only. Read-only archive
+and governance panels DO exist (`lib/panels/`) and are reachable from the
+console; the archive panel now plays all six real view projections through
+`TheatreScreen` (GET only, unrecorded fields shown as "not recorded") — see
+`ARCHIVE_REPLAY.md`. `lib/setup/` adds a guided first-run wizard whose result
+reaches the console through `SetupResultBus`; it fills the four connection
+fields and asks the user to press Connect, never connecting on its own. See
+`SETUP_WIZARD.md`, `OBSERVABILITY_PANELS.md` for the nine backend capabilities
+with no GET endpoint, ADR-0010 and ADR-0011. `flutter test` cannot exercise the keychain
 (`SecureTokenStore` is only constructed by the page), so token persistence itself
 is covered by the interface contract rather than by a test.
 
@@ -244,9 +248,12 @@ succeeded.
 |---|---|
 | `go build ./...` (hub) | PASS |
 | `go vet ./...` (hub) | PASS |
-| `go test -count=1 -v ./...` (hub) | PASS — **161 passing tests** across api (37), govern (35), archive, followup, generator, invitation, models, referee, services, session (apperr has no tests of its own) |
+| `go test -count=1 -v ./...` (hub) | PASS — **176 passing tests** across api (42), govern (40), archive (20), followup, generator, invitation, models, referee, services, session (apperr has no tests of its own) |
+| Durable archives (ADR-0011) | PASS — 20 `archive` tests plus 2 HTTP tests: archives, publication state, consent ledger and reprises survive a restart; tampered archive bytes / tampered log / unknown version / snapshot-ahead refuse to load; log-ahead and torn tail start with a note; a consent grant written over HTTP reaches `archive.jsonl` and survives a reload; a failed durable write returns `500 ARCHIVE_PERSIST_FAILED` and every later archive call returns `503 ARCHIVE_STORE_DEGRADED` |
+| Read-only audit inventory (ADR-0011) | PASS — `ShardInventory` across >=3 shards reports real seq ranges, entry counts, byte sizes and first/last chain hashes; `ExportAudit` is byte-for-byte; a test compares content + size + mtime of every file before and after to prove no file is changed; `GET /hub/audit/shards` is owner-only and a spectator token cannot reach it |
+| Route audit after the 43rd route | PASS — `TestRouteAuditDefaultDeny` now walks all **43** registered routes; non-GET requests to the three exempt paths still get 401; all mutating routes reject a spectator token |
 | `GOOS=linux GOARCH=amd64 go build ./...` (hub) | PASS — the stdlib advisory lock compiles for both Windows and Linux |
-| Hub auth coverage (ADR-0010) | PASS — `TestRouteAuditDefaultDeny` walks all 42 registered routes; `TestAuthGateIsMethodQualified` proves non-GET requests to the three exempt paths are 401 rather than falling through the gate; `TestSpectatorCannotReachMutatingRoutes` covers all 23 mutating routes |
+| Hub auth coverage (ADR-0010) | PASS — `TestAuthGateIsMethodQualified` proves non-GET requests to the three exempt paths are 401 rather than falling through the gate; `TestSpectatorCannotReachMutatingRoutes` covers all mutating routes. The route-count assertion moved to the 43-route row above |
 | Governance lock and rotation (ADR-0010) | PASS — chain verification across >=3 shards, multi-shard load, snapshot-ahead refusal, torn tail in the active shard only, stale-lock recovery and a real second process being refused; rotation does not change budget or permission state |
 | Graceful shutdown (ADR-0010) | PASS — `TestRunShutsDownAndReleasesListener` cancels the context, `Run` returns in 0.02s and `ln.Accept()` proves the listener was released; serve errors are surfaced, not swallowed |
 | `python hub/scripts/check_balance.py` | PASS — the S2 gate. 5 x 480 = 2,400 matches aggregated; measured 9.38%–11.25% across 20 consecutive runs, 0 failures. Floor is 0.08, the three-sigma lower bound of the 10% baseline (see ADR-0003 amendment) |
@@ -275,7 +282,7 @@ succeeded.
 | `flutter --version` (3.47.9 / Dart 3.13.7) | **PASS** — 2026-11-06, installed SDK verified byte-for-byte against official sha256 |
 | `flutter pub get` | **PASS** — 122 packages resolved, `pubspec.lock` generated |
 | `flutter analyze` | **PASS** — `No issues found!` (0 issues / 0 errors / 0 warnings) |
-| `flutter test` | **PASS — 136 tests, 2 skipped** (`All tests passed!`). Both skips are the live Hub smokes, which need `FLUXSPACE_LIVE_HUB`. Added in this batch: 46 session/reconnect tests (deterministic injected sleep — backoff curve, jitter bounds, reset, exhaustion, dispose, dedupe, `Last-Event-ID` replay), 12 S3 render-skeleton widget tests (including no-overflow assertions with a meta-test proving the overflow trap works), 49 S4/S5 panel tests, and 3 wiring tests. Required two environment-only workarounds: priming the `sqlite3` hook cache with the sha256-verified official DLL, and unsetting proxy vars for the local `flutter_tester` WebSocket. No source change. |
+| `flutter test` | **PASS — 194 tests, 2 skipped** (`All tests passed!`). Both skips are the live Hub smokes, which need `FLUXSPACE_LIVE_HUB`. Cumulative: 46 session/reconnect tests (deterministic injected sleep), 12 S3 render-skeleton widget tests, 81 panel tests (49 S4/S5 + 32 archive-replay adapter and widget tests), 25 setup-wizard tests (state machine, probe success/failure, auth-on/auth-off, save, back navigation, widget smoke), and 4 wiring tests. Required two environment-only workarounds: priming the `sqlite3` hook cache with the sha256-verified official DLL, and unsetting proxy vars for the local `flutter_tester` WebSocket. No source change. |
 | Live Hub smoke (client) | **PASS** — one match from invitation to settlement against `fluxspace-hub` on `:8399`, unauthenticated: three proposals, both parties confirmed, two seats joined, every round advanced and decided, settlement non-empty, and the SSE stream carried `round_begin` / `decision` / `match_end` with strictly increasing ids |
 | Live Hub smoke (spectator) | **PASS** — the same Hub with `HUB_SPECTATOR_TOKEN`: the session view is readable with the spectator token and returns both seats, and a `spectate` resumed from event *n* returned event *n+1* first with no duplicate |
 | Spectator boundary (authenticated Hub) | **PASS — `curl`, real binary**: `GET /hub/sessions/{id}` with no credential `401`, with only `X-Spectator-Token` passes the middleware and answers `404 SESSION_NOT_FOUND` (it got through), a write with the spectator token is `401`, and a wrong spectator token is `401` |
@@ -328,7 +335,8 @@ no admin rights needed); the SDK is not on the system PATH.
    the official release JSON, `unzip -t` clean. Installed to
    `C:\Users\louvr\.workbuddy\toolchains\flutter`; `flutter --version`,
    `pub get` and `analyze` all pass.
-   `flutter test` passes 3 tests after two host-only workarounds. **Remaining:**
+   At install time `flutter test` passed 3 tests after two host-only
+   workarounds (see the verification table for the current totals). **Remaining:**
    pin the twelve `any` constraints using the now-generated `pubspec.lock`, and
    decide whether to normalise that lock's mirror URLs (see below).
    `pubspec.lock` currently records `https://pub.flutter-io.cn` for all 117
