@@ -62,6 +62,7 @@ func RegisterGovernance(mux *http.ServeMux, srv *Server) {
 	mux.HandleFunc("POST /hub/companions/{id}/budget/usage", srv.recordUsage)
 	mux.HandleFunc("GET /hub/audit", srv.listAudit)
 	mux.HandleFunc("GET /hub/audit/verify", srv.verifyAudit)
+	mux.HandleFunc("GET /hub/audit/shards", srv.listAuditShards)
 	mux.HandleFunc("GET /hub/archives/{id}/model-consistency", srv.archiveModelConsistency)
 }
 
@@ -370,6 +371,29 @@ func (s *Server) verifyAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"verified": true, "entries": gov.Audit.Len()})
+}
+
+// listAuditShards reports a read-only inventory of the audit chain's files:
+// every rotated shard in sequence order plus the active file. It goes through
+// the default-deny owner gate (WithAuth) and through s.governance(), so an
+// unconfigured or degraded Hub answers exactly as it does for the rest of the
+// governance surface (GOVERNANCE_UNCONFIGURED / GOVERNANCE_DEGRADED).
+//
+// The inventory never modifies any file. A memory-only store (nil Store) has no
+// durable shards and is reported as an empty list, not an error.
+func (s *Server) listAuditShards(w http.ResponseWriter, r *http.Request) {
+	gov, err := s.governance()
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	inventory, err := gov.Store.ShardInventory()
+	if err != nil {
+		writeDomainError(w, apperr.New(http.StatusInternalServerError, "AUDIT_SHARD_INVENTORY_FAILED",
+			"could not read audit shard inventory: %v", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"shards": inventory, "count": len(inventory)})
 }
 
 // archiveModelConsistency checks that an archived match declares one model

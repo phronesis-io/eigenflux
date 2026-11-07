@@ -79,6 +79,7 @@ var auditedRoutes = []auditedRoute{
 	{http.MethodPost, "/hub/companions/comp1/budget/usage", false},
 	{http.MethodGet, "/hub/audit", false},
 	{http.MethodGet, "/hub/audit/verify", false},
+	{http.MethodGet, "/hub/audit/shards", false},
 	{http.MethodGet, "/hub/archives/a1/model-consistency", false},
 	// companions (ownership registry)
 	{http.MethodPost, "/hub/companions", false},
@@ -123,11 +124,21 @@ func codeOf(body map[string]any) string {
 	return ""
 }
 
+// auditedRouteCount pins the size of the audit table. The Hub had 42 registered
+// routes; GET /hub/audit/shards is the 43rd. Adding a route to a Register*
+// function without updating auditedRoutes AND this count is exactly the drift
+// this file exists to catch.
+const auditedRouteCount = 43
+
 // TestRouteAuditDefaultDeny walks the full inventory. Every non-exempt route
 // must be default-denied (401 AUTH_REQUIRED with no credential), and the three
 // documented public exemptions must NOT be rejected by the owner-token gate.
 // This proves that no mutating or privileged endpoint slips past WithAuth.
 func TestRouteAuditDefaultDeny(t *testing.T) {
+	if len(auditedRoutes) != auditedRouteCount {
+		t.Fatalf("auditedRoutes has %d entries, want %d: the route inventory is out of sync with registration",
+			len(auditedRoutes), auditedRouteCount)
+	}
 	srv := newAuditedServer(t)
 	for _, rt := range auditedRoutes {
 		t.Run(rt.method+" "+rt.path, func(t *testing.T) {
@@ -197,10 +208,26 @@ func TestSpectatorCannotReachMutatingRoutes(t *testing.T) {
 	}
 }
 
-// TestAuthScenarios pins the four canonical auth outcomes on real resources:
+// TestSpectatorCannotReadAuditShardInventory proves the new privileged read is
+// owner-only. spectatorReadable relaxes only the two session views; a spectator
+// token on /hub/audit/shards therefore falls through to the bearer gate and is
+// refused with 401, so a spectator never sees the audit shard inventory.
+func TestSpectatorCannotReadAuditShardInventory(t *testing.T) {
+	srv := newAuditedServer(t)
+	status, body := doSpectator(t, http.MethodGet, srv.url+"/hub/audit/shards", "spectator-secret")
+	if status != http.StatusUnauthorized {
+		t.Fatalf("spectator reached the shard inventory: %d %v", status, body)
+	}
+	if code := codeOf(body); code != "AUTH_REQUIRED" {
+		t.Fatalf("code = %q, want AUTH_REQUIRED (a spectator token does not substitute for an owner bearer)", code)
+	}
+}
+
+// TestAuthScenarios pins the canonical auth outcomes on real resources:
 // 401 with no credential, 403 for a wrong owner, 404 for an unknown resource,
-// and 200 for an authorised owner. A companion is bound through the public API
-// first so the ownership checks have a real subject.
+// and 200 for an authorised owner (including the new shard-inventory read). A
+// companion is bound through the public API first so the ownership checks have
+// a real subject.
 func TestAuthScenarios(t *testing.T) {
 	srv := newAuditedServer(t)
 	if status, body := doAuthed(t, http.MethodPost, srv.url+"/hub/companions", "tok-alpha",
@@ -220,6 +247,7 @@ func TestAuthScenarios(t *testing.T) {
 		{"403 wrong owner", http.MethodGet, "/hub/companions/comp_alpha/permissions", "tok-beta", http.StatusForbidden, "COMPANION_NOT_YOURS"},
 		{"404 unknown resource", http.MethodGet, "/hub/companions/never_bound/permissions", "tok-alpha", http.StatusNotFound, "COMPANION_NOT_REGISTERED"},
 		{"200 authorized", http.MethodGet, "/hub/audit", "tok-alpha", http.StatusOK, ""},
+		{"200 shard inventory with owner", http.MethodGet, "/hub/audit/shards", "tok-alpha", http.StatusOK, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			status, body := doAuthed(t, tc.method, srv.url+tc.path, tc.token, nil)
