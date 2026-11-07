@@ -45,6 +45,10 @@ type Store struct {
 	ledger       *Ledger
 	reprises     map[string]*Reprise
 	repriseOrder []string
+
+	// persist is the durable backing. It is nil for a memory-only NewStore;
+	// see persist.go. All of its fields are guarded by mu.
+	persist *persistBackend
 }
 
 // NewStore returns an empty registry with its own consent ledger.
@@ -68,6 +72,9 @@ func (s *Store) Put(a Archive) (Record, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.failClosedLocked(); err != nil {
+		return Record{}, err
+	}
 	if existing, ok := s.items[a.ID]; ok {
 		if existing.Archive.ContentHash() != a.ContentHash() {
 			return Record{}, apperr.New(http.StatusConflict, "ARCHIVE_ID_CONFLICT",
@@ -82,6 +89,9 @@ func (s *Store) Put(a Archive) (Record, error) {
 	rec := &Record{Archive: a, Decision: PolicyDecision{Policy: policy}}
 	s.items[a.ID] = rec
 	s.order = append(s.order, a.ID)
+	if err := s.commit(eventPut, a.ID, a.ContentHash()); err != nil {
+		return Record{}, err
+	}
 	return *rec, nil
 }
 
@@ -151,6 +161,9 @@ func (s *Store) Publish(id string, now int64) (PolicyDecision, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.failClosedLocked(); err != nil {
+		return PolicyDecision{}, err
+	}
 	rec.Decision = decision
 	if !decision.Public {
 		return decision, apperr.New(http.StatusForbidden, "REPLAY_CONSENT_INCOMPLETE", "%s", decision.Reason)
@@ -158,6 +171,9 @@ func (s *Store) Publish(id string, now int64) (PolicyDecision, error) {
 	if !rec.Published {
 		rec.Published = true
 		rec.PublishedAt = now
+	}
+	if err := s.commit(eventPublish, id, rec.Archive.ContentHash()); err != nil {
+		return PolicyDecision{}, err
 	}
 	return decision, nil
 }
@@ -181,6 +197,9 @@ func (s *Store) CreateReprise(archiveID string, now int64) (Reprise, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.failClosedLocked(); err != nil {
+		return Reprise{}, err
+	}
 	id := "reprise_" + archiveID[len("replay_"):] + "_" + itoa(int64(len(s.repriseOrder)+1))
 	r := &Reprise{
 		ID: id, ArchiveID: archiveID, Type: RepriseSameSpec,
@@ -188,6 +207,9 @@ func (s *Store) CreateReprise(archiveID string, now int64) (Reprise, error) {
 	}
 	s.reprises[id] = r
 	s.repriseOrder = append(s.repriseOrder, id)
+	if err := s.commit(eventCreateReprise, archiveID, rec.Archive.ContentHash()); err != nil {
+		return Reprise{}, err
+	}
 	return *r, nil
 }
 
@@ -215,9 +237,15 @@ func (s *Store) CompleteReprise(repriseID, newArchiveID, newSessionID string) (R
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.failClosedLocked(); err != nil {
+		return Reprise{}, err
+	}
 	r.Status = RepriseStatusCompleted
 	r.NewSessionID = newSessionID
 	r.Comparison = &cmp
+	if err := s.commit(eventCompleteReprise, newArchiveID, replayed.Archive.ContentHash()); err != nil {
+		return Reprise{}, err
+	}
 	return *r, nil
 }
 
