@@ -61,10 +61,13 @@ session -> join four seats -> five rounds -> settlement -> follow-up preview
 and delivery, then re-delivery idempotency. 68 Go tests pass across 9 packages.
 
 **S1 is still not signed off.** The exit criterion says the PM must round-trip
-"through EigenFlux"; the loop above runs against a local HTTP gateway stand-in
-because the Docker daemon is down and WSL is not enabled (G10). Nothing here
-claims a live-stack pass. S2's exit criteria were implemented and verified on
-2026-11-07; G11 was closed on the same day (ADR-0006).
+"through EigenFlux". Two configurations now pass over real HTTP: the in-process
+`TestS1FullLoopOverHTTP`, and `TestS1FullLoopLive`, which points the Hub's real
+`GatewayPort` HTTP client at the dockerized `gatewaystandin` — a separate process
+in a container with real network hops (the G10 live-stack enabler landed
+2026-11-07/08). Neither is the real `eigenflux_server`, so nothing here claims a
+live-stack pass. S2's exit criteria were implemented and verified on 2026-11-07;
+G11 was closed on the same day (ADR-0006).
 
 **Owner ruling 2026-11-06:** the criterion is kept verbatim rather than
 relaxed; S1 is labelled *code complete, live-stack sign-off pending*. See
@@ -280,7 +283,7 @@ succeeded.
 | SSE role filtering / `Last-Event-ID` recovery | PASS — `TestSSEStreamsRespectRolesAndLastEventID` |
 | Match determinism from invitation + seed | PASS — `TestMatchIsDeterministicFromInvitationAndSeed` |
 | Real binary smoke test (`:18095`) | PASS — `/health` 200; invitation create 201; unconfigured send 503 `EIGENFLUX_PORT_UNCONFIGURED`; accept reply 200 confirmed; session from negotiation 201; state 200; premature follow-up 409 `SESSION_NOT_FINISHED` |
-| `go test -race ./...` | **NOT RUN** — `-race` needs cgo; no `gcc` on this host |
+| `go test -race ./...` | **PASS** (2026-11-08) — run inside a `golang:1.27` container (Docker/WSL2 available); 0 races across 10 packages, ~16s |
 | `flutter --version` (3.47.9 / Dart 3.13.7) | **PASS** — 2026-11-06, installed SDK verified byte-for-byte against official sha256 |
 | `flutter pub get` | **PASS** — 122 packages resolved, `pubspec.lock` generated |
 | `flutter analyze` | **PASS** — `No issues found!` (0 issues / 0 errors / 0 warnings) |
@@ -288,7 +291,7 @@ succeeded.
 | Live Hub smoke (client) | **PASS** — one match from invitation to settlement against `fluxspace-hub` on `:8399`, unauthenticated: three proposals, both parties confirmed, two seats joined, every round advanced and decided, settlement non-empty, and the SSE stream carried `round_begin` / `decision` / `match_end` with strictly increasing ids |
 | Live Hub smoke (spectator) | **PASS** — the same Hub with `HUB_SPECTATOR_TOKEN`: the session view is readable with the spectator token and returns both seats, and a `spectate` resumed from event *n* returned event *n+1* first with no duplicate |
 | Spectator boundary (authenticated Hub) | **PASS — `curl`, real binary**: `GET /hub/sessions/{id}` with no credential `401`, with only `X-Spectator-Token` passes the middleware and answers `404 SESSION_NOT_FOUND` (it got through), a write with the spectator token is `401`, and a wrong spectator token is `401` |
-| EigenFlux live-stack e2e | **NOT RUN** — `docker info` cannot reach the daemon; WSL feature absent and `wsl.exe`/`reg.exe` blocked by command-security policy (G10) |
+| EigenFlux live-stack e2e (stand-in) | **PASS** (2026-11-08) — `TestS1FullLoopLive` drives the full S1 slice with the real `GatewayPort` client hitting the dockerized `gatewaystandin` (separate container, real network hops). True `eigenflux_server` needs its full microservice cluster (Postgres/Redis/etcd + 9 kitex services), not in this repo, so symbol-level sign-off stays pending. Reproduced in CI by the `hub-live-e2e` job. |
 
 Reproduce:
 
@@ -306,6 +309,19 @@ cd fluxspace_client && "$FLUTTER" pub get && "$FLUTTER" analyze
 # On this host the proxy breaks the local flutter_tester WebSocket:
 env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
     NO_PROXY=localhost,127.0.0.1 "$FLUTTER" test
+
+# G10 live-stack stand-in (cross-network S1 e2e). Docker + WSL2 must be up:
+# 1) start the gateway stand-in in a container (separate process, port 18080):
+docker run --rm -p 18080:8080 -v "C:/Users/louvr/Desktop/eigenflux-main/hub:/hub" \
+    golang:1.27 sh -c "cd /hub && go run ./tools/gatewaystandin"
+# 2) in another shell, run the live slice against that gateway:
+cd hub
+HUB_GATEWAY_URL=http://localhost:18080 go test ./api -run TestS1FullLoopLive -count=1 -v
+# Without HUB_GATEWAY_URL the test skips (no Docker needed for the plain run).
+
+# Race detector (needs gcc; use the golang container since this host has none):
+docker run --rm -v "C:/Users/louvr/Desktop/eigenflux-main/hub:/hub" \
+    golang:1.27 sh -c "cd /hub && go test -race -count=1 ./..."
 ```
 
 Go 1.27.3 is on `PATH` as of 2026-11-04 23:12; the toolchain copy at
@@ -416,10 +432,16 @@ See `docs/architecture/fluxspace-contracts.md` §9 (G1–G8). Most important:
 - **G9 — RESOLVED (static verification).** The invented refresh URL and the
   wrong profile-fields request shape were both corrected against the root
   module; see `fluxspace-contracts.md` §7. Runtime confirmation is part of G10.
-- **G10 — live-stack integration is still unverified.** The whole S1 loop runs
-  over real HTTP against a local gateway stand-in, but the EigenFlux stack
-  (WSL 2 + Docker daemon) has never run here. S1 cannot be signed off until a
-  real PM invitation round-trips through that stack.
+- **G10 — live-stack integration, with stand-in, is now verified (2026-11-08).**
+  Docker Desktop runs on WSL 2 and the daemon is reachable; `TestS1FullLoopLive`
+  runs the full S1 slice with the Hub's real `GatewayPort` HTTP client against the
+  dockerized `gatewaystandin` (a separate process in a container, real network
+  hops). `go test -race ./...` also passes inside a `golang:1.27` container (0
+  races). What stays unverified is the *real* `eigenflux_server`: it requires
+  PostgreSQL, Redis, etcd and nine kitex backend microservices that are not in
+  this repository, so the S1 criterion ("round-trip through EigenFlux") remains
+  *code complete, live-stack sign-off pending* until that cluster is available.
+  The `hub-live-e2e` CI job reproduces the stand-in run on every push/PR.
 - ~~**G11 — Agent Card projection after a match is not invoked.**~~ **Closed
   2026-11-07 (ADR-0006).** The follow-up sender now projects into the Agent
   Card when `HUB_CARD_PROJECTION_FIELDS` opts in, and only into a blank

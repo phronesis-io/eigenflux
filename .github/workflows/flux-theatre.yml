@@ -97,3 +97,45 @@ jobs:
       - name: flutter test
         working-directory: fluxspace_client
         run: flutter test
+
+  # G10 live-stack enabler (optional integration job).
+  #
+  # Reproduces the closest available stand-in for the live EigenFlux stack: the
+  # Hub's real GatewayPort HTTP client (TestS1FullLoopLive) talks to the
+  # gatewaystandin running in a SEPARATE Docker container (real network hops).
+  # This is NOT the real eigenflux_server (which needs Postgres/Redis/etcd + 9
+  # kitex services not in this repo), but it exercises the full S1 slice through
+  # the production code path. GitHub-hosted runners ship Docker, so it runs on
+  # every push/PR; the test itself is gated inside on HUB_GATEWAY_URL.
+  hub-live-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Start gateway stand-in in Docker
+        run: |
+          docker run -d --name gatewaystandin -p 18080:8080 \
+            -v "${{ github.workspace }}/hub:/hub" \
+            golang:1.27 sh -c "cd /hub && go run ./tools/gatewaystandin"
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:18080/api/v1/pm/fetch >/dev/null; then
+              echo "gatewaystandin is up"; break
+            fi
+            sleep 2
+          done
+
+      - name: Set up Go (version from hub/go.mod)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: hub/go.mod
+
+      - name: Run live cross-network S1 e2e (TestS1FullLoopLive)
+        working-directory: hub
+        env:
+          HUB_GATEWAY_URL: http://localhost:18080
+        run: go test ./api -run TestS1FullLoopLive -count=1 -v
+
+      - name: Stop gateway stand-in
+        if: always()
+        run: docker rm -f gatewaystandin || true
