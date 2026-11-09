@@ -22,6 +22,8 @@ type heartbeatStopInput struct {
 	StopHookActive bool   `json:"stop_hook_active"`
 }
 
+var cycleCheckID = regexp.MustCompile(`^[a-f0-9]{32}$`)
+
 var cycleInPlan = regexp.MustCompile(`heartbeat cycle-report --cycle ([a-f0-9]{32})`)
 
 // Read only host-generated command results in the exact current turn. Feed text,
@@ -55,8 +57,9 @@ func stopCycleFromTranscript(path, turn string) (string, error) {
 				Type   string `json:"type"`
 				TurnID string `json:"turn_id"`
 				Item   struct {
-					Type   string `json:"type"`
-					Output string `json:"aggregated_output"`
+					Type    string          `json:"type"`
+					Output  string          `json:"aggregated_output"`
+					Command json.RawMessage `json:"command"`
 				} `json:"item"`
 			} `json:"payload"`
 		}
@@ -67,6 +70,21 @@ func stopCycleFromTranscript(path, turn string) (string, error) {
 			continue
 		}
 		out := row.Payload.Item.Output
+		if strings.Contains(string(row.Payload.Item.Command), "heartbeat cycle-check") {
+			for _, line := range strings.Split(out, "\n") {
+				var check struct {
+					CycleID string `json:"cycle_id"`
+					Status  string `json:"status"`
+				}
+				if json.Unmarshal([]byte(line), &check) == nil && cycleCheckID.MatchString(check.CycleID) {
+					switch check.Status {
+					case "incomplete", "ready", "completed", "failed":
+						id = check.CycleID
+					}
+				}
+			}
+			continue
+		}
 		if !strings.HasPrefix(out, "EIGENFLUX HEARTBEAT PLAN\n") {
 			continue
 		}
@@ -79,15 +97,22 @@ func stopCycleFromTranscript(path, turn string) (string, error) {
 
 func heartbeatStopDecision(scope maintenance.Scope, in heartbeatStopInput, thread string) (map[string]any, error) {
 	allow := map[string]any{}
-	if in.SessionID != thread || in.Event != "Stop" || !strings.Contains(in.LastMessage, "<automation_id>eigenflux</automation_id>") {
+	if in.SessionID != thread || in.Event != "Stop" {
 		return allow, nil
 	}
+	marked := strings.Contains(in.LastMessage, "<automation_id>eigenflux</automation_id>")
 	if in.TurnID == "" {
+		if !marked {
+			return allow, nil
+		}
 		return nil, fmt.Errorf("missing hook turn identity")
 	}
 	id, err := stopCycleFromTranscript(in.Transcript, in.TurnID)
 	if err == nil && id == "" && in.StopHookActive {
 		id, err = maintenance.StopCycle(scope, in.SessionID)
+	}
+	if id == "" && !marked && !in.StopHookActive {
+		return allow, nil
 	}
 	if err != nil {
 		return nil, err
