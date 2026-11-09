@@ -150,3 +150,10 @@ changes requiring a grouping replay stop comparison; they never count as passes.
 Use `report.py --variant ugc-ownership` or `ugc-ownership-metadata` for the
 corresponding private per-Agent delivery/expected-positive reports. Anonymize
 Agent identifiers before publishing evidence.
+
+For bounded on-host read-only diagnostics, `FIDELITY_IN_PROCESS_SCRATCH=true`
+uses a disposable loopback Miniredis process-local cache for history pruning and
+feature repair. It never substitutes production reads; the separate guarded
+production Redis client still supplies authoritative facts. Treat this cache as
+a diagnostic implementation and require the same exact full-cohort A/A gate.
+No application service, production source tree or persistent Redis is changed.

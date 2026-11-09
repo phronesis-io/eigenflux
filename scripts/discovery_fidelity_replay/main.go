@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/alicebob/miniredis/v2"
 	elasticsearch "github.com/elastic/go-elasticsearch/v8"
 	"net"
 	"net/http"
@@ -176,6 +177,14 @@ func main() {
 	if *mode == "evidence" {
 		exportEvidence(db, *dir)
 		return
+	}
+	// Optional per-process diagnostic scratch removes SSH round trips without
+	// touching production Redis. Production reads still use the guarded client.
+	if os.Getenv("FIDELITY_IN_PROCESS_SCRATCH") == "true" {
+		memory, e := miniredis.Run()
+		must(e)
+		defer memory.Close()
+		cfg.RedisAddr = memory.Addr()
 	}
 	host, _, err := net.SplitHostPort(cfg.RedisAddr)
 	must(err)
