@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -75,7 +77,10 @@ func (w *accountWatch) tryUpgradeRepair(ctx context.Context) error {
 	if err := w.verifyHandoffIdentity(); err != nil {
 		return err
 	}
-	r, err := currentUpgradeRepair(true)
+	// A manually started watch may outlive a change of the CLI's active server.
+	// Pin request creation to the watch identity, not the new foreground default.
+	scopeHash := sha256.Sum256([]byte(w.home + "\x00" + w.server.Name + "\x00" + w.server.Endpoint + "\x00" + w.scope))
+	r, err := mutateUpgradeRepairScoped(hex.EncodeToString(scopeHash[:]), true, nil)
 	if err != nil {
 		return err
 	}

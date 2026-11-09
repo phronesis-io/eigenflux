@@ -361,3 +361,17 @@ func TestUpgradeRepairSchedulerTargetChangeInvalidatesOldAcknowledgment(t *testi
 		t.Fatal("old target acknowledged changed Hook")
 	}
 }
+
+func TestUpgradeRepairBackgroundScopeCannotFollowChangedForegroundDefault(t *testing.T) {
+	runtimeTestConfig(t, "https://repair.example.invalid", true)
+	if _, err := mutateUpgradeRepairScoped(strings.Repeat("a", 64), true, nil); err == nil {
+		t.Fatal("background identity followed unrelated active account")
+	}
+	path, _, err := upgradeRepairPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("foreign account request created", err)
+	}
+}

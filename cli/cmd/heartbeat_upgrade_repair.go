@@ -96,9 +96,16 @@ func readUpgradeRepair(path, scope string) (upgradeRepair, error) {
 }
 
 func mutateUpgradeRepair(create bool, mutate func(*upgradeRepair) error) (*upgradeRepair, error) {
+	return mutateUpgradeRepairScoped("", create, mutate)
+}
+
+func mutateUpgradeRepairScoped(expectedScope string, create bool, mutate func(*upgradeRepair) error) (*upgradeRepair, error) {
 	path, scope, err := upgradeRepairPath()
 	if err != nil {
 		return nil, err
+	}
+	if expectedScope != "" && expectedScope != scope {
+		return nil, errWatchIdentity
 	}
 	lock, err := lockWatchRecoveryNotice(path)
 	if err != nil {
