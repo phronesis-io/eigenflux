@@ -1,6 +1,7 @@
 # UGC ownership release evidence — 2026-11-09
 
-Acceptance is pending. No production activation, historical repair, merge or
+Pascal approved the minimal summary-ownership scope on 2026-11-09.
+No production activation, historical repair, merge or
 deployment is claimed. Each CSV contains the same 30 anonymous Agents. Their
 private identity mapping and frozen inputs remain outside version control.
 
@@ -18,7 +19,9 @@ previous lexical-supported match. Their original captured executions were empty.
 All 11 Agents with lower paired expected positives have no attributed historical
 positive events in the fitted window; A05 has no attributed delivery history at
 all. Their estimates depend on cohort shrinkage and are not measured losses.
-Numeric acceptable regression bounds still require explicit acceptance.
+Pascal accepted recommendation changes as a consequence of publisher ownership;
+preserving every old match is not a release requirement. No numerical guarantee
+of future delivery or feedback is implied.
 
 ## Evidence and limits
 
@@ -63,9 +66,10 @@ serve originals when translation is disabled. This does not restore all prior
 recommendation results or provide recipient-cohort isolation. Keep upgraded
 workers and additive schema after accepting attributed publications.
 
-Do not equate this report with approval to activate. Pascal's acceptance of
-per-Agent effects, explicit regression bounds and required independent GitHub
-review remain outstanding. Record the actual activation time and check the same
+The additional lexical-filter experiment is excluded from this release.
+Existing retrieval weaknesses remain separate work; author ownership does not
+claim to fix recommendation relevance. Required independent GitHub review and
+final checks still precede deployment. Record the actual activation time and check the same
 private cohort's daily deliveries and positive events on D+1 in Asia/Singapore.
 No activation date is invented here.
 

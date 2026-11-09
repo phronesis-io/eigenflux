@@ -17,8 +17,8 @@
     "dashboards": [
       "user-growth"
     ],
-    "title": "\u8865\u9f50\u7f51\u9875\u4e0e\u6307\u5f15\u9884\u52a0\u8f7d\u8bc6\u522b\u8bb0\u5f55",
-    "description": "\u65b0\u589e\u8bb0\u5f55\u4eceAPI\u5065\u5eb7\u90e8\u7f72\u540e\u751f\u6548\uff1b\u770b\u677f\u53ef\u67e5\u4fdd\u7559\u671f\u5185\u7684\u7f51\u9875\u81ea\u52a8\u8bf7\u6c42\u3002\u5386\u53f2\u843d\u5730\u65e0\u5b8c\u6574UA\u8bc1\u636e\uff0c\u4e0d\u4f5c\u771f\u4eba\u56de\u586b\uff1b\u5b89\u88c5\u8865\u62a5\u4ecd\u4f9d\u8d56\u65b0\u7248CLI\uff0c\u672a\u5408\u5e76\u4e3a\u540c\u4e00\u8ba1\u6570\u5355\u4f4d\u3002",
+    "title": "补齐网页与指引预加载识别记录",
+    "description": "新增记录从API健康部署后生效；看板可查保留期内的网页自动请求。历史落地无完整UA证据，不作真人回填；安装补报仍依赖新版CLI，未合并为同一计数单位。",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/416"
   },
   {
