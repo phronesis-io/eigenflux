@@ -10,14 +10,14 @@ import (
 	"fmt"
 )
 
-func (c *ItemConsumer) processUGC(ctx context.Context, raw *itemDal.RawItem) (*llm.ExtractResult, error) {
+func (c *ItemConsumer) processUGC(ctx context.Context, raw *itemDal.RawItem, omitSummary ...bool) (*llm.ExtractResult, error) {
 	itemDB := db.DB.WithContext(ctx)
 	saved, err := itemDal.GetSlopEvaluation(itemDB, raw.ItemID)
 	if err != nil {
 		return nil, err
 	}
 	if saved == nil {
-		evaluation, err := c.ugcSlopClient.ProcessUGCItem(ctx, raw.RawContent, raw.RawNotes)
+		evaluation, err := c.ugcSlopClient.ProcessUGCItem(ctx, raw.RawContent, raw.RawNotes, omitSummary...)
 		if err != nil {
 			metrics.UGCSlopAttempts.WithLabelValues(llm.SlopFailureStage(err)).Inc()
 			return nil, err

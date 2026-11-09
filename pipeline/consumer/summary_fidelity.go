@@ -18,7 +18,8 @@ const (
 )
 
 // summaryRoute picks who writes the stored summary. Only an authoritative PGC
-// identity may use its notes summary; UGC always keeps the server summary.
+// identity may use its notes summary on this legacy route. New publisher-owned
+// UGC is pinned at publication and selected separately by ItemConsumer.
 // A PGC item without a usable notes summary keeps the existing path.
 func (c *ItemConsumer) summaryRoute(pgc bool, rawNotes string) (summaryRoute, string) {
 	if !pgc {

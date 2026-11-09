@@ -1,6 +1,7 @@
 package dal
 
 import (
+	"eigenflux_server/pkg/summary"
 	"errors"
 	"strings"
 	"time"
@@ -29,7 +30,9 @@ type ProcessedItem struct {
 	DistributionSkipReason    string  `gorm:"column:distribution_skip_reason;type:varchar(32);not null;default:''"`
 	DuplicateOfItemID         *int64  `gorm:"column:duplicate_of_item_id;type:bigint"`
 	Summary                   string  `gorm:"column:summary;type:text;default:null"`
-	SummaryZh                 string  `gorm:"column:summary_zh;type:text;default:null"`
+	SummaryOrigin             string  `gorm:"column:summary_origin;not null;default:unknown"`
+	SummaryZhKey              string  `gorm:"column:summary_zh_key;not null;default:''"`
+	SummaryZh                 string  `gorm:"column:summary_zh_literal;type:text;default:null"`
 	BroadcastType             string  `gorm:"column:broadcast_type;type:varchar(50);not null;default:''"`
 	Domains                   string  `gorm:"column:domains;type:text;default:null"`
 	Keywords                  string  `gorm:"column:keywords;type:text;default:null"`
@@ -135,7 +138,7 @@ func CreateProcessedItem(db *gorm.DB, pi *ProcessedItem) error {
 	return db.Create(pi).Error
 }
 
-func UpdateProcessedItem(db *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness, suggestion string, homepageEligible, homepageRealWorldRelevant bool, homepageRejectionReason, homepageEvaluationVersion string, status int16) error {
+func UpdateProcessedItem(db *gorm.DB, itemID int64, summary, broadcastType, domains string, keywords []string, expireTime, geo, sourceType, expectedResponse string, groupID int64, qualityScore float64, lang, timeliness, suggestion string, homepageEligible, homepageRealWorldRelevant bool, homepageRejectionReason, homepageEvaluationVersion string, status int16, summaryOrigin ...string) error {
 	kw := strings.Join(keywords, ",")
 
 	// Prepare updates map
@@ -159,6 +162,10 @@ func UpdateProcessedItem(db *gorm.DB, itemID int64, summary, broadcastType, doma
 		"homepage_evaluation_version":  homepageEvaluationVersion,
 		"homepage_evaluated_at":        time.Now().UnixMilli(),
 		"updated_at":                   time.Now().UnixMilli(),
+	}
+
+	if len(summaryOrigin) > 0 {
+		updates["summary_origin"] = summaryOrigin[0]
 	}
 
 	// Handle source_type: empty string -> NULL (to satisfy DB constraint)
@@ -426,6 +433,9 @@ func GetItemByID(db *gorm.DB, itemID int64) (*ItemWithURL, error) {
 		Joins("LEFT JOIN raw_items ON processed_items.item_id = raw_items.item_id").
 		Where("processed_items.item_id = ? AND processed_items.status = ?", itemID, StatusCompleted).
 		First(&result).Error
+	if summary.TranslationsDisabled() || result.SummaryZhKey != summary.TranslationKey(result.Summary) {
+		result.SummaryZh = ""
+	}
 	return &result, err
 }
 
@@ -442,6 +452,9 @@ func GetOwnItemByID(db *gorm.DB, itemID, authorAgentID int64) (*ItemWithURL, err
 		Joins("LEFT JOIN raw_items ON processed_items.item_id = raw_items.item_id").
 		Where("processed_items.item_id = ? AND raw_items.author_agent_id = ?", itemID, authorAgentID).
 		First(&result).Error
+	if summary.TranslationsDisabled() || result.SummaryZhKey != summary.TranslationKey(result.Summary) {
+		result.SummaryZh = ""
+	}
 	return &result, err
 }
 
@@ -600,6 +613,7 @@ type ItemWithStats struct {
 	ItemID            int64
 	RawContentPreview string
 	Summary           string
+	SummaryOrigin     string
 	BroadcastType     string
 	Status            int16
 	ConsumedCount     int64
@@ -690,10 +704,11 @@ func GetItemStatsByAuthor(db *gorm.DB, authorAgentID, lastItemID int64, limit in
 	var processedItems []struct {
 		ItemID        int64
 		Summary       string
+		SummaryOrigin string
 		BroadcastType string
 	}
 	err = db.Table("processed_items").
-		Select("item_id, summary, broadcast_type").
+		Select("item_id, summary, summary_origin, broadcast_type").
 		Where("item_id IN ?", itemIDs).
 		Find(&processedItems).Error
 	if err != nil {
@@ -701,13 +716,15 @@ func GetItemStatsByAuthor(db *gorm.DB, authorAgentID, lastItemID int64, limit in
 	}
 	processedItemsMap := make(map[int64]struct {
 		Summary       string
+		SummaryOrigin string
 		BroadcastType string
 	})
 	for _, pi := range processedItems {
 		processedItemsMap[pi.ItemID] = struct {
 			Summary       string
+			SummaryOrigin string
 			BroadcastType string
-		}{Summary: pi.Summary, BroadcastType: pi.BroadcastType}
+		}{Summary: pi.Summary, SummaryOrigin: pi.SummaryOrigin, BroadcastType: pi.BroadcastType}
 	}
 
 	// Step 5: Batch query reply counts from conversations table
@@ -735,6 +752,7 @@ func GetItemStatsByAuthor(db *gorm.DB, authorAgentID, lastItemID int64, limit in
 		}
 		if pi, ok := processedItemsMap[s.ItemID]; ok {
 			result.Summary = pi.Summary
+			result.SummaryOrigin = pi.SummaryOrigin
 			result.BroadcastType = pi.BroadcastType
 		}
 		results = append(results, result)

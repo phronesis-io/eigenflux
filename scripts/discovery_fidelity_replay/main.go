@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/alicebob/miniredis/v2"
 	elasticsearch "github.com/elastic/go-elasticsearch/v8"
 	"net"
 	"net/http"
@@ -119,6 +120,10 @@ func main() {
 	}
 	must(os.MkdirAll(*dir, 0700))
 	cfg := config.Load()
+	if *mode == "ownership-evaluate" {
+		evaluateOwnership(cfg, *dir)
+		return
+	}
 	if *mode == "slop-replay" {
 		slopReplay(cfg, *dir)
 		return
@@ -173,6 +178,14 @@ func main() {
 		exportEvidence(db, *dir)
 		return
 	}
+	// Optional per-process diagnostic scratch removes SSH round trips without
+	// touching production Redis. Production reads still use the guarded client.
+	if os.Getenv("FIDELITY_IN_PROCESS_SCRATCH") == "true" {
+		memory, e := miniredis.Run()
+		must(e)
+		defer memory.Close()
+		cfg.RedisAddr = memory.Addr()
+	}
 	host, _, err := net.SplitHostPort(cfg.RedisAddr)
 	must(err)
 	if host != "127.0.0.1" {
@@ -189,7 +202,7 @@ func main() {
 	if *mode == "refill-capture" {
 		transport = captureESTransport{next: transport}
 	}
-	es.Client, err = elasticsearch.NewClient(elasticsearch.Config{Addresses: []string{os.Getenv("ES_URL")}, Username: os.Getenv("ES_USERNAME"), Password: os.Getenv("ES_PASSWORD"), DisableRetry: true, Transport: transport})
+	es.Client, err = elasticsearch.NewClient(elasticsearch.Config{Addresses: []string{os.Getenv("ES_URL")}, Username: os.Getenv("ES_USERNAME"), Password: os.Getenv("ES_PASSWORD"), DisableRetry: true, Transport: readOnlyESTransport{next: transport}})
 	must(err)
 	if *mode == "refill-capture" {
 		captureRefill(cfg, *dir, db, remote, scratch)

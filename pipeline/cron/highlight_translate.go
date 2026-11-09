@@ -9,6 +9,7 @@ import (
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/db"
 	"eigenflux_server/pkg/logger"
+	"eigenflux_server/pkg/summary"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -27,8 +28,8 @@ const (
 // top-served items into Chinese every 30 minutes, so zh-UI users get instant
 // highlights instead of waiting on the first-view lazy translation.
 func StartHighlightTranslate(ctx context.Context, cfg *config.Config, rdb *redis.Client, client *llm.Client) {
-	if cfg.LLMApiKey == "" {
-		logger.Default().Info("highlight translate cron disabled (no LLM_API_KEY)")
+	if cfg.LLMApiKey == "" || summary.TranslationsDisabled() {
+		logger.Default().Info("highlight translate cron disabled (missing key or translation rollback switch)")
 		return
 	}
 	tc := client.WithModel(cfg.LLMTranslateModel)
@@ -86,7 +87,7 @@ func translateHighlightsWithLock(ctx context.Context, rdb *redis.Client, tc *llm
 			// are already Chinese are copied into the zh column so they leave
 			// the candidate set.
 			summaryZh, titleZh := it.SummaryZh, it.TitleZh
-			if summaryZh == "" && it.Summary != "" {
+			if it.SummaryRemediation == "" && summaryZh == "" && it.Summary != "" {
 				if dal.IsLikelyChinese(it.Summary) {
 					summaryZh = it.Summary
 				} else if zh, terr := tc.TranslateToChinese(ctx, it.Summary); terr == nil && zh != "" {
@@ -95,8 +96,8 @@ func translateHighlightsWithLock(ctx context.Context, rdb *redis.Client, tc *llm
 					logger.Default().Warn("highlight summary translate failed", "itemID", it.ItemID, "err", terr)
 				}
 			}
-			if titleZh == "" && it.RawContent != "" {
-				preview := dal.PlainPreview(it.RawContent, 80)
+			if it.SummaryRemediation != "body_only" && titleZh == "" && it.RawContent != "" {
+				preview := dal.PlainPreview(it.RawContent, 200)
 				if dal.IsLikelyChinese(preview) {
 					titleZh = preview
 				} else if zh, terr := tc.TranslateToChinese(ctx, preview); terr == nil && zh != "" {
@@ -108,7 +109,7 @@ func translateHighlightsWithLock(ctx context.Context, rdb *redis.Client, tc *llm
 			if summaryZh == it.SummaryZh && titleZh == it.TitleZh {
 				return // nothing new; retried next tick
 			}
-			if uerr := dal.UpdateZhTranslations(db.DB, it.ItemID, summaryZh, titleZh); uerr != nil {
+			if uerr := dal.UpdateZhTranslations(db.DB, it.ItemID, it.Summary, it.RawContent, summaryZh, titleZh); uerr != nil {
 				logger.Default().Warn("highlight translate write-back failed", "itemID", it.ItemID, "err", uerr)
 			}
 		}()

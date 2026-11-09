@@ -1,0 +1,166 @@
+{
+  "date": "2026-11-09",
+  "status": "acceptance pending; not deployed",
+  "cohort": {
+    "agents": 30,
+    "selection": "30 most recent distinct Agents with broadcast recommendation logs in the previous 24 hours; fixed before comparing outcomes",
+    "private_cohort_sha256": "b729bc1df75a5a843c9372d14e3b9fd9b617932843ba79dfc051df6aa20d3058",
+    "capture_start_utc": "2026-11-09T06:05:44.572000+00:00",
+    "capture_end_utc": "2026-11-09T06:05:54.297000+00:00"
+  },
+  "baseline": {
+    "on_host_exact_full_execution_matches": 30,
+    "local_finite_corpus_exact_ordered_delivery_matches": 30,
+    "native_float_only_max_abs_difference": 1.1102230246251565e-16,
+    "non_numeric_execution_differences": 0
+  },
+  "model": {
+    "model": "qwen3.8-flash",
+    "pairs": 1170,
+    "first_pass_failed_pairs": 2,
+    "remaining_failures_after_retry": 0,
+    "paired_before_blocked": 127,
+    "paired_after_blocked": 152,
+    "newly_blocked": 49,
+    "newly_admitted": 24,
+    "changed_type_group_checks_before": 98,
+    "changed_type_group_checks_after": 97
+  },
+  "variants": {
+    "ugc-ownership": {
+      "totals": {
+        "before": {
+          "delivered": 271,
+          "pgc": 169,
+          "ugc": 102,
+          "need": 40,
+          "profile": 201,
+          "friend": 10,
+          "baseline": 20,
+          "unknown": 0,
+          "expected_positive_events": 26.908717000000003
+        },
+        "after": {
+          "delivered": 312,
+          "pgc": 209,
+          "ugc": 103,
+          "need": 89,
+          "profile": 203,
+          "friend": 0,
+          "baseline": 20,
+          "unknown": 0,
+          "expected_positive_events": 27.595574000000003
+        }
+      },
+      "agents_losing_deliveries": 0,
+      "agents_lower_expected_positives": 8,
+      "positive_rate_prior": {
+        "pgc": 0.017150395778364115,
+        "ugc": 0.1434573497705788
+      },
+      "history_window": {
+        "start": "2026-11-01T00:00:00+08:00",
+        "end": "2026-11-08T00:00:00+08:00"
+      },
+      "method": "full captured candidate-union UGC summary projection; exact publisher text or empty; invalid author format rejected; PGC and raw-body embeddings unchanged; production-score-anchored finite-corpus lexical estimates; no historical backfill",
+      "estimate": "One frozen request per Agent. Source-stratified historical positive-event/delivery rate, 20-delivery empirical-Bayes prior, no assumed benefit from improved factuality. Uses only exact unique impression/agent/item linkage, excludes self-delivery and ambiguous/missing impression IDs; unlinked observed events are diagnostic only. Feedback lag and source-level priors remain uncertainty, not a causal guarantee."
+    },
+    "ugc-ownership-metadata": {
+      "totals": {
+        "before": {
+          "delivered": 271,
+          "pgc": 169,
+          "ugc": 102,
+          "need": 40,
+          "profile": 201,
+          "friend": 10,
+          "baseline": 20,
+          "unknown": 0,
+          "expected_positive_events": 26.908717000000003
+        },
+        "after": {
+          "delivered": 315,
+          "pgc": 214,
+          "ugc": 101,
+          "need": 88,
+          "profile": 207,
+          "friend": 0,
+          "baseline": 20,
+          "unknown": 0,
+          "expected_positive_events": 29.279534
+        }
+      },
+      "agents_losing_deliveries": 0,
+      "agents_lower_expected_positives": 9,
+      "positive_rate_prior": {
+        "pgc": 0.017150395778364115,
+        "ugc": 0.1434573497705788
+      },
+      "history_window": {
+        "start": "2026-11-01T00:00:00+08:00",
+        "end": "2026-11-08T00:00:00+08:00"
+      },
+      "method": "full captured candidate-union UGC summary projection; exact publisher text or empty; invalid author format rejected; PGC and raw-body embeddings unchanged; production-score-anchored finite-corpus lexical estimates; no historical backfill; UGC metadata re-extracted with production model, including recoverable language/expiry filters; changed types use source-bound preceding-neighbor grouping sensitivity; date/quality/admission sensitivity, not causal uplift",
+      "estimate": "One frozen request per Agent. Source-stratified historical positive-event/delivery rate, 20-delivery empirical-Bayes prior, no assumed benefit from improved factuality. Uses only exact unique impression/agent/item linkage, excludes self-delivery and ambiguous/missing impression IDs; unlinked observed events are diagnostic only. Feedback lag and source-level priors remain uncertainty, not a causal guarantee."
+    },
+    "ugc-ownership-paired": {
+      "totals": {
+        "before": {
+          "delivered": 295,
+          "pgc": 193,
+          "ugc": 102,
+          "need": 60,
+          "profile": 206,
+          "friend": 9,
+          "baseline": 20,
+          "unknown": 0,
+          "expected_positive_events": 24.602970000000003
+        },
+        "after": {
+          "delivered": 315,
+          "pgc": 214,
+          "ugc": 101,
+          "need": 88,
+          "profile": 207,
+          "friend": 0,
+          "baseline": 20,
+          "unknown": 0,
+          "expected_positive_events": 29.279534
+        }
+      },
+      "agents_losing_deliveries": 2,
+      "agents_lower_expected_positives": 11,
+      "positive_rate_prior": {
+        "pgc": 0.017150395778364115,
+        "ugc": 0.1434573497705788
+      },
+      "history_window": {
+        "start": "2026-11-01T00:00:00+08:00",
+        "end": "2026-11-08T00:00:00+08:00"
+      },
+      "method": "full captured candidate-union UGC summary projection; exact publisher text or empty; invalid author format rejected; PGC and raw-body embeddings unchanged; production-score-anchored finite-corpus lexical estimates; no historical backfill; UGC metadata re-extracted with production model, including recoverable language/expiry filters; changed types use source-bound preceding-neighbor grouping sensitivity; date/quality/admission sensitivity, not causal uplift; before arm also uses paired current-model legacy-prompt output for valid author formats, separating historical model/date drift; invalid author formats retain captured before metadata and are rejected after; stochastic paired sensitivity, not causal identification",
+      "estimate": "One frozen request per Agent. Source-stratified historical positive-event/delivery rate, 20-delivery empirical-Bayes prior, no assumed benefit from improved factuality. Uses only exact unique impression/agent/item linkage, excludes self-delivery and ambiguous/missing impression IDs; unlinked observed events are diagnostic only. Feedback lag and source-level priors remain uncertainty, not a causal guarantee."
+    }
+  },
+  "pool": {
+    "recalled_ids": 9239,
+    "authoritative_hydrated_ids": 9236,
+    "source_rows": 9236,
+    "unavailable_recalled_ids_not_in_authoritative_inventory": 3
+  },
+  "historical_repairs": {
+    "approved_records": 4,
+    "present_in_captured_pool": 0,
+    "within_pool_delivery_delta": 0,
+    "outside_pool_effect": "unknown; this cohort does not establish search impact on other contexts",
+    "source_records_read_only_verified": 4,
+    "production_changed": false
+  },
+  "activation_gates": [
+    "Pascal acceptance of per-Agent effects and numerical regression bounds",
+    "required independent GitHub review approval",
+    "compatible deployment and migration verification",
+    "separate historical projection/API/Feed/search/website verification",
+    "D+1 observed fixed-cohort positives after actual activation"
+  ]
+}

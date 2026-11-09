@@ -1,0 +1,31 @@
+agent_id,candidate_pool,captured_delivered,before_delivered,before_pgc,before_ugc,before_need,before_profile,before_friend,before_baseline,before_unknown,before_expected_positive_events,after_delivered,after_pgc,after_ugc,after_need,after_profile,after_friend,after_baseline,after_unknown,after_expected_positive_events,same_items,historical_deliveries,historical_positive_events,positive_delta,estimate_support
+A01,289,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,534,0,0,zero attributed historical positive events
+A02,444,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,674,0,0,zero attributed historical positive events
+A03,448,20,20,17,3,0,20,0,0,0,0.098538,20,17,3,0,20,0,0,0,0.098538,19,790,0,0.0,zero attributed historical positive events
+A04,447,1,1,1,0,0,1,0,0,0,0.000402,2,1,1,0,2,0,0,0,0.016254,1,994,0,0.015852,zero attributed historical positive events
+A05,463,20,20,6,14,0,20,0,0,0,2.111305,20,7,13,0,20,0,0,0,1.984998,14,0,0,-0.126307,cohort prior only
+A06,567,20,20,20,0,0,20,0,0,0,0.025985,20,20,0,0,20,0,0,0,0.025985,16,820,0,0.0,zero attributed historical positive events
+A07,449,0,0,0,0,0,0,0,0,0,0,1,0,1,0,1,0,0,0,0.006506,0,844,0,0.006506,zero attributed historical positive events
+A08,507,20,20,9,11,0,20,0,0,0,0.061805,20,11,9,0,20,0,0,0,0.055039,18,861,0,-0.006766,zero attributed historical positive events
+A09,505,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1304,0,0,zero attributed historical positive events
+A10,408,20,20,19,1,0,20,0,0,0,0.036264,20,20,0,0,20,0,0,0,0.033302,17,786,0,-0.002962,zero attributed historical positive events
+A11,462,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,609,0,0,zero attributed historical positive events
+A12,567,20,20,13,7,0,20,0,0,0,0.044706,20,16,4,0,20,0,0,0,0.033243,15,950,0,-0.011463,zero attributed historical positive events
+A13,443,20,20,6,14,0,20,0,0,0,0.224691,20,14,6,0,20,0,0,0,0.110708,11,417,0,-0.113983,zero attributed historical positive events
+A14,451,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,215,0,0,zero attributed historical positive events
+A15,464,20,20,12,8,0,20,0,0,0,0.120551,20,13,7,0,20,0,0,0,0.111696,17,351,0,-0.008855,zero attributed historical positive events
+A16,464,0,0,0,0,0,0,0,0,0,0,1,0,1,0,1,0,0,0,0.005475,0,925,0,0.005475,zero attributed historical positive events
+A17,448,20,20,20,0,0,20,0,0,0,0.033141,20,20,0,0,20,0,0,0,0.033141,20,555,0,0.0,zero attributed historical positive events
+A18,376,20,20,19,1,0,20,0,0,0,0.041119,20,20,0,0,20,0,0,0,0.007329,19,980,0,-0.03379,zero attributed historical positive events
+A19,574,10,10,0,10,0,0,10,0,0,4.102433,20,11,9,20,0,0,0,0,5.31482,0,205,86,1.212387,attributed Agent/source history with cohort shrinkage
+A20,247,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,778,0,0,zero attributed historical positive events
+A21,469,0,0,0,0,0,0,0,0,0,0,2,0,2,0,2,0,0,0,0.008514,0,1160,0,0.008514,zero attributed historical positive events
+A22,759,0,0,0,0,0,0,0,0,0,0,20,12,8,20,0,0,0,0,3.147002,0,264,45,3.147002,attributed Agent/source history with cohort shrinkage
+A23,743,0,0,0,0,0,0,0,0,0,0,8,1,7,8,0,0,0,0,0.247491,0,1800,30,0.247491,attributed Agent/source history with cohort shrinkage
+A24,845,20,20,6,14,20,0,0,0,0,7.30962,20,8,12,20,0,0,0,0,6.439805,11,385,198,-0.869815,attributed Agent/source history with cohort shrinkage
+A25,464,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,766,210,0,attributed Agent/source history with cohort shrinkage
+A26,447,0,0,0,0,0,0,0,0,0,0,1,0,1,0,1,0,0,0,0.16925,0,5641,750,0.16925,attributed Agent/source history with cohort shrinkage
+A27,768,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1481,1103,0,attributed Agent/source history with cohort shrinkage
+A28,448,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1603,0,0,zero attributed historical positive events
+A29,583,20,20,1,19,20,0,0,0,0,12.355149,20,3,17,20,0,0,0,0,11.08743,11,493,329,-1.267719,attributed Agent/source history with cohort shrinkage
+A30,39,20,20,20,0,0,0,0,20,0,0.343008,20,20,0,0,0,0,20,0,0.343008,20,0,0,0.0,cohort prior only
