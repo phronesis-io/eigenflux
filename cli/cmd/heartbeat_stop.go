@@ -15,12 +15,13 @@ import (
 )
 
 type heartbeatStopInput struct {
-	SessionID      string `json:"session_id"`
-	TurnID         string `json:"turn_id"`
-	Event          string `json:"hook_event_name"`
-	Transcript     string `json:"transcript_path"`
-	LastMessage    string `json:"last_assistant_message"`
-	StopHookActive bool   `json:"stop_hook_active"`
+	SessionID       string `json:"session_id"`
+	TurnID          string `json:"turn_id"`
+	Event           string `json:"hook_event_name"`
+	Transcript      string `json:"transcript_path"`
+	LastMessage     string `json:"last_assistant_message"`
+	StopHookActive  bool   `json:"stop_hook_active"`
+	GuardDefinition string `json:"-"`
 }
 
 var cycleInPlan = regexp.MustCompile(`heartbeat cycle-report --cycle ([a-f0-9]{32})`)
@@ -349,7 +350,7 @@ func heartbeatStopDecision(scope maintenance.Scope, in heartbeatStopInput, threa
 		return nil, err
 	}
 	if c.Result == "completed" || c.Result == "failed" {
-		verifyUpgradeRepairCycle(scope, in.SessionID, in.TurnID, c)
+		verifyUpgradeRepairCycle(scope, in.SessionID, in.TurnID, c, in.GuardDefinition)
 		return allow, nil
 	}
 	if strings.Contains(in.LastMessage, "<decision>NOTIFY</decision>") {
@@ -375,6 +376,7 @@ func init() {
 			return err
 		}
 		thread, _ := cmd.Flags().GetString("thread")
+		in.GuardDefinition, _ = cmd.Flags().GetString("guard-definition")
 		expected, _ := cmd.Flags().GetString("expected-agent")
 		if thread == "" {
 			return fmt.Errorf("--thread is required")
@@ -398,6 +400,7 @@ func init() {
 	}}
 	stop.Flags().String("thread", "", "Exact owner thread; other chats pass through")
 	stop.Flags().String("expected-agent", "", "Pinned Agent identity; account switches pass through")
+	stop.Flags().String("guard-definition", "", "Exact configured guard definition for upgrade acceptance")
 	heartbeatCmd.AddCommand(stop)
 }
 

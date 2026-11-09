@@ -28,6 +28,7 @@ type upgradeRepair struct {
 	Binding         string   `json:"binding,omitempty"`
 	DispatchThread  string   `json:"dispatch_thread,omitempty"`
 	SchedulerThread string   `json:"scheduler_thread,omitempty"`
+	GuardDefinition string   `json:"guard_definition,omitempty"`
 	NextAttempt     int64    `json:"next_attempt,omitempty"`
 	Attempts        int      `json:"attempts,omitempty"`
 	Instruction     string   `json:"instruction,omitempty"`
@@ -182,19 +183,30 @@ func currentUpgradeRepair(create bool) (*upgradeRepair, error) {
 
 // Hook setup supplies the scheduler thread after canonical prompt validation.
 // It can differ from the PM main chat used to deliver the maintenance turn.
-func bindUpgradeRepairScheduler(scope maintenance.Scope, thread string) {
+func bindUpgradeRepairScheduler(scope maintenance.Scope, thread string, definitions ...string) error {
 	if !guardThreadID.MatchString(thread) {
-		return
+		return errors.New("invalid repair scheduler thread")
 	}
-	_, _ = mutateUpgradeRepair(false, func(r *upgradeRepair) error {
+	definition := ""
+	if len(definitions) > 1 {
+		return errors.New("invalid guard definition")
+	}
+	if len(definitions) == 1 {
+		definition = definitions[0]
+		if decoded, err := hex.DecodeString(definition); err != nil || len(decoded) != sha256.Size {
+			return errors.New("invalid guard definition")
+		}
+	}
+	_, err := mutateUpgradeRepair(false, func(r *upgradeRepair) error {
 		identity, err := watchBindingIdentity()
 		home, homeErr := watchstate.CanonicalHome(scope.Home)
 		if err != nil || homeErr != nil || identity.AgentID != scope.AgentID || identity.Home != home || identity.Server != scope.Server {
 			return errWatchIdentity
 		}
-		if r.SchedulerThread != thread {
+		if r.SchedulerThread != thread || r.GuardDefinition != definition {
 			r.Generation++
 			r.SchedulerThread = thread
+			r.GuardDefinition = definition
 			if r.Status == "verified" {
 				r.Status = "awaiting_run"
 				r.CreatedAt = time.Now().UnixMilli()
@@ -202,6 +214,10 @@ func bindUpgradeRepairScheduler(scope maintenance.Scope, thread string) {
 		}
 		return nil
 	})
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
 
 // A caller cannot report success or host trust. User-action receipts describe
@@ -224,28 +240,20 @@ func reportUpgradeRepair(id, status string, blockers []string) (*upgradeRepair, 
 		if r.Status == "verified" {
 			return errors.New("repair already verified")
 		}
+		if status == "awaiting_run" && (r.SchedulerThread == "" || r.GuardDefinition == "") {
+			return errors.New("scoped guard must be configured before awaiting a real run")
+		}
 		setRepairOutcome(r, status, normalized)
 		return nil
 	})
 }
 
-func verifyUpgradeRepairCycle(scope maintenance.Scope, thread, turn string, c maintenance.Cycle) {
+func verifyUpgradeRepairCycle(scope maintenance.Scope, thread, turn string, c maintenance.Cycle, definitions ...string) {
 	if c.Result != "completed" || c.Mode != "full" {
 		return
 	}
-	marker, ok := readHeartbeatHostMarker(scope, thread, heartbeatHostAttempt(thread, turn))
-	if !ok {
-		return
-	}
-	attempt := marker.OriginAttempt
-	if attempt == "" {
-		attempt = heartbeatHostAttempt(thread, turn)
-	}
-	if marker.Cycle != "" && marker.Cycle != c.ID {
-		return
-	}
-	observed, err := maintenance.LifecycleObserved(scope, attempt, "trigger", "observed")
-	if err != nil || !observed {
+	triggerAt, err := upgradeRepairTriggerAt(scope, thread, turn, c)
+	if err != nil || triggerAt == 0 {
 		return
 	}
 	_, _ = mutateUpgradeRepair(false, func(r *upgradeRepair) error {
@@ -254,7 +262,11 @@ func verifyUpgradeRepairCycle(scope maintenance.Scope, thread, turn string, c ma
 		if err != nil || homeErr != nil || identity.AgentID != scope.AgentID || identity.Home != home || identity.Server != scope.Server {
 			return errWatchIdentity
 		}
-		if c.StartedAt < r.CreatedAt || r.SchedulerThread != thread {
+		definition := ""
+		if len(definitions) == 1 {
+			definition = definitions[0]
+		}
+		if triggerAt < r.CreatedAt || c.StartedAt < r.CreatedAt || r.SchedulerThread != thread || r.GuardDefinition == "" || r.GuardDefinition != definition {
 			return errors.New("unrelated repair acceptance cycle")
 		}
 		setRepairOutcome(r, "verified", nil)

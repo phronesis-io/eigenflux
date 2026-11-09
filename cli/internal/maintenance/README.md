@@ -167,3 +167,18 @@ with the canonical owner trigger observation. Hook setup pins the scheduler
 thread independently of the maintenance delivery thread; changing a PM main
 chat must not redirect or prevent heartbeat acceptance. Foreground success, watch health,
 configured hooks and notification readiness cannot establish acceptance.
+
+Upgrade acceptance pins the complete guard definition, including the selected
+Codex store, canonical prompt and exact platform handlers. Hook setup propagates
+pending-repair binding failures so it remains safely retryable. An unchanged
+thread cannot inherit old acceptance after its definition changes. The trusted
+Stop handler carries its definition fingerprint; older handlers retain cycle
+protection but cannot verify a new guard. A cycle must start strictly after its
+original canonical trigger, including on continuation turns. Uploaded lifecycle
+receipts retain that original trigger time locally.
+
+During CLI-before-Skills rollout, an intact signed pre-repair onboarding bundle
+is release-pending, not corrupted. Retry it quietly when auto-sync is enabled;
+retain a one-time foreground action when it is disabled. A verified synchronization
+writer lock is also transient. New-contract missing files, modified content and
+invalid signatures remain blocked.

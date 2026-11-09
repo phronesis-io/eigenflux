@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -12,6 +13,10 @@ import (
 
 	"cli.eigenflux.ai/internal/filelock"
 )
+
+// ErrSyncInProgress identifies a verified active writer, rather than a missing
+// or modified signed file. Callers may retry after synchronization finishes.
+var ErrSyncInProgress = errors.New("Skill synchronization is in progress")
 
 // ReadSignedFile reads one file belonging to the installed signed release.
 // It never synchronizes, repairs the installation, or acquires a writer lock.
@@ -106,7 +111,7 @@ func signedReadSyncIdle(real string) error {
 		return err
 	}
 	if !idle {
-		return fmt.Errorf("Skill synchronization is in progress")
+		return ErrSyncInProgress
 	}
 	return nil
 }

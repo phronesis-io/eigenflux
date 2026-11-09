@@ -51,6 +51,10 @@ func TestUpgradeRepairSurvivesRestartAndGroupsActions(t *testing.T) {
 	if _, err = reportUpgradeRepair(r.ID, "blocked", []string{"untrusted raw error"}); err == nil {
 		t.Fatal("accepted unbounded blocker")
 	}
+	scope, _ := maintenanceScope(activeServerName())
+	if err := bindUpgradeRepairScheduler(scope, guardTestThread, strings.Repeat("d", 64)); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = reportUpgradeRepair(r.ID, "awaiting_run", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -137,12 +141,12 @@ func TestUpgradeRepairRequiresRealScheduledCompletedFullCycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	thread, turn := guardTestThread, "actual-turn"
-	bindUpgradeRepairScheduler(scope, thread)
+	bindUpgradeRepairScheduler(scope, thread, strings.Repeat("d", 64))
 	if _, err := mutateUpgradeRepair(false, func(r *upgradeRepair) error { r.DispatchThread = "different-main-chat"; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	cycle := maintenance.Cycle{ID: strings.Repeat("a", 32), Mode: "full", Result: "completed", StartedAt: r.CreatedAt + 1}
-	verifyUpgradeRepairCycle(scope, thread, turn, cycle)
+	verifyUpgradeRepairCycle(scope, thread, turn, cycle, strings.Repeat("d", 64))
 	state, _ := currentUpgradeRepair(false)
 	if state.Status == "verified" {
 		t.Fatal("foreground cycle established scheduled acceptance")
@@ -153,19 +157,25 @@ func TestUpgradeRepairRequiresRealScheduledCompletedFullCycle(t *testing.T) {
 	if err := maintenance.RecordLifecycle(scope, heartbeatHostAttempt(thread, turn), "trigger", "observed", maintenance.RuntimeObservation{Product: "codex"}); err != nil {
 		t.Fatal(err)
 	}
+	cycle.StartedAt = time.Now().Add(time.Millisecond).UnixMilli()
 	for _, bad := range []maintenance.Cycle{
 		{ID: cycle.ID, Mode: "baseline", Result: "completed", StartedAt: cycle.StartedAt},
 		{ID: cycle.ID, Mode: "full", Result: "failed", StartedAt: cycle.StartedAt},
 		{ID: cycle.ID, Mode: "full", Result: "completed", StartedAt: r.CreatedAt - 1},
 		{ID: strings.Repeat("b", 32), Mode: "full", Result: "completed", StartedAt: cycle.StartedAt},
 	} {
-		verifyUpgradeRepairCycle(scope, thread, turn, bad)
+		verifyUpgradeRepairCycle(scope, thread, turn, bad, strings.Repeat("d", 64))
 		state, _ = currentUpgradeRepair(false)
 		if state.Status == "verified" {
 			t.Fatalf("accepted unrelated cycle %+v", bad)
 		}
 	}
-	verifyUpgradeRepairCycle(scope, thread, turn, cycle)
+	verifyUpgradeRepairCycle(scope, thread, turn, cycle, strings.Repeat("e", 64))
+	state, _ = currentUpgradeRepair(false)
+	if state.Status == "verified" {
+		t.Fatal("old trusted Hook accepted a new guard definition")
+	}
+	verifyUpgradeRepairCycle(scope, thread, turn, cycle, strings.Repeat("d", 64))
 	state, _ = currentUpgradeRepair(false)
 	if state.Status != "verified" {
 		t.Fatalf("real trigger did not finish acceptance: %+v", state)
@@ -346,7 +356,7 @@ func TestUpgradeRepairSchedulerTargetChangeInvalidatesOldAcknowledgment(t *testi
 	_, server := runtimeTestConfig(t, "https://repair.example.invalid", true)
 	r, _ := currentUpgradeRepair(true)
 	scope, _ := maintenanceScope(server)
-	bindUpgradeRepairScheduler(scope, guardTestThread)
+	bindUpgradeRepairScheduler(scope, guardTestThread, strings.Repeat("d", 64))
 	r, err := reportUpgradeRepair(r.ID, "user_action", []string{"hook_review"})
 	if err != nil {
 		t.Fatal(err)
@@ -355,7 +365,7 @@ func TestUpgradeRepairSchedulerTargetChangeInvalidatesOldAcknowledgment(t *testi
 	if err := acknowledgeUpgradeRepair(r.ID, oldNotice); err != nil {
 		t.Fatal(err)
 	}
-	bindUpgradeRepairScheduler(scope, "12345678-1234-1234-1234-123456789abc")
+	bindUpgradeRepairScheduler(scope, "12345678-1234-1234-1234-123456789abc", strings.Repeat("d", 64))
 	r, err = currentUpgradeRepair(false)
 	if err != nil || r.NoticeID == oldNotice || r.Notification != "required" {
 		t.Fatalf("different target inherited trust notice: %+v %v", r, err)

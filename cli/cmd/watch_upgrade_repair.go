@@ -14,6 +14,7 @@ import (
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/desktopnotify"
 	"cli.eigenflux.ai/internal/dispatch"
+	"cli.eigenflux.ai/internal/selfupdate"
 	"cli.eigenflux.ai/internal/skills"
 )
 
@@ -112,11 +113,14 @@ func (w *accountWatch) tryUpgradeRepair(ctx context.Context) error {
 		}
 		return w.repairFallback(failed)
 	}
-	application, err := skills.ReadSignedFile(b.SkillsDir, "ef-onboarding", "references/upgrade-repair.md", 64<<10)
+	application, err := readUpgradeRepairRules(b.SkillsDir, automaticMaintenanceEnabled(cfg, autoSkillSyncKey))
 	if err != nil {
-		failed, receiptErr := recordUpgradeSkillsFailure(r.ID, &upgradeSkillsError{Reason: "skills_local_validation_failed", Err: err})
+		failed, receiptErr := recordUpgradeSkillsFailure(r.ID, err)
 		if receiptErr != nil {
 			return receiptErr
+		}
+		if failed.Status == "pending" {
+			return nil
 		}
 		return w.repairFallback(failed)
 	}
@@ -172,6 +176,52 @@ func (w *accountWatch) tryUpgradeRepair(ctx context.Context) error {
 	return nil
 }
 
+// CLI publication precedes its companion Skills publication. An intact signed
+// pre-repair Skill is a release gap, not corruption. Authenticate the whole
+// installed bundle before making that distinction; never execute an unsigned
+// fallback or reinterpret missing files in a release claiming this contract.
+func readUpgradeRepairRules(dir string, autoSync bool) ([]byte, error) {
+	data, err := skills.ReadSignedFile(dir, "ef-onboarding", "references/upgrade-repair.md", 64<<10)
+	if err == nil {
+		return data, nil
+	}
+	if errors.Is(err, skills.ErrSyncInProgress) {
+		return nil, &upgradeSkillsError{Reason: "skills_sync_in_progress", Err: err}
+	}
+	failure := &upgradeSkillsError{Reason: "skills_local_validation_failed", Err: err}
+	if !os.IsNotExist(err) {
+		return nil, failure
+	}
+	if _, verifyErr := skills.ReadSignedFile(dir, "ef-onboarding", "SKILL.md", 64<<10); verifyErr != nil {
+		if errors.Is(verifyErr, skills.ErrSyncInProgress) {
+			return nil, &upgradeSkillsError{Reason: "skills_sync_in_progress", Err: verifyErr}
+		}
+		return nil, failure
+	}
+	m, manifestErr := skills.ReadLocalManifest(dir)
+	if manifestErr != nil || skills.ValidateSignedRelease(m) != nil {
+		return nil, failure
+	}
+	for _, entry := range m.Skills {
+		if entry.Name == "ef-onboarding" && selfupdate.ValidVersion(entry.DisplayVersion) && selfupdate.Compare(entry.DisplayVersion, "0.3.40") < 0 {
+			if !autoSync {
+				return nil, &upgradeSkillsError{Reason: "skills_sync_disabled", Err: err}
+			}
+			return nil, &upgradeSkillsError{Reason: "skills_release_pending", Err: err}
+		}
+	}
+	// A completed signed swap may have supplied the new file after the first
+	// missing-path result. Re-read before treating a new contract as broken.
+	data, freshErr := skills.ReadSignedFile(dir, "ef-onboarding", "references/upgrade-repair.md", 64<<10)
+	if freshErr == nil {
+		return data, nil
+	}
+	if errors.Is(freshErr, skills.ErrSyncInProgress) {
+		return nil, &upgradeSkillsError{Reason: "skills_sync_in_progress", Err: freshErr}
+	}
+	return nil, &upgradeSkillsError{Reason: "skills_local_validation_failed", Err: freshErr}
+}
+
 func (w *accountWatch) upgradeRepairContext(parent context.Context, b dispatch.Binding) (context.Context, func()) {
 	ctx, cancel := context.WithCancel(parent)
 	done := make(chan struct{})
@@ -204,6 +254,9 @@ func recordUpgradeSkillsFailure(id string, cause error) (*upgradeRepair, error) 
 			case "skills_local_modified", "skills_local_validation_failed", "skills_target_unresolved", "skills_cli_upgrade_required", "skills_rollback_rejected", "skills_sequence_conflict":
 				status = "blocked"
 			}
+		}
+		if detail.Reason == "skills_sync_disabled" {
+			status = "deferred"
 		}
 	}
 	return mutateUpgradeRepair(false, func(r *upgradeRepair) error {
