@@ -99,6 +99,10 @@ func exportEvidence(db *gorm.DB, dir string) {
 			rows[i].PotentiallyEligible = eligible[rows[i].ItemID]
 		}
 		all = append(all, rows...)
+		// Persist each completed read batch atomically. A network interruption
+		// can resume from fingerprint-verified evidence rather than refetching
+		// the entire private corpus; missing records still fail comparison.
+		save(filepath.Join(dir, "items.json"), all)
 		fmt.Printf("source evidence %d / %d\n", end, len(sorted))
 	}
 	save(filepath.Join(dir, "items.json"), all)

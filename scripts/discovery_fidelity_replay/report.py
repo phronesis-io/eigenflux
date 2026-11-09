@@ -21,7 +21,7 @@ def estimate_counts(mix, agent, history, observed, priors, strength=20):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dir", type=Path, required=True)
-    parser.add_argument("--variant", choices=["summary", "combined", "source-context", "slop"], default="summary")
+    parser.add_argument("--variant", choices=["summary", "combined", "source-context", "slop", "new-supply", "new-supply-refreshed"], default="summary")
     args = parser.parse_args()
     root = args.dir
     variant = args.variant
@@ -29,12 +29,16 @@ def main():
         (root / f"counterfactual-{variant}-manifest.json").read_text()
     )
     history_data = json.loads((root / "feedback-history.json").read_text())
-    observed_data = json.loads((root / "feedback-observed.json").read_text())
+    observed_data = (history_data if variant.startswith("new-supply") else json.loads((root / "feedback-observed.json").read_text()))
     history, observed = collections.Counter(), collections.Counter()
     for c in history_data["cells"]:
         history[c["agent_id"], c["lane"]] += c["deliveries"]
     for c in observed_data["cells"]:
         observed[c["agent_id"], c["lane"]] += c["positive_events"]
+    if variant.startswith("new-supply"):
+        for lane in ("pgc", "ugc"):
+            if sum(v for (_, source_lane), v in history.items() if source_lane == lane) <= 0:
+                raise ValueError(f"Missing historical exposure support for {lane}")
     priors = {
         lane: sum(v for (_, source_lane), v in observed.items() if source_lane == lane)
         / max(1, sum(v for (_, source_lane), v in history.items() if source_lane == lane))
@@ -44,6 +48,7 @@ def main():
     for agent in manifest["agents"]:
         aid = agent["agent_id"]
         snapshot = json.loads((root / f"agent-{aid}.json").read_text())
+        snapshot["Classes"].update(manifest.get("new_supply_classes", {}))
         comparison = json.loads((root / f"comparison-{variant}-{aid}.json").read_text())
         row = {
             "agent_id": aid,
@@ -78,6 +83,11 @@ def main():
                 if k.startswith(arm + "_"):
                     totals[arm][k[len(arm) + 1 :]] += v
         row["same_items"] = len(sets["before"] & sets["after"])
+        new_ids = set(manifest.get("new_supply_classes", {}))
+        row["new_supply_delivered"] = len(sets["after"] & new_ids)
+        for lane in ("pgc", "ugc"):
+            row[f"displaced_{lane}"] = sum(snapshot["Classes"].get(i) == lane for i in sets["before"] - sets["after"])
+        row["new_supply_ids"] = ";".join(sorted(sets["after"] & new_ids))
         row["historical_deliveries"] = sum(
             history[aid, lane] for lane in ("pgc", "ugc")
         )
@@ -103,7 +113,9 @@ def main():
             "end": history_data["delivery_end"],
         },
         "method": manifest["method"],
-        "estimate": "One frozen request per Agent. Source-stratified historical positive-event/delivery rate, 20-delivery empirical-Bayes prior, no assumed benefit from improved factuality. Observed feedback includes events without a matched impression; cohort and window match, but event lag makes this an estimate, not a calibrated probability or causal guarantee.",
+        "estimate": ("One frozen Feed refresh per Agent. Matched positive-event/delivery rates from the same historical impression window, 20-delivery cohort prior; no factuality uplift assumed. Feedback lag and exposure selection prevent interpreting this as calibrated probability or causal daily uplift." if variant.startswith("new-supply") else "One frozen request per Agent. Source-stratified historical positive-event/delivery rate, 20-delivery empirical-Bayes prior, no assumed benefit from improved factuality. Observed feedback includes events without a matched impression; cohort and window match, but event lag makes this an estimate, not a calibrated probability or causal guarantee."),
+        "new_supply_delivered": sum(r["new_supply_delivered"] for r in rows),
+        "displaced": {lane: sum(r[f"displaced_{lane}"] for r in rows) for lane in ("pgc", "ugc")},
         "agents_losing_deliveries": sum(
             r["after_delivered"] < r["before_delivered"] for r in rows
         ),

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 
@@ -49,6 +51,7 @@ type hydrationBatch struct {
 	Output []storedDocument
 }
 type snapshot struct {
+	Serving      *servingEvidence
 	Inventory    []storedDocument
 	Hydration    []hydrationBatch
 	Owner        int64
@@ -71,14 +74,15 @@ func channelKey(c discovery.Context, k discovery.Kind, ch string) string {
 // Every recall channel, including empty/error results, is retained before merge,
 // authority hydration, deduplication and relevance thresholds.
 type recordedSource struct {
-	pools     map[string][]discovery.Document
-	prepared  bool
-	inventory map[string]discovery.Document
-	live      *discovery.Source
-	hydrate   *discovery.Source
-	snap      *snapshot
-	mu        sync.Mutex
-	facts     func(context.Context, []discovery.Document) error
+	pools         map[string][]discovery.Document
+	prepared      bool
+	inventory     map[string]discovery.Document
+	live          *discovery.Source
+	hydrate       *discovery.Source
+	snap          *snapshot
+	mu            sync.Mutex
+	facts         func(context.Context, []discovery.Document) error
+	beforeHydrate func(context.Context, []discovery.Document) error
 }
 
 func (s *recordedSource) Owner(ctx context.Context, id int64) (discovery.OwnerContext, error) {
@@ -91,6 +95,12 @@ func (s *recordedSource) Recall(ctx context.Context, c discovery.Context, k disc
 		docs = append([]discovery.Document(nil), pool...)
 		for i := range docs {
 			docs[i].NeedExclusionText = len(c.Filters.ExcludeTerms) > 0
+		}
+	} else if captureSlim != nil && k == discovery.Broadcast && (ch == "lexical" || ch == "dense") && !s.live.DisabledChannels[ch] {
+		var q map[string]any
+		q, err = discovery.Query(c, k, ch, limit)
+		if err == nil {
+			docs, err = captureSlim.RawQuery(ctx, q, ch, true)
 		}
 	} else {
 		docs, err = s.live.Recall(ctx, c, k, ch, limit)
@@ -141,11 +151,25 @@ func (s *recordedSource) prepare(ctx context.Context, owner int64, mode discover
 		docs = append(docs, d)
 	}
 	sort.Slice(docs, func(i, j int) bool { return docs[i].Ref.ID < docs[j].Ref.ID })
-	s.inventory = map[string]discovery.Document{}
+	if s.inventory == nil {
+		s.inventory = map[string]discovery.Document{}
+	}
+	pending := docs[:0]
+	for _, d := range docs {
+		if _, ok := s.inventory[d.Ref.Key()]; !ok {
+			pending = append(pending, d)
+		}
+	}
+	docs = pending
 	for i := 0; i < len(docs); i += 500 {
 		end := i + 500
 		if end > len(docs) {
 			end = len(docs)
+		}
+		if s.beforeHydrate != nil {
+			if err := s.beforeHydrate(ctx, docs[i:end]); err != nil {
+				return err
+			}
 		}
 		fresh, err := s.hydrate.Hydrate(ctx, owner, mode, docs[i:end])
 		if err != nil {
@@ -184,7 +208,7 @@ func (s *recordedSource) prepare(ctx context.Context, owner int64, mode discover
 				return err
 			}
 		}
-		seen, err := s.live.Seen(ctx, owner, fresh)
+		seen, err := captureSeen(ctx, s.live.Redis, owner, fresh)
 		if err != nil {
 			return err
 		}
@@ -225,12 +249,32 @@ func (s *frozenSource) Hydrate(_ context.Context, _ int64, _ discovery.Mode, doc
 	}
 	batch := s.snap.Hydration[s.next]
 	s.next++
-	a, _ := json.Marshal(storeDocs(docs))
-	b, _ := json.Marshal(batch.Input)
+	actual := storeDocs(docs)
+	expected := append([]storedDocument{}, batch.Input...)
+	// Refill builds its hydration batch from a Go map. Validate the entire
+	// document multiset, while preserving current input order in the response.
+	sort.Slice(actual, func(i, j int) bool { return actual[i].Ref.Key() < actual[j].Ref.Key() })
+	sort.Slice(expected, func(i, j int) bool { return expected[i].Ref.Key() < expected[j].Ref.Key() })
+	a, _ := json.Marshal(actual)
+	b, _ := json.Marshal(expected)
 	if string(a) != string(b) {
-		return nil, fmt.Errorf("hydration input differs from captured pool")
+		if dir := os.Getenv("FIDELITY_DIAGNOSTIC_DIR"); dir != "" {
+			save(filepath.Join(dir, fmt.Sprintf("hydration-%d-%d-actual.json", s.snap.Owner, s.next)), storeDocs(docs))
+			save(filepath.Join(dir, fmt.Sprintf("hydration-%d-%d-expected.json", s.snap.Owner, s.next)), batch.Input)
+		}
+		return nil, fmt.Errorf("hydration input differs from captured pool for %d batch %d", s.snap.Owner, s.next)
 	}
-	return restoreDocs(batch.Output), nil
+	byRef := map[string]discovery.Document{}
+	for _, d := range restoreDocs(batch.Output) {
+		byRef[d.Ref.Key()] = d
+	}
+	out := []discovery.Document{}
+	for _, d := range docs {
+		if v, ok := byRef[d.Ref.Key()]; ok {
+			out = append(out, v)
+		}
+	}
+	return out, nil
 }
 func (s *frozenSource) Seen(_ context.Context, _ int64, docs []discovery.Document) (map[string]bool, error) {
 	out := map[string]bool{}

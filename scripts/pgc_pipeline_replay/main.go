@@ -9,8 +9,10 @@ import (
 	"encoding/json"
 	"flag"
 	"os"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 type sample struct {
@@ -30,6 +32,7 @@ type result struct {
 func main() {
 	path := flag.String("cases", "", "paired source bodies")
 	auditBoth := flag.Bool("audit-both", false, "keep the deployed PGC fidelity auditor enabled in both body arms")
+	publisher := flag.Bool("publisher-summary", false, "apply the deployed PGC publisher-notes summary route")
 	workers := flag.Int("workers", 8, "bounded extraction workers (1-32)")
 	flag.Parse()
 	if *workers < 1 || *workers > 32 {
@@ -73,7 +76,13 @@ func main() {
 					r.Attempts = n
 					ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 					// Each worker keeps its own error; shared clients are immutable.
-					out, e := clients[s.Enabled].ProcessPGCItem(ctx, s.Content, s.Notes)
+					var out *llm.ExtractResult
+					var e error
+					if summary, ok := replayPublisherSummary(s.Notes); *publisher && ok {
+						out, e = clients[s.Enabled].ProcessPGCItemWithPublisherSummary(ctx, s.Content, s.Notes, summary)
+					} else {
+						out, e = clients[s.Enabled].ProcessPGCItem(ctx, s.Content, s.Notes)
+					}
 					cancel()
 					r.Output = out
 					if e == nil {
@@ -116,4 +125,20 @@ func main() {
 	if failed {
 		os.Exit(1)
 	}
+}
+
+// These offline inputs are explicitly PGC. Match the consumer's notes contract;
+// no output is persisted and this does not confer publisher identity online.
+func replayPublisherSummary(raw string) (string, bool) {
+	var notes struct {
+		Summary *string `json:"summary"`
+	}
+	if json.Unmarshal([]byte(raw), &notes) != nil || notes.Summary == nil {
+		return "", false
+	}
+	value := strings.TrimSpace(*notes.Summary)
+	if value == "" || value == "Source-linked report; see the full broadcast for details." || utf8.RuneCountInString(value) > 280 {
+		return "", false
+	}
+	return value, true
 }

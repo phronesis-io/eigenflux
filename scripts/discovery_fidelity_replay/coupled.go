@@ -128,7 +128,13 @@ func cosineScore(a, b []float32) (float64, error) {
 	return (1 + dot/math.Sqrt(aa*bb)) / 2, nil
 }
 func (p *poolSource) dense(c discovery.Context, docs []discovery.Document, limit int) ([]discovery.Document, error) {
-	byID := map[int64]discovery.Document{}
+	out := []discovery.Document{}
+	originalOrder := map[int64]int{}
+	for i, d := range docs {
+		if _, ok := originalOrder[d.Ref.ID]; !ok {
+			originalOrder[d.Ref.ID] = i
+		}
+	}
 	for _, d := range docs {
 		if fresh, ok := p.docs[d.Ref.ID]; ok && d.Version != "" && !p.stale[d.Ref.ID] && p.changed[d.Ref.ID] {
 			d.Version = fresh.Version
@@ -136,16 +142,18 @@ func (p *poolSource) dense(c discovery.Context, docs []discovery.Document, limit
 			d.Preview = fresh.Preview
 		}
 		if !p.dropped[d.Ref.ID] {
-			byID[d.Ref.ID] = d
+			out = append(out, d)
 		}
 	}
+	replaced := map[int64]bool{}
+	additions := []discovery.Document{}
 	for id, v := range p.vectors {
 		d, ok := p.docs[id]
 		if !ok || p.dropped[id] || p.stale[id] {
 			continue
 		}
+		replaced[id] = true
 		if !matchesRecallFilters(c, d) {
-			delete(byID, id)
 			continue
 		}
 		score, err := cosineScore(c.Vector, v)
@@ -154,24 +162,37 @@ func (p *poolSource) dense(c discovery.Context, docs []discovery.Document, limit
 		}
 		d.DenseScore = &score
 		d.Lexical = 0
-		byID[id] = d
+		additions = append(additions, d)
 	}
-	out := []discovery.Document{}
-	for _, d := range byID {
-		out = append(out, d)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		a, b := out[i].DenseScore, out[j].DenseScore
-		if a == nil {
-			return false
+	retained := out[:0]
+	for _, d := range out {
+		if !replaced[d.Ref.ID] {
+			retained = append(retained, d)
 		}
-		if b == nil {
+	}
+	out = append(retained, additions...)
+	// Retain duplicate production rows: merging them here can heal a stale
+	// version that the real engine rejects during its own merge/hydration.
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i].DenseScore, out[j].DenseScore
+		if a != nil && b == nil {
 			return true
 		}
-		if *a == *b {
-			return out[i].Ref.ID < out[j].Ref.ID
+		if a == nil && b != nil {
+			return false
 		}
-		return *a > *b
+		if a != nil && b != nil && *a != *b {
+			return *a > *b
+		}
+		ai, ao := originalOrder[out[i].Ref.ID]
+		bi, bo := originalOrder[out[j].Ref.ID]
+		if ao && bo {
+			return ai < bi
+		}
+		if ao != bo {
+			return ao
+		}
+		return out[i].Ref.ID < out[j].Ref.ID
 	})
 	if len(out) > limit {
 		out = out[:limit]
