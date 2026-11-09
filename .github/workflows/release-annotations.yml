@@ -8,6 +8,10 @@ on:
       - 'scripts/cloud/test_deploy_main.sh'
       - 'scripts/cloud/test_release_api_hook.sh'
       - '.github/workflows/release-annotations.yml'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   validate:
     runs-on: ubuntu-latest

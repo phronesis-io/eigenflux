@@ -423,3 +423,10 @@ details. Run `go test -short ./cmd ./internal/feedevent ./internal/cache` from
 API preview provenance and health snapshots are covered by
 `go test ./api/consolev2 ./api/dal ./pkg/feedcontract`. Apply migration 000125
 before validating settings against a real local database.
+
+## Superseded pull-request checks
+
+CLI cross-platform, PostgreSQL contracts, and release annotation validation group
+PR runs by workflow and PR number. A new commit cancels older checks in that
+group. Main pushes and manual runs use unique run IDs and are not canceled by
+this policy. Publication workflows retain their existing serialization.
