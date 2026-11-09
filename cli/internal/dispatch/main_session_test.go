@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -129,5 +130,56 @@ func TestMainSessionRunnerVerifiesNativeReceipt(t *testing.T) {
 		} else if !errors.Is(err, ErrMainSessionMismatch) {
 			t.Fatalf("wrong native session accepted: %+v %v", result, err)
 		}
+	}
+}
+
+func TestMainSessionLinkedRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows root links are covered by the junction regression")
+	}
+	for _, scenario := range []string{"valid", "metadata mismatch", "missing target", "cycle", "nested link"} {
+		t.Run(scenario, func(t *testing.T) {
+			b := mainSessionFixture(t)
+			home := b.Env["CODEX_HOME"]
+			root := filepath.Join(home, "sessions")
+			target := filepath.Join(home, "physical sessions")
+			if err := os.Rename(root, target); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("physical sessions", root); err != nil {
+				t.Fatal(err)
+			}
+			switch scenario {
+			case "metadata mismatch":
+				path := filepath.Join(target, "2026", "09", "24", "rollout-date-"+mainTestID+".jsonl")
+				if err := os.WriteFile(path, []byte(`{"type":"session_meta","payload":{"id":"another-thread"}}`+"\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			case "missing target", "cycle":
+				if err := os.RemoveAll(target); err != nil {
+					t.Fatal(err)
+				}
+				if scenario == "cycle" {
+					if err := os.Symlink("sessions", target); err != nil {
+						t.Fatal(err)
+					}
+				}
+			case "nested link":
+				if err := os.Rename(filepath.Join(target, "2026"), filepath.Join(home, "external-year")); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(filepath.Join(home, "external-year"), filepath.Join(target, "2026")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err := b.ValidateMainSession()
+			if scenario == "valid" {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if !errors.Is(err, ErrMainSessionUnavailable) {
+				t.Fatalf("accepted %s: %v", scenario, err)
+			}
+		})
 	}
 }

@@ -409,6 +409,10 @@ Limits: journal 16 MiB, 256 unresolved jobs, latest 1024 completed jobs (includi
 
 ### Opt-in Codex PM main session
 
+Main-session metadata lookup resolves the `CODEX_HOME/sessions` root, including
+Windows directory junctions, before walking it. It preserves `CODEX_HOME` and
+the exact UUID/first-record metadata checks; links below the root are not followed.
+
 Hidden input removes prompt/protocol bubbles, not the final reply from the main
 conversation. This adapter is not silent background PM execution or a periodic
 digest. The proposed split is in [background PM digests](../../../docs/design/pm-background-digest.md);
