@@ -13,6 +13,7 @@ type Cycle struct {
 	Mode              string            `json:"mode"`
 	Stages            map[string]string `json:"stages"`
 	Result            string            `json:"result,omitempty"`
+	Rules             []CycleRule       `json:"rules,omitempty"`
 	ExecutionObserved bool              `json:"execution_observed,omitempty"`
 }
 
@@ -100,6 +101,11 @@ func ReportCycle(scope Scope, id, stage, result string) error {
 				}
 			}
 			if result == "completed" {
+				for _, rule := range c.Rules {
+					if !rule.Acknowledged {
+						return fmt.Errorf("rule pages must be acknowledged first")
+					}
+				}
 				for _, v := range c.Stages {
 					if v != "completed" {
 						return fmt.Errorf("all planned stages must complete first")
@@ -108,6 +114,13 @@ func ReportCycle(scope Scope, id, stage, result string) error {
 			}
 			c.Result = result
 		} else {
+			if result == "completed" {
+				for _, r := range c.Rules {
+					if !r.Acknowledged {
+						return fmt.Errorf("read and acknowledge all cycle rules before business completion")
+					}
+				}
+			}
 			old, ok := c.Stages[stage]
 			if !ok {
 				return fmt.Errorf("stage not in this cycle")
