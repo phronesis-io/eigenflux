@@ -454,7 +454,10 @@ and expected positives, PGC/UGC and Need/Profile composition, and search changes
 Absent evidence keeps the release draft. After an approved rollout, compare
 fixed-cohort daily positives the next day; record the actual activation time.
 Turning off new publication ownership does not undo existing search projections.
-A projection rollback plan and translation quality examples remain release gates.
+The first-release rollback preserves accepted author summaries or their absence,
+keeps upgraded workers, and restores the prior route only for future publications.
+This does not restore all pre-release recommendation results or isolate recipient
+cohorts. Acceptance must account for retained projections and per-Agent effects.
 
 Set `SUMMARY_TRANSLATIONS_DISABLED=true` and restart API, Item RPC and cron to roll back
 summary/body translation display and new translation calls to source-language
