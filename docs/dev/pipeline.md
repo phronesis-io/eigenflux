@@ -461,3 +461,22 @@ summary/body translation display and new translation calls to source-language
 text. Cached translations and original content are retained; switching back
 restores only source/version-matching translations. This does not disable
 unrelated Agent-name translation.
+
+### Confirmed historical defects
+
+Migration 000133 adds per-item suppression and an audit table. The approved
+four-record operator plan is documented in
+[`repair_summary_history`](../../scripts/repair_summary_history/README.md).
+`body_only` clears the selected platform summary and translations so existing
+preview readers use original-body excerpts. `summary_original` suppresses only
+the summary translation. Original body/notes and audited previous values remain.
+A database trigger fences legacy writes; API and cron skip suppressed fields.
+Unknown provenance elsewhere does not imply a confirmed defect or authorize a
+bulk rewrite. Application rollout alone does not activate historical repairs.
+
+Activation is a separate reviewed operation after compatible deployment and
+writer drain. Its durable jobs repair completed-item projections without summary
+generation. Verify API/Feed/website, search, ES and forward-feature consistency
+before completion. The four changed projections participate in release replay.
+Reversal is explicit, source-conditional and audited; never automatically expose
+known-bad text as a fallback. Retain this additive schema after any repair.

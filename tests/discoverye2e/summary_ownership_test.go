@@ -14,6 +14,7 @@ import (
 	"eigenflux_server/pipeline/consumer"
 	"eigenflux_server/pipeline/llm"
 	"eigenflux_server/pkg/config"
+	"eigenflux_server/pkg/es"
 	"eigenflux_server/pkg/itemdispatch"
 	"eigenflux_server/pkg/mq"
 	"eigenflux_server/pkg/summary"
@@ -153,4 +154,63 @@ func TestPublisherSummaryRollbackJourney(t *testing.T) {
 	var cached string
 	require.NoError(t, s.db.Table("processed_items").Select("summary_zh_literal").Where("item_id=?", s.item).Scan(&cached).Error)
 	require.Equal(t, "测试译文", cached)
+}
+
+func TestHistoricalSummarySuppressionJourney(t *testing.T) {
+	s := startStack(t)
+	token := s.seedSession(t, s.author, "{broadcast:write,feed:read,profile:read}")
+	require.NoError(t, s.db.Table("processed_items").Where("item_id=?", s.item).Updates(map[string]any{"summary_remediation": "body_only", "summary_zh": "incorrect legacy translation", "summary_zh_literal": "incorrect literal translation"}).Error)
+	// A delayed writer must not restore the summary or translation.
+	require.NoError(t, s.db.Table("processed_items").Where("item_id=?", s.item).Updates(map[string]any{"summary": "incorrect late summary", "summary_zh": "incorrect late translation"}).Error)
+	cfg := config.Load()
+	cfg.LLMApiKey = "fixture-must-not-call"
+	cfg.LLMBaseURL = "http://127.0.0.1:1"
+	prompts, err := llm.LoadPrompts(filepath.Join(s.root, "static/templates/prompts"))
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	groupErr := mq.RDB.XGroupCreateMkStream(ctx, "stream:item:publish", "cg:item:publish", "0").Err()
+	require.True(t, groupErr == nil || strings.Contains(groupErr.Error(), "BUSYGROUP"))
+	go func() { defer close(done); consumer.NewItemConsumer(cfg, prompts).Start(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Error("worker failed to stop")
+		}
+	})
+	_, err = mq.RDB.XAdd(ctx, &redis.XAddArgs{Stream: "stream:item:publish", Values: map[string]any{"item_id": strconv.FormatInt(s.item, 10)}}).Result()
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		response, e := es.Client.Get(es.IndexName, strconv.FormatInt(s.item, 10))
+		if e != nil {
+			return false
+		}
+		defer response.Body.Close()
+		if response.IsError() {
+			return false
+		}
+		var doc struct {
+			Source struct {
+				Summary string `json:"summary"`
+			} `json:"_source"`
+		}
+		if json.NewDecoder(response.Body).Decode(&doc) != nil {
+			return false
+		}
+		return doc.Source.Summary == ""
+	}, 20*time.Second, 100*time.Millisecond)
+	// Publish the repaired document to search before the harness deletes by query.
+	refreshed, refreshErr := es.Client.Indices.Refresh(es.Client.Indices.Refresh.WithIndex(es.IndexName))
+	require.NoError(t, refreshErr)
+	require.False(t, refreshed.IsError())
+	refreshed.Body.Close()
+	response := decode[map[string]any](t, s.call(t, "GET", fmt.Sprintf("/api/v2/items/%d", s.item), token, "", nil, 200))
+	detail := response["item"].(map[string]any)
+	require.Empty(t, detail["summary"])
+	require.Empty(t, detail["summary_zh"])
+	preview := detail["preview"].(map[string]any)
+	require.Equal(t, "content", preview["source"])
+	require.NotEmpty(t, preview["text"])
 }

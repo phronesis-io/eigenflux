@@ -28,7 +28,7 @@ func TestTranslationPostgresSourceFenceAndLegacyIsolation(t *testing.T) {
 	require.NoError(t, db.Exec("CREATE SCHEMA "+schema).Error)
 	defer db.Exec("DROP SCHEMA " + schema + " CASCADE")
 	require.NoError(t, db.Exec("SET search_path TO "+schema).Error)
-	require.NoError(t, db.Exec(`CREATE TABLE raw_items(item_id BIGINT PRIMARY KEY, raw_content TEXT); CREATE TABLE processed_items(item_id BIGINT PRIMARY KEY, summary TEXT, summary_zh TEXT, summary_zh_literal TEXT, title_zh_literal TEXT, summary_zh_key TEXT, title_zh_key TEXT)`).Error)
+	require.NoError(t, db.Exec(`CREATE TABLE raw_items(item_id BIGINT PRIMARY KEY, raw_content TEXT); CREATE TABLE processed_items(item_id BIGINT PRIMARY KEY, summary TEXT, summary_zh TEXT, summary_zh_literal TEXT, title_zh_literal TEXT, summary_zh_key TEXT, title_zh_key TEXT,summary_remediation TEXT NOT NULL DEFAULT '')`).Error)
 	require.NoError(t, db.Exec(`INSERT INTO raw_items VALUES (1,'FTC says no'); INSERT INTO processed_items(item_id,summary,summary_zh) VALUES (1,'FTC says no','legacy invented organization')`).Error)
 	require.NoError(t, UpdateZhTranslations(db, 1, "FTC says no", "FTC says no", "FTC 说不", "FTC 说不"))
 	var row struct{ SummaryZhLiteral, SummaryZhKey, TitleZhLiteral string }
@@ -37,7 +37,7 @@ func TestTranslationPostgresSourceFenceAndLegacyIsolation(t *testing.T) {
 	require.Equal(t, summary.TranslationKey("FTC says no"), row.SummaryZhKey)
 	// An old binary writes its legacy cache without altering the current-policy cache.
 	require.NoError(t, db.Exec(`UPDATE processed_items SET summary_zh='old writer expanded FTC',summary='FTC says perhaps'`).Error)
-	require.NoError(t, UpdateZhTranslations(db, 1, "FTC says no", "FTC says no", "stale", "stale"))
+	require.Error(t, UpdateZhTranslations(db, 1, "FTC says no", "FTC says no", "stale", "stale"))
 	require.NoError(t, db.Table("processed_items").First(&row).Error)
 	require.Equal(t, "FTC 说不", row.SummaryZhLiteral)
 	var visible string
@@ -56,5 +56,10 @@ func TestTranslationPostgresSourceFenceAndLegacyIsolation(t *testing.T) {
 	rows, err = ListUntranslatedTopItems(db, 0, 8, 60)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
+	require.NoError(t, db.Exec(`UPDATE processed_items SET summary_remediation='body_only'`).Error)
+	rows, err = ListUntranslatedTopItems(db, 0, 8, 60)
+	require.NoError(t, err)
+	require.Empty(t, rows)
+	require.Error(t, UpdateZhTranslations(db, 1, "", "FTC says no", "", "late stale translation"))
 
 }

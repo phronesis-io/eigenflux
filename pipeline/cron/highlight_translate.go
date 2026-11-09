@@ -87,7 +87,7 @@ func translateHighlightsWithLock(ctx context.Context, rdb *redis.Client, tc *llm
 			// are already Chinese are copied into the zh column so they leave
 			// the candidate set.
 			summaryZh, titleZh := it.SummaryZh, it.TitleZh
-			if summaryZh == "" && it.Summary != "" {
+			if it.SummaryRemediation == "" && summaryZh == "" && it.Summary != "" {
 				if dal.IsLikelyChinese(it.Summary) {
 					summaryZh = it.Summary
 				} else if zh, terr := tc.TranslateToChinese(ctx, it.Summary); terr == nil && zh != "" {
@@ -96,7 +96,7 @@ func translateHighlightsWithLock(ctx context.Context, rdb *redis.Client, tc *llm
 					logger.Default().Warn("highlight summary translate failed", "itemID", it.ItemID, "err", terr)
 				}
 			}
-			if titleZh == "" && it.RawContent != "" {
+			if it.SummaryRemediation != "body_only" && titleZh == "" && it.RawContent != "" {
 				preview := dal.PlainPreview(it.RawContent, 200)
 				if dal.IsLikelyChinese(preview) {
 					titleZh = preview

@@ -264,7 +264,7 @@
       "recommendation-effect"
     ],
     "title": "Expose broadcast summary ownership",
-    "description": "UGC ownership defaults off; activation affects new publications only and preserves pinned records on retry. Deployment also changes display translation caching; website labels require a separate release. Historical provenance stays unknown. Compare fixed-cohort daily positives on the day after recorded activation.",
+    "description": "UGC ownership defaults off; activation affects new publications only and preserves pinned records on retry. Deployment also changes display translation caching; website labels require a separate release. Historical provenance stays unknown except explicitly audited operations. Four approved historical corrections require separate activation and projection verification; deployment alone does not repair them. Compare fixed-cohort daily positives on the day after recorded activation.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/521"
   }
 ]

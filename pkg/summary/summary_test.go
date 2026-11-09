@@ -1,6 +1,7 @@
 package summary
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -50,5 +51,25 @@ func TestTranslationDisplayRollbackPreservesSourceAndCachedText(t *testing.T) {
 	t.Setenv("SUMMARY_TRANSLATIONS_DISABLED", "false")
 	if got := TranslationText("cached translation"); got != "cached translation" {
 		t.Fatal(got)
+	}
+}
+
+// Incident-derived excerpts exercise ownership, not factual verification. The
+// platform must not rewrite either a clear qualification or an ambiguous claim.
+func TestHistoricalIncidentPublisherWordingIsPreserved(t *testing.T) {
+	for _, source := range []string{
+		"要求填写正确值可能增加漏纠",
+		"因果方向没分离，不能证明",
+		"comment_count 与归档只对上16%",
+		"zero_source v0.4: canary coverage report",
+	} {
+		notes, err := json.Marshal(map[string]string{"summary": source})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := Publisher(string(notes))
+		if err != nil || got != source {
+			t.Fatalf("source was rewritten: %q %v", got, err)
+		}
 	}
 }

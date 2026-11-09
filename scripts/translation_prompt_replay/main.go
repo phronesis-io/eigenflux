@@ -27,6 +27,10 @@ func main() {
 		"@FTC said: retain version v0.4 and return code TRUNCATED_NONZERO. Do not claim that a regulator reviewed this.",
 		"The FTC (Federal Trade Commission) did not review this release.",
 		"ABC reported a 12 ms regression in v2.1; the cause may be unrelated.",
+		// Incident-derived English probes, not replacement summaries or quoted source.
+		"Requiring a correct replacement increased missed corrections, while reducing changes to already correct entries.",
+		"The causal direction is unresolved: interaction may trigger a summary, or a summary may attract interaction. This evidence does not prove either direction.",
+		"The archive contains 2,553,100 comments out of a claimed 15,981,196, approximately 16% of the claimed total.",
 	}
 	type result struct {
 		Source      string `json:"source"`

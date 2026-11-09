@@ -3053,8 +3053,8 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 				// summary for a Chinese source item, so processed_items.lang
 				// alone is not a reliable gate. Already-Chinese fields are
 				// copied into the zh column (terminates re-processing).
-				needSummary := it.Summary != "" && it.SummaryZh == ""
-				needTitle := it.RawContent != "" && it.TitleZh == ""
+				needSummary := it.SummaryRemediation == "" && it.Summary != "" && it.SummaryZh == ""
+				needTitle := it.SummaryRemediation != "body_only" && it.RawContent != "" && it.TitleZh == ""
 				if !needSummary && !needTitle {
 					continue
 				}
@@ -3081,6 +3081,7 @@ func ConsoleGetHighlights(ctx context.Context, c *app.RequestContext) {
 						}
 					}
 					if uerr := consoledal.UpdateZhTranslations(db.DB, it.ItemID, it.Summary, it.RawContent, it.SummaryZh, it.TitleZh); uerr != nil {
+						it.SummaryZh, it.TitleZh = "", ""
 						logger.Ctx(ctx).Warn("zh translation write-back failed", "itemID", it.ItemID, "err", uerr)
 					}
 				}(it, needSummary, needTitle)
