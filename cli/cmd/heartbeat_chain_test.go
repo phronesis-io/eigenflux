@@ -238,3 +238,25 @@ func TestHeartbeatHooksHonorObservationOptOutAndOrdinaryAccountRemoval(t *testin
 		t.Fatal("account failure notification trapped in guard loop")
 	}
 }
+
+func TestHeartbeatPermissionBarrierCanNotifyWithoutFakingCompletion(t *testing.T) {
+	scope := maintenance.Scope{Home: t.TempDir(), Server: "test", AgentID: "1"}
+	c, _ := maintenance.StartCycle(scope, "full", []string{"feed"}, maintenance.RuntimeObservation{})
+	p := heartbeatTranscript(t, "turn", "EIGENFLUX HEARTBEAT PLAN\nheartbeat cycle-report --cycle "+c.ID)
+	in := heartbeatHostInput{heartbeatStopInput: heartbeatStopInput{SessionID: "owner", TurnID: "turn", Event: "Stop", Transcript: p, LastMessage: "<decision>NOTIFY</decision>"}}
+	if d, err := heartbeatStopDecision(scope, in.heartbeatStopInput, "owner"); err != nil || d["decision"] != "block" {
+		t.Fatalf("notification alone bypassed unfinished work: %v %v", d, err)
+	}
+	in.Event = "PermissionRequest"
+	if err := observeHeartbeatHost(scope, in, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	in.Event = "Stop"
+	if d, err := heartbeatStopDecision(scope, in.heartbeatStopInput, "owner"); err != nil || len(d) != 0 {
+		t.Fatalf("real permission barrier trapped owner notification: %v %v", d, err)
+	}
+	current, _ := maintenance.ReadCycle(scope, c.ID)
+	if current.Result != "" || current.Stages["feed"] != "" {
+		t.Fatal("notification rewrote cycle execution or completion")
+	}
+}

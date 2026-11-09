@@ -128,6 +128,15 @@ func heartbeatStopDecision(scope maintenance.Scope, in heartbeatStopInput, threa
 	if c.Result == "completed" || c.Result == "failed" {
 		return allow, nil
 	}
+	if strings.Contains(in.LastMessage, "<decision>NOTIFY</decision>") {
+		requested, _ := maintenance.LifecycleObserved(scope, heartbeatHostAttempt(in.SessionID, in.TurnID), "permission", "required")
+		if requested {
+			// An observed approval barrier may be reported without authorizing the
+			// missing command or pretending the open cycle completed.
+			_ = maintenance.ObserveCycle(scope, id, "incomplete")
+			return allow, nil
+		}
+	}
 	if err := maintenance.BindStopCycle(scope, in.SessionID, id); err != nil {
 		return nil, err
 	}
