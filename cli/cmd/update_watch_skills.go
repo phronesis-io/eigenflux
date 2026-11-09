@@ -13,17 +13,24 @@ import (
 
 // Recovery receipts carry bounded reasons, never network errors or local paths.
 type upgradeSkillsError struct {
-	Reason string
-	Err    error
+	Reason        string
+	FailureReason string
+	Err           error
 }
 
 func (e *upgradeSkillsError) Error() string { return e.Reason }
 func (e *upgradeSkillsError) Unwrap() error { return e.Err }
+func (e *upgradeSkillsError) observationReason() string {
+	if e.FailureReason != "" {
+		return e.FailureReason
+	}
+	return e.Reason
+}
 
 func syncUpgradeWatchRules(cfg *config.Config, b dispatch.Binding, manual bool) error {
 	return verifyUpgradeWatchRules(manual || automaticMaintenanceEnabled(cfg, autoSkillSyncKey), func() (*skills.SyncResult, error) {
 		if _, err := skills.ResolveSkillsDir(b.SkillsDir, b.Host); err != nil {
-			return nil, &upgradeSkillsError{Reason: "skills_target_unresolved", Err: err}
+			return nil, &upgradeSkillsError{Reason: "skills_sync_failed", FailureReason: "skills_target_unresolved", Err: err}
 		}
 		return skills.Sync(skills.SyncOptions{Into: b.SkillsDir, Host: b.Host, CLIVersion: version, CDNBase: cdnBase(), HTTPClient: &http.Client{Timeout: 5 * time.Second}})
 	}, func() error {
@@ -49,7 +56,7 @@ func verifyUpgradeWatchRules(syncEnabled bool, sync func() (*skills.SyncResult, 
 	// Local signature, compatibility and file hashes are required even after a
 	// fresh manifest check, and also when the owner disabled automatic syncing.
 	if err := local(); err != nil {
-		return &upgradeSkillsError{Reason: localSkillsFailureReason(err), Err: err}
+		return &upgradeSkillsError{Reason: "skills_local_validation_failed", FailureReason: localSkillsFailureReason(err), Err: err}
 	}
 	return nil
 }

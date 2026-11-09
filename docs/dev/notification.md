@@ -128,15 +128,21 @@ A bounded access-log sample of 1,000 recent pending requests contained 978 HTTP 
 
 ### Order ACK intake evidence
 
-V2 ACK items accept optional `receipt_kind` for `commission_order`: `displayed`
-(legacy stream output completed), `desktop_saved` (desktop queue persisted), or
-`execution_enqueued` (dispatch journal persisted, including deduplicated intake).
-Omitted values remain compatible and are logged as `unknown`. Other sources keep
-omitting the field. After a successful ACK RPC, the gateway emits one deduplicated
+CLI ACK bodies retain the original notification ID/source schema. Optional
+`X-EigenFlux-Notification-Receipts` is a JSON object mapping Order notification
+IDs to `displayed` (legacy stream output completed), `desktop_saved` (desktop
+queue persisted), or `execution_enqueued` (dispatch journal persisted, including
+deduplicated intake). Older gateways ignore the header and continue ACK handling.
+New gateways ignore malformed, oversized (>8,192 bytes), over-50-entry, wrongly
+typed or unknown metadata; it cannot reject an otherwise valid ACK. Missing or
+invalid detail is `unknown`. Only matching Order IDs are used; other sources are
+unchanged. The earlier optional `receipt_kind` body field remains accepted.
+
+After a successful ACK RPC, the gateway emits one deduplicated
 `notification_ack_receipt` structured log per Order notification, with authenticated
 Agent ID, notification ID, source, receipt kind and `evidence=client_reported`.
 These logs do not change inbox persistence, ACK ownership, business state or retry
 behavior. They are client intake claims, not proof of banner visibility, active
 Agent execution, acceptance or delivery; repeated requests remain repeated evidence.
-No notification bodies, credentials or local paths are logged. Deploy the gateway
-before clients sending this optional field; older strict gateways reject it.
+No notification bodies, credentials or local paths are logged. Header loss or an
+older gateway loses only optional detail, never the original ACK.

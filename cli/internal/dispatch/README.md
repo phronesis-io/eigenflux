@@ -1013,14 +1013,16 @@ Body service references retain the existing display limit; buyer Agent names
 and notification identity/routing are unchanged. Reorder trusted copy before
 expanding display names so name contents cannot change the title layout.
 
-Order ACKs include an optional `receipt_kind`: legacy stream uses `displayed`
+Order ACK bodies keep their legacy schema. The optional
+`X-EigenFlux-Notification-Receipts` header maps notification IDs to intake kinds:
+legacy stream uses `displayed`
 only after output succeeds; notifications-only watch uses `desktop_saved` only
 once the desktop queue is durable; dispatch watch uses `execution_enqueued` only
 after journal persistence and any required desktop sink succeed. Deduplicated
 intake retains its sink classification without re-executing work. The gateway
 logs this client-reported evidence; it does not establish visibility or Agent
-execution. Old clients omit it and remain `unknown`. Deploy the gateway before
-this CLI because older gateways reject unknown ACK body fields.
+execution. Old clients omit the header and remain `unknown`. Older gateways
+ignore it. Missing, malformed or oversized metadata never rejects a valid ACK.
 
 Watch setup observations retain the existing `error_code` categories and add
 optional fixed-enum `outer_loop.failure_reason`. Skills failures distinguish
@@ -1029,6 +1031,9 @@ CLI incompatibility, incomplete updates and other bounded validation causes.
 Windows task startup retains typed reasons for scheduler access, ownership,
 launcher writes, task registration/start/stop, timeout, cancellation and invalid
 PowerShell responses. Human diagnostics remain local; raw error text, paths and
-credentials never enter the field. Old events omit it. Deploy the backend
-validator before clients that emit it. Existing startup gates and retries remain
-unchanged; cross-compilation does not establish real Windows scheduler behavior.
+credentials never enter the field. The HTTP upload projection copies events and
+moves this detail into `X-EigenFlux-Watch-Failures`, keyed by event ID, retaining
+the legacy request body and the original local journal. Older gateways ignore
+the header. Invalid metadata is discarded independently of the valid batch.
+Existing startup gates and retries remain unchanged; cross-compilation does not
+establish real Windows scheduler behavior.

@@ -19,15 +19,23 @@ func TestDrainCommissionNotificationsRendersThenAcknowledges(t *testing.T) {
 			_, _ = w.Write([]byte(`{"code":0,"msg":"success","data":{"notifications":[{"notification_id":"41","source_type":"commission_order","type":"order.state.changed.v1","created_at":1700000000000,"payload":{"order_id":"9007199254740993","order_version":3,"recipient_role":"buyer","state":"delivered","to_state":"delivered","snapshot_id":"9007199254740995","occurred_at":1700000000000}}],"has_more":false}}`))
 		case "/api/v2/notifications/ack":
 			ackCalls++
-			var body map[string][]map[string]string
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			var body struct {
+				Notifications []struct {
+					ID     string `json:"notification_id"`
+					Source string `json:"source_type"`
+				} `json:"notifications"`
+			}
+			decoder := json.NewDecoder(r.Body)
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&body); err != nil {
 				t.Fatal(err)
 			}
-			if got := body["notifications"][0]["notification_id"]; got != "41" {
+			if got := body.Notifications[0].ID; got != "41" {
 				t.Fatalf("ack notification_id=%q", got)
 			}
-			if got := body["notifications"][0]["receipt_kind"]; got != "displayed" {
-				t.Errorf("receipt_kind=%q, want displayed", got)
+			var receipts map[string]string
+			if err := json.Unmarshal([]byte(r.Header.Get("X-EigenFlux-Notification-Receipts")), &receipts); err != nil || receipts["41"] != "displayed" {
+				t.Errorf("invalid receipt header: %v %v", receipts, err)
 			}
 			_, _ = w.Write([]byte(`{"code":0,"msg":"success","data":{"acknowledged":1}}`))
 		default:

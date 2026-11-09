@@ -184,7 +184,7 @@ func (o *uninstallObservation) finishAndPurge(result, code string) error {
 			}
 		}
 		u.c.HTTPClient = &http.Client{Timeout: remaining}
-		if _, err := u.c.Post("/maintenance/events:batch", map[string]interface{}{"events": []maintenance.Event{e}}); err != nil {
+		if _, err := postMaintenanceEvents(u.c, []maintenance.Event{e}); err != nil {
 			fmt.Fprintln(os.Stderr, "Uninstall telemetry upload failed; local cleanup is not rolled back.")
 		}
 	}

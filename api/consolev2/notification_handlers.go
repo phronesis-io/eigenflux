@@ -166,6 +166,7 @@ func (s *Service) ackPendingNotifications(ctx context.Context, c *app.RequestCon
 	items := make([]*notificationrpc.AckNotificationItem, 0, len(request.Notifications))
 	seen := make(map[string]struct{}, len(request.Notifications))
 	receipts := make(map[int64]string)
+	headerReceipts := notificationReceiptHeader(c.Request.Header.Peek("X-EigenFlux-Notification-Receipts"))
 	for _, notification := range request.Notifications {
 		sourceType := strings.TrimSpace(notification.SourceType)
 		notificationID, parseErr := parseNotificationID(notification.NotificationID)
@@ -175,8 +176,10 @@ func (s *Service) ackPendingNotifications(ctx context.Context, c *app.RequestCon
 		}
 		receiptKind, validReceipt := notificationReceiptKind(sourceType, notification.ReceiptKind)
 		if !validReceipt {
-			fail(c, http.StatusBadRequest, "INVALID_NOTIFICATION_ACK", "notification receipt kind is invalid", nil)
-			return
+			receiptKind = "unknown"
+		}
+		if kind, ok := headerReceipts[strconv.FormatInt(notificationID, 10)]; ok && sourceType == "commission_order" {
+			receiptKind = kind
 		}
 		key := sourceType + ":" + strconv.FormatInt(notificationID, 10)
 		if _, exists := seen[key]; exists {
@@ -224,4 +227,22 @@ func notificationReceiptKind(sourceType, kind string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// Malformed optional observations must never reject an otherwise valid ACK.
+func notificationReceiptHeader(raw []byte) map[string]string {
+	if len(raw) == 0 || len(raw) > 8192 {
+		return nil
+	}
+	var values map[string]string
+	if json.Unmarshal(raw, &values) != nil || len(values) > 50 {
+		return nil
+	}
+	valid := make(map[string]string)
+	for id, kind := range values {
+		if normalized, ok := notificationReceiptKind("commission_order", kind); ok {
+			valid[id] = normalized
+		}
+	}
+	return valid
 }

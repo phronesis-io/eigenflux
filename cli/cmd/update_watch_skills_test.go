@@ -92,7 +92,7 @@ func TestUpgradeSkillsRetainsTypedLocalCause(t *testing.T) {
 		cause := &heartbeatSkillsError{code: code, err: errors.New("private path")}
 		err := verifyUpgradeWatchRules(false, nil, func() error { return cause })
 		var detail *upgradeSkillsError
-		if !errors.As(err, &detail) || detail.Reason != code || !errors.Is(err, cause) {
+		if !errors.As(err, &detail) || detail.Reason != "skills_local_validation_failed" || detail.observationReason() != code || !errors.Is(err, cause) {
 			t.Fatalf("lost %s: %v", code, err)
 		}
 	}

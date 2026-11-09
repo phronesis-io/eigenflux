@@ -61,7 +61,7 @@ func (o *outerLoopRecorder) finish(err error) {
 	if err != nil {
 		var skillErr *upgradeSkillsError
 		if errors.As(err, &skillErr) {
-			o.failureReason = skillErr.Reason
+			o.failureReason = skillErr.observationReason()
 		}
 		if reason := watchservice.StartFailureReason(err); reason != "" {
 			o.failureReason = reason

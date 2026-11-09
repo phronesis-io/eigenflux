@@ -107,5 +107,9 @@ Order ACK intake evidence is recorded in gateway `notification_ack_receipt` logs
 with `receipt_kind=displayed|desktop_saved|execution_enqueued|unknown` and
 `evidence=client_reported`. Join authenticated Agent and notification IDs to inbox
 facts; never infer execution, acceptance or settlement from the intake class.
-These logs do not backfill historical ACKs or add database columns. Deploy the
-backend validator and ACK handler before the CLI emitting the optional fields.
+These logs do not backfill historical ACKs or add database columns. HTTP bodies
+retain the legacy schemas: optional ACK intake and watch failure details use
+`X-EigenFlux-Notification-Receipts` and `X-EigenFlux-Watch-Failures` headers.
+Older gateways ignore them; new gateways discard invalid metadata without
+rejecting valid ACKs or batches. Missing detail stays unknown. Client/backend
+upgrade order and backend rollback therefore do not block the original flows.

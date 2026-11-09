@@ -47,7 +47,9 @@ func TestNotificationsOnlyPersistsBeforeACKAndLegacyStreamDoesNotConsume(t *test
 		var body struct {
 			Notifications []map[string]string `json:"notifications"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Notifications) != 1 || body.Notifications[0]["receipt_kind"] != "desktop_saved" {
+		var receipts map[string]string
+		_ = json.Unmarshal([]byte(r.Header.Get("X-EigenFlux-Notification-Receipts")), &receipts)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Notifications) != 1 || body.Notifications[0]["receipt_kind"] != "" || receipts[body.Notifications[0]["notification_id"]] != "desktop_saved" {
 			t.Errorf("invalid desktop receipt: %+v, %v", body, err)
 		}
 		q, err := desktopqueue.Open(filepath.Join(w.home, "watch", "desktop-"+w.scope+".json"), w.scope)

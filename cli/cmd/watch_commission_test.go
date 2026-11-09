@@ -95,9 +95,13 @@ func TestWatchCommissionPersistsWholePageBeforeACKAndDeduplicates(t *testing.T) 
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil || len(request.Notifications) != 2 {
 			t.Errorf("invalid ACK batch: %+v, %v", request, err)
 		}
+		var receipts map[string]string
+		if err := json.Unmarshal([]byte(r.Header.Get("X-EigenFlux-Notification-Receipts")), &receipts); err != nil {
+			t.Error(err)
+		}
 		for _, item := range request.Notifications {
-			if item["receipt_kind"] != "execution_enqueued" {
-				t.Errorf("ACK without execution receipt: %+v", item)
+			if receipts[item["notification_id"]] != "execution_enqueued" || item["receipt_kind"] != "" {
+				t.Errorf("invalid execution receipt: %+v header=%+v", item, receipts)
 			}
 			if item["source_type"] != "commission_order" || item["notification_id"] == "99" {
 				t.Errorf("ACKed unowned source: %+v", item)

@@ -118,7 +118,7 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 		if errors.As(err, &skillsErr) {
 			r.Reason = skillsErr.Reason
 			if observation != nil {
-				observation.failureReason = skillsErr.Reason
+				observation.failureReason = skillsErr.observationReason()
 			}
 		}
 		return r
@@ -362,9 +362,8 @@ func recoverWatchAfterUpdateOnPlatform(cmd *cobra.Command, cfg *config.Config, m
 				r.Reason = "skills_not_ready"
 				var detail *upgradeSkillsError
 				if errors.As(err, &detail) {
-					r.Reason = detail.Reason
 					if observation := watchSetupObservation(cmd); observation != nil {
-						observation.failureReason = detail.Reason
+						observation.failureReason = detail.observationReason()
 					}
 				}
 				return r

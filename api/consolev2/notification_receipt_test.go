@@ -2,6 +2,7 @@ package consolev2
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/cloudwego/kitex/client/callopt"
 )
 
@@ -28,6 +30,7 @@ func (f *receiptNotificationClient) AckNotifications(ctx context.Context, req *n
 func TestNotificationACKReceiptCompatibilityAndLogging(t *testing.T) {
 	for _, tc := range []struct {
 		name, source, kind string
+		header             string
 		status             int
 		fail, mixed        bool
 	}{
@@ -37,8 +40,11 @@ func TestNotificationACKReceiptCompatibilityAndLogging(t *testing.T) {
 		{name: "execution", source: "commission_order", kind: "execution_enqueued", status: 200},
 		{name: "same_id_other_source", source: "commission_order", kind: "execution_enqueued", status: 200, mixed: true},
 		{name: "legacy_other_source", source: "system", status: 200},
-		{name: "invalid", source: "commission_order", kind: "private-path-token", status: 400},
-		{name: "wrong_source", source: "system", kind: "execution_enqueued", status: 400},
+		{name: "invalid", source: "commission_order", kind: "private-path-token", status: 200},
+		{name: "wrong_source", source: "system", kind: "execution_enqueued", status: 200},
+		{name: "malformed", source: "commission_order", header: "{private-path-token", status: 200},
+		{name: "oversized", source: "commission_order", header: strings.Repeat("private-path-token", 1000), status: 200},
+		{name: "wrong_type", source: "commission_order", header: `{"9007199254740993":42}`, status: 200},
 		{name: "upstream_failed", source: "commission_order", kind: "execution_enqueued", status: 503, fail: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -55,14 +61,16 @@ func TestNotificationACKReceiptCompatibilityAndLogging(t *testing.T) {
 				svc.ackPendingNotifications(ctx, c)
 			})
 			item := map[string]interface{}{"notification_id": "9007199254740993", "source_type": tc.source}
+			header := tc.header
 			if tc.kind != "" {
-				item["receipt_kind"] = tc.kind
+				raw, _ := json.Marshal(map[string]string{"9007199254740993": tc.kind})
+				header = string(raw)
 			}
 			items := []interface{}{item, item}
 			if tc.mixed {
 				items = append(items, map[string]interface{}{"notification_id": "9007199254740993", "source_type": "system"})
 			}
-			status, _, _ := performJSON(t, h, "POST", "/ack", map[string]interface{}{"notifications": items})
+			status, _, _ := performJSON(t, h, "POST", "/ack", map[string]interface{}{"notifications": items}, ut.Header{Key: "X-EigenFlux-Notification-Receipts", Value: header})
 			if status != tc.status {
 				t.Fatalf("status %d want %d", status, tc.status)
 			}
@@ -73,7 +81,7 @@ func TestNotificationACKReceiptCompatibilityAndLogging(t *testing.T) {
 			}
 			if wantLog {
 				kind := tc.kind
-				if kind == "" {
+				if kind == "" || kind == "private-path-token" {
 					kind = "unknown"
 				}
 				if !strings.Contains(logs.String(), `"receipt_kind":"`+kind+`"`) || !strings.Contains(logs.String(), `"notification_id":9007199254740993`) || !strings.Contains(logs.String(), `"evidence":"client_reported"`) {

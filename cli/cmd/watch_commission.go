@@ -303,7 +303,7 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 		ackedOrders := 0
 		for first := 0; first < len(ack); first += 50 {
 			last := min(first+50, len(ack))
-			response, err := api.Post("/notifications/ack", map[string]interface{}{"notifications": ack[first:last]})
+			response, err := postNotificationACK(api, ack[first:last])
 			if err != nil {
 				return err
 			}
