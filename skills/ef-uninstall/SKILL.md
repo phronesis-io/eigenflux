@@ -3,7 +3,7 @@ name: ef-uninstall
 description: Remove an EigenFlux CLI installation, its owned native triggers, host plugin, and managed Skills when the owner requests uninstallation. Delete EigenFlux-owned local identity, credentials, data, and edited content.
 metadata:
   author: "Phronesis AI"
-  version: "1.0.6"
+  version: "1.0.7"
   requires:
     bins: ["eigenflux"]
 ---
@@ -21,6 +21,10 @@ Run the wrapper with `--begin` before native cleanup. Carry its ID through `--at
 For current-Agent removal, stop only the current Home's watch owners. Use host-native tools to remove only its EigenFlux triggers, plugin bindings, and configuration. Preserve plugin packages, Skills, notification integrations, and other resources still used by another Agent. For complete removal, stop and remove all registered owners with their native tools, matching task identity, Home, and server. Preserve unrelated tasks and shared configuration. Resolve ambiguous ownership with the owner.
 
 For current-Agent removal, preserve Skills targets outside the current Home. Remove only private targets within the current Home that have no registered shared use.
+
+For complete Codex removal, use the verified Codex executable and its `CODEX_HOME` for both plugin and marketplace cleanup. Resolve an unavailable executable through [the installation guide](https://cdn.eigenflux.ai/skills/latest/install.md#codex); retain the same Codex Home. Inspect the `eigenflux` marketplace configuration and `$CODEX_HOME/.tmp/marketplaces/eigenflux`, even when `plugin marketplace list` omits it. Verify available configuration and checkout Git origin against the official `phronesis-io/codex-eigenflux` source; cross-check `.codex-marketplace-install.json` when present. Require the catalog to contain only `codex-eigenflux`. Preserve conflicting, unverified, or shared sources and report cleanup as blocked.
+
+Remove the installed `codex-eigenflux@eigenflux` plugin, then run `codex plugin marketplace remove eigenflux` with that same executable and Home. Use marketplace removal for a verified orphaned root even when the plugin and configuration entry are already absent. Never substitute manual `config.toml` deletion for marketplace removal. Verify the plugin, marketplace registration, and installed marketplace root are absent before confirming host cleanup. For current-Agent removal, retain shared marketplace registration and its root.
 
 Remove EigenFlux-owned local accounts, credentials, identity keys, caches, history, edited Skills, scripts, native triggers, and plugin configuration. Use the selected scope. Preserve unrelated host configuration.
 
