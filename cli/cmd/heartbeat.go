@@ -196,6 +196,12 @@ var heartbeatPlanCmd = &cobra.Command{
 			filepath.Join(res.SkillsDir, "ef-broadcast", "references", "attention.md"),
 			filepath.Join(res.SkillsDir, "ef-communication", "SKILL.md"),
 		}
+		for _, name := range []string{"heartbeat-execution.md", "commands.md", "needs.md", "publish.md"} {
+			path := filepath.Join(res.SkillsDir, "ef-broadcast", "references", name)
+			if fileExistsCLI(path) {
+				ruleSources = append(ruleSources, path)
+			}
+		}
 		// Older compatible bundles remain executable while the new release rolls out.
 		maintenanceRule := filepath.Join(res.SkillsDir, "ef-broadcast", "references", "maintenance.md")
 		if !watchManaged && fileExistsCLI(maintenanceRule) {
@@ -359,6 +365,11 @@ var heartbeatPlanCmd = &cobra.Command{
 		}
 
 		attachCycleObservation(&plan, skillsScope)
+		if plan.CycleID != "" {
+			if err := maintenance.SetCycleRules(skillsScope, plan.CycleID, plan.RuleSources); err != nil {
+				return err
+			}
+		}
 		plan.AgentPrompt = renderHeartbeatPlanForAgent(plan)
 		if resolveFormat() == "agent" {
 			fmt.Fprint(cmd.OutOrStdout(), plan.AgentPrompt)
@@ -526,6 +537,7 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 		b, _ := json.Marshal(plan.SkillsReadReceipt)
 		receiptText += "\nAfter freshly reading every listed rule source, submit this unchanged JSON to heartbeat maintenance-report --stdin using the CLI prefix above: " + string(b) + "\n"
 	}
+	receiptText += cycleReadInstructions(plan)
 	if plan.PlanMode == "control" || plan.PlanMode == "maintenance" {
 		return fmt.Sprintf("EIGENFLUX HEARTBEAT PLAN\nPlan mode: %s\nCLI: %s\nSkill revision: %s\nCLI prefix for every command: %s\nFreshly read these central rule sources:\n- %s\nExecute only these stages: %s. Runtime access: %s. Onboarding state: %s. Do not execute stages outside this list.\nPlugin maintenance: %s\nScheduler migration: %s\n", plan.PlanMode, plan.CLIVersion, plan.SkillRevision, plan.CLIPrefix, strings.Join(plan.RuleSources, "\n- "), strings.Join(plan.ExecutionOrder, ", "), plan.Access.Mode, plan.Access.OnboardingState, pluginMaintenanceJSON(plan.PluginMaintenance), plan.SchedulerMigration) + receiptText
 	}
@@ -570,7 +582,7 @@ MANDATORY FOR THIS CYCLE
 %s
 2. Apply runtime-model.md before subsequent CLI calls: resolve the current model and pass it through --runtime-model for each invocation. If unavailable, keep it unset and continue permitted Feed work.
 3. Start every EigenFlux CLI invocation with the exact CLI prefix printed above. Never run a bare eigenflux command and never infer Home from the working directory.
-4. Runtime access: %s. Execute the available stages in order: %s. Apply the current Skills to each stage. A Feed payload supplied by the host is this cycle's completed pull. feed next reads this cycle's saved page and is not a pull. Follow the inline contract core; read the named details before their actions, otherwise skip those actions. Score and submit each batch before following its next command with --cycle. Scheduled cycles stop at 4 batches or open=0 backlog=0, then push completed recommendations once. Owner checks drain without that cap. After compaction use feed recover --cycle <id>, never re-score recovered items.
+4. Runtime access: %s. Execute the available stages in order: %s. Apply the current Skills to each stage. A Feed payload supplied by the host is this cycle's completed pull. feed next reads this cycle's saved page and is not a pull. Follow the inline contract core; read the named details before their actions, otherwise skip those actions. Score and submit each batch before following its next command with --cycle. Do not stop after the first batch while backlog is positive: continue through the saved next command. Scheduled cycles stop at 4 batches or open=0 backlog=0, then push completed recommendations once. Remaining backlog at the four-batch limit is deferred, not an incomplete cycle. Owner checks drain without that cap. After compaction use feed recover --cycle <id>, never re-score recovered items.
 %s
 5. Follow the current Skills for onboarding restrictions and recovery. Host harness output and notification requirements take precedence over Skill silence tokens and display conventions.
 
