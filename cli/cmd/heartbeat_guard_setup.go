@@ -67,7 +67,18 @@ func codexGuardPromptHash(cli, home, server, supplied string) (string, error) {
 	if prompt == "" {
 		prompt = strings.TrimSpace(canonical)
 	}
-	if prompt != strings.TrimSpace(canonical) && prompt != strings.TrimSpace(heartbeatSchedulerPrompt(launcher+" --watch-managed")) {
+	matched := false
+	for _, shell := range []string{"posix", "powershell", "cmd"} {
+		candidate, err := renderHeartbeatLauncher(cli, home, server, "skill", shell)
+		if err != nil {
+			continue
+		}
+		if prompt == strings.TrimSpace(heartbeatSchedulerPrompt(candidate)) || prompt == strings.TrimSpace(heartbeatSchedulerPrompt(candidate+" --watch-managed")) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
 		return "", fmt.Errorf("scheduler prompt must exactly match this installation's canonical prompt")
 	}
 	sum := sha256.Sum256([]byte(prompt))

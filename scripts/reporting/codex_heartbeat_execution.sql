@@ -54,6 +54,7 @@ WITH params AS (
          bool_or(result = 'failed' AND stage = 'cycle') AS failed,
          bool_or(result = 'incomplete' AND stage = 'cycle') AS incomplete,
          bool_or(result = 'permission_required' AND stage = 'cycle') AS permission_required,
+         bool_or(result = 'permission_denied' AND stage = 'cycle') AS permission_denied,
          bool_or(result = 'interrupted' AND stage = 'cycle') AS interrupted
   FROM observations WHERE phase = 'cycle'
   GROUP BY 1, 2, 3, 4
@@ -61,9 +62,10 @@ WITH params AS (
 SELECT c.agent_id, c.registration_day, c.activity_day, x.attempt_id,
        x.first_observed_at_ms, x.last_observed_at_ms,
        x.plan_created, x.execution_started, x.stage_execution_observed,
-       x.completed, x.failed, x.incomplete, x.permission_required, x.interrupted,
+       x.completed, x.failed, x.incomplete, x.permission_required, x.permission_denied, x.interrupted,
        CASE WHEN x.completed THEN 'completed'
             WHEN x.failed THEN 'failed'
+            WHEN x.permission_denied THEN 'permission_denial_observed'
             WHEN x.permission_required THEN 'permission_request_observed'
             WHEN x.interrupted THEN 'interruption_observed'
             WHEN x.plan_created AND NOT x.execution_started AND NOT x.stage_execution_observed
@@ -125,8 +127,10 @@ WITH params AS (
          count(DISTINCT o.attempt_id) FILTER (WHERE phase = 'cycle' AND stage = 'cycle' AND result = 'failed') AS failed,
          count(DISTINCT o.attempt_id) FILTER (WHERE phase = 'cycle' AND stage = 'cycle' AND result = 'incomplete') AS incomplete,
          count(DISTINCT o.attempt_id) FILTER (WHERE phase = 'cycle' AND stage = 'cycle' AND result = 'permission_required') AS cycle_permission_required,
+         count(DISTINCT o.attempt_id) FILTER (WHERE phase = 'cycle' AND stage = 'cycle' AND result = 'permission_denied') AS cycle_permission_denied,
          count(DISTINCT o.attempt_id) FILTER (WHERE phase = 'cycle' AND stage = 'cycle' AND result = 'interrupted') AS cycle_interrupted,
          count(DISTINCT o.attempt_id) FILTER (WHERE phase = 'lifecycle' AND stage = 'permission' AND result = 'required') AS permission_required,
+         count(DISTINCT o.attempt_id) FILTER (WHERE phase = 'lifecycle' AND stage = 'permission' AND result = 'denied') AS permission_denied,
          count(DISTINCT o.attempt_id) FILTER (WHERE phase = 'lifecycle' AND stage = 'permission' AND result = 'forbidden') AS policy_forbidden,
          count(DISTINCT o.attempt_id) FILTER (WHERE phase = 'lifecycle' AND stage = 'permission' AND result = 'legacy_mismatch') AS policy_legacy_mismatch,
          count(DISTINCT o.attempt_id) FILTER (WHERE phase = 'lifecycle' AND stage = 'guard' AND result = 'configured') AS guard_configured,
@@ -139,6 +143,7 @@ WITH params AS (
 SELECT d.*,
        CASE WHEN completed > 0 THEN 'completed'
             WHEN failed > 0 THEN 'failed'
+            WHEN cycle_permission_denied > 0 OR permission_denied > 0 THEN 'permission_denial_observed'
             WHEN cycle_permission_required > 0 OR permission_required > 0 THEN 'permission_request_observed'
             WHEN cycle_interrupted > 0 OR execution_interrupted > 0 THEN 'interruption_observed'
             WHEN plan_created > 0 AND execution_started = 0 AND stage_execution = 0

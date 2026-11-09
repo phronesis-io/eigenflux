@@ -139,13 +139,13 @@ func TestMaintenancePostgresAgentAuthIdentityAndIdempotency(t *testing.T) {
 			e.Runtime = &runtimeObservation{Product: "codex", CLI: "1.0.19", Stage: stage, PlanMode: planMode}
 			events = append(events, e)
 		}
-		for _, result := range []string{"plan_created", "incomplete", "permission_required", "interrupted"} {
+		for _, result := range []string{"plan_created", "incomplete", "permission_required", "permission_denied", "interrupted"} {
 			add("cycle", "cycle", result, "full")
 		}
 		for _, row := range []struct{ stage, result string }{
 			{"trigger", "observed"}, {"permission", "allowed"}, {"permission", "legacy_mismatch"},
 			{"permission", "prompt"}, {"permission", "forbidden"}, {"permission", "unknown"},
-			{"permission", "required"}, {"guard", "configured"}, {"guard", "active"}, {"execution", "interrupted"},
+			{"permission", "required"}, {"permission", "denied"}, {"guard", "configured"}, {"guard", "active"}, {"execution", "interrupted"},
 		} {
 			add("lifecycle", row.stage, row.result, "")
 		}
@@ -189,7 +189,7 @@ FROM telemetry_events_v2 WHERE properties->>'attempt_id'=? ORDER BY agent_id,eve
 		bad.EventID = fmt.Sprintf("%064x", 14000)
 		bad.Runtime = &runtimeObservation{Stage: "feed", PlanMode: "full"}
 		badLifecycle := bad
-		badLifecycle.Phase, badLifecycle.Result = "lifecycle", "denied"
+		badLifecycle.Phase, badLifecycle.Result = "lifecycle", "unknown_status"
 		badLifecycle.Runtime = &runtimeObservation{Stage: "permission"}
 		unknown := map[string]interface{}{}
 		raw, _ := json.Marshal(events[0])

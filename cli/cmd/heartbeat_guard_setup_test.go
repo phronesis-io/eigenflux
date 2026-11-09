@@ -180,3 +180,26 @@ func TestCodexGuardFencesExactNativeSchedulerPrompt(t *testing.T) {
 		}
 	}
 }
+
+func TestCodexGuardAcceptsExactSupportedNativeShells(t *testing.T) {
+	dir := t.TempDir()
+	cli := filepath.Join(dir, "bin", "eigenflux")
+	home := filepath.Join(dir, "agent")
+	for _, shell := range []string{"posix", "powershell", "cmd"} {
+		launcher, err := renderHeartbeatLauncher(cli, home, "server", "skill", shell)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, suffix := range []string{"", " --watch-managed"} {
+			prompt := heartbeatSchedulerPrompt(launcher + suffix)
+			got, err := codexGuardPromptHash(cli, home, "server", prompt)
+			if err != nil || got == "" {
+				t.Fatalf("valid %s scheduler readback rejected: %v", shell, err)
+			}
+			foreign := strings.Replace(prompt, home, filepath.Join(dir, "different-agent"), 1)
+			if _, err := codexGuardPromptHash(cli, home, "server", foreign); err == nil {
+				t.Fatalf("%s admitted a different Agent Home", shell)
+			}
+		}
+	}
+}

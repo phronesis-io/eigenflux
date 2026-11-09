@@ -70,6 +70,7 @@ During foreground installation acceptance or repair, run `heartbeat
 permission-check --codex <absolute-owner-codex> --rules <active-rule-file>`
 with the established CLI prefix after Agent authentication. Supply every active
 policy file, repeating `--rules`; retain native managed-policy checks separately.
+Pass the native task’s actual `--shell` and `--watch-managed` selection.
 Require `allowed` for the exact launcher and representative stage commands.
 Keep `prompt`, `forbidden`, checker failures and incomplete policy inventories
 unresolved. Report the check as file evidence, separately from host reload.
@@ -279,7 +280,7 @@ an unverified permission rule for a verified recurring trigger.
 
 ## Execution and delivery acceptance
 
-For authenticated Codex setup or foreground repair, require CLI 1.0.20 and run
+For authenticated Codex setup or foreground repair, require CLI 1.0.22 and run
 `heartbeat guard-setup --codex-home <absolute-owner-codex-home> --thread
 <verified-trigger-thread>` with the established CLI prefix. Use the installer
 receipt's Codex configuration and the native scheduler's verified owner thread.

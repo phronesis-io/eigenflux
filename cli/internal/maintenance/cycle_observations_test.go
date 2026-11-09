@@ -104,9 +104,43 @@ func TestCycleObservationRestoresPendingQueueAfterLegacyWrite(t *testing.T) {
 	}
 }
 
+func TestPermissionDeniedObservationsRemainNonterminalAfterUpload(t *testing.T) {
+	scope := Scope{Home: t.TempDir(), Server: "test", AgentID: "1"}
+	cycle, err := StartCycle(scope, "full", []string{"feed"}, RuntimeObservation{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := NewID()
+	if err := RecordLifecycle(scope, attempt, "permission", "denied", RuntimeObservation{Product: "codex"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ObserveCycle(scope, cycle.ID, "permission_denied"); err != nil {
+		t.Fatal(err)
+	}
+	sent := map[string]int{}
+	if err := Flush(scope, time.Now(), func(events []Event) error {
+		for _, event := range events {
+			sent[event.Result]++
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if sent["permission_denied"] != 1 || sent["denied"] != 1 {
+		t.Fatalf("denial observations not uploaded: %v", sent)
+	}
+	if observed, err := LifecycleObserved(scope, attempt, "permission", "denied"); err != nil || !observed {
+		t.Fatalf("acknowledged host denial lost: %t %v", observed, err)
+	}
+	state, err := Snapshot(scope)
+	if err != nil || state.Cycles[cycle.ID].Result != "" || state.Cycles[cycle.ID].ExecutionObserved || state.Cycles[cycle.ID].Stages["feed"] != "" {
+		t.Fatalf("denial changed business cycle state: %+v %v", state.Cycles[cycle.ID], err)
+	}
+}
+
 func TestRuntimeLifecycleAndCycleObservationContract(t *testing.T) {
 	scope := Scope{Home: t.TempDir(), Server: "test", AgentID: "1"}
-	valid := map[string][]string{"trigger": {"observed"}, "permission": {"allowed", "legacy_mismatch", "prompt", "forbidden", "unknown", "required"}, "guard": {"configured", "active"}, "execution": {"interrupted"}}
+	valid := map[string][]string{"trigger": {"observed"}, "permission": {"allowed", "legacy_mismatch", "prompt", "forbidden", "unknown", "required", "denied"}, "guard": {"configured", "active"}, "execution": {"interrupted"}}
 	for stage, results := range valid {
 		for _, result := range results {
 			attempt := NewID()
@@ -119,7 +153,7 @@ func TestRuntimeLifecycleAndCycleObservationContract(t *testing.T) {
 		}
 	}
 	st, _ := Snapshot(scope)
-	if len(st.Events) != 10 {
+	if len(st.Events) != 11 {
 		t.Fatalf("duplicate lifecycle observations: %d", len(st.Events))
 	}
 	for _, e := range st.Events {
@@ -141,7 +175,7 @@ func TestRuntimeLifecycleAndCycleObservationContract(t *testing.T) {
 		t.Fatal("diagnostic counted as business-stage receipt")
 	}
 	e.Runtime.Stage = "cycle"
-	for _, result := range []string{"plan_created", "incomplete", "permission_required", "interrupted"} {
+	for _, result := range []string{"plan_created", "incomplete", "permission_required", "permission_denied", "interrupted"} {
 		e.Result = result
 		if err := Validate(e); err != nil {
 			t.Fatal(err)

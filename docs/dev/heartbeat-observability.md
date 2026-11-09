@@ -24,7 +24,7 @@ appear with a null attempt and instrumentation-unknown status.
 
 The second query reports distinct observed attempts per Agent and D1 date:
 trigger, plan creation, execution start, completion, failure, incomplete checks,
-permission requests, interruptions, local policy checks and configured/active
+permission requests, final host declines, interruptions, local policy checks and configured/active
 guards. Counters can overlap: an incomplete cycle can later complete, and a
 permission request can later be approved. Use counts rather than summing these
 columns into a funnel population. Completed evidence takes precedence in the
@@ -37,6 +37,10 @@ Interpret labels by their evidence boundary:
 - `permission_request_observed`: the host requested approval; no final rejection
   is established. `policy_forbidden` is a local static Rules-check result, not a
   runtime rejection. `policy_legacy_mismatch` is a command-prefix mismatch.
+- `permission_denial_observed`: the host recorded a trusted final decline of
+  the scoped CLI command in that turn. This is distinct from a request or static
+  policy match. A later authorized retry may resolve the barrier; counts retain
+  the earlier observation rather than claiming the current policy still denies it.
 - `trigger_observed_without_plan_evidence`: a scoped canonical heartbeat prompt
   was observed, without a delivered plan in the window. A prompt observation
   alone does not prove that it originated from a persistent scheduler.

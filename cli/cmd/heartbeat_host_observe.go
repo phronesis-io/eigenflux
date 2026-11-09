@@ -49,29 +49,42 @@ func heartbeatHostRunAdmitted(scope maintenance.Scope, session, turn string) boo
 	return ok
 }
 
+type heartbeatHostMarker struct {
+	Cycle         string `json:"cycle_id"`
+	OriginAttempt string `json:"origin_attempt,omitempty"`
+}
+
 func readHeartbeatHostRun(scope maintenance.Scope, session, attempt string) (string, bool) {
+	marker, ok := readHeartbeatHostMarker(scope, session, attempt)
+	return marker.Cycle, ok
+}
+
+func readHeartbeatHostMarker(scope maintenance.Scope, session, attempt string) (heartbeatHostMarker, bool) {
+	var marker heartbeatHostMarker
 	if len(attempt) != 64 {
-		return "", false
+		return marker, false
 	}
 	if _, err := hex.DecodeString(attempt); err != nil {
-		return "", false
+		return marker, false
 	}
 	p := filepath.Join(filepath.Dir(heartbeatHostRunPath(scope, session, "")), attempt+".json")
 	f, err := os.Lstat(p)
 	if err != nil || !f.Mode().IsRegular() || f.Size() > 256 || time.Since(f.ModTime()) < 0 || time.Since(f.ModTime()) >= maintenance.Retention {
-		return "", false
+		return marker, false
 	}
 	b, err := os.ReadFile(p)
-	var marker struct {
-		Cycle string `json:"cycle_id"`
-	}
 	if err != nil || json.Unmarshal(b, &marker) != nil {
-		return "", false
+		return marker, false
 	}
-	return marker.Cycle, true
+	if marker.OriginAttempt != "" {
+		if _, err := hex.DecodeString(marker.OriginAttempt); err != nil || len(marker.OriginAttempt) != 64 {
+			return heartbeatHostMarker{}, false
+		}
+	}
+	return marker, true
 }
 
-func admitHeartbeatHostRun(scope maintenance.Scope, session, turn, continuationCycle string) error {
+func admitHeartbeatHostRun(scope maintenance.Scope, session, turn, continuationCycle string, origin ...string) error {
 	p := heartbeatHostRunPath(scope, session, turn)
 	if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
 		return err
@@ -83,7 +96,11 @@ func admitHeartbeatHostRun(scope maintenance.Scope, session, turn, continuationC
 	if err != nil {
 		return err
 	}
-	err = json.NewEncoder(f).Encode(map[string]string{"cycle_id": continuationCycle})
+	originAttempt := heartbeatHostAttempt(session, turn)
+	if len(origin) == 1 && origin[0] != "" {
+		originAttempt = origin[0]
+	}
+	err = json.NewEncoder(f).Encode(heartbeatHostMarker{Cycle: continuationCycle, OriginAttempt: originAttempt})
 	closeErr := f.Close()
 	if err == nil {
 		err = closeErr
@@ -113,7 +130,7 @@ func observeHeartbeatHost(scope maintenance.Scope, in heartbeatHostInput, thread
 	if in.Event == "UserPromptSubmit" {
 		digest := sha256.Sum256([]byte(strings.TrimSpace(in.Prompt)))
 		canonical := len(in.ExpectedPromptHash) == 64 && hex.EncodeToString(digest[:]) == in.ExpectedPromptHash
-		continuation, cycle := false, ""
+		continuation, cycle, originAttempt := false, "", attempt
 		if !canonical {
 			bound, err := maintenance.StopCycle(scope, in.SessionID)
 			continuation = err == nil && bound != "" && strings.HasPrefix(strings.TrimSpace(in.Prompt), "EigenFlux cycle "+bound+" is still open.")
@@ -121,15 +138,22 @@ func observeHeartbeatHost(scope maintenance.Scope, in heartbeatHostInput, thread
 				cycle = bound
 			}
 			if match := heartbeatRunContinuation.FindStringSubmatch(strings.TrimSpace(in.Prompt)); len(match) == 2 {
-				_, continuation = readHeartbeatHostRun(scope, in.SessionID, match[1])
+				var parent heartbeatHostMarker
+				parent, continuation = readHeartbeatHostMarker(scope, in.SessionID, match[1])
 				prompt := strings.TrimSpace(in.Prompt)
 				continuation = continuation && (prompt == heartbeatNoPlanReason(match[1]) || prompt == heartbeatVerificationReason(match[1]))
+				if continuation {
+					cycle, originAttempt = parent.Cycle, parent.OriginAttempt
+					if originAttempt == "" {
+						originAttempt = match[1]
+					}
+				}
 			}
 		}
 		if !canonical && !continuation {
 			return nil
 		}
-		if err := admitHeartbeatHostRun(scope, in.SessionID, in.TurnID, cycle); err != nil {
+		if err := admitHeartbeatHostRun(scope, in.SessionID, in.TurnID, cycle, originAttempt); err != nil {
 			return err
 		}
 		_ = maintenance.RecordLifecycle(scope, attempt, "guard", "active", env)
@@ -142,7 +166,7 @@ func observeHeartbeatHost(scope maintenance.Scope, in heartbeatHostInput, thread
 	if in.Event != "PermissionRequest" && in.Event != "Interrupt" {
 		return nil
 	}
-	id, transcriptErr := stopCycleFromTranscript(in.Transcript, in.TurnID)
+	id, transcriptErr := heartbeatCycleForTurn(scope, in.heartbeatStopInput)
 	if !heartbeatHostRunAdmitted(scope, in.SessionID, in.TurnID) && (transcriptErr != nil || id == "") {
 		return nil
 	}

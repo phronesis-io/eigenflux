@@ -92,7 +92,7 @@ func ObserveCycle(scope Scope, id, result string) error {
 		return fmt.Errorf("invalid cycle identity")
 	}
 	switch result {
-	case "plan_created", "incomplete", "permission_required", "interrupted":
+	case "plan_created", "incomplete", "permission_required", "permission_denied", "interrupted":
 	default:
 		return fmt.Errorf("invalid cycle observation")
 	}

@@ -23,23 +23,31 @@ type heartbeatStopInput struct {
 }
 
 var cycleInPlan = regexp.MustCompile(`heartbeat cycle-report --cycle ([a-f0-9]{32})`)
+var cycleCheckID = regexp.MustCompile(`^[a-f0-9]{32}$`)
+
+type heartbeatCommandItem struct {
+	Type    string          `json:"type"`
+	Output  string          `json:"aggregated_output"`
+	Command json.RawMessage `json:"command"`
+	Status  string          `json:"status"`
+}
 
 // Read only host-generated command results in the exact current turn. Feed text,
 // user messages and previous turns cannot select a cycle to clear the guard.
-func stopCycleFromTranscript(path, turn string) (string, error) {
+func visitHeartbeatCommands(path string, acceptTurn func(string) bool, visit func(heartbeatCommandItem)) error {
 	f, err := os.Open(path)
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer f.Close()
 	info, err := f.Stat()
 	if err != nil {
-		return "", err
+		return err
 	}
 	const budget = 32 << 20
 	if info.Size() > budget {
 		if _, err = f.Seek(-budget, io.SeekEnd); err != nil {
-			return "", err
+			return err
 		}
 	}
 	scan := bufio.NewScanner(f)
@@ -47,26 +55,47 @@ func stopCycleFromTranscript(path, turn string) (string, error) {
 	if info.Size() > budget {
 		scan.Scan()
 	}
-	id := ""
 	for scan.Scan() {
 		var row struct {
 			Type    string `json:"type"`
 			Payload struct {
-				Type   string `json:"type"`
-				TurnID string `json:"turn_id"`
-				Item   struct {
-					Type   string `json:"type"`
-					Output string `json:"aggregated_output"`
-				} `json:"item"`
+				Type   string               `json:"type"`
+				TurnID string               `json:"turn_id"`
+				Item   heartbeatCommandItem `json:"item"`
 			} `json:"payload"`
 		}
 		if json.Unmarshal(scan.Bytes(), &row) != nil {
 			continue
 		}
-		if row.Type != "event_msg" || row.Payload.Type != "item_completed" || row.Payload.TurnID != turn || row.Payload.Item.Type != "CommandExecution" {
+		if row.Type != "event_msg" || row.Payload.Type != "item_completed" || !acceptTurn(row.Payload.TurnID) || row.Payload.Item.Type != "CommandExecution" {
 			continue
 		}
-		out := row.Payload.Item.Output
+		visit(row.Payload.Item)
+	}
+	return scan.Err()
+}
+
+func heartbeatCycleFromCommands(path string, acceptTurn func(string) bool) (string, error) {
+	id := ""
+	err := visitHeartbeatCommands(path, acceptTurn, func(item heartbeatCommandItem) {
+		out := item.Output
+		// Reuse the current main's cycle-check receipt recovery, including resumed
+		// turns which have no freshly generated plan.
+		if strings.Contains(string(item.Command), "heartbeat cycle-check") {
+			for _, line := range strings.Split(out, "\n") {
+				var check struct {
+					CycleID string `json:"cycle_id"`
+					Status  string `json:"status"`
+				}
+				if json.Unmarshal([]byte(line), &check) == nil && cycleCheckID.MatchString(check.CycleID) {
+					switch check.Status {
+					case "incomplete", "ready", "completed", "failed":
+						id = check.CycleID
+					}
+				}
+			}
+			return
+		}
 		if strings.HasPrefix(out, "{") {
 			var plan struct {
 				Schema string `json:"schema_version"`
@@ -77,13 +106,66 @@ func stopCycleFromTranscript(path, turn string) (string, error) {
 			}
 		}
 		if !strings.HasPrefix(out, "EIGENFLUX HEARTBEAT PLAN\n") {
-			continue
+			return
 		}
 		if match := cycleInPlan.FindStringSubmatch(out); len(match) == 2 {
 			id = match[1]
 		}
+	})
+	return id, err
+}
+
+func stopCycleFromTranscript(path, turn string) (string, error) {
+	return heartbeatCycleFromCommands(path, func(candidate string) bool { return candidate == turn })
+}
+
+func heartbeatCycleForTurn(scope maintenance.Scope, in heartbeatStopInput) (string, error) {
+	id, err := stopCycleFromTranscript(in.Transcript, in.TurnID)
+	if id != "" {
+		return id, err
 	}
-	return id, scan.Err()
+	marker, ok := readHeartbeatHostMarker(scope, in.SessionID, heartbeatHostAttempt(in.SessionID, in.TurnID))
+	if !ok {
+		return id, err
+	}
+	if marker.Cycle != "" {
+		return marker.Cycle, nil
+	}
+	if marker.OriginAttempt != "" && marker.OriginAttempt != heartbeatHostAttempt(in.SessionID, in.TurnID) {
+		return heartbeatCycleFromCommands(in.Transcript, func(turn string) bool {
+			return heartbeatHostAttempt(in.SessionID, turn) == marker.OriginAttempt
+		})
+	}
+	return id, err
+}
+
+// A request for approval is not a refusal. Only the last completed host receipt
+// for an exact scoped CLI command can establish a still-unresolved decline.
+func heartbeatScopedCommandDeclined(scope maintenance.Scope, in heartbeatStopInput) (bool, error) {
+	bin, err := stableInstalledExecutable()
+	if err != nil {
+		return false, err
+	}
+	var prefixes []string
+	for _, shell := range []string{"posix", "powershell", "cmd"} {
+		if prefix, e := renderHeartbeatCLIPrefix(bin, scope.Home, scope.Server, shell, "skill"); e == nil {
+			prefixes = append(prefixes, prefix+" ")
+		}
+	}
+	declined := false
+	err = visitHeartbeatCommands(in.Transcript, func(turn string) bool { return turn == in.TurnID }, func(item heartbeatCommandItem) {
+		var command string
+		if json.Unmarshal(item.Command, &command) != nil {
+			return
+		}
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(strings.TrimSpace(command), prefix) {
+				declined = strings.EqualFold(item.Status, "declined")
+				return
+			}
+		}
+	})
+	return declined, err
 }
 
 func heartbeatStopDecision(scope maintenance.Scope, in heartbeatStopInput, thread string) (map[string]any, error) {
@@ -99,7 +181,7 @@ func heartbeatStopDecision(scope maintenance.Scope, in heartbeatStopInput, threa
 		}
 		return nil, fmt.Errorf("missing hook turn identity")
 	}
-	id, err := stopCycleFromTranscript(in.Transcript, in.TurnID)
+	id, err := heartbeatCycleForTurn(scope, in)
 	if err == nil && id == "" && in.StopHookActive {
 		if continuation, ok := readHeartbeatHostRun(scope, in.SessionID, heartbeatHostAttempt(in.SessionID, in.TurnID)); ok {
 			id = continuation
@@ -114,6 +196,13 @@ func heartbeatStopDecision(scope maintenance.Scope, in heartbeatStopInput, threa
 		return nil, err
 	}
 	_ = maintenance.RecordLifecycle(scope, heartbeatHostAttempt(in.SessionID, in.TurnID), "guard", "active", maintenance.RuntimeObservation{Product: "codex", CLI: observationValue(version)})
+	declined, denialErr := heartbeatScopedCommandDeclined(scope, in)
+	if denialErr == nil && declined {
+		_ = maintenance.RecordLifecycle(scope, heartbeatHostAttempt(in.SessionID, in.TurnID), "permission", "denied", maintenance.RuntimeObservation{Product: "codex", CLI: observationValue(version)})
+		if id != "" {
+			_ = maintenance.ObserveCycle(scope, id, "permission_denied")
+		}
+	}
 	if id == "" {
 		// Plan/authentication failures have no admitted cycle to resume.
 		if strings.Contains(in.LastMessage, "<decision>NOTIFY</decision>") {
@@ -129,10 +218,9 @@ func heartbeatStopDecision(scope maintenance.Scope, in heartbeatStopInput, threa
 		return allow, nil
 	}
 	if strings.Contains(in.LastMessage, "<decision>NOTIFY</decision>") {
-		requested, _ := maintenance.LifecycleObserved(scope, heartbeatHostAttempt(in.SessionID, in.TurnID), "permission", "required")
-		if requested {
-			// An observed approval barrier may be reported without authorizing the
-			// missing command or pretending the open cycle completed.
+		if denialErr == nil && declined {
+			// A final host decline may be reported without authorizing the missing
+			// command or pretending the open cycle completed.
 			_ = maintenance.ObserveCycle(scope, id, "incomplete")
 			return allow, nil
 		}

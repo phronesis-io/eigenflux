@@ -50,7 +50,7 @@ func ValidateRuntime(e Event) error {
 			valid = e.Result == "observed"
 		case "permission":
 			switch e.Result {
-			case "allowed", "legacy_mismatch", "prompt", "forbidden", "unknown", "required":
+			case "allowed", "legacy_mismatch", "prompt", "forbidden", "unknown", "required", "denied":
 				valid = true
 			}
 		case "guard":
@@ -70,7 +70,7 @@ func ValidateRuntime(e Event) error {
 		return fmt.Errorf("cycle stage required")
 	}
 	switch e.Result {
-	case "plan_created", "incomplete", "permission_required", "interrupted":
+	case "plan_created", "incomplete", "permission_required", "permission_denied", "interrupted":
 		if r.Stage != "cycle" {
 			return fmt.Errorf("cycle observation requires cycle stage")
 		}

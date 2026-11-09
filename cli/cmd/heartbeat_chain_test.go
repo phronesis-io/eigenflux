@@ -252,11 +252,37 @@ func TestHeartbeatPermissionBarrierCanNotifyWithoutFakingCompletion(t *testing.T
 		t.Fatal(err)
 	}
 	in.Event = "Stop"
+	if d, err := heartbeatStopDecision(scope, in.heartbeatStopInput, "owner"); err != nil || d["decision"] != "block" {
+		t.Fatalf("approval request without final refusal bypassed unfinished work: %v %v", d, err)
+	}
+	prefix, err := nativeHeartbeatCLIPrefix(scope.Home, scope.Server, "posix", "skill")
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendHeartbeatHostCommand(t, p, "turn", prefix+" --origin heartbeat feed poll", "declined", "")
 	if d, err := heartbeatStopDecision(scope, in.heartbeatStopInput, "owner"); err != nil || len(d) != 0 {
-		t.Fatalf("real permission barrier trapped owner notification: %v %v", d, err)
+		t.Fatalf("final scoped refusal trapped owner notification: %v %v", d, err)
+	}
+	appendHeartbeatHostCommand(t, p, "turn", prefix+" --origin heartbeat feed poll", "completed", "success")
+	if d, err := heartbeatStopDecision(scope, in.heartbeatStopInput, "owner"); err != nil || d["decision"] != "block" {
+		t.Fatalf("later success did not clear old refusal: %v %v", d, err)
 	}
 	current, _ := maintenance.ReadCycle(scope, c.ID)
 	if current.Result != "" || current.Stages["feed"] != "" {
 		t.Fatal("notification rewrote cycle execution or completion")
+	}
+}
+
+func appendHeartbeatHostCommand(t *testing.T, path, turn, command, status, output string) {
+	t.Helper()
+	row := map[string]any{"type": "event_msg", "payload": map[string]any{"type": "item_completed", "turn_id": turn, "item": map[string]any{"type": "CommandExecution", "command": command, "status": status, "aggregated_output": output}}}
+	b, _ := json.Marshal(row)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.Write(append(b, '\n')); err != nil {
+		t.Fatal(err)
 	}
 }

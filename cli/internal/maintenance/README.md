@@ -63,7 +63,7 @@ unknown. `EIGENFLUX_RUNTIME_OBSERVATIONS=0` disables creation. Upload errors nev
 repeat business actions. OS/architecture come from the running binary; model
 and host are reported evidence, not inferred hardware or user participation.
 
-A generated plan contributes environment evidence only. The first valid stage receipt records execution with its observation timestamp. Cycle failure requires a failed stage receipt. Interrupted or missing stages remain unresolved.
+A generated plan contributes environment and delivery observations, not execution evidence. The first valid stage receipt records execution with its observation timestamp. Cycle failure requires a failed stage receipt. Interrupted or missing stages remain unresolved.
 
 Cycle rules are pinned by path, UTF-8 byte ranges and a cycle-specific digest.
 Rule pages and Stop continuation bindings live in separate account-scoped
@@ -102,7 +102,7 @@ observation opt-out. Host observations contain no network calls; the independent
 maintenance uploader delivers the bounded queue.
 
 Cycle observations distinguish planning from execution. `ObserveCycle` records
-`plan_created`, `incomplete`, `permission_required` or `interrupted` only at the
+`plan_created`, `incomplete`, `permission_required`, `permission_denied` or `interrupted` only at the
 cycle stage. These observations never change terminal results, count as a stage
 receipt, or repeat business work. Emit `plan_created` only after the plan is
 successfully delivered. Missing execution receipts remain unknown unless a
@@ -116,6 +116,10 @@ activation. Record active guards only from their actual host invocation.
 Permission observations require an actual local policy check or host approval request;
 unknown policy evidence remains unknown. No raw errors, paths or policy bodies
 are uploaded.
+Use permission/denied and cycle/permission_denied only for a trusted final host
+decline of the scoped CLI command. Permission requests alone remain required.
+A denial observation is historical; successful authorized execution may resolve
+the barrier without deleting telemetry or changing an unfinished cycle outcome.
 
 `cycle_observations.go` retains pending observations and upload acknowledgements
 in a separate account-scoped `observations` gate file under the existing state

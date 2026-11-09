@@ -106,3 +106,66 @@ func TestHeartbeatPermissionCombinesEverySuppliedPolicyFile(t *testing.T) {
 		t.Fatal("missing policy files manufactured permission evidence")
 	}
 }
+
+func TestHeartbeatPermissionChecksScheduledShellAndOriginRestrictions(t *testing.T) {
+	dir := t.TempDir()
+	rules := filepath.Join(dir, "active.rules")
+	if err := os.WriteFile(rules, []byte("fixed fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cli := filepath.Join(dir, "eigenflux")
+	for _, restriction := range []string{"origin", "shell", "watch-managed"} {
+		t.Run(restriction, func(t *testing.T) {
+			run := func(_ context.Context, _ string, args []string) ([]byte, error) {
+				var command []string
+				for i, arg := range args {
+					if arg == "--" {
+						command = args[i+1:]
+						break
+					}
+				}
+				if len(command) < 8 {
+					t.Fatalf("incomplete execution command: %q", command)
+				}
+				decision := "allow"
+				if command[0] == cli {
+					for i, arg := range command {
+						if restriction == "origin" && arg == "--origin" && i+1 < len(command) && command[i+1] == "heartbeat" {
+							decision = "forbidden"
+						}
+						if restriction == "shell" && arg == "--shell" && i+1 < len(command) && command[i+1] == "powershell" {
+							decision = "prompt"
+						}
+						if restriction == "watch-managed" && arg == "--watch-managed" {
+							decision = "forbidden"
+						}
+					}
+				}
+				return json.Marshal(map[string]any{"decision": decision, "matchedRules": []any{map[string]string{"decision": decision}}})
+			}
+			result, err := checkHeartbeatPermission(context.Background(), filepath.Join(dir, "codex"), []string{rules}, cli, dir, "selected", run, heartbeatPermissionOptions{Shell: "powershell", WatchManaged: true})
+			want := "forbidden"
+			if restriction == "shell" {
+				want = "prompt"
+			}
+			if err != nil || result.Status != want || result.ProposedRule != "" {
+				t.Fatalf("scheduled execution restriction ignored: %+v %v", result, err)
+			}
+			launcher, err := heartbeatLauncherArgs(cli, dir, "selected", "skill", "powershell")
+			if err != nil {
+				t.Fatal(err)
+			}
+			launcher = append(launcher, "--watch-managed")
+			got, _ := json.Marshal(result.Checks[0].Command)
+			expected, _ := json.Marshal(launcher)
+			if string(got) != string(expected) {
+				t.Fatalf("checked launcher differs from actual execution argv: %s != %s", got, expected)
+			}
+			for _, check := range result.Checks[1:] {
+				if len(check.Command) < 9 || check.Command[7] != "--origin" || check.Command[8] != "heartbeat" {
+					t.Fatalf("business command lost scheduled origin: %q", check.Command)
+				}
+			}
+		})
+	}
+}
