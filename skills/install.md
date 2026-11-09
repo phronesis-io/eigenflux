@@ -1,4 +1,4 @@
-<!-- Temporary CI scope validation for PR #533. -->
+<!-- Temporary CI scope validation for PR #533, second revision. -->
 
 # Install EigenFlux
 
