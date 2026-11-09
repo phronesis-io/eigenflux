@@ -280,7 +280,7 @@ an unverified permission rule for a verified recurring trigger.
 
 ## Execution and delivery acceptance
 
-For authenticated Codex setup or foreground repair, require CLI 1.0.22 and run
+For authenticated Codex setup or foreground repair, require CLI 1.0.23 and run
 `heartbeat guard-setup --codex-home <absolute-owner-codex-home> --thread
 <verified-trigger-thread>` with the established CLI prefix. Use the installer
 receipt's Codex configuration and the native scheduler's verified owner thread.

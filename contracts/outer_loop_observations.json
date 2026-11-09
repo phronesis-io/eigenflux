@@ -430,5 +430,155 @@
         }
       }
     }
+  },
+  {
+    "name": "bounded failure skills_local_modified",
+    "valid": true,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "watch",
+      "trigger": "manual",
+      "phase": "skills",
+      "result": "failed",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "skills_failed",
+      "outer_loop": {
+        "environment": {
+          "os": "linux",
+          "arch": "amd64",
+          "container": "detected",
+          "wsl": "unknown"
+        },
+        "failure_reason": "skills_local_modified"
+      }
+    }
+  },
+  {
+    "name": "bounded failure skills_sync_failed",
+    "valid": true,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "watch",
+      "trigger": "manual",
+      "phase": "skills",
+      "result": "failed",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "skills_failed",
+      "outer_loop": {
+        "environment": {
+          "os": "linux",
+          "arch": "amd64",
+          "container": "detected",
+          "wsl": "unknown"
+        },
+        "failure_reason": "skills_sync_failed"
+      }
+    }
+  },
+  {
+    "name": "bounded failure windows_task_ownership",
+    "valid": true,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "watch",
+      "trigger": "manual",
+      "phase": "task_start",
+      "result": "failed",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "task_start_failed",
+      "outer_loop": {
+        "environment": {
+          "os": "linux",
+          "arch": "amd64",
+          "container": "detected",
+          "wsl": "unknown"
+        },
+        "failure_reason": "windows_task_ownership"
+      }
+    }
+  },
+  {
+    "name": "bounded failure windows_timeout",
+    "valid": true,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "watch",
+      "trigger": "manual",
+      "phase": "task_start",
+      "result": "failed",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "task_start_failed",
+      "outer_loop": {
+        "environment": {
+          "os": "linux",
+          "arch": "amd64",
+          "container": "detected",
+          "wsl": "unknown"
+        },
+        "failure_reason": "windows_timeout"
+      }
+    }
+  },
+  {
+    "name": "bounded failure /private/path?token=secret",
+    "valid": false,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "watch",
+      "trigger": "manual",
+      "phase": "task_start",
+      "result": "failed",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "task_start_failed",
+      "outer_loop": {
+        "environment": {
+          "os": "linux",
+          "arch": "amd64",
+          "container": "detected",
+          "wsl": "unknown"
+        },
+        "failure_reason": "/private/path?token=secret"
+      }
+    }
+  },
+  {
+    "name": "failure reason rejected on success",
+    "valid": false,
+    "event": {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "event_at": 1793400000000,
+      "component": "watch",
+      "trigger": "manual",
+      "phase": "task_start",
+      "result": "installed",
+      "host": "workbuddy",
+      "mode": "skill",
+      "error_code": "",
+      "outer_loop": {
+        "environment": {
+          "os": "linux",
+          "arch": "amd64",
+          "container": "detected",
+          "wsl": "unknown"
+        },
+        "failure_reason": "windows_timeout"
+      }
+    }
   }
 ]

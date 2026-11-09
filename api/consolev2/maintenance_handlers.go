@@ -154,12 +154,14 @@ func (s *Service) recordMaintenanceBatch(_ context.Context, c *app.RequestContex
 		fail(c, http.StatusBadRequest, "INVALID_MAINTENANCE_BATCH", "unexpected trailing JSON", nil)
 		return
 	}
+	watchFailures := parseWatchFailureMetadata(string(c.Request.Header.Peek(watchFailuresHeader)))
 	rows := make([]telemetryEventRequest, 0, len(req.Events))
 	for _, event := range req.Events {
 		if err := validateMaintenanceEvent(event, now); err != nil {
 			fail(c, http.StatusBadRequest, "INVALID_MAINTENANCE_EVENT", err.Error(), nil)
 			return
 		}
+		event = mergeWatchFailureMetadata(event, watchFailures[event.EventID], now)
 		if event.Runtime != nil && os.Getenv("ENABLE_RUNTIME_OBSERVATIONS") == "false" {
 			continue
 		}
