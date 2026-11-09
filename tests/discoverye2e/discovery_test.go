@@ -88,8 +88,9 @@ func TestDiscoveryE2E(t *testing.T) {
 		for _, field := range []string{"notifications", "cadence", "personalization", "control_context_snapshot", "capabilities_applied", "discovery"} {
 			require.Contains(t, feed, field, "empty discovery must not bypass Feed assembly")
 		}
-		require.Equal(t, "full", feed["personalization"].(map[string]any)["context_delivery"])
-		require.Equal(t, map[string]any{"intent_actions": []any{}}, feed["control_context_snapshot"])
+		require.Equal(t, "baseline", feed["personalization"].(map[string]any)["mode"])
+		require.Equal(t, "none", feed["personalization"].(map[string]any)["context_delivery"])
+		require.Nil(t, feed["control_context_snapshot"])
 	})
 	t.Run("PartialNeedCoverageFallsBackOnlyForMissingKinds", func(t *testing.T) {
 		defer s.changeInputs(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)

@@ -30,6 +30,7 @@ type Sources interface {
 	Seen(context.Context, int64, []Document) (map[string]bool, error)
 }
 type Engine struct {
+	LexicalEvidenceBPS int
 	// frozenContexts is set only by the offline replay entry point.
 	frozenContexts []Context
 	Learned        LearnedRanker
@@ -278,6 +279,12 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	contexts, fallback, err := e.contexts(ctx, owner, r, mode, now)
 	if err != nil {
 		return x, err
+	}
+	if bucketEnabled(lexicalEvidenceSalt, owner, e.LexicalEvidenceBPS) {
+		contexts = append([]Context(nil), contexts...)
+		for i := range contexts {
+			contexts[i].LexicalPolicy = LexicalEvidenceV1
+		}
 	}
 	if mode == Recommendation && !emptyFilters(r.Filters) {
 		for i, c := range contexts {

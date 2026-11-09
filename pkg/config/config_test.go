@@ -570,3 +570,14 @@ func TestNeedBudgetDefaultsOffAndLoadsBucket(t *testing.T) {
 		t.Fatal("Need budget bucket not loaded")
 	}
 }
+
+func TestDiscoveryLexicalEvidenceDefaultsOff(t *testing.T) {
+	t.Setenv("DISCOVERY_LEXICAL_EVIDENCE_BPS", "")
+	if Load().DiscoveryLexicalEvidenceBPS != 0 {
+		t.Fatal("lexical evidence must default off")
+	}
+	t.Setenv("DISCOVERY_LEXICAL_EVIDENCE_BPS", "500")
+	if Load().DiscoveryLexicalEvidenceBPS != 500 {
+		t.Fatal("lexical evidence bucket not loaded")
+	}
+}

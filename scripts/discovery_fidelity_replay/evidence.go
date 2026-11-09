@@ -20,6 +20,7 @@ type itemEvidence struct {
 	Notes               string `json:"notes"`
 	Summary             string `json:"summary"`
 	Keywords            string `json:"keywords"`
+	Domains             string `json:"domains"`
 	ExpireTime          string `json:"expire_time"`
 	Lang                string `json:"lang"`
 	AuthorID            int64  `json:"author_id,string"`

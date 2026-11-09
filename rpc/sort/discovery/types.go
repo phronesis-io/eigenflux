@@ -122,6 +122,7 @@ func (r *Request) UnmarshalJSON(raw []byte) error {
 }
 
 type Context struct {
+	LexicalPolicy string `json:"lexical_policy,omitempty"`
 	// Request-local clock; excluded from persisted context/hash contracts.
 	retrievalAt           int64
 	excludeConsumedGroups []int64

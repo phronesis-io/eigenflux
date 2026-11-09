@@ -17,10 +17,20 @@ func (p *poolSource) calibratedLexical(ctx context.Context, c discovery.Context,
 	if err != nil {
 		return nil, err
 	}
-	if len(p.changed) == 0 {
+	capturedPolicy := ""
+	for _, originalContext := range p.snap.Contexts {
+		if originalContext.ID == c.ID {
+			capturedPolicy = originalContext.LexicalPolicy
+			break
+		}
+	}
+	repair := c.LexicalPolicy != capturedPolicy
+	if len(p.changed) == 0 && !repair {
 		return original, nil
 	}
-	before, err := lexicalScores(ctx, c, p.reference)
+	referenceContext := c
+	referenceContext.LexicalPolicy = capturedPolicy
+	before, err := lexicalScores(ctx, referenceContext, p.reference)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +63,7 @@ func (p *poolSource) calibratedLexical(ctx context.Context, c discovery.Context,
 		if p.dropped[id] {
 			continue
 		}
-		if p.changed[id] && !p.stale[id] && p.docs[id].Version != d.Version {
+		if !p.stale[id] && (repair || p.changed[id] && p.docs[id].Version != d.Version) {
 			score := after[id] * scale
 			if before[id] > 0 {
 				score = d.Lexical * after[id] / before[id]
@@ -71,7 +81,14 @@ func (p *poolSource) calibratedLexical(ctx context.Context, c discovery.Context,
 	}
 	// A source already in another recall channel can newly match lexical terms.
 	// Unchanged uncaptured lexical rows are not promoted by finite-corpus bias.
-	for id := range p.changed {
+	changed := p.changed
+	if repair {
+		changed = map[int64]bool{}
+		for id := range p.docs {
+			changed[id] = true
+		}
+	}
+	for id := range changed {
 		if _, ok := prior[id]; ok || p.dropped[id] || p.stale[id] {
 			continue
 		}

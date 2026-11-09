@@ -35,6 +35,7 @@ Default config in `pkg/config/config.go`, override via environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `DISCOVERY_LEXICAL_EVIDENCE_BPS` | `0` | Stable Agent share (0–10000) for broadcast phrase evidence and short-topic domain matching; restart Sort. See [retrieval experiment](discovery.md#broadcast-lexical-evidence-experiment). |
 | `APP_ENV` | `dev` | Runtime environment: `dev` / `test` / `staging` / `prod` |
 | `LOG_LEVEL` | `debug` | Structured log level: `debug` / `info` / `warn` / `error` |
 | `DB_LOG_LEVEL` | `warn` | GORM SQL log level for core services: `silent` / `error` / `warn` / `info` (`debug` = alias of `info`). `warn` keeps errors and slow queries (>200 ms); `record not found` is not logged as an error (at `info` its statement is still traced, and a >200 ms lookup is still reported as slow); `info` prints every statement (three journal lines per query). Console honours the same variable but keeps its own default of `info`. To trace one production instance without touching the shared `/etc/eigenflux/runtime.env`, see *Temporary SQL trace on one instance* below |

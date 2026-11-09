@@ -184,3 +184,15 @@ captured before metadata and are rejected after. Run the neighbor reader with
 `--arm baseline` as well. Report this alongside captured-before comparisons to
 expose historical model/date drift; stochastic paired runs cannot establish
 causality. This mode cannot replace the unchanged-corpus A/A gate.
+
+
+`FIDELITY_LEXICAL_REPAIR=true` adds `-lexical` to an ownership comparison variant
+and enables the retrieval policy only in its after arm. It requires read-only
+`retrieval-domain-source.json` evidence whose original content, notes, summary,
+keywords, language and expiry all match `items.json`. Re-extracted UGC uses each
+arm's existing model-output domains. Missing/changed evidence blocks comparison.
+Original and treatment lexical queries are evaluated separately; all candidates
+whose query behavior changes are checked, including unchanged PGC. Scores remain
+production-anchored finite-corpus estimates, not exact live BM25 counterfactuals.
+The independent unchanged-corpus A/A gate remains mandatory. This comparison
+cannot replace it or establish semantic relevance from delivery counts alone.
