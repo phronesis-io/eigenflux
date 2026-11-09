@@ -116,6 +116,8 @@ jobs:
         with:
           go-version-file: cli/go.mod
           cache-dependency-path: cli/go.sum
+      - name: Test exact main-session metadata and linked session roots
+        run: go test ./internal/dispatch -run TestMainSession -count=1
       - name: Test identity and credential storage
         run: go test ./internal/auth -count=1
       - name: Test signed self-update and native package installation

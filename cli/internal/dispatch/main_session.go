@@ -50,8 +50,12 @@ func (b Binding) mainSessionPath() (string, error) {
 	if !filepath.IsAbs(home) {
 		return "", errors.New("main session requires an explicit absolute env.CODEX_HOME")
 	}
+	root, err := mainSessionRoot(filepath.Join(home, "sessions"))
+	if err != nil {
+		return "", ErrMainSessionUnavailable
+	}
 	found := ""
-	err := filepath.WalkDir(filepath.Join(home, "sessions"), func(path string, entry fs.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -81,6 +85,27 @@ func (b Binding) mainSessionPath() (string, error) {
 		return "", ErrMainSessionUnavailable
 	}
 	return found, nil
+}
+
+// Resolve only the sessions root. WalkDir still does not follow links inside it.
+func mainSessionRoot(root string) (string, error) {
+	for range 40 {
+		resolved, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			return "", err
+		}
+		// Windows can report a directory junction as ModeIrregular, leaving it
+		// unresolved by EvalSymlinks. Readlink also understands these junctions.
+		target, err := os.Readlink(resolved)
+		if err != nil {
+			return resolved, nil
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(filepath.Dir(resolved), target)
+		}
+		root = target
+	}
+	return "", ErrMainSessionUnavailable
 }
 
 // SetMainSession requires a stopped watcher/account lock and an explicit old
