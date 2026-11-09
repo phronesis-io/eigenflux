@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/maintenance"
+	"cli.eigenflux.ai/internal/selfupdate"
 	"cli.eigenflux.ai/internal/uninstallscript"
 	watchstate "cli.eigenflux.ai/internal/watch"
 	"github.com/spf13/cobra"
@@ -25,24 +27,25 @@ var regexpUninstallAttempt = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
 // No credentials or free-text reasons are carried in a finalization receipt.
 type uninstallObservation struct {
-	RemovalScope          string              `json:"removal_scope,omitempty"`
-	RetainedPaths         []string            `json:"retained_paths,omitempty"`
-	RemainingRegistration *installationRecord `json:"remaining_registration,omitempty"`
-	AttemptID             string              `json:"attempt_id"`
-	Executable            string              `json:"executable"`
-	CleanupFiles          []string            `json:"cleanup_files,omitempty"`
-	FileDigests           map[string]string   `json:"file_digests,omitempty"`
-	Homes                 []installationHome  `json:"homes"`
-	Scopes                []maintenance.Scope `json:"scopes,omitempty"`
-	Started               time.Time           `json:"started"`
-	Source                string              `json:"source"`
-	ReasonCategory        string              `json:"reason_category"`
-	Version               string              `json:"version"`
-	Pending               bool                `json:"pending"`
-	Partial               bool                `json:"partial"`
-	Mutated               bool                `json:"mutated"`
-	Result                string              `json:"result,omitempty"`
-	LocalReason           string              `json:"-"`
+	RemovalScope          string                          `json:"removal_scope,omitempty"`
+	RetainedPaths         []string                        `json:"retained_paths,omitempty"`
+	RemainingRegistration *installationRecord             `json:"remaining_registration,omitempty"`
+	AttemptID             string                          `json:"attempt_id"`
+	Executable            string                          `json:"executable"`
+	CleanupFiles          []string                        `json:"cleanup_files,omitempty"`
+	FileDigests           map[string]string               `json:"file_digests,omitempty"`
+	PackageCleanup        *selfupdate.InstallationCleanup `json:"package_cleanup,omitempty"`
+	Homes                 []installationHome              `json:"homes"`
+	Scopes                []maintenance.Scope             `json:"scopes,omitempty"`
+	Started               time.Time                       `json:"started"`
+	Source                string                          `json:"source"`
+	ReasonCategory        string                          `json:"reason_category"`
+	Version               string                          `json:"version"`
+	Pending               bool                            `json:"pending"`
+	Partial               bool                            `json:"partial"`
+	Mutated               bool                            `json:"mutated"`
+	Result                string                          `json:"result,omitempty"`
+	LocalReason           string                          `json:"-"`
 }
 
 func newUninstallObservation(bin, source, category, reason string) *uninstallObservation {
@@ -236,7 +239,7 @@ func (o *uninstallObservation) removeOriginal(afterRemoval ...func() error) erro
 			releases[i]()
 		}
 	}()
-	for _, path := range []string{o.Executable + ".install.lock", o.Executable + ".update.lock"} {
+	for _, path := range []string{o.Executable + ".install.lock", o.Executable + ".update.lock", o.Executable + ".activation.lock"} {
 		info, err := os.Lstat(path)
 		if err != nil && !os.IsNotExist(err) {
 			return err
@@ -279,6 +282,9 @@ func (o *uninstallObservation) removeOriginal(afterRemoval ...func() error) erro
 		releases = append(releases, locks...)
 	}
 	paths := append([]string{o.Executable}, o.CleanupFiles...)
+	if err := o.verifyPackageCleanup(context.Background()); err != nil {
+		return err
+	}
 	// Revalidate all original files before deleting any. Registration and update
 	// writers use the same locks, so a new installation cannot be removed here.
 	for _, path := range paths {
@@ -302,6 +308,9 @@ func (o *uninstallObservation) removeOriginal(afterRemoval ...func() error) erro
 		if o.FileDigests[path] == "" || uninstallscript.Digest(data) != o.FileDigests[path] {
 			return errors.New("installation changed before finalization")
 		}
+	}
+	if err := o.removePackages(); err != nil {
+		return err
 	}
 	for _, path := range paths {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -334,7 +343,8 @@ func init() {
 		if json.Unmarshal(data, &o) != nil || o.AttemptID != attempt || !filepath.IsAbs(o.Executable) || o.Started.IsZero() || time.Since(o.Started) < 0 || time.Since(o.Started) > 24*time.Hour {
 			return errors.New("invalid uninstall receipt")
 		}
-		if !o.Pending {
+		remove, _ := cmd.Flags().GetBool("remove-original")
+		if !o.Pending && !(remove && o.Result == "partial" && o.PackageCleanup != nil) {
 			if o.Result == "removed" || o.Result == "partial" || o.Result == "blocked" || o.Result == "failed" {
 				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"attempt_id": attempt, "result": o.Result}); err != nil {
 					return err
@@ -347,7 +357,7 @@ func init() {
 			return errors.New("uninstall receipt is already finalized")
 		}
 		result, code := "removed", ""
-		remove, _ := cmd.Flags().GetBool("remove-original")
+		o.Result = ""
 		localDataRemoved := false
 		if remove {
 			if err := o.removeOriginal(func() error {
@@ -366,6 +376,20 @@ func init() {
 			if _, err := os.Lstat(target); !os.IsNotExist(err) {
 				result, code = "partial", "executable_or_sidecar_retained"
 				break
+			}
+		}
+		if o.PackageCleanup != nil {
+			for _, target := range o.PackageCleanup.Directories {
+				if _, err := os.Lstat(target); !os.IsNotExist(err) {
+					result, code = "partial", "installation_package_retained"
+					break
+				}
+			}
+			for target := range o.PackageCleanup.Files {
+				if _, err := os.Lstat(target); !os.IsNotExist(err) {
+					result, code = "partial", "installation_package_retained"
+					break
+				}
 			}
 		}
 		if o.Partial && result == "removed" {

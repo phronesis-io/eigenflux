@@ -7,6 +7,18 @@ function ConvertTo-NativeArgument([string]$value) {
   # Windows argv quoting; reason text and paths remain argument data.
   return '"' + [regex]::Replace([regex]::Replace($value, '(\\*)"', '$1$1\"'), '(\\+)$', '$1$1') + '"'
 }
+function Get-EigenFluxSHA256([string]$path) {
+  # Use .NET directly when a 5.1 child inherits PowerShell 7 module paths.
+  $hash = [Security.Cryptography.SHA256]::Create()
+  $stream = $null
+  try {
+    $stream = [IO.File]::OpenRead($path)
+    return [BitConverter]::ToString($hash.ComputeHash($stream)).Replace('-', '').ToLowerInvariant()
+  } finally {
+    if ($stream) { $stream.Dispose() }
+    $hash.Dispose()
+  }
+}
 function Invoke-EigenFluxJson([string]$binary, [string[]]$cliArgs, [switch]$TemporaryReporter) {
   $info = New-Object Diagnostics.ProcessStartInfo
   $info.FileName = $binary
@@ -40,6 +52,8 @@ if (-not ($result.apply -and $result.executable_removal_pending)) {
 $temporary = $null
 $reporter = $null
 $finalized = $false
+$removed = $false
+$reporterVerified = $false
 try {
   if ($result.executable -ne $resolved) { throw 'Executable does not match the reviewed installation.' }
   if ($result.attempt_id -notmatch '^[a-f0-9]{32}$' -or -not [IO.Path]::IsPathRooted($result.receipt_home)) {
@@ -57,7 +71,33 @@ try {
   $temporary = Join-Path ([IO.Path]::GetTempPath()) ('eigenflux-uninstall-' + [Guid]::NewGuid().ToString('N'))
   [IO.Directory]::CreateDirectory($temporary) | Out-Null
   $reporter = Join-Path $temporary 'eigenflux.exe'
-  Copy-Item -LiteralPath $resolved -Destination $reporter -ErrorAction Stop
+  $reporterSource = $resolved
+  if ($result.reporter_executable) {
+    $reporterSource = $result.reporter_executable
+    if ($reporterSource -ne $resolved) {
+      $versionsRoot = "${resolved}.versions"
+      $versionDirectory = [IO.Path]::GetDirectoryName($reporterSource)
+      if ([IO.Path]::GetDirectoryName($versionDirectory) -ne $versionsRoot -or
+          [IO.Path]::GetFileName($versionDirectory) -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' -or
+          [IO.Path]::GetFileName($reporterSource) -ne 'eigenflux.exe') {
+        throw 'Reporter is outside the reviewed installation.'
+      }
+      foreach ($file in @($versionsRoot, $versionDirectory, $reporterSource)) {
+        $item = Get-Item -LiteralPath $file -Force
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Reporter path must not traverse links.' }
+      }
+    }
+    if ($result.reporter_sha256 -notmatch '^[a-f0-9]{64}$' -or
+        (Get-EigenFluxSHA256 $reporterSource) -ne $result.reporter_sha256) {
+      throw 'Reporter changed after uninstall preparation.'
+    }
+  }
+  Copy-Item -LiteralPath $reporterSource -Destination $reporter -ErrorAction Stop
+  if ($result.reporter_sha256 -and
+      (Get-EigenFluxSHA256 $reporter) -ne $result.reporter_sha256) {
+    throw 'Temporary reporter checksum differs.'
+  }
+  $reporterVerified = $true
   # The trusted copy reacquires installation/watch locks and checks file hashes.
   $call = Invoke-EigenFluxJson $reporter @('--homedir', $result.receipt_home, 'uninstall-finalize', '--attempt', $result.attempt_id, '--remove-original', '--format', 'json') -TemporaryReporter
   if ($call.ExitCode -ne 0 -and -not $call.Output.Trim()) { throw 'Final uninstall observation failed; inspect remaining installation files.' }
@@ -70,15 +110,24 @@ try {
   $result | Add-Member -NotePropertyName result -NotePropertyValue $final.result -Force
   $result | ConvertTo-Json -Depth 10
   if ($final.result -ne 'removed' -or $call.ExitCode -ne 0) { exit 1 }
+  $removed = $true
 } catch {
   # Observe retained original files as partial, never as a successful removal.
-  if ($reporter -and (Test-Path -LiteralPath $reporter) -and -not $finalized) {
+  if ($reporterVerified -and $reporter -and (Test-Path -LiteralPath $reporter) -and -not $finalized) {
     $call = Invoke-EigenFluxJson $reporter @('--homedir', $result.receipt_home, 'uninstall-finalize', '--attempt', $result.attempt_id, '--format', 'json') -TemporaryReporter
     if ($call.ExitCode -eq 0) { $call.Output }
   }
-  Write-Error 'Uninstall incomplete. Inspect remaining installation files.'
+  Write-Error ('Uninstall incomplete: ' + $_.Exception.Message) -ErrorAction Continue
   exit 1
 } finally {
-  if ($reporter -and (Test-Path -LiteralPath $reporter)) { Remove-Item -LiteralPath $reporter -ErrorAction SilentlyContinue }
-  if ($temporary -and (Test-Path -LiteralPath $temporary)) { Remove-Item -LiteralPath $temporary -ErrorAction SilentlyContinue }
+  if ($removed -or -not $reporterVerified -or -not $reporter -or -not (Test-Path -LiteralPath $reporter)) {
+    if ($reporter -and (Test-Path -LiteralPath $reporter)) { Remove-Item -LiteralPath $reporter -ErrorAction SilentlyContinue }
+    if ($temporary -and (Test-Path -LiteralPath $temporary)) { Remove-Item -LiteralPath $temporary -ErrorAction SilentlyContinue }
+  } else {
+    # Keep the verified reporter usable even if the active version was removed.
+    Write-Warning ('Uninstall recovery reporter retained: ' + $reporter)
+    Write-Warning ('Clear EIGENFLUX_INSTALL_ROOT, EIGENFLUX_INSTALL_CHILD and EIGENFLUX_INSTALL_WATCH_LAUNCHER, then run: & ' +
+      "'" + $reporter.Replace("'", "''") + "' --homedir '" + $result.receipt_home.Replace("'", "''") +
+      "' uninstall-finalize --attempt " + $result.attempt_id + ' --remove-original --format json')
+  }
 }

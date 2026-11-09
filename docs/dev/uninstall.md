@@ -32,6 +32,8 @@ Retain shared marketplaces for current-Agent removal and block on foreign or
 ambiguous ownership. The EigenFlux CLI does not edit Codex configuration or
 recursively remove host marketplace directories itself.
 
+Complete removal verifies retained version directories against signed manifests and their ZIP archives before deleting package files, empty directories and the activation pointer. Receipt and finalization checks reject unknown content, links and changed installations. Current-Agent removal preserves these shared packages.
+
 Successful removal deletes the registered CLI, its owned sidecars and wrappers, registered EigenFlux-managed Skills including edited content, and each registered Home's local configuration, credentials, identity keys, caches, history, maintenance state, and uninstall audits. Skills targets require a valid EigenFlux ownership manifest; only registered entries are removed. Leaf symlinks are unlinked without removing their targets. Local data cleanup does not delete a cloud account.
 
 Missing registered Skills directories are already removed. Existing targets with missing or invalid manifests fail ownership validation. For complete Windows removal, the uninstall Skill also verifies and clears EigenFlux-owned legacy entries under `%USERPROFILE%\.agents\skills` using host-native tools; unrelated entries remain.
@@ -39,7 +41,7 @@ Missing registered Skills directories are already removed. Existing targets with
 Terminal upload clients capture existing credentials in memory before cleanup.
 Successful cleanup deletes local files before uploading the actual terminal outcome; it does not recreate credentials or queues. Free-text reasons remain local during an attempt and are deleted after successful cleanup. Upload has one five-second budget across accounts and does not block removal. Offline uninstall has no retained delivery queue after successful data cleanup.
 
-Installation/update/watch lock files remain to prevent replacement of live lock inodes. Successful removal retains no business data or credentials in those files. An abnormal wrapper does not skip Home cleanup; partial removal reports retained paths and exits unsuccessfully. Cleanup failures keep failure/audit state; successful Home cleanup does not recreate that state.
+Installation/update/activation/watch lock files remain to prevent replacement of live lock inodes. Successful removal retains no business data or credentials in those files. An abnormal wrapper does not skip Home cleanup; partial removal reports retained paths and exits unsuccessfully. Cleanup failures keep failure/audit state; successful Home cleanup does not recreate that state.
 
 Official installers run the downloaded CLI's internal `installation replace` command. Binary replacement and ownership registration hold the same installation/update locks used by uninstall. Windows uses managed Skills sync and records its actual target. Publish CLI 0.6.4 before releasing the updated shell installer; the installer release workflow rejects earlier published versions.
 

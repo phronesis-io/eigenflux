@@ -85,7 +85,7 @@ func TestNotificationLaunchAgentPreservesExistingWrapper(t *testing.T) {
 				switch args[0] {
 				case "print":
 					if !loaded {
-						return nil, errors.New("absent")
+						return nil, launchctlTestExit(113)
 					}
 					if mode == "active" || len(mutations) > 0 {
 						return []byte("\tstate = running\n\tpid = 24680\n"), nil
@@ -162,7 +162,7 @@ func TestMissingAccountLaunchAgentCreatedOrPreservesDisable(t *testing.T) {
 						return nil, nil
 					}
 					if !loaded {
-						return nil, errors.New("absent")
+						return nil, launchctlTestExit(113)
 					}
 					return []byte("\tstate = running\n\tpid = 12345\n"), nil
 				case "bootstrap":
@@ -227,7 +227,7 @@ func TestLaunchAgentForAnotherHomeDoesNotBlockRecovery(t *testing.T) {
 			return nil, nil
 		}
 		if args[0] == "print" {
-			return nil, errors.New("absent")
+			return nil, launchctlTestExit(113)
 		}
 		t.Fatalf("unexpected mutation %s %v", program, args)
 		return nil, nil
@@ -294,7 +294,7 @@ func TestNotificationModeMigration(t *testing.T) {
 						return nil, nil
 					}
 					if !loaded {
-						return nil, errors.New("absent")
+						return nil, launchctlTestExit(113)
 					}
 					if started {
 						return []byte("\tstate = running\n\tpid = 12345\n"), nil
@@ -346,6 +346,56 @@ func TestNotificationModeMigration(t *testing.T) {
 		})
 	}
 }
+
+func TestNotificationPrepareWaitsForAsynchronousUnload(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, "Library", "LaunchAgents")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	cli := filepath.Join(home, "eigenflux")
+	if err := os.WriteFile(cli, []byte("fixture"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "fixture.plist")
+	if err := os.WriteFile(file, []byte("preserve settings"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	task := NotificationTask{CLI: cli, Home: home, Server: "eigenflux", Scope: strings.Repeat("a", 32), AgentID: "a", PrincipalID: "p", PrepareOnly: true}
+	definition, _ := json.Marshal(notificationLaunchDefinition{Label: "ai.eigenflux.fixture", ProgramArguments: []string{cli, "--homedir", home, "--server", "eigenflux", "watch", "--notifications-only"}})
+	stopping, reads := false, 0
+	run := func(_ context.Context, program string, args ...string) ([]byte, error) {
+		if program == "/usr/bin/plutil" {
+			return definition, nil
+		}
+		if args[0] == "print-disabled" || (args[0] == "print" && strings.Count(args[1], "/") == 1) {
+			return nil, nil
+		}
+		switch args[0] {
+		case "bootout":
+			stopping = true
+		case "print":
+			if stopping {
+				reads++
+				if reads > 1 {
+					return nil, launchctlTestExit(113)
+				}
+				return []byte("\tstate = SIGTERMed\n\tpid = 12345\n"), nil
+			}
+			return []byte("\tstate = waiting\n"), nil
+		default:
+			t.Fatalf("unexpected mutation: %v", args)
+		}
+		return nil, nil
+	}
+	result, err := startNotificationLaunchAgent(context.Background(), task, home, os.Getuid(), run)
+	if err != nil || result.Status != "task_stopped" || reads != 2 {
+		t.Fatalf("prepare completed before unload: %+v reads=%d %v", result, reads, err)
+	}
+	if raw, _ := os.ReadFile(file); string(raw) != "preserve settings" {
+		t.Fatal("prepare rewrote task definition")
+	}
+}
 func TestOpaqueForeignPinnedWrapperDoesNotBlock(t *testing.T) {
 	for _, scenario := range []string{"foreign", "current", "unknown", "current_scope"} {
 		t.Run(scenario, func(t *testing.T) {
@@ -379,7 +429,7 @@ func TestOpaqueForeignPinnedWrapperDoesNotBlock(t *testing.T) {
 					return nil, nil
 				}
 				if a[0] == "print" {
-					return nil, errors.New("absent")
+					return nil, launchctlTestExit(113)
 				}
 				t.Fatalf("unexpected mutation %s %v", p, a)
 				return nil, nil
