@@ -84,3 +84,8 @@ existing hooks and trust decisions intact. Hook continuations reuse the locally
 pinned cycle even when the host supplies a new continuation turn ID. Transcript parsing is
 a bounded local host adapter, not a stable cross-host protocol; unreadable current
 cycle evidence blocks stopping instead of establishing completion.
+
+Stop admission uses an exact current-turn plan or a local `cycle-check` command
+result, independently of final-response formatting. Ordinary tasks without that
+evidence pass through; a foreground resume may check the existing cycle without
+creating a new plan or replaying completed business actions.
