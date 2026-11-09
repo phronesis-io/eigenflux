@@ -51,3 +51,15 @@ func TestHeartbeatStopBlocksMissingPublishAndAllowsCompleted(t *testing.T) {
 		t.Fatal("previous turn cleared guard")
 	}
 }
+
+func TestHeartbeatGuardsDoNotFlushBusinessQueue(t *testing.T) {
+	for _, name := range []string{"rules", "cycle-check", "stop-check"} {
+		c, _, err := heartbeatCmd.Find([]string{name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if flushesFeedQueue(c) {
+			t.Fatalf("local guard flushes business queue: %s", name)
+		}
+	}
+}
