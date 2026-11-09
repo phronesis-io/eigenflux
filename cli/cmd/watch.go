@@ -785,7 +785,7 @@ func (w *accountWatch) maintenanceLoop(ctx context.Context) error {
 				return err
 			}
 			c.HTTPClient.Timeout = 5 * time.Second
-			_, err = c.Post("/maintenance/events:batch", map[string]interface{}{"events": events})
+			_, err = postMaintenanceEvents(c, events)
 			return err
 		})
 		if isWatchTerminal(err) {

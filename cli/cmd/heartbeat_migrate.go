@@ -104,7 +104,7 @@ func init() {
 		if len(ownership.DispatchOwned) > 0 {
 			launcher += " --watch-managed"
 		}
-		p, err := heartbeatmigration.Build(in, home, server, launcher)
+		p, err := heartbeatmigration.Build(in, home, server, heartbeatSchedulerPrompt(launcher))
 		if err != nil {
 			return err
 		}

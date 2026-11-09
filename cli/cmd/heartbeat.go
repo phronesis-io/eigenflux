@@ -13,7 +13,6 @@ import (
 
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/maintenance"
-	"cli.eigenflux.ai/internal/output"
 	"cli.eigenflux.ai/internal/selfupdate"
 	"cli.eigenflux.ai/internal/skills"
 
@@ -371,12 +370,7 @@ var heartbeatPlanCmd = &cobra.Command{
 			}
 		}
 		plan.AgentPrompt = renderHeartbeatPlanForAgent(plan)
-		if resolveFormat() == "agent" {
-			fmt.Fprint(cmd.OutOrStdout(), plan.AgentPrompt)
-			return nil
-		}
-		output.PrintData(plan, resolveFormat())
-		return nil
+		return deliverHeartbeatPlan(cmd.OutOrStdout(), cmd.ErrOrStderr(), resolveFormat(), plan, skillsScope)
 	},
 }
 

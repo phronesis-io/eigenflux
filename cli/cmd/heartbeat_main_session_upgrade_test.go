@@ -149,6 +149,7 @@ func TestHeartbeatUpgradeAutomaticallySchedulesInitialBinding(t *testing.T) {
 }
 
 func TestHeartbeatUpgradeBindingCompletesOnceAndPreservesJournal(t *testing.T) {
+	t.Setenv("EIGENFLUX_SKIP_AGENT_SETUP", "1") // Isolate unrelated host setup from binding migration.
 	b, _ := upgradeHeartbeatFixture(t, false)
 	path := dispatch.BindingPath(b.Home, b.Server)
 	if err := dispatch.WriteJSON(path, b); err != nil {

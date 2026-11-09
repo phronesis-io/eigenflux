@@ -21,8 +21,9 @@ type schedulerReadbackObservation struct {
 }
 
 type outerLoopObservation struct {
-	Environment outerLoopEnvironment          `json:"environment"`
-	Scheduler   *schedulerReadbackObservation `json:"scheduler,omitempty"`
+	FailureReason string                        `json:"failure_reason,omitempty"`
+	Environment   outerLoopEnvironment          `json:"environment"`
+	Scheduler     *schedulerReadbackObservation `json:"scheduler,omitempty"`
 }
 
 var outerHash = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -55,6 +56,9 @@ func validateOuterLoopObservation(e maintenanceEvent) error {
 	}
 	if (e.Result == "failed" || e.Result == "blocked") && e.ErrorCode == "" || outerOneOf(e.Result, "started", "installed", "verified") && e.ErrorCode != "" {
 		return fmt.Errorf("invalid outer loop outcome")
+	}
+	if o.FailureReason != "" && (e.Component != "watch" || e.Result != "failed" && e.Result != "blocked" || !outerOneOf(o.FailureReason, "skills_target_unresolved", "skills_manifest_unavailable", "skills_signature_failed", "skills_cli_incompatible", "skills_rule_missing", "skills_sync_failed", "skills_latest_unverified", "skills_cli_upgrade_required", "skills_local_modified", "skills_latest_unavailable", "skills_provisional", "skills_rollback_rejected", "skills_sequence_conflict", "skills_local_validation_failed", "windows_invalid_task", "windows_system_root_missing", "windows_launcher_write", "windows_scheduler_access", "windows_task_ownership", "windows_task_disabled", "windows_stop_failed", "windows_task_register", "windows_start_failed", "windows_timeout", "windows_cancelled", "windows_response_invalid", "windows_powershell_failed")) {
+		return fmt.Errorf("invalid outer loop failure reason")
 	}
 	env := o.Environment
 	if !outerOneOf(env.OS, "linux", "windows", "darwin", "other") || !outerOneOf(env.Arch, "amd64", "arm64", "386", "arm", "ppc64", "ppc64le", "riscv64", "s390x", "loong64", "mips", "mipsle", "mips64", "mips64le", "wasm", "other") || !outerOneOf(env.Container, "detected", "not_detected", "unknown", "not_applicable") || !outerOneOf(env.WSL, "detected", "not_detected", "unknown", "not_applicable") {
