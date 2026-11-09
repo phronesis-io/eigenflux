@@ -53,7 +53,7 @@ func TestHeartbeatStopBlocksMissingPublishAndAllowsCompleted(t *testing.T) {
 }
 
 func TestHeartbeatGuardsDoNotFlushBusinessQueue(t *testing.T) {
-	for _, name := range []string{"rules", "cycle-check", "stop-check"} {
+	for _, name := range []string{"rules", "cycle-check", "stop-check", "host-observe", "guard-setup", "permission-check"} {
 		c, _, err := heartbeatCmd.Find([]string{name})
 		if err != nil {
 			t.Fatal(err)

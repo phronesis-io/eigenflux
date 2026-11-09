@@ -84,3 +84,43 @@ existing hooks and trust decisions intact. Hook continuations reuse the locally
 pinned cycle even when the host supplies a new continuation turn ID. Transcript parsing is
 a bounded local host adapter, not a stable cross-host protocol; unreadable current
 cycle evidence blocks stopping instead of establishing completion.
+
+Codex foreground setup uses `heartbeat guard-setup` to append owner-thread and
+Agent-fenced Stop, UserPromptSubmit, PermissionRequest and Interrupt hooks.
+The trigger handler admits only the exact verified canonical prompt hash.
+Continuation markers retain the same local cycle or an admitted no-plan run;
+quoted templates and ordinary replies do not admit execution. Hook configuration
+remains trust-pending until the host invokes it; setup never changes host trust.
+`heartbeat permission-check` uses the selected Codex execpolicy checker and all
+explicitly supplied rule files for the stable executable and stage commands.
+Bare-executable allows are only legacy-mismatch evidence, never a policy repair.
+These commands do not flush Feed or business queues. Respect the runtime
+observation opt-out. Host observations contain no network calls; the independent
+maintenance uploader delivers the bounded queue.
+
+Cycle observations distinguish planning from execution. `ObserveCycle` records
+`plan_created`, `incomplete`, `permission_required` or `interrupted` only at the
+cycle stage. These observations never change terminal results, count as a stage
+receipt, or repeat business work. Emit `plan_created` only after the plan is
+successfully delivered. Missing execution receipts remain unknown unless a
+local check actually observes an incomplete cycle; they never establish a
+permission failure or a missing scheduler trigger.
+
+`RecordLifecycle` records fixed trigger, permission, guard and interruption
+categories with token-only environment metadata. Trigger observations do not
+prove scheduler persistence; configured guards do not establish host trust or
+activation. Record active guards only from their actual host invocation.
+Permission observations require an actual local policy check or host approval request;
+unknown policy evidence remains unknown. No raw errors, paths or policy bodies
+are uploaded.
+
+`cycle_observations.go` retains pending observations and upload acknowledgements
+in a separate account-scoped `observations` gate file under the existing state
+lock. It deduplicates by attempt, stage and result across flushes. Flush restores
+pending events lost by a legacy State writer and removes acknowledged rows
+resurrected by one. Retention is seven days, with at most 4096 receipts; capacity
+failure never evicts business or existing maintenance evidence. Upload failures
+remain independent from execution. An unreadable or newer-format observation
+sidecar emits one fixed local diagnostic per CLI process and skips sidecar
+recovery and acknowledgement; the original queue continues uploading, including
+notifications and uninstall receipts. Preserve the sidecar for diagnosis.

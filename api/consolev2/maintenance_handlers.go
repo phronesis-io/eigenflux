@@ -59,7 +59,7 @@ func validateMaintenanceEvent(e maintenanceEvent, now time.Time) error {
 	if e.EventAt < now.Add(-7*24*time.Hour).UnixMilli() || e.EventAt > now.Add(5*time.Minute).UnixMilli() {
 		return fmt.Errorf("maintenance event outside retention window")
 	}
-	if e.Phase == "environment" || e.Phase == "cycle" {
+	if e.Phase == "environment" || e.Phase == "cycle" || e.Phase == "lifecycle" {
 		return validateRuntimeObservation(e)
 	}
 	if e.Runtime != nil {

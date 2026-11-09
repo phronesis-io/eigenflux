@@ -79,6 +79,7 @@ func init() {
 			return err
 		}
 		if status == "incomplete" {
+			_ = maintenance.ObserveCycle(scope, id, "incomplete")
 			return fmt.Errorf("heartbeat incomplete: read pending rule pages and execute missing stages before ending")
 		}
 		return nil

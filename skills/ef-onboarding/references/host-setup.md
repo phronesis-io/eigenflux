@@ -66,6 +66,22 @@ settings still govern external actions. Since trailing flags can override the
 target, never describe the prefix as a Home/server-enforced or read-only
 boundary. Normal commands never append duplicate Home/server overrides.
 
+During foreground installation acceptance or repair, run `heartbeat
+permission-check --codex <absolute-owner-codex> --rules <active-rule-file>`
+with the established CLI prefix after Agent authentication. Supply every active
+policy file, repeating `--rules`; retain native managed-policy checks separately.
+Require `allowed` for the exact launcher and representative stage commands.
+Keep `prompt`, `forbidden`, checker failures and incomplete policy inventories
+unresolved. Report the check as file evidence, separately from host reload.
+
+For `legacy_mismatch`, resolve the historical bare executable to the verified
+stable installation and verify the existing Home, server and execution authority.
+Append the returned absolute-prefix rule through the host's supported policy
+write mechanism under that same authority. Preserve the old rule and unrelated
+policies. Obtain only genuinely missing authority; retain required host approval.
+Run the complete check again. Apply permission repairs in the foreground;
+report unattended permission barriers without changing policy.
+
 If the user later explicitly asks to remove the permission, remove only the
 owned matching rule, preserve all unrelated rules, and follow the host's native
 approval and documented reload procedure. Explain that future commands may
@@ -262,6 +278,24 @@ and report the concrete error. Keep setup explicitly incomplete. Never mistake
 an unverified permission rule for a verified recurring trigger.
 
 ## Execution and delivery acceptance
+
+For authenticated Codex setup or foreground repair, require CLI 1.0.20 and run
+`heartbeat guard-setup --codex-home <absolute-owner-codex-home> --thread
+<verified-trigger-thread>` with the established CLI prefix. Use the installer
+receipt's Codex configuration and the native scheduler's verified owner thread.
+Pass the exact native task prompt through `--scheduler-prompt-file` using an
+owner-only local file when it differs from the default canonical prompt.
+Require the complete canonical prompt and preserve its verified launcher.
+Read back the appended account/thread-scoped hooks. Preserve existing hooks.
+Complete the host's hook review through `/hooks` or Settings > Hooks. Keep
+`configured` and `trust_pending` separate from actual hook execution; record
+an unsupported host or pending review as incomplete acceptance.
+
+After completed website access, verify the first real scheduled run: trigger observation, plan delivery,
+completed required stages and the accessible result. Confirm the exact launcher
+and stage commands against active Rules. Keep task existence, notification
+readiness, hook configuration and unattended execution as separate results.
+Reuse existing receipts and report missing evidence without repeating work.
 
 Record scheduler readback, actual background execution, completed cycle and
 user-accessible result delivery separately. A persisted enabled task verifies

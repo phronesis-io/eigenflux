@@ -67,6 +67,15 @@ func stopCycleFromTranscript(path, turn string) (string, error) {
 			continue
 		}
 		out := row.Payload.Item.Output
+		if strings.HasPrefix(out, "{") {
+			var plan struct {
+				Schema string `json:"schema_version"`
+				Prompt string `json:"agent_prompt"`
+			}
+			if json.Unmarshal([]byte(out), &plan) == nil && plan.Schema == "eigenflux_heartbeat_plan.v1" {
+				out = plan.Prompt
+			}
+		}
 		if !strings.HasPrefix(out, "EIGENFLUX HEARTBEAT PLAN\n") {
 			continue
 		}
@@ -79,25 +88,38 @@ func stopCycleFromTranscript(path, turn string) (string, error) {
 
 func heartbeatStopDecision(scope maintenance.Scope, in heartbeatStopInput, thread string) (map[string]any, error) {
 	allow := map[string]any{}
-	if in.SessionID != thread || in.Event != "Stop" || !strings.Contains(in.LastMessage, "<automation_id>eigenflux</automation_id>") {
+	if in.SessionID != thread || in.Event != "Stop" || !runtimeObservationsEnabled() {
 		return allow, nil
 	}
+	marked := strings.Contains(in.LastMessage, "<automation_id>eigenflux</automation_id>")
+	admitted := heartbeatHostRunAdmitted(scope, in.SessionID, in.TurnID)
 	if in.TurnID == "" {
+		if !marked {
+			return allow, nil
+		}
 		return nil, fmt.Errorf("missing hook turn identity")
 	}
 	id, err := stopCycleFromTranscript(in.Transcript, in.TurnID)
 	if err == nil && id == "" && in.StopHookActive {
-		id, err = maintenance.StopCycle(scope, in.SessionID)
+		if continuation, ok := readHeartbeatHostRun(scope, in.SessionID, heartbeatHostAttempt(in.SessionID, in.TurnID)); ok {
+			id = continuation
+		} else if marked {
+			id, err = maintenance.StopCycle(scope, in.SessionID)
+		}
+	}
+	if id == "" && !marked && !admitted {
+		return allow, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	_ = maintenance.RecordLifecycle(scope, heartbeatHostAttempt(in.SessionID, in.TurnID), "guard", "active", maintenance.RuntimeObservation{Product: "codex", CLI: observationValue(version)})
 	if id == "" {
 		// Plan/authentication failures have no admitted cycle to resume.
 		if strings.Contains(in.LastMessage, "<decision>NOTIFY</decision>") {
 			return allow, nil
 		}
-		return map[string]any{"decision": "block", "reason": "EigenFlux heartbeat has no verified current-turn cycle. Run its scoped heartbeat plan, execute the plan, and run cycle-check --finish before returning."}, nil
+		return map[string]any{"decision": "block", "reason": heartbeatNoPlanReason(heartbeatHostAttempt(in.SessionID, in.TurnID))}, nil
 	}
 	c, err := maintenance.ReadCycle(scope, id)
 	if err != nil {
@@ -109,6 +131,7 @@ func heartbeatStopDecision(scope maintenance.Scope, in heartbeatStopInput, threa
 	if err := maintenance.BindStopCycle(scope, in.SessionID, id); err != nil {
 		return nil, err
 	}
+	_ = maintenance.ObserveCycle(scope, id, "incomplete")
 	rules, stages := maintenance.CycleMissing(c)
 	return map[string]any{"decision": "block", "reason": fmt.Sprintf("EigenFlux cycle %s is still open. Pending rule pages: %v. Missing stages: %v. Resume this exact cycle from confirmed receipts; do not repeat completed work or create a replacement plan. Read missing pages with heartbeat rules, execute missing stages, then run heartbeat cycle-check --cycle %s --finish. Report a genuine failed stage and cycle failure only when confirmed.", id, rules, stages, id)}, nil
 }
@@ -120,6 +143,7 @@ func init() {
 			return err
 		}
 		thread, _ := cmd.Flags().GetString("thread")
+		expected, _ := cmd.Flags().GetString("expected-agent")
 		if thread == "" {
 			return fmt.Errorf("--thread is required")
 		}
@@ -128,14 +152,30 @@ func init() {
 		}
 		scope, err := maintenanceScope(activeServerName())
 		if err != nil {
-			return err
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(heartbeatStopUnavailableDecision(in))
+		}
+		if expected != "" && scope.AgentID != expected {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{})
 		}
 		decision, err := heartbeatStopDecision(scope, in, thread)
 		if err != nil {
-			decision = map[string]any{"decision": "block", "reason": "EigenFlux completion guard could not verify the current cycle: " + err.Error() + ". Resolve this local verification failure before finishing; do not replay business mutations."}
+			fmt.Fprintln(cmd.ErrOrStderr(), "[eigenflux:maintenance] component=runtime phase=cycle error_code=local_verification_unavailable")
+			decision = map[string]any{"decision": "block", "reason": heartbeatVerificationReason(heartbeatHostAttempt(in.SessionID, in.TurnID))}
 		}
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(decision)
 	}}
 	stop.Flags().String("thread", "", "Exact owner thread; other chats pass through")
+	stop.Flags().String("expected-agent", "", "Pinned Agent identity; account switches pass through")
 	heartbeatCmd.AddCommand(stop)
+}
+
+func heartbeatStopUnavailableDecision(in heartbeatStopInput) map[string]any {
+	if strings.Contains(in.LastMessage, "<decision>NOTIFY</decision>") {
+		return map[string]any{}
+	}
+	id, _ := stopCycleFromTranscript(in.Transcript, in.TurnID)
+	if id == "" && !strings.Contains(in.LastMessage, "<automation_id>eigenflux</automation_id>") {
+		return map[string]any{}
+	}
+	return map[string]any{"decision": "block", "reason": "EigenFlux completion guard cannot resolve this heartbeat's existing account. Report the concrete account failure to the owner; preserve identity and completed work. Do not create an account or repeat business operations."}
 }

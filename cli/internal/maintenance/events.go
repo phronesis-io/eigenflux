@@ -85,7 +85,7 @@ func Validate(e Event) error {
 	if !idValue.MatchString(e.EventID) || !idValue.MatchString(e.AttemptID) {
 		return errors.New("invalid maintenance identity")
 	}
-	if e.Phase == "environment" || e.Phase == "cycle" {
+	if e.Phase == "environment" || e.Phase == "cycle" || e.Phase == "lifecycle" {
 		return ValidateRuntime(e)
 	}
 	if e.Runtime != nil {
@@ -367,6 +367,9 @@ func flush(s Scope, now time.Time, uninstallAttempt string, send func([]Event) e
 	var batch []Event
 	runtimeBatch := false
 	if err := update(s, func(st *State) error {
+		if err := reconcileObservationQueue(s, st, nil); err != nil {
+			observationRecoveryDiagnostic()
+		}
 		// Older servers reject unknown runtime fields. Never mix them with existing
 		// maintenance events or let runtime backoff block legacy observations.
 		runtimeBatch = uninstallAttempt == "" && len(st.Events) > 0
@@ -423,6 +426,11 @@ func flush(s Scope, now time.Time, uninstallAttempt string, send func([]Event) e
 		ids := map[string]bool{}
 		for _, e := range batch {
 			ids[e.EventID] = true
+		}
+		if runtimeBatch {
+			if err := reconcileObservationQueue(s, st, ids); err != nil {
+				observationRecoveryDiagnostic()
+			}
 		}
 		kept := st.Events[:0]
 		for _, e := range st.Events {

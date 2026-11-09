@@ -91,7 +91,7 @@ func flushesFeedQueue(cmd *cobra.Command) bool {
 	}
 	for c := cmd; c != nil; c = c.Parent() {
 		switch c.Name() {
-		case "uninstall", "uninstall-finalize", "installation", "migrate", "version", "help", "completion", "recovery-notice-ack", "rules", "cycle-check", "stop-check":
+		case "uninstall", "uninstall-finalize", "installation", "migrate", "version", "help", "completion", "recovery-notice-ack", "rules", "cycle-check", "stop-check", "host-observe", "guard-setup", "permission-check":
 			return false
 		}
 	}
