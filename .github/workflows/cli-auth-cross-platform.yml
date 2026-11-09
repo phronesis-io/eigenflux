@@ -100,6 +100,8 @@ jobs:
           go test -count=1 ./internal/skills ./tests
 
   auth-tests:
+    env:
+      CI_PROFILE: '1'
     needs: scope
     if: needs.scope.outputs.full == 'true'
     strategy:
@@ -124,13 +126,13 @@ jobs:
         run: go test -count=1 ./internal/profilestate ./internal/client ./internal/config
       - name: Test all CLI commands on Linux
         if: runner.os == 'Linux'
-        run: python3 ../scripts/ci/profile_cmd.py all
+        run: python3 ../scripts/ci/cmd_tests.py all
       - name: Test platform CLI commands on macOS
         if: runner.os == 'macOS'
-        run: python3 ../scripts/ci/profile_cmd.py platform
+        run: python3 ../scripts/ci/cmd_tests.py platform
       - name: Test platform CLI commands on Windows
         if: runner.os == 'Windows'
-        run: python ../scripts/ci/profile_cmd.py platform
+        run: python ../scripts/ci/cmd_tests.py platform
       - name: Upload per-test profiling data
         if: always()
         uses: actions/upload-artifact@v4

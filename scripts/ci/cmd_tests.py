@@ -3,6 +3,8 @@
 import argparse
 import hashlib
 import json
+import os
+import sys
 from pathlib import Path
 import re
 import subprocess
@@ -49,7 +51,10 @@ def main():
     if args.list:
         print(json.dumps({'portable_tests': names, 'command': test_command(args.group, names)}, indent=2))
         return
-    subprocess.run(test_command(args.group, names), cwd=ROOT / 'cli', check=True)
+    if os.environ.get('CI_PROFILE') == '1':
+        subprocess.run([sys.executable, str(Path(__file__).with_name('profile_cmd.py')), args.group], check=True)
+    else:
+        subprocess.run(test_command(args.group, names), cwd=ROOT / 'cli', check=True)
 
 
 if __name__ == '__main__':
