@@ -108,6 +108,17 @@ flushes. Every watch mode records `execute.executed` from this context, includin
 notification-only and host-supervised restarts. This confirms process execution
 without claiming `runtime_ready`.
 
+`MainNoticeRunner.RunMaintenance` carries caller-verified signed maintenance
+instructions separately from untrusted local repair data to the existing native
+Codex main thread. It requires an exact bound thread, absolute `CODEX_HOME` and
+enabled hidden-input adapter. It reuses Desktop owner discovery, idle/baseline
+checks and exact-turn completion readback, inherits the thread's settings and
+permits a silent completed result. It does not create a conversation, grant
+execution or policy-write authority, trust hooks, or use the Commission queue.
+Callers retry only `MainNoticeCanRetry` failures before submission; uncertain
+owner writes are never replayed. A transport completion alone does not verify
+the repair outcome.
+
 ## PM flow and invariants
 
 CLI 1.0.2 accepts explicit ACP `main_session_id` and optional `main_command`

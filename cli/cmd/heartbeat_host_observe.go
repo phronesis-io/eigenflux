@@ -12,7 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"cli.eigenflux.ai/internal/dispatch"
 	"cli.eigenflux.ai/internal/maintenance"
+	watchstate "cli.eigenflux.ai/internal/watch"
 	"github.com/spf13/cobra"
 )
 
@@ -84,6 +86,72 @@ func readHeartbeatHostMarker(scope maintenance.Scope, session, attempt string) (
 	return marker, true
 }
 
+func heartbeatHostCycleOriginKey(cycle string) string {
+	sum := sha256.Sum256([]byte("cycle-origin\x00" + cycle))
+	return hex.EncodeToString(sum[:])
+}
+
+// The same bounded marker format records only a proven cycle's original turn
+// hash. Its owner directory already fences Agent, server, Home and thread.
+func readHeartbeatHostCycleOrigin(scope maintenance.Scope, session, cycle string) (heartbeatHostMarker, bool) {
+	if !cycleCheckID.MatchString(cycle) {
+		return heartbeatHostMarker{}, false
+	}
+	marker, ok := readHeartbeatHostMarker(scope, session, heartbeatHostCycleOriginKey(cycle))
+	if !ok || marker.Cycle != cycle || marker.OriginAttempt == "" {
+		return heartbeatHostMarker{}, false
+	}
+	return marker, true
+}
+
+func bindHeartbeatHostCycle(scope maintenance.Scope, in heartbeatStopInput, c maintenance.Cycle) error {
+	if !cycleCheckID.MatchString(c.ID) || in.SessionID == "" || in.TurnID == "" {
+		return nil
+	}
+	currentAttempt := heartbeatHostAttempt(in.SessionID, in.TurnID)
+	marker, ok := readHeartbeatHostMarker(scope, in.SessionID, currentAttempt)
+	if !ok || marker.Cycle != "" && marker.Cycle != c.ID {
+		return nil
+	}
+	origin := marker.OriginAttempt
+	if origin == "" {
+		origin = currentAttempt
+	}
+	at, err := maintenance.LifecycleObservedAt(scope, origin, "trigger", "observed")
+	if err != nil || at == 0 || c.StartedAt <= at {
+		return nil
+	}
+	dir := filepath.Dir(heartbeatHostRunPath(scope, in.SessionID, ""))
+	// One retained OS-backed lock per owner protects check-and-write without
+	// adding an unbounded collection of per-cycle lock files.
+	unlock, err := watchstate.AcquirePath(filepath.Join(dir, ".cycle-origins.lock"))
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	path := filepath.Join(dir, heartbeatHostCycleOriginKey(c.ID)+".json")
+	if _, err := os.Lstat(path); err == nil {
+		previous, ok := readHeartbeatHostCycleOrigin(scope, in.SessionID, c.ID)
+		if !ok || previous.OriginAttempt != origin {
+			return fmt.Errorf("cycle origin receipt conflicts or is unavailable")
+		}
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if in.Transcript == "" {
+		return nil
+	}
+	planCycle, err := heartbeatOriginPlanCycle(in.Transcript, in.SessionID, origin)
+	if err != nil {
+		return err
+	}
+	if planCycle != c.ID {
+		return nil
+	}
+	return dispatch.WriteJSON(path, heartbeatHostMarker{Cycle: c.ID, OriginAttempt: origin})
+}
+
 func admitHeartbeatHostRun(scope maintenance.Scope, session, turn, continuationCycle string, origin ...string) error {
 	p := heartbeatHostRunPath(scope, session, turn)
 	if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
@@ -136,6 +204,9 @@ func observeHeartbeatHost(scope maintenance.Scope, in heartbeatHostInput, thread
 			continuation = err == nil && bound != "" && strings.HasPrefix(strings.TrimSpace(in.Prompt), "EigenFlux cycle "+bound+" is still open.")
 			if continuation {
 				cycle = bound
+				if parent, ok := readHeartbeatHostCycleOrigin(scope, in.SessionID, cycle); ok {
+					originAttempt = parent.OriginAttempt
+				}
 			}
 			if match := heartbeatRunContinuation.FindStringSubmatch(strings.TrimSpace(in.Prompt)); len(match) == 2 {
 				var parent heartbeatHostMarker

@@ -21,7 +21,7 @@ import (
 
 var guardThreadID = regexp.MustCompile(`^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$`)
 
-func codexGuardCommands(cli, home, server, thread, agent, action, promptHash string) (string, string, error) {
+func codexGuardCommands(cli, home, server, thread, agent, action, promptHash string, definition ...string) (string, string, error) {
 	if !filepath.IsAbs(cli) || !filepath.IsAbs(home) || server == "" || !guardThreadID.MatchString(thread) {
 		return "", "", fmt.Errorf("guard requires absolute CLI/Home, explicit server and owner thread UUID")
 	}
@@ -31,6 +31,15 @@ func codexGuardCommands(cli, home, server, thread, agent, action, promptHash str
 			return "", "", fmt.Errorf("guard requires exact scheduler prompt hash")
 		}
 		args = append(args, "--prompt-hash", promptHash)
+	}
+	if len(definition) > 1 {
+		return "", "", fmt.Errorf("only one guard definition allowed")
+	}
+	if len(definition) == 1 {
+		if decoded, err := hex.DecodeString(definition[0]); err != nil || len(decoded) != sha256.Size {
+			return "", "", fmt.Errorf("invalid guard definition")
+		}
+		args = append(args, "--guard-definition", definition[0])
 	}
 	posix, ps := make([]string, len(args)), make([]string, len(args))
 	for i, arg := range args {
@@ -53,6 +62,29 @@ func codexGuardCommands(cli, home, server, thread, agent, action, promptHash str
 	}
 	windows := "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand " + base64.StdEncoding.EncodeToString(raw)
 	return strings.Join(posix, " "), windows, nil
+}
+
+// Fingerprint the actual scoped handlers, selected Codex store and prompt. The
+// Stop handler carries this identity so a trusted old definition cannot accept
+// a newly configured but unreviewed guard in another store or for another prompt.
+func codexGuardDefinition(codexHome, cli, home, server, thread, agent, promptHash string) (string, error) {
+	parts := []string{filepath.Clean(codexHome)}
+	for _, event := range []string{"Stop", "UserPromptSubmit", "PermissionRequest", "Interrupt"} {
+		action := "host-observe"
+		timeout := "3"
+		if event == "Stop" {
+			action = "stop-check"
+			timeout = "10"
+		}
+		posix, windows, err := codexGuardCommands(cli, home, server, thread, agent, action, promptHash)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, event, timeout, posix, windows)
+	}
+	b, _ := json.Marshal(parts)
+	hash := sha256.Sum256(b)
+	return hex.EncodeToString(hash[:]), nil
 }
 
 // The full canonical prompt is fenced to the stable CLI, Home and server.
@@ -96,6 +128,10 @@ func installCodexGuard(codexHome, cli, home, server, thread, agent string, suppl
 		prompt = suppliedPrompt[0]
 	}
 	promptHash, err := codexGuardPromptHash(cli, home, server, prompt)
+	if err != nil {
+		return false, err
+	}
+	definition, err := codexGuardDefinition(codexHome, cli, home, server, thread, agent, promptHash)
 	if err != nil {
 		return false, err
 	}
@@ -146,7 +182,11 @@ func installCodexGuard(codexHome, cli, home, server, thread, agent string, suppl
 			action = "stop-check"
 			timeout = 10
 		}
-		posix, windows, err := codexGuardCommands(cli, home, server, thread, agent, action, promptHash)
+		var definitions []string
+		if action == "stop-check" {
+			definitions = []string{definition}
+		}
+		posix, windows, err := codexGuardCommands(cli, home, server, thread, agent, action, promptHash, definitions...)
 		if err != nil {
 			return false, err
 		}
@@ -235,6 +275,21 @@ func newHeartbeatGuardSetupCommand() *cobra.Command {
 		}
 		changed, err := installCodexGuard(codexHome, cli, scope.Home, scope.Server, thread, scope.AgentID, supplied...)
 		if err != nil {
+			return err
+		}
+		prompt := ""
+		if len(supplied) == 1 {
+			prompt = supplied[0]
+		}
+		promptHash, err := codexGuardPromptHash(cli, scope.Home, scope.Server, prompt)
+		if err != nil {
+			return err
+		}
+		definition, err := codexGuardDefinition(codexHome, cli, scope.Home, scope.Server, thread, scope.AgentID, promptHash)
+		if err != nil {
+			return err
+		}
+		if err := bindUpgradeRepairScheduler(scope, thread, definition); err != nil {
 			return err
 		}
 		if runtimeObservationsEnabled() {

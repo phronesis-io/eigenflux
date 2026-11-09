@@ -136,3 +136,54 @@ Stop admission uses an exact current-turn plan or a local `cycle-check` command
 result, independently of final-response formatting. Ordinary tasks without that
 evidence pass through; a foreground resume may check the existing cycle without
 creating a new plan or replaying completed business actions.
+
+## Existing Codex upgrade acceptance
+
+`cmd/watch_upgrade_repair.go` runs account-scoped acceptance independently of
+heartbeat and Feed intake, including notifications-only watches. Reuse the
+existing independent signed updater and its network backoff. Load only verified
+signed repair Skills; keep ordinary PM, Orders and Feed outside this lane.
+`cmd/heartbeat_upgrade_repair.go` persists one request per Home/server/endpoint/
+principal/Agent. The request survives restarts and does not follow an account
+switch. Return the pending request from foreground update recovery and heartbeat
+plans so original-chat continuation can finish without user-run commands.
+
+Use the existing bound Desktop owner's maintenance input. Recheck binding
+revision, thread, environment, runtime mode and account before submission,
+during execution and after return. Persist submission before native input;
+retry only confirmed pre-admission failures with backoff. Unknown submission
+stays blocked for foreground continuation; never replay a possibly admitted
+maintenance turn. Missing binding leaves a durable request and one desktop
+fallback instead of guessing an owner. New blocker fingerprints may notify;
+unchanged acknowledged actions stay quiet. Rules changes remain foreground
+operations under verified authority. Hook trust remains an owner operation.
+
+`heartbeat upgrade-repair-report --stdin` records the complete fixed blocker
+set and pending state. It cannot assert trust or success. Acknowledge only the
+exact submitted combined prompt using `upgrade-repair-ack`; do not acknowledge
+whatever blocker set happens to be latest after an asynchronous turn. The Stop
+hook marks acceptance verified only for a post-request full completed cycle
+with the canonical owner trigger observation. Hook setup pins the scheduler
+thread independently of the maintenance delivery thread; changing a PM main
+chat must not redirect or prevent heartbeat acceptance. Foreground success, watch health,
+configured hooks and notification readiness cannot establish acceptance.
+
+Upgrade acceptance pins the complete guard definition, including the selected
+Codex store, canonical prompt and exact platform handlers. Hook setup propagates
+pending-repair binding failures so it remains safely retryable. An unchanged
+thread cannot inherit old acceptance after its definition changes. The trusted
+Stop handler carries its definition fingerprint; older handlers retain cycle
+protection but cannot verify a new guard. A cycle must start strictly after its
+original canonical trigger, including on continuation turns. Uploaded lifecycle
+receipts retain that original trigger time locally.
+
+During CLI-before-Skills rollout, an intact signed pre-repair onboarding bundle
+is release-pending, not corrupted. Retry it quietly when auto-sync is enabled;
+retain a one-time foreground action when it is disabled. A verified synchronization
+writer lock is also transient. New-contract missing files, modified content and
+invalid signatures remain blocked.
+The original canonical turn must also contain the matching successful native
+plan receipt. A cycle-check alone cannot establish that source, even if another
+foreground cycle began after the trigger. Continuations read only the pinned
+origin attempt's bounded transcript evidence; missing origin evidence leaves
+acceptance unverified without changing normal cycle completion.

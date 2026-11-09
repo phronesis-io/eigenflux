@@ -122,21 +122,31 @@ func RecordLifecycle(scope Scope, attempt, stage, result string, env RuntimeObse
 // LifecycleObserved reads retained local evidence, including already-uploaded
 // receipts. It never infers a policy decision from missing execution events.
 func LifecycleObserved(scope Scope, attempt, stage, result string) (bool, error) {
+	at, err := LifecycleObservedAt(scope, attempt, stage, result)
+	return at > 0, err
+}
+
+// LifecycleObservedAt returns the retained receipt's original observation time,
+// including after upload. Missing evidence returns zero, never the read time.
+func LifecycleObservedAt(scope Scope, attempt, stage, result string) (int64, error) {
 	if !idValue.MatchString(attempt) {
-		return false, fmt.Errorf("invalid lifecycle identity")
+		return 0, fmt.Errorf("invalid lifecycle identity")
 	}
 	event := NewEvent(attempt, "runtime", "auto", "lifecycle", result)
 	event.Runtime = &RuntimeObservation{Stage: stage}
 	if err := Validate(event); err != nil {
-		return false, err
+		return 0, err
 	}
 	receipts, err := readObservationReceipts(scope)
 	if err != nil {
-		return false, err
+		return 0, err
 	}
 	id := cycleEvent(Cycle{ID: attempt}, "lifecycle."+stage, result).EventID
-	_, exists := receipts[id]
-	return exists, nil
+	receipt, exists := receipts[id]
+	if !exists {
+		return 0, nil
+	}
+	return receipt.Event.EventAt, nil
 }
 
 // reconcileObservationQueue restores pending events after legacy writes and

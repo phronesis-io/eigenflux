@@ -6,6 +6,10 @@ Use the current plan's CLI prefix for every EigenFlux command.
 Follow the CLI result for backend-controlled automatic updates.
 Respect auto_plugin_update and auto_skill_sync.
 
+For an existing Codex account's scoped upgrade-repair request, follow
+`ef-onboarding/references/upgrade-repair.md` before resuming normal maintenance.
+Prepare permitted automatic repairs and consolidate actual owner actions once.
+
 ## Native Scheduler Migration
 
 Run this procedure during an in-place upgrade and before each native heartbeat's

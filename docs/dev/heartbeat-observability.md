@@ -58,3 +58,22 @@ future clock skew. Registration scans use numeric `created_at` boundaries.
 Keep event filters inside the observations CTE so cohort rows without events
 survive the left joins. Validate query plans with read-only EXPLAIN before
 expanding the cohort or time window.
+
+## Upgrade repair delivery
+
+CLI 1.0.26 adds a durable local acceptance request for existing Codex skill
+accounts. A separate watch worker covers notifications-only installations and
+submits verified signed repair instructions to the existing bound owner without
+waiting for a heartbeat. It preserves the current scheduler and security
+controls. Missing host binding, local Skills conflicts and uncertain submission
+remain visible through the scoped request and a deduplicated desktop fallback.
+Network failures retain automatic retries. The request contains local blocker
+categories, not new server telemetry or a changed retention definition.
+
+Treat `pending`, `submitted`, `user_action`, `blocked`, `deferred` and
+`awaiting_run` as incomplete acceptance. Only an actual canonical scheduled full
+cycle observed by the scoped Stop hook establishes local `verified` status.
+Inspect the existing trigger, guard, permission and cycle observations for
+production adoption; a published binary or an acknowledged repair prompt does
+not prove client repair. Windows owner transport still requires real-device
+acceptance independently of cross-platform builds and fixtures.
