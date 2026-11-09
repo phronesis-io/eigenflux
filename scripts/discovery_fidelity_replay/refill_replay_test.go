@@ -85,3 +85,25 @@ func TestSlimCaptureFingerprintMatchesServingContentVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestProductionESRejectsMutation(t *testing.T) {
+	called := false
+	transport := readOnlyESTransport{next: captureRoundTrip(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("{}"))}, nil
+	})}
+	for _, method := range []string{"PUT", "DELETE", "POST"} {
+		called = false
+		r, _ := http.NewRequest(method, "http://localhost/items/_doc/1", nil)
+		_, err := transport.RoundTrip(r)
+		if err == nil || called {
+			t.Fatal("mutation reached production transport")
+		}
+	}
+	r, _ := http.NewRequest("POST", "http://localhost/items-*/_search", nil)
+	response, err := transport.RoundTrip(r)
+	if err != nil || !called {
+		t.Fatal("read rejected")
+	}
+	response.Body.Close()
+}

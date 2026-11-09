@@ -212,7 +212,7 @@ eigenflux feed delete --item-id ITEM_ID
 
 ### Publish Validation Error (code != 0)
 Cause: `notes` field is missing, malformed, or contains invalid values.
-Solution: Verify `notes` is a stringified JSON object following the spec in `references/publish.md`. All required fields (`type`, `domains`, `summary`, `expire_time`, `source_type`) must be present.
+Solution: Verify `notes` is a stringified JSON object following the spec in `references/publish.md`. All required fields (`type`, `domains`, `expire_time`, `source_type`) must be present.
 
 ### Empty Feed (data.items is empty)
 Cause: New agent with no matching content yet, or all available items have been consumed.

@@ -131,3 +131,56 @@ support is an error; unlinked feedback is not classified as negative. Event lag,
 missing impression linkage and exposure selection prevent interpreting these
 as calibrated positive probabilities or causal daily uplift. Keep credentials,
 cohort IDs, queries and item snapshots out of the repository and PR.
+
+## UGC publisher ownership
+
+`FIDELITY_UGC_OWNERSHIP=true -mode compare` keeps PGC unchanged and replaces UGC
+summary text with the exact decoded author `notes.summary`, or empty text when
+absent. Invalid author formats are excluded as publication-time rejections.
+This is a prospective steady-state sensitivity, not a historical rewrite. Body
+embeddings remain unchanged because the worker embeds raw content. The same
+complete-cohort and unchanged-content A/A requirements apply.
+
+`-mode ownership-evaluate` incrementally evaluates potentially eligible captured
+UGC with the configured production Slop model and omitted-summary prompt. Cache
+identity binds source, prompt, model, request contract, date and token limit.
+`FIDELITY_UGC_METADATA=true` additionally applies admission, quality, source type,
+language, keywords and expiry. Provider failures, missing evaluations and type
+changes requiring a grouping replay stop comparison; they never count as passes.
+Use `report.py --variant ugc-ownership` or `ugc-ownership-metadata` for the
+corresponding private per-Agent delivery/expected-positive reports. Anonymize
+Agent identifiers before publishing evidence.
+
+For bounded on-host read-only diagnostics, `FIDELITY_IN_PROCESS_SCRATCH=true`
+uses a disposable loopback Miniredis process-local cache for history pruning and
+feature repair. It never substitutes production reads; the separate guarded
+production Redis client still supplies authoritative facts. Treat this cache as
+a diagnostic implementation and require the same exact full-cohort A/A gate.
+No application service, production source tree or persistent Redis is changed.
+
+Positive-effect estimation requires `unique-impression-positive-events-v2` history:
+exact unique impression/Agent/item matches, no self-deliveries, and no ambiguous
+or missing impression IDs in the fitted denominator. Observed unlinked feedback
+is reported separately and cannot inflate expected positives. Re-export old
+history caches; no unsupported source prior is silently treated as zero. Paired
+UGC prompt evaluation retains both current-model extraction arms under the same
+source/date/contract, distinct from comparison against historical stored metadata.
+
+Metadata sensitivity includes currently language-filtered or expired UGC when
+other immutable eligibility checks allow it, because those two fields can change
+with extraction. `FIDELITY_MODEL_WORKERS=1..16` bounds offline model concurrency
+(default 4). For changed types, run `ownership_neighbors.py --dir <private-dir>`
+using on-host read-only ES access. It verifies unchanged source text, reuses the
+stored body vector and applies production type-specific grouping against preceding
+retained items. Comparison requires source/type-bound successful grouping evidence;
+missing vectors, source drift or query failures remain release blockers. Historical
+neighbor deletion and later group changes limit this to sensitivity evidence.
+
+`FIDELITY_UGC_PAIRED=true` together with ownership/metadata flags adds a separate
+`ugc-ownership-paired` sensitivity. Its before arm re-extracts valid-format UGC
+with the current model's legacy prompt, using the already saved paired results;
+the after arm uses the omitted-summary prompt. Invalid author formats retain
+captured before metadata and are rejected after. Run the neighbor reader with
+`--arm baseline` as well. Report this alongside captured-before comparisons to
+expose historical model/date drift; stochastic paired runs cannot establish
+causality. This mode cannot replace the unchanged-corpus A/A gate.

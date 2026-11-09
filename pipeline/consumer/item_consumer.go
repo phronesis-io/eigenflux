@@ -336,6 +336,16 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 		}
 	}
 
+	// The publication pins ownership so retries and flag rollback cannot rewrite it.
+	publisherOwned := processed.SummaryOrigin == "publisher" || processed.SummaryOrigin == "none"
+	if publisherOwned {
+		processItem = c.llmClient.ProcessItemWithoutSummary
+		if slopEnabled {
+			processItem = func(ctx context.Context, content, notes string) (*llm.ExtractResult, error) {
+				return c.processUGC(ctx, raw, true)
+			}
+		}
+	}
 	// LLM processing with retries
 	var result *llm.ExtractResult
 	for attempt := 1; attempt <= maxRetries; attempt++ {
@@ -366,6 +376,13 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 			}
 			return HandleSuccess
 		}
+	}
+
+	if publisherOwned {
+		result.Summary = processed.Summary
+		result.SummaryOrigin = processed.SummaryOrigin
+	} else if result.SummaryOrigin == "" {
+		result.SummaryOrigin = "platform"
 	}
 
 	// Check discard flag
@@ -595,7 +612,7 @@ func (c *ItemConsumer) handle(ctx context.Context, msgID string, values map[stri
 }
 
 func persistProcessedItem(ctx context.Context, msgID string, itemID int64, result *llm.ExtractResult, domainsStr, finalExpectedResponse string, finalGroupID int64, suggestion string) bool {
-	if err := updateProcessedItem(db.DB.WithContext(ctx), itemID, result.Summary, result.BroadcastType, domainsStr, result.Keywords, result.ExpireTime, result.Geo, result.SourceType, finalExpectedResponse, finalGroupID, result.Quality, result.Lang, result.Timeliness, suggestion, llm.HomepageEligibleValue(result), llm.HomepageRealWorldRelevantValue(result), result.HomepageRejectionReason, result.HomepageEvaluationVersion, itemDal.StatusCompleted); err != nil {
+	if err := updateProcessedItem(db.DB.WithContext(ctx), itemID, result.Summary, result.BroadcastType, domainsStr, result.Keywords, result.ExpireTime, result.Geo, result.SourceType, finalExpectedResponse, finalGroupID, result.Quality, result.Lang, result.Timeliness, suggestion, llm.HomepageEligibleValue(result), llm.HomepageRealWorldRelevantValue(result), result.HomepageRejectionReason, result.HomepageEvaluationVersion, itemDal.StatusCompleted, result.SummaryOrigin); err != nil {
 		logger.Default().Error("failed to persist processed item", "msgID", msgID, "itemID", itemID, "broadcastType", result.BroadcastType, "err", err)
 
 		if statusErr := updateProcessedItemStatus(db.DB.WithContext(ctx), itemID, itemDal.StatusFailed); statusErr != nil {

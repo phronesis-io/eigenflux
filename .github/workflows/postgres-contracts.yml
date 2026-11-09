@@ -26,6 +26,7 @@ on:
       - 'rpc/item/**'
       - 'rpc/sort/discovery/**'
       - 'scripts/discovery_fidelity_replay/**'
+      - 'scripts/repair_summary_history/**'
       - 'rpc/pm/dal/**'
       - 'tests/pmtimestampbackfill/**'
       - 'pkg/consolev2retention/**'
@@ -70,6 +71,7 @@ on:
       - 'rpc/item/**'
       - 'rpc/sort/discovery/**'
       - 'scripts/discovery_fidelity_replay/**'
+      - 'scripts/repair_summary_history/**'
       - 'rpc/pm/dal/**'
       - 'tests/pmtimestampbackfill/**'
       - 'pkg/consolev2retention/**'
@@ -162,6 +164,11 @@ jobs:
           go test -race -count=1 ./api/handler_gen/eigenflux/api -run '^TestPublishTransfersDispatchOwnershipToRPC$'
           PUBLISH_REDIS_TEST_ADDR='127.0.0.1:6379' \
             go test -race -count=1 ./pkg/mq ./pipeline/consumer ./pipeline/llm
+      - name: Verify summary ownership and translation source fencing
+        run: |
+          go test -count=1 ./pkg/summary ./scripts/repair_summary_history
+          go test -count=1 ./rpc/item -run '^Test(PublishPinsUGCSummaryOwnership|PublisherSummaryDoesNotChangePGCPolicy)$'
+          go test -count=1 ./api/dal -run '^TestTranslationPostgresSourceFenceAndLegacyIsolation$'
       - name: Verify PostgreSQL retention and identity semantics
         run: go test -count=1 ./pkg/consolev2retention ./pkg/agentidentity ./pkg/agentcard
       - name: Verify PM topic activity timestamps and recent ordering

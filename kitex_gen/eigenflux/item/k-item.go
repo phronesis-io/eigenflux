@@ -591,6 +591,20 @@ func (p *ProcessedItem) FastRead(buf []byte) (int, error) {
 					goto SkipFieldError
 				}
 			}
+		case 30:
+			if fieldTypeId == thrift.STRING {
+				l, err = p.FastReadField30(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
 		default:
 			l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
 			offset += l
@@ -832,6 +846,20 @@ func (p *ProcessedItem) FastReadField13(buf []byte) (int, error) {
 	return offset, nil
 }
 
+func (p *ProcessedItem) FastReadField30(buf []byte) (int, error) {
+	offset := 0
+
+	var _field *string
+	if v, l, err := thrift.Binary.ReadString(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = &v
+	}
+	p.SummaryOrigin = _field
+	return offset, nil
+}
+
 func (p *ProcessedItem) FastWrite(buf []byte) int {
 	return p.FastWriteNocopy(buf, nil)
 }
@@ -852,6 +880,7 @@ func (p *ProcessedItem) FastWriteNocopy(buf []byte, w thrift.NocopyWriter) int {
 		offset += p.fastWriteField9(buf[offset:], w)
 		offset += p.fastWriteField10(buf[offset:], w)
 		offset += p.fastWriteField13(buf[offset:], w)
+		offset += p.fastWriteField30(buf[offset:], w)
 	}
 	offset += thrift.Binary.WriteFieldStop(buf[offset:])
 	return offset
@@ -873,6 +902,7 @@ func (p *ProcessedItem) BLength() int {
 		l += p.field11Length()
 		l += p.field12Length()
 		l += p.field13Length()
+		l += p.field30Length()
 	}
 	l += thrift.Binary.FieldStopLength()
 	return l
@@ -1001,6 +1031,15 @@ func (p *ProcessedItem) fastWriteField13(buf []byte, w thrift.NocopyWriter) int 
 	return offset
 }
 
+func (p *ProcessedItem) fastWriteField30(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	if p.IsSetSummaryOrigin() {
+		offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.STRING, 30)
+		offset += thrift.Binary.WriteStringNocopy(buf[offset:], w, *p.SummaryOrigin)
+	}
+	return offset
+}
+
 func (p *ProcessedItem) field1Length() int {
 	l := 0
 	l += thrift.Binary.FieldBeginLength()
@@ -1114,6 +1153,15 @@ func (p *ProcessedItem) field13Length() int {
 	if p.IsSetSuggestion() {
 		l += thrift.Binary.FieldBeginLength()
 		l += thrift.Binary.StringLengthNocopy(*p.Suggestion)
+	}
+	return l
+}
+
+func (p *ProcessedItem) field30Length() int {
+	l := 0
+	if p.IsSetSummaryOrigin() {
+		l += thrift.Binary.FieldBeginLength()
+		l += thrift.Binary.StringLengthNocopy(*p.SummaryOrigin)
 	}
 	return l
 }
@@ -3116,6 +3164,20 @@ func (p *ItemWithStats) FastRead(buf []byte) (int, error) {
 					goto SkipFieldError
 				}
 			}
+		case 30:
+			if fieldTypeId == thrift.STRING {
+				l, err = p.FastReadField30(buf[offset:])
+				offset += l
+				if err != nil {
+					goto ReadFieldError
+				}
+			} else {
+				l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
+				offset += l
+				if err != nil {
+					goto SkipFieldError
+				}
+			}
 		default:
 			l, err = thrift.Binary.Skip(buf[offset:], fieldTypeId)
 			offset += l
@@ -3362,6 +3424,20 @@ func (p *ItemWithStats) FastReadField13(buf []byte) (int, error) {
 	return offset, nil
 }
 
+func (p *ItemWithStats) FastReadField30(buf []byte) (int, error) {
+	offset := 0
+
+	var _field *string
+	if v, l, err := thrift.Binary.ReadString(buf[offset:]); err != nil {
+		return offset, err
+	} else {
+		offset += l
+		_field = &v
+	}
+	p.SummaryOrigin = _field
+	return offset, nil
+}
+
 func (p *ItemWithStats) FastWrite(buf []byte) int {
 	return p.FastWriteNocopy(buf, nil)
 }
@@ -3382,6 +3458,7 @@ func (p *ItemWithStats) FastWriteNocopy(buf []byte, w thrift.NocopyWriter) int {
 		offset += p.fastWriteField2(buf[offset:], w)
 		offset += p.fastWriteField3(buf[offset:], w)
 		offset += p.fastWriteField4(buf[offset:], w)
+		offset += p.fastWriteField30(buf[offset:], w)
 	}
 	offset += thrift.Binary.WriteFieldStop(buf[offset:])
 	return offset
@@ -3403,6 +3480,7 @@ func (p *ItemWithStats) BLength() int {
 		l += p.field11Length()
 		l += p.field12Length()
 		l += p.field13Length()
+		l += p.field30Length()
 	}
 	l += thrift.Binary.FieldStopLength()
 	return l
@@ -3507,6 +3585,15 @@ func (p *ItemWithStats) fastWriteField13(buf []byte, w thrift.NocopyWriter) int 
 	return offset
 }
 
+func (p *ItemWithStats) fastWriteField30(buf []byte, w thrift.NocopyWriter) int {
+	offset := 0
+	if p.IsSetSummaryOrigin() {
+		offset += thrift.Binary.WriteFieldBegin(buf[offset:], thrift.STRING, 30)
+		offset += thrift.Binary.WriteStringNocopy(buf[offset:], w, *p.SummaryOrigin)
+	}
+	return offset
+}
+
 func (p *ItemWithStats) field1Length() int {
 	l := 0
 	l += thrift.Binary.FieldBeginLength()
@@ -3602,6 +3689,15 @@ func (p *ItemWithStats) field13Length() int {
 	if p.IsSetCreatedAt() {
 		l += thrift.Binary.FieldBeginLength()
 		l += thrift.Binary.I64Length()
+	}
+	return l
+}
+
+func (p *ItemWithStats) field30Length() int {
+	l := 0
+	if p.IsSetSummaryOrigin() {
+		l += thrift.Binary.FieldBeginLength()
+		l += thrift.Binary.StringLengthNocopy(*p.SummaryOrigin)
 	}
 	return l
 }

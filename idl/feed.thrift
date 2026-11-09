@@ -23,6 +23,7 @@ struct FeedItem {
     17: optional bool raw_content_truncated
     18: optional i64 created_at
     19: optional string display_name
+    30: optional string summary_origin
 }
 
 struct FetchFeedReq {

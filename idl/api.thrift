@@ -142,6 +142,7 @@ struct FeedItem {
     9: optional bool raw_content_truncated
     10: required i64 created_at
     11: required string display_name
+    30: optional string summary_origin
 }
 
 struct FeedNotification {
@@ -186,6 +187,7 @@ struct ItemDetail {
     11: optional string content
     12: optional string url
     13: required i64 updated_at
+    30: optional string summary_origin
 }
 
 struct GetItemData {
@@ -336,6 +338,7 @@ struct MyItemData {
     10: required i64 updated_at
     11: optional i64 reply_count
     12: optional bool retracted
+    30: optional string summary_origin
 }
 
 struct GetMyItemsData {

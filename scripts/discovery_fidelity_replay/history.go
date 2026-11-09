@@ -32,7 +32,7 @@ func exportHistory(db *gorm.DB, dir string) {
 	all := []historyCell{}
 	for _, a := range cohort {
 		var cells []historyCell
-		cache := filepath.Join(dir, fmt.Sprintf("history-%d.json", a.AgentID))
+		cache := filepath.Join(dir, fmt.Sprintf("history-attributed-v2-%d.json", a.AgentID))
 		if b, e := os.ReadFile(cache); e == nil {
 			must(json.Unmarshal(b, &cells))
 			all = append(all, cells...)
@@ -45,18 +45,18 @@ func exportHistory(db *gorm.DB, dir string) {
  count(*) copies
  FROM replay_logs r LEFT JOIN raw_items i USING(item_id) LEFT JOIN agents p ON p.agent_id=i.author_agent_id
  WHERE r.agent_id=? AND r.served_at>=? AND r.served_at<? AND r.delivered IS TRUE
- AND r.source_kind='broadcast' AND r.request_mode<>'search'
+ AND r.source_kind='broadcast' AND r.request_mode<>'search' AND r.agent_id<>i.author_agent_id
  GROUP BY r.agent_id,r.item_id,r.impression_id), matched AS (
  SELECT d.*,coalesce(f.n,0) positives FROM deliveries d LEFT JOIN LATERAL (
  SELECT count(*) n FROM feedback_logs f WHERE f.impression_id=d.impression_id
  AND f.agent_id=d.agent_id AND f.item_id=d.item_id AND f.feedback_at>=d.served_at
- AND f.feedback_at<? AND f.score IN(1,2) AND d.copies=1 AND d.impression_id<>'')f ON true)
+ AND f.feedback_at<? AND f.score IN(1,2))f ON true WHERE d.copies=1 AND d.impression_id<>'')
  SELECT agent_id,lane,basis,count(*) deliveries,sum(positives) positive_events FROM matched GROUP BY agent_id,lane,basis`, a.AgentID, lo.UnixMilli(), hi.UnixMilli(), now.UnixMilli()).Scan(&cells).Error)
 		save(cache, cells)
 		all = append(all, cells...)
 		fmt.Printf("history Agent %d: %d cells\n", a.AgentID, len(cells))
 	}
-	save(filepath.Join(dir, "feedback-history.json"), map[string]any{"delivery_start": lo.Format(time.RFC3339), "delivery_end": hi.Format(time.RFC3339), "feedback_cutoff": now.Format(time.RFC3339), "cells": all})
+	save(filepath.Join(dir, "feedback-history.json"), map[string]any{"contract": "unique-impression-positive-events-v2", "delivery_start": lo.Format(time.RFC3339), "delivery_end": hi.Format(time.RFC3339), "feedback_cutoff": now.Format(time.RFC3339), "cells": all})
 }
 
 type observedCell struct {

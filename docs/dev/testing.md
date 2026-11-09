@@ -143,6 +143,24 @@ establish runtime acceptance.
 Run `python3 -m unittest discover -s tests/cli_release -p 'test_codex_install.py'`
 for isolated full-installer selection and receipt tests. The suite preserves a
 non-default `CODEX_HOME`, explicit Agent Home, unrelated config, and opt-outs.
+It covers the invoking runtime path, current macOS app bundle layouts, and
+fallback from missing or incompatible candidates.
+
+Set `EIGENFLUX_TEST_CODEX` to a compatible native Codex executable and run
+`python3 -m unittest discover -s tests/cli_release -p 'test_codex_marketplace_cleanup.py'`
+for marketplace removal/reinstall acceptance. The suite uses temporary host
+Homes and a local Git catalog with external Git transports disabled. It covers
+registered and orphaned marketplace roots and preservation of unrelated state.
+Also set `EIGENFLUX_TEST_CLI` to a native EigenFlux executable on POSIX to run
+complete removal/reinstallation: native installation replacement, local managed
+Skills installation, the production host-setup functions, native plugin removal,
+marketplace ownership checks/removal, and the official uninstall wrapper's
+preview/begin/apply protocol. It verifies removal of credentials, cached history,
+edited managed Skills and executable ownership, then reinstalls at the same
+paths while preserving unrelated content. It uses a local fixture plugin and
+never uses live user configuration, starts an MCP server, or changes OS
+notification registration or scheduling. Without the explicit executables these
+native cases are skipped, not counted as acceptance.
 
 Run `python3 -m unittest discover -s tests/cli_release -p 'test_skills_install.py'`
 for GitHub Skills bootstrap coverage when signed CDN synchronization fails.
