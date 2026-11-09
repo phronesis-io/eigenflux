@@ -82,51 +82,64 @@ func (w *accountWatch) resolveDesktopServiceName(ctx context.Context, message de
 		}
 	}
 	message.Title = "【" + roleName + " · " + desktopAgentNamePlaceholder + "】" + message.Title
-	agentName := "Agent " + w.identity.AgentID
-	{
-		agentID := w.identity.AgentID
-		// Public identity data is optional; a failed lookup must not suppress an order notice.
-		public := client.New(strings.TrimRight(w.server.Endpoint, "/")+"/api/v2", "", version, client.Meta{})
-		public.HTTPClient = &http.Client{Timeout: 3 * time.Second, Transport: watchTransport{ctx}}
-		if result, lookupErr := public.Get("/public/agents/by-id/"+agentID+"/card", nil); lookupErr == nil && result.Code == 0 && len(result.Data) <= 256<<10 {
-			var profile struct {
-				Card struct {
-					Name          string `json:"agent_name"`
-					DisplayName   string `json:"display_name"`
-					NameEN        string `json:"agent_name_en"`
-					DisplayNameEN string `json:"display_name_en"`
-				} `json:"card"`
-				Identity struct {
-					DisplayName   string `json:"display_name"`
-					DisplayNameEN string `json:"display_name_en"`
-				} `json:"public_identity"`
-			}
-			if json.Unmarshal(result.Data, &profile) == nil {
-				candidates := []string{profile.Identity.DisplayName, profile.Card.DisplayName, profile.Card.Name}
-				if english {
-					candidates = append([]string{profile.Identity.DisplayNameEN, profile.Card.DisplayNameEN, profile.Card.NameEN}, candidates...)
-				}
-				for _, candidate := range candidates {
-					if cleaned := desktopServiceName(candidate); cleaned != "" {
-						runes := []rune(cleaned)
-						if len(runes) > 40 {
-							cleaned = string(runes[:39]) + "…"
-						}
-						agentName = cleaned
-						break
-					}
-				}
-			}
-		}
+	agentName := w.desktopPublicAgentName(ctx, w.identity.AgentID, english, false)
+	if agentName == "" {
+		agentName = "Agent " + w.identity.AgentID
+	}
+	buyerName := ""
+	if strings.Contains(message.Body, "买方") {
+		buyerName = w.desktopPublicAgentName(ctx, strconv.FormatInt(int64(data.Order.BuyerID), 10), false, true)
+	}
+	if buyerName != "" {
+		message.Body = strings.ReplaceAll(message.Body, "买方", "买方{order_buyer_agent_name}")
 	}
 	// A single replacer never expands placeholder-like text within display names.
-	replace := strings.NewReplacer(desktopServiceNamePlaceholder, name, desktopAgentNamePlaceholder, agentName)
+	replace := strings.NewReplacer(desktopServiceNamePlaceholder, name, desktopAgentNamePlaceholder, agentName, "{order_buyer_agent_name}", "「"+buyerName+"」")
 	message.Title = replace.Replace(message.Title)
 	message.Body = replace.Replace(message.Body)
 	if desktopnotify.Validate(message) != nil {
 		return message, errDesktopServiceName
 	}
 	return message, nil
+}
+
+func (w *accountWatch) desktopPublicAgentName(ctx context.Context, agentID string, english, preferAgentName bool) string {
+	// Public identity data is optional; a failed lookup must not suppress an order notice.
+	public := client.New(strings.TrimRight(w.server.Endpoint, "/")+"/api/v2", "", version, client.Meta{})
+	public.HTTPClient = &http.Client{Timeout: 3 * time.Second, Transport: watchTransport{ctx}}
+	if result, lookupErr := public.Get("/public/agents/by-id/"+agentID+"/card", nil); lookupErr == nil && result.Code == 0 && len(result.Data) <= 256<<10 {
+		var profile struct {
+			Card struct {
+				Name          string `json:"agent_name"`
+				DisplayName   string `json:"display_name"`
+				NameEN        string `json:"agent_name_en"`
+				DisplayNameEN string `json:"display_name_en"`
+			} `json:"card"`
+			Identity struct {
+				DisplayName   string `json:"display_name"`
+				DisplayNameEN string `json:"display_name_en"`
+			} `json:"public_identity"`
+		}
+		if json.Unmarshal(result.Data, &profile) == nil {
+			candidates := []string{profile.Identity.DisplayName, profile.Card.DisplayName, profile.Card.Name}
+			if preferAgentName {
+				candidates = []string{profile.Card.Name, profile.Identity.DisplayName, profile.Card.DisplayName}
+			}
+			if english {
+				candidates = append([]string{profile.Identity.DisplayNameEN, profile.Card.DisplayNameEN, profile.Card.NameEN}, candidates...)
+			}
+			for _, candidate := range candidates {
+				if cleaned := desktopServiceName(candidate); cleaned != "" {
+					runes := []rune(cleaned)
+					if len(runes) > 40 {
+						cleaned = string(runes[:39]) + "…"
+					}
+					return cleaned
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func desktopServiceName(title string) string {
