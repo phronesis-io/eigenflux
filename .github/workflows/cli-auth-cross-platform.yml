@@ -3,69 +3,45 @@ name: CLI Auth Cross-Platform
 on:
   pull_request:
     paths:
-      - 'cli/internal/auth/**'
-      - 'cli/internal/profilestate/**'
-      - 'cli/internal/client/**'
-      - 'cli/internal/config/**'
-      - 'cli/internal/maintenance/**'
-      - 'cli/internal/selfupdate/**'
-      - 'cli/internal/skills/**'
-      - 'cli/internal/uninstallscript/**'
-      - 'cli/internal/desktopnotify/**'
-      - 'cli/cmd/**'
-      - 'cli/scripts/build.ps1'
-      - 'cli/.cli.config'
+      - 'cli/**'
       - 'skills/**'
-      - 'static/install.sh'
-      - 'static/uninstall.sh'
-      - 'static/uninstall.ps1'
-      - 'static/install.ps1'
-      - 'cli/scripts/**'
-      - '.github/workflows/release-cli.yml'
+      - 'docs/**'
+      - 'README.md'
+      - 'AGENTS.md'
+      - 'static/install*'
+      - 'static/uninstall*'
+      - 'static/feed*contract.md'
       - 'tests/cli_release/**'
       - 'tests/installer_release/**'
+      - 'tests/onboarding_prefill/**'
+      - 'tests/ci/**'
+      - 'scripts/ci/**'
       - 'scripts/release/publish-installer.py'
-      - '.github/workflows/release-installer.yml'
-      - 'api/install/shell_installer*.go'
+      - 'api/install/**'
       - 'tests/installhome/**'
       - 'tests/installentry/**'
-      - 'cli/tests/**'
-      - 'cli/go.mod'
-      - 'cli/go.sum'
-      - '.github/workflows/cli-auth-cross-platform.yml'
+      - '.github/workflows/**'
   push:
     branches: [main]
     paths:
-      - 'cli/internal/auth/**'
-      - 'cli/internal/profilestate/**'
-      - 'cli/internal/client/**'
-      - 'cli/internal/config/**'
-      - 'cli/internal/maintenance/**'
-      - 'cli/internal/selfupdate/**'
-      - 'cli/internal/skills/**'
-      - 'cli/internal/uninstallscript/**'
-      - 'cli/internal/desktopnotify/**'
-      - 'cli/cmd/**'
-      - 'cli/scripts/build.ps1'
-      - 'cli/.cli.config'
+      - 'cli/**'
       - 'skills/**'
-      - 'static/install.sh'
-      - 'static/uninstall.sh'
-      - 'static/uninstall.ps1'
-      - 'static/install.ps1'
-      - 'cli/scripts/**'
-      - '.github/workflows/release-cli.yml'
+      - 'docs/**'
+      - 'README.md'
+      - 'AGENTS.md'
+      - 'static/install*'
+      - 'static/uninstall*'
+      - 'static/feed*contract.md'
       - 'tests/cli_release/**'
       - 'tests/installer_release/**'
+      - 'tests/onboarding_prefill/**'
+      - 'tests/ci/**'
+      - 'scripts/ci/**'
       - 'scripts/release/publish-installer.py'
-      - '.github/workflows/release-installer.yml'
-      - 'api/install/shell_installer*.go'
+      - 'api/install/**'
       - 'tests/installhome/**'
       - 'tests/installentry/**'
-      - 'cli/tests/**'
-      - 'cli/go.mod'
-      - 'cli/go.sum'
-      - '.github/workflows/cli-auth-cross-platform.yml'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 # Keep only the newest PR checks; isolate main and manual runs.
@@ -77,7 +53,55 @@ permissions:
   contents: read
 
 jobs:
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      full: ${{ steps.changes.outputs.full }}
+      skills: ${{ steps.changes.outputs.skills }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: changes
+        env:
+          CI_EVENT: ${{ github.event_name }}
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          CI_HEAD_SHA: ${{ github.sha }}
+        run: python3 scripts/ci/changes.py
+
+  source-checks:
+    needs: scope
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Validate CI classification and regression checker
+        run: |
+          python3 -m unittest discover -s tests/ci -p 'test_*.py'
+          python3 -m unittest discover -s tests/onboarding_prefill -p 'test_*.py'
+      - name: Check documentation source
+        run: git diff --check HEAD^ HEAD
+
+  skills-tests:
+    needs: scope
+    if: needs.scope.outputs.full != 'true' && needs.scope.outputs.skills == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+      - name: Test CLI contracts and Skills compatibility on Linux
+        run: |
+          python3 scripts/ci/cmd_tests.py all
+          cd cli
+          go test -count=1 ./internal/skills ./tests
+
   auth-tests:
+    needs: scope
+    if: needs.scope.outputs.full == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -97,7 +121,16 @@ jobs:
       - name: Test signed self-update and native package installation
         run: go test ./internal/selfupdate -count=1
       - name: Test runtime identity persistence and automatic reporting
-        run: go test -count=1 ./internal/profilestate ./internal/client ./internal/config ./cmd
+        run: go test -count=1 ./internal/profilestate ./internal/client ./internal/config
+      - name: Test all CLI commands on Linux
+        if: runner.os == 'Linux'
+        run: python3 ../scripts/ci/cmd_tests.py all
+      - name: Test platform CLI commands on macOS
+        if: runner.os == 'macOS'
+        run: python3 ../scripts/ci/cmd_tests.py platform
+      - name: Test platform CLI commands on Windows
+        if: runner.os == 'Windows'
+        run: python ../scripts/ci/cmd_tests.py platform
       - name: Test uninstall telemetry and owned installation cleanup
         run: |
           go test -count=1 ./internal/maintenance ./internal/watch ./internal/watchservice ./internal/desktopnotify ./internal/uninstallscript
@@ -134,6 +167,8 @@ jobs:
           path: build/windows-test.zip
 
   windows-download-tests:
+    needs: scope
+    if: needs.scope.outputs.full == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -150,6 +185,8 @@ jobs:
         run: python -m unittest discover -s tests/cli_release -p 'test_windows_*.py'
 
   release-artifact-handoff:
+    needs: scope
+    if: needs.scope.outputs.full == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Prepare an executable without release credentials
