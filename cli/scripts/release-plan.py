@@ -53,9 +53,44 @@ def trusted_ci(repository, sha):
             '--method', 'GET', '-f', f'head_sha={sha}', '-f', 'branch=main',
             '-f', 'event=push', '-f', 'per_page=1',
         ], check=True, capture_output=True, text=True, timeout=30)
-        return ci_evidence(json.loads(result.stdout), repository, sha)
+        data = json.loads(result.stdout)
+        evidence = ci_evidence(data, repository, sha)
+        if not evidence[0]:
+            return evidence
+        run = data['workflow_runs'][0]
+        attempt = run.get('run_attempt')
+        if type(attempt) is not int or attempt < 1:
+            return False, '', 'ci_coverage_unverified'
+        jobs = subprocess.run([
+            'gh', 'api', '--paginate', '--slurp',
+            f'repos/{repository}/actions/runs/{evidence[1]}/attempts/{attempt}/jobs?per_page=100',
+        ], check=True, capture_output=True, text=True, timeout=30)
+        if not full_ci_jobs(json.loads(jobs.stdout)):
+            return False, '', 'ci_coverage_unverified'
+        return evidence
     except (OSError, subprocess.SubprocessError, ValueError, TypeError, AttributeError):
         return False, '', 'ci_unavailable'
+
+
+def full_ci_jobs(pages):
+    """A green docs/Skills-only run does not establish platform coverage."""
+    required = {
+        'source-checks', 'auth-tests (ubuntu-latest)',
+        'auth-tests (macos-latest)', 'auth-tests (windows-latest)',
+        'windows-download-tests', 'release-artifact-handoff',
+    }
+    if not isinstance(pages, list) or not pages:
+        return False
+    jobs = []
+    for page in pages:
+        if not isinstance(page, dict) or not isinstance(page.get('jobs'), list):
+            return False
+        jobs.extend(page['jobs'])
+    for name in required:
+        matches = [job for job in jobs if isinstance(job, dict) and job.get('name') == name]
+        if len(matches) != 1 or matches[0].get('status') != 'completed' or matches[0].get('conclusion') != 'success':
+            return False
+    return True
 
 
 def cli_version_at(sha):
