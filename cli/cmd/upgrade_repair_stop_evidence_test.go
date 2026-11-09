@@ -73,7 +73,26 @@ func TestUpgradeRepairStopRejectsForegroundCycleReadbackThenAcceptsActualSchedul
 	for time.Now().UnixMilli() <= at {
 		time.Sleep(time.Millisecond)
 	}
-	scheduled := finishRepairEvidenceCycle(t, scope)
+	concurrentForeground := finishRepairEvidenceCycle(t, scope)
+	appendHeartbeatHostCommand(t, path, in.TurnID, "eigenflux heartbeat cycle-check --cycle "+concurrentForeground.ID+" --finish", "completed", `{"cycle_id":"`+concurrentForeground.ID+`","status":"completed"}`)
+	if _, err = heartbeatStopDecision(scope, in.heartbeatStopInput, guardTestThread); err != nil {
+		t.Fatal(err)
+	}
+	state, err = currentUpgradeRepair(false)
+	if err != nil || state.Status == "verified" {
+		t.Fatalf("concurrent foreground cycle after trigger falsely verified scheduling: %+v %v", state, err)
+	}
+	scheduled, err := maintenance.StartCycle(scope, "full", []string{"feed"}, maintenance.RuntimeObservation{Product: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendHeartbeatHostCommand(t, path, in.TurnID, "eigenflux heartbeat plan --format agent", "completed", "EIGENFLUX HEARTBEAT PLAN\nheartbeat cycle-report --cycle "+scheduled.ID)
+	if err = maintenance.ReportCycle(scope, scheduled.ID, "feed", "completed"); err != nil {
+		t.Fatal(err)
+	}
+	if err = maintenance.ReportCycle(scope, scheduled.ID, "cycle", "completed"); err != nil {
+		t.Fatal(err)
+	}
 	appendHeartbeatHostCommand(t, path, in.TurnID, "eigenflux heartbeat cycle-check --cycle "+scheduled.ID+" --finish", "completed", `{"cycle_id":"`+scheduled.ID+`","status":"completed"}`)
 	if _, err = heartbeatStopDecision(scope, in.heartbeatStopInput, guardTestThread); err != nil {
 		t.Fatal(err)
@@ -115,6 +134,7 @@ func TestUpgradeRepairStopRejectsTriggerFromBeforeAcceptanceRequest(t *testing.T
 		t.Fatal(err)
 	}
 	appendHeartbeatHostCommand(t, path, in.TurnID, "eigenflux heartbeat cycle-check --cycle "+c.ID+" --finish", "completed", `{"cycle_id":"`+c.ID+`","status":"completed"}`)
+	appendHeartbeatHostCommand(t, path, in.TurnID, "eigenflux heartbeat plan --format agent", "completed", "EIGENFLUX HEARTBEAT PLAN\nheartbeat cycle-report --cycle "+c.ID)
 	in.Event, in.Transcript, in.GuardDefinition = "Stop", path, definition
 	if _, err = heartbeatStopDecision(scope, in.heartbeatStopInput, guardTestThread); err != nil {
 		t.Fatal(err)

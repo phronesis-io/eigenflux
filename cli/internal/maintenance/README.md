@@ -182,3 +182,8 @@ is release-pending, not corrupted. Retry it quietly when auto-sync is enabled;
 retain a one-time foreground action when it is disabled. A verified synchronization
 writer lock is also transient. New-contract missing files, modified content and
 invalid signatures remain blocked.
+The original canonical turn must also contain the matching successful native
+plan receipt. A cycle-check alone cannot establish that source, even if another
+foreground cycle began after the trigger. Continuations read only the pinned
+origin attempt's bounded transcript evidence; missing origin evidence leaves
+acceptance unverified without changing normal cycle completion.

@@ -252,7 +252,11 @@ func verifyUpgradeRepairCycle(scope maintenance.Scope, thread, turn string, c ma
 	if c.Result != "completed" || c.Mode != "full" {
 		return
 	}
-	triggerAt, err := upgradeRepairTriggerAt(scope, thread, turn, c)
+	transcript := ""
+	if len(definitions) > 1 {
+		transcript = definitions[1]
+	}
+	triggerAt, err := upgradeRepairTriggerAt(scope, thread, turn, c, transcript)
 	if err != nil || triggerAt == 0 {
 		return
 	}
@@ -263,7 +267,7 @@ func verifyUpgradeRepairCycle(scope maintenance.Scope, thread, turn string, c ma
 			return errWatchIdentity
 		}
 		definition := ""
-		if len(definitions) == 1 {
+		if len(definitions) >= 1 {
 			definition = definitions[0]
 		}
 		if triggerAt < r.CreatedAt || c.StartedAt < r.CreatedAt || r.SchedulerThread != thread || r.GuardDefinition == "" || r.GuardDefinition != definition {

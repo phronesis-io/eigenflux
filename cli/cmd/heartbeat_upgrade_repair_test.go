@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -158,24 +159,29 @@ func TestUpgradeRepairRequiresRealScheduledCompletedFullCycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	cycle.StartedAt = time.Now().Add(time.Millisecond).UnixMilli()
+	transcript := filepath.Join(t.TempDir(), "transcript.jsonl")
+	if err := os.WriteFile(transcript, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	appendHeartbeatHostCommand(t, transcript, turn, "eigenflux heartbeat plan --format agent", "completed", "EIGENFLUX HEARTBEAT PLAN\nheartbeat cycle-report --cycle "+cycle.ID+" --stage feed --result completed")
 	for _, bad := range []maintenance.Cycle{
 		{ID: cycle.ID, Mode: "baseline", Result: "completed", StartedAt: cycle.StartedAt},
 		{ID: cycle.ID, Mode: "full", Result: "failed", StartedAt: cycle.StartedAt},
 		{ID: cycle.ID, Mode: "full", Result: "completed", StartedAt: r.CreatedAt - 1},
 		{ID: strings.Repeat("b", 32), Mode: "full", Result: "completed", StartedAt: cycle.StartedAt},
 	} {
-		verifyUpgradeRepairCycle(scope, thread, turn, bad, strings.Repeat("d", 64))
+		verifyUpgradeRepairCycle(scope, thread, turn, bad, strings.Repeat("d", 64), transcript)
 		state, _ = currentUpgradeRepair(false)
 		if state.Status == "verified" {
 			t.Fatalf("accepted unrelated cycle %+v", bad)
 		}
 	}
-	verifyUpgradeRepairCycle(scope, thread, turn, cycle, strings.Repeat("e", 64))
+	verifyUpgradeRepairCycle(scope, thread, turn, cycle, strings.Repeat("e", 64), transcript)
 	state, _ = currentUpgradeRepair(false)
 	if state.Status == "verified" {
 		t.Fatal("old trusted Hook accepted a new guard definition")
 	}
-	verifyUpgradeRepairCycle(scope, thread, turn, cycle, strings.Repeat("d", 64))
+	verifyUpgradeRepairCycle(scope, thread, turn, cycle, strings.Repeat("d", 64), transcript)
 	state, _ = currentUpgradeRepair(false)
 	if state.Status != "verified" {
 		t.Fatalf("real trigger did not finish acceptance: %+v", state)
