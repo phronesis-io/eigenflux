@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -41,6 +40,7 @@ func TestMigrationPreservesBoundWatchOwnership(t *testing.T) {
 			wantStatus := "update"
 			if current {
 				prompt += " --watch-managed"
+				prompt = heartbeatSchedulerPrompt(prompt)
 				wantStatus = "current"
 			}
 			in := heartbeatmigration.Inventory{Complete: true, Tasks: []heartbeatmigration.Task{{
@@ -61,9 +61,50 @@ func TestMigrationPreservesBoundWatchOwnership(t *testing.T) {
 				t.Fatalf("unexpected migration: %+v", record.Plan)
 			}
 			after := record.Plan.After.Tasks[0]
-			if !strings.HasSuffix(after.Prompt, " --watch-managed") || after.Status != "PAUSED" || after.Schedule != "2h" {
+			if after.Prompt != heartbeatSchedulerPrompt(base+" --watch-managed") || after.Status != "PAUSED" || after.Schedule != "2h" {
 				t.Fatalf("companion ownership or scheduler state changed: %+v", after)
 			}
+		}
+	}
+}
+
+func TestMigrationPreservesFullExecutionPromptAfterLegacyLauncher(t *testing.T) {
+	f := newDispatchWatchFixture(t, "")
+	oldFormat, oldMeta := formatFlag, clientMeta
+	formatFlag, clientMeta.Mode = "json", "skill"
+	t.Cleanup(func() { formatFlag, clientMeta = oldFormat, oldMeta })
+	command, _, err := rootCmd.Find([]string{"heartbeat", "migrate", "plan"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = command.Flags().Set("stdin", "true")
+	launcher, err := nativeHeartbeatLauncher(config.HomeDir(), f.watch.server.Name, "skill", "auto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := heartbeatSchedulerPrompt(launcher + " --watch-managed")
+	for _, prompt := range []string{launcher + " --watch-managed", want} {
+		in := heartbeatmigration.Inventory{Complete: true, Tasks: []heartbeatmigration.Task{{ID: "owned", Owner: "eigenflux", Purpose: "heartbeat", Home: config.HomeDir(), Server: f.watch.server.Name, Prompt: prompt, Schedule: "2h", Status: "ACTIVE", ThreadID: "owner-thread"}}}
+		raw, _ := json.Marshal(in)
+		command.SetIn(bytes.NewReader(raw))
+		out, err := captureHeartbeatStdout(t, func() error { return command.RunE(command, nil) })
+		if err != nil {
+			t.Fatal(err)
+		}
+		var record migrationRecord
+		if err := json.Unmarshal([]byte(out), &record); err != nil {
+			t.Fatal(err)
+		}
+		status := "update"
+		if prompt == want {
+			status = "current"
+		}
+		if record.Plan.Status != status || record.Plan.After.Tasks[0].Prompt != want {
+			t.Fatalf("migration removed execution instructions: %+v", record.Plan)
+		}
+		got := record.Plan.After.Tasks[0]
+		if got.ThreadID != "owner-thread" || got.Status != "ACTIVE" || got.Schedule != "2h" {
+			t.Fatal("migration changed scheduling ownership")
 		}
 	}
 }
@@ -108,7 +149,7 @@ func TestMigrationPendingAndRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	currentInput.Tasks[0].Prompt = launcher
+	currentInput.Tasks[0].Prompt = heartbeatSchedulerPrompt(launcher)
 	if current, err := call("plan", currentInput); err != nil || current.Plan.Status != "current" {
 		t.Fatalf("fresh current: %+v %v", current, err)
 	}

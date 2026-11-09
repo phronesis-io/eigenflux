@@ -286,6 +286,10 @@ receipt's Codex configuration and the native scheduler's verified owner thread.
 Pass the exact native task prompt through `--scheduler-prompt-file` using an
 owner-only local file when it differs from the default canonical prompt.
 Require the complete canonical prompt and preserve its verified launcher.
+Repair a confirmed launcher-only task through the existing native migration
+procedure, applying its full execution prompt to the same task. Preserve its
+thread, cadence, enabled/paused state and watch ownership; read it back before
+configuring the prompt-fenced hooks.
 Read back the appended account/thread-scoped hooks. Preserve existing hooks.
 Complete the host's hook review through `/hooks` or Settings > Hooks. Keep
 `configured` and `trust_pending` separate from actual hook execution; record

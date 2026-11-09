@@ -91,6 +91,9 @@ The trigger handler admits only the exact verified canonical prompt hash.
 Continuation markers retain the same local cycle or an admitted no-plan run;
 quoted templates and ordinary replies do not admit execution. Hook configuration
 remains trust-pending until the host invokes it; setup never changes host trust.
+Native scheduler migration preserves the complete `scheduler_prompt`, including
+the instruction to follow the plan; it never replaces that prompt with only
+the plan-producing command. Retain the same task, state and watch ownership.
 `heartbeat permission-check` uses the selected Codex execpolicy checker and all
 explicitly supplied rule files for the stable executable and stage commands.
 Bare-executable allows are only legacy-mismatch evidence, never a policy repair.
