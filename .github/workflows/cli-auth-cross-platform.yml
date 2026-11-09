@@ -68,6 +68,11 @@ on:
       - '.github/workflows/cli-auth-cross-platform.yml'
   workflow_dispatch:
 
+# Keep only the newest PR checks; isolate main and manual runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
