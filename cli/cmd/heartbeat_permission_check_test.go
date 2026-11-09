@@ -50,7 +50,8 @@ func TestHeartbeatPermissionUsesActualPolicyAndFindsLegacyMismatch(t *testing.T)
 					t.Fatal("suggested bypassing stricter policy")
 				}
 			} else if tt.want == "legacy_mismatch" {
-				if !strings.Contains(result.ProposedRule, cli) || strings.Contains(result.ProposedRule, `["eigenflux"`) {
+				expected, _ := json.Marshal([]string{cli, "--homedir", dir, "--server", "selected"})
+				if !strings.Contains(result.ProposedRule, string(expected)) || strings.Contains(result.ProposedRule, `["eigenflux"`) {
 					t.Fatal("proposed legacy token")
 				}
 			}

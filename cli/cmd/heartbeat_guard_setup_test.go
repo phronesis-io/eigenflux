@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"unicode/utf16"
@@ -62,7 +63,7 @@ func TestCodexGuardPreservesExistingHooksAndTrustBoundary(t *testing.T) {
 	if strings.Contains(string(raw), "bypass") || strings.Contains(string(raw), "trusted") {
 		t.Fatal("setup mutates host trust")
 	}
-	if info, _ := os.Stat(path); info.Mode().Perm() != 0600 {
+	if info, _ := os.Stat(path); runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Fatalf("permissions: %o", info.Mode().Perm())
 	}
 }
