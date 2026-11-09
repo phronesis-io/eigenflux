@@ -185,24 +185,11 @@ func Query(c Context, k Kind, channel string, limit int) (map[string]any, error)
 		body["size"] = 1
 		body["query"] = map[string]any{"bool": boolq}
 	case "lexical":
-		if k == Broadcast && c.LexicalPolicy == LexicalEvidenceV1 {
-			if gate := lexicalPhraseEvidence(c, textFields); gate != nil {
-				// Apply positional Han evidence only to Chinese sources.
-				// Cross-language Latin/dense matching retains its existing contract.
-				boolq["filter"] = append(filters, map[string]any{"bool": map[string]any{
-					"should":               []any{map[string]any{"bool": map[string]any{"must_not": []any{languageFilter(lang, []string{"zh"})}}}, gate},
-					"minimum_should_match": 1,
-				}})
-			}
-		}
 		original := []any{map[string]any{"multi_match": map[string]any{"query": c.lexicalQuery(), "fields": textFields}}}
 		// Existing analyzers need not fold width/Unicode identically. Retain the
 		// caller's text as a parallel lexical clause until those indices migrate.
 		if c.lexicalQuery() != c.Query {
 			original = append(original, map[string]any{"multi_match": map[string]any{"query": c.Query, "fields": textFields}})
-		}
-		if k == Broadcast && c.LexicalPolicy == LexicalEvidenceV1 && shortLatinTopic(c.lexicalQuery()) {
-			original = append(original, map[string]any{"match_phrase": map[string]any{"domains.text": c.lexicalQuery()}})
 		}
 		boolq["must"] = []any{map[string]any{"dis_max": map[string]any{"queries": original, "tie_breaker": 0}}}
 		if c.QueryAnalysis != nil && len(c.QueryAnalysis.Phrases) > 0 {

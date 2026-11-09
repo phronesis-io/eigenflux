@@ -140,36 +140,6 @@ summary can become stale after selection. Before Order creation, read
 CLI fields are under `definition` and `revision.content`; see the complete
 [response and type contract](commission.md#discovery-summaries-and-authoritative-ordering-terms).
 
-### Broadcast lexical evidence experiment
-
-`DISCOVERY_LEXICAL_EVIDENCE_BPS` defaults to `0`; `1..10000` selects a stable
-Agent bucket for broadcast search and recommendation. Sort rejects invalid
-values at startup. Treated execution contexts record
-`broadcast_phrase_evidence_v1`; Agent and Commission queries are unchanged.
-
-For queries containing adjacent Han characters, Chinese sources must match at
-least one quarter of the distinct adjacent pairs as positional phrases in the
-existing content, summary or keyword fields. Pairs are deduplicated; long queries
-sample at most 64 evenly spaced pairs. Single characters do not constitute pair
-evidence. Non-Chinese/unknown-language sources retain existing matching, so this
-gate does not require English sources to contain Chinese text. This is a bounded
-lexical policy, not proof that all natural-language requirements are satisfied.
-
-Short Latin topic queries (one to four words, separated by whitespace, hyphens or
-underscores) additionally match whole phrases in existing `domains.text` labels.
-Long/mixed queries cannot gain a match from a generic domain word alone. Labels
-remain extracted metadata; no summary, translation or alias is generated here.
-Existing ES mappings suffice; no reindexing, backfill or additional online model
-call is required. ES failures retain the existing explicit partial/error path.
-
-Permission, lifecycle, block/self/seen filters, source-version hydration and
-ranking remain in force. Setting the bucket to zero and restarting Sort disables
-the policy for new executions; already frozen pages and idempotent responses
-retain their original results until expiry. This retrieval rollback is separate
-from publication-summary ownership. Activation requires fixed-cohort replay and
-source-based relevance review, including removed useful matches; aggregate
-counts or source-prior positive estimates alone cannot pass the gate.
-
 ### Deterministic query processing
 
 All explicit queries, captured/inline Need text and owner-context clauses pass

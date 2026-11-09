@@ -205,9 +205,6 @@ func counterfactual(cfg *config.Config, dir string) {
 	b, err := os.ReadFile(filepath.Join(dir, "items.json"))
 	must(err)
 	must(json.Unmarshal(b, &items))
-	if os.Getenv("FIDELITY_LEXICAL_REPAIR") == "true" {
-		items = bindDomainEvidence(dir, items)
-	}
 	byID := map[int64]itemEvidence{}
 	for _, it := range items {
 		byID[it.ItemID] = it
@@ -397,9 +394,6 @@ func counterfactual(cfg *config.Config, dir string) {
 				words, e := json.Marshal(output.Keywords)
 				must(e)
 				item.Keywords = string(words)
-				domains, e := json.Marshal(output.Domains)
-				must(e)
-				item.Domains = string(domains)
 				applyReextractedExpiry(&d, &item, output.ExpireTime)
 				armChanged[i][id] = true
 			}
@@ -518,9 +512,6 @@ func counterfactual(cfg *config.Config, dir string) {
 			source := &poolSource{snap: s, docs: docs, dropped: armDrops[i], vectors: vectors, stale: stale, changed: changed, reference: referenceAlias, lexical: &discovery.Source{BroadcastIndex: alias}}
 
 			engine, close := engine(cfg, dir, s, source)
-			if i == 1 && os.Getenv("FIDELITY_LEXICAL_REPAIR") == "true" {
-				engine.LexicalEvidenceBPS = 10000
-			}
 			run, err := engine.ReplayContexts(context.Background(), s.Owner, s.Contexts, []discovery.Kind{discovery.Broadcast}, 20, s.At)
 			close()
 			must(err)
@@ -550,9 +541,6 @@ func counterfactual(cfg *config.Config, dir string) {
 		if paired {
 			method += "; before arm also uses paired current-model legacy-prompt output for valid author formats, separating historical model/date drift; invalid author formats retain captured before metadata and are rejected after; stochastic paired sensitivity, not causal identification"
 		}
-	}
-	if os.Getenv("FIDELITY_LEXICAL_REPAIR") == "true" {
-		method += "; after-only broadcast_phrase_evidence_v1 retrieval: quarter coverage of at most 64 distinct Han pairs for Chinese sources, existing non-Chinese behavior retained, short Latin topics add whole domain-phrase matches; source-bound late domain evidence; original and treatment queries calibrated separately over all affected candidates; semantic relevance requires independent review"
 	}
 	save(filepath.Join(dir, "counterfactual-"+variant+"-manifest.json"), map[string]any{"variant": variant, "indices": names, "agents": reports, "method": method})
 }
@@ -624,13 +612,6 @@ func replayIndexDocument(id int64, d discovery.Document, item itemEvidence, cont
 		}
 	}
 	doc := map[string]any{"id": id, "author_agent_id": d.AuthorID, "content": content, "summary": summary, "keywords": keywords, "lang": item.Lang, "retrieval_slots": d.Slots}
-	if item.Domains != "" {
-		var domains []string
-		if json.Unmarshal([]byte(item.Domains), &domains) != nil {
-			domains = strings.Split(item.Domains, ",")
-		}
-		doc["domains"] = domains
-	}
 	if expiry := indexExpiry(item.ExpireTime); expiry != "" {
 		doc["expire_time"] = expiry
 	}
@@ -672,12 +653,6 @@ func replayVariant() (baselineOnly, sourceContextOnly bool, variant string) {
 	}
 	if sourceContextOnly {
 		variant = "source-context"
-	}
-	if os.Getenv("FIDELITY_LEXICAL_REPAIR") == "true" {
-		if baselineOnly || !ownership {
-			panic("lexical repair requires an ownership counterfactual; retain the independent baseline gate")
-		}
-		variant += "-lexical"
 	}
 	return
 }

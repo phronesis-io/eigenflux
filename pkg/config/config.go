@@ -235,12 +235,11 @@ type Config struct {
 	// falls back to the baseline formula ranker. The bundle is delivered to a
 	// local directory out-of-band (OSS sync + atomic `current` symlink); sort
 	// only hot-reloads the local file.
-	LRRankerEnabled             bool
-	LRRankerModelPath           string
-	LRRankerReloadInterval      string
-	DiscoveryConsumedRefillBPS  int
-	DiscoveryLexicalEvidenceBPS int
-	DiscoveryNeedBudgetBPS      int
+	LRRankerEnabled            bool
+	LRRankerModelPath          string
+	LRRankerReloadInterval     string
+	DiscoveryConsumedRefillBPS int
+	DiscoveryNeedBudgetBPS     int
 	// DiscoveryProfileSemanticBPS is the share of Agents (basis points) whose
 	// broadcast recommendations add profile-vector recall and use profile/Need
 	// similarity for eligibility and ordering.
@@ -462,7 +461,6 @@ func Load() *Config {
 		LRRankerEnabled:              getEnvBool("LR_RANKER_ENABLED", false),
 		LRRankerModelPath:            getEnv("LR_RANKER_MODEL_PATH", "/data/models/eigenflux/lr-ranker/current/model.json"),
 		LRRankerReloadInterval:       getEnv("LR_RANKER_RELOAD_INTERVAL", "60s"),
-		DiscoveryLexicalEvidenceBPS:  getEnvInt("DISCOVERY_LEXICAL_EVIDENCE_BPS", 0),
 		DiscoveryConsumedRefillBPS:   getEnvInt("DISCOVERY_CONSUMED_REFILL_BPS", 0),
 		DiscoveryNeedBudgetBPS:       getEnvInt("DISCOVERY_NEED_BUDGET_BPS", 0),
 		DiscoveryProfileSemanticBPS:  getEnvInt("DISCOVERY_PROFILE_SEMANTIC_BPS", 0),

@@ -83,7 +83,6 @@ func (e *Engine) experimentArms(owner int64) map[string]string {
 		arms[strings.TrimSuffix(salt, ":")] = arm
 		return on
 	}
-	assign(lexicalEvidenceSalt, e.LexicalEvidenceBPS)
 	assign(needBudgetSalt, e.NeedBudgetBPS)
 	assign(consumedRefillSalt, e.ConsumedRefillBPS)
 	assign(profileSemanticSalt, e.ProfileSemanticBPS)
