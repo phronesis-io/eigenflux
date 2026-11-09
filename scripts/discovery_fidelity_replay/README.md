@@ -131,3 +131,22 @@ support is an error; unlinked feedback is not classified as negative. Event lag,
 missing impression linkage and exposure selection prevent interpreting these
 as calibrated positive probabilities or causal daily uplift. Keep credentials,
 cohort IDs, queries and item snapshots out of the repository and PR.
+
+## UGC publisher ownership
+
+`FIDELITY_UGC_OWNERSHIP=true -mode compare` keeps PGC unchanged and replaces UGC
+summary text with the exact decoded author `notes.summary`, or empty text when
+absent. Invalid author formats are excluded as publication-time rejections.
+This is a prospective steady-state sensitivity, not a historical rewrite. Body
+embeddings remain unchanged because the worker embeds raw content. The same
+complete-cohort and unchanged-content A/A requirements apply.
+
+`-mode ownership-evaluate` incrementally evaluates potentially eligible captured
+UGC with the configured production Slop model and omitted-summary prompt. Cache
+identity binds source, prompt, model, request contract, date and token limit.
+`FIDELITY_UGC_METADATA=true` additionally applies admission, quality, source type,
+language, keywords and expiry. Provider failures, missing evaluations and type
+changes requiring a grouping replay stop comparison; they never count as passes.
+Use `report.py --variant ugc-ownership` or `ugc-ownership-metadata` for the
+corresponding private per-Agent delivery/expected-positive reports. Anonymize
+Agent identifiers before publishing evidence.

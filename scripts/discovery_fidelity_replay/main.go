@@ -119,6 +119,10 @@ func main() {
 	}
 	must(os.MkdirAll(*dir, 0700))
 	cfg := config.Load()
+	if *mode == "ownership-evaluate" {
+		evaluateOwnership(cfg, *dir)
+		return
+	}
 	if *mode == "slop-replay" {
 		slopReplay(cfg, *dir)
 		return

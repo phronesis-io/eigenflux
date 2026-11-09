@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"eigenflux_server/pipeline/llm"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -209,32 +210,43 @@ func counterfactual(cfg *config.Config, dir string) {
 		byID[it.ItemID] = it
 	}
 	audits := map[int64]auditOutput{}
-	f, err := os.Open(filepath.Join(dir, "audits.jsonl"))
-	must(err)
-	defer f.Close()
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 4096), 2<<20)
-	for scanner.Scan() {
-		var a auditOutput
-		must(json.Unmarshal(scanner.Bytes(), &a))
-		id, err := strconv.ParseInt(a.ID, 10, 64)
+	if os.Getenv("FIDELITY_UGC_OWNERSHIP") != "true" && os.Getenv("FIDELITY_BASELINE_ONLY") != "true" {
+		f, err := os.Open(filepath.Join(dir, "audits.jsonl"))
 		must(err)
-		audits[id] = a
-	}
-	must(scanner.Err())
-	prompt, err := os.ReadFile("static/templates/prompts/summary_grounding.tmpl")
-	must(err)
-	promptHash := fmt.Sprintf("%x", sha256.Sum256(prompt))
-	for _, item := range items {
-		if a, ok := audits[item.ItemID]; ok {
-			if a.PromptHash != promptHash || a.InputHash != auditInputHash(item) {
-				panic(fmt.Sprintf("stale audit evidence %d", item.ItemID))
+		defer f.Close()
+		scanner := bufio.NewScanner(f)
+		scanner.Buffer(make([]byte, 4096), 2<<20)
+		for scanner.Scan() {
+			var a auditOutput
+			must(json.Unmarshal(scanner.Bytes(), &a))
+			id, err := strconv.ParseInt(a.ID, 10, 64)
+			must(err)
+			audits[id] = a
+		}
+		must(scanner.Err())
+		prompt, err := os.ReadFile("static/templates/prompts/summary_grounding.tmpl")
+		must(err)
+		promptHash := fmt.Sprintf("%x", sha256.Sum256(prompt))
+		for _, item := range items {
+			if a, ok := audits[item.ItemID]; ok {
+				if a.PromptHash != promptHash || a.InputHash != auditInputHash(item) {
+					panic(fmt.Sprintf("stale audit evidence %d", item.ItemID))
+				}
 			}
 		}
 	}
 	snapshots := loadSnapshots(dir)
 	bodyArms := [2]map[int64]bodyArm{{}, {}}
 	baselineOnly, sourceContextOnly, variant := replayVariant()
+	ownership := os.Getenv("FIDELITY_UGC_OWNERSHIP") == "true"
+	metadata := os.Getenv("FIDELITY_UGC_METADATA") == "true"
+	evaluations := map[int64]ownershipEvaluation{}
+	if metadata {
+		if !ownership {
+			panic("metadata requires UGC ownership")
+		}
+		evaluations = loadOwnershipEvaluations(dir)
+	}
 	if os.Getenv("FIDELITY_PGC_COUPLED") == "true" {
 		bodyArms = loadBodyArms(dir)
 	}
@@ -319,7 +331,7 @@ func counterfactual(cfg *config.Config, dir string) {
 				originalPayloads = append(originalPayloads, doc)
 			}
 			summary := item.Summary
-			if i == 1 && !baselineOnly && !sourceContextOnly && classes[id] == "pgc" {
+			if i == 1 && !baselineOnly && !sourceContextOnly && !ownership && classes[id] == "pgc" {
 				a, ok := audits[id]
 				if !ok && item.PotentiallyEligible {
 					panic(fmt.Sprintf("missing candidate audit %d", id))
@@ -332,6 +344,37 @@ func counterfactual(cfg *config.Config, dir string) {
 					continue
 				}
 				summary = a.Summary
+			}
+			if i == 1 && !baselineOnly && ownership {
+				var rejected bool
+				summary, rejected = ownershipProjection(item, classes[id])
+				if rejected {
+					armDrops[i][id] = true
+					continue
+				}
+			}
+			if i == 1 && !baselineOnly && metadata && classes[id] == "ugc" && item.PotentiallyEligible {
+				evaluation, ok := evaluations[id]
+				if !ok || evaluation.Error != "" || evaluation.Output == nil || evaluation.InputHash != auditInputHash(item) || evaluation.PromptHash != ownershipPromptHash() || evaluation.Model != cfg.UGCSlopModel || evaluation.RequestDate != time.Now().UTC().Format("2006-01-02") || evaluation.MaxTokens != cfg.LLMMaxTokens || evaluation.Contract != llm.SlopRequestContract {
+					panic(fmt.Sprintf("missing/stale UGC metadata %d", id))
+				}
+				output := evaluation.Output
+				if evaluation.Blocked || output.Quality < cfg.QualityThreshold {
+					armDrops[i][id] = true
+					continue
+				}
+				if output.BroadcastType != d.ContentType {
+					panic(fmt.Sprintf("UGC type changed for %d; grouping sensitivity required before release", id))
+				}
+				d.Quality = output.Quality
+				d.SourceType = output.SourceType
+				d.Slots.Lang = []string{output.Lang}
+				item.Lang = output.Lang
+				words, e := json.Marshal(output.Keywords)
+				must(e)
+				item.Keywords = string(words)
+				applyReextractedExpiry(&d, &item, output.ExpireTime)
+				armChanged[i][id] = true
 			}
 			content := item.Content
 			if arm, ok := bodyArms[i][id]; ok {
@@ -468,7 +511,14 @@ func counterfactual(cfg *config.Config, dir string) {
 	if sourceContextOnly {
 		lifecycle = "item IDs/creation times fixed; changed PGC expiry re-extracted in both arms"
 	}
-	save(filepath.Join(dir, "counterfactual-"+variant+"-manifest.json"), map[string]any{"variant": variant, "indices": names, "agents": reports, "method": "full captured candidate-union counterfactual; changed PGC extraction and embeddings rerun, other dense scores frozen; production rules/model/policies; production-score-anchored lexical deltas from finite-corpus ratios; " + lifecycle + "; changed PGC groups rerun against preceding production items"})
+	method := "full captured candidate-union counterfactual; changed PGC extraction and embeddings rerun, other dense scores frozen; production rules/model/policies; production-score-anchored lexical deltas from finite-corpus ratios; " + lifecycle + "; changed PGC groups rerun against preceding production items"
+	if ownership {
+		method = "full captured candidate-union UGC summary projection; exact publisher text or empty; invalid author format rejected; PGC and raw-body embeddings unchanged; production-score-anchored finite-corpus lexical estimates; no historical backfill"
+		if metadata {
+			method += "; eligible UGC metadata re-extracted with production model; unchanged grouping required; date/quality/admission sensitivity"
+		}
+	}
+	save(filepath.Join(dir, "counterfactual-"+variant+"-manifest.json"), map[string]any{"variant": variant, "indices": names, "agents": reports, "method": method})
 }
 
 func auditInputHash(item itemEvidence) string {
@@ -550,6 +600,8 @@ func replayVariant() (baselineOnly, sourceContextOnly bool, variant string) {
 	baselineOnly = os.Getenv("FIDELITY_BASELINE_ONLY") == "true"
 	sourceContextOnly = os.Getenv("FIDELITY_SOURCE_CONTEXT_ONLY") == "true"
 	coupled := os.Getenv("FIDELITY_PGC_COUPLED") == "true"
+	ownership := os.Getenv("FIDELITY_UGC_OWNERSHIP") == "true"
+	ownershipVariantCheck(ownership, coupled, sourceContextOnly)
 	if sourceContextOnly && !coupled {
 		panic("source context replay requires coupled body arms")
 	}
@@ -557,6 +609,12 @@ func replayVariant() (baselineOnly, sourceContextOnly bool, variant string) {
 		panic("baseline and coupled modes are mutually exclusive")
 	}
 	variant = "summary"
+	if ownership {
+		variant = "ugc-ownership"
+		if os.Getenv("FIDELITY_UGC_METADATA") == "true" {
+			variant = "ugc-ownership-metadata"
+		}
+	}
 	if baselineOnly {
 		variant = "baseline"
 	}
