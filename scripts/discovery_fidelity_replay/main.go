@@ -193,7 +193,7 @@ func main() {
 	if *mode == "refill-capture" {
 		transport = captureESTransport{next: transport}
 	}
-	es.Client, err = elasticsearch.NewClient(elasticsearch.Config{Addresses: []string{os.Getenv("ES_URL")}, Username: os.Getenv("ES_USERNAME"), Password: os.Getenv("ES_PASSWORD"), DisableRetry: true, Transport: transport})
+	es.Client, err = elasticsearch.NewClient(elasticsearch.Config{Addresses: []string{os.Getenv("ES_URL")}, Username: os.Getenv("ES_USERNAME"), Password: os.Getenv("ES_PASSWORD"), DisableRetry: true, Transport: readOnlyESTransport{next: transport}})
 	must(err)
 	if *mode == "refill-capture" {
 		captureRefill(cfg, *dir, db, remote, scratch)
