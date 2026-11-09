@@ -274,6 +274,10 @@ func TestHeartbeatPermissionBarrierCanNotifyWithoutFakingCompletion(t *testing.T
 }
 
 func appendHeartbeatHostCommand(t *testing.T, path, turn, command, status, output string) {
+	appendHeartbeatHostCommandValue(t, path, turn, command, status, output)
+}
+
+func appendHeartbeatHostCommandValue(t *testing.T, path, turn string, command any, status, output string) {
 	t.Helper()
 	row := map[string]any{"type": "event_msg", "payload": map[string]any{"type": "item_completed", "turn_id": turn, "item": map[string]any{"type": "CommandExecution", "command": command, "status": status, "aggregated_output": output}}}
 	b, _ := json.Marshal(row)
@@ -284,5 +288,58 @@ func appendHeartbeatHostCommand(t *testing.T, path, turn, command, status, outpu
 	defer f.Close()
 	if _, err := f.Write(append(b, '\n')); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestHeartbeatNativeDeclineArgvAndScopeFence(t *testing.T) {
+	scope := maintenance.Scope{Home: t.TempDir(), Server: "test", AgentID: "1"}
+	bin, err := stableInstalledExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefixes := []string{}
+	for _, shell := range []string{"posix", "powershell", "cmd"} {
+		prefix, err := renderHeartbeatCLIPrefix(bin, scope.Home, scope.Server, shell, "skill")
+		if err != nil {
+			t.Fatal(err)
+		}
+		prefixes = append(prefixes, prefix+" ")
+	}
+	args, _ := heartbeatCLIPrefixArgs(bin, scope.Home, scope.Server, "skill")
+	direct := append(args, "--origin", "heartbeat", "feed", "poll")
+	posix := prefixes[0] + "--origin heartbeat feed poll"
+	for _, tc := range []struct {
+		name    string
+		command any
+		want    bool
+	}{
+		{"native zsh", []string{"/bin/zsh", "-lc", posix}, true},
+		{"direct argv", direct, true},
+		{"native powershell", []string{"powershell.exe", "-NoLogo", "-NoProfile", "-Command", prefixes[1] + "--origin heartbeat feed poll"}, true},
+		{"native cmd", []string{"cmd.exe", "/d", "/s", "/c", prefixes[2] + "--origin heartbeat feed poll"}, true},
+		{"target override", []string{"/bin/zsh", "-lc", posix + " --server other"}, false},
+		{"short target override", []string{"/bin/zsh", "-lc", posix + " -sother"}, false},
+		{"direct target override", append(append([]string{}, direct...), "--homedir", "/other"), false},
+		{"compound command", []string{"/bin/zsh", "-lc", posix + " && echo ok"}, false},
+		{"unknown wrapper", []string{"python3", "-c", posix}, false},
+		{"different target", []string{"/bin/zsh", "-lc", strings.Replace(posix, shellQuote(scope.Server), shellQuote("other"), 1)}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, _ := json.Marshal(tc.command)
+			if got := heartbeatCommandIsScoped(raw, bin, scope, prefixes); got != tc.want {
+				t.Fatalf("scoped=%v want=%v", got, tc.want)
+			}
+		})
+	}
+	c, _ := maintenance.StartCycle(scope, "full", []string{"feed"}, maintenance.RuntimeObservation{})
+	p := heartbeatTranscript(t, "turn", "EIGENFLUX HEARTBEAT PLAN\nheartbeat cycle-report --cycle "+c.ID)
+	appendHeartbeatHostCommandValue(t, p, "turn", []string{"/bin/zsh", "-lc", posix}, "declined", "")
+	in := heartbeatStopInput{SessionID: "owner", TurnID: "turn", Event: "Stop", Transcript: p, LastMessage: "<decision>NOTIFY</decision>"}
+	if d, err := heartbeatStopDecision(scope, in, "owner"); err != nil || len(d) != 0 {
+		t.Fatalf("native final refusal lost: %v %v", d, err)
+	}
+	appendHeartbeatHostCommandValue(t, p, "turn", []string{"/bin/zsh", "-lc", "echo ambiguous later work"}, "completed", "")
+	if d, err := heartbeatStopDecision(scope, in, "owner"); err != nil || d["decision"] != "block" {
+		t.Fatalf("later ambiguous work retained old refusal: %v %v", d, err)
 	}
 }

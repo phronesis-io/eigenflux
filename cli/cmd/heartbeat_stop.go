@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -139,8 +140,8 @@ func heartbeatCycleForTurn(scope maintenance.Scope, in heartbeatStopInput) (stri
 	return id, err
 }
 
-// A request for approval is not a refusal. Only the last completed host receipt
-// for an exact scoped CLI command can establish a still-unresolved decline.
+// A request for approval is not a refusal. The last command receipt must be a
+// final decline of the exact scope; subsequent or ambiguous work clears it.
 func heartbeatScopedCommandDeclined(scope maintenance.Scope, in heartbeatStopInput) (bool, error) {
 	bin, err := stableInstalledExecutable()
 	if err != nil {
@@ -154,18 +155,90 @@ func heartbeatScopedCommandDeclined(scope maintenance.Scope, in heartbeatStopInp
 	}
 	declined := false
 	err = visitHeartbeatCommands(in.Transcript, func(turn string) bool { return turn == in.TurnID }, func(item heartbeatCommandItem) {
-		var command string
-		if json.Unmarshal(item.Command, &command) != nil {
-			return
-		}
-		for _, prefix := range prefixes {
-			if strings.HasPrefix(strings.TrimSpace(command), prefix) {
-				declined = strings.EqualFold(item.Status, "declined")
-				return
-			}
-		}
+		declined = strings.EqualFold(item.Status, "declined") && heartbeatCommandIsScoped(item.Command, bin, scope, prefixes)
 	})
 	return declined, err
+}
+
+func heartbeatTargetUnchanged(args []string) bool {
+	for _, arg := range args {
+		arg = strings.Trim(arg, "'\"")
+		if strings.HasPrefix(arg, "--homedir") || strings.HasPrefix(arg, "--server") || strings.HasPrefix(arg, "--runtime-mode") || strings.HasPrefix(arg, "-s") {
+			return false
+		}
+	}
+	return len(args) > 0
+}
+
+// Native Codex stores either direct argv or one known shell invocation. Do not
+// evaluate scripts or accept target overrides and compound shell commands.
+func heartbeatCommandIsScoped(raw json.RawMessage, bin string, scope maintenance.Scope, prefixes []string) bool {
+	var command string
+	if json.Unmarshal(raw, &command) != nil {
+		var argv []string
+		if json.Unmarshal(raw, &argv) != nil || len(argv) == 0 {
+			return false
+		}
+		expected, err := heartbeatCLIPrefixArgs(bin, scope.Home, scope.Server, "skill")
+		if err == nil && len(argv) > len(expected) {
+			matches := true
+			for i := range expected {
+				matches = matches && argv[i] == expected[i]
+			}
+			if matches {
+				return heartbeatTargetUnchanged(argv[len(expected):])
+			}
+		}
+		program := strings.ToLower(filepath.Base(strings.ReplaceAll(argv[0], "\\", "/")))
+		switch program {
+		case "zsh", "bash", "sh":
+			if len(argv) != 3 || (argv[1] != "-c" && argv[1] != "-lc") {
+				return false
+			}
+			command = argv[2]
+		case "powershell", "powershell.exe", "pwsh", "pwsh.exe":
+			for i := 1; i < len(argv); i++ {
+				switch strings.ToLower(argv[i]) {
+				case "-nologo", "-noprofile", "-noninteractive":
+				case "-command":
+					if i != len(argv)-2 {
+						return false
+					}
+					command = argv[i+1]
+					i = len(argv)
+				default:
+					return false
+				}
+			}
+		case "cmd", "cmd.exe":
+			for i := 1; i < len(argv); i++ {
+				switch strings.ToLower(argv[i]) {
+				case "/d", "/s":
+				case "/c":
+					if i != len(argv)-2 {
+						return false
+					}
+					command = argv[i+1]
+					i = len(argv)
+				default:
+					return false
+				}
+			}
+		default:
+			return false
+		}
+	}
+	command = strings.TrimSpace(command)
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(command, prefix) {
+			tail := strings.TrimPrefix(command, prefix)
+			if strings.ContainsAny(tail, "&|;<>`$\r\n()") {
+				return false
+			}
+			return heartbeatTargetUnchanged(strings.Fields(tail))
+		}
+	}
+	return false
 }
 
 func heartbeatStopDecision(scope maintenance.Scope, in heartbeatStopInput, thread string) (map[string]any, error) {
