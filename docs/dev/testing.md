@@ -1,3 +1,5 @@
+<!-- Temporary CI scope validation for PR #533. -->
+
 # Testing
 
 Tests live beside the packages they exercise and in the service integration suites under `tests/`. Shared integration helpers live in `tests/testutil/`. The CLI and Console API are independent Go modules; Console Web has its own Node test command.
