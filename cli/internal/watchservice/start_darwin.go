@@ -99,7 +99,10 @@ func startNotificationLaunchAgent(ctx context.Context, task NotificationTask, ho
 	if regexp.MustCompile(`(?m)^\s*"` + regexp.QuoteMeta(definition.Label) + `"\s*=>\s*true\s*$`).Match(disabled) {
 		return Result{Status: "skipped_disabled", Manager: "launchd", Target: target}, nil
 	}
-	raw, printErr := run(ctx, "/bin/launchctl", "print", target)
+	raw, printErr := readLaunchAgent(ctx, target, run)
+	if printErr != nil && !errors.Is(printErr, errLaunchAgentAbsent) {
+		return Result{}, fmt.Errorf("read existing watch LaunchAgent: %w", printErr)
+	}
 	if create && printErr == nil {
 		return Result{}, errors.New("watch task exists without a verifiable owned launcher; preserve it")
 	}
@@ -108,10 +111,10 @@ func startNotificationLaunchAgent(ctx context.Context, task NotificationTask, ho
 		if notificationModeChanged(definition, task) && task.Dispatch {
 			// Notification-only watch cannot admit Agent work. Its verified
 			// account service can stop before binding is promoted to dispatch.
-			if _, err = run(ctx, "/bin/launchctl", "bootout", target); err != nil {
+			if err = stopLaunchAgent(ctx, target, run, 250*time.Millisecond); err != nil {
 				return Result{}, fmt.Errorf("unload notification-only watch: %w", err)
 			}
-			printErr = errors.New("notification-only owner unloaded")
+			printErr = errLaunchAgentAbsent
 		} else {
 			if task.PrepareOnly || notificationModeChanged(definition, task) {
 				return Result{}, errors.New("existing watch process is active; wait for a safe maintenance point before setup")
@@ -121,7 +124,7 @@ func startNotificationLaunchAgent(ctx context.Context, task NotificationTask, ho
 	}
 	if task.PrepareOnly {
 		if printErr == nil {
-			if _, err = run(ctx, "/bin/launchctl", "bootout", target); err != nil {
+			if err = stopLaunchAgent(ctx, target, run, 250*time.Millisecond); err != nil {
 				return Result{}, fmt.Errorf("unload idle watch task: %w", err)
 			}
 		}
@@ -129,14 +132,14 @@ func startNotificationLaunchAgent(ctx context.Context, task NotificationTask, ho
 	}
 	if !create && notificationModeChanged(definition, task) {
 		if printErr == nil {
-			if _, err = run(ctx, "/bin/launchctl", "bootout", target); err != nil {
+			if err = stopLaunchAgent(ctx, target, run, 250*time.Millisecond); err != nil {
 				return Result{}, fmt.Errorf("unload watch task before mode change: %w", err)
 			}
 		}
 		if err := changeNotificationLaunchMode(ctx, selected, definition, task, uid, run); err != nil {
 			return Result{}, err
 		}
-		printErr = errors.New("reload changed watch mode")
+		printErr = errLaunchAgentAbsent
 	}
 	if create {
 		if err := writeNotificationLaunchAgent(selected, task, definition.Label); err != nil {

@@ -19,6 +19,44 @@ type launchRunner func(context.Context, string, ...string) ([]byte, error)
 
 var launchLabel = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$`)
 var launchPID = regexp.MustCompile(`(?m)^\tpid = ([0-9]+)\s*$`)
+var errLaunchAgentAbsent = errors.New("LaunchAgent is not loaded")
+
+func readLaunchAgent(ctx context.Context, target string, run launchRunner) ([]byte, error) {
+	raw, err := run(ctx, "/bin/launchctl", "print", target)
+	var exit interface{ ExitCode() int }
+	// launchctl print reports an unknown service with 113. A failed command,
+	// permission denial or lost GUI session must not be treated as absence.
+	if err != nil && errors.As(err, &exit) && exit.ExitCode() == 113 {
+		return nil, errLaunchAgentAbsent
+	}
+	return raw, err
+}
+
+func stopLaunchAgent(ctx context.Context, target string, run launchRunner, interval time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if _, err := run(ctx, "/bin/launchctl", "bootout", target); err != nil {
+		return err
+	}
+	// bootout acknowledges the request before launchd has removed the service.
+	// Reusing its label while it is still SIGTERMed makes bootstrap fail with 5.
+	for {
+		_, err := readLaunchAgent(ctx, target, run)
+		if errors.Is(err, errLaunchAgentAbsent) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("read LaunchAgent while waiting for unload: %w", err)
+		}
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("watch LaunchAgent did not unload; inspect its existing logs: %w", ctx.Err())
+		case <-timer.C:
+		}
+	}
+}
 
 func platformRestart(ctx context.Context, target Target) (Result, error) {
 	if target.LaunchAgent == "" {
@@ -94,10 +132,12 @@ func restartLaunchAgent(ctx context.Context, file, home string, uid int, run lau
 	if regexp.MustCompile(pattern).Match(disabled) {
 		return Result{}, errors.New("LaunchAgent is disabled in system settings; enable the intended watch task before restarting")
 	}
-	if _, err := run(ctx, "/bin/launchctl", "print", target); err == nil {
-		if _, err := run(ctx, "/bin/launchctl", "bootout", target); err != nil {
+	if _, err := readLaunchAgent(ctx, target, run); err == nil {
+		if err := stopLaunchAgent(ctx, target, run, interval); err != nil {
 			return Result{}, fmt.Errorf("stop existing watch LaunchAgent: %w", err)
 		}
+	} else if !errors.Is(err, errLaunchAgentAbsent) {
+		return Result{}, fmt.Errorf("read existing watch LaunchAgent: %w", err)
 	}
 	// Reload even an already-loaded task so modified plist arguments take effect.
 	if _, err := run(ctx, "/bin/launchctl", "bootstrap", domain, file); err != nil {

@@ -61,7 +61,7 @@ expanding the cohort or time window.
 
 ## Upgrade repair delivery
 
-CLI 1.0.24 adds a durable local acceptance request for existing Codex skill
+CLI 1.0.26 adds a durable local acceptance request for existing Codex skill
 accounts. A separate watch worker covers notifications-only installations and
 submits verified signed repair instructions to the existing bound owner without
 waiting for a heartbeat. It preserves the current scheduler and security

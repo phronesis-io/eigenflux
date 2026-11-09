@@ -135,6 +135,18 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 	if err != nil {
 		return err
 	}
+	reporter, err := installedExecutable()
+	if err != nil {
+		return err
+	}
+	reporterDigest := ""
+	if runtime.GOOS == "windows" {
+		data, err := os.ReadFile(reporter)
+		if err != nil {
+			return err
+		}
+		reporterDigest = uninstallscript.Digest(data)
+	}
 	apply, _ := cmd.Flags().GetBool("apply")
 	begin, _ := cmd.Flags().GetBool("begin")
 	scope, _ := cmd.Flags().GetString("scope")
@@ -195,7 +207,7 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 			if err != nil {
 				return err
 			}
-			if json.Unmarshal(data, observation) != nil || observation.AttemptID != resumeAttempt || observation.Executable != bin || !observation.Pending || observation.Started.IsZero() || time.Since(observation.Started) < 0 || time.Since(observation.Started) > 24*time.Hour {
+			if json.Unmarshal(data, observation) != nil || observation.AttemptID != resumeAttempt || observation.Executable != bin || (!observation.Pending && !(observation.Result == "partial" && observation.PackageCleanup != nil)) || observation.Started.IsZero() || time.Since(observation.Started) < 0 || time.Since(observation.Started) > 24*time.Hour {
 				return errors.New("uninstall attempt does not match this installation")
 			}
 			if scope != "" && observation.RemovalScope != scope {
@@ -223,6 +235,7 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 				}
 			}
 			observation.Pending = false
+			observation.Result = ""
 		} else {
 			observation.discoverScopes()
 			observation.emit("started", "")
@@ -264,7 +277,7 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 		}
 	}()
 	if apply || begin {
-		for _, lockPath := range []string{bin + ".install.lock", bin + ".update.lock"} {
+		for _, lockPath := range []string{bin + ".install.lock", bin + ".update.lock", bin + ".activation.lock"} {
 			if info, e := os.Lstat(lockPath); e == nil && !info.Mode().IsRegular() {
 				return errors.New("installation lock must be a regular file")
 			} else if e != nil && !os.IsNotExist(e) {
@@ -372,7 +385,22 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 		}
 	}
 	var cleanupFiles, preservedScripts []string
+	var packageCleanup *selfupdate.InstallationCleanup
 	if scope != "current" {
+		if observation != nil && resumeAttempt != "" {
+			if err = observation.verifyPackageCleanup(cmd.Context()); err != nil {
+				return err
+			}
+			packageCleanup = observation.PackageCleanup
+		} else {
+			packageCleanup, err = planUninstallPackages(cmd.Context(), bin)
+			if err != nil {
+				return err
+			}
+			if observation != nil {
+				observation.PackageCleanup = packageCleanup
+			}
+		}
 		cleanupFiles, err = uninstallCleanupFiles(bin)
 		if err != nil {
 			return err
@@ -398,7 +426,8 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 	if observation != nil && len(preservedScripts) > 0 {
 		observation.Partial = true
 	}
-	if begin {
+	if begin || (observation != nil && scope != "current") {
+		observation.CleanupFiles = cleanupFiles
 		observation.FileDigests = map[string]string{}
 		for _, path := range append([]string{bin, bin + ".install.json"}, cleanupFiles...) {
 			data, err := os.ReadFile(path)
@@ -407,6 +436,8 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 			}
 			observation.FileDigests[path] = uninstallscript.Digest(data)
 		}
+	}
+	if begin {
 		observation.Pending = true
 		path, _ := uninstallReceiptPath(observation.AttemptID)
 		if err := saveMaintenance(path, observation); err != nil {
@@ -441,6 +472,9 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 			skillResults[i] = removed
 		}
 		if runtime.GOOS != "windows" && scope != "current" {
+			if err := observation.removePackages(); err != nil {
+				return err
+			}
 			if err := os.Remove(bin); err != nil {
 				return err
 			}
@@ -502,7 +536,7 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 		}
 		localDataRemoved = true
 	}
-	output.PrintData(map[string]interface{}{"result": result, "scope": scope, "scope_selection_required": scope == "", "scope_question": "Do other Agents still need EigenFlux?", "scope_choices": []string{"current", "all"}, "shared_cli_preserved": scope == "current", "shared_resources_preserved": plan.RetainedPaths, "notification_cleanup": notificationCleanup, "attempt_id": attempt, "receipt_home": receiptHome, "apply": apply, "executable": bin, "homes": r.Homes, "skills": skillResults, "cleanup_files": cleanupFiles, "uninstall_scripts": r.Scripts, "preserved_scripts": preservedScripts, "retained_lock_files": []string{bin + ".install.lock", bin + ".update.lock"}, "data_preserved": !localDataRemoved, "data_cleanup_pending": apply && runtime.GOOS == "windows" && scope != "current", "executable_removal_pending": apply && runtime.GOOS == "windows" && scope != "current", "reason_saved": apply && !localDataRemoved && strings.TrimSpace(reason) != "", "path_cleanup": "retain shared PATH entries; use host tools for scheduler/plugin cleanup"}, resolveFormat())
+	output.PrintData(map[string]interface{}{"result": result, "scope": scope, "scope_selection_required": scope == "", "scope_question": "Do other Agents still need EigenFlux?", "scope_choices": []string{"current", "all"}, "shared_cli_preserved": scope == "current", "shared_resources_preserved": plan.RetainedPaths, "notification_cleanup": notificationCleanup, "attempt_id": attempt, "receipt_home": receiptHome, "apply": apply, "executable": bin, "homes": r.Homes, "skills": skillResults, "cleanup_files": cleanupFiles, "uninstall_scripts": r.Scripts, "preserved_scripts": preservedScripts, "package_cleanup": packageCleanup, "reporter_executable": reporter, "reporter_sha256": reporterDigest, "retained_lock_files": []string{bin + ".install.lock", bin + ".update.lock", bin + ".activation.lock"}, "data_preserved": !localDataRemoved, "data_cleanup_pending": apply && runtime.GOOS == "windows" && scope != "current", "executable_removal_pending": apply && runtime.GOOS == "windows" && scope != "current", "reason_saved": apply && !localDataRemoved && strings.TrimSpace(reason) != "", "path_cleanup": "retain shared PATH entries; use host tools for scheduler/plugin cleanup"}, resolveFormat())
 	if apply && result == "partial" {
 		return fmt.Errorf("uninstall incomplete; retained managed paths: %v", preservedScripts)
 	}

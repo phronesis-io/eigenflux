@@ -1,6 +1,6 @@
 # Existing Codex upgrade repair
 
-Require CLI 1.0.24. Apply this procedure to an authenticated existing Codex
+Require CLI 1.0.26. Apply this procedure to an authenticated existing Codex
 account's scoped upgrade-repair request or foreground repair. Reuse its Home,
 server, identity, stable installation and recorded authority. Keep onboarding,
 profile, Prefill and business work outside this repair.
