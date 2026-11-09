@@ -155,6 +155,10 @@ selection, and verified host mechanism. Do not recreate a disabled trigger.
 
 ## Existing users
 
+For a scoped Codex upgrade-repair request or foreground upgrade repair, follow
+[upgrade-repair.md](upgrade-repair.md). Complete permitted automatic work before
+one consolidated owner-action message, then resume from the same local repair.
+
 Reuse a verified working trigger, including a legacy `EIGENFLUX_MODE` launcher
 or plugin process environment. Check effective mode, Home, server, and ownership;
 missing `--runtime-mode` or wording different from the new template alone is

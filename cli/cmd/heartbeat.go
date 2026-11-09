@@ -479,8 +479,17 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 	}
 	if plan.OuterLoop != nil {
 		b, _ := json.Marshal(plan.OuterLoop)
+		if repair := plan.OuterLoop.UpgradeRepair; repair != nil {
+			receiptText += "\nPending Codex upgrade acceptance: " + repair.Instruction + " Read heartbeat upgrade-repair and resume it before claiming unattended execution. Required actions belong in one foreground summary; keep acknowledged unchanged blockers and awaiting_run quiet.\n"
+		}
 		receiptText += "\nOuter loop recovery: " + string(b) + ". A running ordinary or notification-only watch does not prove Agent dispatch is ready. "
-		switch plan.OuterLoop.Notification {
+		notification := plan.OuterLoop.Notification
+		if plan.OuterLoop.UpgradeRepair != nil {
+			notification = "upgrade_repair"
+		}
+		switch notification {
+		case "upgrade_repair":
+			receiptText += "Consolidate recovery and required notification permissions into the one scoped upgrade-repair action summary; do not send a separate recovery prompt.\n"
 		case "unchanged":
 			receiptText += "Keep this unchanged recovery state internal; do not repeat its notification or repair a second trigger.\n"
 		case "required":
@@ -492,7 +501,7 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 				receiptText += "Report unresolved recovery separately.\n"
 			}
 		}
-		if (plan.OuterLoop.Notification == "required" || plan.OuterLoop.Notification == "recovered") &&
+		if (notification == "required" || notification == "recovered") &&
 			validWatchRecoveryNoticeID(plan.OuterLoop.NotificationID) && plan.CLIPrefix != "" {
 			receiptText += "Acknowledge this notice only after the host confirms its submission: " + plan.CLIPrefix + " heartbeat recovery-notice-ack --notice " + plan.OuterLoop.NotificationID + ". If the host requires all tools before the final response, first prepare the exact final response containing this recovery notice, then acknowledge and emit that response unchanged. Plan prefetch, Feed failure, or a turn without a submitted recovery notice alone never authorizes acknowledgment. An acknowledgment failure must not repeat business work.\n"
 		}

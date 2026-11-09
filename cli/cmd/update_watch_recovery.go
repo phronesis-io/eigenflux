@@ -19,6 +19,7 @@ import (
 )
 
 type updateWatchRecovery struct {
+	UpgradeRepair        *upgradeRepair             `json:"upgrade_repair,omitempty"`
 	TargetCommit         string                     `json:"target_commit,omitempty"`
 	Status               string                     `json:"status"`
 	Mode                 string                     `json:"mode,omitempty"`
@@ -209,6 +210,11 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 
 func recoverWatchAfterUpdate(cmd *cobra.Command, cfg *config.Config, manual bool) updateWatchRecovery {
 	r := recoverWatchAfterUpdateOnPlatform(cmd, cfg, manual, runtime.GOOS)
+	if codexUpgradeRepairEnabled() && r.Reason != "owner_disabled" && r.Reason != "owner_setup_disabled" {
+		if repair, err := currentUpgradeRepair(true); err == nil && repair.Status != "verified" {
+			r.UpgradeRepair = repair
+		}
+	}
 	annotateWatchRecoveryNotice(cmd, cfg, &r)
 	return r
 }

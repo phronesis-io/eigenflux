@@ -52,6 +52,10 @@ the foreground through `ef-onboarding/references/host-setup.md`. Record an
 actual approval request separately from a final denial. Preserve interrupted
 cycles and confirmed receipts; resume unfinished work under owner authority.
 
+For a pending scoped Codex upgrade repair, follow
+`ef-onboarding/references/upgrade-repair.md`. Keep unchanged blockers quiet and
+leave completion to the real scheduled cycle's local verification.
+
 ## Truncated output
 
 Set an adequate output budget before the Feed pull. If output is truncated,

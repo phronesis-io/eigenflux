@@ -237,6 +237,7 @@ func newHeartbeatGuardSetupCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		bindUpgradeRepairScheduler(scope, thread)
 		if runtimeObservationsEnabled() {
 			_ = maintenance.RecordLifecycle(scope, maintenance.NewID(), "guard", "configured", maintenance.RuntimeObservation{Product: "codex", CLI: version})
 		}

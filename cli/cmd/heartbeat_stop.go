@@ -349,6 +349,7 @@ func heartbeatStopDecision(scope maintenance.Scope, in heartbeatStopInput, threa
 		return nil, err
 	}
 	if c.Result == "completed" || c.Result == "failed" {
+		verifyUpgradeRepairCycle(scope, in.SessionID, in.TurnID, c)
 		return allow, nil
 	}
 	if strings.Contains(in.LastMessage, "<decision>NOTIFY</decision>") {
