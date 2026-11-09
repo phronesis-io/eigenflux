@@ -173,7 +173,15 @@ func (w *accountWatch) tryUpgradeRepair(ctx context.Context) error {
 	if runErr != nil && !dispatch.MainNoticeCanRetry(runErr) {
 		return w.repairFallback(latest)
 	}
+	if upgradeRepairOwnerUnavailable(latest, runErr, ctx.Err()) {
+		return w.repairFallback(latest)
+	}
 	return nil
+}
+
+func upgradeRepairOwnerUnavailable(r *upgradeRepair, runErr, canceled error) bool {
+	return canceled == nil && r != nil && r.Status == "pending" && r.UnavailableAttempts >= 5 &&
+		dispatch.MainNoticeCanRetry(runErr) && !errors.Is(runErr, dispatch.ErrMainNoticeBusy)
 }
 
 // CLI publication precedes its companion Skills publication. An intact signed
@@ -282,6 +290,11 @@ func finishUpgradeRepairDispatch(id string, runErr error) (*upgradeRepair, error
 			return nil
 		}
 		if runErr != nil && dispatch.MainNoticeCanRetry(runErr) {
+			if errors.Is(runErr, dispatch.ErrMainNoticeBusy) {
+				r.UnavailableAttempts = 0
+			} else {
+				r.UnavailableAttempts++
+			}
 			r.Status = "pending"
 			delay := time.Minute
 			if r.Attempts >= 5 {

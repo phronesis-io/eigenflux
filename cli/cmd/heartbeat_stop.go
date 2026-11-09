@@ -349,8 +349,14 @@ func heartbeatStopDecision(scope maintenance.Scope, in heartbeatStopInput, threa
 	if err != nil {
 		return nil, err
 	}
+	originErr := bindHeartbeatHostCycle(scope, in, c)
+	if originErr != nil {
+		fmt.Fprintln(os.Stderr, "[eigenflux:maintenance] component=runtime phase=cycle_origin error_code=origin_receipt_unavailable")
+	}
 	if c.Result == "completed" || c.Result == "failed" {
-		verifyUpgradeRepairCycle(scope, in.SessionID, in.TurnID, c, in.GuardDefinition, in.Transcript)
+		if originErr == nil {
+			verifyUpgradeRepairCycle(scope, in.SessionID, in.TurnID, c, in.GuardDefinition, in.Transcript)
+		}
 		return allow, nil
 	}
 	if strings.Contains(in.LastMessage, "<decision>NOTIFY</decision>") {

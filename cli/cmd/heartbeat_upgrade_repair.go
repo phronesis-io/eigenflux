@@ -19,23 +19,24 @@ import (
 // One account-scoped acceptance request survives updater/watch restarts. Dispatch
 // is not acceptance: only an actual canonical scheduled full cycle closes it.
 type upgradeRepair struct {
-	Version         int      `json:"version"`
-	Scope           string   `json:"scope"`
-	ID              string   `json:"id"`
-	CreatedAt       int64    `json:"created_at"`
-	Status          string   `json:"status"`
-	Blockers        []string `json:"blockers,omitempty"`
-	Binding         string   `json:"binding,omitempty"`
-	DispatchThread  string   `json:"dispatch_thread,omitempty"`
-	SchedulerThread string   `json:"scheduler_thread,omitempty"`
-	GuardDefinition string   `json:"guard_definition,omitempty"`
-	NextAttempt     int64    `json:"next_attempt,omitempty"`
-	Attempts        int      `json:"attempts,omitempty"`
-	Instruction     string   `json:"instruction,omitempty"`
-	Acknowledged    string   `json:"acknowledged,omitempty"`
-	Generation      int      `json:"generation,omitempty"`
-	Notification    string   `json:"notification,omitempty"`
-	NoticeID        string   `json:"notice_id,omitempty"`
+	Version             int      `json:"version"`
+	Scope               string   `json:"scope"`
+	ID                  string   `json:"id"`
+	CreatedAt           int64    `json:"created_at"`
+	Status              string   `json:"status"`
+	Blockers            []string `json:"blockers,omitempty"`
+	Binding             string   `json:"binding,omitempty"`
+	DispatchThread      string   `json:"dispatch_thread,omitempty"`
+	SchedulerThread     string   `json:"scheduler_thread,omitempty"`
+	GuardDefinition     string   `json:"guard_definition,omitempty"`
+	NextAttempt         int64    `json:"next_attempt,omitempty"`
+	Attempts            int      `json:"attempts,omitempty"`
+	UnavailableAttempts int      `json:"unavailable_attempts,omitempty"`
+	Instruction         string   `json:"instruction,omitempty"`
+	Acknowledged        string   `json:"acknowledged,omitempty"`
+	Generation          int      `json:"generation,omitempty"`
+	Notification        string   `json:"notification,omitempty"`
+	NoticeID            string   `json:"notice_id,omitempty"`
 }
 
 const upgradeRepairInstruction = "Read the signed ef-onboarding/references/upgrade-repair.md and finish this existing account's upgrade acceptance. Do all authorized repairs automatically; collect genuinely required owner actions into one prompt. Never ask the owner to run CLI commands. Preserve identity, task IDs, cadence, paused state and existing permissions."
@@ -87,7 +88,7 @@ func readUpgradeRepair(path, scope string) (upgradeRepair, error) {
 	if err != nil {
 		return r, err
 	}
-	if json.Unmarshal(b, &r) != nil || r.Version != 1 || r.Scope != scope || !validWatchRecoveryNoticeID(r.ID) || r.CreatedAt <= 0 || !repairStatusValid(r.Status) || r.Attempts < 0 {
+	if json.Unmarshal(b, &r) != nil || r.Version != 1 || r.Scope != scope || !validWatchRecoveryNoticeID(r.ID) || r.CreatedAt <= 0 || !repairStatusValid(r.Status) || r.Attempts < 0 || r.UnavailableAttempts < 0 {
 		return upgradeRepair{}, errors.New("invalid upgrade repair receipt")
 	}
 	if _, err := repairBlockers(r.Blockers); err != nil {
@@ -207,9 +208,9 @@ func bindUpgradeRepairScheduler(scope maintenance.Scope, thread string, definiti
 			r.Generation++
 			r.SchedulerThread = thread
 			r.GuardDefinition = definition
+			r.CreatedAt = time.Now().UnixMilli()
 			if r.Status == "verified" {
 				r.Status = "awaiting_run"
-				r.CreatedAt = time.Now().UnixMilli()
 			}
 		}
 		return nil

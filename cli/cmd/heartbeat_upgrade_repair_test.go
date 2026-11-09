@@ -394,3 +394,51 @@ func TestUpgradeRepairBackgroundScopeCannotFollowChangedForegroundDefault(t *tes
 		t.Fatal("foreign account request created", err)
 	}
 }
+
+func TestUpgradeRepairPersistentOwnerUnavailablePromptsOnceWithoutStoppingRetries(t *testing.T) {
+	r := &upgradeRepair{Status: "pending", Attempts: 5, UnavailableAttempts: 5}
+	unavailable := errors.Join(dispatch.ErrMainNoticeNotSubmitted, errors.New("reader unavailable"))
+	if !upgradeRepairOwnerUnavailable(r, unavailable, nil) {
+		t.Fatal("persistent unavailable owner has no continuation notice")
+	}
+	for _, err := range []error{dispatch.ErrMainNoticeBusy, nil, errors.New("uncertain write")} {
+		if upgradeRepairOwnerUnavailable(r, err, nil) {
+			t.Fatal("busy or unconfirmed transport gained a user prompt", err)
+		}
+	}
+	if upgradeRepairOwnerUnavailable(r, unavailable, context.Canceled) {
+		t.Fatal("cancellation prompted owner")
+	}
+	r.Attempts = 1
+	r.UnavailableAttempts = 1
+	if upgradeRepairOwnerUnavailable(r, unavailable, nil) {
+		t.Fatal("transient failure prompted owner")
+	}
+}
+
+func TestUpgradeRepairUnavailableRetryCounterSurvivesRestartAndBusyResetsIt(t *testing.T) {
+	runtimeTestConfig(t, "https://repair.example.invalid", true)
+	r, _ := currentUpgradeRepair(true)
+	for i := 0; i < 5; i++ {
+		_, err := mutateUpgradeRepair(false, func(r *upgradeRepair) error { r.Status = "submitted"; r.Attempts++; return nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		var err2 error
+		r, err2 = finishUpgradeRepairDispatch(r.ID, dispatch.ErrMainNoticeNotSubmitted)
+		if err2 != nil {
+			t.Fatal(err2)
+		}
+	}
+	if !upgradeRepairOwnerUnavailable(r, dispatch.ErrMainNoticeNotSubmitted, nil) || r.NextAttempt <= time.Now().UnixMilli() {
+		t.Fatalf("persistent failure lost retry or continuation action %+v", r)
+	}
+	_, err := mutateUpgradeRepair(false, func(r *upgradeRepair) error { r.Status = "submitted"; return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err = finishUpgradeRepairDispatch(r.ID, dispatch.ErrMainNoticeBusy)
+	if err != nil || r.UnavailableAttempts != 0 || r.Status != "pending" {
+		t.Fatalf("busy forced foreground work %+v %v", r, err)
+	}
+}

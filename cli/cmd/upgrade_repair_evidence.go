@@ -29,11 +29,25 @@ func upgradeRepairTriggerAt(scope maintenance.Scope, thread, turn string, c main
 	if at == 0 || c.StartedAt <= at {
 		return 0, nil
 	}
+	if proven, ok := readHeartbeatHostCycleOrigin(scope, thread, c.ID); ok && proven.OriginAttempt == attempt {
+		return at, nil
+	}
 	if len(transcripts) != 1 || transcripts[0] == "" {
 		return 0, nil
 	}
+	planCycle, err := heartbeatOriginPlanCycle(transcripts[0], thread, attempt)
+	if err != nil {
+		return 0, err
+	}
+	if planCycle != c.ID {
+		return 0, nil
+	}
+	return at, nil
+}
+
+func heartbeatOriginPlanCycle(path, thread, attempt string) (string, error) {
 	planCycle := ""
-	err = visitHeartbeatCommands(transcripts[0], func(candidate string) bool {
+	err := visitHeartbeatCommands(path, func(candidate string) bool {
 		return heartbeatHostAttempt(thread, candidate) == attempt
 	}, func(item heartbeatCommandItem) {
 		if item.Status != "completed" || strings.Contains(string(item.Command), "cycle-check") {
@@ -43,13 +57,7 @@ func upgradeRepairTriggerAt(scope maintenance.Scope, thread, turn string, c main
 			planCycle = id
 		}
 	})
-	if err != nil {
-		return 0, err
-	}
-	if planCycle != c.ID {
-		return 0, nil
-	}
-	return at, nil
+	return planCycle, err
 }
 
 // Plan output establishes creation in the origin turn. A cycle-check receipt,

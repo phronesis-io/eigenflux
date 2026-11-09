@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"cli.eigenflux.ai/internal/maintenance"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,6 +37,39 @@ func TestUpgradeRepairGuardBindingFailureIsRetryableAndCannotClaimPrepared(t *te
 	}
 	if _, err := reportUpgradeRepair(r.ID, "awaiting_run", nil); err != nil {
 		t.Fatal("idempotent binding retry failed", err)
+	}
+}
+
+func TestUpgradeRepairNewDefinitionRequiresANewTriggerWhileStillPending(t *testing.T) {
+	_, server := runtimeTestConfig(t, "https://repair.example.invalid", true)
+	scope, _ := maintenanceScope(server)
+	if _, err := currentUpgradeRepair(true); err != nil {
+		t.Fatal(err)
+	}
+	if err := bindUpgradeRepairScheduler(scope, guardTestThread, strings.Repeat("d", 64)); err != nil {
+		t.Fatal(err)
+	}
+	turn := "old-definition-trigger"
+	if err := admitHeartbeatHostRun(scope, guardTestThread, turn, ""); err != nil {
+		t.Fatal(err)
+	}
+	attempt := heartbeatHostAttempt(guardTestThread, turn)
+	if err := maintenance.RecordLifecycle(scope, attempt, "trigger", "observed", maintenance.RuntimeObservation{Product: "codex"}); err != nil {
+		t.Fatal(err)
+	}
+	at, _ := maintenance.LifecycleObservedAt(scope, attempt, "trigger", "observed")
+	for time.Now().UnixMilli() <= at {
+		time.Sleep(time.Millisecond)
+	}
+	c := finishRepairEvidenceCycle(t, scope)
+	transcript := upgradeRepairEvidenceTranscript(t, turn, c.ID)
+	if err := bindUpgradeRepairScheduler(scope, guardTestThread, strings.Repeat("e", 64)); err != nil {
+		t.Fatal(err)
+	}
+	verifyUpgradeRepairCycle(scope, guardTestThread, turn, c, strings.Repeat("e", 64), transcript)
+	r, err := currentUpgradeRepair(false)
+	if err != nil || r.Status == "verified" || r.CreatedAt <= at {
+		t.Fatalf("pending new configuration inherited an old trigger %+v %v", r, err)
 	}
 }
 
