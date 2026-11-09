@@ -46,6 +46,11 @@ Preserve confirmed failures without claiming completion.
 
 For Codex with an installed scoped `heartbeat stop-check` Stop hook, follow its
 continuation for the same cycle. Keep the hook restricted to its owner chat.
+Keep missing hook activation and permission checks visible as unresolved
+installation acceptance. Perform configuration and permission repair only in
+the foreground through `ef-onboarding/references/host-setup.md`. Record an
+actual approval request separately from a final denial. Preserve interrupted
+cycles and confirmed receipts; resume unfinished work under owner authority.
 
 ## Truncated output
 

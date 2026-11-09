@@ -44,6 +44,8 @@ func TestHeartbeatStopBlocksMissingPublishAndAllowsCompleted(t *testing.T) {
 	}
 	in.SessionID = "owner"
 	in.LastMessage = "普通用户任务"
+	in.TurnID = "ordinary"
+	in.StopHookActive = false
 	if d, err = heartbeatStopDecision(s, in, "owner"); err != nil || len(d) != 0 {
 		t.Fatal("ordinary task blocked")
 	}
@@ -53,7 +55,7 @@ func TestHeartbeatStopBlocksMissingPublishAndAllowsCompleted(t *testing.T) {
 }
 
 func TestHeartbeatGuardsDoNotFlushBusinessQueue(t *testing.T) {
-	for _, name := range []string{"rules", "cycle-check", "stop-check"} {
+	for _, name := range []string{"rules", "cycle-check", "stop-check", "host-observe", "guard-setup", "permission-check"} {
 		c, _, err := heartbeatCmd.Find([]string{name})
 		if err != nil {
 			t.Fatal(err)
@@ -61,5 +63,34 @@ func TestHeartbeatGuardsDoNotFlushBusinessQueue(t *testing.T) {
 		if flushesFeedQueue(c) {
 			t.Fatalf("local guard flushes business queue: %s", name)
 		}
+	}
+}
+
+func TestStopGuardCannotBeBypassedByProseAndResumesCheckedCycle(t *testing.T) {
+	s := maintenance.Scope{Home: t.TempDir(), Server: "test", AgentID: "1"}
+	c, _ := maintenance.StartCycle(s, "full", []string{"publish"}, maintenance.RuntimeObservation{})
+	p := filepath.Join(t.TempDir(), "transcript.jsonl")
+	write := func(turn, command, body string) {
+		row := map[string]any{"type": "event_msg", "payload": map[string]any{"type": "item_completed", "turn_id": turn, "item": map[string]any{"type": "CommandExecution", "command": []string{"/bin/zsh", "-lc", command}, "aggregated_output": body}}}
+		b, _ := json.Marshal(row)
+		if err := os.WriteFile(p, append(b, '\n'), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	in := heartbeatStopInput{SessionID: "owner", TurnID: "turn", Event: "Stop", Transcript: p, LastMessage: "本轮检查尚未完成"}
+	write("turn", "eigenflux heartbeat plan --format agent", "EIGENFLUX HEARTBEAT PLAN\nheartbeat cycle-report --cycle "+c.ID)
+	d, err := heartbeatStopDecision(s, in, "owner")
+	if err != nil || d["decision"] != "block" {
+		t.Fatalf("prose bypass: %v %v", d, err)
+	}
+	in.TurnID = "resume"
+	write("resume", "eigenflux heartbeat cycle-check --cycle "+c.ID, "heartbeat incomplete\n"+`{"cycle_id":"`+c.ID+`","status":"incomplete"}`)
+	d, err = heartbeatStopDecision(s, in, "owner")
+	if err != nil || d["decision"] != "block" {
+		t.Fatalf("resume lost cycle: %v %v", d, err)
+	}
+	write("resume", "eigenflux feed get --item-id 1", `{"cycle_id":"`+c.ID+`","status":"incomplete"}`)
+	if id, err := stopCycleFromTranscript(p, "resume"); err != nil || id != "" {
+		t.Fatal("untrusted output selected cycle")
 	}
 }

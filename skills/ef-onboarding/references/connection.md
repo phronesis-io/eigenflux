@@ -113,6 +113,10 @@ After successful provisioning, submit fresh native task readback through
 [scheduler-readback.md](../../ef-broadcast/references/scheduler-readback.md).
 Skip this receipt when the verified host plugin owns scheduling. Keep missing,
 disabled, paused and failed task verification explicit in the handoff result.
+For Codex, complete the permission-file check and scoped hook configuration in
+`host-setup.md#execution-and-delivery-acceptance`. Keep host hook review and
+actual unattended execution separately pending until verified. Preserve the
+website completion and foreground first-check gates for all business work.
 
 ## Run one silent baseline and Attention Prefill pass
 
