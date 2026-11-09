@@ -38,7 +38,12 @@ an explicit user instruction.
 - macOS: `--launch-agent` selects an owned regular plist in the current user's
   `~/Library/LaunchAgents`. Validate its executable, working directory, GUI
   session and enabled state before stopping anything. Reload an existing service
-  with bootout/bootstrap; bootstrap an absent service. Kickstart without `-k`
+  with bootout/bootstrap; bootstrap an absent service. After bootout, wait up to
+  30 seconds within the caller's timeout for the old service to disappear before
+  reusing its label. Only launchctl print exit 113 establishes service absence;
+  command, permission and GUI-session errors stop recovery without bootstrapping.
+  The same wait protects notification-mode changes and prepare-only stops.
+  Kickstart without `-k`
   avoids killing a process already started by RunAtLoad. Require the same PID in
   running state for three seconds. Preserve the original wrapper and test-source.
 - Windows: `--scheduled-task` selects one exact COM task path. Require the current
