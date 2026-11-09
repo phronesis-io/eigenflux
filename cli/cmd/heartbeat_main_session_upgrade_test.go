@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/dispatch"
@@ -149,7 +150,10 @@ func TestHeartbeatUpgradeAutomaticallySchedulesInitialBinding(t *testing.T) {
 }
 
 func TestHeartbeatUpgradeBindingCompletesOnceAndPreservesJournal(t *testing.T) {
+	start := time.Now()
+	phase := func(name string) { t.Logf("PROFILE %s %.3fs", name, time.Since(start).Seconds()); start = time.Now() }
 	b, _ := upgradeHeartbeatFixture(t, false)
+	phase("fixture")
 	path := dispatch.BindingPath(b.Home, b.Server)
 	if err := dispatch.WriteJSON(path, b); err != nil {
 		t.Fatal(err)
@@ -163,6 +167,7 @@ func TestHeartbeatUpgradeBindingCompletesOnceAndPreservesJournal(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := runUpgradeHeartbeat(t, &cobra.Command{})
+	phase("first_plan")
 	if first.ExecutionOrder[0] != "main_session_bootstrap" {
 		t.Fatal("upgrade omitted automatic bootstrap")
 	}
@@ -179,6 +184,7 @@ func TestHeartbeatUpgradeBindingCompletesOnceAndPreservesJournal(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = updateWatchMainSession(cmd)
+	phase("preflight")
 	release()
 	if err != nil {
 		t.Fatal(err)
@@ -195,6 +201,7 @@ func TestHeartbeatUpgradeBindingCompletesOnceAndPreservesJournal(t *testing.T) {
 		t.Fatal("upgrade committed a changed scheduler target")
 	}
 	retry := runUpgradeHeartbeat(t, &cobra.Command{})
+	phase("retry_plan")
 	if retry.ExecutionOrder[0] != "main_session_bootstrap" {
 		t.Fatal("failed migration was not retried by the next full heartbeat")
 	}
@@ -203,6 +210,7 @@ func TestHeartbeatUpgradeBindingCompletesOnceAndPreservesJournal(t *testing.T) {
 		t.Fatal(err)
 	}
 	second := runUpgradeHeartbeat(t, &cobra.Command{})
+	phase("second_plan")
 	if second.MainSessionBinding.Status != "ready" || slices.Contains(second.ExecutionOrder, "main_session_bootstrap") {
 		t.Fatal("completed upgrade kept requesting initial binding")
 	}

@@ -7,9 +7,11 @@ import time
 import cmd_tests
 
 root = Path(__file__).resolve().parents[2]
-out = root / 'build/ci-profile'
+out = root / 'build/ci-profile' / (sys.argv[3] if len(sys.argv) > 3 else 'default')
 out.mkdir(parents=True, exist_ok=True)
-command = cmd_tests.test_command(sys.argv[1], cmd_tests.portable_tests())
+command = (['go', 'test', '-count=1', './internal/maintenance', './internal/watch', './internal/watchservice', './internal/desktopnotify', './internal/uninstallscript'] if sys.argv[1] == 'uninstall-core' else cmd_tests.test_command(sys.argv[1], cmd_tests.portable_tests()))
+if len(sys.argv) > 2 and sys.argv[2] != '-':
+    command += ['-run', sys.argv[2]]
 command.insert(2, '-json')
 start = time.monotonic()
 with (out / 'cmd-tests.jsonl').open('w') as log:

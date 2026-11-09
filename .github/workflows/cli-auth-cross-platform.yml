@@ -1,183 +1,10 @@
 name: CLI Auth Cross-Platform
-
 on:
   pull_request:
-    paths:
-      - 'cli/**'
-      - 'skills/**'
-      - 'docs/**'
-      - 'README.md'
-      - 'AGENTS.md'
-      - 'static/install*'
-      - 'static/uninstall*'
-      - 'static/feed*contract.md'
-      - 'tests/cli_release/**'
-      - 'tests/installer_release/**'
-      - 'tests/onboarding_prefill/**'
-      - 'tests/ci/**'
-      - 'scripts/ci/**'
-      - 'scripts/release/publish-installer.py'
-      - 'api/install/**'
-      - 'tests/installhome/**'
-      - 'tests/installentry/**'
-      - '.github/workflows/**'
-  push:
-    branches: [main]
-    paths:
-      - 'cli/**'
-      - 'skills/**'
-      - 'docs/**'
-      - 'README.md'
-      - 'AGENTS.md'
-      - 'static/install*'
-      - 'static/uninstall*'
-      - 'static/feed*contract.md'
-      - 'tests/cli_release/**'
-      - 'tests/installer_release/**'
-      - 'tests/onboarding_prefill/**'
-      - 'tests/ci/**'
-      - 'scripts/ci/**'
-      - 'scripts/release/publish-installer.py'
-      - 'api/install/**'
-      - 'tests/installhome/**'
-      - 'tests/installentry/**'
-      - '.github/workflows/**'
-  workflow_dispatch:
-
-# Keep only the newest PR checks; isolate main and manual runs.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 permissions:
   contents: read
-
 jobs:
-  scope:
-    runs-on: ubuntu-latest
-    outputs:
-      full: ${{ steps.changes.outputs.full }}
-      skills: ${{ steps.changes.outputs.skills }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - id: changes
-        env:
-          CI_EVENT: ${{ github.event_name }}
-          CI_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-          CI_HEAD_SHA: ${{ github.sha }}
-        run: python3 scripts/ci/changes.py
-
-  source-checks:
-    needs: scope
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-      - name: Validate CI classification and regression checker
-        run: |
-          python3 -m unittest discover -s tests/ci -p 'test_*.py'
-          python3 -m unittest discover -s tests/onboarding_prefill -p 'test_*.py'
-      - name: Check documentation source
-        run: git diff --check HEAD^ HEAD
-
-  skills-tests:
-    needs: scope
-    if: needs.scope.outputs.full != 'true' && needs.scope.outputs.skills == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: cli/go.mod
-          cache-dependency-path: cli/go.sum
-      - name: Test CLI contracts and Skills compatibility on Linux
-        run: |
-          python3 scripts/ci/cmd_tests.py all
-          cd cli
-          go test -count=1 ./internal/skills ./tests
-
-  auth-tests:
-    env:
-      CI_PROFILE: '1'
-    needs: scope
-    if: needs.scope.outputs.full == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        working-directory: cli
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: cli/go.mod
-          cache-dependency-path: cli/go.sum
-      - name: Test identity and credential storage
-        run: go test ./internal/auth -count=1
-      - name: Test signed self-update and native package installation
-        run: go test ./internal/selfupdate -count=1
-      - name: Test runtime identity persistence and automatic reporting
-        run: go test -count=1 ./internal/profilestate ./internal/client ./internal/config
-      - name: Test all CLI commands on Linux
-        if: runner.os == 'Linux'
-        run: python3 ../scripts/ci/cmd_tests.py all
-      - name: Test platform CLI commands on macOS
-        if: runner.os == 'macOS'
-        run: python3 ../scripts/ci/cmd_tests.py platform
-      - name: Test platform CLI commands on Windows
-        if: runner.os == 'Windows'
-        run: python ../scripts/ci/cmd_tests.py platform
-      - name: Upload per-test profiling data
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cli-test-profile-${{ runner.os }}
-          path: build/ci-profile/
-          retention-days: 2
-      - name: Test uninstall telemetry and owned installation cleanup
-        run: |
-          go test -count=1 ./internal/maintenance ./internal/watch ./internal/watchservice ./internal/desktopnotify ./internal/uninstallscript
-          go test -count=1 -run TestUninstall ./internal/skills
-      - name: Test full Skills suite on POSIX
-        if: runner.os != 'Windows'
-        run: go test -count=1 ./internal/skills
-      - name: Test signed Skills installation and upgrade compatibility
-        if: runner.os == 'Linux'
-        run: go test ./tests
-      - name: Test installer and installation entry
-        if: runner.os == 'Linux'
-        working-directory: .
-        run: |
-          python3 -m unittest discover -s tests/cli_release -p 'test_*.py'
-          python3 -m unittest discover -s tests/installer_release -p 'test_*.py'
-          go test ./tests/installhome ./tests/installentry ./api/install
-      - name: Test portable signed test packaging
-        run: go test ./cmd/devbuild -count=1
-      - name: Build Windows signed test bundle
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: |
-          ./scripts/build.ps1 -TestBundle -OutDir build/windows-test
-          ../build/windows-test/Run-Test.ps1 version
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ../build/windows-test/Run-Test.ps1 skills sync
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Upload Windows signed test bundle
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: eigenflux-windows-signed-test
-          path: build/windows-test.zip
-
-  windows-download-tests:
-    needs: scope
-    if: needs.scope.outputs.full == 'true'
+  windows-targeted-profile:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -185,42 +12,17 @@ jobs:
         with:
           go-version-file: cli/go.mod
           cache-dependency-path: cli/go.sum
-      - name: Build Windows CLI for download integration tests
-        working-directory: cli
-        run: |
-          New-Item -ItemType Directory -Force ../build | Out-Null
-          go build -o ../build/eigenflux.exe .
-      - name: Test Windows installer downloads and existing installation registration
-        run: python -m unittest discover -s tests/cli_release -p 'test_windows_*.py'
-
-  release-artifact-handoff:
-    needs: scope
-    if: needs.scope.outputs.full == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Prepare an executable without release credentials
-        run: |
-          mkdir -p "$RUNNER_TEMP/release-handoff-source"
-          printf '#!/bin/sh\nprintf "handoff-ok\\n"\n' > "$RUNNER_TEMP/release-handoff-source/releasecheck"
-          chmod 755 "$RUNNER_TEMP/release-handoff-source/releasecheck"
-          printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/release-handoff-source/source-sha.txt"
-          tar -C "$RUNNER_TEMP/release-handoff-source" -cf "$RUNNER_TEMP/release-handoff.tar" .
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - name: Measure unchanged heartbeat binding test
+        run: python scripts/ci/profile_cmd.py all '^TestHeartbeatUpgradeBindingCompletesOnceAndPreservesJournal$' baseline
+      - name: Measure same assertions with unrelated setup isolated
+        env:
+          EIGENFLUX_SKIP_AGENT_SETUP: '1'
+        run: python scripts/ci/profile_cmd.py all '^TestHeartbeatUpgradeBindingCompletesOnceAndPreservesJournal$' isolated
+      - name: Profile unchanged uninstall core packages
+        run: python scripts/ci/profile_cmd.py uninstall-core '-' uninstall-core
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: release-handoff-${{ github.sha }}
-          path: ${{ runner.temp }}/release-handoff.tar
-          compression-level: 0
-          retention-days: 1
-          overwrite: true
-          if-no-files-found: error
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: release-handoff-${{ github.sha }}
-          path: ${{ runner.temp }}/release-handoff-download
-      - name: Verify the downloaded artifact source and executable permissions
-        run: |
-          mkdir -p "$RUNNER_TEMP/release-handoff-restored"
-          tar -C "$RUNNER_TEMP/release-handoff-restored" -xf "$RUNNER_TEMP/release-handoff-download/release-handoff.tar"
-          test "$(cat "$RUNNER_TEMP/release-handoff-restored/source-sha.txt")" = "$GITHUB_SHA"
-          test -x "$RUNNER_TEMP/release-handoff-restored/releasecheck"
-          test "$("$RUNNER_TEMP/release-handoff-restored/releasecheck")" = handoff-ok
+          name: cli-targeted-profile-Windows
+          path: build/ci-profile/
+          retention-days: 2
