@@ -7,6 +7,18 @@ function ConvertTo-NativeArgument([string]$value) {
   # Windows argv quoting; reason text and paths remain argument data.
   return '"' + [regex]::Replace([regex]::Replace($value, '(\\*)"', '$1$1\"'), '(\\+)$', '$1$1') + '"'
 }
+function Get-EigenFluxSHA256([string]$path) {
+  # Use .NET directly when a 5.1 child inherits PowerShell 7 module paths.
+  $hash = [Security.Cryptography.SHA256]::Create()
+  $stream = $null
+  try {
+    $stream = [IO.File]::OpenRead($path)
+    return [BitConverter]::ToString($hash.ComputeHash($stream)).Replace('-', '').ToLowerInvariant()
+  } finally {
+    if ($stream) { $stream.Dispose() }
+    $hash.Dispose()
+  }
+}
 function Invoke-EigenFluxJson([string]$binary, [string[]]$cliArgs, [switch]$TemporaryReporter) {
   $info = New-Object Diagnostics.ProcessStartInfo
   $info.FileName = $binary
@@ -76,13 +88,13 @@ try {
       }
     }
     if ($result.reporter_sha256 -notmatch '^[a-f0-9]{64}$' -or
-        (Get-FileHash -LiteralPath $reporterSource -Algorithm SHA256).Hash.ToLowerInvariant() -ne $result.reporter_sha256) {
+        (Get-EigenFluxSHA256 $reporterSource) -ne $result.reporter_sha256) {
       throw 'Reporter changed after uninstall preparation.'
     }
   }
   Copy-Item -LiteralPath $reporterSource -Destination $reporter -ErrorAction Stop
   if ($result.reporter_sha256 -and
-      (Get-FileHash -LiteralPath $reporter -Algorithm SHA256).Hash.ToLowerInvariant() -ne $result.reporter_sha256) {
+      (Get-EigenFluxSHA256 $reporter) -ne $result.reporter_sha256) {
     throw 'Temporary reporter checksum differs.'
   }
   $reporterVerified = $true

@@ -9,7 +9,8 @@ and records its digest. Test bundles also include both standalone wrappers.
 Use the absolute binary path as the first argument; pass CLI flags as data.
 Protocol 1 requires CLI 1.0.2. New versioned installations report the actual
 version-child reporter path and SHA-256. The Windows wrapper validates its
-installation-relative path and hashes both source and temporary copy, so an old
+installation-relative path and hashes both source and temporary copy using .NET SHA-256 directly (compatible
+with a PowerShell 5.1 child inheriting PowerShell 7 module paths), so an old
 stable launcher cannot finalize a newer package-cleanup receipt. No script downloads or arbitrary shell expansion
 are needed. Preview performs no cleanup. Windows retains a temporary trusted CLI
 for locked original-file removal and final telemetry, then deletes the copy on success. On failure it retains the verified reporter
