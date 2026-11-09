@@ -20,12 +20,19 @@ BEFORE = 'b' * 40
 
 
 def run_fixture(**changes):
-    run = {'id': 123, 'name': plan.WORKFLOW_NAME, 'path': plan.WORKFLOW,
+    run = {'id': 123, 'run_attempt': 2, 'name': plan.WORKFLOW_NAME, 'path': plan.WORKFLOW,
            'head_sha': HEAD, 'event': 'push', 'head_branch': 'main',
            'head_repository': {'full_name': REPO}, 'repository': {'full_name': REPO},
            'status': 'completed', 'conclusion': 'success'}
     run.update(changes)
     return run
+
+
+def full_jobs():
+    return [{'jobs': [{'name': name, 'status': 'completed', 'conclusion': 'success'}
+                      for name in ('source-checks', 'auth-tests (ubuntu-latest)',
+                                   'auth-tests (macos-latest)', 'auth-tests (windows-latest)',
+                                   'windows-download-tests', 'release-artifact-handoff')]}]
 
 
 class ReleasePlanTests(unittest.TestCase):
@@ -55,18 +62,50 @@ class ReleasePlanTests(unittest.TestCase):
                 self.assertEqual(plan.trusted_ci(REPO, HEAD), (False, '', 'ci_unavailable'))
         with patch.object(plan.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '<html>', '')):
             self.assertFalse(plan.trusted_ci(REPO, HEAD)[0])
-        with patch.object(plan.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, json.dumps({'workflow_runs': [run_fixture()]}), '')) as command:
+        with patch.object(plan.subprocess, 'run', side_effect=[
+                subprocess.CompletedProcess([], 0, json.dumps({'workflow_runs': [run_fixture()]}), ''),
+                subprocess.CompletedProcess([], 0, json.dumps(full_jobs()), '')]) as command:
             self.assertTrue(plan.trusted_ci(REPO, HEAD)[0])
-            args = command.call_args.args[0]
+            args = command.call_args_list[0].args[0]
             self.assertIn(f'head_sha={HEAD}', args)
             self.assertIn('event=push', args)
             self.assertIn('branch=main', args)
             self.assertIn('per_page=1', args)
             self.assertIn('cli-auth-cross-platform.yml/runs', args[2])
+            self.assertIn('/attempts/2/jobs?', command.call_args_list[1].args[0][-1])
         with patch.object(plan.subprocess, 'run') as command:
             self.assertFalse(plan.trusted_ci('../untrusted', HEAD)[0])
             self.assertFalse(plan.trusted_ci(REPO, '--flag')[0])
             command.assert_not_called()
+
+    def test_green_lightweight_or_skipped_jobs_are_not_full_coverage(self):
+        self.assertTrue(plan.full_ci_jobs(full_jobs()))
+        jobs = full_jobs()[0]['jobs']
+        self.assertTrue(plan.full_ci_jobs([{'jobs': jobs[:3]}, {'jobs': jobs[3:]}]))
+        for missing in jobs:
+            self.assertFalse(plan.full_ci_jobs([{'jobs': [j for j in jobs if j != missing]}]))
+        for conclusion in ('skipped', 'failure', 'cancelled', None):
+            data = full_jobs()
+            data[0]['jobs'][1]['conclusion'] = conclusion
+            self.assertFalse(plan.full_ci_jobs(data))
+        for invalid in ({}, [], [{'jobs': None}], [{'jobs': jobs + [jobs[0]]}]):
+            self.assertFalse(plan.full_ci_jobs(invalid))
+        for pages in ([{'jobs': [{'name': 'skills-tests', 'status': 'completed', 'conclusion': 'success'}]}], []):
+            with patch.object(plan.subprocess, 'run', side_effect=[
+                    subprocess.CompletedProcess([], 0, json.dumps({'workflow_runs': [run_fixture()]}), ''),
+                    subprocess.CompletedProcess([], 0, json.dumps(pages), '')]):
+                self.assertEqual(plan.trusted_ci(REPO, HEAD), (False, '', 'ci_coverage_unverified'))
+
+    def test_jobs_evidence_must_come_from_a_known_current_attempt(self):
+        for attempt in (None, 0, True, '2'):
+            with patch.object(plan.subprocess, 'run', return_value=subprocess.CompletedProcess(
+                    [], 0, json.dumps({'workflow_runs': [run_fixture(run_attempt=attempt)]}), '')) as api:
+                self.assertEqual(plan.trusted_ci(REPO, HEAD), (False, '', 'ci_coverage_unverified'))
+                self.assertEqual(api.call_count, 1)
+        with patch.object(plan.subprocess, 'run', side_effect=[
+                subprocess.CompletedProcess([], 0, json.dumps({'workflow_runs': [run_fixture()]}), ''),
+                subprocess.TimeoutExpired('gh', 30)]):
+            self.assertEqual(plan.trusted_ci(REPO, HEAD), (False, '', 'ci_unavailable'))
 
     def test_cli_bump_defers_skills_but_skills_only_change_does_not(self):
         event = {'ref': 'refs/heads/main', 'after': HEAD, 'before': BEFORE,

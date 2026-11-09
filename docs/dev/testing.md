@@ -24,6 +24,46 @@ Tests live beside the packages they exercise and in the service integration suit
 | `tests/installv2/` | Install ref through signed V2 provision, email binding, identity reuse, and transaction rollback | `go test -v ./tests/installv2/` |
 | `tests/replay/` | Offline replay service tests (sort simulation with custom params, inline profiles) | `go test -v ./tests/replay/` |
 
+## CLI CI scope and command-test groups
+
+`CLI Auth Cross-Platform` classifies the complete Git diff before starting Go
+runners. Maintenance-only changes to `README.md`, `AGENTS.md`,
+`skills/AGENTS.md` and Markdown under `docs/` run lightweight source/checker tests. Skills content and
+onboarding-regression changes run the full command suite and Skills compatibility
+suite on Linux. CLI code, dependencies, installer/release tooling, CI changes,
+mixed changes and unrecognized paths require the full platform suite. Manual
+runs, missing Git history and unknown diff identities also require full checks.
+
+Linux always runs all `cli/cmd` tests. macOS and Windows exclude only tests
+explicitly reviewed in `scripts/ci/portable-cmd-tests.json`: these cover prose
+contracts, command/schema registration and pure JSON transformations. The
+manifest records exact test names and normalized source hashes. New tests stay
+cross-platform by default; edits to a reviewed file restore its tests to the
+platform group until its behavior and dependencies are reviewed again. Update
+the manifest's names and SHA-256 only after that review. Keep path, permission,
+process, notification, installer and host-integration behavior cross-platform.
+
+Run from the repository root:
+
+```sh
+python3 -m unittest discover -s tests/ci -p 'test_*.py'
+python3 scripts/ci/cmd_tests.py all
+python3 scripts/ci/cmd_tests.py portable
+python3 scripts/ci/cmd_tests.py platform --list
+```
+
+The source job also tests the onboarding regression checker. Actual isolated
+Agent generations and semantic review remain required by the
+[behavioral regression procedure](../../tests/onboarding_prefill/README.md);
+checker tests alone do not establish model behavior.
+
+Release planning reuses CI only after the exact main-push workflow run succeeds
+and its current attempt includes successful Linux, macOS, Windows, installer,
+source and artifact-handoff jobs. A green docs/Skills-only run, skipped matrix,
+missing jobs or unavailable evidence requires the existing release tests.
+Superseded PR checks are cancelled only within the same workflow and PR;
+main/manual runs stay isolated, and publication locks remain non-cancelling.
+
 ## Local Agent dispatch
 
 Windows regressions close queue readers before atomic replacement and preserve

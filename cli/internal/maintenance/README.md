@@ -131,3 +131,8 @@ remain independent from execution. An unreadable or newer-format observation
 sidecar emits one fixed local diagnostic per CLI process and skips sidecar
 recovery and acknowledgement; the original queue continues uploading, including
 notifications and uninstall receipts. Preserve the sidecar for diagnosis.
+
+Stop admission uses an exact current-turn plan or a local `cycle-check` command
+result, independently of final-response formatting. Ordinary tasks without that
+evidence pass through; a foreground resume may check the existing cycle without
+creating a new plan or replaying completed business actions.
