@@ -191,8 +191,10 @@ command permission belongs to the separate foreground onboarding choice; do
 not recommend a network/write-access configuration change instead.
 
 The installer requires Codex CLI 0.142.0 or newer for root-directory plugins.
-It uses a compatible PATH executable, otherwise an existing macOS desktop-app
-binary. It does not upgrade Codex. If none is compatible, upgrade Codex and retry;
+It first checks `CODEX_APP_RUNTIME_CLI_PATH`, then PATH and existing macOS
+desktop-app binaries, including the `codex-cli/bin/codex` and nested
+`CodexCLI.app/Contents/MacOS/codex` layouts. It preserves `CODEX_HOME` and does
+not upgrade Codex. If none is compatible, upgrade Codex and retry;
 do not edit the plugin marketplace path to work around an old parser.
 
 Use the exact `codex_path` from the installer result for `plugin list` and any

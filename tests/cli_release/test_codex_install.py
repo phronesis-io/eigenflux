@@ -142,6 +142,46 @@ esac''')
         self.assertEqual(calls.count("codex plugin add codex-eigenflux@eigenflux\n"), 1)
         self.assertIn("Skipping incompatible Codex CLI", self.last_output)
 
+    def test_current_desktop_layouts_work_with_an_old_path_cli(self):
+        compatible = (self.bin / "codex").read_bytes()
+        self.stub("codex", 'printf "old-codex %s\\n" "$*" >> "$TEST_CALLS"\nif [ "$*" = --version ]; then echo "codex-cli 0.139.0"; else exit 98; fi')
+        for relative in ("codex-cli/bin/codex", "codex-cli/CodexCLI.app/Contents/MacOS/codex"):
+            with self.subTest(layout=relative):
+                app = self.home / "Applications/ChatGPT.app/Contents/Resources" / relative
+                app.parent.mkdir(parents=True, exist_ok=True)
+                app.write_bytes(compatible)
+                app.chmod(0o755)
+                self.expected_codex = app
+                self.log.write_text("")
+                Path(self.env["TEST_PLUGIN"]).unlink(missing_ok=True)
+                receipts, calls = self.install()
+                self.assertEqual(receipts[0]["status"], "installed")
+                self.assertNotIn("old-codex plugin", calls)
+                self.assertEqual(calls.count("codex plugin add codex-eigenflux@eigenflux\n"), 1)
+                app.unlink()
+
+    def test_invoking_runtime_is_preferred_to_a_different_compatible_path(self):
+        runtime = self.home / "runtime bundle/CodexCLI.app/Contents/MacOS/codex"
+        runtime.parent.mkdir(parents=True)
+        runtime.write_bytes((self.bin / "codex").read_bytes())
+        runtime.chmod(0o755)
+        self.stub("codex", 'printf "other-codex %s\\n" "$*" >> "$TEST_CALLS"\nif [ "$*" = --version ]; then echo "codex-cli 0.155.0"; else exit 98; fi')
+        self.env["CODEX_APP_RUNTIME_CLI_PATH"] = str(runtime)
+        self.expected_codex = runtime
+        receipts, calls = self.install()
+        self.assertEqual(receipts[0]["status"], "installed")
+        self.assertNotIn("other-codex", calls)
+
+    def test_invalid_runtime_falls_back_without_changing_host_configuration(self):
+        runtime = self.home / "invalid runtime"
+        runtime.write_text('#!/bin/sh\necho "codex-cli 0.139.0"\n')
+        runtime.chmod(0o755)
+        for candidate in (runtime, self.home / "missing runtime"):
+            with self.subTest(runtime=candidate):
+                self.env["CODEX_APP_RUNTIME_CLI_PATH"] = str(candidate)
+                receipts, _ = self.install()
+                self.assertIn(receipts[0]["status"], ("installed", "present"))
+
     def selection(self, *candidates):
         # Invoke the production selector in isolation from machine-wide app paths.
         source = (ROOT / "static/install.sh").read_text()

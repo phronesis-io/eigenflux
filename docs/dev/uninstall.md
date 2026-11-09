@@ -20,6 +20,18 @@ Current removal preserves Skills targets outside the current Home, including tho
 
 Use host-native tools to stop and remove EigenFlux triggers, plugins, and their configuration. Retain unrelated host settings and third-party content. The CLI checks installation, update, and watch locks before removal. It rejects linked or non-canonical Agent Home roots before deleting data.
 
+Complete Codex removal includes the official `eigenflux` marketplace's installed
+root at `$CODEX_HOME/.tmp/marketplaces/eigenflux`, as well as its configuration
+and `codex-eigenflux@eigenflux` plugin. The uninstall Skill verifies ownership
+and runs the same Codex executable's `plugin marketplace remove eigenflux`.
+Deleting only the configuration leaves an orphaned checkout: marketplace listing
+can omit it while adding the same official source fails with a source conflict.
+Inspect and remove verified orphaned roots through the native command, then
+read back both registration and filesystem state before confirming host cleanup.
+Retain shared marketplaces for current-Agent removal and block on foreign or
+ambiguous ownership. The EigenFlux CLI does not edit Codex configuration or
+recursively remove host marketplace directories itself.
+
 Successful removal deletes the registered CLI, its owned sidecars and wrappers, registered EigenFlux-managed Skills including edited content, and each registered Home's local configuration, credentials, identity keys, caches, history, maintenance state, and uninstall audits. Skills targets require a valid EigenFlux ownership manifest; only registered entries are removed. Leaf symlinks are unlinked without removing their targets. Local data cleanup does not delete a cloud account.
 
 Missing registered Skills directories are already removed. Existing targets with missing or invalid manifests fail ownership validation. For complete Windows removal, the uninstall Skill also verifies and clears EigenFlux-owned legacy entries under `%USERPROFILE%\.agents\skills` using host-native tools; unrelated entries remain.
