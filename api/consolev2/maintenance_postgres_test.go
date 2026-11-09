@@ -129,6 +129,92 @@ func TestMaintenancePostgresAgentAuthIdentityAndIdempotency(t *testing.T) {
 	if runtimeCount != 2 {
 		t.Fatalf("runtime identity/dedup: %d", runtimeCount)
 	}
+	t.Run("cycle and lifecycle persistence", func(t *testing.T) {
+		svc.telemetryRates = map[string]telemetryRateState{}
+		var events []maintenanceEvent
+		add := func(phase, stage, result, planMode string) {
+			e := runtimeEvent
+			e.EventID, e.AttemptID = fmt.Sprintf("%064x", 12000+len(events)), fmt.Sprintf("%032x", 13000)
+			e.Phase, e.Result = phase, result
+			e.Runtime = &runtimeObservation{Product: "codex", CLI: "1.0.19", Stage: stage, PlanMode: planMode}
+			events = append(events, e)
+		}
+		for _, result := range []string{"plan_created", "incomplete", "permission_required", "permission_denied", "interrupted"} {
+			add("cycle", "cycle", result, "full")
+		}
+		for _, row := range []struct{ stage, result string }{
+			{"trigger", "observed"}, {"permission", "allowed"}, {"permission", "legacy_mismatch"},
+			{"permission", "prompt"}, {"permission", "forbidden"}, {"permission", "unknown"},
+			{"permission", "required"}, {"permission", "denied"}, {"guard", "configured"}, {"guard", "active"}, {"execution", "interrupted"},
+		} {
+			add("lifecycle", row.stage, row.result, "")
+		}
+		body = map[string]interface{}{"events": events}
+		for _, id := range []int64{42, 42, 43} {
+			if status := send(id); status != 202 {
+				t.Fatalf("new runtime batch ingestion for %d: %d", id, status)
+			}
+		}
+		var rows []struct {
+			AgentID                        int64
+			Phase, Stage, Result, PlanMode string
+		}
+		query := `SELECT agent_id,properties->>'phase' AS phase,properties->'runtime'->>'stage' AS stage,
+properties->>'result' AS result,coalesce(properties->'runtime'->>'plan_mode','') AS plan_mode
+FROM telemetry_events_v2 WHERE properties->>'attempt_id'=? ORDER BY agent_id,event_id`
+		if err := tx.Raw(query, events[0].AttemptID).Scan(&rows).Error; err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 2*len(events) {
+			t.Fatalf("new runtime identity/replay isolation: %+v", rows)
+		}
+		seen := map[string]bool{}
+		for _, row := range rows {
+			key := fmt.Sprintf("%d/%s/%s/%s", row.AgentID, row.Phase, row.Stage, row.Result)
+			matched := false
+			for _, want := range events {
+				if row.Phase == want.Phase && row.Stage == want.Runtime.Stage && row.Result == want.Result && row.PlanMode == want.Runtime.PlanMode {
+					matched = true
+					break
+				}
+			}
+			if (row.AgentID != 42 && row.AgentID != 43) || !matched || seen[key] {
+				t.Fatalf("new runtime persisted projection: %+v", row)
+			}
+			seen[key] = true
+		}
+		// The authenticated actor owns every row; client-selected actor fields and
+		// unknown runtime metadata are rejected before any batch row is written.
+		bad := events[0]
+		bad.EventID = fmt.Sprintf("%064x", 14000)
+		bad.Runtime = &runtimeObservation{Stage: "feed", PlanMode: "full"}
+		badLifecycle := bad
+		badLifecycle.Phase, badLifecycle.Result = "lifecycle", "unknown_status"
+		badLifecycle.Runtime = &runtimeObservation{Stage: "permission"}
+		unknown := map[string]interface{}{}
+		raw, _ := json.Marshal(events[0])
+		_ = json.Unmarshal(raw, &unknown)
+		unknown["agent_id"] = 43
+		unknownRuntime := map[string]interface{}{}
+		_ = json.Unmarshal(raw, &unknownRuntime)
+		unknownRuntime["runtime"].(map[string]interface{})["device_name"] = "not accepted"
+		for _, invalid := range []interface{}{bad, badLifecycle, unknown, unknownRuntime} {
+			valid := events[0]
+			valid.EventID = fmt.Sprintf("%064x", 14001)
+			body = map[string]interface{}{"events": []interface{}{valid, invalid}}
+			if status := send(42); status != 400 {
+				t.Fatalf("invalid runtime batch accepted: %d", status)
+			}
+		}
+		var after int64
+		if err := tx.Raw(`SELECT count(*) FROM telemetry_events_v2 WHERE properties->>'attempt_id'=?`, events[0].AttemptID).Scan(&after).Error; err != nil {
+			t.Fatal(err)
+		}
+		if after != int64(len(rows)) {
+			t.Fatal("invalid runtime batch partially persisted")
+		}
+		svc.telemetryRates = map[string]telemetryRateState{}
+	})
 	uninstall := maintenanceEvent{EventID: fmt.Sprintf("%064x", 123), AttemptID: fmt.Sprintf("%032x", 456), EventAt: time.Now().UnixMilli(), Component: "cli", Trigger: "manual", Phase: "uninstall", Result: "removed", Source: "agent", Platform: "darwin", ReasonCategory: "privacy"}
 	body = map[string]interface{}{"events": []maintenanceEvent{uninstall}}
 	for _, id := range []int64{42, 42, 43} {

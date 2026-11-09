@@ -181,7 +181,30 @@ Deploy collection before CLI adoption; rollback can disable collection without
 schema changes. A client completion receipt is an assertion, not a server-side
 proof of every business effect. Analysis requires a matching start receipt.
 
-A generated plan contributes environment evidence only. The first valid stage receipt records execution with its observation timestamp. Cycle failure requires a failed stage receipt. Interrupted or missing stages remain unresolved.
+A generated plan contributes environment and delivery observations, not execution evidence. The first valid stage receipt records execution with its observation timestamp. Cycle failure requires a failed stage receipt. Interrupted or missing stages remain unresolved.
+
+## Plan and execution lifecycle observations
+
+Accept runtime `cycle` results `plan_created`, `incomplete`,
+`permission_required`, `permission_denied` and `interrupted` only with `runtime.stage=cycle` and a
+valid plan mode. Preserve `started` for actual execution evidence. Nonterminal
+observations do not change business outcomes, establish retention, or prove
+that a scheduler failed to trigger. Missing receipts remain unknown.
+
+Accept runtime phase `lifecycle` with an empty plan mode and fixed stage/result
+pairs: trigger/observed; permission/allowed, legacy_mismatch, prompt, forbidden,
+unknown, required or denied; guard/configured or active; execution/interrupted. Keep
+runtime metadata token-only and reject error codes and unrelated metadata.
+Configured guards do not prove host trust or activation; permission failures
+require actual local evidence. Continue using authenticated Agent ownership,
+maintenance event deduplication and the existing telemetry retention. Deploy API
+acceptance before clients emitting the new categories.
+
+`permission_required` and lifecycle permission/required record a host approval
+request, not its outcome. Emit `permission_denied` and permission/denied only
+from a trusted current-turn final host tool decline for the scoped CLI command.
+Retain these as historical observations if a later authorized retry succeeds;
+do not treat their existence as a current authorization decision.
 
 ## Optional watch failure metadata
 

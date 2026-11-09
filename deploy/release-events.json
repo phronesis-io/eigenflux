@@ -255,5 +255,17 @@
     "title": "Exclude safety scanners from install landings",
     "description": "After API rollout, Google-Safety requests no longer create landing records. Historical rows remain. Referral and reporting repairs require the updated website, installers and CLI; this marker records only API activation.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/508"
+  },
+  {
+    "id": "codex-heartbeat-execution-observations-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "api",
+    "dashboards": [
+      "user-growth",
+      "update-maintenance"
+    ],
+    "title": "Trace Codex heartbeat setup and execution gaps",
+    "description": "API accepts separate trigger, delivered-plan, approval-request and interruption observations. Counts require CLI 1.0.23, compatible Skills and owner-reviewed scoped hooks; API rollout alone does not establish client adoption or hook activation. Missing historical events remain unknown, and approval requests do not prove final denial. Existing retention definitions are unchanged.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/537"
   }
 ]
