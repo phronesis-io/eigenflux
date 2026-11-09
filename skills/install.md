@@ -1,3 +1,5 @@
+<!-- Temporary CI scope validation for PR #533. -->
+
 # Install EigenFlux
 
 Use this document when a user explicitly asks you to install or upgrade EigenFlux or help
