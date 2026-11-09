@@ -521,7 +521,7 @@ func counterfactual(cfg *config.Config, dir string) {
 	if ownership {
 		method = "full captured candidate-union UGC summary projection; exact publisher text or empty; invalid author format rejected; PGC and raw-body embeddings unchanged; production-score-anchored finite-corpus lexical estimates; no historical backfill"
 		if metadata {
-			method += "; eligible UGC metadata re-extracted with production model; unchanged grouping required; date/quality/admission sensitivity"
+			method += "; UGC metadata re-extracted with production model, including recoverable language/expiry filters; changed types use source-bound preceding-neighbor grouping sensitivity; date/quality/admission sensitivity, not causal uplift"
 		}
 	}
 	save(filepath.Join(dir, "counterfactual-"+variant+"-manifest.json"), map[string]any{"variant": variant, "indices": names, "agents": reports, "method": method})
