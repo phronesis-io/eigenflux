@@ -71,3 +71,23 @@ func TestOwnershipGroupRejectsStaleSourceAndModelType(t *testing.T) {
 		t.Fatal("accepted changed body")
 	}
 }
+
+func TestPairedSensitivityCannotReplaceCapturedBaseline(t *testing.T) {
+	t.Setenv("FIDELITY_UGC_PAIRED", "true")
+	t.Setenv("FIDELITY_UGC_OWNERSHIP", "true")
+	t.Setenv("FIDELITY_UGC_METADATA", "true")
+	t.Setenv("FIDELITY_BASELINE_ONLY", "false")
+	t.Setenv("FIDELITY_PGC_COUPLED", "false")
+	t.Setenv("FIDELITY_SOURCE_CONTEXT_ONLY", "false")
+	_, _, variant := replayVariant()
+	if variant != "ugc-ownership-paired" {
+		t.Fatal(variant)
+	}
+	t.Setenv("FIDELITY_BASELINE_ONLY", "true")
+	defer func() {
+		if recover() == nil {
+			t.Fatal("paired model outputs accepted as unchanged baseline")
+		}
+	}()
+	replayVariant()
+}

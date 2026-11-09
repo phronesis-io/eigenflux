@@ -32,9 +32,13 @@ type ownershipGrouping struct {
 	Error         string `json:"error"`
 }
 
-func loadOwnershipGroups(dir string) map[int64]ownershipGrouping {
+func loadOwnershipGroups(dir string, name ...string) map[int64]ownershipGrouping {
 	rows := map[int64]ownershipGrouping{}
-	b, err := os.ReadFile(filepath.Join(dir, "ownership-neighbors.json"))
+	file := "ownership-neighbors.json"
+	if len(name) != 0 {
+		file = name[0]
+	}
+	b, err := os.ReadFile(filepath.Join(dir, file))
 	if os.IsNotExist(err) {
 		return rows
 	}

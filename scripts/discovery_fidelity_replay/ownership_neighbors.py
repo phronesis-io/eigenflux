@@ -36,11 +36,15 @@ def group_for(item_id, author, kind, at_ms, hits):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--dir', type=Path, required=True)
-    root = parser.parse_args().dir
+    parser.add_argument('--arm', choices=('output', 'baseline'), default='output')
+    args = parser.parse_args()
+    root = args.dir
     inventory = {d['source_ref']['id']: d for f in root.glob('agent-*.json') for d in json.loads(f.read_text())['Inventory']}
     items = {x['id']: x for x in json.loads((root / 'items.json').read_text())}
     evaluations = json.loads((root / 'ownership-evaluations.json').read_text())
-    output = root / 'ownership-neighbors.json'
+    if args.arm == 'baseline':
+        evaluations = {k: dict(x, output=x.get('baseline'), blocked=x.get('baseline_blocked')) for k, x in evaluations.items()}
+    output = root / ('ownership-baseline-neighbors.json' if args.arm == 'baseline' else 'ownership-neighbors.json')
     done = json.loads(output.read_text()) if output.exists() else {}
     auth = 'Basic ' + base64.b64encode((os.environ.get('ES_USERNAME', '') + ':' + os.environ.get('ES_PASSWORD', '')).encode()).decode()
 

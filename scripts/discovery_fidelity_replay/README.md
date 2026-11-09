@@ -175,3 +175,12 @@ stored body vector and applies production type-specific grouping against precedi
 retained items. Comparison requires source/type-bound successful grouping evidence;
 missing vectors, source drift or query failures remain release blockers. Historical
 neighbor deletion and later group changes limit this to sensitivity evidence.
+
+`FIDELITY_UGC_PAIRED=true` together with ownership/metadata flags adds a separate
+`ugc-ownership-paired` sensitivity. Its before arm re-extracts valid-format UGC
+with the current model's legacy prompt, using the already saved paired results;
+the after arm uses the omitted-summary prompt. Invalid author formats retain
+captured before metadata and are rejected after. Run the neighbor reader with
+`--arm baseline` as well. Report this alongside captured-before comparisons to
+expose historical model/date drift; stochastic paired runs cannot establish
+causality. This mode cannot replace the unchanged-corpus A/A gate.

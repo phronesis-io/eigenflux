@@ -241,14 +241,22 @@ func counterfactual(cfg *config.Config, dir string) {
 	baselineOnly, sourceContextOnly, variant := replayVariant()
 	ownership := os.Getenv("FIDELITY_UGC_OWNERSHIP") == "true"
 	metadata := os.Getenv("FIDELITY_UGC_METADATA") == "true"
+	paired := os.Getenv("FIDELITY_UGC_PAIRED") == "true"
+	if paired && !metadata {
+		panic("paired sensitivity requires metadata")
+	}
 	evaluations := map[int64]ownershipEvaluation{}
 	groups := map[int64]ownershipGrouping{}
+	baselineGroups := map[int64]ownershipGrouping{}
 	if metadata {
 		if !ownership {
 			panic("metadata requires UGC ownership")
 		}
 		evaluations = loadOwnershipEvaluations(dir)
 		groups = loadOwnershipGroups(dir)
+		if paired {
+			baselineGroups = loadOwnershipGroups(dir, "ownership-baseline-neighbors.json")
+		}
 	}
 	if os.Getenv("FIDELITY_PGC_COUPLED") == "true" {
 		bodyArms = loadBodyArms(dir)
@@ -356,18 +364,25 @@ func counterfactual(cfg *config.Config, dir string) {
 					continue
 				}
 			}
-			if i == 1 && !baselineOnly && metadata && classes[id] == "ugc" && metadataEligible[id] {
+			_, invalidAuthor := ownershipProjection(item, classes[id])
+			if (i == 1 || paired) && !baselineOnly && metadata && classes[id] == "ugc" && metadataEligible[id] && !(i == 0 && invalidAuthor) {
 				evaluation, ok := evaluations[id]
 				if !ok || evaluation.Error != "" || evaluation.Output == nil || evaluation.Baseline == nil || evaluation.InputHash != auditInputHash(item) || evaluation.PromptHash != ownershipPromptHash() || evaluation.Model != cfg.UGCSlopModel || evaluation.RequestDate != time.Now().UTC().Format("2006-01-02") || evaluation.MaxTokens != cfg.LLMMaxTokens || evaluation.Contract != llm.SlopRequestContract {
 					panic(fmt.Sprintf("missing/stale UGC metadata %d", id))
 				}
 				output := evaluation.Output
-				if evaluation.Blocked || output.Quality < cfg.QualityThreshold {
+				blocked := evaluation.Blocked
+				groupEvidence := groups
+				if i == 0 {
+					output, blocked, groupEvidence = evaluation.Baseline, evaluation.BaselineBlocked, baselineGroups
+					summary = output.Summary
+				}
+				if blocked || output.Quality < cfg.QualityThreshold {
 					armDrops[i][id] = true
 					continue
 				}
 				if output.BroadcastType != d.ContentType {
-					group, err := ownershipGroup(groups[id], item, d, output.BroadcastType)
+					group, err := ownershipGroup(groupEvidence[id], item, d, output.BroadcastType)
 					must(err)
 					d.GroupID = group
 					d.ContentType = output.BroadcastType
@@ -523,6 +538,9 @@ func counterfactual(cfg *config.Config, dir string) {
 		if metadata {
 			method += "; UGC metadata re-extracted with production model, including recoverable language/expiry filters; changed types use source-bound preceding-neighbor grouping sensitivity; date/quality/admission sensitivity, not causal uplift"
 		}
+		if paired {
+			method += "; before arm also uses paired current-model legacy-prompt output for valid author formats, separating historical model/date drift; invalid author formats retain captured before metadata and are rejected after; stochastic paired sensitivity, not causal identification"
+		}
 	}
 	save(filepath.Join(dir, "counterfactual-"+variant+"-manifest.json"), map[string]any{"variant": variant, "indices": names, "agents": reports, "method": method})
 }
@@ -608,6 +626,9 @@ func replayVariant() (baselineOnly, sourceContextOnly bool, variant string) {
 	coupled := os.Getenv("FIDELITY_PGC_COUPLED") == "true"
 	ownership := os.Getenv("FIDELITY_UGC_OWNERSHIP") == "true"
 	ownershipVariantCheck(ownership, coupled, sourceContextOnly)
+	if os.Getenv("FIDELITY_UGC_PAIRED") == "true" && (!ownership || os.Getenv("FIDELITY_UGC_METADATA") != "true" || baselineOnly) {
+		panic("paired sensitivity requires ownership metadata and cannot replace the captured baseline gate")
+	}
 	if sourceContextOnly && !coupled {
 		panic("source context replay requires coupled body arms")
 	}
@@ -619,6 +640,9 @@ func replayVariant() (baselineOnly, sourceContextOnly bool, variant string) {
 		variant = "ugc-ownership"
 		if os.Getenv("FIDELITY_UGC_METADATA") == "true" {
 			variant = "ugc-ownership-metadata"
+			if os.Getenv("FIDELITY_UGC_PAIRED") == "true" {
+				variant = "ugc-ownership-paired"
+			}
 		}
 	}
 	if baselineOnly {
