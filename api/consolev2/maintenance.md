@@ -225,4 +225,3 @@ not change authentication, deduplication, event time, queue retirement or busine
 execution. Raw error messages, paths and credentials are not accepted. Missing
 metadata stays unknown. The existing optional body field remains accepted for
 compatibility with earlier diagnostic clients.
-
