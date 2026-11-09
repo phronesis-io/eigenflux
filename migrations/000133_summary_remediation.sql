@@ -3,7 +3,7 @@ ALTER TABLE processed_items ADD COLUMN summary_remediation TEXT NOT NULL DEFAULT
  CHECK (summary_remediation IN ('','body_only','summary_original'));
 CREATE TABLE summary_remediation_audit (
  operation_id TEXT PRIMARY KEY,
- item_id BIGINT NOT NULL REFERENCES raw_items(item_id),
+ item_id BIGINT NOT NULL REFERENCES raw_items(item_id) ON DELETE CASCADE,
  mode TEXT NOT NULL CHECK (mode IN ('body_only','summary_original')),
  source_hash TEXT NOT NULL,
  before_values JSONB NOT NULL,

@@ -56,5 +56,6 @@ changed historical projection in the fixed-cohort release replay.
 recorded fields, clears suppression, records reversal and queues projection
 repair. It refuses concurrent source edits or unexpected active values. Reversal
 can re-expose known-bad old text, so it is an explicit operator action, never an
-automatic rollback fallback. Retain audit/schema after use. A repeat operation
+automatic rollback fallback. Retain audit/schema after use; normal hard deletion of the source record
+cascades its text audit, preserving the existing source-deletion contract. A repeat operation
 cannot silently reactivate a reversed repair.

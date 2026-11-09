@@ -67,4 +67,7 @@ func TestHistoricalSuppressionAuditRetryAndReversal(t *testing.T) {
 	require.Equal(t, p.Before, s.Values)
 	require.Empty(t, s.SummaryRemediation)
 	require.ErrorContains(t, run(true, false), "reversed")
+	exec(`DELETE FROM raw_items WHERE item_id=?`, id)
+	require.NoError(t, db.Table("summary_remediation_audit").Count(&count).Error)
+	require.Zero(t, count, "normal source deletion must remove retained text audit")
 }
