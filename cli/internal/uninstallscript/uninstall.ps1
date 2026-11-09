@@ -105,7 +105,7 @@ try {
     $call = Invoke-EigenFluxJson $reporter @('--homedir', $result.receipt_home, 'uninstall-finalize', '--attempt', $result.attempt_id, '--format', 'json') -TemporaryReporter
     if ($call.ExitCode -eq 0) { $call.Output }
   }
-  Write-Error 'Uninstall incomplete. Inspect remaining installation files.'
+  Write-Error ('Uninstall incomplete: ' + $_.Exception.Message) -ErrorAction Continue
   exit 1
 } finally {
   if ($removed -or -not $reporterVerified -or -not $reporter -or -not (Test-Path -LiteralPath $reporter)) {
