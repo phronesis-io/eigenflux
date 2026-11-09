@@ -95,7 +95,7 @@ def main():
         )
         rows.append(row)
     with (root / f"per-agent-{variant}-effects.csv").open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0]))
+        writer = csv.DictWriter(f, fieldnames=list(rows[0]), lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
     result = {
