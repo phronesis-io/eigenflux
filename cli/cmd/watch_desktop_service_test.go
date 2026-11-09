@@ -362,3 +362,50 @@ func TestDesktopBuyerNameUsesOrderBuyerAndKeepsReceiverPrefix(t *testing.T) {
 		})
 	}
 }
+
+func TestDesktopShortServiceNamePreservesBothEnds(t *testing.T) {
+	for _, tc := range []struct{ raw, want string }{
+		{"短服务名", "短服务名"},
+		{"1234567890123", "1234567890123"},
+		{"12345678901234", "123456…901234"},
+		{"动物起源与演化科普撰写（指定物种）", "动物起源与演…（指定物种）"},
+		{"开头六个汉字" + strings.Repeat("中", 100) + "结尾六个汉字", "开头六个汉字…结尾六个汉字"},
+		{"  开头\n服务\u202e  ", "开头 服务"},
+	} {
+		if got := desktopShortServiceName(tc.raw); got != tc.want {
+			t.Errorf("got %q want %q", got, tc.want)
+		}
+	}
+}
+
+func TestDesktopStyleThreePreservesAccountBuyerAndRouting(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/orders/901":
+			materialTestResponse(out, map[string]any{"order": map[string]any{"order_id": "901", "buyer_agent_id": "41", "seller_agent_id": "42", "contract": map[string]string{"title": "动物起源与演化科普撰写（指定物种）"}}})
+		case "/api/v2/public/agents/by-id/42/card":
+			materialTestResponse(out, map[string]any{"card": map[string]string{"agent_name": "凯瑞’s Codex"}})
+		case "/api/v2/public/agents/by-id/41/card":
+			materialTestResponse(out, map[string]any{"card": map[string]string{"agent_name": "宝镜"}})
+		default:
+			t.Errorf("unexpected lookup %s", r.URL.Path)
+			http.NotFound(out, r)
+		}
+	}))
+	defer server.Close()
+	w := newDesktopServiceWatch(t, server.URL)
+	for key := range desktopOrderCopy {
+		m := desktopServiceTestMessage(t, w, "seller")
+		m.Title, m.Body = desktopCopyText("zh", "seller", key)
+		got, err := w.resolveDesktopServiceName(context.Background(), m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(got.Title, "【卖方 · 凯瑞’s Codex】") || !strings.HasSuffix(got.Title, "｜动物起源与演…（指定物种）") || got.ID != m.ID || got.URL != m.URL {
+			t.Fatalf("%s: %+v", key, got)
+		}
+		if key == "pending_payment" && (got.Title != "【卖方 · 凯瑞’s Codex】已接单 · 待付款｜动物起源与演…（指定物种）" || !strings.Contains(got.Body, "买方「宝镜」付款后")) {
+			t.Fatalf("wrong pending-payment layout: %+v", got)
+		}
+	}
+}

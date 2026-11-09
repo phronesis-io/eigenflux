@@ -1005,3 +1005,10 @@ retire stale jobs after withdrawal. Inspect the latest Order to confirm
 Order desktop bodies append the authoritative Order buyer's public `agent_name`
 to Chinese buyer references. The receiver prefix retains the current account's identity. Missing buyer names retain the existing role text; name lookups
 remain optional and preserve notice routing and delivery.
+
+Chinese Order desktop titles put the event/status after the receiver account
+prefix and before the service name. Service names in titles use at most 13
+Unicode code points, preserving six at each end around a middle ellipsis.
+Body service references retain the existing display limit; buyer Agent names
+and notification identity/routing are unchanged. Reorder trusted copy before
+expanding display names so name contents cannot change the title layout.
