@@ -247,3 +247,24 @@ func TestSchedulerReportFreshnessOwnershipStateAndPrivacy(t *testing.T) {
 		})
 	}
 }
+
+func TestOuterLoopSkillsFailureDetailDoesNotLeakCause(t *testing.T) {
+	api := outerLoopTestAPI(t)
+	runtimeTestConfig(t, api.URL, true)
+	cmd := &cobra.Command{}
+	cmd.SetErr(&bytes.Buffer{})
+	recorder := newOuterLoopRecorder(cmd, "watch", "skills")
+	recorder.finish(&upgradeSkillsError{Reason: "skills_signature_failed", Err: errors.New("/private/path token=secret")})
+	state, err := maintenance.Snapshot(recorder.r.scope)
+	if err != nil || len(state.Events) < 2 {
+		t.Fatalf("missing events: %+v %v", state, err)
+	}
+	last := state.Events[len(state.Events)-1]
+	if last.ErrorCode != "skills_failed" || last.OuterLoop == nil || last.OuterLoop.FailureReason != "skills_signature_failed" {
+		t.Fatalf("lost classification: %+v", last)
+	}
+	raw, err := json.Marshal(state.Events)
+	if err != nil || bytes.Contains(raw, []byte("/private/path")) || bytes.Contains(raw, []byte("secret")) {
+		t.Fatalf("private error in telemetry: %s %v", raw, err)
+	}
+}

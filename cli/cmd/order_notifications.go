@@ -186,10 +186,11 @@ func drainCommissionNotifications(api *client.Client, format, language string, w
 				ackItems = append(ackItems, map[string]string{
 					"notification_id": notification.NotificationID,
 					"source_type":     notification.SourceType,
+					"receipt_kind":    "displayed",
 				})
 			}
 			if len(ackItems) > 0 {
-				ackResponse, err := ackAPI.Post("/notifications/ack", map[string]interface{}{"notifications": ackItems})
+				ackResponse, err := postNotificationACK(&ackAPI, ackItems)
 				if err != nil {
 					return fmt.Errorf("acknowledge Order notifications: %w", err)
 				}
@@ -393,4 +394,30 @@ func localizedOrderNotification(language, role, state string) (string, string) {
 		summary = "Order updated"
 	}
 	return roleName, summary
+}
+
+// Observation metadata stays outside the legacy ACK body. Older gateways ignore
+// the header; omitting it never changes the acknowledgement request.
+func postNotificationACK(api *client.Client, items []map[string]string) (*client.APIResponse, error) {
+	wire := make([]map[string]string, 0, len(items))
+	receipts := make(map[string]string)
+	for _, item := range items {
+		copy := make(map[string]string, len(item))
+		for key, value := range item {
+			if key != "receipt_kind" {
+				copy[key] = value
+			}
+		}
+		wire = append(wire, copy)
+		if item["source_type"] == "commission_order" && item["receipt_kind"] != "" {
+			receipts[item["notification_id"]] = item["receipt_kind"]
+		}
+	}
+	headers := make(map[string]string)
+	if len(receipts) > 0 && len(receipts) <= 50 {
+		if raw, err := json.Marshal(receipts); err == nil && len(raw) <= 8192 {
+			headers["X-EigenFlux-Notification-Receipts"] = string(raw)
+		}
+	}
+	return api.PostWithHeaders("/notifications/ack", map[string]interface{}{"notifications": wire}, headers)
 }

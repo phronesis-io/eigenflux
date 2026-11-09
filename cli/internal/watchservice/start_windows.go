@@ -23,15 +23,15 @@ var notificationWatchWrapper string
 func platformStartNotifications(ctx context.Context, task NotificationTask) (Result, error) {
 	if !filepath.IsAbs(task.CLI) || !filepath.IsAbs(task.Home) || task.Server == "" ||
 		!regexp.MustCompile(`^[a-f0-9]{32}$`).MatchString(task.Scope) || task.AgentID == "" || task.PrincipalID == "" {
-		return Result{}, errors.New("notification watch requires an absolute CLI/Home and pinned account")
+		return Result{}, windowsStartFailure("windows_invalid_task", errors.New("notification watch requires an absolute CLI/Home and pinned account"))
 	}
 	root := os.Getenv("SystemRoot")
 	if root == "" {
-		return Result{}, errors.New("Windows SystemRoot is unavailable")
+		return Result{}, windowsStartFailure("windows_system_root_missing", errors.New("Windows SystemRoot is unavailable"))
 	}
 	dir := filepath.Join(task.Home, "watch")
 	if err := os.MkdirAll(dir, 0700); err != nil {
-		return Result{}, err
+		return Result{}, windowsStartFailure("windows_launcher_write", err)
 	}
 	name := "EigenFlux-Notifications-" + task.Scope
 	wrapper := filepath.Join(dir, name+".ps1")
@@ -69,7 +69,20 @@ func platformStartNotifications(ctx context.Context, task NotificationTask) (Res
 		Error  string `json:"error"`
 	}
 	if json.Unmarshal(output, &response) != nil || runErr != nil || (response.Status != "process_started" && response.Status != "skipped_disabled" && !(task.PrepareOnly && response.Status == "task_stopped")) {
-		return Result{}, errors.New("notification watch could not start (" + response.Error + "); inspect Task Scheduler and " + request.Log)
+		reason := "windows_response_invalid"
+		switch response.Error {
+		case "scheduler_access", "task_ownership", "task_disabled", "stop_failed", "launcher_write", "task_register", "start_failed":
+			reason = "windows_" + response.Error
+		}
+		if ctx.Err() != nil {
+			reason = "windows_timeout"
+			if errors.Is(ctx.Err(), context.Canceled) {
+				reason = "windows_cancelled"
+			}
+		} else if runErr != nil && response.Error == "" {
+			reason = "windows_powershell_failed"
+		}
+		return Result{}, windowsStartFailure(reason, errors.New("notification watch could not start ("+response.Error+"); inspect Task Scheduler and "+request.Log))
 	}
 	return Result{Status: response.Status, Manager: "task_scheduler", Target: "\\" + name, RuntimeVerified: false}, nil
 }

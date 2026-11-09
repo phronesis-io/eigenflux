@@ -86,3 +86,14 @@ func TestUpgradeSkillsFreshSyncStillVerifiesInstalledFiles(t *testing.T) {
 		t.Fatalf("unexpected local acceptance: %v", err)
 	}
 }
+
+func TestUpgradeSkillsRetainsTypedLocalCause(t *testing.T) {
+	for _, code := range []string{"skills_manifest_unavailable", "skills_signature_failed", "skills_local_modified", "skills_cli_incompatible", "skills_rule_missing"} {
+		cause := &heartbeatSkillsError{code: code, err: errors.New("private path")}
+		err := verifyUpgradeWatchRules(false, nil, func() error { return cause })
+		var detail *upgradeSkillsError
+		if !errors.As(err, &detail) || detail.Reason != "skills_local_validation_failed" || detail.observationReason() != code || !errors.Is(err, cause) {
+			t.Fatalf("lost %s: %v", code, err)
+		}
+	}
+}

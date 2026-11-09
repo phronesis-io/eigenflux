@@ -182,3 +182,23 @@ schema changes. A client completion receipt is an assertion, not a server-side
 proof of every business effect. Analysis requires a matching start receipt.
 
 A generated plan contributes environment evidence only. The first valid stage receipt records execution with its observation timestamp. Cycle failure requires a failed stage receipt. Interrupted or missing stages remain unresolved.
+
+## Optional watch failure metadata
+
+The CLI retains fixed-enum `outer_loop.failure_reason` in its local journal but
+omits this optional field from HTTP event bodies. It sends a bounded JSON object
+in `X-EigenFlux-Watch-Failures`, mapping event IDs to fixed failure reasons. Copy
+both the event slice and affected outer-loop objects at the upload boundary;
+never mutate retained events or their IDs. All maintenance upload entry points
+use this projection. Older strict gateways ignore the header and accept the
+unchanged event body, so detail cannot block unrelated queued observations.
+
+The gateway validates each original event before merging matching header metadata.
+Accept at most 8,192 header bytes and 50 entries. Ignore malformed, oversized or
+wrongly typed headers, unmatched event IDs and reasons rejected by the existing
+full event validator. Invalid optional metadata never rejects a valid batch.
+Valid metadata enriches only the matching event's persisted properties. It does
+not change authentication, deduplication, event time, queue retirement or business
+execution. Raw error messages, paths and credentials are not accepted. Missing
+metadata stays unknown. The existing optional body field remains accepted for
+compatibility with earlier diagnostic clients.
