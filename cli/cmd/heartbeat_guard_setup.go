@@ -43,6 +43,7 @@ func codexGuardCommands(cli, home, server, thread, agent, action, promptHash str
 	// commandWindows is launched by cmd.exe. An encoded PowerShell command avoids
 	// both cmd expansion and a second interpretation of user path characters.
 	script := "$OutputEncoding = New-Object System.Text.UTF8Encoding($false); " +
+		"[Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false); " +
 		"[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); " +
 		"$hookInput = [Console]::In.ReadToEnd(); $hookInput | & " + strings.Join(ps, " ") + "; exit $LASTEXITCODE"
 	units := utf16.Encode([]rune(script))

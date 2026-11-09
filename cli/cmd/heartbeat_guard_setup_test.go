@@ -117,7 +117,7 @@ func TestCodexGuardWindowsCommandHasExactArguments(t *testing.T) {
 	if !strings.Contains(script, escaped) {
 		t.Fatalf("lost quoted executable: %q", script)
 	}
-	if !strings.Contains(script, "[Console]::In.ReadToEnd(); $hookInput | & ") || !strings.Contains(script, "UTF8Encoding($false)") {
+	if !strings.Contains(script, "[Console]::In.ReadToEnd(); $hookInput | & ") || !strings.Contains(script, "[Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)") || !strings.Contains(script, "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)") {
 		t.Fatal("hook JSON stdin or Unicode encoding not forwarded")
 	}
 	if !strings.HasSuffix(script, "; exit $LASTEXITCODE") {
