@@ -3,8 +3,10 @@ package maintenance
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"unicode/utf8"
 )
@@ -51,7 +53,16 @@ func SetCycleRules(scope Scope, id string, paths []string) error {
 		if !ok || c.Result != "" || len(c.Rules) > 0 {
 			return fmt.Errorf("cycle rules already set or cycle unavailable")
 		}
-		c.Rules = pages
+		if _, err := readRuleGate(scope, id); !os.IsNotExist(err) {
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf("cycle rules already set")
+		}
+		if err := writeGateJSON(scope, id, pages); err != nil {
+			return err
+		}
+		c.Stages[ruleStage] = ""
 		st.Cycles[id] = c
 		return nil
 	})
@@ -65,6 +76,12 @@ func ReadCycle(scope Scope, id string) (Cycle, error) {
 	c, ok := st.Cycles[id]
 	if !ok {
 		return Cycle{}, fmt.Errorf("unknown or expired cycle for this account")
+	}
+	if _, guarded := c.Stages[ruleStage]; guarded {
+		c.Rules, err = readRuleGate(scope, id)
+		if err != nil {
+			return Cycle{}, err
+		}
 	}
 	return c, nil
 }
@@ -98,10 +115,27 @@ func AcknowledgeCycleRule(scope Scope, id string, page int, digest string) error
 	}
 	return update(scope, func(st *State) error {
 		c, ok := st.Cycles[id]
+		pages, err := readRuleGate(scope, id)
+		if err != nil {
+			return err
+		}
+		c.Rules = pages
 		if !ok || c.Result != "" || page > len(c.Rules) || c.Rules[page-1].Digest != digest {
 			return fmt.Errorf("cycle rule unavailable")
 		}
 		c.Rules[page-1].Acknowledged = true
+		if err := writeGateJSON(scope, id, c.Rules); err != nil {
+			return err
+		}
+		all := true
+		for _, r := range c.Rules {
+			if !r.Acknowledged {
+				all = false
+			}
+		}
+		if all {
+			c.Stages[ruleStage] = "completed"
+		}
 		st.Cycles[id] = c
 		return nil
 	})
@@ -116,7 +150,7 @@ func CycleMissing(c Cycle) (rules []int, stages []string) {
 		}
 	}
 	for stage, result := range c.Stages {
-		if result != "completed" {
+		if stage != ruleStage && result != "completed" {
 			stages = append(stages, stage)
 		}
 	}
@@ -124,27 +158,89 @@ func CycleMissing(c Cycle) (rules []int, stages []string) {
 	return
 }
 
+const ruleStage = "_rule_pages"
+
+func gatePath(scope Scope, key string) (string, error) {
+	p, err := scope.path()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(p+".cycle-gates", key+".json"), nil
+}
+func writeGateJSON(scope Scope, key string, value any) error {
+	p, err := gatePath(scope, key)
+	if err != nil {
+		return err
+	}
+	if err = os.MkdirAll(filepath.Dir(p), 0700); err != nil {
+		return err
+	}
+	b, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(filepath.Dir(p), ".gate-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err = f.Write(b); err == nil {
+		err = f.Sync()
+	}
+	closeErr := f.Close()
+	if err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	if err = replaceFile(f.Name(), p); err != nil {
+		return err
+	}
+	return syncParentDir(filepath.Dir(p))
+}
+func readRuleGate(scope Scope, id string) ([]CycleRule, error) {
+	if !idValue.MatchString(id) {
+		return nil, fmt.Errorf("invalid cycle")
+	}
+	p, err := gatePath(scope, id)
+	if err != nil {
+		return nil, err
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return nil, err
+	}
+	var rules []CycleRule
+	err = json.Unmarshal(b, &rules)
+	if err == nil && len(rules) == 0 {
+		err = fmt.Errorf("empty cycle rules")
+	}
+	return rules, err
+}
 func BindStopCycle(scope Scope, session, id string) error {
 	return update(scope, func(st *State) error {
 		if _, ok := st.Cycles[id]; !ok {
 			return fmt.Errorf("unknown cycle")
 		}
-		if st.GuardedCycles == nil {
-			st.GuardedCycles = map[string]string{}
-		}
-		if len(st.GuardedCycles) >= 32 {
-			if _, ok := st.GuardedCycles[session]; !ok {
-				return fmt.Errorf("heartbeat host binding capacity reached")
-			}
-		}
-		st.GuardedCycles[session] = id
-		return nil
+		key := sha256.Sum256([]byte(session))
+		return writeGateJSON(scope, "session-"+hex.EncodeToString(key[:]), id)
 	})
 }
 func StopCycle(scope Scope, session string) (string, error) {
-	st, err := Snapshot(scope)
+	key := sha256.Sum256([]byte(session))
+	p, err := gatePath(scope, "session-"+hex.EncodeToString(key[:]))
 	if err != nil {
 		return "", err
 	}
-	return st.GuardedCycles[session], nil
+	b, err := os.ReadFile(p)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var id string
+	err = json.Unmarshal(b, &id)
+	return id, err
 }

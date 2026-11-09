@@ -57,18 +57,17 @@ type CLIAdoption struct {
 }
 
 type State struct {
-	PendingCLIAdoption *CLIAdoption      `json:"pending_cli_adoption,omitempty"`
-	RuntimeNextFlush   int64             `json:"runtime_next_flush,omitempty"`
-	RuntimeFailures    uint              `json:"runtime_failures,omitempty"`
-	GuardedCycles      map[string]string `json:"guarded_cycles,omitempty"`
-	Cycles             map[string]Cycle  `json:"cycles,omitempty"`
-	ReadAttempts       map[string]Event  `json:"read_attempts,omitempty"`
-	Events             []Event           `json:"events"`
-	Dropped            uint64            `json:"dropped"`
-	LastAttempt        int64             `json:"last_attempt"`
-	NextFlush          int64             `json:"next_flush"`
-	Failures           int               `json:"failures"`
-	Attempts           map[string]Event  `json:"attempts,omitempty"`
+	PendingCLIAdoption *CLIAdoption     `json:"pending_cli_adoption,omitempty"`
+	RuntimeNextFlush   int64            `json:"runtime_next_flush,omitempty"`
+	RuntimeFailures    uint             `json:"runtime_failures,omitempty"`
+	Cycles             map[string]Cycle `json:"cycles,omitempty"`
+	ReadAttempts       map[string]Event `json:"read_attempts,omitempty"`
+	Events             []Event          `json:"events"`
+	Dropped            uint64           `json:"dropped"`
+	LastAttempt        int64            `json:"last_attempt"`
+	NextFlush          int64            `json:"next_flush"`
+	Failures           int              `json:"failures"`
+	Attempts           map[string]Event `json:"attempts,omitempty"`
 }
 
 func NewID() string {

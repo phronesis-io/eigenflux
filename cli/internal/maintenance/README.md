@@ -66,6 +66,10 @@ and host are reported evidence, not inferred hardware or user participation.
 A generated plan contributes environment evidence only. The first valid stage receipt records execution with its observation timestamp. Cycle failure requires a failed stage receipt. Interrupted or missing stages remain unresolved.
 
 Cycle rules are pinned by path, UTF-8 byte ranges and a cycle-specific digest.
+Rule pages and Stop continuation bindings live in separate account-scoped
+`.cycle-gates` files, protected by the existing account state lock. A reserved
+stage-map marker fences required rule metadata; legacy CLI/watch rewrites retain
+that marker without dropping the separate rule receipts.
 `heartbeat rules` exposes one bounded page and its receipt. Acknowledgements
 require the exact page body hash; changed sources require a fresh plan. Business
 completion receipts and cycle completion reject unacknowledged required rules.
