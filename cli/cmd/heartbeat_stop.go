@@ -232,13 +232,74 @@ func heartbeatCommandIsScoped(raw json.RawMessage, bin string, scope maintenance
 	for _, prefix := range prefixes {
 		if strings.HasPrefix(command, prefix) {
 			tail := strings.TrimPrefix(command, prefix)
-			if strings.ContainsAny(tail, "&|;<>`$\r\n()") {
-				return false
+			shell := "posix"
+			if strings.HasPrefix(prefix, "& ") {
+				shell = "powershell"
+			} else if strings.HasPrefix(prefix, "\"") {
+				shell = "cmd"
 			}
-			return heartbeatTargetUnchanged(strings.Fields(tail))
+			args, literal := heartbeatLiteralShellArgs(tail, shell)
+			return literal && heartbeatTargetUnchanged(args)
 		}
 	}
 	return false
+}
+
+// Accept only literal arguments, with no shell expansion or compound commands.
+// Quote concatenation is decoded before checking flags; unsupported escape
+// semantics remain unknown instead of establishing another account's refusal.
+func heartbeatLiteralShellArgs(text, shell string) ([]string, bool) {
+	if strings.ContainsAny(text, "\r\n") || (shell == "cmd" && strings.ContainsAny(text, "%!^")) {
+		return nil, false
+	}
+	var args []string
+	var word strings.Builder
+	var quote byte
+	active := false
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		if quote != 0 {
+			if c == quote {
+				if shell == "powershell" && quote == '\'' && i+1 < len(text) && text[i+1] == '\'' {
+					word.WriteByte('\'')
+					i++
+					continue
+				}
+				quote = 0
+			} else {
+				if quote == '"' && strings.ContainsRune("$`\\", rune(c)) {
+					return nil, false
+				}
+				word.WriteByte(c)
+			}
+			active = true
+			continue
+		}
+		if c == '\'' || c == '"' {
+			quote, active = c, true
+			continue
+		}
+		if c == ' ' || c == '\t' {
+			if active {
+				args = append(args, word.String())
+				word.Reset()
+				active = false
+			}
+			continue
+		}
+		if strings.ContainsRune("&|;<>`$\\()%!^@*?[]{}~", rune(c)) {
+			return nil, false
+		}
+		word.WriteByte(c)
+		active = true
+	}
+	if quote != 0 {
+		return nil, false
+	}
+	if active {
+		args = append(args, word.String())
+	}
+	return args, len(args) > 0
 }
 
 func heartbeatStopDecision(scope maintenance.Scope, in heartbeatStopInput, thread string) (map[string]any, error) {
