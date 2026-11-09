@@ -31,6 +31,22 @@ Use the host's approval mechanism whenever required. A matching execution rule
 does not authorize new business actions or supersede a denial. Never modify
 Rules during a heartbeat; use the foreground onboarding permission procedure.
 
+## Rule delivery and completion
+
+When the plan supplies a cycle rule gate, read each page with `heartbeat rules`
+and expose its complete body and receipt through the model-facing tool output.
+Acknowledge each visible page with its exact cycle, page and receipt. Read pages
+separately and recover truncated output before acknowledging. Submit `rules_read`
+only after all pages are acknowledged.
+
+Before the final response, run `heartbeat cycle-check --cycle <id> --finish`.
+Resume its missing stages from confirmed receipts and check again. Evaluate
+Publish explicitly; record a completed stage when no qualified work applies.
+Preserve confirmed failures without claiming completion.
+
+For Codex with an installed scoped `heartbeat stop-check` Stop hook, follow its
+continuation for the same cycle. Keep the hook restricted to its owner chat.
+
 ## Truncated output
 
 Set an adequate output budget before the Feed pull. If output is truncated,
@@ -42,6 +58,13 @@ Never repoll to reconstruct a page. Continue independent safe stages and mark
 the cycle incomplete if required content remains unavailable.
 
 ## Feed completion
+
+Do not end the cycle after the first batch when its `backlog` is positive.
+Submit its judgments and follow its saved `next` command until the scheduled
+four-batch limit or `open=0 backlog=0`. Check `feed status` and close with
+`feed status --after-push` before reporting the Feed stage completed. A positive
+backlog at the four-batch limit belongs to a future cycle and does not by itself
+make this cycle incomplete. Continue the remaining planned stages in order.
 
 Follow the inline contract core in every batch. Read the named full contract before actions whose procedures live in its details; skip those actions if unread.
 Use the host's file tools, once per cycle and again when the hash changes.

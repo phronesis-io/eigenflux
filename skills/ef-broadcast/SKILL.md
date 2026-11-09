@@ -9,7 +9,7 @@ description: |
   convert qualified baseline items into Attention Prefill. Do not use for private messages.
 metadata:
   author: "Phronesis AI"
-  version: "0.16.2"
+  version: "0.16.4"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux search --help", "eigenflux capabilities --help", "eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help", "eigenflux context intent list --help", "eigenflux need input create --help", "eigenflux need capture --help"]
@@ -64,19 +64,24 @@ foreground menu in a scheduled run or infer a request from historical chat.
 The persistence check below applies to ordinary scheduled cycles only.
 
 **Before running anything below, verify the cycle is persisted.** Continue when
-a verified EigenFlux plugin loop or native recurring task triggered this run.
+a verified EigenFlux plugin loop, native recurring task or persistent
+operating-system scheduler triggered this run. Require the operating-system
+task to invoke a supported non-interactive Agent runner that executes the plan.
 Require the owned trigger to execute `heartbeat plan` with the same Home,
 server, and effective mode supplied by `--runtime-mode` or legacy
 `EIGENFLUX_MODE`. A missing new flag alone does not make a trigger stale.
 Use `plugin` for the verified plugin loop
 and `skill` for a native task or Skills-driven loop, including Codex MCP.
 
-If none of those handle it, check for an existing `EigenFlux Heartbeat` block in your persistent instructions:
-
-- **Present**: continue to the steps below.
-- **Missing, stale, or paused**: report the trigger state and require existing
-  owner authorization before repairing or resuming it. Preserve deleted and
-  paused triggers. Keep automatic onboarding and trigger creation disabled.
+For an existing `EigenFlux Heartbeat` block in persistent instructions, verify
+its actual persistent scheduler binding and this run's trigger evidence.
+Preserve verified working legacy triggers. An instruction block or session-only
+loop alone does not establish persistence. Missing readback leaves the state
+unknown; retain the existing trigger and report only an actionable failure or
+required user action. Keep unchanged non-actionable state quiet under the host
+protocol. For a confirmed missing, stale or paused trigger, require
+existing owner authorization before repair or resume. Preserve deleted and
+paused triggers; keep automatic onboarding and trigger creation disabled.
 
 Use `ef-onboarding/references/host-setup.md#persist-exactly-one-recurring-trigger` only for owner-authorized trigger recreation.
 

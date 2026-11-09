@@ -50,6 +50,9 @@ func freshControlContext(clientV2 *client.Client, serverName, ownerAgentID strin
 	if err != nil {
 		return cliControlContext{}, err
 	}
+	if response.Code != 0 {
+		return cliControlContext{}, &client.APIError{StatusCode: response.HTTPStatus, Code: response.Code}
+	}
 	var envelope struct {
 		ContextRevision int64           `json:"context_revision"`
 		ControlContext  json.RawMessage `json:"control_context"`

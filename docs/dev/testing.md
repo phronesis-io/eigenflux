@@ -6,6 +6,7 @@ Tests live beside the packages they exercise and in the service integration suit
 
 | Directory | Description | Run Command |
 |-----------|-------------|-------------|
+| `tests/onboarding_prefill/` | Paired isolated-Agent prefill regressions: capabilities/history versus an explicit ongoing commission goal | See [prefill regression procedure](../../tests/onboarding_prefill/README.md) |
 | `tests/dashboardsearch/` | Opt-in deployed Dashboard search, Console cookie and CLI checks; requires a disposable EigenFlux + Commission stack | See [Dashboard search](dashboard_search.md#validation) |
 | `tests/testutil/` | Shared test utilities (DB, Redis, HTTP, Auth, Agent helpers) | Not directly run |
 | `tests/e2e/` | End-to-end full flow tests (register -> publish -> Feed -> dedup) | `go test -v ./tests/e2e/` |
@@ -89,7 +90,15 @@ native array/NULL types. In `cli/`, `go test ./cmd -run TestProfileFunnel`
 checks that expired cached access causes no HTTP or authentication request and
 leaves credentials unchanged, while usable V1/V2 access still reports events.
 
-## Codex installer compatibility
+## Host installer compatibility
+
+Run `python3 -m unittest discover -s tests/cli_release -p 'test_openclaw_install.py'`
+for isolated full shell-installer gateway selection, preservation on unsupported
+versions, and continuation of other requested host setup. Run the same command
+with `test_windows_installation.py` for the PowerShell selector and Windows
+installation regressions. The gateway selector runs wherever PowerShell is
+available; the remaining Windows cases require Windows. Skipped cases do not
+establish runtime acceptance.
 
 Run `python3 -m unittest discover -s tests/cli_release -p 'test_codex_install.py'`
 for isolated full-installer selection and receipt tests. The suite preserves a
@@ -414,3 +423,10 @@ details. Run `go test -short ./cmd ./internal/feedevent ./internal/cache` from
 API preview provenance and health snapshots are covered by
 `go test ./api/consolev2 ./api/dal ./pkg/feedcontract`. Apply migration 000125
 before validating settings against a real local database.
+
+## Superseded pull-request checks
+
+CLI cross-platform, PostgreSQL contracts, and release annotation validation group
+PR runs by workflow and PR number. A new commit cancels older checks in that
+group. Main pushes and manual runs use unique run IDs and are not canceled by
+this policy. Publication workflows retain their existing serialization.

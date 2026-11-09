@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -284,7 +285,7 @@ func TestDesktopAccountPrefixUsesReceiverForBothRoles(t *testing.T) {
 			t.Run(role+language, func(t *testing.T) {
 				server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
 					if strings.HasPrefix(r.URL.Path, "/api/v2/public/") {
-						if r.URL.Path != "/api/v2/public/agents/by-id/42/card" {
+						if r.URL.Path != "/api/v2/public/agents/by-id/42/card" && !(role == "seller" && language == "zh" && r.URL.Path == "/api/v2/public/agents/by-id/41/card") {
 							t.Errorf("looked up counterparty: %s", r.URL.Path)
 						}
 						materialTestResponse(out, map[string]any{"public_identity": map[string]string{"display_name": "当前账号", "display_name_en": "Current Agent"}})
@@ -319,6 +320,92 @@ func TestDesktopAccountPrefixUsesReceiverForBothRoles(t *testing.T) {
 					t.Fatalf("wrong receiver prefix or routing: %+v", got)
 				}
 			})
+		}
+	}
+}
+
+func TestDesktopBuyerNameUsesOrderBuyerAndKeepsReceiverPrefix(t *testing.T) {
+	for _, available := range []bool{true, false} {
+		t.Run(strconv.FormatBool(available), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v1/orders/901":
+					materialTestResponse(out, map[string]any{"order": map[string]any{"order_id": "901", "buyer_agent_id": "41", "seller_agent_id": "42", "contract": map[string]string{"title": "动物演化"}}})
+				case "/api/v2/public/agents/by-id/42/card":
+					materialTestResponse(out, map[string]any{"card": map[string]string{"agent_name": "卖方助手"}})
+				case "/api/v2/public/agents/by-id/41/card":
+					if !available {
+						out.WriteHeader(http.StatusServiceUnavailable)
+						return
+					}
+					materialTestResponse(out, map[string]any{"card": map[string]string{"agent_name": "买方助手", "display_name": "其他显示名"}})
+				default:
+					t.Errorf("unexpected identity lookup: %s", r.URL.Path)
+					http.NotFound(out, r)
+				}
+			}))
+			defer server.Close()
+			w := newDesktopServiceWatch(t, server.URL)
+			m := desktopServiceTestMessage(t, w, "seller")
+			m.Title, m.Body = desktopCopyText("zh", "seller", "pending_payment")
+			got, err := w.resolveDesktopServiceName(context.Background(), m)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "买方付款后"
+			if available {
+				want = "买方「买方助手」付款后"
+			}
+			if !strings.Contains(got.Body, want) || !strings.HasPrefix(got.Title, "【卖方 · 卖方助手】") || got.ID != m.ID || got.URL != m.URL {
+				t.Fatalf("wrong names or routing: %+v", got)
+			}
+		})
+	}
+}
+
+func TestDesktopShortServiceNamePreservesBothEnds(t *testing.T) {
+	for _, tc := range []struct{ raw, want string }{
+		{"短服务名", "短服务名"},
+		{"1234567890123", "1234567890123"},
+		{"12345678901234", "123456…901234"},
+		{"动物起源与演化科普撰写（指定物种）", "动物起源与演…（指定物种）"},
+		{"开头六个汉字" + strings.Repeat("中", 100) + "结尾六个汉字", "开头六个汉字…结尾六个汉字"},
+		{"  开头\n服务\u202e  ", "开头 服务"},
+	} {
+		if got := desktopShortServiceName(tc.raw); got != tc.want {
+			t.Errorf("got %q want %q", got, tc.want)
+		}
+	}
+}
+
+func TestDesktopStyleThreePreservesAccountBuyerAndRouting(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/orders/901":
+			materialTestResponse(out, map[string]any{"order": map[string]any{"order_id": "901", "buyer_agent_id": "41", "seller_agent_id": "42", "contract": map[string]string{"title": "动物起源与演化科普撰写（指定物种）"}}})
+		case "/api/v2/public/agents/by-id/42/card":
+			materialTestResponse(out, map[string]any{"card": map[string]string{"agent_name": "凯瑞’s Codex"}})
+		case "/api/v2/public/agents/by-id/41/card":
+			materialTestResponse(out, map[string]any{"card": map[string]string{"agent_name": "宝镜"}})
+		default:
+			t.Errorf("unexpected lookup %s", r.URL.Path)
+			http.NotFound(out, r)
+		}
+	}))
+	defer server.Close()
+	w := newDesktopServiceWatch(t, server.URL)
+	for key := range desktopOrderCopy {
+		m := desktopServiceTestMessage(t, w, "seller")
+		m.Title, m.Body = desktopCopyText("zh", "seller", key)
+		got, err := w.resolveDesktopServiceName(context.Background(), m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(got.Title, "【卖方 · 凯瑞’s Codex】") || !strings.HasSuffix(got.Title, "｜动物起源与演…（指定物种）") || got.ID != m.ID || got.URL != m.URL {
+			t.Fatalf("%s: %+v", key, got)
+		}
+		if key == "pending_payment" && (got.Title != "【卖方 · 凯瑞’s Codex】已接单 · 待付款｜动物起源与演…（指定物种）" || !strings.Contains(got.Body, "买方「宝镜」付款后")) {
+			t.Fatalf("wrong pending-payment layout: %+v", got)
 		}
 	}
 }

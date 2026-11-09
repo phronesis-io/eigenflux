@@ -383,3 +383,14 @@ during rollback; the older application cannot publish an unreviewed revision.
 Transient publication failures retain approval and retry publication without
 re-running the model. Editing, withdrawing or deleting a pending listing
 invalidates its review and emits the stale-state notice transactionally.
+
+## Seller clarification withdrawal
+
+CLI 1.0.16 supports seller withdrawal of an obsolete waiting input request.
+The Commission service owns `POST /orders/:id/withdraw-input-request`, matching
+seller identity, current Order version and exact request ID. Withdrawal retains
+the question as `withdrawn` with an empty buyer answer, preserves the sealed
+workspace and frozen contract, and emits an Order event for fresh seller
+inspection. The CLI validates the receipt; its watch rechecks actual materials
+before accepting. Withdrawal is distinct from buyer supplementation and Order
+acceptance. New Commission Skills require CLI 1.0.16 to parse this state.

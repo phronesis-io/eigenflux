@@ -152,6 +152,9 @@ func (w *accountWatch) desktopLoop(ctx context.Context) error {
 		if err := w.enqueueDesktopBlockers(); err != nil {
 			return errors.Join(errWatchDispatchJournal, err)
 		}
+		if err := w.enqueueDesktopPMBlockers(); err != nil {
+			return errors.Join(errWatchDispatchJournal, err)
+		}
 		if !ready && !time.Now().Before(retrySetup) {
 			call, cancel := context.WithTimeout(ctx, 20*time.Second)
 			err := w.desktopProvider.Setup(call)
@@ -175,15 +178,20 @@ func (w *accountWatch) desktopLoop(ctx context.Context) error {
 				call, cancel := context.WithTimeout(ctx, 10*time.Second)
 				message, err := w.resolveDesktopServiceName(call, entry.Message)
 				current, currentErr := true, error(nil)
+				skipCode := "input_request_changed"
 				if err == nil {
 					current, currentErr = w.buyerMaterialDesktopCurrent(call, entry.Message.ID)
+				}
+				if currentErr == nil && !w.pmDesktopBlockerCurrent(entry.Message.ID) {
+					current = false
+					skipCode = "pm_failure_resolved"
 				}
 				if currentErr == nil && !current {
 					cancel()
 					if err := w.desktop.Complete(entry.Message.ID, true, time.Now()); err != nil {
 						return errors.Join(errWatchDispatchJournal, err)
 					}
-					if err := w.emit("desktop_notification_status", map[string]string{"notification_id": entry.Message.ID, "status": "skipped", "code": "input_request_changed"}); err != nil {
+					if err := w.emit("desktop_notification_status", map[string]string{"notification_id": entry.Message.ID, "status": "skipped", "code": skipCode}); err != nil {
 						return err
 					}
 					continue

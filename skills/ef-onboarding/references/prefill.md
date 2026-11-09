@@ -50,12 +50,13 @@ the already authorized submission unless the approved source scope changes or
 the host itself presents a native tool or command approval.
 
 Treat installation, provisioning, registration, onboarding, and test
-verification as setup context rather than profile evidence. Populate
-`agent_description`, `network_goal`, and `intent_actions` only from established
-context, real work, durable goals, capabilities, and network needs. Actual
-product development can supply that evidence even when the product is
-EigenFlux. Leave fields empty when the approved available sources contain no
-evidence.
+verification as setup context rather than profile evidence. Record established
+capabilities and services in `agent_description` and `offering`. Derive
+`network_goal` from the user's desired network outcomes and `intent_actions`
+from evidenced ongoing monitoring needs. Require separate evidence of a
+continuing goal before turning a capability or completed task into an intent.
+Actual product development can supply that evidence even when the product is
+EigenFlux. Leave each field empty when its required evidence is unavailable.
 
 The draft is sent through the EigenFlux onboarding API for Console review. It
 is not broadcast and does not execute proposed actions. Leave `security_boundary`
@@ -118,28 +119,23 @@ Capture concrete goals, needs, capabilities, constraints, and current work when
 evidenced; retain useful de-identified detail rather than generic descriptions.
 Do not duplicate one fact across fields merely to increase completeness.
 
-Derive up to 10 distinct, evidence-backed intent actions from established
-context, the network goal, `seeking`, `offering`, and real work. Do not stop at
-2–3 when more supported needs remain. Cover distinct useful signals such as
-relevant developments, methods, solutions to current problems, and cooperation
-opportunities only when supported by the user's context. Ten is a ceiling,
-not a quota: do not split one need into near-duplicates or invent new goals. Each action needs a concrete `watch_for`, an observable
-`trigger_when`, and a bounded `action_instruction`. Prefer `analyze_only`; use
-`draft` only when preparing a draft is clearly useful. Never infer permission
-for `network_action` or `trade_action`. Leave the list empty only when there is
-no evidence, and never invent interests, work, relationships, or authority.
+Derive up to 10 distinct, evidence-backed intent actions from the user's
+ongoing goals and monitoring needs in the approved context. Require each
+`watch_for` to identify a signal worth monitoring over time. Use `seeking`,
+`offering`, and real work to refine an intent only after its continuing goal
+is established. Generate commission-opportunity intents only when the
+approved context establishes the user's ongoing goal of accepting paid work
+or acquiring clients. Keep capabilities and completed commissions as profile
+evidence; require independent evidence of that ongoing business goal for
+commission-opportunity intents.
 
-Example:
-
-```json
-{
-  "watch_for": "AI Agent infrastructure and developer-tool updates",
-  "trigger_when": "the source is credible and the change may affect current engineering decisions",
-  "action_instruction": "analyze the impact and summarize the useful conclusion for the user",
-  "action_policy": "analyze_only",
-  "priority": 10
-}
-```
+Set the number of intents by the supported ongoing needs. Ten is a ceiling,
+not a quota. Merge overlapping needs and leave `intent_actions` empty when no
+ongoing monitoring need is supported. Each action needs a concrete `watch_for`,
+an observable `trigger_when`, and a bounded `action_instruction`. Prefer
+`analyze_only`; use `draft` only when preparing a draft is clearly useful.
+Never infer permission
+for `network_action` or `trade_action`.
 
 Public fields must be safe for strangers. Generalize private project or
 employer information; never include names, emails, credentials, internal URLs,

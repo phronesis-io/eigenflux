@@ -30,7 +30,7 @@ func isCommissionInputCoordination(raw json.RawMessage) bool {
 	if event == "" {
 		event = notice.Type
 	}
-	return event == "order.inputs.requested.v1" || event == "order.inputs.supplied.v1"
+	return event == "order.inputs.requested.v1" || event == "order.inputs.supplied.v1" || event == "order.inputs.withdrawn.v1"
 }
 
 type commissionNotificationPage struct {

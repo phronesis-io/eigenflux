@@ -169,6 +169,7 @@ func capabilitySeeds() []capabilitySeed {
 		capability("order.payment", "eigenflux order payment", "order", "write", "获取订单支付宝付款链接", "Get an Order's Alipay payment link"),
 		capability("order.materials.submit", "eigenflux order submit-materials", "order", "write", "提交订单材料", "Submit Order materials"),
 		capability("order.cancel", "eigenflux order cancel", "order", "write", "取消订单", "Cancel an Order"),
+		capability("order.inputs.withdraw", "eigenflux order withdraw-input-request", "order", "write", "卖方撤回澄清并触发材料复检", "Withdraw seller clarification and wake input reinspection"),
 		capability("order.accept", "eigenflux order accept", "order", "write", "接受订单", "Accept an Order"),
 		capability("order.reject", "eigenflux order reject", "order", "write", "拒绝订单", "Reject an Order"),
 		capability("order.deliver", "eigenflux order deliver", "order", "write", "交付订单", "Deliver an Order"),

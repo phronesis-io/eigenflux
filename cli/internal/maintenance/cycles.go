@@ -13,6 +13,7 @@ type Cycle struct {
 	Mode              string            `json:"mode"`
 	Stages            map[string]string `json:"stages"`
 	Result            string            `json:"result,omitempty"`
+	Rules             []CycleRule       `json:"-"`
 	ExecutionObserved bool              `json:"execution_observed,omitempty"`
 }
 
@@ -80,6 +81,16 @@ func ReportCycle(scope Scope, id, stage, result string) error {
 		if !ok {
 			return fmt.Errorf("unknown or expired cycle for this account")
 		}
+		if _, guarded := c.Stages[ruleStage]; guarded && result == "completed" {
+			var err error
+			c.Rules, err = readRuleGate(scope, id)
+			if err != nil {
+				return err
+			}
+		}
+		if stage == ruleStage {
+			return fmt.Errorf("rule pages require their exact acknowledgement command")
+		}
 		if c.Result != "" {
 			if (stage == "cycle" && result == c.Result) || (stage != "cycle" && c.Stages[stage] == result) {
 				return nil
@@ -100,14 +111,26 @@ func ReportCycle(scope Scope, id, stage, result string) error {
 				}
 			}
 			if result == "completed" {
-				for _, v := range c.Stages {
-					if v != "completed" {
+				for _, rule := range c.Rules {
+					if !rule.Acknowledged {
+						return fmt.Errorf("rule pages must be acknowledged first")
+					}
+				}
+				for name, v := range c.Stages {
+					if name != ruleStage && v != "completed" {
 						return fmt.Errorf("all planned stages must complete first")
 					}
 				}
 			}
 			c.Result = result
 		} else {
+			if result == "completed" {
+				for _, r := range c.Rules {
+					if !r.Acknowledged {
+						return fmt.Errorf("read and acknowledge all cycle rules before business completion")
+					}
+				}
+			}
 			old, ok := c.Stages[stage]
 			if !ok {
 				return fmt.Errorf("stage not in this cycle")

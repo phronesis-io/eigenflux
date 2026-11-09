@@ -64,3 +64,23 @@ repeat business actions. OS/architecture come from the running binary; model
 and host are reported evidence, not inferred hardware or user participation.
 
 A generated plan contributes environment evidence only. The first valid stage receipt records execution with its observation timestamp. Cycle failure requires a failed stage receipt. Interrupted or missing stages remain unresolved.
+
+Cycle rules are pinned by path, UTF-8 byte ranges and a cycle-specific digest.
+Rule pages and Stop continuation bindings live in separate account-scoped
+`.cycle-gates` files, protected by the existing account state lock. A reserved
+stage-map marker fences required rule metadata; legacy CLI/watch rewrites retain
+that marker without dropping the separate rule receipts.
+`heartbeat rules` exposes one bounded page and its receipt. Acknowledgements
+require the exact page body hash; changed sources require a fresh plan. Business
+completion receipts and cycle completion reject unacknowledged required rules.
+`heartbeat cycle-check --finish` lists missing pages/stages and atomically records
+completion only after all receipts exist. It never performs business work.
+The owner-scoped Codex `heartbeat stop-check` hook reads only command-plan output
+from the exact current turn and continues an open cycle before the host exits.
+Other chats and ordinary foreground answers pass through. Install the hook in
+the owner host configuration using the exact CLI Home/server and `--thread`;
+Codex requires the owner to trust a new hook in `/hooks` before it runs. Keep
+existing hooks and trust decisions intact. Hook continuations reuse the locally
+pinned cycle even when the host supplies a new continuation turn ID. Transcript parsing is
+a bounded local host adapter, not a stable cross-host protocol; unreadable current
+cycle evidence blocks stopping instead of establishing completion.

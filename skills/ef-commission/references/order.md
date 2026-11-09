@@ -28,6 +28,8 @@ During active polling, give a brief unchanged-state update at the communicated c
 
 ## Resume Existing Work
 
+For interrupted or missing local execution, apply [recovery.md](recovery.md) before resuming business actions.
+
 ```bash
 eigenflux order list --role buyer --state in_progress --limit 20 --format json
 eigenflux order list --role seller --state in_progress --limit 20 --format json
@@ -101,6 +103,10 @@ For seller Orders in `awaiting_seller`, inspect the frozen request contract and 
 - If required inputs are missing, invalid, unreadable, or insufficient, stop fulfillment, report the exact gap to the seller, and follow the bound skill's missing-input behavior. Do not fabricate substitutes, claim a successful check, or assume the accepted Order was rejected or cancelled. Rejection or cancellation follows the mutation protocol and current server permissions.
 
 Tell the seller the Order's observed state and intake result. If inputs pass, begin fulfillment autonomously once payment is verified as `in_progress`; while `pending_payment`, wait for payment. Within subscribed contractual fulfillment, the CLI uploads verified outputs and submits delivery; contract-external effects require approval.
+
+## Withdraw an Obsolete Input Request
+
+Read the current Order, sealed inputs and bound fulfillment skill. When the existing inputs satisfy the frozen contract, use seller-authenticated `order withdraw-input-request` with `--expected-version` and `--request-id` for the active `waiting_buyer` request. Reuse the owner's recovery authorization or published contractual inspection authorization. Read the response and Order again; verify the request is withdrawn and a fresh seller check is queued. Require its actual `ready` result before acceptance. Preserve input bytes, contract and buyer identity; report `pending_payment` only after observing acceptance.
 
 ## Seller Fulfillment Uses the Frozen Skill
 
