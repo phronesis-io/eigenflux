@@ -69,11 +69,14 @@ func evaluateOwnership(cfg *config.Config, dir string) {
 	must(e)
 	client := llm.NewClient(cfg, prompts).WithModel(cfg.UGCSlopModel).WithReasoningOff()
 	hash := ownershipPromptHash()
+	eligible := ownershipCandidates(snapshots)
+	workers, e := ownershipWorkers(os.Getenv("FIDELITY_MODEL_WORKERS"))
+	must(e)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, 4)
+	sem := make(chan struct{}, workers)
 	for _, item := range items {
-		if classes[item.ItemID] != "ugc" || !item.PotentiallyEligible {
+		if classes[item.ItemID] != "ugc" || !eligible[item.ItemID] {
 			continue
 		}
 		if _, rejected := ownershipProjection(item, "ugc"); rejected {

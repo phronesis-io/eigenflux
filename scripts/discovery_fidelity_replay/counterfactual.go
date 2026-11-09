@@ -236,16 +236,19 @@ func counterfactual(cfg *config.Config, dir string) {
 		}
 	}
 	snapshots := loadSnapshots(dir)
+	metadataEligible := ownershipCandidates(snapshots)
 	bodyArms := [2]map[int64]bodyArm{{}, {}}
 	baselineOnly, sourceContextOnly, variant := replayVariant()
 	ownership := os.Getenv("FIDELITY_UGC_OWNERSHIP") == "true"
 	metadata := os.Getenv("FIDELITY_UGC_METADATA") == "true"
 	evaluations := map[int64]ownershipEvaluation{}
+	groups := map[int64]ownershipGrouping{}
 	if metadata {
 		if !ownership {
 			panic("metadata requires UGC ownership")
 		}
 		evaluations = loadOwnershipEvaluations(dir)
+		groups = loadOwnershipGroups(dir)
 	}
 	if os.Getenv("FIDELITY_PGC_COUPLED") == "true" {
 		bodyArms = loadBodyArms(dir)
@@ -318,7 +321,7 @@ func counterfactual(cfg *config.Config, dir string) {
 				panic(fmt.Sprintf("missing source evidence %d", id))
 			}
 			if d.Version != featureindex.BroadcastContentHash(id, d.AuthorID, item.Content+"\n"+item.Summary, d.Slots) {
-				if item.PotentiallyEligible {
+				if item.PotentiallyEligible || (metadata && metadataEligible[id]) {
 					panic(fmt.Sprintf("eligible source evidence version drift %d", id))
 				}
 				if i == 0 {
@@ -353,7 +356,7 @@ func counterfactual(cfg *config.Config, dir string) {
 					continue
 				}
 			}
-			if i == 1 && !baselineOnly && metadata && classes[id] == "ugc" && item.PotentiallyEligible {
+			if i == 1 && !baselineOnly && metadata && classes[id] == "ugc" && metadataEligible[id] {
 				evaluation, ok := evaluations[id]
 				if !ok || evaluation.Error != "" || evaluation.Output == nil || evaluation.Baseline == nil || evaluation.InputHash != auditInputHash(item) || evaluation.PromptHash != ownershipPromptHash() || evaluation.Model != cfg.UGCSlopModel || evaluation.RequestDate != time.Now().UTC().Format("2006-01-02") || evaluation.MaxTokens != cfg.LLMMaxTokens || evaluation.Contract != llm.SlopRequestContract {
 					panic(fmt.Sprintf("missing/stale UGC metadata %d", id))
@@ -364,7 +367,10 @@ func counterfactual(cfg *config.Config, dir string) {
 					continue
 				}
 				if output.BroadcastType != d.ContentType {
-					panic(fmt.Sprintf("UGC type changed for %d; grouping sensitivity required before release", id))
+					group, err := ownershipGroup(groups[id], item, d, output.BroadcastType)
+					must(err)
+					d.GroupID = group
+					d.ContentType = output.BroadcastType
 				}
 				d.Quality = output.Quality
 				d.SourceType = output.SourceType

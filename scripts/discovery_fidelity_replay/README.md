@@ -165,3 +165,13 @@ is reported separately and cannot inflate expected positives. Re-export old
 history caches; no unsupported source prior is silently treated as zero. Paired
 UGC prompt evaluation retains both current-model extraction arms under the same
 source/date/contract, distinct from comparison against historical stored metadata.
+
+Metadata sensitivity includes currently language-filtered or expired UGC when
+other immutable eligibility checks allow it, because those two fields can change
+with extraction. `FIDELITY_MODEL_WORKERS=1..16` bounds offline model concurrency
+(default 4). For changed types, run `ownership_neighbors.py --dir <private-dir>`
+using on-host read-only ES access. It verifies unchanged source text, reuses the
+stored body vector and applies production type-specific grouping against preceding
+retained items. Comparison requires source/type-bound successful grouping evidence;
+missing vectors, source drift or query failures remain release blockers. Historical
+neighbor deletion and later group changes limit this to sensitivity evidence.
