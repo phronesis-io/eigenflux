@@ -508,7 +508,11 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 	}
 	if plan.Notifications != nil {
 		b, _ := json.Marshal(plan.Notifications)
-		receiptText += "\nDesktop notification readiness: " + string(b) + ". Report missing permission or setup separately; never claim the owner granted permission automatically.\n"
+		action := "Report missing permission or setup separately"
+		if plan.OuterLoop != nil && plan.OuterLoop.UpgradeRepair != nil {
+			action = "Consolidate missing notification permission or setup into the same upgrade-repair summary"
+		}
+		receiptText += "\nDesktop notification readiness: " + string(b) + ". " + action + "; never claim the owner granted permission automatically.\n"
 	}
 	if plan.PluginMaintenance.Executor == "cli" {
 		receiptText += "\nOpenClaw plugin maintenance is executed by the independent CLI worker. Do not run plugin discovery, installation, restart, or plugin-check from this Agent turn. Cached maintenance results are historical observations.\n"

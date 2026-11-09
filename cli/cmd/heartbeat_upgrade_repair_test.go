@@ -251,10 +251,13 @@ func TestUpgradeRepairAcknowledgedPromptDoesNotDuplicateDesktop(t *testing.T) {
 }
 
 func TestUpgradeRepairHeartbeatConsolidatesRecoveryPrompt(t *testing.T) {
-	plan := heartbeatPlan{OuterLoop: &updateWatchRecovery{Status: "pending", Action: "old recovery", Notification: "required", UpgradeRepair: &upgradeRepair{ID: strings.Repeat("a", 32), Status: "user_action", Instruction: upgradeRepairInstruction}}}
+	plan := heartbeatPlan{Notifications: &upgradeNotificationStatus{Status: "permission_or_setup_required"}, OuterLoop: &updateWatchRecovery{Status: "pending", Action: "old recovery", Notification: "required", UpgradeRepair: &upgradeRepair{ID: strings.Repeat("a", 32), Status: "user_action", Instruction: upgradeRepairInstruction}}}
 	text := renderHeartbeatPlanForAgent(plan)
 	if strings.Contains(text, "Notify the owner of this new or changed recovery action separately") || !strings.Contains(text, "one scoped upgrade-repair action summary") {
 		t.Fatal("split owner prompts", text)
+	}
+	if strings.Contains(text, "Report missing permission or setup separately") || !strings.Contains(text, "same upgrade-repair summary") {
+		t.Fatal("notification setup escaped combined action prompt", text)
 	}
 }
 
