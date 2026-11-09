@@ -8,18 +8,20 @@ import (
 	"time"
 
 	"cli.eigenflux.ai/internal/maintenance"
+	"cli.eigenflux.ai/internal/watchservice"
 	"github.com/spf13/cobra"
 )
 
 type watchSetupObservationKey struct{}
 
 type outerLoopRecorder struct {
-	r            *maintenanceRecorder
-	environment  maintenance.RuntimeEnvironment
-	phase        string
-	result       string
-	code         string
-	knownOutcome bool
+	r             *maintenanceRecorder
+	environment   maintenance.RuntimeEnvironment
+	phase         string
+	result        string
+	code          string
+	failureReason string
+	knownOutcome  bool
 }
 
 func newOuterLoopRecorder(cmd *cobra.Command, component, phase string) *outerLoopRecorder {
@@ -43,18 +45,28 @@ func (o *outerLoopRecorder) record(result, code string, scheduler *maintenance.S
 	e := maintenance.NewEvent(o.r.attempt, o.r.component, o.r.trigger, o.phase, result)
 	e.FromVersion, e.ErrorCode = version, code
 	e.DurationMS = time.Since(o.r.started).Milliseconds()
-	e.OuterLoop = &maintenance.OuterLoopObservation{Environment: o.environment, Scheduler: scheduler}
+	e.OuterLoop = &maintenance.OuterLoopObservation{Environment: o.environment, Scheduler: scheduler, FailureReason: o.failureReason}
 	o.r.Record(e)
 }
 
 func (o *outerLoopRecorder) stage(phase string) {
 	o.phase = phase
+	o.failureReason = ""
 	o.result, o.code, o.knownOutcome = "installed", "", false
 	o.record("started", "", nil)
 }
 
 func (o *outerLoopRecorder) finish(err error) {
 	result, code := o.result, o.code
+	if err != nil {
+		var skillErr *upgradeSkillsError
+		if errors.As(err, &skillErr) {
+			o.failureReason = skillErr.Reason
+		}
+		if reason := watchservice.StartFailureReason(err); reason != "" {
+			o.failureReason = reason
+		}
+	}
 	if err != nil && !o.knownOutcome {
 		result = "failed"
 		if o.result == "blocked" {

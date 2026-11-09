@@ -117,6 +117,9 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 		var skillsErr *upgradeSkillsError
 		if errors.As(err, &skillsErr) {
 			r.Reason = skillsErr.Reason
+			if observation != nil {
+				observation.failureReason = skillsErr.Reason
+			}
 		}
 		return r
 	}
@@ -131,6 +134,9 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 		result, err := deps.start(ctx, watchservice.NotificationTask{CLI: cli, Home: expected.Home, Server: expected.Server, Scope: expected.Scope, AgentID: expected.AgentID, PrincipalID: expected.PrincipalID, Dispatch: binding != nil})
 		if err != nil {
 			r.Reason = "watch_start_failed"
+			if observation != nil {
+				observation.failureReason = watchservice.StartFailureReason(err)
+			}
 			return r
 		}
 		if result.Status == "skipped_disabled" {
@@ -354,6 +360,13 @@ func recoverWatchAfterUpdateOnPlatform(cmd *cobra.Command, cfg *config.Config, m
 			if err := syncRules(expected); err != nil {
 				r.Status = "blocked"
 				r.Reason = "skills_not_ready"
+				var detail *upgradeSkillsError
+				if errors.As(err, &detail) {
+					r.Reason = detail.Reason
+					if observation := watchSetupObservation(cmd); observation != nil {
+						observation.failureReason = detail.Reason
+					}
+				}
 				return r
 			}
 			var out bytes.Buffer

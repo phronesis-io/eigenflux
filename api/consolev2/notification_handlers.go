@@ -132,6 +132,7 @@ type ackNotificationRequest struct {
 	Notifications []struct {
 		NotificationID json.RawMessage `json:"notification_id"`
 		SourceType     string          `json:"source_type"`
+		ReceiptKind    string          `json:"receipt_kind,omitempty"`
 	} `json:"notifications"`
 }
 
@@ -164,6 +165,7 @@ func (s *Service) ackPendingNotifications(ctx context.Context, c *app.RequestCon
 	}
 	items := make([]*notificationrpc.AckNotificationItem, 0, len(request.Notifications))
 	seen := make(map[string]struct{}, len(request.Notifications))
+	receipts := make(map[int64]string)
 	for _, notification := range request.Notifications {
 		sourceType := strings.TrimSpace(notification.SourceType)
 		notificationID, parseErr := parseNotificationID(notification.NotificationID)
@@ -171,11 +173,19 @@ func (s *Service) ackPendingNotifications(ctx context.Context, c *app.RequestCon
 			fail(c, http.StatusBadRequest, "INVALID_NOTIFICATION_ACK", "notification acknowledgement is invalid", nil)
 			return
 		}
+		receiptKind, validReceipt := notificationReceiptKind(sourceType, notification.ReceiptKind)
+		if !validReceipt {
+			fail(c, http.StatusBadRequest, "INVALID_NOTIFICATION_ACK", "notification receipt kind is invalid", nil)
+			return
+		}
 		key := sourceType + ":" + strconv.FormatInt(notificationID, 10)
 		if _, exists := seen[key]; exists {
 			continue
 		}
 		seen[key] = struct{}{}
+		if sourceType == "commission_order" {
+			receipts[notificationID] = receiptKind
+		}
 		items = append(items, &notificationrpc.AckNotificationItem{
 			NotificationId: notificationID, SourceType: sourceType,
 		})
@@ -187,5 +197,31 @@ func (s *Service) ackPendingNotifications(ctx context.Context, c *app.RequestCon
 		fail(c, http.StatusServiceUnavailable, "NOTIFICATION_ACK_FAILED", "could not acknowledge notifications", nil)
 		return
 	}
+	// Client-reported intake evidence, not proof of Agent execution or visibility.
+	for _, item := range items {
+		if item.SourceType != "commission_order" {
+			continue
+		}
+		if receiptKind, ok := receipts[item.NotificationId]; ok {
+			logger.Ctx(ctx).Info("notification_ack_receipt", "agent_id", agentIDValue,
+				"notification_id", item.NotificationId, "source_type", item.SourceType,
+				"receipt_kind", receiptKind, "evidence", "client_reported")
+		}
+	}
 	reply(c, http.StatusOK, map[string]interface{}{"acknowledged": len(items)})
+}
+
+func notificationReceiptKind(sourceType, kind string) (string, bool) {
+	if kind == "" {
+		return "unknown", true
+	}
+	if sourceType != "commission_order" {
+		return "", false
+	}
+	switch kind {
+	case "displayed", "desktop_saved", "execution_enqueued":
+		return kind, true
+	default:
+		return "", false
+	}
 }

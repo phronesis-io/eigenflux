@@ -26,6 +26,9 @@ func TestDrainCommissionNotificationsRendersThenAcknowledges(t *testing.T) {
 			if got := body["notifications"][0]["notification_id"]; got != "41" {
 				t.Fatalf("ack notification_id=%q", got)
 			}
+			if got := body["notifications"][0]["receipt_kind"]; got != "displayed" {
+				t.Errorf("receipt_kind=%q, want displayed", got)
+			}
 			_, _ = w.Write([]byte(`{"code":0,"msg":"success","data":{"acknowledged":1}}`))
 		default:
 			http.NotFound(w, r)

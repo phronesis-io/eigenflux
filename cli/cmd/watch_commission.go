@@ -276,9 +276,14 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 			if json.Unmarshal(notification.ID, &id) != nil {
 				return errors.New("invalid_commission_notification_id")
 			}
+			receiptKind := "desktop_saved"
+			if w.journal != nil {
+				receiptKind = "execution_enqueued"
+			}
 			ack = append(ack, map[string]string{
 				"notification_id": strconv.FormatInt(int64(id), 10),
 				"source_type":     "commission_order",
+				"receipt_kind":    receiptKind,
 			})
 		}
 		// Every notification is durable before any ACK. Refresh outside the

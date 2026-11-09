@@ -186,6 +186,7 @@ func drainCommissionNotifications(api *client.Client, format, language string, w
 				ackItems = append(ackItems, map[string]string{
 					"notification_id": notification.NotificationID,
 					"source_type":     notification.SourceType,
+					"receipt_kind":    "displayed",
 				})
 			}
 			if len(ackItems) > 0 {

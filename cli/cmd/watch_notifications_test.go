@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -42,6 +43,12 @@ func TestNotificationsOnlyPersistsBeforeACKAndLegacyStreamDoesNotConsume(t *test
 			t.Errorf("unexpected endpoint %s", r.URL.Path)
 			http.NotFound(out, r)
 			return
+		}
+		var body struct {
+			Notifications []map[string]string `json:"notifications"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Notifications) != 1 || body.Notifications[0]["receipt_kind"] != "desktop_saved" {
+			t.Errorf("invalid desktop receipt: %+v, %v", body, err)
 		}
 		q, err := desktopqueue.Open(filepath.Join(w.home, "watch", "desktop-"+w.scope+".json"), w.scope)
 		if err != nil {

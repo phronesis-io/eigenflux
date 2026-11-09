@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -21,6 +22,9 @@ func (e *upgradeSkillsError) Unwrap() error { return e.Err }
 
 func syncUpgradeWatchRules(cfg *config.Config, b dispatch.Binding, manual bool) error {
 	return verifyUpgradeWatchRules(manual || automaticMaintenanceEnabled(cfg, autoSkillSyncKey), func() (*skills.SyncResult, error) {
+		if _, err := skills.ResolveSkillsDir(b.SkillsDir, b.Host); err != nil {
+			return nil, &upgradeSkillsError{Reason: "skills_target_unresolved", Err: err}
+		}
 		return skills.Sync(skills.SyncOptions{Into: b.SkillsDir, Host: b.Host, CLIVersion: version, CDNBase: cdnBase(), HTTPClient: &http.Client{Timeout: 5 * time.Second}})
 	}, func() error {
 		_, err := localHeartbeatSkillsAt(b.SkillsDir, b.Host)
@@ -32,6 +36,10 @@ func verifyUpgradeWatchRules(syncEnabled bool, sync func() (*skills.SyncResult, 
 	if syncEnabled {
 		result, err := sync()
 		if err != nil {
+			var classified *upgradeSkillsError
+			if errors.As(err, &classified) {
+				return err
+			}
 			return &upgradeSkillsError{Reason: "skills_sync_failed", Err: err}
 		}
 		if reason := upgradeSkillsSyncReason(result); reason != "" {
@@ -41,7 +49,7 @@ func verifyUpgradeWatchRules(syncEnabled bool, sync func() (*skills.SyncResult, 
 	// Local signature, compatibility and file hashes are required even after a
 	// fresh manifest check, and also when the owner disabled automatic syncing.
 	if err := local(); err != nil {
-		return &upgradeSkillsError{Reason: "skills_local_validation_failed", Err: err}
+		return &upgradeSkillsError{Reason: localSkillsFailureReason(err), Err: err}
 	}
 	return nil
 }
@@ -77,4 +85,16 @@ func upgradeSkillsSyncReason(result *skills.SyncResult) string {
 		return "skills_latest_unverified"
 	}
 	return ""
+}
+
+func localSkillsFailureReason(err error) string {
+	reason := "skills_local_validation_failed"
+	var classified *heartbeatSkillsError
+	if errors.As(err, &classified) {
+		switch classified.code {
+		case "skills_manifest_unavailable", "skills_signature_failed", "skills_local_modified", "skills_cli_incompatible", "skills_rule_missing":
+			reason = classified.code
+		}
+	}
+	return reason
 }

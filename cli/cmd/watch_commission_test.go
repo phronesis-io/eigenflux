@@ -96,6 +96,9 @@ func TestWatchCommissionPersistsWholePageBeforeACKAndDeduplicates(t *testing.T) 
 			t.Errorf("invalid ACK batch: %+v, %v", request, err)
 		}
 		for _, item := range request.Notifications {
+			if item["receipt_kind"] != "execution_enqueued" {
+				t.Errorf("ACK without execution receipt: %+v", item)
+			}
 			if item["source_type"] != "commission_order" || item["notification_id"] == "99" {
 				t.Errorf("ACKed unowned source: %+v", item)
 			}
