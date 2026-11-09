@@ -8,12 +8,15 @@ import tempfile
 import unittest
 
 
+ROOT = Path(__file__).resolve().parents[2]
+
+
 @unittest.skipUnless(os.environ.get("EIGENFLUX_TEST_CODEX"), "set EIGENFLUX_TEST_CODEX to a native Codex CLI")
 class CodexMarketplaceCleanup(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="ef marketplace cleanup ")
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.codex = str(Path(os.environ["EIGENFLUX_TEST_CODEX"]).resolve(strict=True))
         self.home = self.root / "host home"
         self.home.mkdir()
@@ -57,9 +60,13 @@ class CodexMarketplaceCleanup(unittest.TestCase):
         self.other.write_text("unrelated marketplace")
 
     def call(self, *args, success=True):
-        result = subprocess.run([self.codex, "plugin", "marketplace", *args],
+        return self.run_command([self.codex, "plugin", "marketplace", *args], success=success)
+
+    def run_command(self, args, success=True):
+        result = subprocess.run(args,
                                 cwd=self.root, env=self.env, capture_output=True,
-                                text=True, timeout=30)
+                                text=True, stdin=subprocess.DEVNULL,
+                                start_new_session=True, timeout=60)
         if success:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result
@@ -88,6 +95,101 @@ class CodexMarketplaceCleanup(unittest.TestCase):
         self.assertNotEqual(rejected.returncode, 0)
         self.assertIn("different source", rejected.stderr)
         self.verify_remove_and_readd()
+
+    @unittest.skipUnless(os.name == "posix" and os.environ.get("EIGENFLUX_TEST_CLI"),
+                         "set EIGENFLUX_TEST_CLI to a native EigenFlux CLI on POSIX")
+    def test_complete_uninstall_then_reinstall(self):
+        cli_source = str(Path(os.environ["EIGENFLUX_TEST_CLI"]).resolve(strict=True))
+        agent = self.home / "agent data/.eigenflux"
+        target = self.home / ".agents/skills"
+        binary = self.home / "bin/eigenflux"
+        self.env.update({"EIGENFLUX_HOME": str(agent), "EIGENFLUX_SKILLS_DIR": str(target),
+                         "CODEX_APP_RUNTIME_CLI_PATH": self.codex})
+
+        # Execute the production host-setup functions with real native CLIs.
+        # Omit OS notification setup and scheduling: these affect the logged-in
+        # OS user even when HOME is isolated.
+        source = (ROOT / "static/install.sh").read_text()
+        gate = source[source.index("note_skipped_host() {"):source.index("# ── Step 1:")]
+        setup = source[source.index("setup_codex_cli() {"):source.index("# ── Report install attribution")]
+        harness = self.root / "setup.sh"
+        harness.write_text('set -eu\ninfo() { printf "%s\\n" "$1"; }\n'
+                           'ok() { printf "%s\\n" "$1"; }\nerr() { printf "%s\\n" "$1" >&2; }\n'
+                           'INVOKING_HOST=codex\nSKIPPED_HOSTS=""\n' + gate + setup + '\nsetup_agents\n')
+
+        def ef(*args):
+            return self.run_command([str(binary), "--homedir", str(agent), "--format", "json", *args])
+
+        def install():
+            self.run_command([cli_source, "--homedir", str(agent), "installation", "replace",
+                              "--destination", str(binary), "--host", "codex", "--skills-target", ""])
+            ef("skills", "install", "--host", "codex", "--from-bundle", str(ROOT / "skills"))
+            ef("installation", "record", "--host", "codex", "--skills-target", str(target))
+            result = self.run_command(["sh", str(harness)])
+            receipts = [json.loads(line) for line in result.stdout.splitlines()
+                        if line.startswith('{"component":"codex-eigenflux"')]
+            self.assertEqual(len(receipts), 1, result.stdout + result.stderr)
+            self.assertEqual(receipts[0]["status"], "installed")
+            self.assertEqual(receipts[0]["codex_path"], self.codex)
+            self.assertEqual(receipts[0]["codex_home"], self.env["CODEX_HOME"])
+            installed = self.run_command([self.codex, "plugin", "list", "--json"]).stdout
+            self.assertIn('"codex-eigenflux@eigenflux"', installed)
+            self.assertTrue((target / "ef-uninstall/SKILL.md").is_file())
+            self.assertTrue(Path(str(binary) + ".uninstall.sh").is_file())
+
+        def wrapper(*args):
+            return self.run_command(["sh", str(binary) + ".uninstall.sh", str(binary),
+                                     "--homedir", str(agent), "--scope", "all", "--source", "agent",
+                                     "--format", "json", *args])
+
+        install()
+        unrelated_skill = target / "unrelated/SKILL.md"
+        unrelated_skill.parent.mkdir()
+        unrelated_skill.write_text("preserve unrelated Skill")
+        owned = [entry["name"] for entry in json.loads((target / ".ef-manifest.json").read_text())["skills"]]
+        for name in ("credentials.json", "identity.json", "cached-history.json", "scripts/owned.sh"):
+            path = agent / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("{}")
+        # Complete removal must also delete edited managed instructions.
+        with (target / "ef-uninstall/SKILL.md").open("a") as output:
+            output.write("\nlocal fixture edit\n")
+        config_before = self.config.read_bytes()
+        skill_before = (target / "ef-uninstall/SKILL.md").read_bytes()
+        wrapper()
+        self.assertEqual(self.config.read_bytes(), config_before)
+        self.assertEqual((target / "ef-uninstall/SKILL.md").read_bytes(), skill_before)
+        started = json.loads(wrapper("--begin").stdout)
+
+        # Apply the Skill's ownership checks before the native removal commands.
+        origin = self.run_command(["git", "-C", str(self.market), "config", "--get", "remote.origin.url"]).stdout.strip()
+        self.assertEqual(origin, "https://github.com/phronesis-io/codex-eigenflux.git")
+        catalog = json.loads((self.market / ".agents/plugins/marketplace.json").read_text())
+        self.assertEqual([entry["name"] for entry in catalog["plugins"]], ["codex-eigenflux"])
+        self.assertIn("phronesis-io/codex-eigenflux", self.config.read_text())
+        self.run_command([self.codex, "plugin", "remove", "codex-eigenflux@eigenflux"])
+        self.call("remove", "eigenflux")
+        self.assertFalse(self.market.exists())
+        self.assertNotIn("eigenflux", self.call("list").stdout)
+        self.assertNotIn("codex-eigenflux", self.run_command([self.codex, "plugin", "list", "--json"]).stdout)
+        result = json.loads(wrapper("--attempt", started["attempt_id"], "--apply", "--host-cleanup-confirmed").stdout)
+        self.assertFalse(result.get("executable_removal_pending", False))
+        for suffix in ("", ".install.json", ".uninstall.sh", ".uninstall.ps1"):
+            self.assertFalse(Path(str(binary) + suffix).exists(), suffix)
+        for name in owned:
+            self.assertFalse((target / name).exists(), name)
+        for name in ("credentials.json", "identity.json", "cached-history.json", "scripts/owned.sh", "uninstall.json"):
+            self.assertFalse((agent / name).exists(), name)
+        self.assertEqual(unrelated_skill.read_text(), "preserve unrelated Skill")
+        self.assertEqual(self.other.read_text(), "unrelated marketplace")
+        self.assertIn('model = "unchanged-model"', self.config.read_text())
+        self.assertIn('[plugins."other@other"]', self.config.read_text())
+
+        install()
+        self.assertEqual(unrelated_skill.read_text(), "preserve unrelated Skill")
+        self.assertEqual(self.other.read_text(), "unrelated marketplace")
+        self.assertEqual((target / "ef-uninstall/SKILL.md").read_bytes(),
+                         (ROOT / "skills/ef-uninstall/SKILL.md").read_bytes())
 
 
 if __name__ == "__main__":
