@@ -157,3 +157,11 @@ feature repair. It never substitutes production reads; the separate guarded
 production Redis client still supplies authoritative facts. Treat this cache as
 a diagnostic implementation and require the same exact full-cohort A/A gate.
 No application service, production source tree or persistent Redis is changed.
+
+Positive-effect estimation requires `unique-impression-positive-events-v2` history:
+exact unique impression/Agent/item matches, no self-deliveries, and no ambiguous
+or missing impression IDs in the fitted denominator. Observed unlinked feedback
+is reported separately and cannot inflate expected positives. Re-export old
+history caches; no unsupported source prior is silently treated as zero. Paired
+UGC prompt evaluation retains both current-model extraction arms under the same
+source/date/contract, distinct from comparison against historical stored metadata.

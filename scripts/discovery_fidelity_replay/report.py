@@ -30,11 +30,15 @@ def main():
     )
     history_data = json.loads((root / "feedback-history.json").read_text())
     observed_data = json.loads((root / "feedback-observed.json").read_text())
+    if history_data.get("contract") != "unique-impression-positive-events-v2":
+        raise ValueError("Re-export uniquely attributed feedback history before estimating effects")
     history, observed = collections.Counter(), collections.Counter()
     for c in history_data["cells"]:
         history[c["agent_id"], c["lane"]] += c["deliveries"]
-    for c in observed_data["cells"]:
         observed[c["agent_id"], c["lane"]] += c["positive_events"]
+    for lane in ("pgc", "ugc"):
+        if not sum(v for (_, source_lane), v in history.items() if source_lane == lane):
+            raise ValueError(f"No attributable historical support for {lane}")
     priors = {
         lane: sum(v for (_, source_lane), v in observed.items() if source_lane == lane)
         / max(1, sum(v for (_, source_lane), v in history.items() if source_lane == lane))
@@ -103,7 +107,8 @@ def main():
             "end": history_data["delivery_end"],
         },
         "method": manifest["method"],
-        "estimate": "One frozen request per Agent. Source-stratified historical positive-event/delivery rate, 20-delivery empirical-Bayes prior, no assumed benefit from improved factuality. Observed feedback includes events without a matched impression; cohort and window match, but event lag makes this an estimate, not a calibrated probability or causal guarantee.",
+        "observed_feedback_diagnostic": observed_data,
+        "estimate": "One frozen request per Agent. Source-stratified historical positive-event/delivery rate, 20-delivery empirical-Bayes prior, no assumed benefit from improved factuality. Uses only exact unique impression/agent/item linkage, excludes self-delivery and ambiguous/missing impression IDs; unlinked observed events are diagnostic only. Feedback lag and source-level priors remain uncertainty, not a causal guarantee.",
         "agents_losing_deliveries": sum(
             r["after_delivered"] < r["before_delivered"] for r in rows
         ),

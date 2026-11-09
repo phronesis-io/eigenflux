@@ -355,7 +355,7 @@ func counterfactual(cfg *config.Config, dir string) {
 			}
 			if i == 1 && !baselineOnly && metadata && classes[id] == "ugc" && item.PotentiallyEligible {
 				evaluation, ok := evaluations[id]
-				if !ok || evaluation.Error != "" || evaluation.Output == nil || evaluation.InputHash != auditInputHash(item) || evaluation.PromptHash != ownershipPromptHash() || evaluation.Model != cfg.UGCSlopModel || evaluation.RequestDate != time.Now().UTC().Format("2006-01-02") || evaluation.MaxTokens != cfg.LLMMaxTokens || evaluation.Contract != llm.SlopRequestContract {
+				if !ok || evaluation.Error != "" || evaluation.Output == nil || evaluation.Baseline == nil || evaluation.InputHash != auditInputHash(item) || evaluation.PromptHash != ownershipPromptHash() || evaluation.Model != cfg.UGCSlopModel || evaluation.RequestDate != time.Now().UTC().Format("2006-01-02") || evaluation.MaxTokens != cfg.LLMMaxTokens || evaluation.Contract != llm.SlopRequestContract {
 					panic(fmt.Sprintf("missing/stale UGC metadata %d", id))
 				}
 				output := evaluation.Output

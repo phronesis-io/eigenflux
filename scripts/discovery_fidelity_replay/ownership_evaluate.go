@@ -13,16 +13,18 @@ import (
 )
 
 type ownershipEvaluation struct {
-	ID          int64              `json:"id,string"`
-	InputHash   string             `json:"input_hash"`
-	PromptHash  string             `json:"prompt_hash"`
-	RequestDate string             `json:"request_date"`
-	MaxTokens   int                `json:"max_tokens"`
-	Contract    string             `json:"contract"`
-	Model       string             `json:"model"`
-	Output      *llm.ExtractResult `json:"output"`
-	Blocked     bool               `json:"blocked"`
-	Error       string             `json:"error,omitempty"`
+	ID              int64              `json:"id,string"`
+	InputHash       string             `json:"input_hash"`
+	PromptHash      string             `json:"prompt_hash"`
+	RequestDate     string             `json:"request_date"`
+	MaxTokens       int                `json:"max_tokens"`
+	Contract        string             `json:"contract"`
+	Model           string             `json:"model"`
+	Baseline        *llm.ExtractResult `json:"baseline"`
+	BaselineBlocked bool               `json:"baseline_blocked"`
+	Output          *llm.ExtractResult `json:"output"`
+	Blocked         bool               `json:"blocked"`
+	Error           string             `json:"error,omitempty"`
 }
 
 func ownershipPromptHash() string {
@@ -80,7 +82,7 @@ func evaluateOwnership(cfg *config.Config, dir string) {
 		mu.Lock()
 		old, ok := cached[item.ItemID]
 		mu.Unlock()
-		if ok && old.InputHash == auditInputHash(item) && old.PromptHash == hash && old.Model == cfg.UGCSlopModel && old.RequestDate == time.Now().UTC().Format("2006-01-02") && old.MaxTokens == cfg.LLMMaxTokens && old.Contract == llm.SlopRequestContract && old.Error == "" {
+		if ok && old.InputHash == auditInputHash(item) && old.PromptHash == hash && old.Model == cfg.UGCSlopModel && old.RequestDate == time.Now().UTC().Format("2006-01-02") && old.MaxTokens == cfg.LLMMaxTokens && old.Contract == llm.SlopRequestContract && old.Baseline != nil && old.Error == "" {
 			continue
 		}
 		sem <- struct{}{}
@@ -89,9 +91,15 @@ func evaluateOwnership(cfg *config.Config, dir string) {
 			defer wg.Done()
 			defer func() { <-sem }()
 			row := ownershipEvaluation{ID: item.ItemID, InputHash: auditInputHash(item), PromptHash: hash, Model: cfg.UGCSlopModel, RequestDate: time.Now().UTC().Format("2006-01-02"), MaxTokens: cfg.LLMMaxTokens, Contract: llm.SlopRequestContract}
-			ctx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 130*time.Second)
 			defer cancel()
-			result, err := client.ProcessUGCItem(ctx, item.Content, item.Notes, true)
+			baseline, err := client.ProcessUGCItem(ctx, item.Content, item.Notes, false)
+			var result *llm.SlopEvaluation
+			if err == nil {
+				row.Baseline = &baseline.Result.ExtractResult
+				row.BaselineBlocked = baseline.Result.Discard || (baseline.Result.IsSlop != nil && *baseline.Result.IsSlop == 1)
+				result, err = client.ProcessUGCItem(ctx, item.Content, item.Notes, true)
+			}
 			if err != nil {
 				row.Error = err.Error()
 			} else {
