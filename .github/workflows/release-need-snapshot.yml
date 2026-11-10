@@ -2,7 +2,7 @@ name: Publish immutable Need phase-one snapshot
 
 on:
   push:
-    branches: [codex/need-phase1-snapshot-r2]
+    branches: [codex/need-phase1-snapshot-r3]
     paths:
       - scripts/snapshots/**
       - .github/workflows/release-need-snapshot.yml
@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   snapshot:
-    if: github.ref == 'refs/heads/codex/need-phase1-snapshot-r2'
+    if: github.ref == 'refs/heads/codex/need-phase1-snapshot-r3'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262

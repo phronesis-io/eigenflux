@@ -1,7 +1,7 @@
 # Need phase-one immutable installation snapshot
 
-Product source: `3b08f41d25f41108b89f8f5add1ba369b5387525` (CLI 1.0.18).
-Distribution changes live only on `codex/need-phase1-snapshot-r2`.
+Product source: `56c553200652e84d7ac25f5821697328e02c43a0` (CLI 1.0.27).
+Distribution changes live only on `codex/need-phase1-snapshot-r3`.
 The public entry is `snapshots/<product SHA>/<distribution SHA>/install.md`.
 
 This adapts the historical immutable publisher at

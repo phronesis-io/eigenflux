@@ -16,7 +16,7 @@ import subprocess
 import tarfile
 
 # Product source includes the retained installation-copy contract.
-SOURCE = "3b08f41d25f41108b89f8f5add1ba369b5387525"
+SOURCE = "56c553200652e84d7ac25f5821697328e02c43a0"
 
 
 def run(args, **kw):
