@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"context"
 	"reflect"
 	"testing"
 )
@@ -24,5 +25,9 @@ func TestCommissionModelRouting(t *testing.T) {
 	r.Binding.Host = "hermes"
 	if _, _, err := r.arguments(Request{Kind: "commission_fulfillment", CommissionSkill: "gpt-sol-light-commission"}); err == nil {
 		t.Fatal("unsupported host must fail closed")
+	}
+	r.Binding.Mode = "acp"
+	if _, err := r.Run(context.Background(), Request{Kind: "commission_fulfillment", CommissionSkill: "gpt-sol-light-commission"}); err == nil || err.Error() != "commission_model_routing_requires_codex" {
+		t.Fatalf("ACP must fail before execution: %v", err)
 	}
 }

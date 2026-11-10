@@ -40,6 +40,9 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	if err := r.Binding.validateExecutionCommand(); err != nil {
 		return Result{}, err
 	}
+	if commissionModelEffort(req) != "" && (r.Binding.Mode != "native" || r.Binding.Host != "codex") {
+		return Result{}, errors.New("commission_model_routing_requires_codex")
+	}
 	boundMain := req.Kind == "pm_push" && r.Binding.Host == "codex" && r.Binding.Mode == "native" && r.Binding.MainSessionID != ""
 	if boundMain {
 		if req.SessionID != r.Binding.MainSessionID {
@@ -182,16 +185,20 @@ func (r Runner) runProcess(ctx context.Context, args []string, stdin string) ([]
 	return out.data, stderr.data, nil
 }
 
-func (r Runner) arguments(req Request) ([]string, string, error) {
-	var effort string
+func commissionModelEffort(req Request) string {
 	if req.Kind == "commission_publish_trial" || req.Kind == "commission_fulfillment" {
 		switch req.CommissionSkill {
 		case "gpt-sol-light-commission":
-			effort = "low"
+			return "low"
 		case "gpt-sol-ultra-commission":
-			effort = "ultra"
+			return "ultra"
 		}
 	}
+	return ""
+}
+
+func (r Runner) arguments(req Request) ([]string, string, error) {
+	effort := commissionModelEffort(req)
 	if effort != "" && (r.Binding.Mode != "native" || r.Binding.Host != "codex") {
 		return nil, "", errors.New("commission_model_routing_requires_codex")
 	}
