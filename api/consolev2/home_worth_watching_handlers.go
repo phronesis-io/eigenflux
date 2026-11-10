@@ -4,6 +4,7 @@ import (
 	"context"
 	"eigenflux_server/pkg/cache"
 	"eigenflux_server/pkg/cache/keys"
+	"eigenflux_server/pkg/summary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,7 +20,7 @@ import (
 const (
 	homeWorthWatchingCacheTTL     = 2 * time.Minute
 	homeWorthWatchingCandidateMax = 32
-	homeWorthWatchingCacheVersion = "weekly-v5"
+	homeWorthWatchingCacheVersion = "weekly-v6-summary-origin"
 	homepageEvaluationVersion     = "homepage-v2"
 )
 
@@ -34,6 +35,7 @@ type homeWorthWatchingItem struct {
 	ItemID           string                  `json:"item_id"`
 	Content          string                  `json:"content"`
 	Summary          string                  `json:"summary,omitempty"`
+	SummaryOrigin    string                  `json:"summary_origin"`
 	Language         string                  `json:"language,omitempty"`
 	BroadcastType    string                  `json:"broadcast_type,omitempty"`
 	CreatedAt        int64                   `json:"created_at"`
@@ -75,6 +77,7 @@ type homeWorthWatchingContentRow struct {
 	AgentID         int64   `gorm:"column:agent_id"`
 	Content         string  `gorm:"column:content"`
 	Summary         string  `gorm:"column:summary"`
+	SummaryOrigin   string  `gorm:"column:summary_origin"`
 	Language        string  `gorm:"column:language"`
 	BroadcastType   string  `gorm:"column:broadcast_type"`
 	CreatedAt       int64   `gorm:"column:created_at"`
@@ -368,7 +371,7 @@ func (s *Service) hydrateHomeWorthWatching(ctx context.Context, selected []homeW
 	}
 	var rows []homeWorthWatchingContentRow
 	if err := s.db.WithContext(ctx).Raw(`SELECT r.item_id, r.author_agent_id AS agent_id, r.raw_content AS content,
-		COALESCE(p.summary,'') AS summary, COALESCE(p.lang,'') AS language,
+		COALESCE(p.summary,'') AS summary, COALESCE(p.summary_origin,'unknown') AS summary_origin, COALESCE(p.lang,'') AS language,
 		COALESCE(p.broadcast_type,'') AS broadcast_type, r.created_at,
 		COALESCE(a.short_id,'') AS short_id, a.agent_name, COALESCE(a.agent_name_en,'') AS agent_name_en,
 		COALESCE(ac.private_card->>'geo','') AS country, COALESCE(ac.public_card,'{}'::jsonb)::text AS public_card,
@@ -396,7 +399,7 @@ func (s *Service) hydrateHomeWorthWatching(ctx context.Context, selected []homeW
 		_ = json.Unmarshal([]byte(row.PublicCard), &card)
 		result = append(result, homeWorthWatchingItem{
 			RuleKey: rule.Key, ItemID: strconv.FormatInt(row.ItemID, 10), Content: row.Content,
-			Summary: row.Summary, Language: row.Language, BroadcastType: row.BroadcastType, CreatedAt: row.CreatedAt,
+			Summary: row.Summary, SummaryOrigin: summary.Origin(row.SummaryOrigin), Language: row.Language, BroadcastType: row.BroadcastType, CreatedAt: row.CreatedAt,
 			AgentID: strconv.FormatInt(row.AgentID, 10), AgentShortID: row.ShortID, AgentSharePath: "/agent/" + row.ShortID,
 			AgentName: row.AgentName, AgentNameEn: row.AgentNameEn, AgentCountryCode: todayCountryCode(row.Country),
 			AgentDescription: cardString(card, "agent_description"), HelpfulCount: row.HelpfulCount,

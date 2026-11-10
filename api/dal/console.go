@@ -4,6 +4,7 @@ import (
 	"context"
 	"eigenflux_server/pkg/cache"
 	"eigenflux_server/pkg/cache/keys"
+	"eigenflux_server/pkg/summary"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -322,26 +323,28 @@ func CountActivityByDate(db *gorm.DB, agentID int64, sinceMs int64) ([]DateCount
 // replay_logs (which preserves the rank score of every served item), joined
 // with its content and the agent's own feedback state.
 type HighlightItem struct {
-	ItemID        int64   `gorm:"column:item_id"`
-	ImpressionID  string  `gorm:"column:impression_id"`
-	RankScore     float64 `gorm:"column:rank_score"`
-	ServedAt      int64   `gorm:"column:served_at"`
-	ItemFeatures  string  `gorm:"column:item_features"`
-	AgentFeatures string  `gorm:"column:agent_features"`
-	FbScore       int16   `gorm:"column:fb_score"`
-	Summary       string  `gorm:"column:summary"`
-	SummaryZh     string  `gorm:"column:summary_zh"`
-	TitleZh       string  `gorm:"column:title_zh"`
-	Lang          string  `gorm:"column:lang"`
-	Suggestion    string  `gorm:"column:suggestion"`
-	Domains       string  `gorm:"column:domains"`
-	Keywords      string  `gorm:"column:keywords"`
-	BroadcastType string  `gorm:"column:broadcast_type"`
-	QualityScore  float64 `gorm:"column:quality_score"`
-	RawContent    string  `gorm:"column:raw_content"`
-	RawURL        string  `gorm:"column:raw_url"`
-	AuthorAgentID int64   `gorm:"column:author_agent_id"`
-	CreatedAt     int64   `gorm:"column:created_at"`
+	SummaryRemediation string  `gorm:"column:summary_remediation"`
+	ItemID             int64   `gorm:"column:item_id"`
+	ImpressionID       string  `gorm:"column:impression_id"`
+	RankScore          float64 `gorm:"column:rank_score"`
+	ServedAt           int64   `gorm:"column:served_at"`
+	ItemFeatures       string  `gorm:"column:item_features"`
+	AgentFeatures      string  `gorm:"column:agent_features"`
+	FbScore            int16   `gorm:"column:fb_score"`
+	SummaryOrigin      string  `gorm:"column:summary_origin"`
+	Summary            string  `gorm:"column:summary"`
+	SummaryZh          string  `gorm:"column:summary_zh"`
+	TitleZh            string  `gorm:"column:title_zh"`
+	Lang               string  `gorm:"column:lang"`
+	Suggestion         string  `gorm:"column:suggestion"`
+	Domains            string  `gorm:"column:domains"`
+	Keywords           string  `gorm:"column:keywords"`
+	BroadcastType      string  `gorm:"column:broadcast_type"`
+	QualityScore       float64 `gorm:"column:quality_score"`
+	RawContent         string  `gorm:"column:raw_content"`
+	RawURL             string  `gorm:"column:raw_url"`
+	AuthorAgentID      int64   `gorm:"column:author_agent_id"`
+	CreatedAt          int64   `gorm:"column:created_at"`
 }
 
 // GetHighlightsForAgent returns the agent's top-ranked feed deliveries since
@@ -363,8 +366,10 @@ func GetHighlightsForAgent(db *gorm.DB, agentID, sinceMs int64, limit int) ([]Hi
 		           rl.agent_features::text       AS agent_features,
 		           COALESCE(f.score, -9)         AS fb_score,
 		           COALESCE(p.summary, '')       AS summary,
-		           COALESCE(p.summary_zh, '')    AS summary_zh,
-		           COALESCE(p.title_zh, '')      AS title_zh,
+		           COALESCE(p.summary_origin,'unknown') AS summary_origin,
+		           p.summary_remediation,
+		           CASE WHEN p.summary_zh_key = 'literal-zh-v1:' || md5(COALESCE(p.summary,'')) THEN COALESCE(p.summary_zh_literal,'') ELSE '' END    AS summary_zh,
+		           CASE WHEN p.title_zh_key = 'literal-zh-v1:' || md5(r.raw_content) THEN COALESCE(p.title_zh_literal,'') ELSE '' END      AS title_zh,
 		           COALESCE(p.lang, '')          AS lang,
 		           COALESCE(p.suggestion, '')    AS suggestion,
 		           COALESCE(p.domains, '')       AS domains,
@@ -437,11 +442,13 @@ func IsLikelyChinese(s string) bool {
 // UntranslatedItem is a feed item that may surface in someone's highlights
 // and still lacks a Chinese rendering.
 type UntranslatedItem struct {
-	ItemID     int64  `gorm:"column:item_id"`
-	Summary    string `gorm:"column:summary"`
-	RawContent string `gorm:"column:raw_content"`
-	SummaryZh  string `gorm:"column:summary_zh"`
-	TitleZh    string `gorm:"column:title_zh"`
+	SummaryRemediation string `gorm:"column:summary_remediation"`
+	ItemID             int64  `gorm:"column:item_id"`
+	SummaryOrigin      string `gorm:"column:summary_origin"`
+	Summary            string `gorm:"column:summary"`
+	RawContent         string `gorm:"column:raw_content"`
+	SummaryZh          string `gorm:"column:summary_zh"`
+	TitleZh            string `gorm:"column:title_zh"`
 }
 
 // ListUntranslatedTopItems returns the union of every agent's top-N served
@@ -458,15 +465,17 @@ func ListUntranslatedTopItems(db *gorm.DB, sinceMs int64, topN, limit int) ([]Un
 		)
 		SELECT DISTINCT p.item_id,
 		       COALESCE(p.summary, '')    AS summary,
+		           COALESCE(p.summary_origin,'unknown') AS summary_origin,
+		           p.summary_remediation,
 		       r2.raw_content,
-		       COALESCE(p.summary_zh, '') AS summary_zh,
-		       COALESCE(p.title_zh, '')   AS title_zh
+		       CASE WHEN p.summary_zh_key = 'literal-zh-v1:' || md5(COALESCE(p.summary,'')) THEN COALESCE(p.summary_zh_literal,'') ELSE '' END AS summary_zh,
+		       CASE WHEN p.title_zh_key = 'literal-zh-v1:' || md5(r2.raw_content) THEN COALESCE(p.title_zh_literal,'') ELSE '' END   AS title_zh
 		  FROM ranked rk
 		  JOIN processed_items p ON p.item_id = rk.item_id
 		  JOIN raw_items r2      ON r2.item_id = rk.item_id
 		 WHERE rk.rnk <= ?
 		   AND p.status <> 5
-		   AND (COALESCE(p.summary_zh, '') = '' OR COALESCE(p.title_zh, '') = '')
+		   AND ((p.summary_remediation = '' AND COALESCE(p.summary, '') <> '' AND CASE WHEN p.summary_zh_key = 'literal-zh-v1:' || md5(COALESCE(p.summary,'')) THEN COALESCE(p.summary_zh_literal,'') ELSE '' END = '') OR (p.summary_remediation <> 'body_only' AND CASE WHEN p.title_zh_key = 'literal-zh-v1:' || md5(r2.raw_content) THEN COALESCE(p.title_zh_literal,'') ELSE '' END = ''))
 		 LIMIT ?`,
 		sinceMs, topN, limit,
 	).Scan(&rows).Error
@@ -475,18 +484,29 @@ func ListUntranslatedTopItems(db *gorm.DB, sinceMs int64, topN, limit int) ([]Un
 
 // UpdateZhTranslations writes back lazily-generated Chinese renderings so they
 // are shared by all future zh-UI viewers; only non-empty fields are touched.
-func UpdateZhTranslations(db *gorm.DB, itemID int64, summaryZh, titleZh string) error {
+func UpdateZhTranslations(db *gorm.DB, itemID int64, sourceSummary, sourceBody, summaryZh, titleZh string) error {
 	vals := map[string]interface{}{}
 	if summaryZh != "" {
-		vals["summary_zh"] = summaryZh
+		vals["summary_zh_literal"] = summaryZh
+		vals["summary_zh_key"] = summary.TranslationKey(sourceSummary)
 	}
 	if titleZh != "" {
-		vals["title_zh"] = titleZh
+		vals["title_zh_literal"] = titleZh
+		vals["title_zh_key"] = summary.TranslationKey(sourceBody)
 	}
 	if len(vals) == 0 {
 		return nil
 	}
-	return db.Table("processed_items").Where("item_id = ?", itemID).Updates(vals).Error
+	result := db.Table("processed_items").Where("item_id = ? AND COALESCE(summary,'') = ?", itemID, sourceSummary).
+		Where("summary_remediation = '' OR (summary_remediation = 'summary_original' AND ? = '')", summaryZh).
+		Where("EXISTS (SELECT 1 FROM raw_items r WHERE r.item_id = processed_items.item_id AND r.raw_content = ?)", sourceBody).Updates(vals)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return fmt.Errorf("translation source or remediation policy changed")
+	}
+	return nil
 }
 
 // TodayEventCounts returns event counts grouped by event_type for today.
@@ -931,6 +951,7 @@ type TopBroadcastRow struct {
 	AuthorAgentID int64  `gorm:"column:author_agent_id"`
 	AgentName     string `gorm:"column:agent_name"`
 	AgentNameEn   string `gorm:"column:agent_name_en"`
+	SummaryOrigin string `gorm:"column:summary_origin"`
 	Summary       string `gorm:"column:summary"`
 	SummaryZh     string `gorm:"column:summary_zh"`
 	BroadcastType string `gorm:"column:broadcast_type"`
@@ -950,7 +971,9 @@ const top7DayBroadcastsQuery = `
 			       COALESCE(a.agent_name, '')             AS agent_name,
 			       COALESCE(a.agent_name_en, '')          AS agent_name_en,
 			       COALESCE(p.summary, '')                AS summary,
-			       COALESCE(p.summary_zh, '')             AS summary_zh,
+		           COALESCE(p.summary_origin,'unknown') AS summary_origin,
+		           p.summary_remediation,
+			       CASE WHEN p.summary_zh_key = 'literal-zh-v1:' || md5(COALESCE(p.summary,'')) THEN COALESCE(p.summary_zh_literal,'') ELSE '' END             AS summary_zh,
 			       COALESCE(p.broadcast_type, '')         AS broadcast_type,
 			       (s.score_1_count + s.score_2_count)    AS praise_count,
 			       COALESCE(s.consumed_count, 0)          AS reach,
@@ -998,7 +1021,9 @@ const newUserBroadcastsQuery = `
 			       COALESCE(a.agent_name, '')             AS agent_name,
 			       COALESCE(a.agent_name_en, '')          AS agent_name_en,
 			       COALESCE(p.summary, '')                AS summary,
-			       COALESCE(p.summary_zh, '')             AS summary_zh,
+		           COALESCE(p.summary_origin,'unknown') AS summary_origin,
+		           p.summary_remediation,
+			       CASE WHEN p.summary_zh_key = 'literal-zh-v1:' || md5(COALESCE(p.summary,'')) THEN COALESCE(p.summary_zh_literal,'') ELSE '' END             AS summary_zh,
 			       COALESCE(p.broadcast_type, '')         AS broadcast_type,
 			       (s.score_1_count + s.score_2_count)    AS praise_count,
 			       COALESCE(s.consumed_count, 0)          AS reach,
@@ -1014,7 +1039,6 @@ const newUserBroadcastsQuery = `
 			  LEFT JOIN agent_settings st ON st.agent_id = s.author_agent_id
 			  JOIN processed_items p      ON p.item_id = s.item_id AND p.status = 3
 			 WHERE a.created_at >= ?
-			   AND (COALESCE(p.summary_zh, '') <> '' OR COALESCE(p.summary, '') <> '')
 			   AND COALESCE(a.email, '') NOT LIKE '%@pgc.eigenflux.one'
 			   AND COALESCE(a.email, '') NOT LIKE '%@bot.eigenflux.one'
 			 ORDER BY s.created_at DESC, s.item_id DESC
@@ -1162,6 +1186,7 @@ type RatedItem struct {
 	ItemID            int64  `gorm:"column:item_id"`
 	MyScore           int16  `gorm:"column:my_score"`
 	FeedbackAt        int64  `gorm:"column:feedback_at"`
+	SummaryOrigin     string `gorm:"column:summary_origin"`
 	Summary           string `gorm:"column:summary"`
 	SummaryZh         string `gorm:"column:summary_zh"`
 	TitleZh           string `gorm:"column:title_zh"`
@@ -1187,8 +1212,10 @@ func ListRatedItems(db *gorm.DB, agentID, cursorMs int64, limit int) ([]RatedIte
 		    SELECT DISTINCT ON (f.item_id)
 		           f.item_id, f.score AS my_score, f.feedback_at,
 		           COALESCE(p.summary, '')     AS summary,
-		           COALESCE(p.summary_zh, '')  AS summary_zh,
-		           COALESCE(p.title_zh, '')    AS title_zh,
+		           COALESCE(p.summary_origin,'unknown') AS summary_origin,
+		           p.summary_remediation,
+		           CASE WHEN p.summary_zh_key = 'literal-zh-v1:' || md5(COALESCE(p.summary,'')) THEN COALESCE(p.summary_zh_literal,'') ELSE '' END  AS summary_zh,
+		           CASE WHEN p.title_zh_key = 'literal-zh-v1:' || md5(r.raw_content) THEN COALESCE(p.title_zh_literal,'') ELSE '' END    AS title_zh,
 		           COALESCE(p.lang, '')        AS lang,
 		           COALESCE(p.domains, '')     AS domains,
 		           COALESCE(p.broadcast_type, '') AS broadcast_type,

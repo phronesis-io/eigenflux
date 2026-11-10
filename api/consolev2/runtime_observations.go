@@ -51,11 +51,41 @@ func validateRuntimeObservation(e maintenanceEvent) error {
 		}
 		return nil
 	}
+	if e.Phase == "lifecycle" {
+		if r.PlanMode != "" {
+			return fmt.Errorf("lifecycle cannot claim a plan mode")
+		}
+		valid := false
+		switch r.Stage {
+		case "trigger":
+			valid = e.Result == "observed"
+		case "permission":
+			switch e.Result {
+			case "allowed", "legacy_mismatch", "prompt", "forbidden", "unknown", "required", "denied":
+				valid = true
+			}
+		case "guard":
+			valid = e.Result == "configured" || e.Result == "active"
+		case "execution":
+			valid = e.Result == "interrupted"
+		}
+		if !valid {
+			return fmt.Errorf("invalid lifecycle stage or result")
+		}
+		return nil
+	}
 	if e.Phase != "cycle" || (r.PlanMode != "full" && r.PlanMode != "maintenance" && r.PlanMode != "control" && r.PlanMode != "baseline") {
 		return fmt.Errorf("invalid cycle mode")
 	}
 	if r.Stage == "" {
 		return fmt.Errorf("cycle stage required")
+	}
+	switch e.Result {
+	case "plan_created", "incomplete", "permission_required", "permission_denied", "interrupted":
+		if r.Stage != "cycle" {
+			return fmt.Errorf("cycle observation requires cycle stage")
+		}
+		return nil
 	}
 	if e.Result != "started" && e.Result != "completed" && e.Result != "failed" {
 		return fmt.Errorf("invalid cycle result")

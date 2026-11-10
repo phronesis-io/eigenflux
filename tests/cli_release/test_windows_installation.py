@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 import shutil
@@ -7,6 +8,73 @@ import unittest
 
 
 class WindowsInstallation(unittest.TestCase):
+    def test_openclaw_gateway_compatibility_preserves_unsupported_installations(self):
+        shell = shutil.which('powershell') or shutil.which('pwsh')
+        if not shell:
+            self.skipTest('PowerShell runtime required')
+        source = (Path(__file__).resolve().parents[2] / 'static/install.ps1').read_text(encoding='utf-8')
+        prefix = source.split('# ── Main ─')[0]
+        cases = []
+        for version in ('2026.5.7', '2026.5.8', '2026.6.0', '2027.1.0'):
+            cases.append(dict(raw='OpenClaw ' + version + ' (test)', expected='@phronesis-io/openclaw-eigenflux'))
+        for version in ('2026.3.1', '2026.3.13', '2026.4.0', '2026.5.0', '2026.5.1'):
+            cases.append(dict(raw=version, existing=True, expected='@phronesis-io/openclaw-eigenflux@0.0.8'))
+        for version in ('2026.2.28', '2026.3.0', '2026.5.2', '2026.5.3', '2026.5.4', '2026.5.5', '2026.5.6'):
+            cases.append(dict(raw=version, existing=True, expected='existing plugin', reason='unsupported_gateway_version'))
+        for version in ('unknown', '', '2026.5.7-rc.1', '2026.05.7', '2026.5.7rc.1'):
+            cases.append(dict(raw=version, existing=True, expected='existing plugin', reason='unverified_gateway_version'))
+        cases.extend([
+            dict(raw='2026.5.7', exit_code=1, existing=True, expected='existing plugin', reason='unverified_gateway_version'),
+            dict(raw='unknown', override='2026.5.7', expected='@phronesis-io/openclaw-eigenflux'),
+            dict(raw='2026.5.7', override='2026.5.7-rc.1', existing=True, expected='existing plugin', reason='unverified_gateway_version'),
+            dict(raw='2026.5.7', existing=True, expected='updated'),
+        ])
+        with tempfile.TemporaryDirectory(prefix='OpenClaw compatibility ') as temp:
+            fixture = Path(temp) / 'fixture.ps1'
+            fixture.write_text(prefix + '''
+function openclaw {
+    $global:testCalls += ,($args -join ' ')
+    $global:LASTEXITCODE = 0
+    switch ($args -join ' ') {
+        '--version' { $global:LASTEXITCODE = $global:testExit; return $global:testRaw }
+        'plugins list' { if ($global:testPlugin) { return 'eigenflux' }; return }
+        'plugins uninstall openclaw-eigenflux --force' { $global:testPlugin = $null; return }
+        'plugins update openclaw-eigenflux' { $global:testPlugin = 'updated'; return }
+    }
+    if ($args[0] -eq 'plugins' -and $args[1] -eq 'install') { $global:testPlugin = $args[2]; return }
+    throw ('Unexpected OpenClaw call: ' + ($args -join ' '))
+}
+foreach ($case in ($env:TEST_CASES | ConvertFrom-Json)) {
+    $env:OPENCLAW_VERSION = $case.override
+    $env:EIGENFLUX_ALLOW_HOST_RESTART = '0'
+    $global:testRaw = $case.raw
+    $global:testExit = if ($case.exit_code) { $case.exit_code } else { 0 }
+    $global:testPlugin = if ($case.existing) { 'existing plugin' } else { $null }
+    $global:testCalls = @()
+    Setup-Agents
+    Write-Output ('TEST_RESULT=' + (@{ plugin = $global:testPlugin; calls = @($global:testCalls) } | ConvertTo-Json -Compress))
+}
+''', encoding='utf-8-sig')
+            env = dict(os.environ, TEST_CASES=json.dumps(cases), OPENCLAW_VERSION='')
+            result = subprocess.run([shell, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(fixture)],
+                                    env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            records = [json.loads(line.removeprefix('TEST_RESULT=')) for line in result.stdout.splitlines()
+                       if line.startswith('TEST_RESULT=')]
+            receipts = [json.loads(line) for line in result.stdout.splitlines()
+                        if line.startswith('{"component":"openclaw-eigenflux"')]
+            self.assertEqual(len(records), len(cases), result.stdout)
+            self.assertEqual([receipt['reason'] for receipt in receipts],
+                             [case['reason'] for case in cases if 'reason' in case])
+            for case, record in zip(cases, records):
+                with self.subTest(case=case):
+                    self.assertEqual(record['plugin'], case['expected'])
+                    self.assertNotIn('gateway restart', record['calls'])
+                    if 'reason' in case:
+                        self.assertFalse(any(call.startswith('plugins ') for call in record['calls']))
+                    if case.get('override'):
+                        self.assertNotIn('--version', record['calls'])
+
     def test_current_binary_is_used_for_migration_and_registration(self):
         shell = shutil.which('powershell') or shutil.which('pwsh')
         if os.name != 'nt' or not shell:

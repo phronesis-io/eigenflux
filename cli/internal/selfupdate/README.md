@@ -27,6 +27,12 @@ target and fixed decision reason separately from raw local error diagnostics.
 signs their final hashes. Build macOS helpers on macOS for each target CPU.
 Publish immutable versioned payloads before changing the signed latest pointer.
 
+`installation_cleanup.go` supplies complete-uninstall ownership inventories using
+the same signed ZIP and extracted-file validation. Current-Agent removal retains
+the shared packages. Complete removal validates the receipt again under
+installation/update/activation locks and removes verified files and empty
+directories without recursive deletion. Unknown or modified content stays intact.
+
 ## Failure observations
 
 `diagnostics.go` classifies wrapped network and filesystem errors into bounded

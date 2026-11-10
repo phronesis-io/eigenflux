@@ -1,6 +1,11 @@
 package maintenance
 
-import "testing"
+import (
+	"encoding/json"
+	"os"
+	"testing"
+	"time"
+)
 
 func TestFailedStageCategoryIsDurableIdempotentAndCannotBeRewritten(t *testing.T) {
 	s := Scope{Home: t.TempDir(), Server: "test", AgentID: "1"}
@@ -13,6 +18,9 @@ func TestFailedStageCategoryIsDurableIdempotentAndCannotBeRewritten(t *testing.T
 			t.Fatal(err)
 		}
 	}
+	if err := ReportCycle(s, c.ID, "feed", "failed"); err != nil {
+		t.Fatal(err)
+	}
 	if ReportCycleWithErrorCode(s, c.ID, "feed", "failed", "network_error") == nil {
 		t.Fatal("failure reason overwritten")
 	}
@@ -22,18 +30,77 @@ func TestFailedStageCategoryIsDurableIdempotentAndCannotBeRewritten(t *testing.T
 	if err := ReportCycle(s, c.ID, "cycle", "failed"); err != nil {
 		t.Fatal(err)
 	}
+	if err := ReportCycle(s, c.ID, "feed", "failed"); err != nil {
+		t.Fatal(err)
+	}
 	if err := ReportCycleWithErrorCode(s, c.ID, "feed", "failed", "timeout"); err != nil {
 		t.Fatal(err)
+	}
+	var eventID string
+	if err := Flush(s, time.Now(), func(events []Event) error {
+		if len(events) != 4 || events[2].ErrorCode != "timeout" || events[3].ErrorCode != "" {
+			t.Fatalf("unexpected upload: %+v", events)
+		}
+		eventID = events[2].EventID
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate an older CLI rewriting the state after the queue was acknowledged.
+	var legacy struct {
+		Attempts map[string]Event `json:"attempts"`
+		Cycles   map[string]struct {
+			ID                string            `json:"id"`
+			StartedAt         int64             `json:"started_at"`
+			Mode              string            `json:"mode"`
+			Stages            map[string]string `json:"stages"`
+			Result            string            `json:"result"`
+			ExecutionObserved bool              `json:"execution_observed"`
+		} `json:"cycles"`
+	}
+	path, err := s.path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	data, err = json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ReportCycleWithErrorCode(s, c.ID, "feed", "failed", "timeout"); err != nil {
+		t.Fatal(err)
+	}
+	if ReportCycleWithErrorCode(s, c.ID, "feed", "failed", "network_error") == nil {
+		t.Fatal("failure category rewritten after a legacy state write")
 	}
 	state, err := Snapshot(s)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(state.Events) != 4 || state.Cycles[c.ID].FailureCodes["feed"] != "timeout" {
+	if len(state.Events) != 0 || state.Attempts[stageFailureAttemptPrefix+eventID].ErrorCode != "timeout" {
 		t.Fatalf("lost or duplicated evidence: %+v", state)
 	}
-	if state.Events[2].ErrorCode != "timeout" || state.Events[3].ErrorCode != "" {
-		t.Fatal("category not scoped to failed stage")
+	if err := update(s, func(st *State) error {
+		delete(st.Cycles, c.ID)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	state, err = Snapshot(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := state.Attempts[stageFailureAttemptPrefix+eventID]; ok {
+		t.Fatal("category outlived its cycle")
 	}
 }
 

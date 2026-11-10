@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -85,7 +86,7 @@ func Validate(e Event) error {
 	if !idValue.MatchString(e.EventID) || !idValue.MatchString(e.AttemptID) {
 		return errors.New("invalid maintenance identity")
 	}
-	if e.Phase == "environment" || e.Phase == "cycle" {
+	if e.Phase == "environment" || e.Phase == "cycle" || e.Phase == "lifecycle" {
 		return ValidateRuntime(e)
 	}
 	if e.Runtime != nil {
@@ -174,6 +175,11 @@ func prune(st *State, now time.Time) {
 	for id, c := range st.Cycles {
 		if c.StartedAt < now.Add(-Retention).UnixMilli() {
 			delete(st.Cycles, id)
+		}
+	}
+	for key, receipt := range st.Attempts {
+		if _, ok := st.Cycles[receipt.AttemptID]; !ok && strings.HasPrefix(key, stageFailureAttemptPrefix) {
+			delete(st.Attempts, key)
 		}
 	}
 	var receipts []Event
@@ -367,6 +373,9 @@ func flush(s Scope, now time.Time, uninstallAttempt string, send func([]Event) e
 	var batch []Event
 	runtimeBatch := false
 	if err := update(s, func(st *State) error {
+		if err := reconcileObservationQueue(s, st, nil); err != nil {
+			observationRecoveryDiagnostic()
+		}
 		// Older servers reject unknown runtime fields. Never mix them with existing
 		// maintenance events or let runtime backoff block legacy observations.
 		runtimeBatch = uninstallAttempt == "" && len(st.Events) > 0
@@ -423,6 +432,11 @@ func flush(s Scope, now time.Time, uninstallAttempt string, send func([]Event) e
 		ids := map[string]bool{}
 		for _, e := range batch {
 			ids[e.EventID] = true
+		}
+		if runtimeBatch {
+			if err := reconcileObservationQueue(s, st, ids); err != nil {
+				observationRecoveryDiagnostic()
+			}
 		}
 		kept := st.Events[:0]
 		for _, e := range st.Events {

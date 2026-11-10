@@ -88,3 +88,20 @@ func (t captureESTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	}
 	return t.next.RoundTrip(r)
 }
+
+// Every production ES request in this diagnostic is a read. Local counterfactual
+// indexing uses a separate loopback-only client and never this transport.
+type readOnlyESTransport struct{ next http.RoundTripper }
+
+func (t readOnlyESTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	allowed := r.Method == http.MethodGet || r.Method == http.MethodHead
+	if r.Method == http.MethodPost {
+		for _, suffix := range []string{"/_search", "/_msearch", "/_mget"} {
+			allowed = allowed || strings.HasSuffix(r.URL.Path, suffix)
+		}
+	}
+	if !allowed {
+		return nil, fmt.Errorf("production Elasticsearch mutation denied: %s %s", r.Method, r.URL.Path)
+	}
+	return t.next.RoundTrip(r)
+}

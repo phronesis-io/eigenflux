@@ -247,7 +247,7 @@ func flushMaintenanceBatch(scope maintenance.Scope, principal, endpoint string) 
 		}
 		c := client.New(strings.TrimRight(endpoint, "/")+"/api/v2", credentials.AccessToken, version, clientMetaForServerName(scope.Server))
 		c.HTTPClient = &http.Client{Timeout: 5 * time.Second}
-		_, err = c.Post("/maintenance/events:batch", map[string]interface{}{"events": events})
+		_, err = postMaintenanceEvents(c, events)
 		if err == nil {
 			sent = events
 		}

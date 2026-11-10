@@ -187,7 +187,7 @@ var watchCmd = &cobra.Command{
 }
 
 func init() {
-	watchCmd.Flags().Bool("desktop-notifications", nativeDesktopSupported(), "show account-scoped desktop notifications for listing moderation and subscribed Commission orders")
+	watchCmd.Flags().Bool("desktop-notifications", nativeDesktopSupported(), "show account-scoped desktop notifications for listing moderation, subscribed Commission orders and failed PM preparation")
 	watchCmd.Flags().Bool("notifications-only", false, "receive desktop order notifications without PM consumption or Agent execution")
 	rootCmd.AddCommand(watchCmd)
 }
@@ -265,7 +265,7 @@ func (w *accountWatch) run(parent context.Context, out io.Writer) error {
 	if w.notificationsOnly {
 		runners = []func(context.Context) error{live.pulse, w.checkLoop, w.maintenanceLoop, w.commissionFallbackLoop, w.desktopLoop, w.notificationPermissionLoop}
 	}
-	runners = append(runners, w.cliUpdateLoop)
+	runners = append(runners, w.cliUpdateLoop, w.upgradeRepairLoop)
 	if w.journal != nil {
 		runners = append(runners, w.dispatchLoop, w.commissionDispatchLoop, w.commissionClarificationLoop, w.commissionFulfillmentLoop, w.commissionExecutionReportLoop, w.commissionMainNoticeLoop, w.workBuddyMigrationLoop)
 	}
@@ -785,7 +785,7 @@ func (w *accountWatch) maintenanceLoop(ctx context.Context) error {
 				return err
 			}
 			c.HTTPClient.Timeout = 5 * time.Second
-			_, err = c.Post("/maintenance/events:batch", map[string]interface{}{"events": events})
+			_, err = postMaintenanceEvents(c, events)
 			return err
 		})
 		if isWatchTerminal(err) {

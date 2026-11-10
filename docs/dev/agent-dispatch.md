@@ -128,6 +128,23 @@ ACP requires v1 newline-delimited JSON-RPC over stdio; permission requests yield
 
 ## Ownership and recovery
 
+On Linux, `watch recover` preserves a live identity-matched watch under its
+existing supervisor, including ordinary watches without a dispatch binding or
+notification-only owner record. Ordinary watches retain `mode=watch` and do not
+establish Agent dispatch. Recovery does not install a system service. When no current
+watch can be verified, it returns pending with an `action` and a nonzero exit:
+`host_managed_unverified` for configured plugin mode, otherwise
+`external_loop_unverified`. Inspect the existing host-native or OS scheduler
+with the same Home/server, preserve paused tasks, and verify an unattended
+cycle and its accessible result destination. Installation, task readback,
+runtime readiness and a completed Agent call are separate receipts.
+
+Recovery notices remain pending across plan reads and failed Feed pulls.
+Acknowledge the exact returned `notification_id` with the same Home/server
+through `heartbeat recovery-notice-ack --notice` only after the host handles
+the notice. Acknowledgement is independent of runtime telemetry and full-cycle
+completion; failures retain pending state without repeating business work.
+
 Stop the old account's plugin/message consumer before starting dispatch. Keep the companion `heartbeat plan --watch-managed`: it skips subscribed work and retains maintenance unless `maintenance_due` is enabled. Restart a stopped watch to resume its ownership; bindings do not automatically fall back to another consumer.
 
 Stop watch before mutating bind/retry/reconcile; read-only `watch bind --preflight` keeps it running. Retry only `failed` or `needs_user`; inspect host/business results before reconciling `unknown/failed/needs_user` work:
@@ -572,3 +589,44 @@ Missing or paused tasks remain missing or paused. This host-reported receipt
 proves neither unattended execution nor model work. Skills check command
 availability and preserve older CLIs with unknown receipt coverage.
 See [the wire and rollout contract](../../cli/cmd/OBSERVABILITY.md#outer-loop-setup-and-native-scheduler-readback).
+
+### PM preparation failures
+
+`watch status` retains the failing preparation category in each job's `code`.
+`skills_local_modified` means the managed signed installation differs from its
+manifest; use `skills list` to locate the changed member and preserve local edits
+before repairing the installation. This validation covers the entire managed
+release, including members unrelated to the current PM. Context/history failures
+identify their stage, with a fixed HTTP status or transport category when known.
+No raw API error text is logged. Historic `prompt_unavailable` alone is insufficient
+to diagnose the original failure.
+
+The PM worker retries read-only network failures and HTTP 502/503/504 at most
+three times before invoking the Agent. Each attempt revalidates identity, signed
+rules and current automatic-reply permission. Failed preparation never sends a
+reply; permission failures, invalid responses and modified rules do not retry.
+Retained failed jobs still require explicit `watch retry` after repair. A healthy
+service or main-session probe is insufficient for acceptance: correlate a new
+message with its exact dispatch target, completed decision and send receipt,
+and independently verify the expected user-visible output on the owning host.
+
+With desktop notifications enabled and OS permission available, CLI 1.0.15
+also reminds the owner when PM prompt preparation remains failed. Notifications
+use the existing durable account queue, contain generic text only, and group the
+same unresolved conversation/cause. Polls and restarts do not repeat the same
+reminder; a new failure after recovery can notify again. Resolved failures are
+rechecked before display. Ordinary cancellation remains silent. This does not
+start the Agent, send private messages, overwrite local Skills or change an
+existing main-conversation target.
+
+## Reinspect after withdrawing an obsolete question
+
+Seller recovery may withdraw a waiting input request through
+`order withdraw-input-request ORDER_ID --expected-version VERSION --request-id REQUEST_ID`.
+The Commission service owns withdrawal authorization, request/version fencing,
+audit history and the seller wake-up. CLI 1.0.16 preserves the returned withdrawn
+request and lets the normal background input check determine readiness.
+An Order awaiting input must remain paused while necessary facts are missing.
+When existing inputs already satisfy the frozen contract, withdrawal permits
+fresh inspection without requiring a fabricated buyer answer. Read Order and
+journal state after the wake-up; queued inspection is distinct from acceptance.

@@ -7,13 +7,15 @@ import (
 	"time"
 )
 
+const stageFailureAttemptPrefix = "runtime-stage-failure:"
+
 type Cycle struct {
 	ID                string            `json:"id"`
 	StartedAt         int64             `json:"started_at"`
 	Mode              string            `json:"mode"`
 	Stages            map[string]string `json:"stages"`
-	FailureCodes      map[string]string `json:"failure_codes,omitempty"`
 	Result            string            `json:"result,omitempty"`
+	Rules             []CycleRule       `json:"-"`
 	ExecutionObserved bool              `json:"execution_observed,omitempty"`
 }
 
@@ -90,11 +92,22 @@ func ReportCycleWithErrorCode(scope Scope, id, stage, result, code string) error
 		if !ok {
 			return fmt.Errorf("unknown or expired cycle for this account")
 		}
+		if _, guarded := c.Stages[ruleStage]; guarded && result == "completed" {
+			var err error
+			c.Rules, err = readRuleGate(scope, id)
+			if err != nil {
+				return err
+			}
+		}
+		if stage == ruleStage {
+			return fmt.Errorf("rule pages require their exact acknowledgement command")
+		}
+		e := cycleEvent(c, stage, result)
+		if code != "" && c.Stages[stage] == result && st.Attempts[stageFailureAttemptPrefix+e.EventID].ErrorCode != code {
+			return fmt.Errorf("stage failure category already recorded")
+		}
 		if c.Result != "" {
 			if (stage == "cycle" && result == c.Result) || (stage != "cycle" && c.Stages[stage] == result) {
-				if c.FailureCodes[stage] != code {
-					return fmt.Errorf("stage failure category already recorded")
-				}
 				return nil
 			}
 			return fmt.Errorf("cycle already ended")
@@ -113,36 +126,38 @@ func ReportCycleWithErrorCode(scope Scope, id, stage, result, code string) error
 				}
 			}
 			if result == "completed" {
-				for _, v := range c.Stages {
-					if v != "completed" {
+				for _, rule := range c.Rules {
+					if !rule.Acknowledged {
+						return fmt.Errorf("rule pages must be acknowledged first")
+					}
+				}
+				for name, v := range c.Stages {
+					if name != ruleStage && v != "completed" {
 						return fmt.Errorf("all planned stages must complete first")
 					}
 				}
 			}
 			c.Result = result
 		} else {
+			if result == "completed" {
+				for _, r := range c.Rules {
+					if !r.Acknowledged {
+						return fmt.Errorf("read and acknowledge all cycle rules before business completion")
+					}
+				}
+			}
 			old, ok := c.Stages[stage]
 			if !ok {
 				return fmt.Errorf("stage not in this cycle")
 			}
 			if old == result {
-				if c.FailureCodes[stage] != code {
-					return fmt.Errorf("stage failure category already recorded")
-				}
 				return nil
 			}
 			if old != "" {
 				return fmt.Errorf("stage already reported; start a new cycle to retry")
 			}
 			c.Stages[stage] = result
-			if code != "" {
-				if c.FailureCodes == nil {
-					c.FailureCodes = map[string]string{}
-				}
-				c.FailureCodes[stage] = code
-			}
 		}
-		e := cycleEvent(c, stage, result)
 		e.ErrorCode = code
 		if err := Validate(e); err != nil {
 			return err
@@ -152,6 +167,10 @@ func ReportCycleWithErrorCode(scope Scope, id, stage, result, code string) error
 			start.EventAt = e.EventAt // First execution evidence, not plan creation time.
 			st.Events = append(st.Events, start)
 			c.ExecutionObserved = true
+		}
+		if code != "" {
+			// Older CLI processes preserve the existing attempts map and Event fields.
+			st.Attempts[stageFailureAttemptPrefix+e.EventID] = e
 		}
 		st.Cycles[id] = c
 		st.Events = append(st.Events, e)

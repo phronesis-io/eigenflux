@@ -419,3 +419,67 @@ through Pipeline metrics; see [feature monitoring](feature_index.md#monitoring).
 
 Optional V0.2.1 extraction and explicit distribution blocking are described in
 [UGC AI Slop](ugc-slop.md), including migration, rollback and evaluation boundaries.
+
+
+## UGC publisher summary ownership
+
+`UGC_PUBLISHER_SUMMARY` defaults to false. When enabled in Item RPC, new UGC
+publications pin the exact optional `notes.summary` and `summary_origin` in the
+pending row. A nonblank string of at most 280 Unicode characters is `publisher`;
+absent, null or blank is `none`. Invalid supplied values return a format error
+before persistence. The author owns factual accuracy; existing content safety
+checks remain. PGC classification comes from the author's stored email and uses
+the independent PGC policy.
+
+Workers recognize the pinned origin even after the publication flag is disabled.
+They extract metadata without generating or auditing a summary, then preserve
+the pinned value when persisting and indexing. A completed checkpoint retries
+projection without another model call. Historical rows default to `unknown`;
+there is no bulk rewrite or inferred attribution.
+
+Apply migration 000132 before starting new binaries. Upgrade every Item worker
+before enabling publication ownership: old workers do not understand the pin.
+Disable the flag to stop new ownership-policy publications, but keep upgraded
+workers for already-pinned jobs. Do not down-migrate or roll workers back across
+accepted ownership records; migration Down refuses attributed rows.
+
+Display translations use a single fidelity-focused prompt, without semantic
+validation, model review or repair loops. New literal translation columns are
+isolated from old writers; source/version keys hide stale entries and writes
+require unchanged source text. Summary ownership and translation attribution
+are independent. The 200-character body preview is translated as an excerpt.
+
+Before activation, replay recent real contexts and report per-Agent deliveries
+and expected positives, PGC/UGC and Need/Profile composition, and search changes.
+Absent evidence keeps the release draft. After an approved rollout, compare
+fixed-cohort daily positives the next day; record the actual activation time.
+Turning off new publication ownership does not undo existing search projections.
+The first-release rollback preserves accepted author summaries or their absence,
+keeps upgraded workers, and restores the prior route only for future publications.
+This does not restore all pre-release recommendation results or isolate recipient
+cohorts. Acceptance must account for retained projections and per-Agent effects.
+
+Set `SUMMARY_TRANSLATIONS_DISABLED=true` and restart API, Item RPC and cron to roll back
+summary/body translation display and new translation calls to source-language
+text. Cached translations and original content are retained; switching back
+restores only source/version-matching translations. This does not disable
+unrelated Agent-name translation.
+
+### Confirmed historical defects
+
+Migration 000133 adds per-item suppression and an audit table. The approved
+four-record operator plan is documented in
+[`repair_summary_history`](../../scripts/repair_summary_history/README.md).
+`body_only` clears the selected platform summary and translations so existing
+preview readers use original-body excerpts. `summary_original` suppresses only
+the summary translation. Original body/notes and audited previous values remain.
+A database trigger fences legacy writes; API and cron skip suppressed fields.
+Unknown provenance elsewhere does not imply a confirmed defect or authorize a
+bulk rewrite. Application rollout alone does not activate historical repairs.
+
+Activation is a separate reviewed operation after compatible deployment and
+writer drain. Its durable jobs repair completed-item projections without summary
+generation. Verify API/Feed/website, search, ES and forward-feature consistency
+before completion. The four changed projections participate in release replay.
+Reversal is explicit, source-conditional and audited; never automatically expose
+known-bad text as a fallback. Retain this additive schema after any repair.

@@ -49,6 +49,52 @@ func TestRuntimeObservationContract(t *testing.T) {
 	}
 }
 
+func TestRuntimeLifecycleAndNonterminalCycleContract(t *testing.T) {
+	e := validMaintenanceEvent()
+	e.Component, e.Phase, e.Result = "runtime", "cycle", "plan_created"
+	e.ToVersion, e.FromVersion, e.RunningVersion, e.ErrorCode = "", "", "", ""
+	e.DurationMS = 0
+	e.Runtime = &runtimeObservation{Stage: "cycle", PlanMode: "full", Product: "codex", CLI: "1.0.19"}
+	for _, result := range []string{"plan_created", "incomplete", "permission_required", "permission_denied", "interrupted"} {
+		e.Result = result
+		if err := validateMaintenanceEvent(e, time.Now()); err != nil {
+			t.Fatalf("%s: %v", result, err)
+		}
+		e.Runtime.Stage = "feed"
+		if validateMaintenanceEvent(e, time.Now()) == nil {
+			t.Fatal("diagnostic accepted as business stage")
+		}
+		e.Runtime.Stage = "cycle"
+	}
+	valid := map[string][]string{"trigger": {"observed"}, "permission": {"allowed", "legacy_mismatch", "prompt", "forbidden", "unknown", "required", "denied"}, "guard": {"configured", "active"}, "execution": {"interrupted"}}
+	e.Phase = "lifecycle"
+	e.Runtime.PlanMode = ""
+	for stage, results := range valid {
+		for _, result := range results {
+			e.Runtime.Stage, e.Result = stage, result
+			if err := validateMaintenanceEvent(e, time.Now()); err != nil {
+				t.Fatalf("%s/%s: %v", stage, result, err)
+			}
+		}
+	}
+	e.Runtime.Stage = "permission"
+	e.Result = "required"
+	e.ErrorCode = "permission_denied"
+	if validateMaintenanceEvent(e, time.Now()) == nil {
+		t.Fatal("unexpected raw error field")
+	}
+	e.ErrorCode = ""
+	e.Runtime.PlanMode = "full"
+	if validateMaintenanceEvent(e, time.Now()) == nil {
+		t.Fatal("lifecycle accepted plan mode")
+	}
+	e.Runtime.PlanMode = ""
+	e.Runtime.Stage = "feed"
+	if validateMaintenanceEvent(e, time.Now()) == nil {
+		t.Fatal("unexpected lifecycle stage")
+	}
+}
+
 func TestRuntimeFailureCategoryContract(t *testing.T) {
 	e := validMaintenanceEvent()
 	e.Component = "runtime"

@@ -1,0 +1,158 @@
+{
+  "cli/cmd/onboarding_copy_contract_test.go": {
+    "sha256": "cf7dfca39fd5970dae46976f65b06f7738fbf088cee22234d077b971b8cd5f48",
+    "tests": [
+      "TestOnboardingBrowserHandoffRendering",
+      "TestOnboardingResultAndHostRouting",
+      "TestRichPrefillAndFeedPresentationContract",
+      "TestOnboardingCommunityInvitation",
+      "TestOnboardingPrefillContextDiscovery",
+      "TestWorkBuddyDirectPreviewContract",
+      "TestWorkBuddyCommunityAttachmentContract",
+      "TestPlatformSupportRouting",
+      "TestSupportPublicCopyConsistency"
+    ]
+  },
+  "cli/cmd/profile_v2_skill_contract_test.go": {
+    "sha256": "612a7cd34967dc6e5b9c61706d747c989c45208afbec469531fb5e51613a2a22",
+    "tests": [
+      "TestProfileSkillOwnsOnlyPostOnboardingLifecycle",
+      "TestOnboardingSkillContract",
+      "TestConsoleV2SchedulerPromptMatchesCLI",
+      "TestPublicJoinEntryPointsUseOnboardingSkill",
+      "TestStandaloneInstallEntryOwnsHostInstallationRules",
+      "TestOnboardingAuthorizationAndActivationBoundaries",
+      "TestOnboardingFixedTemplateCoverage",
+      "TestHeartbeatQuietResultsPreserveHostProtocol",
+      "TestExistingSchedulerCompatibilityContract",
+      "TestFirstCheckOutputContract",
+      "TestReleasedCLIOnboardingSchedulerReferenceResolves"
+    ]
+  },
+  "cli/cmd/attention_skill_contract_test.go": {
+    "sha256": "ed1142cff103209649202a37bad568aab2348a800504cee174e783ea5694f73d",
+    "tests": [
+      "TestAttentionSkillConsumesHumanResponsesBeforeFeed",
+      "TestRuntimeCompleteAcceptsAttentionResultContract",
+      "TestAttentionSkillRuntimeCommandsExist"
+    ]
+  },
+  "cli/cmd/commission_notification_permission_contract_test.go": {
+    "sha256": "14960d226916f2854d5ed26a2d86782316de5409dbc2af0aaa9d75383a1c8b4c",
+    "tests": [
+      "TestCommissionPublishPermissionPreflightContract",
+      "TestCommissionWorkBuddyBackgroundSetupContract"
+    ]
+  },
+  "cli/cmd/production_skills_contract_test.go": {
+    "sha256": "9b99ca1594e4b4df97f4341afd6a7db5edbcb42d002cc72bff8f5ae86e8027bb",
+    "tests": [
+      "TestProductionSkillsUseStableVersions"
+    ]
+  },
+  "cli/cmd/need_capture_skill_test.go": {
+    "sha256": "fbe0f99c2469f29f8efe5eaf5f7e1b2d536b2941dbe4394b3757f00ad0612f0f",
+    "tests": [
+      "TestNeedCaptureMaintenanceSkillContract"
+    ]
+  },
+  "cli/cmd/feed_content_limit_test.go": {
+    "sha256": "c4bd02687cfb054a4f317e02756e8b9507d54e02a0792fb0e87d0c3487ae902c",
+    "tests": [
+      "TestLimitItemDetailContent",
+      "TestLimitItemDetailContentMarksComplete"
+    ]
+  },
+  "cli/cmd/capability_registry_contract_test.go": {
+    "sha256": "60788db581a10ff879bc5cb7893e786bff5a2cd1b18acf6b91400bb3127039a3",
+    "tests": [
+      "TestCapabilityRegistryMatchesFunctionalCLILeaves",
+      "TestDistributedSkillsDoNotWriteSecurityThroughConfigSet"
+    ]
+  },
+  "cli/cmd/commission_skill_contract_test.go": {
+    "sha256": "1d793c5f87d3e823ddff33adda09514aeb0daf976063adc52de5451c75a3333b",
+    "tests": [
+      "TestCommissionSkillContract",
+      "TestCommissionInteractiveFulfillmentReusesIntakeInspection"
+    ]
+  },
+  "cli/cmd/feed_scoring_contract_test.go": {
+    "sha256": "035f6e1e8f71409f4f4f2f475958a539b4ff86efc09996fec1cd9ac981de3129",
+    "tests": [
+      "TestFeedScoringFallbackContract",
+      "TestFeedPendingConfirmationContract",
+      "TestFeedOwnerOriginAndCompletionContract"
+    ]
+  },
+  "cli/cmd/context_mutations_test.go": {
+    "sha256": "f0753f4b1c71bfb23449f04ea3d0928cafc4e441d3187236504dc34c52782736",
+    "tests": [
+      "TestIntentFieldsRequiresFreshConfirmationForElevatedPolicy",
+      "TestIntentFieldsUpdatePreservesUnchangedValues",
+      "TestNewOwnerDecisionCommandsAreRegistered"
+    ]
+  },
+  "cli/cmd/profile_card_input_test.go": {
+    "sha256": "3e6943bb17a028c3a0f0427221e29b9fef41e5ad0337268ffeda1aa27e686d89",
+    "tests": [
+      "TestReadProfilePatchJSONBoundsStdin"
+    ]
+  },
+  "cli/cmd/profile_status_test.go": {
+    "sha256": "84ef8d3d466885a39546cd68555f93299dd2e410fb4c3379ee053e4c870b519f",
+    "tests": [
+      "TestStatusPromptAutoPublishFlag",
+      "TestBuildStatusPrompt_AutoPublishBranch",
+      "TestBuildStatusPrompt_ThoughtThenStatusOrder",
+      "TestBuildStatusPrompt_PrivacyRule"
+    ]
+  },
+  "cli/cmd/profile_update_compat_test.go": {
+    "sha256": "02c8085ed415cea5b83c97f742f8f337cb56346ca0c3adb62a5dc8f3993c9d0c",
+    "tests": [
+      "TestProfileUpdateCompatibilityUsesVersionedFieldWriter",
+      "TestProfileUpdateCompatibilityUsesStableDefaultSource",
+      "TestProfileUpdateCompatibilityExplainsVersionConflict",
+      "TestProfileUpdateV2RoutesUseAgentCredentialNamespace"
+    ]
+  },
+  "cli/cmd/profile_refresh_test.go": {
+    "sha256": "5998f57dcff735ef678b9e7641088d4f44ace8e4c46df986d2e6fe1d2178d1d7",
+    "tests": [
+      "TestBuildRefreshPromptUsesVersionedFieldLevelWorkflow",
+      "TestBuildCardRefreshSectionKeepsFullCurrentValue",
+      "TestBuildCardRefreshSectionMarksVisibilityAndPrivacy",
+      "TestBuildCardRefreshSectionShellQuotesServer",
+      "TestSafePromptServerNameRejectsPromptControls"
+    ]
+  },
+  "cli/cmd/msg_error_test.go": {
+    "sha256": "99f476dfac27b4a5979dcfacc3a94b5cd9f4ae9deb2285e1c011bef715bde9bc",
+    "tests": [
+      "TestFormatMessageSendErrorPreservesStructuredDetails"
+    ]
+  },
+  "cli/cmd/msg_test.go": {
+    "sha256": "7ed88aef65731aec54c8205d914a2d93ac905991ee8aba931893bb64a50b0945",
+    "tests": [
+      "TestValidateMessageContent"
+    ]
+  },
+  "cli/cmd/stream_safeinline_test.go": {
+    "sha256": "d322acd7dadcb3b39cef8b2694d57eccfd3116409898611176460a1bd583a3d3",
+    "tests": [
+      "TestSafeInlineNeutralizesTaskMarker",
+      "TestSafeInlineKeepsTextOnOneLine",
+      "TestSafeInlineCapsLength",
+      "TestSafeInlineLeavesNormalTextAlone"
+    ]
+  },
+  "cli/cmd/stream_render_test.go": {
+    "sha256": "fbefefb50134c4fbaf26d69de3d0ff3566a4cda49ebf1a7e4962b33734bb33f2",
+    "tests": [
+      "TestStreamFriendRequestsPayloadDecodes",
+      "TestSafeInlineNeutralizesTaskMarkersAndControls"
+    ]
+  }
+}

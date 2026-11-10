@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -12,6 +13,112 @@ import (
 	"testing"
 	"time"
 )
+
+type launchctlTestExit int
+
+func (e launchctlTestExit) Error() string { return "launchctl exit " + strconv.Itoa(int(e)) }
+func (e launchctlTestExit) ExitCode() int { return int(e) }
+
+func TestRestartLaunchAgentWaitsForAsynchronousUnload(t *testing.T) {
+	home, file, definition := launchFixture(t)
+	stopping, started, unloadReads := false, false, 0
+	run := func(_ context.Context, program string, args ...string) ([]byte, error) {
+		if program == "/usr/bin/plutil" {
+			return definition, nil
+		}
+		if args[0] == "print-disabled" || (args[0] == "print" && strings.Count(args[1], "/") == 1) {
+			return nil, nil
+		}
+		switch args[0] {
+		case "print":
+			if stopping && !started {
+				unloadReads++
+				if unloadReads <= 3 {
+					return []byte("\tstate = SIGTERMed\n\tpid = 12345\n"), nil
+				}
+				return nil, launchctlTestExit(113)
+			}
+			return []byte("\tstate = running\n\tpid = 24680\n"), nil
+		case "bootout":
+			stopping = true
+		case "bootstrap":
+			if unloadReads != 4 {
+				t.Fatalf("bootstrap before old service disappeared: %d reads", unloadReads)
+			}
+			started = true
+		case "kickstart":
+		default:
+			t.Fatal(args)
+		}
+		return nil, nil
+	}
+	result, err := restartLaunchAgent(context.Background(), file, home, os.Getuid(), run, time.Millisecond, time.Millisecond)
+	if err != nil || result.PID != 24680 {
+		t.Fatalf("restart: %+v %v", result, err)
+	}
+}
+
+func TestRestartLaunchAgentDoesNotBootstrapOnUnloadTimeout(t *testing.T) {
+	home, file, definition := launchFixture(t)
+	stopping := false
+	run := func(_ context.Context, program string, args ...string) ([]byte, error) {
+		if program == "/usr/bin/plutil" {
+			return definition, nil
+		}
+		switch args[0] {
+		case "print-disabled":
+			return nil, nil
+		case "print":
+			return []byte("\tstate = SIGTERMed\n\tpid = 12345\n"), nil
+		case "bootout":
+			stopping = true
+		default:
+			t.Fatalf("mutation before unload completed: %v", args)
+		}
+		return nil, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	_, err := restartLaunchAgent(ctx, file, home, os.Getuid(), run, 0, time.Millisecond)
+	if !stopping || !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "did not unload") {
+		t.Fatalf("timeout: stopping=%t, %v", stopping, err)
+	}
+}
+
+func TestRestartLaunchAgentDoesNotTreatReadFailuresAsAbsence(t *testing.T) {
+	for _, stopping := range []bool{false, true} {
+		for _, failure := range []error{exec.ErrNotFound, launchctlTestExit(1), launchctlTestExit(5), context.Canceled} {
+			t.Run(strconv.FormatBool(stopping)+"/"+failure.Error(), func(t *testing.T) {
+				home, file, definition := launchFixture(t)
+				stopped := false
+				run := func(_ context.Context, program string, args ...string) ([]byte, error) {
+					if program == "/usr/bin/plutil" {
+						return definition, nil
+					}
+					if args[0] == "print-disabled" || (args[0] == "print" && strings.Count(args[1], "/") == 1) {
+						return nil, nil
+					}
+					switch args[0] {
+					case "print":
+						if !stopping || stopped {
+							return nil, failure
+						}
+						return []byte("\tstate = running\n\tpid = 12345\n"), nil
+					case "bootout":
+						stopped = true
+					default:
+						t.Fatalf("mutation after failed state read: %v", args)
+					}
+					return nil, nil
+				}
+				_, err := restartLaunchAgent(context.Background(), file, home, os.Getuid(), run, 0, time.Millisecond)
+				if !errors.Is(err, failure) || stopped != stopping {
+					t.Fatalf("read failure: stopped=%t, %v", stopped, err)
+				}
+			})
+		}
+	}
+}
 
 func TestRestartLaunchAgentReloadsOnlyExplicitTask(t *testing.T) {
 	for _, loaded := range []bool{false, true} {
@@ -32,7 +139,7 @@ func TestRestartLaunchAgentReloadsOnlyExplicitTask(t *testing.T) {
 				switch args[0] {
 				case "print":
 					if !loadedNow {
-						return nil, errors.New("service absent")
+						return nil, launchctlTestExit(113)
 					}
 					return []byte("gui/501/ai.eigenflux.fixture {\n\tstate = running\n\tpid = 24680\n}"), nil
 				case "bootout":
@@ -139,7 +246,7 @@ func TestRestartLaunchAgentDoesNotReportLoadedOrCrashLoopAsRunning(t *testing.T)
 	for _, failure := range []string{"bootout", "bootstrap", "kickstart", "missing_pid", "crash_loop"} {
 		t.Run(failure, func(t *testing.T) {
 			home, file, definition := launchFixture(t)
-			started, pid := false, 24000
+			started, loaded, pid := false, true, 24000
 			run := func(_ context.Context, program string, args ...string) ([]byte, error) {
 				if program == "/usr/bin/plutil" {
 					return definition, nil
@@ -149,6 +256,15 @@ func TestRestartLaunchAgentDoesNotReportLoadedOrCrashLoopAsRunning(t *testing.T)
 				}
 				if args[0] == "kickstart" {
 					started = true
+				}
+				if args[0] == "bootout" {
+					loaded = false
+				}
+				if args[0] == "bootstrap" {
+					loaded = true
+				}
+				if args[0] == "print" && strings.Count(args[1], "/") == 2 && !loaded {
+					return nil, launchctlTestExit(113)
 				}
 				if args[0] == "print" && strings.Count(args[1], "/") == 2 && started {
 					if failure == "crash_loop" {

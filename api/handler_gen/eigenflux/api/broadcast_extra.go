@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"eigenflux_server/pkg/summary"
 	"net/http"
 	"strconv"
 	"time"
@@ -147,22 +148,24 @@ func MyRatedItems(ctx context.Context, c *app.RequestContext) {
 	items := make([]map[string]interface{}, 0, len(rows))
 	for _, r := range rows {
 		item := map[string]interface{}{
-			"item_id":             strconv.FormatInt(r.ItemID, 10),
-			"my_score":            r.MyScore,
-			"feedback_at":         r.FeedbackAt,
-			"summary":             r.Summary,
-			"summary_zh":          r.SummaryZh,
-			"title_zh":            r.TitleZh,
-			"lang":                r.Lang,
-			"domains":             r.Domains,
-			"broadcast_type":      r.BroadcastType,
-			"raw_content":         r.RawContent,
-			"raw_url":             r.RawURL,
-			"author_agent_id":     strconv.FormatInt(r.AuthorAgentID, 10),
-			"author_name":         r.AuthorName,
-			"author_name_en":      r.AuthorNameEn,
-			"author_country_code": broadcastCountryCode(r.AuthorCountryCode),
-			"created_at":          r.CreatedAt,
+			"item_id":                    strconv.FormatInt(r.ItemID, 10),
+			"my_score":                   r.MyScore,
+			"feedback_at":                r.FeedbackAt,
+			"summary":                    r.Summary,
+			"summary_translation_source": "platform",
+			"summary_zh":                 summary.TranslationText(r.SummaryZh),
+			"summary_origin":             summary.Origin(r.SummaryOrigin),
+			"title_zh":                   summary.TranslationText(r.TitleZh),
+			"lang":                       r.Lang,
+			"domains":                    r.Domains,
+			"broadcast_type":             r.BroadcastType,
+			"raw_content":                r.RawContent,
+			"raw_url":                    r.RawURL,
+			"author_agent_id":            strconv.FormatInt(r.AuthorAgentID, 10),
+			"author_name":                r.AuthorName,
+			"author_name_en":             r.AuthorNameEn,
+			"author_country_code":        broadcastCountryCode(r.AuthorCountryCode),
+			"created_at":                 r.CreatedAt,
 		}
 		if identity, exists := identities[r.AuthorAgentID]; exists {
 			item["author_short_id"] = identity.ShortID
@@ -215,20 +218,22 @@ func TopBroadcasts(ctx context.Context, c *app.RequestContext) {
 	list := make([]map[string]interface{}, 0, len(rows))
 	for i, r := range rows {
 		item := map[string]interface{}{
-			"rank":            i + 1,
-			"item_id":         strconv.FormatInt(r.ItemID, 10),
-			"agent_id":        strconv.FormatInt(r.AuthorAgentID, 10),
-			"agent_name":      r.AgentName,
-			"agent_name_en":   r.AgentNameEn,
-			"summary":         r.Summary,
-			"summary_zh":      r.SummaryZh,
-			"broadcast_type":  r.BroadcastType,
-			"raw_content":     r.RawContent,
-			"praise_count":    r.PraiseCount,
-			"reach":           r.Reach,
-			"show_add_friend": r.ShowAddFriend,
-			"is_friend":       r.IsFriend,
-			"is_me":           r.AuthorAgentID == agentID,
+			"rank":                       i + 1,
+			"item_id":                    strconv.FormatInt(r.ItemID, 10),
+			"agent_id":                   strconv.FormatInt(r.AuthorAgentID, 10),
+			"agent_name":                 r.AgentName,
+			"agent_name_en":              r.AgentNameEn,
+			"summary":                    r.Summary,
+			"summary_translation_source": "platform",
+			"summary_zh":                 summary.TranslationText(r.SummaryZh),
+			"summary_origin":             summary.Origin(r.SummaryOrigin),
+			"broadcast_type":             r.BroadcastType,
+			"raw_content":                r.RawContent,
+			"praise_count":               r.PraiseCount,
+			"reach":                      r.Reach,
+			"show_add_friend":            r.ShowAddFriend,
+			"is_friend":                  r.IsFriend,
+			"is_me":                      r.AuthorAgentID == agentID,
 		}
 		if identity, exists := identities[r.AuthorAgentID]; exists {
 			item["short_id"] = identity.ShortID
@@ -270,19 +275,21 @@ func NewUserBroadcasts(ctx context.Context, c *app.RequestContext) {
 	list := make([]map[string]interface{}, 0, len(rows))
 	for i, r := range rows {
 		item := map[string]interface{}{
-			"rank":            i + 1,
-			"item_id":         strconv.FormatInt(r.ItemID, 10),
-			"agent_id":        strconv.FormatInt(r.AuthorAgentID, 10),
-			"agent_name":      r.AgentName,
-			"agent_name_en":   r.AgentNameEn,
-			"summary":         r.Summary,
-			"summary_zh":      r.SummaryZh,
-			"broadcast_type":  r.BroadcastType,
-			"raw_content":     r.RawContent,
-			"praise_count":    r.PraiseCount,
-			"show_add_friend": r.ShowAddFriend,
-			"is_friend":       r.IsFriend,
-			"is_me":           r.AuthorAgentID == agentID,
+			"rank":                       i + 1,
+			"item_id":                    strconv.FormatInt(r.ItemID, 10),
+			"agent_id":                   strconv.FormatInt(r.AuthorAgentID, 10),
+			"agent_name":                 r.AgentName,
+			"agent_name_en":              r.AgentNameEn,
+			"summary":                    r.Summary,
+			"summary_translation_source": "platform",
+			"summary_zh":                 summary.TranslationText(r.SummaryZh),
+			"summary_origin":             summary.Origin(r.SummaryOrigin),
+			"broadcast_type":             r.BroadcastType,
+			"raw_content":                r.RawContent,
+			"praise_count":               r.PraiseCount,
+			"show_add_friend":            r.ShowAddFriend,
+			"is_friend":                  r.IsFriend,
+			"is_me":                      r.AuthorAgentID == agentID,
 		}
 		if identity, exists := identities[r.AuthorAgentID]; exists {
 			item["short_id"] = identity.ShortID

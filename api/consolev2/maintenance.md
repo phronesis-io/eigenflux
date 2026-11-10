@@ -181,7 +181,7 @@ Deploy collection before CLI adoption; rollback can disable collection without
 schema changes. A client completion receipt is an assertion, not a server-side
 proof of every business effect. Analysis requires a matching start receipt.
 
-A generated plan contributes environment evidence only. The first valid stage receipt records execution with its observation timestamp. Cycle failure requires a failed stage receipt. Interrupted or missing stages remain unresolved.
+A generated plan contributes environment and delivery observations, not execution evidence. The first valid stage receipt records execution with its observation timestamp. Cycle failure requires a failed stage receipt. Interrupted or missing stages remain unresolved.
 
 Confirmed failed stage receipts may carry the existing top-level `error_code`
 with one of `authentication_failed`, `permission_denied`, `timeout`,
@@ -190,8 +190,51 @@ with one of `authentication_failed`, `permission_denied`, `timeout`,
 `cycle` receipt cannot carry a category. Old clients may omit it; omission is
 unknown evidence, not success. Never send exception text, URLs or response bodies.
 The CLI exposes this as optional `heartbeat cycle-report --error-code` alongside
-`--stage <planned-stage> --result failed`. Repeated receipts must preserve the
-original category. Deploy server validation before adopting this CLI option;
+`--stage <planned-stage> --result failed`. Repeated receipts may omit the
+category or use its original value. Deploy server validation before adopting this CLI option;
 older servers reject categorized runtime receipts. Default cycle instructions
 remain unchanged until that rollout is confirmed. Business requests are never
 repeated to repair a telemetry upload.
+
+## Plan and execution lifecycle observations
+
+Accept runtime `cycle` results `plan_created`, `incomplete`,
+`permission_required`, `permission_denied` and `interrupted` only with `runtime.stage=cycle` and a
+valid plan mode. Preserve `started` for actual execution evidence. Nonterminal
+observations do not change business outcomes, establish retention, or prove
+that a scheduler failed to trigger. Missing receipts remain unknown.
+
+Accept runtime phase `lifecycle` with an empty plan mode and fixed stage/result
+pairs: trigger/observed; permission/allowed, legacy_mismatch, prompt, forbidden,
+unknown, required or denied; guard/configured or active; execution/interrupted. Keep
+runtime metadata token-only and reject error codes and unrelated metadata.
+Configured guards do not prove host trust or activation; permission failures
+require actual local evidence. Continue using authenticated Agent ownership,
+maintenance event deduplication and the existing telemetry retention. Deploy API
+acceptance before clients emitting the new categories.
+
+`permission_required` and lifecycle permission/required record a host approval
+request, not its outcome. Emit `permission_denied` and permission/denied only
+from a trusted current-turn final host tool decline for the scoped CLI command.
+Retain these as historical observations if a later authorized retry succeeds;
+do not treat their existence as a current authorization decision.
+
+## Optional watch failure metadata
+
+The CLI retains fixed-enum `outer_loop.failure_reason` in its local journal but
+omits this optional field from HTTP event bodies. It sends a bounded JSON object
+in `X-EigenFlux-Watch-Failures`, mapping event IDs to fixed failure reasons. Copy
+both the event slice and affected outer-loop objects at the upload boundary;
+never mutate retained events or their IDs. All maintenance upload entry points
+use this projection. Older strict gateways ignore the header and accept the
+unchanged event body, so detail cannot block unrelated queued observations.
+
+The gateway validates each original event before merging matching header metadata.
+Accept at most 8,192 header bytes and 50 entries. Ignore malformed, oversized or
+wrongly typed headers, unmatched event IDs and reasons rejected by the existing
+full event validator. Invalid optional metadata never rejects a valid batch.
+Valid metadata enriches only the matching event's persisted properties. It does
+not change authentication, deduplication, event time, queue retirement or business
+execution. Raw error messages, paths and credentials are not accepted. Missing
+metadata stays unknown. The existing optional body field remains accepted for
+compatibility with earlier diagnostic clients.

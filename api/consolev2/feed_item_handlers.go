@@ -2,6 +2,7 @@ package consolev2
 
 import (
 	"context"
+	"eigenflux_server/pkg/summary"
 	"errors"
 	"net/http"
 	"strconv"
@@ -81,7 +82,8 @@ func (s *Service) getFeedSourceItem(ctx context.Context, c *app.RequestContext) 
 		"source_ref":    map[string]interface{}{"type": sourceType, "id": strconv.FormatInt(sourceID, 10)},
 		"content_class": source.ContentClass, "author_identity": authorIdentity,
 		"content": content, "content_truncated": truncated, "url": item.RawURL,
-		"summary": item.Summary, "summary_zh": item.SummaryZh, "broadcast_type": item.BroadcastType,
+		"summary_translation_source": "platform",
+		"summary":                    item.Summary, "summary_zh": item.SummaryZh, "summary_origin": summary.Origin(item.SummaryOrigin), "preview": summary.MakePreview(item.Summary, item.RawContent, item.SummaryOrigin, 800), "broadcast_type": item.BroadcastType,
 		"domains": splitMetadataValues(item.Domains), "keywords": splitMetadataValues(item.Keywords),
 		"source_type": item.SourceType, "expected_response": item.ExpectedResponse,
 		"updated_at": item.UpdatedAt,

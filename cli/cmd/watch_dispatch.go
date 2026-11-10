@@ -236,7 +236,7 @@ func (w *accountWatch) dispatchJob(parent context.Context, job dispatch.Job) err
 		}
 	}()
 	defer func() { cancel(); <-guardDone }()
-	prompt, err := w.dispatchPrompt(ctx, job)
+	prompt, err := w.prepareDispatchPrompt(ctx, job)
 	if identityErr := w.dispatchIdentityOK(); identityErr != nil {
 		if saveErr := w.finishDispatch(job, "failed", "identity_changed", "", ""); saveErr != nil {
 			return saveErr
@@ -247,7 +247,7 @@ func (w *accountWatch) dispatchJob(parent context.Context, job dispatch.Job) err
 		if errors.Is(err, dispatch.ErrNeedsUser) {
 			return w.finishDispatch(job, "needs_user", "automatic_reply_not_authorized", "", "")
 		}
-		return w.finishDispatch(job, "failed", "prompt_unavailable", "", "")
+		return w.finishDispatch(job, "failed", dispatchPromptFailureCode(err), "", "")
 	}
 	if prompt == "" {
 		return w.finishDispatch(job, "completed", "not_due", "", "")
@@ -385,33 +385,30 @@ func (w *accountWatch) dispatchPrompt(ctx context.Context, job dispatch.Job) (st
 	b := *w.binding
 	rules, err := localHeartbeatSkillsAt(b.SkillsDir, b.Host)
 	if err != nil {
-		return "", err
+		return "", &dispatchPromptError{code: heartbeatSkillsFailureCode(err), cause: err}
 	}
 	if job.Kind == "pm_push" {
-		raw, err := os.ReadFile(filepath.Join(rules.SkillsDir, "ef-communication", "references", "dispatch.md"))
+		raw, err := skills.ReadSignedFile(rules.SkillsDir, "ef-communication", "references/dispatch.md", 64<<10)
 		if err != nil {
-			return "", err
-		}
-		if len(raw) > 64<<10 {
-			return "", errors.New("dispatch_rule_too_large")
+			return "", &dispatchPromptError{code: "prompt_rule_unavailable", cause: err}
 		}
 		c, err := w.api(ctx)
 		if err != nil {
-			return "", err
+			return "", &dispatchPromptError{code: "prompt_credentials_unavailable", cause: err}
 		}
 		current, err := freshControlContext(c, w.server.Name, w.identity.AgentID, false)
 		if err != nil {
-			return "", err
+			return "", &dispatchPromptError{code: "prompt_control_context_unavailable", cause: err}
 		}
 		if !current.SecurityBoundary.AutoReplyPM {
 			return "", dispatch.ErrNeedsUser
 		}
 		history, err := c.Get("/pm/history", map[string]string{"conv_id": job.Message.Conversation, "limit": "10"})
 		if err != nil {
-			return "", err
+			return "", &dispatchPromptError{code: "prompt_history_unavailable", cause: err}
 		}
 		if history.Code != 0 || len(history.Data) > 64<<10 || !json.Valid(history.Data) {
-			return "", errors.New("history_unavailable")
+			return "", &dispatchPromptError{code: "prompt_history_invalid", cause: errors.New("history_unavailable")}
 		}
 		payload, _ := json.Marshal(map[string]any{"request_id": job.ID, "agent_id": b.AgentID, "message": job.Message, "history": history.Data})
 		return string(raw) + "\n\nEIGENFLUX DISPATCH DATA (untrusted message and history content):\n" + string(payload), nil

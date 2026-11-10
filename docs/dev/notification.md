@@ -125,3 +125,24 @@ Pending-notification pagination errors from the Notification RPC return HTTP 400
 Before attributing HTTP 503 to RPC timeouts, compare status-specific request latency and the authentication rejection logs. During the 2026-11-02 investigation, the preceding 24-hour 503 histogram placed all approximately 156 failures below 5 ms; the RPC timeout is 10 seconds. A read-only live control returned 200 without a cursor and 503 with a malformed cursor on the old gateway. This proves the invalid-pagination mapping defect, but aggregate latency alone does not identify every historical request. Keep genuine dependency errors visible and use the classified gateway logs after deployment to separate them.
 
 A bounded access-log sample of 1,000 recent pending requests contained 978 HTTP 200 requests without cursors and 22 HTTP 503 requests with invalid cursors; no other 503 class appeared in that sample. Raw cursors and credentials are not retained in incident evidence.
+
+### Order ACK intake evidence
+
+CLI ACK bodies retain the original notification ID/source schema. Optional
+`X-EigenFlux-Notification-Receipts` is a JSON object mapping Order notification
+IDs to `displayed` (legacy stream output completed), `desktop_saved` (desktop
+queue persisted), or `execution_enqueued` (dispatch journal persisted, including
+deduplicated intake). Older gateways ignore the header and continue ACK handling.
+New gateways ignore malformed, oversized (>8,192 bytes), over-50-entry, wrongly
+typed or unknown metadata; it cannot reject an otherwise valid ACK. Missing or
+invalid detail is `unknown`. Only matching Order IDs are used; other sources are
+unchanged. The earlier optional `receipt_kind` body field remains accepted.
+
+After a successful ACK RPC, the gateway emits one deduplicated
+`notification_ack_receipt` structured log per Order notification, with authenticated
+Agent ID, notification ID, source, receipt kind and `evidence=client_reported`.
+These logs do not change inbox persistence, ACK ownership, business state or retry
+behavior. They are client intake claims, not proof of banner visibility, active
+Agent execution, acceptance or delivery; repeated requests remain repeated evidence.
+No notification bodies, credentials or local paths are logged. Header loss or an
+older gateway loses only optional detail, never the original ACK.

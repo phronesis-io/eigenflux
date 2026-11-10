@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"eigenflux_server/pkg/config"
 	"eigenflux_server/pkg/searchguard"
+	"eigenflux_server/pkg/summary"
 	"errors"
 	"strings"
 
@@ -19,8 +21,10 @@ import (
 )
 
 type ItemServiceImpl struct {
-	searchGuard searchguard.Guard
-	itemIDGen   interface {
+	searchGuard         searchguard.Guard
+	ugcPublisherSummary bool
+	pgcEmailSuffixes    []string
+	itemIDGen           interface {
 		NextID() (int64, error)
 	}
 }
@@ -45,6 +49,24 @@ func (s *ItemServiceImpl) PublishItem(ctx context.Context, req *item.PublishItem
 		return &item.PublishItemResp{
 			BaseResp: &base.BaseResp{Code: 400, Msg: err.Error()},
 		}, nil
+	}
+	publisherText, summaryOrigin := "", "unknown"
+	if s.ugcPublisherSummary {
+		var author struct{ Email string }
+		if err := db.DB.WithContext(ctx).Table("agents").Select("email").Where("agent_id = ?", req.AuthorAgentId).Take(&author).Error; err != nil {
+			return &item.PublishItemResp{BaseResp: &base.BaseResp{Code: 500, Msg: "cannot resolve publisher identity"}}, nil
+		}
+		if !config.EmailMatchesAnySuffix(author.Email, s.pgcEmailSuffixes) {
+			var err error
+			publisherText, err = summary.Publisher(req.GetRawNotes())
+			if err != nil {
+				return &item.PublishItemResp{BaseResp: &base.BaseResp{Code: 400, Msg: err.Error()}}, nil
+			}
+			summaryOrigin = "none"
+			if publisherText != "" {
+				summaryOrigin = "publisher"
+			}
+		}
 	}
 	if s.itemIDGen == nil {
 		return &item.PublishItemResp{
@@ -71,6 +93,8 @@ func (s *ItemServiceImpl) PublishItem(ctx context.Context, req *item.PublishItem
 	}
 	pi := &dal.ProcessedItem{
 		ItemID:           raw.ItemID,
+		Summary:          publisherText,
+		SummaryOrigin:    summaryOrigin,
 		Status:           dal.StatusPending,
 		ExpectedResponse: expectedResponse,
 	}
@@ -142,6 +166,7 @@ func (s *ItemServiceImpl) FetchItems(ctx context.Context, req *item.FetchItemsRe
 			ItemId:           pi.ItemID,
 			Status:           int32(pi.Status),
 			Summary:          strPtr(pi.Summary),
+			SummaryOrigin:    strPtr(summary.Origin(pi.SummaryOrigin)),
 			BroadcastType:    pi.BroadcastType,
 			Domains:          domains,
 			Keywords:         keywords,
@@ -192,6 +217,7 @@ func (s *ItemServiceImpl) BatchGetItems(ctx context.Context, req *item.BatchGetI
 			ItemId:           pi.ItemID,
 			Status:           int32(pi.Status),
 			Summary:          strPtr(pi.Summary),
+			SummaryOrigin:    strPtr(summary.Origin(pi.SummaryOrigin)),
 			BroadcastType:    pi.BroadcastType,
 			Domains:          domains,
 			Keywords:         keywords,
@@ -239,6 +265,7 @@ func (s *ItemServiceImpl) GetMyItems(ctx context.Context, req *item.GetMyItemsRe
 			ItemId:            it.ItemID,
 			RawContentPreview: it.RawContentPreview,
 			Summary:           strPtr(it.Summary),
+			SummaryOrigin:     strPtr(summary.Origin(it.SummaryOrigin)),
 			BroadcastType:     it.BroadcastType,
 			ConsumedCount:     it.ConsumedCount,
 			ScoreNeg1Count:    it.ScoreNeg1Count,

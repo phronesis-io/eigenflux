@@ -30,7 +30,7 @@ func isCommissionInputCoordination(raw json.RawMessage) bool {
 	if event == "" {
 		event = notice.Type
 	}
-	return event == "order.inputs.requested.v1" || event == "order.inputs.supplied.v1"
+	return event == "order.inputs.requested.v1" || event == "order.inputs.supplied.v1" || event == "order.inputs.withdrawn.v1"
 }
 
 type commissionNotificationPage struct {
@@ -276,9 +276,14 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 			if json.Unmarshal(notification.ID, &id) != nil {
 				return errors.New("invalid_commission_notification_id")
 			}
+			receiptKind := "desktop_saved"
+			if w.journal != nil {
+				receiptKind = "execution_enqueued"
+			}
 			ack = append(ack, map[string]string{
 				"notification_id": strconv.FormatInt(int64(id), 10),
 				"source_type":     "commission_order",
+				"receipt_kind":    receiptKind,
 			})
 		}
 		// Every notification is durable before any ACK. Refresh outside the
@@ -298,7 +303,7 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 		ackedOrders := 0
 		for first := 0; first < len(ack); first += 50 {
 			last := min(first+50, len(ack))
-			response, err := api.Post("/notifications/ack", map[string]interface{}{"notifications": ack[first:last]})
+			response, err := postNotificationACK(api, ack[first:last])
 			if err != nil {
 				return err
 			}
