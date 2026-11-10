@@ -152,7 +152,7 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 		Skill string `json:"fulfillment_skill"`
 	}
 	if err := json.Unmarshal(order.Contract, &modelContract); err != nil {
-		return w.finishDispatch(job, "failed", "commission_fulfillment_contract_invalid", "", "")
+		return w.finishDispatch(job, "failed", "commission_fulfillment_job_invalid", "", "")
 	}
 	prompt.CommissionSkill = modelContract.Skill
 	result, runErr := w.runCommissionAgent(ctx, job, prompt)
