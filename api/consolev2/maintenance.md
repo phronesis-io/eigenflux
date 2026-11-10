@@ -183,6 +183,19 @@ proof of every business effect. Analysis requires a matching start receipt.
 
 A generated plan contributes environment and delivery observations, not execution evidence. The first valid stage receipt records execution with its observation timestamp. Cycle failure requires a failed stage receipt. Interrupted or missing stages remain unresolved.
 
+Confirmed failed stage receipts may carry the existing top-level `error_code`
+with one of `authentication_failed`, `permission_denied`, `timeout`,
+`network_error`, `rate_limited`, `server_error`, `host_unavailable`, or
+`unknown_failure`. Environment observations, successful stages and the terminal
+`cycle` receipt cannot carry a category. Old clients may omit it; omission is
+unknown evidence, not success. Never send exception text, URLs or response bodies.
+The CLI exposes this as optional `heartbeat cycle-report --error-code` alongside
+`--stage <planned-stage> --result failed`. Repeated receipts may omit the
+category or use its original value. Deploy server validation before adopting this CLI option;
+older servers reject categorized runtime receipts. Default cycle instructions
+remain unchanged until that rollout is confirmed. Business requests are never
+repeated to repair a telemetry upload.
+
 ## Plan and execution lifecycle observations
 
 Accept runtime `cycle` results `plan_created`, `incomplete`,

@@ -1,5 +1,12 @@
 # Testing
 
+Retention runtime failure categories are covered by
+`go test ./internal/maintenance ./cmd -run 'TestRuntime|TestFailedStage|TestCycle'`
+in `cli/`, and `go test ./api/consolev2 -run TestRuntime` in the root module.
+They verify privacy allowlists, failed-stage-only categories, account-local
+durability and immutable idempotent receipts. Database-backed acceptance still
+requires the isolated infrastructure described below.
+
 Tests live beside the packages they exercise and in the service integration suites under `tests/`. Shared integration helpers live in `tests/testutil/`. The CLI and Console API are independent Go modules; Console Web has its own Node test command.
 
 ## Test Directories

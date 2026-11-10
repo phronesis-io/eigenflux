@@ -21,13 +21,24 @@ type runtimeObservation struct {
 
 var runtimeToken = regexp.MustCompile(`^[A-Za-z0-9_.:/+@-]{0,128}$`)
 
+func runtimeFailureCode(code string) bool {
+	switch code {
+	case "authentication_failed", "permission_denied", "timeout", "network_error", "rate_limited", "server_error", "host_unavailable", "unknown_failure":
+		return true
+	}
+	return false
+}
+
 func validateRuntimeObservation(e maintenanceEvent) error {
 	r := e.Runtime
 	if r == nil || e.Component != "runtime" || (e.Trigger != "auto" && e.Trigger != "manual") || (e.Mode != "" && e.Mode != "skill" && e.Mode != "plugin") {
 		return fmt.Errorf("invalid runtime observation")
 	}
-	if e.OuterLoop != nil || e.Commission != nil || e.Notification != nil || e.Source != "" || e.Platform != "" || e.ReasonCategory != "" || e.ToVersion != "" || e.FromVersion != "" || e.RunningVersion != "" || e.ErrorCode != "" || e.DurationMS != 0 {
+	if e.OuterLoop != nil || e.Commission != nil || e.Notification != nil || e.Source != "" || e.Platform != "" || e.ReasonCategory != "" || e.ToVersion != "" || e.FromVersion != "" || e.RunningVersion != "" || e.DurationMS != 0 {
 		return fmt.Errorf("unexpected runtime metadata")
+	}
+	if e.ErrorCode != "" && (e.Phase != "cycle" || e.Result != "failed" || r.Stage == "cycle" || !runtimeFailureCode(e.ErrorCode)) {
+		return fmt.Errorf("error code requires a confirmed stage failure category")
 	}
 	for _, v := range []string{e.Host, r.Mode, r.Product, r.ProductVersion, r.OS, r.Arch, r.Model, r.CLI, r.Skills, r.Stage, r.PlanMode} {
 		if !runtimeToken.MatchString(v) {

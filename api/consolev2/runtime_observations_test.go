@@ -94,3 +94,37 @@ func TestRuntimeLifecycleAndNonterminalCycleContract(t *testing.T) {
 		t.Fatal("unexpected lifecycle stage")
 	}
 }
+
+func TestRuntimeFailureCategoryContract(t *testing.T) {
+	e := validMaintenanceEvent()
+	e.Component = "runtime"
+	e.Phase = "cycle"
+	e.Result = "failed"
+	e.ToVersion = ""
+	e.FromVersion = ""
+	e.RunningVersion = ""
+	e.DurationMS = 0
+	e.Runtime = &runtimeObservation{Stage: "feed", PlanMode: "full"}
+	for _, code := range []string{"", "authentication_failed", "permission_denied", "timeout", "network_error", "rate_limited", "server_error", "host_unavailable", "unknown_failure"} {
+		e.ErrorCode = code
+		if err := validateMaintenanceEvent(e, time.Now()); err != nil {
+			t.Fatal(code, err)
+		}
+	}
+	for _, code := range []string{"bearer secret", "custom_private_code", "/Users/private"} {
+		e.ErrorCode = code
+		if validateMaintenanceEvent(e, time.Now()) == nil {
+			t.Fatal("private or unknown category accepted")
+		}
+	}
+	e.ErrorCode = "timeout"
+	e.Result = "completed"
+	if validateMaintenanceEvent(e, time.Now()) == nil {
+		t.Fatal("success accepted with failure category")
+	}
+	e.Result = "failed"
+	e.Runtime.Stage = "cycle"
+	if validateMaintenanceEvent(e, time.Now()) == nil {
+		t.Fatal("cycle cause inferred")
+	}
+}

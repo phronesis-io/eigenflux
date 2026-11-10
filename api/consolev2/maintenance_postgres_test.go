@@ -142,6 +142,8 @@ func TestMaintenancePostgresAgentAuthIdentityAndIdempotency(t *testing.T) {
 		for _, result := range []string{"plan_created", "incomplete", "permission_required", "permission_denied", "interrupted"} {
 			add("cycle", "cycle", result, "full")
 		}
+		add("cycle", "feed", "failed", "full")
+		events[len(events)-1].ErrorCode = "timeout"
 		for _, row := range []struct{ stage, result string }{
 			{"trigger", "observed"}, {"permission", "allowed"}, {"permission", "legacy_mismatch"},
 			{"permission", "prompt"}, {"permission", "forbidden"}, {"permission", "unknown"},
@@ -156,11 +158,12 @@ func TestMaintenancePostgresAgentAuthIdentityAndIdempotency(t *testing.T) {
 			}
 		}
 		var rows []struct {
-			AgentID                        int64
-			Phase, Stage, Result, PlanMode string
+			AgentID                                   int64
+			Phase, Stage, Result, PlanMode, ErrorCode string
 		}
 		query := `SELECT agent_id,properties->>'phase' AS phase,properties->'runtime'->>'stage' AS stage,
-properties->>'result' AS result,coalesce(properties->'runtime'->>'plan_mode','') AS plan_mode
+properties->>'result' AS result,coalesce(properties->'runtime'->>'plan_mode','') AS plan_mode,
+coalesce(properties->>'error_code','') AS error_code
 FROM telemetry_events_v2 WHERE properties->>'attempt_id'=? ORDER BY agent_id,event_id`
 		if err := tx.Raw(query, events[0].AttemptID).Scan(&rows).Error; err != nil {
 			t.Fatal(err)
@@ -173,7 +176,7 @@ FROM telemetry_events_v2 WHERE properties->>'attempt_id'=? ORDER BY agent_id,eve
 			key := fmt.Sprintf("%d/%s/%s/%s", row.AgentID, row.Phase, row.Stage, row.Result)
 			matched := false
 			for _, want := range events {
-				if row.Phase == want.Phase && row.Stage == want.Runtime.Stage && row.Result == want.Result && row.PlanMode == want.Runtime.PlanMode {
+				if row.Phase == want.Phase && row.Stage == want.Runtime.Stage && row.Result == want.Result && row.PlanMode == want.Runtime.PlanMode && row.ErrorCode == want.ErrorCode {
 					matched = true
 					break
 				}

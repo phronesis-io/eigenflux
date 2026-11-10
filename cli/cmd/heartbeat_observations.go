@@ -84,7 +84,8 @@ func init() {
 		id, _ := cmd.Flags().GetString("cycle")
 		stage, _ := cmd.Flags().GetString("stage")
 		result, _ := cmd.Flags().GetString("result")
-		if err := maintenance.ReportCycle(scope, id, stage, result); err != nil {
+		code, _ := cmd.Flags().GetString("error-code")
+		if err := maintenance.ReportCycleWithErrorCode(scope, id, stage, result, code); err != nil {
 			return err
 		}
 		// Queue receipt is durable even when offline; existing uploader bounds and retries apply.
@@ -97,5 +98,6 @@ func init() {
 	report.Flags().String("cycle", "", "Cycle ID from heartbeat plan")
 	report.Flags().String("stage", "", "Exact planned stage or cycle")
 	report.Flags().String("result", "", "completed or failed")
+	report.Flags().String("error-code", "", "Optional confirmed failed-stage category: authentication_failed, permission_denied, timeout, network_error, rate_limited, server_error, host_unavailable, unknown_failure; requires a compatible server")
 	heartbeatCmd.AddCommand(report)
 }

@@ -63,6 +63,13 @@ unknown. `EIGENFLUX_RUNTIME_OBSERVATIONS=0` disables creation. Upload errors nev
 repeat business actions. OS/architecture come from the running binary; model
 and host are reported evidence, not inferred hardware or user participation.
 
+Confirmed failed stages can report a fixed `error_code`. The first receipt
+and its category are saved atomically in account state. Classified receipts
+also use namespaced keys in the existing attempts map so queue flushes and
+older CLI writers preserve them for the lifetime of the cycle. A repeat may
+omit the category or use the original value. Deploy API acceptance before
+enabling classified reports.
+
 A generated plan contributes environment and delivery observations, not execution evidence. The first valid stage receipt records execution with its observation timestamp. Cycle failure requires a failed stage receipt. Interrupted or missing stages remain unresolved.
 
 Cycle rules are pinned by path, UTF-8 byte ranges and a cycle-specific digest.
