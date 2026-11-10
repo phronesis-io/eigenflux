@@ -124,6 +124,17 @@ func validateMaintenanceEvent(e maintenanceEvent, now time.Time) error {
 	return nil
 }
 
+func parseMaintenanceFailureMetadata(raw string) map[string]string {
+	if raw == "" || len(raw) > 8192 {
+		return nil
+	}
+	var reasons map[string]string
+	if err := json.Unmarshal([]byte(raw), &reasons); err != nil || len(reasons) > 50 {
+		return nil
+	}
+	return reasons
+}
+
 // recordMaintenanceBatch is intentionally separate from Console telemetry. Agent
 // identity is provided by agentAuth(settings:write), never by request properties.
 func (s *Service) recordMaintenanceBatch(_ context.Context, c *app.RequestContext) {
@@ -154,7 +165,8 @@ func (s *Service) recordMaintenanceBatch(_ context.Context, c *app.RequestContex
 		fail(c, http.StatusBadRequest, "INVALID_MAINTENANCE_BATCH", "unexpected trailing JSON", nil)
 		return
 	}
-	watchFailures := parseWatchFailureMetadata(string(c.Request.Header.Peek(watchFailuresHeader)))
+	watchFailures := parseMaintenanceFailureMetadata(string(c.Request.Header.Peek(watchFailuresHeader)))
+	runtimeFailures := parseMaintenanceFailureMetadata(string(c.Request.Header.Peek(runtimeFailuresHeader)))
 	rows := make([]telemetryEventRequest, 0, len(req.Events))
 	for _, event := range req.Events {
 		if err := validateMaintenanceEvent(event, now); err != nil {
@@ -162,6 +174,7 @@ func (s *Service) recordMaintenanceBatch(_ context.Context, c *app.RequestContex
 			return
 		}
 		event = mergeWatchFailureMetadata(event, watchFailures[event.EventID], now)
+		event = mergeRuntimeFailureMetadata(event, runtimeFailures[event.EventID])
 		if event.Runtime != nil && os.Getenv("ENABLE_RUNTIME_OBSERVATIONS") == "false" {
 			continue
 		}

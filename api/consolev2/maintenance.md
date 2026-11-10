@@ -191,10 +191,19 @@ with one of `authentication_failed`, `permission_denied`, `timeout`,
 unknown evidence, not success. Never send exception text, URLs or response bodies.
 The CLI exposes this as optional `heartbeat cycle-report --error-code` alongside
 `--stage <planned-stage> --result failed`. Repeated receipts may omit the
-category or use its original value. Deploy server validation before adopting this CLI option;
-older servers reject categorized runtime receipts. Default cycle instructions
-remain unchanged until that rollout is confirmed. Business requests are never
-repeated to repair a telemetry upload.
+category or use its original value. The CLI keeps the category in its local
+journal and sends it in `X-EigenFlux-Runtime-Failures`, a JSON object mapping
+event IDs to categories. Gateways that already accept the underlying runtime
+events can acknowledge the batch even if they ignore the header. In that case
+the category stays unknown on the server. Business requests are never repeated
+to repair a telemetry upload.
+
+The gateway accepts at most 8,192 header bytes and 50 entries. After validating
+each body event, it applies matching, allowlisted categories only to confirmed
+failed stages with no inline category. Malformed or invalid optional metadata
+does not reject a valid batch. The existing body `error_code` remains supported
+and takes precedence. An acknowledged event retains its original properties on
+replay, including when a gateway first accepted it without the category.
 
 ## Plan and execution lifecycle observations
 

@@ -98,6 +98,6 @@ func init() {
 	report.Flags().String("cycle", "", "Cycle ID from heartbeat plan")
 	report.Flags().String("stage", "", "Exact planned stage or cycle")
 	report.Flags().String("result", "", "completed or failed")
-	report.Flags().String("error-code", "", "Optional confirmed failed-stage category: authentication_failed, permission_denied, timeout, network_error, rate_limited, server_error, host_unavailable, unknown_failure; requires a compatible server")
+	report.Flags().String("error-code", "", "Optional confirmed failed-stage category: authentication_failed, permission_denied, timeout, network_error, rate_limited, server_error, host_unavailable, unknown_failure (stored by compatible servers)")
 	heartbeatCmd.AddCommand(report)
 }
