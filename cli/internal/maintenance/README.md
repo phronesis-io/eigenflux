@@ -67,8 +67,10 @@ Confirmed failed stages can report a fixed `error_code`. The first receipt
 and its category are saved atomically in account state. Classified receipts
 also use namespaced keys in the existing attempts map so queue flushes and
 older CLI writers preserve them for the lifetime of the cycle. A repeat may
-omit the category or use the original value. Deploy API acceptance before
-enabling classified reports.
+omit the category or use the original value. Uploads move the category from the
+wire body to the optional `X-EigenFlux-Runtime-Failures` header while retaining
+the original queued event and ID. Older gateways can acknowledge the ordinary
+runtime batch and leave its failure category unknown.
 
 A generated plan contributes environment and delivery observations, not execution evidence. The first valid stage receipt records execution with its observation timestamp. Cycle failure requires a failed stage receipt. Interrupted or missing stages remain unresolved.
 

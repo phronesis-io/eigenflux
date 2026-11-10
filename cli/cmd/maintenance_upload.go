@@ -7,28 +7,44 @@ import (
 	"cli.eigenflux.ai/internal/maintenance"
 )
 
-const watchFailuresHeader = "X-EigenFlux-Watch-Failures"
+const (
+	watchFailuresHeader   = "X-EigenFlux-Watch-Failures"
+	runtimeFailuresHeader = "X-EigenFlux-Runtime-Failures"
+)
 
 // Keep the original wire schema so an older gateway can accept the full batch.
 // Detail stays in the local journal and travels as optional request metadata.
 func postMaintenanceEvents(c *client.Client, events []maintenance.Event) (*client.APIResponse, error) {
 	wire := append([]maintenance.Event(nil), events...)
-	reasons := make(map[string]string)
+	watchFailures := make(map[string]string)
+	runtimeFailures := make(map[string]string)
 	for i := range wire {
-		if wire[i].OuterLoop == nil || wire[i].OuterLoop.FailureReason == "" {
-			continue
+		event := &wire[i]
+		if event.Runtime != nil && event.ErrorCode != "" {
+			if maintenance.RuntimeFailureCode(event.ErrorCode) {
+				runtimeFailures[event.EventID] = event.ErrorCode
+			}
+			event.ErrorCode = ""
 		}
-		reasons[wire[i].EventID] = wire[i].OuterLoop.FailureReason
-		outer := *wire[i].OuterLoop
-		outer.FailureReason = ""
-		wire[i].OuterLoop = &outer
+		if event.OuterLoop != nil && event.OuterLoop.FailureReason != "" {
+			watchFailures[event.EventID] = event.OuterLoop.FailureReason
+			outer := *event.OuterLoop
+			outer.FailureReason = ""
+			event.OuterLoop = &outer
+		}
 	}
 	headers := make(map[string]string)
-	if len(reasons) > 0 {
-		raw, err := json.Marshal(reasons)
-		if err == nil && len(raw) <= 8192 && len(reasons) <= 50 {
-			headers[watchFailuresHeader] = string(raw)
-		}
-	}
+	setMaintenanceFailureHeader(headers, watchFailuresHeader, watchFailures)
+	setMaintenanceFailureHeader(headers, runtimeFailuresHeader, runtimeFailures)
 	return c.PostWithHeaders("/maintenance/events:batch", map[string]interface{}{"events": wire}, headers)
+}
+
+func setMaintenanceFailureHeader(headers map[string]string, name string, failures map[string]string) {
+	if len(failures) == 0 || len(failures) > 50 {
+		return
+	}
+	raw, err := json.Marshal(failures)
+	if err == nil && len(raw) <= 8192 {
+		headers[name] = string(raw)
+	}
 }

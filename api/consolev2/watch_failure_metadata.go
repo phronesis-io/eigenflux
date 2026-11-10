@@ -1,22 +1,8 @@
 package consolev2
 
-import (
-	"encoding/json"
-	"time"
-)
+import "time"
 
 const watchFailuresHeader = "X-EigenFlux-Watch-Failures"
-
-func parseWatchFailureMetadata(raw string) map[string]string {
-	if raw == "" || len(raw) > 8192 {
-		return nil
-	}
-	var reasons map[string]string
-	if err := json.Unmarshal([]byte(raw), &reasons); err != nil || len(reasons) > 50 {
-		return nil
-	}
-	return reasons
-}
 
 // Invalid optional metadata must not reject or change the original valid event.
 func mergeWatchFailureMetadata(event maintenanceEvent, reason string, now time.Time) maintenanceEvent {

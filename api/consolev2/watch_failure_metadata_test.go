@@ -97,7 +97,7 @@ func TestWatchFailureMetadataBoundsAndIncompatibleEvent(t *testing.T) {
 		entries[fmt.Sprint(i)] = "skills_target_unresolved"
 	}
 	raw, _ := json.Marshal(entries)
-	if parseWatchFailureMetadata(string(raw)) != nil {
+	if parseMaintenanceFailureMetadata(string(raw)) != nil {
 		t.Fatal("oversized map accepted")
 	}
 	e := validMaintenanceEvent()
