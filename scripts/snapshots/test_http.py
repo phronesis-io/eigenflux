@@ -165,6 +165,7 @@ def main():
             credentials.parent.mkdir(parents=True, exist_ok=True)
             credentials.write_text(json.dumps({"access_token": "fixture-access", "refresh_token": "fixture-refresh", "agent_id": "777",
                                                 "principal_id": "888", "expires_at": int((time.time() + 3600) * 1000)}))
+            completed_plans = 0
             for completed in [False, True, True]:
                 state["completed"] = completed
                 result = call("--server", name, "--runtime-mode", "skill", "--runtime-model", "fixture-model", "heartbeat", "plan", "--format", "json")
@@ -177,9 +178,15 @@ def main():
                 assert "fixture-model" not in plan["scheduler_prompt"]
                 if completed:
                     order = plan["execution_order"]
-                    assert order.index("commands") < order.index("need_capture") < order.index("feed")
-                    assert plan["need_capture"]["start_budget_seconds"] == 120
-                    assert plan["need_capture"]["max_intents"] == 2
+                    assert "start_budget_seconds" not in plan["need_capture"]
+                    if completed_plans == 0:
+                        # The first completed-onboarding cycle shows Feed first and reviews one Intent.
+                        assert order.index("commands") < order.index("feed") < order.index("need_capture")
+                        assert plan["need_capture"]["max_intents"] == 1 and plan["need_capture"]["first_cycle"]
+                    else:
+                        assert order.index("commands") < order.index("need_capture") < order.index("feed")
+                        assert plan["need_capture"]["max_intents"] == 2 and not plan["need_capture"].get("first_cycle")
+                    completed_plans += 1
                 else:
                     assert plan["execution_order"] == ["feed"]
             # Fresh processes use normal host routing and the pinned distribution.
