@@ -210,6 +210,8 @@ type Request struct {
 	Kind      string
 	Prompt    string
 	SessionID string
+	// CommissionSkill is selected from the seller's frozen contract, never buyer input.
+	CommissionSkill string
 	// ReadOnlySkillDirs comes from the CLI's resolved frozen contract, never
 	// from prompt text or a model result. Only the built-in WorkBuddy bridge uses it.
 	ReadOnlySkillDirs []string

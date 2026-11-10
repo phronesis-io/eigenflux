@@ -148,6 +148,13 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 		}
 		return w.deliverCommissionArtifacts(ctx, job, order, *retained, job.SessionID)
 	}
+	var modelContract struct {
+		Skill string `json:"fulfillment_skill"`
+	}
+	if err := json.Unmarshal(order.Contract, &modelContract); err != nil {
+		return w.finishDispatch(job, "failed", "commission_fulfillment_contract_invalid", "", "")
+	}
+	prompt.CommissionSkill = modelContract.Skill
 	result, runErr := w.runCommissionAgent(ctx, job, prompt)
 	if runErr != nil {
 		status, code := "unknown", "commission_fulfillment_unconfirmed"

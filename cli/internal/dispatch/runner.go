@@ -183,6 +183,18 @@ func (r Runner) runProcess(ctx context.Context, args []string, stdin string) ([]
 }
 
 func (r Runner) arguments(req Request) ([]string, string, error) {
+	var effort string
+	if req.Kind == "commission_publish_trial" || req.Kind == "commission_fulfillment" {
+		switch req.CommissionSkill {
+		case "gpt-sol-light-commission":
+			effort = "low"
+		case "gpt-sol-ultra-commission":
+			effort = "ultra"
+		}
+	}
+	if effort != "" && (r.Binding.Mode != "native" || r.Binding.Host != "codex") {
+		return nil, "", errors.New("commission_model_routing_requires_codex")
+	}
 	args := append([]string{}, r.Binding.Args...)
 	if r.Binding.Mode == "command" {
 		return args, req.Prompt, nil
@@ -193,6 +205,9 @@ func (r Runner) arguments(req Request) ([]string, string, error) {
 	switch r.Binding.Host {
 	case "codex":
 		args = append(args, "exec", "--json")
+		if effort != "" {
+			args = append(args, "--model", "gpt-6.1-sol", "--config", "model_reasoning_effort=\""+effort+"\"")
+		}
 		if req.SessionID != "" {
 			args = append(args, "resume", req.SessionID)
 		}
