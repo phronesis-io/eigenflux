@@ -36,8 +36,9 @@ Need heartbeat planning and submission receipts are exercised from `cli/` with
 Fixtures cover a single bounded Pending query, selected source fields, query
 failure versus an empty response, Need-before-Feed ordering, narrow-mode exclusion,
 version/account isolation, uncertain submissions, identical retries, and bounded
-local retention. These tests use local HTTP fixtures; they do not establish model
-adherence to the soft 120-second new-item budget or production completion rates.
+local retention, the strike limit and first-cycle ordering. These tests use
+local HTTP fixtures; they do not establish model adherence or production
+completion rates.
 
 ## CLI CI scope and command-test groups
 

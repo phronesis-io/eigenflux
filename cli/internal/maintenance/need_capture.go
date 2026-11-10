@@ -137,3 +137,31 @@ func updateNeedCapture(scope Scope, fn func(*State) error) error {
 	}
 	return updatePath(strings.TrimSuffix(path, "-events.json")+"-need-capture.json", fn)
 }
+
+// NeedCaptureStrikeLimit is the number of retained plans in which one Intent
+// version may be selected without a confirmed submission before planning skips it.
+const NeedCaptureStrikeLimit = 3
+
+// NeedCaptureHistory summarizes retained local plans. strikes counts, per
+// "intent_id@version", plans that selected the version without confirming it.
+// hasPrior reports whether any Need plan has been retained for this account.
+// Retention bounds both: expired receipts restore eligibility.
+func NeedCaptureHistory(scope Scope) (strikes map[string]int, hasPrior bool, err error) {
+	strikes = map[string]int{}
+	err = updateNeedCapture(scope, func(st *State) error {
+		hasPrior = len(st.NeedCaptures) > 0
+		for _, run := range st.NeedCaptures {
+			for _, item := range run.Items {
+				if item.Status != "confirmed" {
+					strikes[NeedCaptureKey(item.IntentID, item.IntentVersion)]++
+				}
+			}
+		}
+		return nil
+	})
+	return strikes, hasPrior, err
+}
+
+func NeedCaptureKey(intent string, version int64) string {
+	return intent + "@" + strconv.FormatInt(version, 10)
+}

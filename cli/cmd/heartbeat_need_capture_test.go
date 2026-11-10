@@ -34,15 +34,15 @@ func TestNeedCapturePlanQueriesOnceAndDistinguishesEmptyFromFailure(t *testing.T
 			calls := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls++
-				if r.Method != "GET" || r.URL.Path != "/need-capture/pending" || r.URL.Query().Get("limit") != "2" {
+				if r.Method != "GET" || r.URL.Path != "/need-capture/pending" || r.URL.Query().Get("limit") != "10" {
 					t.Errorf("unexpected query: %s", r.URL)
 				}
 				w.WriteHeader(tc.httpStatus)
 				_, _ = io.WriteString(w, `{"code":0,"data":`+tc.body+`}`)
 			}))
 			defer server.Close()
-			p := queryNeedCapturePlan(client.New(server.URL, "", "test", client.Meta{}))
-			if calls != 1 || p.Status != tc.status || p.MaxIntents != 2 || p.StartBudgetSeconds != 120 {
+			p := queryNeedCapturePlan(client.New(server.URL, "", "test", client.Meta{}), 2, map[string]int{})
+			if calls != 1 || p.Status != tc.status || p.MaxIntents != 2 {
 				t.Fatalf("invalid plan: %+v calls=%d", p, calls)
 			}
 			if p.Status == "ready" && (p.Intents[0].WatchFor != "database tuning" || p.Intents[0].ExistingInputs[0].ID != "81" || !p.HasMore) {
@@ -148,6 +148,7 @@ func TestNeedCaptureFullPlanFailureStillDeliversFeed(t *testing.T) {
 			}))
 			defer server.Close()
 			runtimeTestConfig(t, server.URL, true)
+			seedNeedCaptureHistory(t)
 			installHeartbeatTestRules(t)
 			old := formatFlag
 			formatFlag = "json"
@@ -336,5 +337,117 @@ func TestNeedCaptureReceiptFailureDoesNotPreventServerSubmission(t *testing.T) {
 				t.Fatal("invented a local success receipt")
 			}
 		})
+	}
+}
+
+// seedNeedCaptureHistory records one earlier empty Need plan so the next plan is
+// not treated as the account's first completed-onboarding cycle.
+func seedNeedCaptureHistory(t *testing.T) {
+	t.Helper()
+	scope, err := maintenanceScope(activeServerName())
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := maintenance.NeedCaptureRun{ID: maintenance.NewID(), CreatedAt: time.Now().UnixMilli(), QueryStatus: "empty", Items: []maintenance.NeedCaptureItem{}}
+	if err := maintenance.SaveNeedCaptureRun(scope, run); err != nil {
+		t.Fatal(err)
+	}
+}
+
+const threePendingFixture = `{"intents":[{"intent_id":"1","intent_version":1,"existing_inputs":[]},{"intent_id":"2","intent_version":1,"existing_inputs":[]},{"intent_id":"3","intent_version":1,"existing_inputs":[]}],"has_more":false}`
+
+func needPlanAgainst(t *testing.T, body string) heartbeatPlan {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/need-capture/pending" || r.URL.Query().Get("limit") != "10" {
+			t.Errorf("unexpected query: %s", r.URL)
+		}
+		_, _ = io.WriteString(w, `{"code":0,"data":`+body+`}`)
+	}))
+	t.Cleanup(server.Close)
+	runtimeTestConfig(t, server.URL, true)
+	return heartbeatPlan{}
+}
+
+func attachFresh(order []string) heartbeatPlan {
+	p := heartbeatPlan{Access: runtimeAccess{OnboardingState: "completed"}, ExecutionOrder: append([]string{}, order...), CLIVersion: "1.0.27", SkillRevision: "test"}
+	attachNeedCapturePlan(&p)
+	return p
+}
+
+var fullOrder = []string{"commands", "need_capture", "feed", "attention"}
+
+func TestNeedCaptureFirstCycleRunsAfterFeedWithOneIntent(t *testing.T) {
+	needPlanAgainst(t, threePendingFixture)
+	first := attachFresh(fullOrder)
+	if !slices.Equal(first.ExecutionOrder, []string{"commands", "feed", "need_capture", "attention"}) {
+		t.Fatalf("first cycle order: %v", first.ExecutionOrder)
+	}
+	if first.NeedCapture == nil || !first.NeedCapture.FirstCycle || first.NeedCapture.MaxIntents != 1 || len(first.NeedCapture.Intents) != 1 || !first.NeedCapture.HasMore {
+		t.Fatalf("first cycle selection: %+v", first.NeedCapture)
+	}
+	if !strings.Contains(needCaptureInstructions(first), "after Feed") {
+		t.Fatal("first-cycle instructions do not place Need after Feed")
+	}
+	// The retained first plan makes the next cycle an ordinary one.
+	next := attachFresh(fullOrder)
+	if !slices.Equal(next.ExecutionOrder, fullOrder) || next.NeedCapture.FirstCycle || next.NeedCapture.MaxIntents != 2 || len(next.NeedCapture.Intents) != 2 {
+		t.Fatalf("ordinary cycle: %v %+v", next.ExecutionOrder, next.NeedCapture)
+	}
+	if strings.Contains(needCaptureInstructions(next), "120") {
+		t.Fatal("time budget text remains")
+	}
+}
+
+func TestNeedCaptureSkipsVersionsAfterThreeUnconfirmedPlans(t *testing.T) {
+	needPlanAgainst(t, threePendingFixture)
+	seedNeedCaptureHistory(t)
+	for i := 0; i < maintenance.NeedCaptureStrikeLimit; i++ {
+		p := attachFresh(fullOrder)
+		if got := p.NeedCapture.Intents; len(got) != 2 || got[0].IntentID != "1" || got[1].IntentID != "2" {
+			t.Fatalf("strike %d selection: %+v", i, got)
+		}
+	}
+	p := attachFresh(fullOrder)
+	got := p.NeedCapture.Intents
+	if len(got) != 1 || got[0].IntentID != "3" || p.NeedCapture.Skipped != 2 {
+		t.Fatalf("struck versions not skipped: %+v", p.NeedCapture)
+	}
+}
+
+func TestNeedCaptureConfirmedVersionsEarnNoStrikes(t *testing.T) {
+	needPlanAgainst(t, threePendingFixture)
+	seedNeedCaptureHistory(t)
+	scope, _ := maintenanceScope(activeServerName())
+	for i := 0; i < maintenance.NeedCaptureStrikeLimit+1; i++ {
+		p := attachFresh(fullOrder)
+		if len(p.NeedCapture.Intents) == 0 || p.NeedCapture.Intents[0].IntentID != "1" {
+			t.Fatalf("confirmed version was skipped at %d: %+v", i, p.NeedCapture)
+		}
+		if err := maintenance.RecordNeedCaptureResult(scope, p.NeedCapture.PlanID, "1", 1, "confirmed", "captured", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestNeedCaptureNewIntentVersionRestoresEligibility(t *testing.T) {
+	body := threePendingFixture
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"code":0,"data":`+body+`}`)
+	}))
+	t.Cleanup(server.Close)
+	runtimeTestConfig(t, server.URL, true)
+	seedNeedCaptureHistory(t)
+	for i := 0; i < maintenance.NeedCaptureStrikeLimit; i++ {
+		attachFresh(fullOrder)
+	}
+	if p := attachFresh(fullOrder); len(p.NeedCapture.Intents) != 1 || p.NeedCapture.Intents[0].IntentID != "3" {
+		t.Fatalf("precondition: struck versions still selected: %+v", p.NeedCapture)
+	}
+	// Editing Intent 1 creates version 2, which has no strikes.
+	body = `{"intents":[{"intent_id":"1","intent_version":2,"existing_inputs":[]},{"intent_id":"2","intent_version":1,"existing_inputs":[]}],"has_more":false}`
+	p := attachFresh(fullOrder)
+	if len(p.NeedCapture.Intents) != 1 || p.NeedCapture.Intents[0].IntentID != "1" || p.NeedCapture.Intents[0].IntentVersion != 2 || p.NeedCapture.Skipped != 1 {
+		t.Fatalf("new version not eligible: %+v", p.NeedCapture)
 	}
 }

@@ -68,7 +68,7 @@ the cycle incomplete if required content remains unavailable.
 
 ## Internal Need maintenance
 
-Run the plan's Need pass before Feed using `needs.md#automatic-maintenance`.
+Run the plan's Need pass at its listed position using `needs.md#automatic-maintenance`.
 Keep successful, failed, skipped and unconfirmed Need work internal. Need-only
 failure or an open aggregate execution observation does not select a host failure
 notification, invalidate the visible first check, or suppress/replace completed

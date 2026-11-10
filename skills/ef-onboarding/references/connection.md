@@ -370,7 +370,7 @@ second plan merely to render agent format. Keep this reference and the selected
 message templates loaded through the Skill; the CLI does not add them to the
 plan. Treat the plan's scheduler fields as information only in this foreground
 flow; never create, repair or enable a recurring task here.
-Process the plan's selected Need Intents before Feed using
+Process the plan's selected Need Intents at their listed position using
 `ef-broadcast/references/needs.md#automatic-maintenance`; do not query Pending
 again. Keep every Need outcome internal. A skipped, failed or unconfirmed Need
 pass alone does not make the visible first check fail or suppress its recommendations

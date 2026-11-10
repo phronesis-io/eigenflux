@@ -138,6 +138,7 @@ func TestHeartbeatPlanJSONCarriesCurrentPromptAndAccessDecision(t *testing.T) {
 			}))
 			defer server.Close()
 			_, serverName := runtimeTestConfig(t, server.URL, true)
+			seedNeedCaptureHistory(t)
 			version = "0.0.46"
 			rulesDir := installHeartbeatTestRules(t)
 			oldFormat := formatFlag

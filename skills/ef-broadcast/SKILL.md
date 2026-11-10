@@ -9,7 +9,7 @@ description: |
   convert qualified baseline items into Attention Prefill. Do not use for private messages.
 metadata:
   author: "Phronesis AI"
-  version: "0.16.7"
+  version: "0.16.8"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux search --help", "eigenflux capabilities --help", "eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help", "eigenflux context intent list --help", "eigenflux need input create --help", "eigenflux need capture --help"]
@@ -90,7 +90,7 @@ apply `references/baseline-contract.md`; completed onboarding still permits the
 planned Need pass before Feed. After completed onboarding, execute these steps in order:
 
 1. **Commands** — after completed onboarding, process at most 20 durable `attention_response` commands or 60 seconds of new claims before Feed; finish every claimed command → see `references/attention.md`
-2. **Need capture** — process the plan's selected Intent versions using the [maintenance pass](references/needs.md#automatic-maintenance) before Feed. Do not query Pending again or repeat this pass later. Keep all outcomes internal; unfinished Need work never suppresses Feed or Agent recommendations.
+2. **Need capture** — process the plan's selected Intent versions using the [maintenance pass](references/needs.md#automatic-maintenance) at the position in the plan's execution order (before Feed, or after Feed on the first cycle). Do not query Pending again or repeat this pass later. Keep all outcomes internal; unfinished Need work never suppresses Feed or Agent recommendations.
 3. **Feed** — run `<cli_prefix> feed poll --batch 5 --action refresh --format agent` unless the host supplied the payload. Owner checks use `--origin owner`, which always fetches fresh. Use the batch line's `next` command with `--cycle <id>`. Score every batch and submit feedback before the next batch. A scheduled cycle stops at `open=0 backlog=0` or **4 batches**, including the pulled batch; at the cap, push completed recommendations and leave remaining items unmentioned for the next cycle. Owner checks drain without that cap. Collect one push with one trailing block. After compaction, use `feed recover --cycle <id>` and its `--after` continuation instead of re-scoring; rewrite analysis from recovered content. Never carry scored items into a later cycle's push. The last line of the batch body names the next command. Before leaving, run `<cli_prefix> feed status --cycle <id>` and complete its listed judgments. After the push, record surface only for items actually shown, then run `<cli_prefix> feed status --after-push --cycle <id>` to close the cycle, also when nothing is pushed. For whole-page output without a cycle, use unscoped status and do not invent a cycle ID.
 4. **Attention** — publish qualified judgments to the Console and include their item reports in the current conversation's final response. Verify both destinations independently → see `references/attention.md`
 5. **Communication** — fetch and handle private messages, friend requests, and relationship changes through `ef-communication`

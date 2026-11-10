@@ -11,20 +11,27 @@ their existing timeout. No plugin implements a second updater or update policy.
 
 ## Need capture before Feed
 
-Completed-onboarding full plans query `/need-capture/pending?limit=2` once and
-include the selected Intent versions, source fields and existing Need references
+Completed-onboarding full plans query `/need-capture/pending?limit=10` once,
+drop versions selected in three retained local plans without a confirmed
+submission, and include at most two remaining versions (one on the first
+cycle), their source fields, source fields and existing Need references
 in `need_capture`. Control-only, maintenance-only and incomplete-onboarding plans
 do not query or schedule capture. The business order is commands, Need capture,
-Feed, then the remaining stages. The explicit foreground first check uses the
+Feed, then the remaining stages. When the account has no retained Need plan
+(the first completed-onboarding cycle, whether foreground or scheduled), Need
+capture moves after Feed and selects one version. The explicit foreground first check uses the
 same plan and procedure. A host-supplied Feed payload remains that cycle's pull;
 moving capture earlier does not repoll or promise an immediately refreshed ranking.
 
 The query status distinguishes `ready`, `empty` and `failed`; malformed responses
 are failures, not empty selections. Query failure remains internal and does not
 prevent plan delivery or later Feed work. The Agent uses the selected source data
-without another Pending request. At most two versions are reviewed. The 120-second
-budget starts at Need stage entry and only stops starting another review; finish
-and submit the current review even after the threshold. It is not a hard timeout.
+without another Pending request. The CLI selection is the only per-cycle bound; there is
+no time budget, because the Agent cannot observe elapsed time during generation.
+Host approval denials leave the version pending without an owner prompt, and the
+plan asks the Agent to state in its justification that the source is the owner's
+own Console data. `need_capture` is reported completed once attempted; outcomes
+stay in local receipts so `cycle-check` never forces Need work to repeat.
 Timeout retries reuse the identical file once. Stale versions and other failures
 return to the next heartbeat's server-derived Pending selection without an
 unbounded same-cycle refresh loop.

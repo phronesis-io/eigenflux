@@ -642,9 +642,9 @@ is exposed in search/recommendation CLI parameters. Review status is shared acro
 Homes; heartbeat scheduling stays with the host and stage routing stays in CLI.
 A baseline Feed does not skip maintenance when the current heartbeat plan
 confirms completed onboarding and includes `need_capture`; incomplete onboarding
-remains read-only. At most two versions are reviewed per cycle; the Skill stops starting reviews
-past 120 seconds, finishes and submits the current review, and continues other
-safe stages after a recoverable error. Need outcomes stay internal and never
+remains read-only. At most two versions (one on the first cycle) are reviewed per cycle, selected
+by the CLI after skipping versions that stayed unconfirmed in three retained
+plans; the Agent continues other safe stages after a recoverable error. Need outcomes stay internal and never
 suppress Feed or Agent recommendations. Full plans select Pending work once;
 see [heartbeat updates](heartbeat-updates.md#need-capture-before-feed) for local
 submission receipts and the foreground first-check contract.
