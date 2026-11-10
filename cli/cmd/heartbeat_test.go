@@ -396,7 +396,7 @@ func TestHeartbeatPlanFeedCompletionStep(t *testing.T) {
 	if heartbeatContractVersion != "eigenflux_heartbeat.v5" {
 		t.Fatal(heartbeatContractVersion)
 	}
-	for _, line := range []string{"After the Feed push, run test-prefix feed status --after-push --cycle <id>", "feed next reads this cycle's saved page and is not a pull.", "Follow the inline contract core; read the named details before their actions, otherwise skip those actions."} {
+	for _, line := range []string{"After the Feed push, run test-prefix feed status --after-push --cycle <id>", "feed next reads this cycle's saved page and is not a pull.", "Do not stop after the first batch while backlog is positive", "Remaining backlog at the four-batch limit is deferred, not an incomplete cycle", "Follow the inline contract core; read the named details before their actions, otherwise skip those actions."} {
 		if !strings.Contains(prompt, line) {
 			t.Fatal(prompt)
 		}

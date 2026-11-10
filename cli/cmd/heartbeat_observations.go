@@ -73,7 +73,7 @@ func cycleInstructions(plan heartbeatPlan) string {
 		return ""
 	}
 	prefix := plan.CLIPrefix + " heartbeat cycle-report --cycle " + plan.CycleID
-	text := "\nExecution observations (client-reported; do not change business actions): after each listed stage, run " + prefix + " --stage <exact-stage-name> --result completed only when that stage completed, or --result failed only on a confirmed stage failure. An evaluated stage with no applicable work is completed. Leave unattempted or interrupted stages unreported. Before the final host response, report --stage cycle --result completed only after every listed stage completed; report --stage cycle --result failed only with a confirmed failed stage receipt. With missing evidence leave the cycle open. Preserve this cycle ID across compaction. Observation/upload failure must not repeat business work or change host notifications.\n"
+	text := "\nExecution observations (client-reported; do not change business actions): after each listed stage, run " + prefix + " --stage <exact-stage-name> --result completed only when that stage completed, or --result failed only on a confirmed stage failure. An evaluated stage with no applicable work is completed. Leave unattempted or interrupted stages unreported. Before the final host response, report --stage cycle --result completed only after every listed stage completed; report --stage cycle --result failed only with a confirmed failed stage receipt. With missing evidence leave the cycle open. Before any final response, run " + plan.CLIPrefix + " heartbeat cycle-check --cycle " + plan.CycleID + " --finish. If it lists missing stages, execute those stages and check again; evaluated stages without applicable work still need their completed receipt. Preserve this cycle ID across compaction. Observation/upload failure must not repeat business work or change host notifications.\n"
 	if plan.NeedCapture != nil {
 		text += "Need capture receipts are internal: report need_capture completed only when its selected work is confirmed (or the query was successfully empty). A failed query/submission may record a failed stage; pending or uncertain submissions leave it unreported. An incomplete or failed Need stage, including its aggregate cycle observation, never makes the owner-facing Feed/first-check result fail, triggers a notification, or hides completed recommendations. Continue other stages; retain their independent outcomes.\n"
 	}
@@ -88,7 +88,8 @@ func init() {
 		id, _ := cmd.Flags().GetString("cycle")
 		stage, _ := cmd.Flags().GetString("stage")
 		result, _ := cmd.Flags().GetString("result")
-		if err := maintenance.ReportCycle(scope, id, stage, result); err != nil {
+		code, _ := cmd.Flags().GetString("error-code")
+		if err := maintenance.ReportCycleWithErrorCode(scope, id, stage, result, code); err != nil {
 			return err
 		}
 		// Queue receipt is durable even when offline; existing uploader bounds and retries apply.
@@ -101,5 +102,6 @@ func init() {
 	report.Flags().String("cycle", "", "Cycle ID from heartbeat plan")
 	report.Flags().String("stage", "", "Exact planned stage or cycle")
 	report.Flags().String("result", "", "completed or failed")
+	report.Flags().String("error-code", "", "Optional confirmed failed-stage category: authentication_failed, permission_denied, timeout, network_error, rate_limited, server_error, host_unavailable, unknown_failure; requires a compatible server")
 	heartbeatCmd.AddCommand(report)
 }

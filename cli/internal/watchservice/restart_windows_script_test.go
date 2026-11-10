@@ -48,6 +48,8 @@ func TestWindowsRestartScript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Limit this test to four concurrent PowerShell processes.
+	slots := make(chan struct{}, 4)
 	for _, tc := range []struct {
 		name     string
 		taskName string
@@ -74,6 +76,11 @@ func TestWindowsRestartScript(t *testing.T) {
 		{"exits_during_start", `\EigenFlux\watch`, "exited", "process_exited", "stop\nrun"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			// Acquire after Parallel so queued subtests cannot block their parent.
+			slots <- struct{}{}
+			defer func() { <-slots }()
+
 			trace := filepath.Join(t.TempDir(), "operations.txt")
 			taskPath := tc.taskName
 			if !strings.HasPrefix(taskPath, `\`) {

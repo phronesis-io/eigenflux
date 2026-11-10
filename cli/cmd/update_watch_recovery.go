@@ -19,6 +19,7 @@ import (
 )
 
 type updateWatchRecovery struct {
+	UpgradeRepair        *upgradeRepair             `json:"upgrade_repair,omitempty"`
 	TargetCommit         string                     `json:"target_commit,omitempty"`
 	Status               string                     `json:"status"`
 	Mode                 string                     `json:"mode,omitempty"`
@@ -117,6 +118,9 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 		var skillsErr *upgradeSkillsError
 		if errors.As(err, &skillsErr) {
 			r.Reason = skillsErr.Reason
+			if observation != nil {
+				observation.failureReason = skillsErr.observationReason()
+			}
 		}
 		return r
 	}
@@ -131,6 +135,9 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 		result, err := deps.start(ctx, watchservice.NotificationTask{CLI: cli, Home: expected.Home, Server: expected.Server, Scope: expected.Scope, AgentID: expected.AgentID, PrincipalID: expected.PrincipalID, Dispatch: binding != nil})
 		if err != nil {
 			r.Reason = "watch_start_failed"
+			if observation != nil {
+				observation.failureReason = watchservice.StartFailureReason(err)
+			}
 			return r
 		}
 		if result.Status == "skipped_disabled" {
@@ -203,6 +210,11 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 
 func recoverWatchAfterUpdate(cmd *cobra.Command, cfg *config.Config, manual bool) updateWatchRecovery {
 	r := recoverWatchAfterUpdateOnPlatform(cmd, cfg, manual, runtime.GOOS)
+	if codexUpgradeRepairEnabled() && r.Reason != "owner_disabled" && r.Reason != "owner_setup_disabled" {
+		if repair, err := currentUpgradeRepair(true); err == nil && repair.Status != "verified" {
+			r.UpgradeRepair = repair
+		}
+	}
 	annotateWatchRecoveryNotice(cmd, cfg, &r)
 	return r
 }
@@ -354,6 +366,12 @@ func recoverWatchAfterUpdateOnPlatform(cmd *cobra.Command, cfg *config.Config, m
 			if err := syncRules(expected); err != nil {
 				r.Status = "blocked"
 				r.Reason = "skills_not_ready"
+				var detail *upgradeSkillsError
+				if errors.As(err, &detail) {
+					if observation := watchSetupObservation(cmd); observation != nil {
+						observation.failureReason = detail.observationReason()
+					}
+				}
 				return r
 			}
 			var out bytes.Buffer

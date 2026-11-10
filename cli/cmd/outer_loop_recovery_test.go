@@ -178,7 +178,7 @@ func TestWatchRecoveryTaskOutcomeAndFailureStages(t *testing.T) {
 				verify: func() error { return nil },
 				sync: func(dispatch.Binding) error {
 					if scenario == "skills_failed" {
-						return errors.New("private Skills error")
+						return &upgradeSkillsError{Reason: "skills_sync_failed", FailureReason: "skills_target_unresolved", Err: errors.New("private Skills error")}
 					}
 					return nil
 				},
@@ -219,6 +219,12 @@ func TestWatchRecoveryTaskOutcomeAndFailureStages(t *testing.T) {
 				if result.Status != "starting" || result.RuntimeReady {
 					t.Fatalf("startup was confused with readiness: %+v", result)
 				}
+			}
+			if scenario == "skills_failed" && result.Reason != "skills_sync_failed" {
+				t.Fatalf("public recovery reason changed: %+v", result)
+			}
+			if scenario == "skills_failed" && (last.OuterLoop == nil || last.OuterLoop.FailureReason != "skills_target_unresolved") {
+				t.Fatalf("lost Skills failure detail: %+v", last)
 			}
 			if last.Phase != wantPhase || last.Result != wantResult || last.ErrorCode != wantCode {
 				t.Fatalf("scenario=%s observation=%+v recovery=%+v", scenario, last, result)

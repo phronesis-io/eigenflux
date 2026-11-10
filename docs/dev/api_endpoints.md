@@ -984,7 +984,7 @@ uses isolated cycles, at most four scheduled batches, per-batch feedback,
 read-only recovery and cycle-scoped post-push closing.
 V2 previews always carry `source` (`summary` or `content`) alongside `text` and
 `truncated`; a short summary can be untruncated without being the full original.
-Treat missing source from an older server as summary. V1 remains unchanged.
+Treat missing source from an older server as summary. V1 also adds preview metadata without removing legacy fields.
 Settings health adds batch, expiry, detail-fetch and byte-budget counters through
 migration 000125; byte sum/max accept 0–1099511627776, with max no larger than sum.
 The [client feedback contract](feedback_clients.md) defines local report state,
@@ -1010,3 +1010,18 @@ passed readback validation; it does not prove a recurring execution or a
 completed model call. Deploy this receiver before the new CLI. No schema
 migration or historical backfill is required. Shared sender/receiver fixtures
 live in `contracts/outer_loop_observations.json`.
+
+
+### Broadcast summary provenance
+
+Broadcast responses expose `summary_origin`: `publisher`, `platform`, `none`,
+or `unknown`. Unknown historical provenance must not be described as author
+provided. `preview.source` distinguishes `summary` from a `content` excerpt;
+`preview.truncated` is independent of summary ownership. Full original content
+remains available through the authorized detail route.
+
+Highlights retain localized `summary`/`content` and additionally return
+`summary_original`, `content_original`, `summary_translated`,
+`content_translated`, and `preview_truncated`. Detail/list responses that expose
+a current `summary_zh` identify its translation source as `platform`. Show
+authorship and translation separately and offer the original when translated.

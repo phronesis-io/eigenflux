@@ -99,6 +99,9 @@ func setupWorkBuddyWatch(cmd *cobra.Command, deps workBuddySetupDeps) error {
 	watchSetupStage(cmd, "skills")
 	rules, err := deps.rules()
 	if err != nil {
+		if observation := watchSetupObservation(cmd); observation != nil {
+			observation.failureReason = localSkillsFailureReason(err)
+		}
 		return fmt.Errorf("WorkBuddy setup requires synchronized signed Skills: %w", err)
 	}
 	watchSetupStage(cmd, "host_discovery")

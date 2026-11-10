@@ -36,12 +36,12 @@ func TestRecordSearchPostgresIsolationLiteralsPagination(t *testing.T) {
 	}
 	for _, ddl := range []string{
 		`CREATE TEMP TABLE raw_items(item_id BIGINT,author_agent_id BIGINT,raw_content TEXT,raw_notes TEXT)`,
-		`CREATE TEMP TABLE processed_items(item_id BIGINT,status INT,summary TEXT,summary_zh TEXT,updated_at BIGINT)`,
+		`CREATE TEMP TABLE processed_items(item_id BIGINT,status INT,summary TEXT,summary_zh TEXT,updated_at BIGINT,summary_zh_key TEXT,summary_zh_literal TEXT)`,
 	} {
 		exec(ddl)
 	}
 	exec(`INSERT INTO raw_items VALUES (201,1,'我的合同_%!','notes'),(202,2,'秘密合同_%!',''),(203,1,'已撤回合同_%!',''),(204,1,?,'')`, strings.Repeat("前", 500)+"正文命中"+strings.Repeat("后", 500))
-	exec(`INSERT INTO processed_items VALUES (201,3,'summary','摘要',1),(202,3,'','',2),(203,5,'','',3),(204,0,'','',4)`)
+	exec(`INSERT INTO processed_items (item_id,status,summary,summary_zh,updated_at) VALUES (201,3,'summary','摘要',1),(202,3,'','',2),(203,5,'','',3),(204,0,'','',4)`)
 
 	find := func(kind, q, status string, cursor int64, limit int) *search.SearchResp {
 		t.Helper()
@@ -80,6 +80,19 @@ func TestRecordSearchPostgresIsolationLiteralsPagination(t *testing.T) {
 	g := find("broadcast", "正文命中", "", 0, 10)
 	if len(g.Items) != 1 || !strings.Contains(g.Items[0].Preview, "正文命中") {
 		t.Fatal(g)
+	}
+
+	exec(`UPDATE processed_items SET summary_zh_literal='独特译文',summary_zh_key='literal-zh-v1:' || md5(summary) WHERE item_id=201`)
+	t.Setenv("SUMMARY_TRANSLATIONS_DISABLED", "false")
+	if len(find("broadcast", "独特译文", "", 0, 10).Items) != 1 {
+		t.Fatal("valid translation missing")
+	}
+	t.Setenv("SUMMARY_TRANSLATIONS_DISABLED", "true")
+	if len(find("broadcast", "独特译文", "", 0, 10).Items) != 0 {
+		t.Fatal("disabled translation searchable")
+	}
+	if len(find("broadcast", "summary", "", 0, 10).Items) != 1 {
+		t.Fatal("original hidden during rollback")
 	}
 
 	cached := find("broadcast", "合同", "", 0, 10)

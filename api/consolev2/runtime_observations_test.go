@@ -48,3 +48,83 @@ func TestRuntimeObservationContract(t *testing.T) {
 		t.Fatal("unknown nested field")
 	}
 }
+
+func TestRuntimeLifecycleAndNonterminalCycleContract(t *testing.T) {
+	e := validMaintenanceEvent()
+	e.Component, e.Phase, e.Result = "runtime", "cycle", "plan_created"
+	e.ToVersion, e.FromVersion, e.RunningVersion, e.ErrorCode = "", "", "", ""
+	e.DurationMS = 0
+	e.Runtime = &runtimeObservation{Stage: "cycle", PlanMode: "full", Product: "codex", CLI: "1.0.19"}
+	for _, result := range []string{"plan_created", "incomplete", "permission_required", "permission_denied", "interrupted"} {
+		e.Result = result
+		if err := validateMaintenanceEvent(e, time.Now()); err != nil {
+			t.Fatalf("%s: %v", result, err)
+		}
+		e.Runtime.Stage = "feed"
+		if validateMaintenanceEvent(e, time.Now()) == nil {
+			t.Fatal("diagnostic accepted as business stage")
+		}
+		e.Runtime.Stage = "cycle"
+	}
+	valid := map[string][]string{"trigger": {"observed"}, "permission": {"allowed", "legacy_mismatch", "prompt", "forbidden", "unknown", "required", "denied"}, "guard": {"configured", "active"}, "execution": {"interrupted"}}
+	e.Phase = "lifecycle"
+	e.Runtime.PlanMode = ""
+	for stage, results := range valid {
+		for _, result := range results {
+			e.Runtime.Stage, e.Result = stage, result
+			if err := validateMaintenanceEvent(e, time.Now()); err != nil {
+				t.Fatalf("%s/%s: %v", stage, result, err)
+			}
+		}
+	}
+	e.Runtime.Stage = "permission"
+	e.Result = "required"
+	e.ErrorCode = "permission_denied"
+	if validateMaintenanceEvent(e, time.Now()) == nil {
+		t.Fatal("unexpected raw error field")
+	}
+	e.ErrorCode = ""
+	e.Runtime.PlanMode = "full"
+	if validateMaintenanceEvent(e, time.Now()) == nil {
+		t.Fatal("lifecycle accepted plan mode")
+	}
+	e.Runtime.PlanMode = ""
+	e.Runtime.Stage = "feed"
+	if validateMaintenanceEvent(e, time.Now()) == nil {
+		t.Fatal("unexpected lifecycle stage")
+	}
+}
+
+func TestRuntimeFailureCategoryContract(t *testing.T) {
+	e := validMaintenanceEvent()
+	e.Component = "runtime"
+	e.Phase = "cycle"
+	e.Result = "failed"
+	e.ToVersion = ""
+	e.FromVersion = ""
+	e.RunningVersion = ""
+	e.DurationMS = 0
+	e.Runtime = &runtimeObservation{Stage: "feed", PlanMode: "full"}
+	for _, code := range []string{"", "authentication_failed", "permission_denied", "timeout", "network_error", "rate_limited", "server_error", "host_unavailable", "unknown_failure"} {
+		e.ErrorCode = code
+		if err := validateMaintenanceEvent(e, time.Now()); err != nil {
+			t.Fatal(code, err)
+		}
+	}
+	for _, code := range []string{"bearer secret", "custom_private_code", "/Users/private"} {
+		e.ErrorCode = code
+		if validateMaintenanceEvent(e, time.Now()) == nil {
+			t.Fatal("private or unknown category accepted")
+		}
+	}
+	e.ErrorCode = "timeout"
+	e.Result = "completed"
+	if validateMaintenanceEvent(e, time.Now()) == nil {
+		t.Fatal("success accepted with failure category")
+	}
+	e.Result = "failed"
+	e.Runtime.Stage = "cycle"
+	if validateMaintenanceEvent(e, time.Now()) == nil {
+		t.Fatal("cycle cause inferred")
+	}
+}

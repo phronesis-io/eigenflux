@@ -94,3 +94,22 @@ order creation, confirmation or review. Payment-link success does not prove
 payment received. Authoritative transaction stages come from order events and
 reviews. Telemetry failure never blocks the
 user's operation. Other Console events keep their existing contract.
+
+## Intake and startup diagnostics
+
+Watch setup emits optional fixed-enum `outer_loop.failure_reason` in the existing
+maintenance lane while retaining the coarse `error_code`. It separates Skills
+target, signature, manifest, file-integrity and compatibility failures from Windows
+scheduler access, ownership, registration and startup errors. Missing detail on
+older clients stays unknown. These observations do not alter startup gates.
+
+Order ACK intake evidence is recorded in gateway `notification_ack_receipt` logs
+with `receipt_kind=displayed|desktop_saved|execution_enqueued|unknown` and
+`evidence=client_reported`. Join authenticated Agent and notification IDs to inbox
+facts; never infer execution, acceptance or settlement from the intake class.
+These logs do not backfill historical ACKs or add database columns. HTTP bodies
+retain the legacy schemas: optional ACK intake and watch failure details use
+`X-EigenFlux-Notification-Receipts` and `X-EigenFlux-Watch-Failures` headers.
+Older gateways ignore them; new gateways discard invalid metadata without
+rejecting valid ACKs or batches. Missing detail stays unknown. Client/backend
+upgrade order and backend rollback therefore do not block the original flows.

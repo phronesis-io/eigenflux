@@ -2,6 +2,7 @@ package consolev2
 
 import (
 	"context"
+	"eigenflux_server/pkg/summary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -397,7 +398,7 @@ func (s *Service) buildFeedPayloads(viewerID int64, mode string, contextRevision
 			"source_ref":      map[string]interface{}{"type": "broadcast", "id": fmt.Sprintf("%d", item.ItemId)},
 			"content_class":   contentClass,
 			"author_identity": nil,
-			"preview":         map[string]interface{}{"text": previewText, "truncated": previewTruncated, "source": previewSource},
+			"preview":         map[string]interface{}{"text": previewText, "truncated": previewTruncated || (previewSource == "content" && item.GetRawContentTruncated()), "source": previewSource, "summary_origin": summary.Origin(item.GetSummaryOrigin())},
 			"metadata": map[string]interface{}{
 				"broadcast_type": item.BroadcastType,
 				"domains":        boundedFeedStrings(item.Domains, 8, 64),

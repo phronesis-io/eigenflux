@@ -2,6 +2,7 @@ package integrations
 
 import (
 	"context"
+	"eigenflux_server/pkg/summary"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -126,7 +127,11 @@ func RPCFeedSource(client feedservice.Client) integrationfeed.Generator {
 			if item == nil {
 				return output, errors.New("invalid enterprise Feed item")
 			}
-			entry := map[string]any{"item_id": strconv.FormatInt(item.ItemId, 10), "broadcast_type": item.BroadcastType, "updated_at": item.UpdatedAt}
+			preview := summary.MakePreview(item.GetSummary(), item.GetRawContent(), item.GetSummaryOrigin(), 800)
+			if preview.Source == "content" {
+				preview.Truncated = preview.Truncated || item.GetRawContentTruncated()
+			}
+			entry := map[string]any{"summary_origin": summary.Origin(item.GetSummaryOrigin()), "preview": preview, "item_id": strconv.FormatInt(item.ItemId, 10), "broadcast_type": item.BroadcastType, "updated_at": item.UpdatedAt}
 			if item.Summary != nil {
 				entry["summary"] = *item.Summary
 			}

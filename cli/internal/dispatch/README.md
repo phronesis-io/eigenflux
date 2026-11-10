@@ -108,6 +108,17 @@ flushes. Every watch mode records `execute.executed` from this context, includin
 notification-only and host-supervised restarts. This confirms process execution
 without claiming `runtime_ready`.
 
+`MainNoticeRunner.RunMaintenance` carries caller-verified signed maintenance
+instructions separately from untrusted local repair data to the existing native
+Codex main thread. It requires an exact bound thread, absolute `CODEX_HOME` and
+enabled hidden-input adapter. It reuses Desktop owner discovery, idle/baseline
+checks and exact-turn completion readback, inherits the thread's settings and
+permits a silent completed result. It does not create a conversation, grant
+execution or policy-write authority, trust hooks, or use the Commission queue.
+Callers retry only `MainNoticeCanRetry` failures before submission; uncertain
+owner writes are never replayed. A transport completion alone does not verify
+the repair outcome.
+
 ## PM flow and invariants
 
 CLI 1.0.2 accepts explicit ACP `main_session_id` and optional `main_command`
@@ -408,6 +419,10 @@ Limits: journal 16 MiB, 256 unresolved jobs, latest 1024 completed jobs (includi
 ## Runners and ownership
 
 ### Opt-in Codex PM main session
+
+Main-session metadata lookup resolves the `CODEX_HOME/sessions` root, including
+Windows directory junctions, before walking it. It preserves `CODEX_HOME` and
+the exact UUID/first-record metadata checks; links below the root are not followed.
 
 Hidden input removes prompt/protocol bubbles, not the final reply from the main
 conversation. This adapter is not silent background PM execution or a periodic
@@ -1001,3 +1016,39 @@ alone establishes neither readiness nor acceptance. Preserve account identity,
 mutation idempotency and version/request fencing. Buyer clarification workers
 retire stale jobs after withdrawal. Inspect the latest Order to confirm
 `pending_payment` after acceptance and wait for verified payment before work.
+
+Order desktop bodies append the authoritative Order buyer's public `agent_name`
+to Chinese buyer references. The receiver prefix retains the current account's identity. Missing buyer names retain the existing role text; name lookups
+remain optional and preserve notice routing and delivery.
+
+Chinese Order desktop titles put the event/status after the receiver account
+prefix and before the service name. Service names in titles use at most 13
+Unicode code points, preserving six at each end around a middle ellipsis.
+Body service references retain the existing display limit; buyer Agent names
+and notification identity/routing are unchanged. Reorder trusted copy before
+expanding display names so name contents cannot change the title layout.
+
+Order ACK bodies keep their legacy schema. The optional
+`X-EigenFlux-Notification-Receipts` header maps notification IDs to intake kinds:
+legacy stream uses `displayed`
+only after output succeeds; notifications-only watch uses `desktop_saved` only
+once the desktop queue is durable; dispatch watch uses `execution_enqueued` only
+after journal persistence and any required desktop sink succeed. Deduplicated
+intake retains its sink classification without re-executing work. The gateway
+logs this client-reported evidence; it does not establish visibility or Agent
+execution. Old clients omit the header and remain `unknown`. Older gateways
+ignore it. Missing, malformed or oversized metadata never rejects a valid ACK.
+
+Watch setup observations retain the existing `error_code` categories and add
+optional fixed-enum `outer_loop.failure_reason`. Skills failures distinguish
+unresolved targets, unavailable manifests, invalid signatures, modified files,
+CLI incompatibility, incomplete updates and other bounded validation causes.
+Windows task startup retains typed reasons for scheduler access, ownership,
+launcher writes, task registration/start/stop, timeout, cancellation and invalid
+PowerShell responses. Human diagnostics remain local; raw error text, paths and
+credentials never enter the field. The HTTP upload projection copies events and
+moves this detail into `X-EigenFlux-Watch-Failures`, keyed by event ID, retaining
+the legacy request body and the original local journal. Older gateways ignore
+the header. Invalid metadata is discarded independently of the valid batch.
+Existing startup gates and retries remain unchanged; cross-compilation does not
+establish real Windows scheduler behavior.

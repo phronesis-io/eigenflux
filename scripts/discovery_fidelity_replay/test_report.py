@@ -37,12 +37,12 @@ class PositiveEstimateTests(unittest.TestCase):
                                          "context": {"input_origin": origin}}]}
             save("comparison-slop-99.json", {"before": arm("1", "need_input"),
                                              "after": arm("2", "agent_context")})
-            save("feedback-history.json", {"delivery_start": "start", "delivery_end": "end",
-                "cells": [{"agent_id": "99", "lane": lane, "deliveries": 80}
+            save("feedback-history.json", {"contract":"unique-impression-positive-events-v2", "delivery_start": "start", "delivery_end": "end",
+                "cells": [{"agent_id": "99", "lane": lane, "deliveries": 80,"positive_events":8 if lane=="pgc" else 32}
                           for lane in ("pgc", "ugc")]})
             save("feedback-observed.json", {"cells": [
-                {"agent_id": "99", "lane": "pgc", "positive_events": 8},
-                {"agent_id": "99", "lane": "ugc", "positive_events": 32}]})
+                {"agent_id": "99", "lane": "pgc", "positive_events": 800},
+                {"agent_id": "99", "lane": "ugc", "positive_events": 3200}]})
             subprocess.run([sys.executable, str(Path(__file__).with_name("report.py")),
                             "--dir", tmp, "--variant", "slop"], check=True, capture_output=True)
             report = json.loads((root / "slop-effect-estimates.json").read_text())

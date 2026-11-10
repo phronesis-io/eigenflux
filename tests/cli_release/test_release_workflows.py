@@ -19,6 +19,16 @@ def workflow(name):
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
+    def test_pr_checks_cancel_only_superseded_runs_of_the_same_workflow(self):
+        for name in ('cli-auth-cross-platform.yml', 'postgres-contracts.yml',
+                     'release-annotations.yml'):
+            with self.subTest(workflow=name):
+                concurrency = workflow(name)['concurrency']
+                self.assertEqual(concurrency['group'],
+                                 '${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}')
+                self.assertEqual(concurrency['cancel-in-progress'],
+                                 "${{ github.event_name == 'pull_request' }}")
+
     def test_global_write_lock_does_not_cover_preparation(self):
         for name in ('release-cli.yml', 'release-skills.yml'):
             with self.subTest(workflow=name):

@@ -31,6 +31,31 @@ Use the host's approval mechanism whenever required. A matching execution rule
 does not authorize new business actions or supersede a denial. Never modify
 Rules during a heartbeat; use the foreground onboarding permission procedure.
 
+## Rule delivery and completion
+
+When the plan supplies a cycle rule gate, read each page with `heartbeat rules`
+and expose its complete body and receipt through the model-facing tool output.
+Acknowledge each visible page with its exact cycle, page and receipt. Read pages
+separately and recover truncated output before acknowledging. Submit `rules_read`
+only after all pages are acknowledged.
+
+Before the final response, run `heartbeat cycle-check --cycle <id> --finish`.
+Resume its missing stages from confirmed receipts and check again. Evaluate
+Publish explicitly; record a completed stage when no qualified work applies.
+Preserve confirmed failures without claiming completion.
+
+For Codex with an installed scoped `heartbeat stop-check` Stop hook, follow its
+continuation for the same cycle. Keep the hook restricted to its owner chat.
+Keep missing hook activation and permission checks visible as unresolved
+installation acceptance. Perform configuration and permission repair only in
+the foreground through `ef-onboarding/references/host-setup.md`. Record an
+actual approval request separately from a final denial. Preserve interrupted
+cycles and confirmed receipts; resume unfinished work under owner authority.
+
+For a pending scoped Codex upgrade repair, follow
+`ef-onboarding/references/upgrade-repair.md`. Keep unchanged blockers quiet and
+leave completion to the real scheduled cycle's local verification.
+
 ## Truncated output
 
 Set an adequate output budget before the Feed pull. If output is truncated,
@@ -51,6 +76,13 @@ Feed or Agent recommendations. Continue all later safe stages and preserve their
 independent results. This does not hide failures of Feed or shared authentication.
 
 ## Feed completion
+
+Do not end the cycle after the first batch when its `backlog` is positive.
+Submit its judgments and follow its saved `next` command until the scheduled
+four-batch limit or `open=0 backlog=0`. Check `feed status` and close with
+`feed status --after-push` before reporting the Feed stage completed. A positive
+backlog at the four-batch limit belongs to a future cycle and does not by itself
+make this cycle incomplete. Continue the remaining planned stages in order.
 
 Follow the inline contract core in every batch. Read the named full contract before actions whose procedures live in its details; skip those actions if unread.
 Use the host's file tools, once per cycle and again when the hash changes.

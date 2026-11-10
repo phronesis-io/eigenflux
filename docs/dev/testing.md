@@ -1,5 +1,12 @@
 # Testing
 
+Retention runtime failure categories are covered by
+`go test ./internal/maintenance ./cmd -run 'TestRuntime|TestFailedStage|TestCycle'`
+in `cli/`, and `go test ./api/consolev2 -run TestRuntime` in the root module.
+They verify privacy allowlists, failed-stage-only categories, account-local
+durability and immutable idempotent receipts. Database-backed acceptance still
+requires the isolated infrastructure described below.
+
 Tests live beside the packages they exercise and in the service integration suites under `tests/`. Shared integration helpers live in `tests/testutil/`. The CLI and Console API are independent Go modules; Console Web has its own Node test command.
 
 ## Test Directories
@@ -31,6 +38,46 @@ failure versus an empty response, Need-before-Feed ordering, narrow-mode exclusi
 version/account isolation, uncertain submissions, identical retries, and bounded
 local retention. These tests use local HTTP fixtures; they do not establish model
 adherence to the soft 120-second new-item budget or production completion rates.
+
+## CLI CI scope and command-test groups
+
+`CLI Auth Cross-Platform` classifies the complete Git diff before starting Go
+runners. Maintenance-only changes to `README.md`, `AGENTS.md`,
+`skills/AGENTS.md` and Markdown under `docs/` run lightweight source/checker tests. Skills content and
+onboarding-regression changes run the full command suite and Skills compatibility
+suite on Linux. CLI code, dependencies, installer/release tooling, CI changes,
+mixed changes and unrecognized paths require the full platform suite. Manual
+runs, missing Git history and unknown diff identities also require full checks.
+
+Linux always runs all `cli/cmd` tests. macOS and Windows exclude only tests
+explicitly reviewed in `scripts/ci/portable-cmd-tests.json`: these cover prose
+contracts, command/schema registration and pure JSON transformations. The
+manifest records exact test names and normalized source hashes. New tests stay
+cross-platform by default; edits to a reviewed file restore its tests to the
+platform group until its behavior and dependencies are reviewed again. Update
+the manifest's names and SHA-256 only after that review. Keep path, permission,
+process, notification, installer and host-integration behavior cross-platform.
+
+Run from the repository root:
+
+```sh
+python3 -m unittest discover -s tests/ci -p 'test_*.py'
+python3 scripts/ci/cmd_tests.py all
+python3 scripts/ci/cmd_tests.py portable
+python3 scripts/ci/cmd_tests.py platform --list
+```
+
+The source job also tests the onboarding regression checker. Actual isolated
+Agent generations and semantic review remain required by the
+[behavioral regression procedure](../../tests/onboarding_prefill/README.md);
+checker tests alone do not establish model behavior.
+
+Release planning reuses CI only after the exact main-push workflow run succeeds
+and its current attempt includes successful Linux, macOS, Windows, installer,
+source and artifact-handoff jobs. A green docs/Skills-only run, skipped matrix,
+missing jobs or unavailable evidence requires the existing release tests.
+Superseded PR checks are cancelled only within the same workflow and PR;
+main/manual runs stay isolated, and publication locks remain non-cancelling.
 
 ## Local Agent dispatch
 
@@ -111,6 +158,24 @@ establish runtime acceptance.
 Run `python3 -m unittest discover -s tests/cli_release -p 'test_codex_install.py'`
 for isolated full-installer selection and receipt tests. The suite preserves a
 non-default `CODEX_HOME`, explicit Agent Home, unrelated config, and opt-outs.
+It covers the invoking runtime path, current macOS app bundle layouts, and
+fallback from missing or incompatible candidates.
+
+Set `EIGENFLUX_TEST_CODEX` to a compatible native Codex executable and run
+`python3 -m unittest discover -s tests/cli_release -p 'test_codex_marketplace_cleanup.py'`
+for marketplace removal/reinstall acceptance. The suite uses temporary host
+Homes and a local Git catalog with external Git transports disabled. It covers
+registered and orphaned marketplace roots and preservation of unrelated state.
+Also set `EIGENFLUX_TEST_CLI` to a native EigenFlux executable on POSIX to run
+complete removal/reinstallation: native installation replacement, local managed
+Skills installation, the production host-setup functions, native plugin removal,
+marketplace ownership checks/removal, and the official uninstall wrapper's
+preview/begin/apply protocol. It verifies removal of credentials, cached history,
+edited managed Skills and executable ownership, then reinstalls at the same
+paths while preserving unrelated content. It uses a local fixture plugin and
+never uses live user configuration, starts an MCP server, or changes OS
+notification registration or scheduling. Without the explicit executables these
+native cases are skipped, not counted as acceptance.
 
 Run `python3 -m unittest discover -s tests/cli_release -p 'test_skills_install.py'`
 for GitHub Skills bootstrap coverage when signed CDN synchronization fails.
@@ -431,3 +496,10 @@ details. Run `go test -short ./cmd ./internal/feedevent ./internal/cache` from
 API preview provenance and health snapshots are covered by
 `go test ./api/consolev2 ./api/dal ./pkg/feedcontract`. Apply migration 000125
 before validating settings against a real local database.
+
+## Superseded pull-request checks
+
+CLI cross-platform, PostgreSQL contracts, and release annotation validation group
+PR runs by workflow and PR number. A new commit cancels older checks in that
+group. Main pushes and manual runs use unique run IDs and are not canceled by
+this policy. Publication workflows retain their existing serialization.

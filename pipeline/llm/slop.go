@@ -34,7 +34,10 @@ func SlopFailureStage(err error) string {
 const SlopVersion = "V0.2.1"
 const SlopRequestContract = "responses-temperature0-reasoning-none-v1"
 
-type UGCItemInput struct{ Content, Notes, Date string }
+type UGCItemInput struct {
+	Content, Notes, Date string
+	OmitSummary          bool
+}
 
 // UGCExtractResult keeps the PGC output contract unchanged.
 type UGCExtractResult struct {
@@ -80,15 +83,18 @@ func ValidateSlop(r *UGCExtractResult) error {
 }
 
 // ProcessUGCItem uses one extraction call, never a second classifier call.
-func (c *Client) ProcessUGCItem(ctx context.Context, content, notes string) (*SlopEvaluation, error) {
+func (c *Client) ProcessUGCItem(ctx context.Context, content, notes string, omitSummary ...bool) (*SlopEvaluation, error) {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	input := UGCItemInput{Content: content, Notes: notes, Date: time.Now().UTC().Format("2006-01-02")}
+	if len(omitSummary) > 0 {
+		input.OmitSummary = omitSummary[0]
+	}
 	rendered, err := c.prompts.Render(UGCItemPrompt.Name(), templateData[UGCItemInput]{Input: input})
 	if err != nil {
 		return nil, err
 	}
-	template, err := c.prompts.Render(UGCItemPrompt.Name(), templateData[UGCItemInput]{})
+	template, err := c.prompts.Render(UGCItemPrompt.Name(), templateData[UGCItemInput]{Input: UGCItemInput{OmitSummary: input.OmitSummary}})
 	if err != nil {
 		return nil, err
 	}

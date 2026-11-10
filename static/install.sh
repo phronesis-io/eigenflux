@@ -810,14 +810,21 @@ setup_agents() {
 
   # Codex: install the codex-eigenflux plugin (bundled stdio MCP server that
   # exposes the feed/messages as tools and guarantees skills sync on startup).
-  # Prefer a compatible PATH CLI, then existing user/system desktop bundles.
+  # Prefer the invoking desktop runtime, then PATH and existing desktop bundles.
   # Preserve CODEX_HOME across probes, installation, and verification.
   # Install commands / app paths / the "codex-eigenflux@eigenflux" id mirror
   # the codex-eigenflux repo (README, .agents/plugins/marketplace.json) and
   # the standalone installation entry's Codex section — keep them in sync.
-  setup_codex_cli "$(command -v codex 2>/dev/null || true)" \
+  setup_codex_cli "${CODEX_APP_RUNTIME_CLI_PATH:-}" \
+    "$(command -v codex 2>/dev/null || true)" \
+    "$HOME/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex" \
+    "$HOME/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex" \
     "$HOME/Applications/ChatGPT.app/Contents/Resources/codex" \
-    "/Applications/ChatGPT.app/Contents/Resources/codex" || true
+    "$HOME/Applications/Codex.app/Contents/Resources/codex" \
+    "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex" \
+    "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex" \
+    "/Applications/ChatGPT.app/Contents/Resources/codex" \
+    "/Applications/Codex.app/Contents/Resources/codex" || true
 
   # Is the plugin actually installed? Prefer machine-readable output: the
   # default `plugin list --json` contains ONLY installed plugins, so a hit is
