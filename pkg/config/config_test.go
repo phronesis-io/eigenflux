@@ -570,3 +570,14 @@ func TestNeedBudgetDefaultsOffAndLoadsBucket(t *testing.T) {
 		t.Fatal("Need budget bucket not loaded")
 	}
 }
+
+func TestNeedRecallDefaultsOffAndLoadsBucket(t *testing.T) {
+	t.Setenv("DISCOVERY_NEED_RECALL_BPS", "")
+	if Load().DiscoveryNeedRecallBPS != 0 {
+		t.Fatal("Need budget must default off")
+	}
+	t.Setenv("DISCOVERY_NEED_RECALL_BPS", "500")
+	if Load().DiscoveryNeedRecallBPS != 500 {
+		t.Fatal("Need budget bucket not loaded")
+	}
+}

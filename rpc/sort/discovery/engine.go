@@ -46,6 +46,7 @@ type Engine struct {
 	FriendFeedEnabled bool
 	ConsumedRefillBPS int
 	NeedBudgetBPS     int
+	NeedRecallBPS     int
 	// NeedMix reserves positions for equal-priority Needs in the Need budget bucket; nil keeps global order.
 	NeedMix *NeedMix
 	// ProfileSemanticBPS selects Agents whose broadcast recommendations add
@@ -246,6 +247,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		return x, Invalid("cursor", "requires_feed_delivery")
 	}
 	needBudgetOn := mode == Recommendation && bucketEnabled(needBudgetSalt, owner, e.NeedBudgetBPS)
+	needRecallOn := mode == Recommendation && bucketEnabled(needRecallSalt, owner, e.NeedRecallBPS)
 	contextCap := 200
 	if needBudgetOn {
 		contextCap = 300
@@ -367,6 +369,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		ci      int
 		kind    Kind
 		channel string
+		lane    string
 		docs    []Document
 		err     error
 	}
@@ -442,6 +445,9 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				// older, more similar content.
 				lanes = append(lanes, [2]string{"dense", profileFreshKey})
 			}
+			if needRecallOn && kind == Broadcast && c.CapturedNeed != nil && len(c.Vector) > 0 {
+				lanes = append(lanes, [2]string{"dense", needFreshKey})
+			}
 			for _, lane := range lanes {
 				ci, c, kind, channel, shareKey := ci, c, kind, lane[0], lane[1]
 				wg.Add(1)
@@ -452,7 +458,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 						defer func() { <-sem }()
 					case <-ctx.Done():
 						mu.Lock()
-						results = append(results, channelResult{ci: ci, kind: kind, channel: channel, err: ctx.Err()})
+						results = append(results, channelResult{ci: ci, kind: kind, channel: channel, lane: shareKey, err: ctx.Err()})
 						mu.Unlock()
 						return
 					}
@@ -472,6 +478,8 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 						limit = profileDenseLimit
 					case profileFreshKey:
 						limit, since = profileFreshLimit, now-profileFreshDays*day
+					case needFreshKey:
+						limit, since = needFreshLimit, now-needFreshDays*day
 					}
 					var docs []Document
 					var err error
@@ -494,14 +502,26 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 							docs[i].NeedExclusionText = len(c.Filters.ExcludeTerms) > 0
 						}
 					} else {
-						if needBudgetOn && kind == Broadcast && channel == "dense" && c.CapturedNeed != nil {
+						if (needBudgetOn || needRecallOn) && kind == Broadcast && channel == "dense" && c.CapturedNeed != nil {
 							historyOnce.Do(loadNeedGroups)
 							c.excludeConsumedGroups = needGroups
 						}
+						c.createdSince = since
+						started := time.Now()
 						docs, err = e.Sources.Recall(ctx, c, kind, channel, limit)
+						if mode == Recommendation && kind == Broadcast && channel == "dense" && c.CapturedNeed != nil {
+							lane, exclusion := "main", "off"
+							if shareKey == needFreshKey {
+								lane = "fresh"
+							}
+							if len(c.excludeConsumedGroups) > 0 {
+								exclusion = "on"
+							}
+							metrics.DiscoveryNeedDenseDuration.WithLabelValues(lane, exclusion).Observe(time.Since(started).Seconds())
+						}
 					}
 					mu.Lock()
-					results = append(results, channelResult{ci, kind, channel, docs, err})
+					results = append(results, channelResult{ci: ci, kind: kind, channel: channel, lane: shareKey, docs: docs, err: err})
 					mu.Unlock()
 				}()
 			}
@@ -519,7 +539,10 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		if a.kind != b.kind {
 			return kindPosition(r.SourceKinds, a.kind) < kindPosition(r.SourceKinds, b.kind)
 		}
-		return channelOrder(a.channel) < channelOrder(b.channel)
+		if channelOrder(a.channel) != channelOrder(b.channel) {
+			return channelOrder(a.channel) < channelOrder(b.channel)
+		}
+		return a.lane < b.lane
 	})
 	candidates := []Candidate{}
 	recalled := map[int64]recallsource.Source{}
@@ -712,6 +735,10 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	for ci, c := range contexts {
 		if c.UnverifiedNeedReason != "" {
 			continue
+		}
+		contextCap := contextCap
+		if needRecallOn && !needBudgetOn && c.CapturedNeed != nil && len(c.Vector) > 0 && hasKind(c.Kinds, Broadcast) {
+			contextCap += needFreshLimit
 		}
 		merged := map[string]Document{}
 		order := []string{}

@@ -121,6 +121,9 @@ func (r *Request) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
+// CreatedSince returns the request-local recall cutoff in Unix milliseconds.
+func (c Context) CreatedSince() int64 { return c.createdSince }
+
 type Context struct {
 	// Request-local clock; excluded from persisted context/hash contracts.
 	retrievalAt           int64

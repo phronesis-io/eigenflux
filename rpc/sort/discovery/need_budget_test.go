@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -97,7 +98,7 @@ func (s *needBudgetSource) Recall(ctx context.Context, c Context, k Kind, ch str
 			return nil, err
 		}
 		s.mu.Lock()
-		s.queries[fmt.Sprintf("%d:%s", c.ID, ch)] = q
+		s.queries[fmt.Sprintf("%d:%s:%d", c.ID, ch, n)] = q
 		s.mu.Unlock()
 	}
 	return s.sourceFake.Recall(ctx, c, k, ch, n)
@@ -155,7 +156,7 @@ func TestNeedBudgetSharedHistoryAndMergeCap(t *testing.T) {
 			for key, q := range s.queries {
 				raw, err := json.Marshal(q)
 				require.NoError(t, err)
-				excluded := tc.wantReads > 0 && !tc.fail && !tc.timeout && key[len(key)-5:] == "dense"
+				excluded := tc.wantReads > 0 && !tc.fail && !tc.timeout && strings.Contains(key, ":dense:")
 				if excluded {
 					filter := q["knn"].(map[string]any)["filter"].(map[string]any)["bool"].(map[string]any)
 					require.Contains(t, filter["must_not"], terms("group_id", []int64{91, 92}))
