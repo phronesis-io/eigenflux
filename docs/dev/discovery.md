@@ -847,10 +847,9 @@ Search never enables this treatment. Restart Sort after changing the value.
 For each captured broadcast Need with a vector, treatment adds a dense lane
 with k=40 and `created_at >= execution time - 7 days`, alongside the main k=80
 lane. Both use the shared consumed-group exclusion described in the Need budget
-section below. One history
-attempt serves all Needs and both lanes; failed or timed-out reads leave recall
-unfiltered by consumption. Successful bounded history remains useful even when
-truncated. Lexical and downstream seen checks retain their existing behavior.
+section below. One history attempt serves all Needs and both lanes; failed or
+timed-out reads leave recall unfiltered by consumption. Successful bounded
+history remains useful even when truncated. Lexical and downstream seen checks retain their existing behavior.
 
 The affected context's candidate cap rises from 200 to 240. When Need budget is
 also enabled its 300 cap takes precedence; the caps do not add. Other contexts
@@ -878,7 +877,6 @@ Roll out with Need budget at 0 and Need recall at 1000 only after offline gates
 pass and runtime activation is approved. Observe latency for 24 hours before
 5000; the 14-day analysis window starts at that ramp. Rollback sets Need recall
 to 0 and restarts Sort; frozen pages retain their content for up to 30 minutes.
-
 
 ### Need candidate budget and attribution experiment
 
