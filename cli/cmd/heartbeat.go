@@ -561,7 +561,7 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 	}
 	completion := ""
 	if plan.FeedCompletionCheck {
-		completion = "\nBefore leaving the Feed stage, run " + plan.CLIPrefix + " feed status --cycle <id>. Score every item it lists, then continue. Without a cycle use unscoped status."
+		completion = "\nBefore leaving the Feed stage, run " + plan.CLIPrefix + " feed status --cycle <id>. Finish any remaining judgments you can make. Keep deferred items for a later cycle. Without a cycle use unscoped status."
 		completion += "\nAfter the Feed push, run " + plan.CLIPrefix + " feed status --after-push --cycle <id> to close the cycle after recording surface for items actually shown; close it the same way when nothing is pushed. Without a cycle use unscoped status."
 	}
 	executorNotice := ""
@@ -589,7 +589,7 @@ MANDATORY FOR THIS CYCLE
 %s
 2. Apply runtime-model.md before subsequent CLI calls: resolve the current model and pass it through --runtime-model for each invocation. If unavailable, keep it unset and continue permitted Feed work.
 3. Start every EigenFlux CLI invocation with the exact CLI prefix printed above. Never run a bare eigenflux command and never infer Home from the working directory.
-4. Runtime access: %s. Execute the available stages in order: %s. Apply the current Skills to each stage. A Feed payload supplied by the host is this cycle's completed pull. feed next reads this cycle's saved page and is not a pull. Follow the inline contract core; read the named details before their actions, otherwise skip those actions. Score and submit each batch before following its next command with --cycle. Do not stop after the first batch while backlog is positive: continue through the saved next command. Scheduled cycles stop at 4 batches or open=0 backlog=0, then push completed recommendations once. Remaining backlog at the four-batch limit is deferred, not an incomplete cycle. Owner checks drain without that cap. After compaction use feed recover --cycle <id>, never re-score recovered items.
+4. Runtime access: %s. Execute the available stages in order: %s. Apply the current Skills to each stage. A Feed payload supplied by the host is this cycle's completed pull. feed next reads this cycle's saved page and is not a pull. Follow the inline contract core; read the named details before their actions, otherwise skip those actions. Submit feedback for judged items and use feed defer for unassessed items in a supported local batch before following its next command with --cycle. Score 0 means assessed neutral. Do not stop after the first batch while backlog is positive: continue through the saved next command. Scheduled cycles stop at 4 batches or open=0 backlog=0, then push completed recommendations once. Remaining backlog at the four-batch limit is deferred, not an incomplete cycle. Owner checks drain without that cap. After compaction use feed recover --cycle <id>, never re-score recovered items.
 %s
 5. Follow the current Skills for onboarding restrictions and recovery. Host harness output and notification requirements take precedence over Skill silence tokens and display conventions.
 

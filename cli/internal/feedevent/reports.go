@@ -42,6 +42,7 @@ type Report struct {
 	ContextRevision   int64  `json:"context_revision,omitempty"`
 	SurfaceRemindedAt int64  `json:"surface_reminded_at,omitempty"`
 	BacklogExpiredAt  int64  `json:"backlog_expired_at,omitempty"`
+	DeferredAt        int64  `json:"deferred_at,omitempty"`
 	ScoredAt          int64  `json:"scored_at,omitempty"`
 	Score             int    `json:"score,omitempty"`
 	ClientKey         string `json:"client_key,omitempty"`
@@ -78,7 +79,13 @@ func (r Report) Hands() int {
 }
 
 func (r *Report) Hand(now int64) {
-	r.HandCount = r.Hands() + 1
+	if r.DeferredAt > 0 {
+		// Resume with a full retry budget after an explicit deferral.
+		r.HandCount = 1
+		r.DeferredAt = 0
+	} else {
+		r.HandCount = r.Hands() + 1
+	}
 	r.HandedAt = &now
 	r.Batched = true
 }
@@ -251,6 +258,7 @@ func (r *Reports) RecordFeedback(item Event, now int64, delivery string) {
 		r.Count(judgedAt, map[string]int64{"scored_items": 1})
 	}
 	entry.Delivery = delivery
+	entry.DeferredAt = 0
 	r.Entries[key] = entry
 }
 func (r *Reports) RecordSurface(item Event, now int64) {
@@ -278,6 +286,7 @@ type PendingItem struct {
 	AgeMs           int64  `json:"age_ms"`
 	Title           string `json:"title"`
 	AlreadySurfaced bool   `json:"already_surfaced"`
+	Deferred        bool   `json:"deferred,omitempty"`
 }
 
 func (l *Ledger) Pending(reports Reports, now int64) []PendingItem {
@@ -296,7 +305,10 @@ func (l *Ledger) Pending(reports Reports, now int64) []PendingItem {
 		if report.HandedTime() == 0 || report.Baseline || report.ScoredAt > 0 || report.Delivery == "queued" || report.Delivery == "accepted" || report.Delivery == "duplicate" || report.Delivery == "rejected" {
 			continue
 		}
-		pending = append(pending, PendingItem{ItemID: e.ItemID, ImpressionID: e.ImpressionID, AgeMs: now - report.ServedAt, Title: e.Title, AlreadySurfaced: surfaced[e.ItemID]})
+		if report.DeferredAt > 0 && report.BacklogExpiredAt > 0 {
+			continue
+		}
+		pending = append(pending, PendingItem{ItemID: e.ItemID, ImpressionID: e.ImpressionID, AgeMs: now - report.ServedAt, Title: e.Title, AlreadySurfaced: surfaced[e.ItemID], Deferred: report.DeferredAt > 0})
 	}
 	sort.Slice(pending, func(i, j int) bool {
 		if pending[i].AgeMs != pending[j].AgeMs {

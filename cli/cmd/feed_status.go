@@ -85,6 +85,7 @@ func recordFeedPage(r *feedevent.Reports, data json.RawMessage, now int64, batch
 type feedStatus struct {
 	Items       []feedevent.PendingItem `json:"items"`
 	Pending     int                     `json:"pending"`
+	Deferred    int                     `json:"deferred"`
 	OldestAgeMs int64                   `json:"oldest_age_ms"`
 	Open        int                     `json:"open"`
 	Backlog     int                     `json:"backlog"`
@@ -97,6 +98,11 @@ type feedSurfaceStatus struct {
 
 func buildFeedStatus(pending []feedevent.PendingItem) feedStatus {
 	status := feedStatus{Items: pending, Pending: len(pending)}
+	for _, item := range pending {
+		if item.Deferred {
+			status.Deferred++
+		}
+	}
 	if len(pending) > 0 {
 		status.OldestAgeMs = pending[0].AgeMs
 	}
@@ -207,6 +213,11 @@ var feedStatusCmd = &cobra.Command{Use: "status", Short: "List unscored Feed exp
 	if err != nil {
 		return err
 	}
+	warnReportLedger(store.Update(now, func(current *feedevent.Reports) {
+		expireFeedBacklog(ledger, current, now)
+		state = *current
+		current.Count(now, map[string]int64{"status_runs": 1})
+	}))
 	pending := ledger.Pending(state, now)
 	if cycle != "" {
 		filtered := pending[:0]
@@ -221,12 +232,15 @@ var feedStatusCmd = &cobra.Command{Use: "status", Short: "List unscored Feed exp
 	open, backlog := cycleBatchCandidates(ledger, state, now, cycle, cycle != "")
 	status.Open, status.Backlog = len(open), len(backlog)
 	status.Health = state.HealthCounts(now)
-	warnReportLedger(store.Count(now, map[string]int64{"status_runs": 1}))
 	if resolveFormat() == "agent" {
 		for _, item := range status.Items {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "item_id=%s impression_id=%s age_ms=%d already_surfaced=%t title=%q\n", item.ItemID, item.ImpressionID, item.AgeMs, item.AlreadySurfaced, item.Title)
+			deferred := ""
+			if item.Deferred {
+				deferred = " deferred=true"
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "item_id=%s impression_id=%s age_ms=%d already_surfaced=%t title=%q%s\n", item.ItemID, item.ImpressionID, item.AgeMs, item.AlreadySurfaced, item.Title, deferred)
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "pending=%d oldest_age=%dms open=%d backlog=%d\n", status.Pending, status.OldestAgeMs, status.Open, status.Backlog)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "pending=%d oldest_age=%dms open=%d backlog=%d deferred=%d\n", status.Pending, status.OldestAgeMs, status.Open, status.Backlog, status.Deferred)
 	} else {
 		output.PrintData(status, resolveFormat())
 	}
