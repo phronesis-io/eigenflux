@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -64,11 +63,7 @@ func StagePackage(ctx context.Context, o Options, m Manifest, rootExecutable str
 	}
 	entryManifestData := manifestData
 	if m.NotifierVersion != "" {
-		client := o.Client
-		if client == nil {
-			client = &http.Client{Timeout: 2 * time.Minute}
-		}
-		entryManifestData, err = download(ctx, client, strings.TrimRight(o.CDN, "/")+"/cli/"+m.Version+"/release.json", 1<<20, o.Version)
+		entryManifestData, err = download(ctx, o.Client, strings.TrimRight(o.CDN, "/")+"/cli/"+m.Version+"/release.json", 1<<20, o.Version)
 		if err != nil {
 			return "", "", atStep("package_manifest", err)
 		}
@@ -91,12 +86,8 @@ func StagePackage(ctx context.Context, o Options, m Manifest, rootExecutable str
 	} else if !os.IsNotExist(err) {
 		return "", "", err
 	}
-	client := o.Client
-	if client == nil {
-		client = &http.Client{Timeout: 2 * time.Minute}
-	}
 	progress("download")
-	data, err := download(ctx, client, strings.TrimRight(o.CDN, "/")+"/cli/"+m.Version+"/"+name+".zip", artifact.Size, o.Version)
+	data, err := downloadArtifact(ctx, o.Client, strings.TrimRight(o.CDN, "/")+"/cli/"+m.Version+"/"+name+".zip", artifact.Size, o.Version)
 	if err != nil {
 		return "", "", err
 	}

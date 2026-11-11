@@ -69,6 +69,50 @@ func TestInstallationStepPreservesOriginalError(t *testing.T) {
 	}
 }
 
+type deadlineTransport func(*http.Request) (*http.Response, error)
+
+func (f deadlineTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestArtifactDownloadReservesTimeForInstallation(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		updateBudget time.Duration
+		wantBudget   time.Duration
+	}{
+		{"download cap", 150 * time.Second, 90 * time.Second},
+		{"after slow manifests", 75 * time.Second, 45 * time.Second},
+		{"installation reserve exhausted", 20 * time.Second, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now := time.Now()
+			ctx, cancel := context.WithDeadline(context.Background(), now.Add(tc.updateBudget))
+			defer cancel()
+			requests := 0
+			client := &http.Client{Transport: deadlineTransport(func(req *http.Request) (*http.Response, error) {
+				requests++
+				deadline, ok := req.Context().Deadline()
+				want := now.Add(tc.wantBudget)
+				if !ok || deadline.Before(want) || deadline.After(want.Add(time.Second)) {
+					t.Errorf("request deadline = %v, want near %v", deadline, want)
+				}
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("ok"))}, nil
+			})}
+			body, err := downloadArtifact(ctx, client, "https://example.test/artifact", 2, "1.0.27")
+			if tc.wantBudget == 0 {
+				if !errors.Is(err, context.DeadlineExceeded) || requests != 0 {
+					t.Fatalf("insufficient budget: %d requests, error %v", requests, err)
+				}
+				return
+			}
+			if err != nil || string(body) != "ok" || requests != 1 || ctx.Err() != nil {
+				t.Fatalf("download = %q, error %v, requests %d, update context %v", body, err, requests, ctx.Err())
+			}
+		})
+	}
+}
+
 type diagnosticTransport struct{ mode string }
 
 func (d diagnosticTransport) RoundTrip(req *http.Request) (*http.Response, error) {
