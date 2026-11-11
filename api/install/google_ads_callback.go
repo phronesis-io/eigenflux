@@ -147,7 +147,7 @@ func reportGoogleAdsInstallConversion(ref, gclid string, reportedAt int64) (int,
 	payload := map[string]interface{}{
 		"destinations": []map[string]interface{}{destination},
 		"events": []map[string]interface{}{{
-			"eventTimestamp":        at.Format(time.RFC3339),
+			"eventTimestamp":        at.Format(time.RFC3339Nano),
 			"transactionId":         "install:" + ref,
 			"eventSource":           "WEB",
 			"destinationReferences": []string{"google_ads_install"},
