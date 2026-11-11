@@ -290,5 +290,16 @@
     "title": "Classified runtime stage failures accepted",
     "description": "API accepts bounded categories on confirmed failed stages after deployment. Coverage starts only when compatible CLI callers adopt the optional flag; old receipts remain unknown and missing receipts do not establish failure. No historical backfill.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/522"
+  },
+  {
+    "id": "discovery-need-recall-v1",
+    "kind": "behavior",
+    "deploy_scope": "full",
+    "dashboards": [
+      "recommendation-effect"
+    ],
+    "title": "Recent Need dense recall available (default off)",
+    "description": "Requires Sort rollout; API-only deployment does not activate it. Compare recorded experiment arms from bucket activation, not deployment time. Lane latency starts after rollout without historical backfill; frozen pages retain their contents.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/553"
   }
 ]

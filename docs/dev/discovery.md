@@ -846,7 +846,8 @@ Search never enables this treatment. Restart Sort after changing the value.
 
 For each captured broadcast Need with a vector, treatment adds a dense lane
 with k=40 and `created_at >= execution time - 7 days`, alongside the main k=80
-lane. Both use the shared consumed-group exclusion described above. One history
+lane. Both use the shared consumed-group exclusion described in the Need budget
+section below. One history
 attempt serves all Needs and both lanes; failed or timed-out reads leave recall
 unfiltered by consumption. Successful bounded history remains useful even when
 truncated. Lexical and downstream seen checks retain their existing behavior.
