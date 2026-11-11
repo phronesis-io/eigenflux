@@ -8,7 +8,8 @@ only the relevant scheduler sections. Do not enter new-onboarding choices.
 ## Required choices
 
 Scheduling and execution permission are required separately. Prefill is optional.
-The scheduling choice covers recurring checks (every two hours by default) and
+The scheduling choice covers recurring checks (every 12 hours by default for
+Codex, every two hours for other hosts) and
 one read-only initial network check for the website's review-only projection.
 Use `schedule`; an affirmative answer grants only this scope. Preserve a
 user-selected cadence. Do not create the trigger yet.
@@ -237,7 +238,8 @@ persistent path is available, report the missing capability and keep setup
 incomplete before provisioning. Do not create a second trigger beside a working
 plugin loop or native task.
 
-Use one active trigger named with `inbox_name`, every two hours by default.
+Use one active trigger named with `inbox_name`. Default cadence for a new
+trigger: every 12 hours for Codex, every two hours for other hosts.
 Preserve a user-selected interval. Never repeat accepted scheduling consent.
 
 ## Fixed execution prompt
