@@ -168,7 +168,6 @@ func TestFeedBatchPollAndNextKeepExposureAndRuntime(t *testing.T) {
 }
 
 func TestFeedBatchFetchDecision(t *testing.T) {
-	now := time.Now().UnixMilli()
 	for _, tc := range []struct {
 		action, origin       string
 		open, backlog, polls int
@@ -176,10 +175,10 @@ func TestFeedBatchFetchDecision(t *testing.T) {
 		want                 bool
 	}{
 		{"more", "", 1, 10, 0, 0, true}, {"refresh", "", 0, 0, 0, 0, true}, {"refresh", "heartbeat", 1, 0, 1, time.Hour, false},
-		{"refresh", "", 0, 1, 2, 30 * time.Minute, true}, {"refresh", "", 1, 1, 2, 29 * time.Minute, false}, {"refresh", "", 0, 1, 1, time.Hour, false},
+		{"refresh", "", 0, 1, 2, 30 * time.Minute, false}, {"refresh", "", 1, 1, 2, 29 * time.Minute, false}, {"refresh", "", 0, 1, 1, time.Hour, false},
 		{"refresh", "owner", 1, 10, 0, 0, true},
 	} {
-		got := shouldFetchFeedBatch(tc.action, tc.origin, feedevent.Reports{LastFetchAt: now - tc.age.Milliseconds(), LocalPolls: tc.polls}, tc.open, tc.backlog, now)
+		got := shouldFetchFeedBatch(tc.action, tc.origin, tc.open, tc.backlog)
 		if got != tc.want {
 			t.Fatal(tc, got)
 		}

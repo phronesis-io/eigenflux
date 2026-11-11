@@ -5,8 +5,10 @@ import (
 	"eigenflux_server/pkg/bloomfilter"
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/replaylog"
+	"eigenflux_server/pkg/reqinfo"
 	"eigenflux_server/rpc/sort/discovery"
 	"encoding/json"
+	"github.com/bytedance/gopkg/cloud/metainfo"
 	"reflect"
 	"strconv"
 	"sync"
@@ -267,7 +269,8 @@ func TestSamplePreservesRequestTimeAndRecordsDeliveryTime(t *testing.T) {
 	e.x.Mode = discovery.Search
 	requestTime := time.Now().Add(-time.Minute).UnixMilli()
 	before := time.Now().UnixMilli()
-	values, err := sampleValues(1, e.x, "impression", 0, requestTime)
+	ctx := metainfo.WithPersistentValue(context.Background(), reqinfo.KeyCLIVer, "1.0.15")
+	values, err := sampleValues(ctx, 1, e.x, "impression", 0, requestTime)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,12 +279,16 @@ func TestSamplePreservesRequestTimeAndRecordsDeliveryTime(t *testing.T) {
 		t.Fatal("delivery time replaced with request start", servedAt, err)
 	}
 	var features struct {
-		Search struct {
+		Context map[string]string `json:"context"`
+		Search  struct {
 			RequestTime int64 `json:"request_time"`
 		} `json:"search_context"`
 	}
 	if err := json.Unmarshal([]byte(values["agent_features"].(string)), &features); err != nil {
 		t.Fatal(err)
+	}
+	if features.Context["cli_ver"] != "1.0.15" {
+		t.Fatal(features)
 	}
 	if features.Search.RequestTime != requestTime {
 		t.Fatal("request snapshot timestamp changed")
@@ -292,7 +299,7 @@ func TestSampleRecordsExperimentArms(t *testing.T) {
 	_, e, _ := setup(t)
 	e.x.Mode = discovery.Recommendation
 	read := func() map[string]any {
-		values, err := sampleValues(1, e.x, "impression", 0, 1)
+		values, err := sampleValues(context.Background(), 1, e.x, "impression", 0, 1)
 		if err != nil {
 			t.Fatal(err)
 		}

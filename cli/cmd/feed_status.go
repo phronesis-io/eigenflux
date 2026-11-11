@@ -74,7 +74,7 @@ func recordFeedPage(r *feedevent.Reports, data json.RawMessage, now int64, batch
 		}
 		r.Entries[key] = entry
 	}
-	r.LastFetchAt, r.LocalPolls = now, 0
+	r.LastFetchAt, r.LocalPolls, r.LastImpressionID = now, 0, feed.ImpressionID
 	r.Count(now, map[string]int64{"pulls": 1, "delivered_items": int64(len(feed.Items))})
 	if batch > 0 && !baseline && !deferred {
 		r.Count(now, map[string]int64{"batches_handed": 1})

@@ -18,17 +18,26 @@ flush. The next write moves an unreadable ledger aside as
 `feed-reports.json.corrupt-<unix-ms>` and starts a fresh one. A corrupt event
 queue is still preserved and reported, because it holds undelivered judgments.
 
-Without `--batch`, `feed poll` preserves whole-page output and always fetches.
+Without `--batch`, V2 `feed poll` reuses the last nonempty personalized page
+within 60 seconds of the last server fetch if no item has a local judgment,
+the page is readable, and its context revision still matches the applied one.
+Runtime synchronization still runs. Reuse preserves output and impression IDs,
+counts `repeat_pulls_suppressed`, and never advances the last-fetch time.
+Owner requests, `--action more`, baseline, missing/corrupt cache, changed context,
+and backward clock movement fetch normally.
 V1 ignores batching; baseline pages are always whole and read-only.
 
 `feed poll --batch N` (1–20) saves a V2 page before printing up to N items.
 Later polls serve open items and backlog locally, oldest page and page position
 first, while still synchronizing control context, runtime heartbeat and settings.
 `--action more` and `--origin owner` always fetch; an owner check continues
-with saved work through `feed next`. With work remaining, a scheduled poll
-fetches a new page only after two consecutive local polls and at least 30
-minutes since the last fetch, to bound notification delay. Otherwise the saved
-work is processed first.
+with saved work through `feed next`. Scheduled polls fetch only after eligible
+open items and never-handed backlog are drained. The former two-local-poll /
+30-minute override is removed. Eligibility still expires after 24 hours and
+respects the three-hand limit; stale or exhausted items do not block fresh work.
+This supply policy is enabled without the prior >5% expiry gate; its effect on
+valid scores and backlog expiry has not been established. V2 notification
+polling is independent of Feed (V2 Feed notifications are empty).
 
 `feed next --batch N` defaults to 5 and reads only local state, including skipping
 the background event flush. It selects up to N items from one page under the
@@ -135,7 +144,29 @@ Feedback is durably enqueued before sending, mixed with existing behavior events
 but routed to the correct API. Ordered per-item results update the report ledger;
 rejected items retain their reason in command output. Network failures preserve
 the queue and return a queued summary. A batch the server accepted leaves the
-queue even if the ledger cannot be updated. Queue entries expire after 72 hours.
+queue even if the ledger cannot be updated. Queue entries expire after 72 hours. Missing timestamps are tracked in the
+additive `first_seen` map without changing wire timestamps. An older binary can
+rewrite the compatible `events` array; if it discards `first_seen`, the missing-
+timestamp retention window starts again on the next upgraded observation.
+
+Feedback and queued behavior events carry local endpoint/Agent scope. Foreign
+entries remain queued, expire normally, and are counted as `scope_mismatch` in
+flush output. Legacy unscoped entries are held while any foreign scope remains.
+Local `_` metadata never crosses the wire. Feedback is selected before behavior;
+validated feedback results are removed even if the behavior group fails.
+Sending holds only a zero-wait OS-backed flush lock, allowing concurrent enqueue;
+acknowledgement reloads the queue before removing confirmed identities. Lock
+files remain after release. A crash after send retries the same keys.
+
+A background HTTP 401 persists a scope-bound authentication block. Background
+flush resumes after the saved credential file changes or a foreground request
+authenticates successfully. Explicit `feed event flush` always tries once.
+Unreadable queues produce `ok:false, queue_status:unreadable`, preserve their
+bytes, and omit the health sample. Expiry counts are emitted only after saving.
+
+`feed event record` infers the latest handed exposure for each item, rather than
+the latest cached page. An explicit `--impression-id` still selects that exact
+cached exposure. Direct `feed event push` is unchanged.
 
 Every CLI invocation attempts a bounded flush using the saved access token,
 except installation lifecycle and local metadata commands (`uninstall`,

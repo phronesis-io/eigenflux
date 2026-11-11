@@ -20,6 +20,7 @@ const (
 // Feedback is one accepted score report. Optional telemetry never creates a
 // follow-up event; ClientKey deduplicates durable score effects per Agent.
 type Feedback struct {
+	AcceptedAt                                                 int64
 	AgentID, ItemID                                            int64
 	Score                                                      int
 	ImpressionID, ClientKey, ImpressionSource, ContractVersion string
@@ -27,6 +28,7 @@ type Feedback struct {
 }
 
 type Event struct {
+	AcceptedAt                                   int64
 	EventType                                    string
 	AgentID                                      int64
 	ItemID                                       int64
@@ -66,6 +68,9 @@ func PublishFeedback(ctx context.Context, feedback Feedback) (string, error) {
 		if value != "" {
 			values[key] = value
 		}
+	}
+	if feedback.AcceptedAt > 0 {
+		values["accepted_at"] = strconv.FormatInt(feedback.AcceptedAt, 10)
 	}
 	if feedback.Surfaced != nil {
 		values["surfaced"] = strconv.FormatBool(*feedback.Surfaced)
@@ -116,6 +121,11 @@ func ParseEvent(values map[string]interface{}) (Event, error) {
 			return Event{}, fmt.Errorf("invalid score %q", scoreStr)
 		}
 		event.Score = score
+		if raw, ok := values["accepted_at"].(string); ok {
+			if at, err := strconv.ParseInt(raw, 10, 64); err == nil && at > 0 {
+				event.AcceptedAt = at
+			}
+		}
 		if impressionID, ok := values["impression_id"].(string); ok && impressionID != "" {
 			event.ImpressionID = impressionID
 		}

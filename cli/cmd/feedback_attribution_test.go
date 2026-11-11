@@ -53,3 +53,61 @@ func TestDiscoveryFeedbackAttribution(t *testing.T) {
 		}
 	}
 }
+
+func TestSurfaceUsesHandedPagesAndStripsLocalScope(t *testing.T) {
+	var received []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Events []map[string]any `json:"events"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		received = body.Events
+		w.Write([]byte(`{"code":0,"data":{}}`))
+	}))
+	defer srv.Close()
+	_, server := runtimeTestConfig(t, srv.URL, true)
+	now := time.Now().UnixMilli()
+	for _, page := range []struct {
+		imp, items string
+		handed     bool
+	}{{"A", `[{"item_id":"1"}]`, true}, {"C", `[{"item_id":"2"}]`, true}, {"B", `[{"item_id":"1"},{"item_id":"2"}]`, false}} {
+		raw := json.RawMessage(`{"schema_version":"feed.v2","impression_id":"` + page.imp + `","personalization":{"mode":"intent_aligned","context_revision":1},"items":` + page.items + `}`)
+		if err := cache.SaveFeedResponse(server, raw); err != nil {
+			t.Fatal(err)
+		}
+		if err := feedReportStore(server).Update(now, func(state *feedevent.Reports) {
+			if _, err := recordFeedPage(state, raw, now, 0, false); err != nil {
+				t.Fatal(err)
+			}
+			if !page.handed {
+				for key, entry := range state.Entries {
+					if entry.ImpressionID == page.imp {
+						zero := int64(0)
+						entry.HandedAt = &zero
+						state.Entries[key] = entry
+					}
+				}
+			}
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for flag, value := range map[string]string{"item-ids": "1,2", "kind": "surface", "impression-id": ""} {
+		old, _ := feedEventRecordCmd.Flags().GetString(flag)
+		t.Cleanup(func() { feedEventRecordCmd.Flags().Set(flag, old) })
+		feedEventRecordCmd.Flags().Set(flag, value)
+	}
+	if err := feedEventRecordCmd.RunE(feedEventRecordCmd, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(received) != 2 || received[0]["impression_id"] != "A" || received[1]["impression_id"] != "C" {
+		t.Fatal(received)
+	}
+	for _, item := range received {
+		if _, ok := item["_scope"]; ok {
+			t.Fatal("local scope leaked", item)
+		}
+	}
+}

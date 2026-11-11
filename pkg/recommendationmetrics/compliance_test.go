@@ -19,7 +19,7 @@ var complianceCutoff = instant("2026-10-05T00:00:00+08:00")
 func complianceDB(t *testing.T) *sql.DB {
 	t.Helper()
 	c := fixtureDB(t)
-	for _, name := range []string{"000118_feedback_compliance_daily.sql", "000119_feedback_compliance_inferred.sql", "000120_feedback_report_metadata.sql", "000122_feedback_compliance_reporting.sql"} {
+	for _, name := range []string{"000118_feedback_compliance_daily.sql", "000119_feedback_compliance_inferred.sql", "000120_feedback_report_metadata.sql", "000122_feedback_compliance_reporting.sql", "000135_feedback_coverage_measurement.sql"} {
 		b, err := os.ReadFile("../../migrations/" + name)
 		if err != nil {
 			t.Fatal(err)
@@ -27,6 +27,7 @@ func complianceDB(t *testing.T) *sql.DB {
 		up, _, _ := strings.Cut(string(b), "-- +goose Down")
 		complianceExec(t, c, up)
 	}
+	complianceExec(t, c, `ALTER TABLE replay_logs ADD COLUMN agent_features jsonb NOT NULL DEFAULT '{}'`)
 	complianceExec(t, c, `CREATE INDEX idx_replay_logs_item ON replay_logs(item_id,served_at)`)
 	return c
 }
@@ -92,6 +93,9 @@ func assertComplianceCounts(t *testing.T, c *sql.DB, want map[string]int64) {
 	t.Helper()
 	got := complianceCounts(t, c, "all", "all")
 	for k, n := range got {
+		if _, specified := want[k]; !specified && (k == "scoring_agents" || k == "delayed_ingestion_exposures") {
+			continue
+		}
 		if n != want[k] {
 			t.Errorf("%s=%d want %d", k, n, want[k])
 		}
@@ -109,7 +113,7 @@ func assertComplianceConservation(t *testing.T, c *sql.DB) {
 	err := c.QueryRow(`WITH counts AS (
  SELECT dimension,key,(j.value::text)::bigint AS n FROM feedback_compliance_daily d,
  jsonb_each(to_jsonb(d)-ARRAY['day','dimension','value','snapshot_at','schema_version','delivered_agents']) j
- WHERE day=$1)
+ WHERE day=$1 AND dimension<>'basis')
  SELECT count(*) FROM (SELECT dimension,key,sum(n) n FROM counts WHERE dimension<>'all' GROUP BY dimension,key) s
  JOIN counts a ON a.dimension='all' AND a.key=s.key WHERE a.n<>s.n`, complianceDay).Scan(&mismatches)
 	if err != nil || mismatches != 0 {
@@ -349,11 +353,13 @@ func TestPostgresComplianceCohortsAndConservation(t *testing.T) {
 		}
 		imp := fmt.Sprint(agent)
 		complianceDelivery(t, c, agent, agent, 10, imp, complianceServed)
+		complianceExec(t, c, `UPDATE replay_logs SET agent_features=jsonb_build_object('context',jsonb_build_object('cli_ver',$1::text)) WHERE id=$2`, cli, agent)
 		complianceScore(t, c, agent, 10, imp, time.Minute, 1)
 		complianceFollowup(t, c, agent, 10, imp, "surface", time.Minute)
 	}
 	// Two exposures for one consumer cannot promote a four-Agent value.
 	complianceDelivery(t, c, 200, 101, 20, "101", complianceServed)
+	complianceExec(t, c, `UPDATE replay_logs SET agent_features=(SELECT agent_features FROM replay_logs WHERE id=101) WHERE id=200`)
 	complianceScore(t, c, 101, 20, "101", time.Minute, 1)
 	for agent, runtime := range map[int]string{201: "OpenClaw", 202: "event-only"} {
 		complianceExec(t, c, `INSERT INTO agents VALUES($1,$2,false)`, agent, fmt.Sprintf("e%d@example.invalid", agent))
@@ -389,7 +395,7 @@ func TestPostgresComplianceCohortsAndConservation(t *testing.T) {
 		}
 	}
 	var disclosed int
-	if err := c.QueryRow(`SELECT count(*) FROM feedback_compliance_daily WHERE dimension<>'all' AND value<>'other' AND delivered_agents<5`).Scan(&disclosed); err != nil || disclosed != 0 {
+	if err := c.QueryRow(`SELECT count(*) FROM feedback_compliance_daily WHERE dimension NOT IN ('all','basis') AND value<>'other' AND delivered_agents<5`).Scan(&disclosed); err != nil || disclosed != 0 {
 		t.Fatal(disclosed, err)
 	}
 	assertComplianceConservation(t, c)
@@ -816,7 +822,7 @@ func TestPostgresComplianceReportingConstraintsAndRollback(t *testing.T) {
 			t.Error("inconsistent count accepted", col)
 		}
 	}
-	for _, name := range []string{"000122_feedback_compliance_reporting.sql", "000119_feedback_compliance_inferred.sql"} {
+	for _, name := range []string{"000135_feedback_coverage_measurement.sql", "000122_feedback_compliance_reporting.sql", "000119_feedback_compliance_inferred.sql"} {
 		migration, err := os.ReadFile("../../migrations/" + name)
 		if err != nil {
 			t.Fatal(err)
@@ -828,5 +834,48 @@ func TestPostgresComplianceReportingConstraintsAndRollback(t *testing.T) {
 	err := c.QueryRow(`SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='grafana_feedback_compliance_daily'`).Scan(&n)
 	if err != nil || n != 35 {
 		t.Fatal(n, err)
+	}
+}
+
+func TestPostgresCoverageBasisSnapshotAndIngestion(t *testing.T) {
+	c := complianceDB(t)
+	for i := 1; i <= 5; i++ {
+		agent := 100 + i
+		complianceExec(t, c, `INSERT INTO agents VALUES($1,$2,false)`, agent, fmt.Sprintf("coverage%d@example.invalid", i))
+		complianceExec(t, c, `INSERT INTO agent_settings(agent_id,cli_version) VALUES($1,'latest')`, agent)
+		complianceDelivery(t, c, i, agent, 10, fmt.Sprint(i), complianceServed)
+		complianceDelivery(t, c, 10+i, agent, 11, fmt.Sprint(10+i), complianceServed)
+		complianceExec(t, c, `UPDATE replay_logs SET item_features='{"search":{"context":{"input_origin":"baseline"}}}' WHERE id=$1`, 10+i)
+		complianceExec(t, c, `UPDATE replay_logs SET agent_features='{"context":{"cli_ver":"1.0.15"}}' WHERE agent_id=$1`, agent)
+		complianceScore(t, c, agent, 10, fmt.Sprint(i), time.Hour, 1)
+	}
+	// A sixth personalized exposure was accepted in time but inserted after 48h.
+	complianceDelivery(t, c, 30, 101, 12, "late", complianceServed)
+	complianceExec(t, c, `UPDATE replay_logs SET agent_features='{"context":{"cli_ver":"1.0.15"}}' WHERE id=30`)
+	complianceScore(t, c, 101, 12, "late", 49*time.Hour, 1)
+	complianceExec(t, c, `UPDATE feedback_logs SET accepted_at=$1 WHERE impression_id='late'`, complianceServed.Add(time.Hour).UnixMilli())
+	refreshCompliance(t, c)
+	profile := complianceCounts(t, c, "basis", "profile")
+	baseline := complianceCounts(t, c, "basis", "baseline")
+	if profile["delivered_exposures"] != 6 || profile["scored_48h_exposures"] != 5 || profile["scoring_agents"] != 5 || profile["delayed_ingestion_exposures"] != 1 || baseline["delivered_exposures"] != 5 || baseline["scored_48h_exposures"] != 0 {
+		t.Fatal(profile, baseline)
+	}
+	all := complianceCounts(t, c, "all", "all")
+	if all["delivered_exposures"] != 11 || all["scored_48h_exposures"] != 5 || all["delayed_ingestion_exposures"] != 1 {
+		t.Fatal(all)
+	}
+	before := complianceCounts(t, c, "cli_version", "1.0.15")
+	complianceExec(t, c, `UPDATE agent_settings SET cli_version='future'`)
+	refreshCompliance(t, c)
+	after := complianceCounts(t, c, "cli_version", "1.0.15")
+	if before["delivered_exposures"] != after["delivered_exposures"] || after["delivered_exposures"] != 11 {
+		t.Fatal(before, after)
+	}
+	// Missing request metadata never inherits the current settings version.
+	complianceExec(t, c, `UPDATE replay_logs SET agent_features='{}'`)
+	refreshCompliance(t, c)
+	unknown := complianceCounts(t, c, "cli_version", "unknown")
+	if unknown["delivered_exposures"] != 11 {
+		t.Fatal(unknown)
 	}
 }

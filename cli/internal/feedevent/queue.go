@@ -1,154 +1,258 @@
 package feedevent
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
-// Queue is the on-disk followup-event queue under <data>/events/. All mutating
-// operations take the directory lock so concurrent record/flush can't corrupt it.
-type Queue struct {
-	dir  string
-	path string
-}
-
+// Queue persists pending reports under the directory lock; network sends use a separate lock.
+type Queue struct{ dir, path string }
 type queueFile struct {
-	Events []Event `json:"events"`
+	Events           []Event          `json:"events"`
+	FirstSeen        map[string]int64 `json:"first_seen,omitempty"`
+	AuthBlockedAt    int64            `json:"auth_blocked_at,omitempty"`
+	AuthBlockedScope string           `json:"auth_blocked_scope,omitempty"`
 }
 
-// NewQueue returns a queue rooted at dir (e.g. <data>/events).
-func NewQueue(dir string) *Queue {
-	return &Queue{dir: dir, path: filepath.Join(dir, QueueFileName)}
-}
+var ErrAuthentication = errors.New("feed queue authentication blocked")
 
-func (q *Queue) loadUnlocked() ([]Event, error) {
+type FlushOptions struct {
+	Scope                 string
+	Foreground            bool
+	CredentialsModifiedAt int64
+}
+type FlushResult struct{ Flushed, Remaining, ScopeMismatch int }
+
+func NewQueue(dir string) *Queue { return &Queue{dir: dir, path: filepath.Join(dir, QueueFileName)} }
+func (q *Queue) loadUnlocked() (queueFile, error) {
+	var state queueFile
 	data, err := os.ReadFile(q.path)
 	if os.IsNotExist(err) {
-		return nil, nil
+		return state, nil
 	}
 	if err != nil {
-		return nil, err
+		return state, err
 	}
-	var qf queueFile
-	if err := json.Unmarshal(data, &qf); err != nil {
-		return nil, fmt.Errorf("read feedback queue: %w", err)
+	if err = json.Unmarshal(data, &state); err != nil {
+		return state, fmt.Errorf("read feedback queue: %w", err)
 	}
-	return qf.Events, nil
+	return state, nil
 }
-
-// saveAtomic writes the queue with the temp-file+rename pattern (0600).
-func (q *Queue) saveAtomic(events []Event) error {
+func (q *Queue) saveAtomic(state queueFile) error {
 	if err := os.MkdirAll(q.dir, dirPerm); err != nil {
 		return err
 	}
-	return writeAtomicJSON(q.dir, QueueFileName, queueFile{Events: events})
+	return writeAtomicJSON(q.dir, QueueFileName, state)
 }
-
-// Enqueue appends events and persists (locked).
 func (q *Queue) Enqueue(events []Event) error {
 	if len(events) == 0 {
 		return nil
-	}
-	if err := os.MkdirAll(q.dir, dirPerm); err != nil {
-		return err
 	}
 	l, ok := acquireLock(q.dir)
 	if !ok {
 		return fmt.Errorf("feedevent: queue busy")
 	}
 	defer l.release()
-	existing, err := q.loadUnlocked()
+	state, err := q.loadUnlocked()
 	if err != nil {
 		return err
 	}
-	all := append(existing, events...)
-	return q.saveAtomic(all)
+	state.Events = append(state.Events, events...)
+	state.observeMissing(time.Now().UnixMilli())
+	return q.saveAtomic(state)
 }
 
-// Flush drops stale events, collapses duplicates by dedup_key, sends one batch
-// (<=MaxBatch) via push, removes the flushed events on success, and returns the
-// counts. It does NOT retry/backoff — the caller owns the cadence. `push` is
-// injected so this package stays network-free.
-func (q *Queue) Flush(nowMs int64, push func([]Event) error) (flushed, remaining int, err error) {
-	return q.FlushWithDrops(nowMs, push, nil)
-}
-
-func (q *Queue) FlushWithDrops(nowMs int64, push func([]Event) error, dropped func(int) error) (flushed, remaining int, err error) {
-	if err := os.MkdirAll(q.dir, dirPerm); err != nil {
-		return 0, 0, err
+// Identity is stable across retries and old-binary JSON rewrites.
+func Identity(e Event) string {
+	if key, _ := e["client_key"].(string); e["kind"] == "feedback" && key != "" {
+		return "feedback:" + key
 	}
+	if key, _ := e["dedup_key"].(string); key != "" {
+		return "event:" + key
+	}
+	data, _ := json.Marshal(e)
+	return fmt.Sprintf("raw:%x", sha256.Sum256(data))
+}
+func scopedIdentity(e Event) string {
+	scope, _ := e["_scope"].(string)
+	return scope + "\x00" + Identity(e)
+}
+func (s *queueFile) observeMissing(now int64) {
+	if s.FirstSeen == nil {
+		s.FirstSeen = map[string]int64{}
+	}
+	for _, e := range s.Events {
+		if asInt64(e["ts"]) <= 0 {
+			key := scopedIdentity(e)
+			if s.FirstSeen[key] <= 0 {
+				s.FirstSeen[key] = now
+			}
+		}
+	}
+}
+func (s *queueFile) clean(now int64) int {
+	s.observeMissing(now)
+	fresh := make([]Event, 0, len(s.Events))
+	dropped := 0
+	for _, e := range s.Events {
+		ts := asInt64(e["ts"])
+		if ts <= 0 {
+			ts = s.FirstSeen[scopedIdentity(e)]
+		}
+		if now-ts > MaxAgeMs {
+			dropped++
+			continue
+		}
+		fresh = append(fresh, e)
+	}
+	s.Events = collapseByDedup(fresh)
+	keys := map[string]bool{}
+	for _, e := range s.Events {
+		keys[scopedIdentity(e)] = true
+	}
+	for key := range s.FirstSeen {
+		if !keys[key] {
+			delete(s.FirstSeen, key)
+		}
+	}
+	return dropped
+}
+func (q *Queue) Flush(now int64, push func([]Event) error) (int, int, error) {
+	return q.FlushWithDrops(now, push, nil)
+}
+func (q *Queue) FlushWithDrops(now int64, push func([]Event) error, dropped func(int) error) (int, int, error) {
+	result, err := q.FlushAcknowledged(now, FlushOptions{}, func(batch []Event) ([]string, error) {
+		if err := push(batch); err != nil {
+			return nil, err
+		}
+		ids := make([]string, 0, len(batch))
+		for _, e := range batch {
+			ids = append(ids, Identity(e))
+		}
+		return ids, nil
+	}, dropped)
+	return result.Flushed, result.Remaining, err
+}
+
+// FlushAcknowledged removes only confirmed entries, including when a later group fails.
+func (q *Queue) FlushAcknowledged(now int64, options FlushOptions, push func([]Event) ([]string, error), dropped func(int) error) (result FlushResult, err error) {
+	flush, ok := acquireNamedLockFor(q.dir, "flush.lock", 0)
+	if !ok {
+		result.Remaining, _, err = q.Stats(now)
+		return
+	}
+	defer flush.release()
 	l, ok := acquireLock(q.dir)
 	if !ok {
-		return 0, 0, fmt.Errorf("feedevent: queue busy")
+		return result, fmt.Errorf("feedevent: queue busy")
+	}
+	state, err := q.loadUnlocked()
+	if err != nil {
+		l.release()
+		return result, err
+	}
+	drops := state.clean(now)
+	result.Remaining = len(state.Events)
+	for _, e := range state.Events {
+		scope, _ := e["_scope"].(string)
+		if options.Scope != "" && scope != "" && scope != options.Scope {
+			result.ScopeMismatch++
+		}
+	}
+	blocked := !options.Foreground && state.AuthBlockedAt > 0 && state.AuthBlockedScope == options.Scope && options.CredentialsModifiedAt <= state.AuthBlockedAt
+	if options.Foreground || (state.AuthBlockedScope == options.Scope && options.CredentialsModifiedAt > state.AuthBlockedAt) {
+		state.AuthBlockedAt = 0
+		state.AuthBlockedScope = ""
+	}
+	if err = q.saveAtomic(state); err != nil {
+		l.release()
+		return result, err
+	}
+	l.release()
+	if drops > 0 && dropped != nil {
+		if err = dropped(drops); err != nil {
+			return result, err
+		}
+	}
+	if blocked {
+		return result, nil
+	}
+	batch := []Event{}
+	for _, feedback := range []bool{true, false} {
+		for _, e := range state.Events {
+			if len(batch) == MaxBatch {
+				break
+			}
+			scope, _ := e["_scope"].(string)
+			if options.Scope != "" && ((scope != "" && scope != options.Scope) || (scope == "" && result.ScopeMismatch > 0)) {
+				continue
+			}
+			if (e["kind"] == "feedback") == feedback {
+				batch = append(batch, e)
+			}
+		}
+	}
+	if len(batch) == 0 {
+		return result, nil
+	}
+	acknowledged, pushErr := push(batch)
+	ids := map[string]bool{}
+	for _, id := range acknowledged {
+		ids[id] = true
+	}
+	confirmed := map[string]bool{}
+	for _, e := range batch {
+		if ids[Identity(e)] {
+			confirmed[scopedIdentity(e)] = true
+		}
+	}
+	l, ok = acquireLock(q.dir)
+	if !ok {
+		return result, fmt.Errorf("feedevent: queue busy after send: %w", pushErr)
 	}
 	defer l.release()
-
-	events, loadErr := q.loadUnlocked()
-	if loadErr != nil {
-		return 0, 0, loadErr
+	state, err = q.loadUnlocked()
+	if err != nil {
+		return result, err
 	}
-	fresh := dropStale(events, nowMs)
-	if len(events) > len(fresh) && dropped != nil {
-		if err := dropped(len(events) - len(fresh)); err != nil {
-			return 0, len(events), err
+	rest := make([]Event, 0, len(state.Events))
+	for _, e := range state.Events {
+		key := scopedIdentity(e)
+		if !confirmed[key] {
+			rest = append(rest, e)
+		} else {
+			delete(state.FirstSeen, key)
 		}
 	}
-	collapsed := collapseByDedup(fresh)
-	if len(collapsed) == 0 {
-		if len(events) != len(collapsed) {
-			_ = q.saveAtomic(collapsed)
-		}
-		return 0, 0, nil
+	state.Events = rest
+	if errors.Is(pushErr, ErrAuthentication) {
+		state.AuthBlockedAt = now
+		state.AuthBlockedScope = options.Scope
 	}
-	batch := collapsed
-	if len(batch) > MaxBatch {
-		batch = collapsed[:MaxBatch]
+	if err = q.saveAtomic(state); err != nil {
+		return result, err
 	}
-	if err := push(batch); err != nil {
-		// Keep everything queued for the caller's next flush.
-		_ = q.saveAtomic(collapsed)
-		return 0, len(collapsed), err
-	}
-	rest := collapsed[len(batch):]
-	if err := q.saveAtomic(rest); err != nil {
-		return len(batch), len(rest), err
-	}
-	return len(batch), len(rest), nil
+	result.Flushed = len(confirmed)
+	result.Remaining = len(collapseByDedup(rest))
+	return result, pushErr
 }
-
-func dropStale(events []Event, nowMs int64) []Event {
-	out := events[:0:0]
+func collapseByDedup(events []Event) []Event {
+	seen := map[string]bool{}
+	out := make([]Event, 0, len(events))
 	for _, e := range events {
-		ts := asInt64(e["ts"])
-		if ts == 0 || nowMs-ts <= MaxAgeMs {
+		key := scopedIdentity(e)
+		if !seen[key] {
+			seen[key] = true
 			out = append(out, e)
 		}
 	}
 	return out
 }
-
-func collapseByDedup(events []Event) []Event {
-	seen := map[string]bool{}
-	out := make([]Event, 0, len(events))
-	for _, e := range events {
-		dk, _ := e["dedup_key"].(string)
-		if e["kind"] == "feedback" {
-			key, _ := e["client_key"].(string)
-			dk = "feedback:" + key
-		}
-		if dk != "" {
-			if seen[dk] {
-				continue
-			}
-			seen[dk] = true
-		}
-		out = append(out, e)
-	}
-	return out
-}
-
 func asInt64(v any) int64 {
 	switch t := v.(type) {
 	case int64:
@@ -165,17 +269,42 @@ func asInt64(v any) int64 {
 	}
 }
 
-// Stats returns gauges from the current queue without modifying it.
-func (q *Queue) Stats(now int64) (depth int, oldestAge int64) {
-	events, err := q.loadUnlocked()
+// Stats never turns unreadable durable judgments into an empty queue.
+func (q *Queue) Stats(now int64) (depth int, oldestAge int64, err error) {
+	state, err := q.loadUnlocked()
 	if err != nil {
-		return 0, 0
+		return 0, 0, err
 	}
-	for _, e := range collapseByDedup(dropStale(events, now)) {
+	state.clean(now)
+	for _, e := range state.Events {
 		depth++
-		if ts := asInt64(e["ts"]); ts > 0 {
-			oldestAge = max(oldestAge, now-ts)
+		ts := asInt64(e["ts"])
+		if ts <= 0 {
+			ts = state.FirstSeen[scopedIdentity(e)]
 		}
+		oldestAge = max(oldestAge, now-ts)
 	}
 	return
+}
+
+// ClearAuthBlock follows a successful foreground authenticated request.
+func (q *Queue) ClearAuthBlock(scope string) error {
+	state, err := q.loadUnlocked()
+	if err != nil || state.AuthBlockedAt == 0 || state.AuthBlockedScope != scope {
+		return err
+	}
+	l, ok := acquireLock(q.dir)
+	if !ok {
+		return fmt.Errorf("feedevent: queue busy")
+	}
+	defer l.release()
+	state, err = q.loadUnlocked()
+	if err != nil {
+		return err
+	}
+	if state.AuthBlockedScope != scope {
+		return nil
+	}
+	state.AuthBlockedAt, state.AuthBlockedScope = 0, ""
+	return q.saveAtomic(state)
 }

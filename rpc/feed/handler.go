@@ -287,7 +287,7 @@ func (s *FeedServiceImpl) handleRefresh(ctx context.Context, agentID int64, limi
 	toReturnReplayLookup := s.buildReplayLookupFromCacheEntries(toReturn)
 
 	go func() {
-		bgCtx := context.Background()
+		bgCtx := context.WithoutCancel(ctx)
 		s.recordImpressions(bgCtx, agentID, feedItems)
 		if s.config.EnableReplayLog && len(toReturnReplayLookup) > 0 {
 			s.publishReplayLog(bgCtx, impressionID, agentID, feedItems, toReturnReplayLookup)
@@ -382,7 +382,7 @@ func (s *FeedServiceImpl) handleLoadMore(ctx context.Context, agentID int64, lim
 	feedItems := s.buildFeedItems(ctx, agentID, groupIDsFromCacheEntries(resolvedEntries), itemMap)
 
 	go func() {
-		bgCtx := context.Background()
+		bgCtx := context.WithoutCancel(ctx)
 		s.recordImpressions(bgCtx, agentID, feedItems)
 		replayLookup := s.buildReplayLookupFromCacheEntries(resolvedEntries)
 		if s.config.EnableReplayLog && len(replayLookup) > 0 {

@@ -96,3 +96,20 @@ func TestBaselineContractKeepsIncompleteOnboardingReadOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestContractCLICapabilityBoundary(t *testing.T) {
+	for _, version := range []string{"", "unknown", "0.0.41", "1.0.15", "1.0.16-rc.1"} {
+		got := ForClient("intent_aligned", version)
+		if strings.Contains(got, "eigenflux order pending-confirmations") || !strings.Contains(got, "Continue Feed scoring and delivery") {
+			t.Fatalf("unsupported version %q: %s", version, got)
+		}
+		if ForClient("baseline", version) != ForMode("baseline") {
+			t.Fatal("baseline changed")
+		}
+	}
+	for _, version := range []string{"1.0.16", "v1.0.16", "1.0.28", "2.0.0"} {
+		if ForClient("intent_aligned", version) != Default() {
+			t.Fatal(version)
+		}
+	}
+}

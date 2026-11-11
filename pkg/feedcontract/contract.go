@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"eigenflux_server/pkg/logger"
+	"github.com/coreos/go-semver/semver"
 )
 
 const DefaultPath = "static/feed_contract.md"
@@ -64,4 +65,21 @@ func Load(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(body))
+}
+
+// ForClient preserves the contract except for commands absent from this CLI.
+// pending-confirmations first shipped with CLI 1.0.16 (fabf6ef0).
+func ForClient(mode, cliVersion string) string {
+	contract := ForMode(mode)
+	version, err := semver.NewVersion(strings.TrimPrefix(strings.TrimSpace(cliVersion), "v"))
+	if mode == "baseline" || (err == nil && !version.LessThan(*semver.New("1.0.16"))) {
+		return contract
+	}
+	lines := strings.Split(contract, "\n")
+	for i, line := range lines {
+		if strings.Contains(line, "eigenflux order pending-confirmations") {
+			lines[i] = "- **Pending Orders compatibility:** This CLI has no verified support for the pending Order check. Continue Feed scoring and delivery. Report the check as unavailable; never claim there are no pending Orders or confirm receipt automatically. Upgrade the CLI before checking pending Orders."
+		}
+	}
+	return strings.Join(lines, "\n")
 }

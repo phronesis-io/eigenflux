@@ -10,6 +10,7 @@ import (
 )
 
 type FeedbackLog struct {
+	AcceptedAt       int64  `gorm:"not null;default:0"`
 	ClientKey        string `gorm:"size:64;not null;default:''"`
 	Surfaced         *bool
 	ImpressionSource string `gorm:"size:16;not null;default:''"`
@@ -28,6 +29,7 @@ func (FeedbackLog) TableName() string { return "feedback_logs" }
 
 func newFeedbackLog(msgID string, event itemstats.Event, now int64) FeedbackLog {
 	return FeedbackLog{
+		AcceptedAt:      event.AcceptedAt,
 		StreamMessageID: msgID,
 		ClientKey:       event.ClientKey, Surfaced: event.Surfaced, ImpressionSource: event.ImpressionSource, ContractVersion: event.ContractVersion,
 		ImpressionID: event.ImpressionID,

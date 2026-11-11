@@ -962,6 +962,9 @@ If Redis is unavailable, every accepted item is counted.
 Settings PUT accepts optional `feedback_health`: `window_ms` (1–172800000),
 `pulls`, `delivered_items`, `scored_items`, `status_runs`, `feedback_attempts`,
 `feedback_failures`, `queue_drops`, `queue_depth`, and `oldest_queued_age_ms`.
+Migration 000134 adds `repeat_pulls_suppressed` (0–1000000, default zero), counting
+local whole-page reuse without counting another pull or delivery. Older servers
+ignore the additive key; only upgraded CLIs report it.
 Counts are integers in 0–1000000; failures cannot exceed attempts and oldest
 queued age is in 0–604800000 ms. Counters cover the trailing window, not lifetime
 totals. The newest report per Agent and Shanghai day wins using the server
@@ -1025,3 +1028,24 @@ Highlights retain localized `summary`/`content` and additionally return
 `content_translated`, and `preview_truncated`. Detail/list responses that expose
 a current `summary_zh` identify its translation source as `platform`. Show
 authorship and translation separately and offer the original when translated.
+
+### Feedback diagnostics and CLI contract compatibility
+
+All three feedback aliases log binding/contract rejections with Agent, route,
+stage and bounded error class; no body or raw binding error enters these logs.
+Every bound batch logs accepted/rejected counts by class, keyed/impression
+coverage, publish failures, prior successful publishes and duration. Consumer
+dedup logs include Agent and key presence; message IDs distinguish stream
+redelivery from a new client submission. Authentication failures before the
+handler remain outside these observations.
+
+Feed contracts gate the pending Order check on the request's `X-CLI-Ver`:
+CLI 1.0.16 and later receive the normal command; older, prerelease-before-1.0.16,
+missing and malformed versions receive an unavailable-check notice and continue
+Feed scoring/delivery. Baseline remains read-only. This compatibility strategy
+is enabled before a real legacy-model-turn experiment; coverage uplift is unverified.
+
+Migration 000135 adds gateway `accepted_at` to persisted feedback. Zero means
+unknown; `feedback_at` remains consumer insertion time. Apply migrations before
+API, Feed and pipeline rollout. Old stream messages stay unknown rather than
+receiving fabricated acceptance times.

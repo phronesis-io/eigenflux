@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/reqinfo"
 )
 
 const (
@@ -38,6 +39,27 @@ func Publish(ctx context.Context, impressionID string, agentID int64, agentFeatu
 		return nil
 	}
 
+	// Ranking features can come from an older cached page; version belongs to this delivery.
+	features := map[string]any{}
+	if agentFeatures != "" {
+		if err := json.Unmarshal([]byte(agentFeatures), &features); err != nil {
+			return err
+		}
+	}
+	if features == nil {
+		features = map[string]any{}
+	}
+	clientContext, _ := features["context"].(map[string]any)
+	if clientContext == nil {
+		clientContext = map[string]any{}
+	}
+	clientContext["cli_ver"] = reqinfo.ClientFromContext(ctx).CLIVer
+	features["context"] = clientContext
+	encoded, err := json.Marshal(features)
+	if err != nil {
+		return err
+	}
+	agentFeatures = string(encoded)
 	itemsJSON, err := json.Marshal(servedItems)
 	if err != nil {
 		return err
