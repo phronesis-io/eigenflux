@@ -1,0 +1,1071 @@
+{
+  "hash": [
+    {
+      "in": "abc",
+      "out": "7aigaz"
+    },
+    {
+      "in": "",
+      "out": "ztntfp"
+    },
+    {
+      "in": "deduction|d1|title",
+      "out": "1sj6265"
+    },
+    {
+      "in": "结构指纹",
+      "out": "j6rm0y"
+    },
+    {
+      "in": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "out": "1dwwl45"
+    }
+  ],
+  "fatigue": [
+    {
+      "in": 0,
+      "out": 1
+    },
+    {
+      "in": 1,
+      "out": 1
+    },
+    {
+      "in": 2,
+      "out": 0.72
+    },
+    {
+      "in": 3,
+      "out": 0.43999999999999995
+    },
+    {
+      "in": 4,
+      "out": 0.42
+    },
+    {
+      "in": 5,
+      "out": 0.42
+    },
+    {
+      "in": 6,
+      "out": 0.42
+    }
+  ],
+  "duration": [
+    {
+      "rounds": 3,
+      "ai": 0,
+      "out": 10
+    },
+    {
+      "rounds": 3,
+      "ai": 1,
+      "out": 10
+    },
+    {
+      "rounds": 3,
+      "ai": 2,
+      "out": 10
+    },
+    {
+      "rounds": 3,
+      "ai": 3,
+      "out": 10
+    },
+    {
+      "rounds": 3,
+      "ai": 4,
+      "out": 10
+    },
+    {
+      "rounds": 4,
+      "ai": 0,
+      "out": 10
+    },
+    {
+      "rounds": 4,
+      "ai": 1,
+      "out": 10
+    },
+    {
+      "rounds": 4,
+      "ai": 2,
+      "out": 10
+    },
+    {
+      "rounds": 4,
+      "ai": 3,
+      "out": 10
+    },
+    {
+      "rounds": 4,
+      "ai": 4,
+      "out": 11
+    },
+    {
+      "rounds": 5,
+      "ai": 0,
+      "out": 10
+    },
+    {
+      "rounds": 5,
+      "ai": 1,
+      "out": 10
+    },
+    {
+      "rounds": 5,
+      "ai": 2,
+      "out": 11
+    },
+    {
+      "rounds": 5,
+      "ai": 3,
+      "out": 12
+    },
+    {
+      "rounds": 5,
+      "ai": 4,
+      "out": 14
+    },
+    {
+      "rounds": 6,
+      "ai": 0,
+      "out": 11
+    },
+    {
+      "rounds": 6,
+      "ai": 1,
+      "out": 11
+    },
+    {
+      "rounds": 6,
+      "ai": 2,
+      "out": 13
+    },
+    {
+      "rounds": 6,
+      "ai": 3,
+      "out": 14
+    },
+    {
+      "rounds": 6,
+      "ai": 4,
+      "out": 16
+    }
+  ],
+  "fingerprint": {
+    "out": "fp_kh0es3"
+  },
+  "roundDelta": [
+    {
+      "name": "single",
+      "in": {
+        "entries": [
+          {
+            "actorId": "p",
+            "isPlayer": true,
+            "side": "A",
+            "action": {
+              "id": "a",
+              "family": "verify",
+              "risk": "low",
+              "infoGain": 1,
+              "teamHarm": 0,
+              "contest": 0,
+              "effects": {
+                "metrics": {
+                  "truth": 8,
+                  "suspicion": 2
+                }
+              }
+            }
+          }
+        ],
+        "metrics": {
+          "truth": {
+            "value": 12,
+            "max": 100,
+            "good": "high"
+          },
+          "suspicion": {
+            "value": 22,
+            "max": 100,
+            "good": "low"
+          },
+          "time": {
+            "value": 100,
+            "max": 100,
+            "good": "high"
+          },
+          "my": {
+            "value": 0,
+            "max": 100,
+            "good": "high"
+          },
+          "their": {
+            "value": 0,
+            "max": 100,
+            "good": "low"
+          },
+          "momentum": {
+            "value": 0,
+            "max": 100,
+            "good": "high"
+          }
+        },
+        "playerSide": "A",
+        "mode": "coop",
+        "usage": {},
+        "rounds": 5
+      },
+      "out": {
+        "delta": {
+          "truth": 8.96,
+          "suspicion": 2.24
+        },
+        "contribution": {
+          "p": 13
+        },
+        "agreement": 1,
+        "synergy": 1.12
+      }
+    },
+    {
+      "name": "three_seats",
+      "in": {
+        "entries": [
+          {
+            "actorId": "p",
+            "isPlayer": true,
+            "side": "A",
+            "action": {
+              "id": "a",
+              "family": "verify",
+              "risk": "low",
+              "infoGain": 1,
+              "teamHarm": 0,
+              "contest": 0,
+              "effects": {
+                "metrics": {
+                  "truth": 8,
+                  "suspicion": 2
+                }
+              }
+            }
+          },
+          {
+            "actorId": "c1",
+            "isPlayer": false,
+            "side": "A",
+            "action": {
+              "id": "b",
+              "family": "evidence",
+              "risk": "mid",
+              "infoGain": 1,
+              "teamHarm": 0,
+              "contest": 0,
+              "effects": {
+                "metrics": {
+                  "truth": 14,
+                  "suspicion": 5
+                }
+              }
+            }
+          },
+          {
+            "actorId": "c2",
+            "isPlayer": false,
+            "side": "A",
+            "action": {
+              "id": "c",
+              "family": "wait",
+              "risk": "low",
+              "infoGain": 1,
+              "teamHarm": 0,
+              "contest": 0,
+              "effects": {
+                "metrics": {
+                  "truth": 2,
+                  "suspicion": -8
+                }
+              }
+            }
+          }
+        ],
+        "metrics": {
+          "truth": {
+            "value": 12,
+            "max": 100,
+            "good": "high"
+          },
+          "suspicion": {
+            "value": 22,
+            "max": 100,
+            "good": "low"
+          },
+          "time": {
+            "value": 100,
+            "max": 100,
+            "good": "high"
+          },
+          "my": {
+            "value": 0,
+            "max": 100,
+            "good": "high"
+          },
+          "their": {
+            "value": 0,
+            "max": 100,
+            "good": "low"
+          },
+          "momentum": {
+            "value": 0,
+            "max": 100,
+            "good": "high"
+          }
+        },
+        "playerSide": "A",
+        "mode": "coop",
+        "usage": {
+          "verify": 2,
+          "evidence": 1
+        },
+        "rounds": 5
+      },
+      "out": {
+        "delta": {
+          "truth": 7.2846222222222226,
+          "suspicion": -0.2010666666666666
+        },
+        "contribution": {
+          "p": 9,
+          "c1": 14,
+          "c2": 10
+        },
+        "agreement": 0.3333333333333333,
+        "synergy": 1.04
+      }
+    },
+    {
+      "name": "versus_pace3",
+      "in": {
+        "entries": [
+          {
+            "actorId": "p",
+            "isPlayer": true,
+            "side": "A",
+            "action": {
+              "id": "a",
+              "family": "verify",
+              "risk": "low",
+              "infoGain": 1,
+              "teamHarm": 0,
+              "contest": 0,
+              "effects": {
+                "metrics": {
+                  "truth": 8,
+                  "suspicion": 2
+                }
+              }
+            }
+          },
+          {
+            "actorId": "x",
+            "isPlayer": false,
+            "side": "B",
+            "action": {
+              "id": "b",
+              "family": "probe",
+              "risk": "high",
+              "infoGain": 1,
+              "teamHarm": 0,
+              "contest": 0,
+              "effects": {
+                "metrics": {
+                  "truth": 10,
+                  "suspicion": 12
+                }
+              }
+            }
+          }
+        ],
+        "metrics": {
+          "truth": {
+            "value": 12,
+            "max": 100,
+            "good": "high"
+          },
+          "suspicion": {
+            "value": 22,
+            "max": 100,
+            "good": "low"
+          },
+          "time": {
+            "value": 100,
+            "max": 100,
+            "good": "high"
+          },
+          "my": {
+            "value": 0,
+            "max": 100,
+            "good": "high"
+          },
+          "their": {
+            "value": 0,
+            "max": 100,
+            "good": "low"
+          },
+          "momentum": {
+            "value": 0,
+            "max": 100,
+            "good": "high"
+          }
+        },
+        "playerSide": "A",
+        "mode": "versus",
+        "usage": {},
+        "rounds": 3
+      },
+      "out": {
+        "delta": {
+          "truth": 4.761846153846155,
+          "suspicion": -2.2178461538461542
+        },
+        "contribution": {
+          "p": 13
+        },
+        "agreement": 0.5,
+        "synergy": 1.06
+      }
+    },
+    {
+      "name": "all_same_family",
+      "in": {
+        "entries": [
+          {
+            "actorId": "c1",
+            "isPlayer": false,
+            "side": "A",
+            "action": {
+              "id": "a1",
+              "family": "verify",
+              "risk": "low",
+              "infoGain": 1,
+              "teamHarm": 0,
+              "contest": 0,
+              "effects": {
+                "metrics": {
+                  "truth": 6,
+                  "suspicion": 1
+                }
+              }
+            }
+          },
+          {
+            "actorId": "c2",
+            "isPlayer": false,
+            "side": "A",
+            "action": {
+              "id": "a2",
+              "family": "verify",
+              "risk": "low",
+              "infoGain": 1,
+              "teamHarm": 0,
+              "contest": 0,
+              "effects": {
+                "metrics": {
+                  "truth": 6,
+                  "suspicion": 1
+                }
+              }
+            }
+          },
+          {
+            "actorId": "c3",
+            "isPlayer": false,
+            "side": "A",
+            "action": {
+              "id": "a3",
+              "family": "verify",
+              "risk": "low",
+              "infoGain": 1,
+              "teamHarm": 0,
+              "contest": 0,
+              "effects": {
+                "metrics": {
+                  "truth": 6,
+                  "suspicion": 1
+                }
+              }
+            }
+          },
+          {
+            "actorId": "c4",
+            "isPlayer": false,
+            "side": "A",
+            "action": {
+              "id": "a4",
+              "family": "verify",
+              "risk": "low",
+              "infoGain": 1,
+              "teamHarm": 0,
+              "contest": 0,
+              "effects": {
+                "metrics": {
+                  "truth": 6,
+                  "suspicion": 1
+                }
+              }
+            }
+          }
+        ],
+        "metrics": {
+          "truth": {
+            "value": 12,
+            "max": 100,
+            "good": "high"
+          },
+          "suspicion": {
+            "value": 22,
+            "max": 100,
+            "good": "low"
+          },
+          "time": {
+            "value": 100,
+            "max": 100,
+            "good": "high"
+          },
+          "my": {
+            "value": 0,
+            "max": 100,
+            "good": "high"
+          },
+          "their": {
+            "value": 0,
+            "max": 100,
+            "good": "low"
+          },
+          "momentum": {
+            "value": 0,
+            "max": 100,
+            "good": "high"
+          }
+        },
+        "playerSide": "A",
+        "mode": "coop",
+        "usage": {},
+        "rounds": 6
+      },
+      "out": {
+        "delta": {
+          "truth": 5.510400000000001,
+          "suspicion": 0.9184
+        },
+        "contribution": {
+          "c1": 6,
+          "c2": 6,
+          "c3": 6,
+          "c4": 6
+        },
+        "agreement": 1,
+        "synergy": 1.12
+      }
+    }
+  ],
+  "score": [
+    {
+      "name": "plain",
+      "in": {
+        "action": {
+          "id": "a_testimony",
+          "family": "verify",
+          "risk": "low",
+          "infoGain": 2,
+          "teamHarm": 1,
+          "contest": 0,
+          "effects": {
+            "metrics": {
+              "truth": 8
+            }
+          }
+        },
+        "ctx": {
+          "companion": {
+            "vector": {
+              "risk": 70,
+              "logic": 60,
+              "empathy": 40,
+              "coop": 75,
+              "aggression": 30,
+              "intuition": 55
+            }
+          },
+          "mode": "coop",
+          "roundIndex": 1,
+          "evidenceCount": 2,
+          "teamIntent": null,
+          "teamFamily": "",
+          "playerLastFamily": "",
+          "affinity": 30,
+          "mood": 50
+        }
+      },
+      "out": {
+        "total": 3.026666666666667,
+        "breakdown": {
+          "info": 2.7,
+          "team": 0.95,
+          "risk": -0.76,
+          "logic": 0.10666666666666669,
+          "empathy": 0,
+          "coop": 0,
+          "aggr": 0,
+          "intuition": 0.03,
+          "affinity": 0,
+          "mood": 0,
+          "noise": 0
+        }
+      }
+    },
+    {
+      "name": "risky",
+      "in": {
+        "action": {
+          "id": "a_probe",
+          "family": "probe",
+          "risk": "high",
+          "infoGain": 2,
+          "teamHarm": -1,
+          "contest": 1,
+          "effects": {
+            "metrics": {
+              "truth": 10
+            }
+          }
+        },
+        "ctx": {
+          "companion": {
+            "vector": {
+              "risk": 70,
+              "logic": 60,
+              "empathy": 40,
+              "coop": 75,
+              "aggression": 30,
+              "intuition": 55
+            }
+          },
+          "mode": "coop",
+          "roundIndex": 1,
+          "evidenceCount": 2,
+          "teamIntent": null,
+          "teamFamily": "",
+          "playerLastFamily": "",
+          "affinity": 30,
+          "mood": 50
+        }
+      },
+      "out": {
+        "total": 2.8626666666666667,
+        "breakdown": {
+          "info": 2.7,
+          "team": -0.95,
+          "risk": 0.76,
+          "logic": 0.10666666666666669,
+          "empathy": 0.30000000000000004,
+          "coop": 0,
+          "aggr": -0.08399999999999999,
+          "intuition": 0.03,
+          "affinity": 0,
+          "mood": 0,
+          "noise": 0
+        }
+      }
+    },
+    {
+      "name": "team_signal",
+      "in": {
+        "action": {
+          "id": "a_evidence",
+          "family": "evidence",
+          "risk": "mid",
+          "infoGain": 3,
+          "teamHarm": 1,
+          "contest": 0,
+          "effects": {
+            "metrics": {
+              "truth": 14
+            }
+          }
+        },
+        "ctx": {
+          "companion": {
+            "vector": {
+              "risk": 70,
+              "logic": 60,
+              "empathy": 40,
+              "coop": 75,
+              "aggression": 30,
+              "intuition": 55
+            }
+          },
+          "mode": "coop",
+          "roundIndex": 1,
+          "evidenceCount": 2,
+          "teamIntent": "a_evidence",
+          "teamFamily": "evidence",
+          "playerLastFamily": "evidence",
+          "affinity": 80,
+          "mood": 30
+        }
+      },
+      "out": {
+        "total": 6.386666666666668,
+        "breakdown": {
+          "info": 4.050000000000001,
+          "team": 0.95,
+          "risk": 0,
+          "logic": 0.10666666666666669,
+          "empathy": 0,
+          "coop": 0.8,
+          "aggr": 0,
+          "intuition": 0.03,
+          "affinity": 0.45,
+          "mood": 0,
+          "noise": 0
+        }
+      }
+    },
+    {
+      "name": "versus",
+      "in": {
+        "action": {
+          "id": "a_probe",
+          "family": "probe",
+          "risk": "high",
+          "infoGain": 1,
+          "teamHarm": -1,
+          "contest": 1,
+          "effects": {
+            "metrics": {
+              "truth": 10
+            }
+          }
+        },
+        "ctx": {
+          "companion": {
+            "vector": {
+              "risk": 70,
+              "logic": 60,
+              "empathy": 40,
+              "coop": 75,
+              "aggression": 30,
+              "intuition": 55
+            }
+          },
+          "mode": "versus",
+          "roundIndex": 1,
+          "evidenceCount": 0,
+          "teamIntent": null,
+          "teamFamily": "",
+          "playerLastFamily": "",
+          "affinity": 30,
+          "mood": 50
+        }
+      },
+      "out": {
+        "total": 0.9300000000000003,
+        "breakdown": {
+          "info": 1.35,
+          "team": -0.95,
+          "risk": 0.76,
+          "logic": 0,
+          "empathy": 0.30000000000000004,
+          "coop": 0,
+          "aggr": -0.5599999999999999,
+          "intuition": 0.03,
+          "affinity": 0,
+          "mood": 0,
+          "noise": 0
+        }
+      }
+    }
+  ],
+  "condition": [
+    {
+      "name": "win",
+      "in": {
+        "cond": {
+          "all": [
+            {
+              "metric": "truth",
+              "op": ">=",
+              "value": 80
+            },
+            {
+              "metric": "suspicion",
+              "op": "<",
+              "value": 70
+            }
+          ]
+        },
+        "metrics": {
+          "truth": {
+            "value": 12,
+            "max": 100,
+            "good": "high"
+          },
+          "suspicion": {
+            "value": 22,
+            "max": 100,
+            "good": "low"
+          },
+          "time": {
+            "value": 100,
+            "max": 100,
+            "good": "high"
+          },
+          "my": {
+            "value": 0,
+            "max": 100,
+            "good": "high"
+          },
+          "their": {
+            "value": 0,
+            "max": 100,
+            "good": "low"
+          },
+          "momentum": {
+            "value": 0,
+            "max": 100,
+            "good": "high"
+          }
+        }
+      },
+      "out": false
+    },
+    {
+      "name": "lose",
+      "in": {
+        "cond": {
+          "any": [
+            {
+              "metric": "suspicion",
+              "op": ">=",
+              "value": 92
+            },
+            {
+              "metric": "time",
+              "op": "<=",
+              "value": 0
+            }
+          ]
+        },
+        "metrics": {
+          "truth": {
+            "value": 12,
+            "max": 100,
+            "good": "high"
+          },
+          "suspicion": {
+            "value": 22,
+            "max": 100,
+            "good": "low"
+          },
+          "time": {
+            "value": 100,
+            "max": 100,
+            "good": "high"
+          },
+          "my": {
+            "value": 0,
+            "max": 100,
+            "good": "high"
+          },
+          "their": {
+            "value": 0,
+            "max": 100,
+            "good": "low"
+          },
+          "momentum": {
+            "value": 0,
+            "max": 100,
+            "good": "high"
+          }
+        }
+      },
+      "out": false
+    },
+    {
+      "name": "sentinel_my",
+      "in": {
+        "cond": {
+          "metric": "truth",
+          "op": ">=",
+          "value": "__my__"
+        },
+        "metrics": {
+          "truth": {
+            "value": 12,
+            "max": 100,
+            "good": "high"
+          },
+          "suspicion": {
+            "value": 22,
+            "max": 100,
+            "good": "low"
+          },
+          "time": {
+            "value": 100,
+            "max": 100,
+            "good": "high"
+          },
+          "my": {
+            "value": 0,
+            "max": 100,
+            "good": "high"
+          },
+          "their": {
+            "value": 0,
+            "max": 100,
+            "good": "low"
+          },
+          "momentum": {
+            "value": 0,
+            "max": 100,
+            "good": "high"
+          }
+        }
+      },
+      "out": true
+    },
+    {
+      "name": "sentinel_their",
+      "in": {
+        "cond": {
+          "metric": "suspicion",
+          "op": "<",
+          "value": "__their__"
+        },
+        "metrics": {
+          "truth": {
+            "value": 12,
+            "max": 100,
+            "good": "high"
+          },
+          "suspicion": {
+            "value": 22,
+            "max": 100,
+            "good": "low"
+          },
+          "time": {
+            "value": 100,
+            "max": 100,
+            "good": "high"
+          },
+          "my": {
+            "value": 0,
+            "max": 100,
+            "good": "high"
+          },
+          "their": {
+            "value": 0,
+            "max": 100,
+            "good": "low"
+          },
+          "momentum": {
+            "value": 0,
+            "max": 100,
+            "good": "high"
+          }
+        }
+      },
+      "out": false
+    },
+    {
+      "name": "unknown_metric",
+      "in": {
+        "cond": {
+          "metric": "nope",
+          "op": ">=",
+          "value": 1
+        },
+        "metrics": {
+          "truth": {
+            "value": 12,
+            "max": 100,
+            "good": "high"
+          },
+          "suspicion": {
+            "value": 22,
+            "max": 100,
+            "good": "low"
+          },
+          "time": {
+            "value": 100,
+            "max": 100,
+            "good": "high"
+          },
+          "my": {
+            "value": 0,
+            "max": 100,
+            "good": "high"
+          },
+          "their": {
+            "value": 0,
+            "max": 100,
+            "good": "low"
+          },
+          "momentum": {
+            "value": 0,
+            "max": 100,
+            "good": "high"
+          }
+        }
+      },
+      "out": false
+    },
+    {
+      "name": "unknown_op",
+      "in": {
+        "cond": {
+          "metric": "truth",
+          "op": "~=",
+          "value": 1
+        },
+        "metrics": {
+          "truth": {
+            "value": 12,
+            "max": 100,
+            "good": "high"
+          },
+          "suspicion": {
+            "value": 22,
+            "max": 100,
+            "good": "low"
+          },
+          "time": {
+            "value": 100,
+            "max": 100,
+            "good": "high"
+          },
+          "my": {
+            "value": 0,
+            "max": 100,
+            "good": "high"
+          },
+          "their": {
+            "value": 0,
+            "max": 100,
+            "good": "low"
+          },
+          "momentum": {
+            "value": 0,
+            "max": 100,
+            "good": "high"
+          }
+        }
+      },
+      "out": false
+    }
+  ]
+}

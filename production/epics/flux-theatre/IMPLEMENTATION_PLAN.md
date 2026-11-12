@@ -1,0 +1,458 @@
+# Flux Theatre — Implementation Plan (supersedes the ten legacy stories)
+
+- **Date**: 2026-11-04
+- **Branch**: `feature/flux-theatre-mvp`
+- **Authoritative design**: `design/game-brief.md`
+- **Authoritative contracts**: `docs/architecture/fluxspace-contracts.md`
+- **Architecture decisions**: `docs/architecture/adr-0001-fluxspace-boundaries.md`
+- **Executable specification**: `fluxspace/` (frozen, read-only)
+
+The ten `story-*.md` files in this folder are retained as historical
+reference. They are written in Chinese (AGENTS.md requires English), are
+sliced horizontally by module, and self-declare `Status: Ready` without any
+gate evidence. This document replaces them as the build plan.
+
+## Decisions taken by the owner
+
+| # | Decision |
+|---|---|
+| 1 | Port the prototype algorithm to Flutter + Go; keep `fluxspace/` frozen as the executable specification |
+| 2 | Real EigenFlux full-stack integration (PM / WS / auth), not a mock-only build |
+| 3 | Phase-1 decisions from the local rule engine; no API key, no token spend |
+| 4 | Independent modules inside this workspace (`fluxspace_client/`, `hub/`) |
+| 5 | Windows desktop only for the first runnable build |
+
+## Vertical slices (GDD "Build order")
+
+| Slice | GDD step | Legacy stories | Goal | Exit criterion |
+|---|---|---|---|---|
+| S1 | 1 — prove the riskiest loop | 001, 003 | Two real users + two labelled official companions complete an authentic invitation, an isolated-seat match and a follow-up interaction | A real PM invitation round-trips through EigenFlux; one 5-round match runs end to end on the Hub; seat uniqueness and one-live-match-per-owner enforced |
+| S2 | 2 — one reliably solvable theatre | 004, 005 | Make one generated theatre solvable, non-repetitive, participative and watchable for its full 10+ minutes | Non-`rounds_out` rate does not regress below the recorded 10% baseline (ADR-0003); 480-match run completes; structural fingerprints do not repeat within 5 matches |
+| S3 | 3 — four characters and the 2.5D director | 002, 006 | Four recognisable personas, omniscient/subjective views, automatic event director, validated with target viewers | 60fps Flame scene; Rive idle/walk/expression for four personas; retained screenshot evidence under `production/qa/evidence/`. **AI-art interim delivered (ADR-0012)** — see `S3_ASSET_PROCUREMENT.md` for the quote package and acceptance tests; the full Rive/2.5D procurement (ADR-0004 G6) is deferred but remains the route to S3's formal acceptance |
+| S4 | 4 — memory, consequences, replays | 007, 008 | Source-tagged memories, directional relationships, immutable archives, same-spec reprises, recaps, threads | SHA-256 archive verification; six viewing modes; all-participant consent for public replay |
+| S5 | 5 — harden before expanding | 009, 010 | Guided runtime setup, predictable cost, privacy, three-tier tool permissions, public consent | Budget downgrade path, per-companion permission isolation, audit log, consent gate, model-version consistency check |
+
+Slices are vertical: each one ends in something a human can run and judge.
+The original ten stories only became playable after all ten were finished.
+
+## S1 status (2026-11-04, updated) — code complete, live-stack sign-off pending
+
+All three gaps from the previous pass are closed in code:
+
+1. **Invitation negotiation** — `hub/invitation/` generates three proposals
+   with distinct fingerprints, sends a structured PM through the real
+   `EigenFluxPort`, fetches and persists replies, applies
+   accept/reject/modify (counter-proposals, 3-round cap, 5-minute TTL), and
+   turns an all-confirmed negotiation into labelled seat claims and a Hub
+   session.
+2. **Post-match follow-up** — `hub/followup/` derives a
+   `fluxspace.followup.v1` document from retained events only (source-tagged
+   memories, draft directional relationship updates, metric-derived threads)
+   and idempotently delivers one scoped PM per real owner. Private channels
+   never leak; no model call and no invented reasoning.
+3. **G9 endpoint shapes** — the fabricated `/api/v1/auth/refresh` is gone
+   (injected `TokenRefresher` / explicit `TOKEN_REFRESH_NOT_CONFIGURED`), and
+   `profile/fields` now uses the verified `updates` + `profile_version` shape
+   with a registry-derived field whitelist.
+
+`TestS1FullLoopOverHTTP` drives the whole slice over real HTTP: negotiation ->
+send PM -> gateway parses it and answers -> fetch/parse/apply -> confirmed ->
+session -> join four seats -> five rounds -> settlement -> follow-up preview
+and delivery, then re-delivery idempotency. 68 Go tests pass across 9 packages.
+
+**S1 is still not signed off.** The exit criterion says the PM must round-trip
+"through EigenFlux". Two configurations now pass over real HTTP: the in-process
+`TestS1FullLoopOverHTTP`, and `TestS1FullLoopLive`, which points the Hub's real
+`GatewayPort` HTTP client at the dockerized `gatewaystandin` — a separate process
+in a container with real network hops (the G10 live-stack enabler landed
+2026-11-07/08). Neither is the real `eigenflux_server`, so nothing here claims a
+live-stack pass. S2's exit criteria were implemented and verified on 2026-11-07;
+G11 was closed on the same day (ADR-0006).
+
+**Owner ruling 2026-11-06:** the criterion is kept verbatim rather than
+relaxed; S1 is labelled *code complete, live-stack sign-off pending*. See
+`docs/architecture/adr-0002-s1-acceptance-and-g1-baseline.md`. A local HTTP
+stand-in is not EigenFlux, and a weakened criterion would hide the project's
+single highest integration risk.
+
+## What is implemented now
+
+**Go module `hub/` — built, vetted and tested.**
+
+- `generator/`: FNV-1a-compatible `HashStr` (UTF-16 code-unit exact),
+  `Fingerprint`, `StructuralHash`, `ContentHash`, `EstimateMinutes`,
+  deduction skeleton generator with 60-attempt dedup, and the three-path
+  calibrator.
+- `referee/`: `FatigueMul`, `ComputeRoundDelta` (weighted-average settlement,
+  synergy, fatigue, pace scaling, versus inversion), `ScoreAction`,
+  `DecideAction`, `EvalCondition`, `CheckEnd` (rounds-out resolves to partial
+  or regret, never neutral).
+- `models/`: skeleton/decision/memory/persona types and the GDD-traits →
+  engine-vector bridge.
+- `services/`: `ModelAdapter` contract and `RuleEngineAdapter`.
+- `session/`: the S1 state machine. `Create` enforces one seat per owner and
+  one live match per owner; `Join` binds owners to seats; `Advance` walks
+  `observe -> discuss -> act`; `SubmitAction` re-validates the decision against
+  the live action pool and settles the round when all seats have submitted.
+  Settlement calls `referee.ComputeRoundDelta` / `referee.CheckEnd`, applies
+  `round_tick` and one weighted resolve-phase branch, and emits the full event
+  log. A `seed` plus the invitation ID make a whole match reproducible.
+- `invitation/`: the pre-match negotiation state machine. Three
+  fingerprint-distinct proposals, PM send/poll, accept/reject/modify,
+  counter-proposal re-confirmation, TTL/expiry, deduplicated inbox, and
+  `BuildClaims` with labelled official backfill.
+- `followup/`: source-tagged post-match document builder and an idempotent
+  PM sender scoped to each real owner. Relationship updates are drafts only.
+- `apperr/`: shared domain error type so business packages do not import
+  `session` just to build an HTTP-status error.
+- `archive/`: immutable S4 replay archives over the retained event stream.
+  SHA-256 content and skeleton hashes, tamper-detecting `Load`, six viewing-mode
+  projections, a fail-closed consent ledger and same-spec reprise comparison
+  with a divergence point (ADR-0005). Archives are in memory and hold no
+  persistence yet.
+- `govern/`: S5 controls. Per-companion monthly token ledger whose refusal names
+  the rule-engine downgrade instead of silently reducing quality; three-tier
+  permissions with deny-by-default and single-use high-impact approvals; a
+  hash-chained audit log that records refusals as well as successes; and a
+  model-version check that treats an unrecorded version as a failure (ADR-0007).
+  `persist.go` makes the three stateful controls durable under
+  `HUB_GOVERNANCE_DIR`: an append-only `audit.jsonl` and an atomically replaced
+  `state.json`, with load refusing a broken chain or a snapshot ahead of the log
+  (ADR-0008). Unset directory = memory-only, logged explicitly.
+- `api/`: `GET /health`, nine session endpoints, six negotiation endpoints,
+  two follow-up endpoints, eleven archive/reprise endpoints and eleven
+  governance endpoints. `main.go` listens on `:8095`;
+  `HUB_SPECTATOR_TOKEN` gates the omniscient stream;
+  `HUB_GATEWAY_URL`, `HUB_AGENT_TOKENS` and `HUB_AGENT_ID` configure the real
+  gateway client; `HUB_GOVERNANCE_DIR` makes governance state durable and a
+  failed load is fatal. Unconfigured gateway paths return explicit 503s. SSE
+  polls the retained event log so no observer can drop an event.
+- `services/eigenflux.go`: the §7 `EigenFluxPort` contract and a real HTTP
+  `GatewayPort` (PM send/fetch, friend request, injectable token refresh with
+  one 401 retry, Agent Card field patch with verified optimistic-lock shape).
+- `testdata/export_golden.js` → `golden.json`: 5 hash samples, 7 fatigue,
+  20 duration, 1 fingerprint, 4 settlement, 4 scoring, 6 condition cases —
+  all exported from the frozen prototype and asserted value-for-value in Go.
+
+**Flutter client `fluxspace_client/` — session loop implemented (2026-11-07).**
+
+The client can now play a match: negotiate, open a session, join a seat, read the
+private event stream, discuss, decide and advance. Files that carry it:
+
+| File | Role |
+|---|---|
+| `lib/models/hub_models.dart` | Wire models for contracts §3-§5, hand-written so a clean checkout tests without `build_runner` |
+| `lib/services/hub_api.dart` | The operations as an interface, so the controller is testable without a socket; `HubException` carries the wire code |
+| `lib/services/hub_client.dart` | Dio implementation: bearer token per request, SSE, refusal-code mapping |
+| `lib/services/sse.dart` | Incremental SSE framing, split out from the transport |
+| `lib/services/token_store.dart` | Keychain-backed token storage behind an interface; memory store for tests |
+| `lib/session/session_controller.dart` | The loop as a `ChangeNotifier`; no widgets, no `Dio` |
+| `lib/pages/theatre_page.dart` | The text console: connection, seats, metrics, round actions, log |
+
+Three behaviours are deliberate rather than incidental:
+
+1. **A refusal keeps its code.** `HubException` carries `status` and `code`, and
+   the console branches on `COMPANION_NOT_YOURS` / `AUTH_INVALID` rather than on
+   message text. `HubClient` also refuses a 200 whose body has no `session_id`
+   (`UNEXPECTED_RESPONSE`): the tolerant field decoders would otherwise render an
+   empty match instead of reporting that the response shape changed. This guard
+   caught a real mistake — `POST /hub/invitations/{id}/session` wraps the view in
+   `{"session": ...}` while its neighbours answer a bare view.
+2. **A failure inside a live match keeps the seat.** The seat token is what makes
+   a retry possible; dropping to `failed` would strand a match the Hub still has.
+3. **An open Hub cannot bind a companion**, because there is no owner to bind to
+   (`401 AUTH_REQUIRED`). The client treats exactly that code as "running
+   anonymous" and says so in the log; any other binding refusal stops the connect.
+
+At S1 sign-off, `flutter analyze` reported **No issues found!** and `flutter
+test` **PASSED — 47 tests, 2 skipped** (both skips are the live Hub smokes
+below). The current totals are in the verification table. The 47 were: 13 on
+the Hub client against a recording `HttpClientAdapter`, 8 on SSE framing (split
+reads, CRLF, comments, multi-line data, tail flush), 21 on the controller against
+a scripted Hub, 2 widget tests on the console, and 3 scaffold tests (routes, table
+DDL, port collision).
+
+**Watching, and resuming what was missed.** `SessionController.watch()` reads the
+session with `X-Spectator-Token` and opens `/spectate`, so the Theatre page shows
+the omniscient view an owner actually wants rather than the participant view it
+had. `reconnect()` reopens the same stream with `Last-Event-ID` set to the last
+event this client processed — and deliberately does **not** reload the snapshot
+first, because reloading would advance the state to the Hub's present and the
+replay would then be skipped as already-known, losing exactly the events a
+reconnect exists for. `lastEventId` is surfaced in the console so the resume point
+is a number the player can compare against the log.
+
+**End-to-end against a real Hub process** (`test/live_hub_smoke_test.dart`,
+skipped unless `FLUXSPACE_LIVE_HUB` is set): the Hub is started with
+`HUB_ALLOW_UNAUTHENTICATED=1`, the test negotiates an invitation, confirms both
+parties, creates the session, joins both seats, plays every round to settlement
+and asserts the SSE stream carried `round_begin`, `decision` and `match_end` with
+monotonic ids. It runs unauthenticated on purpose: with tokens on, joining
+`seat_1` needs owner_beta's token, which is the property ADR-0009 added.
+
+Two things the first live run taught, both now pinned in the test:
+
+- A match can settle **before** the last round when a win or lose condition
+  fires (the run finished at round 3 of 5), so `round == totalRounds` is a false
+  assertion.
+- The Hub keeps invitations for the life of the process and refuses a duplicate
+  id, so a repeat run must name its own.
+
+Not done in the client: the Rive rigs (S3 exit criterion). An AI-art interim exists
+(ADR-0012: AI portraits + 2.5D backdrop via pure-Flutter `AiArtAssets`, flagged
+in-UI and behind `kUseAiArtInterim`); the asset-agnostic render skeleton and its
+placeholder pack also remain
+exist; real-time event pacing / audio / wall-clock scrubbing in the replay
+player; and the local `drift` database is still schema-only. Read-only archive
+and governance panels DO exist (`lib/panels/`) and are reachable from the
+console; the archive panel now plays all six real view projections through
+`TheatreScreen` (GET only, unrecorded fields shown as "not recorded") — see
+`ARCHIVE_REPLAY.md`. `lib/setup/` adds a guided first-run wizard whose result
+reaches the console through `SetupResultBus`; it fills the four connection
+fields and asks the user to press Connect, never connecting on its own. See
+`SETUP_WIZARD.md`, `OBSERVABILITY_PANELS.md` for the nine backend capabilities
+with no GET endpoint, ADR-0010 and ADR-0011. `flutter test` cannot exercise the keychain
+(`SecureTokenStore` is only constructed by the page), so token persistence itself
+is covered by the interface contract rather than by a test.
+
+`flutter pub get` rewrites every `pubspec.lock` URL to the configured mirror
+(`pub.flutter-io.cn` on this host). The lock is committed normalised to
+`pub.dev` because committing mirror URLs would pin every future clone to a
+Chinese mirror; the rewrite has to be undone before each commit that follows a
+`pub get`. Flutter 3.47.9 / Dart 3.13.7 is installed at
+`C://Users//louvr//.workbuddy//toolchains//flutter` (not on system PATH; invoke by
+absolute path). Dependency constraints in `pubspec.yaml` are still `any` — pin
+them before distributing.
+
+Two environment obstacles had to be cleared for `flutter test`, both without
+touching source code:
+
+1. `drift`'s transitive `sqlite3 3.9.0` native-asset hook downloads
+   `sqlite3.x64.windows.dll` from `github.com` releases, which the host proxy
+   intermittently rejects with `502 Bad Gateway`. The DLL was fetched with
+   `curl` (retry succeeded) and its sha256 `35d811b3…` verified against the
+   package's own `asset_hashes.dart`, then placed in the hook's shared cache
+   directory. The hook's own hash check reuses it. No `pubspec.yaml` change.
+2. The proxy environment variables also hijacked the local `flutter_tester`
+   WebSocket (`Invalid WebSocket upgrade request`). Running the test with proxy
+   variables unset and `NO_PROXY=localhost,127.0.0.1` fixes it.
+
+Both are host-network quirks, not client-code defects. On a normal network
+neither workaround is needed. Pinning the twelve `any` constraints using the
+now-generated `pubspec.lock` remains a separate owner decision.
+
+**Toolchain.** Go 1.25.0 installed at
+`C:\Users\louvr\.workbuddy\toolchains\go` (user scope, no admin rights).
+`winget install GoLang.Go` failed with "No applicable installer found";
+`https://go.dev/dl/...` failed with an SSL error; the domestic mirror
+succeeded.
+
+## Verification results (2026-11-04)
+
+| Command | Result |
+|---|---|
+| `go build ./...` (hub) | PASS |
+| `go vet ./...` (hub) | PASS |
+| `go test -count=1 -v ./...` (hub) | PASS — **176 passing tests** across api (42), govern (40), archive (20), followup, generator, invitation, models, referee, services, session (apperr has no tests of its own) |
+| Durable archives (ADR-0011) | PASS — 20 `archive` tests plus 2 HTTP tests: archives, publication state, consent ledger and reprises survive a restart; tampered archive bytes / tampered log / unknown version / snapshot-ahead refuse to load; log-ahead and torn tail start with a note; a consent grant written over HTTP reaches `archive.jsonl` and survives a reload; a failed durable write returns `500 ARCHIVE_PERSIST_FAILED` and every later archive call returns `503 ARCHIVE_STORE_DEGRADED` |
+| Read-only audit inventory (ADR-0011) | PASS — `ShardInventory` across >=3 shards reports real seq ranges, entry counts, byte sizes and first/last chain hashes; `ExportAudit` is byte-for-byte; a test compares content + size + mtime of every file before and after to prove no file is changed; `GET /hub/audit/shards` is owner-only and a spectator token cannot reach it |
+| Route audit after the 43rd route | PASS — `TestRouteAuditDefaultDeny` now walks all **43** registered routes; non-GET requests to the three exempt paths still get 401; all mutating routes reject a spectator token |
+| `GOOS=linux GOARCH=amd64 go build ./...` (hub) | PASS — the stdlib advisory lock compiles for both Windows and Linux |
+| Hub auth coverage (ADR-0010) | PASS — `TestAuthGateIsMethodQualified` proves non-GET requests to the three exempt paths are 401 rather than falling through the gate; `TestSpectatorCannotReachMutatingRoutes` covers all mutating routes. The route-count assertion moved to the 43-route row above |
+| Governance lock and rotation (ADR-0010) | PASS — chain verification across >=3 shards, multi-shard load, snapshot-ahead refusal, torn tail in the active shard only, stale-lock recovery and a real second process being refused; rotation does not change budget or permission state |
+| Graceful shutdown (ADR-0010) | PASS — `TestRunShutsDownAndReleasesListener` cancels the context, `Run` returns in 0.02s and `ln.Accept()` proves the listener was released; serve errors are surfaced, not swallowed |
+| `python hub/scripts/check_balance.py` | PASS — the S2 gate. 5 x 480 = 2,400 matches aggregated; measured 9.38%–11.25% across 20 consecutive runs, 0 failures. Floor is 0.08, the three-sigma lower bound of the 10% baseline (see ADR-0003 amendment) |
+| S4 replay archive | PASS — `hub/archive/` 15 tests (build, tamper detection, six modes, consent policies, reprise divergence) plus 3 HTTP tests covering the full S4 flow |
+| Archive integrity | PASS — SHA-256 over `{version, session_id, config, events, settlement}` plus a skeleton hash; `Load` refuses tampered bytes; six tamper cases assert the exact mismatch |
+| Six viewing modes | PASS — full, accelerated (2x/4x, other speeds rejected), single_character (private events of other seats are filtered), omniscient_comparison (seat-ordered), key_moments (derived and deterministic), same_spec_comparison (divergence point) |
+| All-participant consent | PASS — fail-closed policy, majority = strictly more than half, officials excluded, reprise always requires every participant |
+| Agent Card projection (G11) | PASS — 2 `services` tests plus 3 `followup` tests: only a blank public descriptor is written, an occupied field is skipped as `owner_content_present` with no PUT issued, an unconfigured sender touches the gateway zero times, and no personality/memory/relationship key can reach the write body |
+| S5 governance | PASS — `hub/govern` 21 tests plus 7 HTTP tests: budget refuses over-cap with `downgrade: rule_engine` and books nothing; permissions deny by default and never leak between companions; a high-impact approval is single-use, operation-specific and expiring; the audit chain detects edited, removed and reordered entries; model consistency treats a missing version as a failure |
+| S5 governance persistence (ADR-0008) | PASS — 9 `govern` tests plus 2 HTTP tests: permissions, spend and the chain survive a full reload; the chain continues at seq N+1 instead of restarting; outstanding approvals are dropped across a restart; an edited entry, a snapshot ahead of the log and an unknown schema version all refuse to load; an interrupted append is truncated and reported; a write failure returns `500 GOVERNANCE_PERSIST_FAILED` and every later call returns `503 GOVERNANCE_DEGRADED` |
+| Five-match fingerprint window | PASS — `TestCreateExcludesLastFiveMatchFingerprints` builds a five-match history from the exact skeletons this seed would emit, then asserts all three proposals and a modify-round regeneration avoid every one |
+| `bash scripts/build.sh` (hub) | PASS — `hub/build/fluxspace-hub` |
+| Golden comparison vs `fluxspace/_check.js` | PASS — every case matched |
+| Hub identity and ownership (ADR-0009) | PASS — 9 new tests plus a live smoke: no token is `401 AUTH_REQUIRED`, a wrong one `401 AUTH_INVALID`, an unbound companion `404 COMPANION_NOT_REGISTERED`, another owner's `403 COMPANION_NOT_YOURS`; the binding, the permission and the `owner_id`-bearing audit chain all survive a restart with `verify: true`; an unconfigured Hub refuses to start and `HUB_ALLOW_UNAUTHENTICATED=1` makes the insecure mode say so in the log and in `/health` |
+| Pre-review self-audit | PASS — `SELF_AUDIT_2026-11-07.md`: 40 routes vs 39 documented (0 phantom, 0 undocumented), every documented test count matches, 4 findings fixed (false 503 claim, unbounded request body, non-constant-time token compare, snapshot bypassing the injected clock), 6 recorded open with reasons |
+| `cd fluxspace && node _balance.js` | 480 matches: 7 wins / 41 losses / 432 timeouts (unchanged; see G1) |
+| Hub HTTP e2e (5 rounds, 4 seats) | PASS — `TestSessionHTTPEndToEndFiveRounds`; outcome is never a neutral `rounds_out` |
+| **S1 full loop over HTTP** | PASS — `TestS1FullLoopOverHTTP`: negotiation -> PM send/reply/poll -> confirmed -> session -> 5 rounds -> follow-up PMs -> idempotent re-send |
+| Invitation negotiation state machine | PASS — 6 tests: distinct fingerprints, expiry, modify cap, rejection, counter-proposal, PM idempotency, claims + real session creation |
+| Follow-up derivation and delivery | PASS — 4 tests: source tagging, no private-channel leak, quiet-match no drafts, scoped and idempotent delivery |
+| G9 endpoint shapes | PASS — `TestDoRotatesTokenOn401AndRetriesOnce`, `Test401WithoutRefresherFailsLoudly`, `TestPublishAgentCardFieldsUsesRealGatewayShape`, `TestPublishAgentCardFieldsRejectsUnknownFieldLocally` |
+| SSE role filtering / `Last-Event-ID` recovery | PASS — `TestSSEStreamsRespectRolesAndLastEventID` |
+| Match determinism from invitation + seed | PASS — `TestMatchIsDeterministicFromInvitationAndSeed` |
+| Real binary smoke test (`:18095`) | PASS — `/health` 200; invitation create 201; unconfigured send 503 `EIGENFLUX_PORT_UNCONFIGURED`; accept reply 200 confirmed; session from negotiation 201; state 200; premature follow-up 409 `SESSION_NOT_FINISHED` |
+| `go test -race ./...` | **PASS** (2026-11-08) — run inside a `golang:1.27` container (Docker/WSL2 available); 0 races across 10 packages, ~16s |
+| `flutter --version` (3.47.9 / Dart 3.13.7) | **PASS** — 2026-11-06, installed SDK verified byte-for-byte against official sha256 |
+| `flutter pub get` | **PASS** — 122 packages resolved, `pubspec.lock` generated |
+| `flutter analyze` | **PASS** — `No issues found!` (0 issues / 0 errors / 0 warnings) |
+| `flutter test` | **PASS — 198 tests, 2 skipped** (`All tests passed!`). Both skips are the live Hub smokes, which need `FLUXSPACE_LIVE_HUB`. Cumulative: 46 session/reconnect tests (deterministic injected sleep), 12 S3 render-skeleton widget tests, 81 panel tests (49 S4/S5 + 32 archive-replay adapter and widget tests), 25 setup-wizard tests (state machine, probe success/failure, auth-on/auth-off, save, back navigation, widget smoke), 4 wiring tests, and 4 AiArtAssets tests. Required two environment-only workarounds: priming the `sqlite3` hook cache with the sha256-verified official DLL, and unsetting proxy vars for the local `flutter_tester` WebSocket. No source change. |
+| Live Hub smoke (client) | **PASS** — one match from invitation to settlement against `fluxspace-hub` on `:8399`, unauthenticated: three proposals, both parties confirmed, two seats joined, every round advanced and decided, settlement non-empty, and the SSE stream carried `round_begin` / `decision` / `match_end` with strictly increasing ids |
+| Live Hub smoke (spectator) | **PASS** — the same Hub with `HUB_SPECTATOR_TOKEN`: the session view is readable with the spectator token and returns both seats, and a `spectate` resumed from event *n* returned event *n+1* first with no duplicate |
+| Spectator boundary (authenticated Hub) | **PASS — `curl`, real binary**: `GET /hub/sessions/{id}` with no credential `401`, with only `X-Spectator-Token` passes the middleware and answers `404 SESSION_NOT_FOUND` (it got through), a write with the spectator token is `401`, and a wrong spectator token is `401` |
+| EigenFlux live-stack e2e (stand-in) | **PASS** (2026-11-08) — `TestS1FullLoopLive` drives the full S1 slice with the real `GatewayPort` client hitting the dockerized `gatewaystandin` (separate container, real network hops). True `eigenflux_server` needs its full microservice cluster (Postgres/Redis/etcd + 9 kitex services), not in this repo, so symbol-level sign-off stays pending. Reproduced in CI by the `hub-live-e2e` job. |
+
+Reproduce:
+
+```bash
+cd hub
+go test -count=1 ./...
+go vet ./...
+bash scripts/build.sh                 # writes hub/build/fluxspace-hub
+node hub/testdata/export_golden.js   # from repository root
+
+# Flutter is not on system PATH; use the absolute path (Windows):
+FLUTTER=/c/Users/louvr/.workbuddy/toolchains/flutter/bin/flutter
+cd fluxspace_client && "$FLUTTER" pub get && "$FLUTTER" analyze
+
+# On this host the proxy breaks the local flutter_tester WebSocket:
+env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+    NO_PROXY=localhost,127.0.0.1 "$FLUTTER" test
+
+# G10 live-stack stand-in (cross-network S1 e2e). Docker + WSL2 must be up:
+# 1) start the gateway stand-in in a container (separate process, port 18080):
+docker run --rm -p 18080:8080 -v "C:/Users/louvr/Desktop/eigenflux-main/hub:/hub" \
+    golang:1.27 sh -c "cd /hub && go run ./tools/gatewaystandin"
+# 2) in another shell, run the live slice against that gateway:
+cd hub
+HUB_GATEWAY_URL=http://localhost:18080 go test ./api -run TestS1FullLoopLive -count=1 -v
+# Without HUB_GATEWAY_URL the test skips (no Docker needed for the plain run).
+
+# Race detector (needs gcc; use the golang container since this host has none):
+docker run --rm -v "C:/Users/louvr/Desktop/eigenflux-main/hub:/hub" \
+    golang:1.27 sh -c "cd /hub && go test -race -count=1 ./..."
+```
+
+Go 1.27.3 is on `PATH` as of 2026-11-04 23:12; the toolchain copy at
+`C:\Users\louvr\.workbuddy\toolchains\go` remains a fallback. Flutter was
+installed under `C:\Users\louvr\.workbuddy\toolchains\flutter` (user directory,
+no admin rights needed); the SDK is not on the system PATH.
+
+## Environment prerequisites still owned by the user
+
+1. **Enable WSL 2.** Re-verified 2026-11-04: the `LxssManager` registry key is
+   absent, so the WSL optional feature is NOT enabled on this host — removing
+   a blacklist entry alone is not enough. The interactive account is
+   non-admin, so this needs an elevated shell (`wsl --install`, or enable
+   `Microsoft-Windows-Subsystem-Linux` + `VirtualMachinePlatform`, then
+   reboot). Hardware is fine: Windows 11 Pro build 26300, virtualization on,
+   64 GB RAM. `wsl.exe` is additionally rejected by command-security policy;
+   Kingsoft processes (`kxescore`, `kxetray`, `kxewsc`) are running, so add
+   `wsl.exe` to that product's trust/whitelist too. If WSL cannot be enabled,
+   the per-user Docker VMM backend (Beta) is an untested alternative.
+2. **Install Docker Desktop** (per-user mode requires no admin rights), then
+   `docker compose up -d` (PostgreSQL, Redis, etcd, Elasticsearch, Kibana —
+   see `docker-compose.yml`) and `bash scripts/local/start_local.sh`.
+3. ~~Install Flutter 3.47.9~~ — **DONE 2026-11-06 by the AI** (ADR-0002
+   decision 4). The original local archive was truncated (618 MB, no EOCD);
+   the official archive is 1.80 GB. A fresh copy from the Flutter China mirror
+   (`storage.flutter-io.cn`, ~20 MB/s vs ~90 KB/s from the US host) was
+   verified byte-for-byte: 1,939,451,626 bytes, sha256
+   `d8e2b5977e09082c6440f89dc1aa887b94c8fbcc3b39222797046295a3f68a9e` matching
+   the official release JSON, `unzip -t` clean. Installed to
+   `C:\Users\louvr\.workbuddy\toolchains\flutter`; `flutter --version`,
+   `pub get` and `analyze` all pass.
+   At install time `flutter test` passed 3 tests after two host-only
+   workarounds (see the verification table for the current totals). **Remaining:**
+   pin the twelve `any` constraints using the now-generated `pubspec.lock`, and
+   decide whether to normalise that lock's mirror URLs (see below).
+   `pubspec.lock` currently records `https://pub.flutter-io.cn` for all 117
+   hosted packages because the mirror was required to download at usable speed.
+   Six sampled packages' sha256 values were compared against the official
+   `pub.dev` API and matched, so the artifacts are identical, but committing
+   mirror URLs would hard-code a China-only source into the project. The lock
+   is therefore left untracked pending the owner's choice.
+4. **Decide how to rebase onto `origin/main`.** ADR-0002 decision 3 requires
+   remote alignment before the 2,081 untracked root-module files are considered
+   for any commit. The first `git ls-remote` returned a transient 502; a retry
+   succeeded (`main` = `6aefaa0a61cf32ab2b24398333690c6863aa83e3`). A read-only
+   API comparison (no fetch, no clone, no remote configured) shows 2,069 of
+   2,081 untracked paths exist upstream and 1,802 shared paths match in size,
+   but the snapshot is stale: 267 paths differ, four files from the newest
+   upstream commit are missing locally, and `CLAUDE.md` / `api_service.go`
+   differ in content. All 66 Flux Theatre tracked files are new work with no
+   upstream counterpart. The exact historical base commit is undetermined.
+   **This is now a merge-strategy decision, not a connectivity problem.** No
+   remote was configured and no fetch was attempted.
+5. ~~Add `C:\Users\louvr\.workbuddy\toolchains\go\bin` to PATH~~ — resolved:
+   `go version` reports `go1.27.3 windows/amd64` on `PATH` (verified
+   2026-11-04 23:12). Keep the toolchain copy as a fallback only.
+6. ~~Commit ownership is yours~~ — **resolved 2026-11-04**: the owner
+   delegated commit review to the AI. Changes are reviewed and committed
+   autonomously without per-commit approval; pushing and merging to `main`
+   remain separate owner decisions.
+
+## Known gaps
+
+See `docs/architecture/fluxspace-contracts.md` §9 (G1–G8). Most important:
+
+- **G1 — calibration targets are unreachable in the frozen prototype.**
+  The GDD/story 005 ask for ~90% / 40-60% / ~10% path win rates and ≥60% of
+  480 matches reaching a non-rounds-out ending. The prototype delivers 10%
+  non-rounds-out. The Go port faithfully reproduces the maths (golden tests
+  pass), so this is a design/calibration gap, not a porting defect.
+  `TestCalibrationGDDGapIsTracked` pins the gap so a future fix must update
+  the record explicitly. **Deciding whether to retune the balance or relax
+  the targets is a design decision — do not silently tune numbers to make a
+  test green.**
+
+  Further measurement found the Go calibrator reporting 0% on all three
+  paths and 0% non-rounds-out, while the prototype reports 10%. These are two
+  different simulators, not two measurements of the same thing:
+  `fluxspace/_balance.js` drives the full `Runtime` (per-persona
+  `decideAction`, branch events, a freshly generated game and rotating
+  companions for every match, six mode/AI combinations), whereas
+  `generator/calibrator.go` replays one fixed skeleton 480 times with a
+  simplified three-strategy seat picker and no branch events. Golden tests
+  establish function-level parity only. **Before any retuning, choose one
+  simulator as the authoritative baseline and make the other agree with it**;
+  otherwise the tuning is being done against a phantom.
+
+  **Owner decisions 2026-11-06 — RESOLVED by ADR-0002 + ADR-0003.** ADR-0002
+  fixed the authoritative baseline as `fluxspace/_balance.js` (full Runtime).
+  ADR-0003 then **relaxed the targets**: the three-path win-rate gates and the
+  >=60% non-`rounds_out` gate are retired, because the authoritative baseline
+  does not measure three-path win rates at all and no replacement percentage
+  has been measured. The observed 10% non-`rounds_out` is registered as an MVP
+  regression floor. `fluxspace/` stays frozen and the golden chain is
+  untouched; `hub/generator/calibrator.go` is demoted to a structural
+  self-check. `TestCalibrationGDDGapIsTracked` now records the two simulators'
+  measured values instead of treating "validated" as an error. **Building a
+  full-Runtime-equivalent Go calibrator is explicitly not done** (ADR-0003
+  "Not claimed done"). S2's exit criterion is rewritten accordingly.
+- **G4 — RESOLVED (ADR-0004, option A).** Story 002 is re-hung onto S3 with
+  explicit dependencies on the S4 authorised replay clip and the live model
+  adapter. Phase 1 still uses the local rule engine; that gap is registered,
+  not hidden.
+- **G7 — RESOLVED (ADR-0004, option A).** The explicitly labelled demo clip is
+  accepted as an MVP interim substitute for the GDD's "real + authorized"
+  onboarding clip. This is a registered deviation to be replaced once S4
+  delivers real consented replays.
+- **G9 — RESOLVED (static verification).** The invented refresh URL and the
+  wrong profile-fields request shape were both corrected against the root
+  module; see `fluxspace-contracts.md` §7. Runtime confirmation is part of G10.
+- **G10 — live-stack integration, with stand-in, is now verified (2026-11-08).**
+  Docker Desktop runs on WSL 2 and the daemon is reachable; `TestS1FullLoopLive`
+  runs the full S1 slice with the Hub's real `GatewayPort` HTTP client against the
+  dockerized `gatewaystandin` (a separate process in a container, real network
+  hops). `go test -race ./...` also passes inside a `golang:1.27` container (0
+  races). What stays unverified is the *real* `eigenflux_server`: it requires
+  PostgreSQL, Redis, etcd and nine kitex backend microservices that are not in
+  this repository, so the S1 criterion ("round-trip through EigenFlux") remains
+  *code complete, live-stack sign-off pending* until that cluster is available.
+  The `hub-live-e2e` CI job reproduces the stand-in run on every push/PR.
+- ~~**G11 — Agent Card projection after a match is not invoked.**~~ **Closed
+  2026-11-07 (ADR-0006).** The follow-up sender now projects into the Agent
+  Card when `HUB_CARD_PROJECTION_FIELDS` opts in, and only into a blank
+  `agent_description` / `human_description`; occupied fields are never replaced
+  and the delivery record says what was written, skipped or failed. Default is
+  disabled. `pkg/agentcard/registry.go` still has no FluxSpace-owned field, so
+  projection can only fill a descriptor once - recorded as the remaining
+  product gap in ADR-0006.
+
+**Documentation status:** `EPIC.md` now marks the ten legacy stories
+`Superseded`, names the four authoritative sources and indexes the five
+vertical slices. `docs/architecture/fluxspace-contracts.md` §3 no longer says
+"only `/health` is implemented"; it records the nine live endpoints, the two
+phase-1 additions, the SSE recovery semantics and the spectator auth gate.
