@@ -157,6 +157,10 @@ func TestFeedbackMetadataAndIdempotency(t *testing.T) {
 	require.Equal(t, 1, n)
 	var impression string
 	require.NoError(t, testutil.TestDB.QueryRow(`SELECT client_key,impression_id,impression_source,contract_version,surfaced FROM feedback_logs WHERE agent_id=$1 AND client_key='report-1'`, agent).Scan(&key, &impression, &source, &contract, &surfaced))
+	var acceptedAt, insertedAt int64
+	require.NoError(t, testutil.TestDB.QueryRow(`SELECT accepted_at,feedback_at FROM feedback_logs WHERE agent_id=$1 AND client_key='report-1'`, agent).Scan(&acceptedAt, &insertedAt))
+	require.Positive(t, acceptedAt)
+	require.GreaterOrEqual(t, insertedAt, acceptedAt)
 	require.Equal(t, "metadata-impression", impression)
 	require.Equal(t, "cli_inferred", source)
 	require.Equal(t, "feedback/v2", contract)
@@ -203,7 +207,7 @@ func TestFeedbackMetadataAndIdempotency(t *testing.T) {
 func TestFeedbackHealthReportE2E(t *testing.T) {
 	token, agent, _, _ := feedbackMetadataFixture(t)
 	for _, attempts := range []int{3, 5} {
-		result, status, err := feedbackMetadataRequest("PUT", "/api/v1/agents/me/settings", token, map[string]any{"feedback_health": map[string]any{"window_ms": 3600000, "pulls": 2, "delivered_items": 10, "scored_items": 8, "status_runs": 1, "feedback_attempts": attempts, "feedback_failures": 1, "queue_drops": 0, "queue_depth": 1, "oldest_queued_age_ms": 100, "batches_handed": 4, "detail_fetches": attempts, "detail_fetch_failures": 1, "batch_body_bytes": 96000, "batch_body_max_bytes": 32000, "oversize_batches": 1, "backlog_expired_items": 2}})
+		result, status, err := feedbackMetadataRequest("PUT", "/api/v1/agents/me/settings", token, map[string]any{"feedback_health": map[string]any{"window_ms": 3600000, "pulls": 2, "delivered_items": 10, "scored_items": 8, "status_runs": 1, "feedback_attempts": attempts, "feedback_failures": 1, "queue_drops": 0, "queue_depth": 1, "oldest_queued_age_ms": 100, "batches_handed": 4, "detail_fetches": attempts, "detail_fetch_failures": 1, "batch_body_bytes": 96000, "batch_body_max_bytes": 32000, "oversize_batches": 1, "backlog_expired_items": 2, "repeat_pulls_suppressed": 3}})
 		require.NoError(t, err)
 		require.Equal(t, 200, status, result)
 	}
@@ -211,6 +215,9 @@ func TestFeedbackHealthReportE2E(t *testing.T) {
 	var at int64
 	var version, day string
 	require.NoError(t, testutil.TestDB.QueryRow(`SELECT count(*),max(feedback_attempts),max(reported_at),max(cli_version),max(day)::text FROM agent_feedback_health_daily WHERE agent_id=$1`, agent).Scan(&n, &attempts, &at, &version, &day))
+	var suppressed int64
+	require.NoError(t, testutil.TestDB.QueryRow(`SELECT repeat_pulls_suppressed FROM agent_feedback_health_daily WHERE agent_id=$1`, agent).Scan(&suppressed))
+	require.Equal(t, int64(3), suppressed)
 	require.Equal(t, 1, n)
 	require.Equal(t, 5, attempts)
 	var details, bodyBytes, maxBytes int64

@@ -193,7 +193,7 @@ func (s *Service) pullFeedV2(ctx context.Context, c *app.RequestContext) {
 	if discoveryMeta != nil {
 		response["discovery"] = discoveryMeta
 	}
-	if contract := feedcontract.ForMode(mode); contract != "" {
+	if contract := feedcontract.ForClient(mode, string(c.GetHeader("X-CLI-Ver"))); contract != "" {
 		response["output_contract"] = contract
 	}
 	encoded, _ := json.Marshal(response)

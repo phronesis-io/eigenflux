@@ -483,3 +483,8 @@ generation. Verify API/Feed/website, search, ES and forward-feature consistency
 before completion. The four changed projections participate in release replay.
 Reversal is explicit, source-conditional and audited; never automatically expose
 known-bad text as a fallback. Retain this additive schema after any repair.
+
+Feedback events optionally carry gateway `accepted_at`; consumers preserve it
+alongside their insertion-time `feedback_at` (migration 000135). Missing or
+malformed optional timestamps remain unknown without discarding valid scores.
+Deduplication logs include `agentID`, `keyed` and the stream message ID.

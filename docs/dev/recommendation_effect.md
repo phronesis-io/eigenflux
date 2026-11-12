@@ -269,8 +269,9 @@ CLI-inferred IDs; historical events without this metadata remain unknown.
 These event counts must not be divided by delivery-day exposures as coverage.
 
 **Dimensions.** Each row has exactly one dimension: `all`, `runtime_name`,
-`runtime_mode`, `cli_version`, `model`, `skill_revision`,
-`heartbeat_contract_version`, `auto_comment` or `feedback_contract_version`.
+`runtime_mode`, `cli_version`, `delivery_cli_version`, `model`, `skill_revision`,
+`heartbeat_contract_version`, `auto_comment`, `feedback_contract_version` or
+`basis`.
 Runtime product and model use
 trimmed lowercase values; CLI version is trimmed. Mode accepts only `plugin`
 and `skill`; everything else stays unknown. Revision strings retain their
@@ -284,7 +285,7 @@ For each delivery day and dimension, values with fewer than five distinct
 recipients fold into `other`. Event-side rows use that same kept-value set;
 event-only values fold into `other` unless their value already qualifies.
 The `all` row is exempt and is always written, including on an empty day.
-Settings-based cohorts use current settings at refresh time, normally 2–3 days after
+Settings-based cohorts, including `cli_version`, use current settings at refresh time, normally 2–3 days after
 the event when the day finalizes. Backfills use settings at backfill time.
 Cohorts therefore do not establish historical client identity or a fixed
 longitudinal cohort. Named values and `other` can change across days.
@@ -396,3 +397,45 @@ cohorts keep their existing refresh-time settings definitions. The additive
 reporting columns remain zero for historical clients without these fields.
 Final days stored before migration 000122 also have no `feedback_contract_version`
 rows; the same post-deployment backfill of every stored day adds them.
+
+## Coverage recovery measurement (000135)
+
+Existing `all` and client-cohort exact/inferred 48-hour series retain their
+insertion-time definition and include baseline for historical comparability.
+The additive `dimension=basis` rows partition exposure and batch metrics into
+`profile`, `need`, `friend`, `baseline`, and `unknown`. Compute personalized
+coverage from the intended non-baseline basis rows, using summed scored and
+mature exposures; never average ratios. Keep unknown separate when claiming
+personalized-only behavior. Removing baseline changes the denominator, not
+Agent behavior. Fixed basis categories are exempt from small client-cohort
+folding so baseline never disappears into `other`. Event-day and health columns
+are not defined for basis rows and are zero; use `all` or client cohorts for those.
+An Agent can occur in several bases; do not sum their Agent counts.
+
+`scoring_agents` counts distinct Agents with exact valid 48-hour scored
+exposures on that delivery day. Sum across days for scoring Agent-days.
+`delayed_ingestion_exposures` counts unique mature exposures with an acceptance
+within 48 hours but insertion at or after 48 hours, visible by the snapshot
+cutoff. It may overlap ordinary scored exposures if another judgment arrived
+on time; never add it to the scoring numerator. Historical acceptance is zero
+(unknown), including messages processed by older consumers. Final snapshots
+remain bounded by the existing D+3 policy; later ingestion needs an explicit
+backfill to become visible.
+
+`delivery_cli_version` uses `replay_logs.agent_features.context.cli_ver` from actual
+delivery requests; `cli_version` keeps its refresh-time settings definition.
+Use `delivery_cli_version` for version comparisons on new days. Both discovery and legacy Feed record it; cache reuse cannot
+carry an earlier ranking request's version into a new delivery. A day with one
+version uses it, multiple versions (including missing evidence mixed with known
+versions) use `mixed`, and missing evidence uses `unknown`. Current settings
+never fill missing versions. Historical legacy snapshots are the best available
+ranking-time evidence; exact delivery-time stamping starts at this full rollout.
+Historical discovery rows without version evidence remain unknown.
+
+Apply 000135 before API/Feed/pipeline-cron. Do not backfill finalized days to
+obtain the new rows: a backfill recomputes settings-based cohorts with current
+settings and yields `unknown` delivery versions for history. New days carry
+basis and `delivery_cli_version` rows from the rollout onward. Existing finality does not
+automatically rebuild historical days. No migration invents acceptance times or
+claims a coverage gain. Release markers record server readiness; CLI adoption,
+batch supply effects and legacy-contract model behavior require separate analysis.

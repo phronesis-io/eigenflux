@@ -41,7 +41,9 @@ var feedPollCmd = &cobra.Command{
 
 Agent V2 pulls the latest feed without cursor pagination. --action more pulls
 again; it does not guarantee a distinct next page. --cursor is V1-only.
-With --batch N, V2 saves pages and serves unfinished local work first.
+V2 whole-page polls reuse an unscored personalized page for up to 60 seconds
+when its context is unchanged. Owner and --action more requests always fetch.
+With --batch N, scheduled polls drain eligible saved work before fetching.
 Use feed next to continue locally. V1 ignores --batch; baseline pages stay whole.
 
 Examples:
@@ -466,6 +468,7 @@ func authenticatedFeedClient(server string) (*client.Client, error) {
 		}
 		baseURL := strings.TrimRight(srv.Endpoint, "/") + "/api/v1"
 		c = client.New(baseURL, creds.AccessToken, version, clientMetaForServer(srv))
+		c.OnSuccess = func() { clearFeedAuthBlock(server) }
 	}
 	if settingsAgentID(srv.Name) == "" {
 		return nil, fmt.Errorf("authenticated Agent ID is unavailable for server %q", srv.Name)
@@ -516,6 +519,8 @@ Examples:
 		server, broadcastsDir, eventsDir := eventDirs()
 		now := time.Now().UnixMilli()
 		ledger := feedevent.NewLedger(broadcastsDir, server)
+		reports, readErr := feedReportStore(server).Read()
+		warnReportLedger(readErr)
 
 		var toBuild []map[string]interface{}
 		var hitResults []map[string]interface{}
@@ -523,6 +528,15 @@ Examples:
 		for _, id := range itemIDs {
 			impression, _ := cmd.Flags().GetString("impression-id")
 			entry, status := ledger.LookupImpression(id, impression, now)
+			if impression == "" {
+				handed, handedStatus := ledger.LookupHanded(id, reports, now)
+				// LookupHanded skips expired entries; keep expiry visible, but never attribute to an unhanded page.
+				if entry, status = handed, handedStatus; status != feedevent.StatusHit && status != feedevent.StatusExpired {
+					if _, cached := ledger.LookupImpression(id, "", now); cached == feedevent.StatusExpired {
+						status = feedevent.StatusExpired
+					}
+				}
+			}
 			if status != feedevent.StatusHit {
 				errKind := "unknown_item"
 				if status == feedevent.StatusExpired {
@@ -557,6 +571,7 @@ Examples:
 			}
 			for i := range events {
 				hitResults[i]["dedup_key"] = events[i]["dedup_key"]
+				events[i]["_scope"] = feedReportScope(server)
 			}
 			q := feedevent.NewQueue(eventsDir)
 			if err := q.Enqueue(events); err != nil {
@@ -589,17 +604,16 @@ owns the cadence: re-run while remaining > 0 with its own back-off.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		server, _, _ := eventDirs()
 		foreground, ferr := authenticatedFeedClient(server)
-		flushed, remaining := 0, 0
+		result := feedevent.FlushResult{}
 		if ferr == nil {
-			flushed, remaining, ferr = flushFeedQueueWithClient(server, foreground, nil)
-		} else {
-			remaining, _ = feedevent.NewQueue(filepath.Join(cache.ServerDataDir(server), "events")).Stats(time.Now().UnixMilli())
+			result, ferr = flushFeedQueueResult(server, foreground, nil)
 		}
-		output.PrintData(map[string]interface{}{
-			"flushed":   flushed,
-			"remaining": remaining,
-			"ok":        ferr == nil,
-		}, resolveFormat())
+		remaining, held, statusErr := feedevent.NewQueue(filepath.Join(cache.ServerDataDir(server), "events")).Pending(time.Now().UnixMilli(), feedReportScope(server))
+		data := map[string]interface{}{"flushed": result.Flushed, "remaining": remaining, "scope_mismatch": held, "ok": ferr == nil && statusErr == nil}
+		if statusErr != nil {
+			data["queue_status"] = "unreadable"
+		}
+		output.PrintData(data, resolveFormat())
 		return nil // the JSON conveys success; never hard-fail the caller's loop
 	},
 }

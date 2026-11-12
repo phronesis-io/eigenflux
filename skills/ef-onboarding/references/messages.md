@@ -25,7 +25,8 @@ Message index (read the current row's IDs, not every response):
 | Future website integration only | `return_website`, `website_popup`, `website_copied` |
 
 Allowed slots: `<host>` is the actual host name; `<cadence>` is the selected
-frequency (default 每两小时 / every two hours); `<permission-scope>` is
+frequency (default 每 12 小时 / every 12 hours for Codex, 每两小时 / every two
+hours for other hosts); `<permission-scope>` is
 `scope_codex` for Codex or a truthful plain-language scope for another host.
 `<progress>` is the appropriate confirmed-state line below, `<profile-result>`
 is `profile_ready` or `profile_manual`, `<return-instruction>` is `return_host`

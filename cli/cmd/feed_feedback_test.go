@@ -49,7 +49,7 @@ func pollFeedForTest(t *testing.T, name string) {
 	}
 }
 
-func TestScheduledPullAlwaysFetchesAndFeedbackClearsPending(t *testing.T) {
+func TestScheduledPullReusesUnprocessedPageAndFeedbackClearsPending(t *testing.T) {
 	feedCalls := 0
 	var feedback map[string]any
 	srv := feedPollTestServer(t, &feedCalls, &feedback)
@@ -57,7 +57,7 @@ func TestScheduledPullAlwaysFetchesAndFeedbackClearsPending(t *testing.T) {
 	_, name := runtimeTestConfig(t, srv.URL, true)
 	pollFeedForTest(t, name)
 	pollFeedForTest(t, name)
-	if feedCalls != 2 {
+	if feedCalls != 1 {
 		t.Fatal(feedCalls)
 	}
 	state, err := feedReportStore(name).Read()
@@ -65,7 +65,7 @@ func TestScheduledPullAlwaysFetchesAndFeedbackClearsPending(t *testing.T) {
 		t.Fatal(err)
 	}
 	pending := feedLedger(name).Pending(state, time.Now().UnixMilli())
-	if len(pending) != 2 || pending[0].ImpressionID != "imp-1" || pending[1].ImpressionID != "imp-2" {
+	if len(pending) != 1 || pending[0].ImpressionID != "imp-1" {
 		t.Fatal(pending)
 	}
 	previous, _ := feedFeedbackCmd.Flags().GetString("items")
@@ -80,7 +80,7 @@ func TestScheduledPullAlwaysFetchesAndFeedbackClearsPending(t *testing.T) {
 	}
 	state, _ = feedReportStore(name).Read()
 	pending = feedLedger(name).Pending(state, time.Now().UnixMilli())
-	if len(pending) != 1 || pending[0].ImpressionID != "imp-2" {
+	if len(pending) != 0 {
 		t.Fatal(pending)
 	}
 }
@@ -125,7 +125,7 @@ func TestCorruptReportLedgerNeverBlocksFeedOrFeedback(t *testing.T) {
 	if feedback == nil {
 		t.Fatal("feedback not delivered")
 	}
-	depth, _ := feedevent.NewQueue(filepath.Join(dir, "events")).Stats(time.Now().UnixMilli())
+	depth, _, _ := feedevent.NewQueue(filepath.Join(dir, "events")).Stats(time.Now().UnixMilli())
 	if depth != 0 {
 		t.Fatal(depth)
 	}
@@ -173,13 +173,13 @@ func TestDurableFeedbackFailureNextInvocationAndHealth(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := feedevent.NewQueue(filepath.Join(cache.ServerDataDir(name), "events"))
-	depth, _ := q.Stats(time.Now().UnixMilli())
+	depth, _, _ := q.Stats(time.Now().UnixMilli())
 	if depth != 1 {
 		t.Fatal(depth)
 	}
 	fail = false
 	maybeFlushFeedQueue()
-	depth, _ = q.Stats(time.Now().UnixMilli())
+	depth, _, _ = q.Stats(time.Now().UnixMilli())
 	if depth != 0 || len(keys) != 2 || keys[0] != keys[1] {
 		t.Fatal(depth, keys)
 	}
@@ -257,7 +257,7 @@ func TestFeedbackRequiresAuthenticatedAgentBeforeEnqueue(t *testing.T) {
 	if err := submitDurableFeedback(feedFeedbackCmd, nil); err == nil {
 		t.Fatal("unauthenticated feedback succeeded")
 	}
-	depth, _ := feedevent.NewQueue(filepath.Join(cache.ServerDataDir(name), "events")).Stats(time.Now().UnixMilli())
+	depth, _, _ := feedevent.NewQueue(filepath.Join(cache.ServerDataDir(name), "events")).Stats(time.Now().UnixMilli())
 	if depth != 0 {
 		t.Fatal(depth)
 	}
@@ -340,14 +340,14 @@ func TestExpiredCredentialRefreshOutageKeepsFeedbackDurable(t *testing.T) {
 		t.Fatal(err)
 	}
 	queue := feedevent.NewQueue(filepath.Join(cache.ServerDataDir(name), "events"))
-	if depth, _ := queue.Stats(time.Now().UnixMilli()); depth != 1 {
+	if depth, _, _ := queue.Stats(time.Now().UnixMilli()); depth != 1 {
 		t.Fatal(depth)
 	}
 	outage = false
 	if err := feedEventFlushCmd.RunE(feedEventFlushCmd, nil); err != nil {
 		t.Fatal(err)
 	}
-	if depth, _ := queue.Stats(time.Now().UnixMilli()); depth != 0 {
+	if depth, _, _ := queue.Stats(time.Now().UnixMilli()); depth != 0 {
 		t.Fatal(depth)
 	}
 }
@@ -367,5 +367,83 @@ func TestLifecycleCommandsDoNotFlushFeedQueue(t *testing.T) {
 		if err != nil || !flushesFeedQueue(cmd) {
 			t.Errorf("%v must flush the Feed queue: %v", args, err)
 		}
+	}
+}
+
+func TestFeedQueueAcknowledgesFeedbackBeforeBehaviorFailure(t *testing.T) {
+	feedbackCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/items/feedback" {
+			feedbackCalls++
+			fmt.Fprint(w, `{"code":0,"data":{"results":[{"item_id":"1","status":"accepted"}]}}`)
+			return
+		}
+		w.WriteHeader(503)
+	}))
+	defer srv.Close()
+	_, server := runtimeTestConfig(t, srv.URL, true)
+	q := feedevent.NewQueue(filepath.Join(cache.ServerDataDir(server), "events"))
+	now := time.Now().UnixMilli()
+	if err := q.Enqueue([]feedevent.Event{{"kind": "surface", "dedup_key": "event", "ts": now, "_scope": feedReportScope(server)}, {"kind": "feedback", "item_id": "1", "score": 1, "client_key": "key", "ts": now, "_scope": feedReportScope(server)}}); err != nil {
+		t.Fatal(err)
+	}
+	flushed, left, err := flushFeedQueue(server, nil)
+	if err == nil || flushed != 1 || left != 1 {
+		t.Fatal(flushed, left, err)
+	}
+	_, _, _ = flushFeedQueue(server, nil)
+	if feedbackCalls != 1 {
+		t.Fatal("accepted judgment resent", feedbackCalls)
+	}
+}
+
+func TestUnreadableQueueOmitsHealth(t *testing.T) {
+	cfg, server := runtimeTestConfig(t, "http://127.0.0.1:1", true)
+	dir := filepath.Join(cache.ServerDataDir(server), "events")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, feedevent.QueueFileName), []byte("{"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if health := reportedFeedbackHealth(cfg, server); health != nil {
+		t.Fatal(health)
+	}
+}
+
+func TestQueueRejectsForegroundClientFromPreviousAccount(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.Header.Get("Authorization") != "Bearer account-B" {
+			t.Error("used previous account token")
+		}
+		fmt.Fprint(w, `{"code":0,"data":{"results":[{"item_id":"1","status":"accepted"}]}}`)
+	}))
+	defer srv.Close()
+	_, server := runtimeTestConfig(t, srv.URL, true)
+	previous, _, err := queuedFeedClient(server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	creds, err := auth.LoadV2Credentials(server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	creds.AgentID, creds.AccessToken = "account-B", "account-B"
+	if err = auth.SaveV2Credentials(server, creds); err != nil {
+		t.Fatal(err)
+	}
+	q := feedevent.NewQueue(filepath.Join(cache.ServerDataDir(server), "events"))
+	if err = q.Enqueue([]feedevent.Event{{"kind": "feedback", "item_id": "1", "score": 1, "client_key": "b", "_scope": feedReportScope(server), "ts": time.Now().UnixMilli()}}); err != nil {
+		t.Fatal(err)
+	}
+	_, left, err := flushFeedQueueWithClient(server, previous, nil)
+	if err == nil || left != 1 || calls != 0 {
+		t.Fatal(left, calls, err)
+	}
+	sent, left, err := flushFeedQueue(server, nil)
+	if err != nil || sent != 1 || left != 0 || calls != 1 {
+		t.Fatal(sent, left, calls, err)
 	}
 }

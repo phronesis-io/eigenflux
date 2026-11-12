@@ -13,6 +13,7 @@ import (
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/recallsource"
 	"eigenflux_server/pkg/replaylog"
+	"eigenflux_server/pkg/reqinfo"
 	"eigenflux_server/rpc/sort/discovery"
 
 	"github.com/redis/go-redis/v9"
@@ -98,7 +99,7 @@ func (s Service) recordAsync(ctx context.Context, owner int64, x discovery.Execu
 		})
 		recordingError(writeCtx, "history", err)
 	}()
-	values, err := sampleValues(owner, x, impression, position, now)
+	values, err := sampleValues(ctx, owner, x, impression, position, now)
 	if err != nil {
 		recordingError(ctx, "sample", err)
 		return
@@ -119,7 +120,7 @@ func recordingError(ctx context.Context, stage string, err error) {
 	logger.Ctx(ctx).Warn("discovery recording failed", "stage", stage, "err", err)
 }
 
-func sampleValues(owner int64, x discovery.Execution, impression string, position int, now int64) (map[string]interface{}, error) {
+func sampleValues(ctx context.Context, owner int64, x discovery.Execution, impression string, position int, now int64) (map[string]interface{}, error) {
 	items := make([]replaylog.ServedItem, 0, len(x.Candidates))
 	for pos, c := range x.Candidates {
 		features, err := json.Marshal(map[string]any{"search": c})
@@ -147,6 +148,9 @@ func sampleValues(owner int64, x discovery.Execution, impression string, positio
 		return nil, err
 	}
 	features := map[string]any{"pipeline_version": discovery.PipelineVersion, "search_context": map[string]any{"contexts": x.Contexts, "request_mode": x.Mode, "request_time": now, "fallback_reason": x.FallbackReason}}
+	if version := reqinfo.ClientFromContext(ctx).CLIVer; version != "" {
+		features["context"] = map[string]string{"cli_ver": version}
+	}
 	if len(x.Experiments) > 0 {
 		features["experiments"] = x.Experiments
 	}
