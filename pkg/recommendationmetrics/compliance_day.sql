@@ -156,9 +156,16 @@ WITH bounds AS NOT MATERIALIZED (
       bool_or(final_score>=1) AS positive,bool_or(surfaced) AS surfaced,
       bool_or(final_score IS NULL AND inferred) AS any_inferred
     FROM outcomes GROUP BY agent_id,impression_id
+), delivery_versions AS MATERIALIZED (
+    -- One pass over the day's deliveries; multiple versions (or known mixed with missing) are 'mixed'.
+    SELECT agent_id,CASE WHEN count(DISTINCT v)=1 THEN min(v) ELSE 'mixed' END AS version
+    FROM (SELECT r.agent_id,COALESCE(NULLIF(left(btrim(r.agent_features #>> '{context,cli_ver}'),64),''),'unknown') AS v
+      FROM day_ids ids JOIN replay_logs r USING(id)) dv
+    GROUP BY agent_id
 ), cohorts AS MATERIALIZED (
     SELECT c.agent_id,v.dimension,v.value
     FROM consumers c LEFT JOIN agent_settings s USING(agent_id)
+    LEFT JOIN delivery_versions dv ON dv.agent_id=c.agent_id
     CROSS JOIN bounds b LEFT JOIN LATERAL (
       -- Only active consumers need a contract observation. LIMIT fences the
       -- Agent/time lookup and preserves the final event, including an empty version.
@@ -169,16 +176,12 @@ WITH bounds AS NOT MATERIALIZED (
           OR c.agent_id IN (SELECT agent_id FROM feedback))
       ORDER BY f.feedback_at DESC,f.id DESC LIMIT 1
     ) latest ON true
-    LEFT JOIN LATERAL (
-      SELECT CASE WHEN count(DISTINCT COALESCE(NULLIF(left(btrim(r.agent_features #>> '{context,cli_ver}'),64),''),'unknown'))=1
-        THEN min(COALESCE(NULLIF(left(btrim(r.agent_features #>> '{context,cli_ver}'),64),''),'unknown')) ELSE 'mixed' END AS version
-      FROM day_ids ids JOIN replay_logs r USING(id) WHERE r.agent_id=c.agent_id HAVING count(*)>0
-    ) delivery_version ON true
     CROSS JOIN LATERAL (VALUES
       ('all','all'),
       ('runtime_name',COALESCE(NULLIF(left(lower(btrim(s.runtime_name)),64),''),'unknown')),
       ('runtime_mode',CASE WHEN s.mode IN ('plugin','skill') THEN s.mode ELSE 'unknown' END),
-      ('cli_version',COALESCE(delivery_version.version,'unknown')),
+      ('cli_version',COALESCE(NULLIF(left(btrim(s.cli_version),64),''),'unknown')),
+      ('delivery_cli_version',COALESCE(dv.version,'unknown')),
       ('model',COALESCE(NULLIF(left(lower(btrim(s.model)),64),''),'unknown')),
       ('skill_revision',COALESCE(NULLIF(left(s.skill_revision,64),''),'unknown')),
       ('heartbeat_contract_version',COALESCE(NULLIF(left(s.heartbeat_contract_version,64),''),'unknown')),

@@ -299,7 +299,7 @@
       "feedback-compliance"
     ],
     "title": "Match Feed Order guidance to CLI capability",
-    "description": "After API rollout, old or unknown CLI versions receive Feed guidance without the unsupported pending-confirmations command. Coverage benefit and a real legacy-client model turn remain unverified; deployment does not prove client execution.",
+    "description": "After API rollout, CLI versions before 1.0.0 and unknown versions receive Feed guidance without the unsupported pending-confirmations command. Coverage benefit and a real legacy-client model turn remain unverified; deployment does not prove client execution.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/552"
   },
   {
@@ -310,7 +310,7 @@
       "feedback-compliance"
     ],
     "title": "Separate Feed basis and delivery-time feedback evidence",
-    "description": "Schema, API, Feed and pipeline rollout adds basis-separated coverage, delivery-time CLI versions and acceptance-time evidence. Existing totals retain baseline; use the new basis series to exclude it. Finalized history requires explicit backfill, and missing historical evidence stays unknown. Reuse counters and backlog behavior require upgraded clients; their rollout is separate.",
+    "description": "Schema, API, Feed and pipeline rollout adds basis-separated coverage, a delivery_cli_version cohort and acceptance-time evidence. Existing totals and the cli_version cohort keep their definitions; use the new basis series to exclude baseline. New rows start with the rollout; finalized history is not backfilled. Reuse counters and backlog behavior require upgraded clients; their rollout is separate.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/552"
   }
 ]

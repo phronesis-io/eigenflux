@@ -1040,9 +1040,9 @@ redelivery from a new client submission. Authentication failures before the
 handler remain outside these observations.
 
 Feed contracts gate the pending Order check on the request's `X-CLI-Ver`:
-CLI 1.0.16 and later receive the normal command; older, prerelease-before-1.0.16,
-missing and malformed versions receive an unavailable-check notice and continue
-Feed scoring/delivery. Baseline remains read-only. This compatibility strategy
+CLI 1.0.0 and later (the first release with `order pending-confirmations`)
+receive the normal command; 0.x, prerelease-before-1.0.0, missing and malformed
+versions receive an unavailable-check notice and continue Feed scoring/delivery. Baseline remains read-only. This compatibility strategy
 is enabled before a real legacy-model-turn experiment; coverage uplift is unverified.
 
 Migration 000135 adds gateway `accepted_at` to persisted feedback. Zero means

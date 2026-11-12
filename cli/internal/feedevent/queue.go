@@ -143,7 +143,7 @@ func (q *Queue) FlushWithDrops(now int64, push func([]Event) error, dropped func
 func (q *Queue) FlushAcknowledged(now int64, options FlushOptions, push func([]Event) ([]string, error), dropped func(int) error) (result FlushResult, err error) {
 	flush, ok := acquireNamedLockFor(q.dir, "flush.lock", 0)
 	if !ok {
-		result.Remaining, _, err = q.Stats(now)
+		result.Remaining, result.ScopeMismatch, err = q.Pending(now, options.Scope)
 		return
 	}
 	defer flush.release()
@@ -157,15 +157,10 @@ func (q *Queue) FlushAcknowledged(now int64, options FlushOptions, push func([]E
 		return result, err
 	}
 	drops := state.clean(now)
-	result.Remaining = len(state.Events)
-	for _, e := range state.Events {
-		scope, _ := e["_scope"].(string)
-		if options.Scope != "" && scope != "" && scope != options.Scope {
-			result.ScopeMismatch++
-		}
-	}
+	sendable, held := state.partition(options.Scope)
+	result.Remaining, result.ScopeMismatch = len(sendable), held
 	blocked := !options.Foreground && state.AuthBlockedAt > 0 && state.AuthBlockedScope == options.Scope && options.CredentialsModifiedAt <= state.AuthBlockedAt
-	if options.Foreground || (state.AuthBlockedScope == options.Scope && options.CredentialsModifiedAt > state.AuthBlockedAt) {
+	if state.AuthBlockedScope == options.Scope && (options.Foreground || options.CredentialsModifiedAt > state.AuthBlockedAt) {
 		state.AuthBlockedAt = 0
 		state.AuthBlockedScope = ""
 	}
@@ -184,13 +179,9 @@ func (q *Queue) FlushAcknowledged(now int64, options FlushOptions, push func([]E
 	}
 	batch := []Event{}
 	for _, feedback := range []bool{true, false} {
-		for _, e := range state.Events {
+		for _, e := range sendable {
 			if len(batch) == MaxBatch {
 				break
-			}
-			scope, _ := e["_scope"].(string)
-			if options.Scope != "" && ((scope != "" && scope != options.Scope) || (scope == "" && result.ScopeMismatch > 0)) {
-				continue
 			}
 			if (e["kind"] == "feedback") == feedback {
 				batch = append(batch, e)
@@ -213,7 +204,7 @@ func (q *Queue) FlushAcknowledged(now int64, options FlushOptions, push func([]E
 	}
 	l, ok = acquireLock(q.dir)
 	if !ok {
-		return result, fmt.Errorf("feedevent: queue busy after send: %w", pushErr)
+		return result, errors.Join(errors.New("feedevent: queue busy after send"), pushErr)
 	}
 	defer l.release()
 	state, err = q.loadUnlocked()
@@ -238,8 +229,42 @@ func (q *Queue) FlushAcknowledged(now int64, options FlushOptions, push func([]E
 		return result, err
 	}
 	result.Flushed = len(confirmed)
-	result.Remaining = len(collapseByDedup(rest))
+	sendable, held = state.partition(options.Scope)
+	result.Remaining, result.ScopeMismatch = len(sendable), held
 	return result, pushErr
+}
+
+// partition splits entries this scope may send from entries held for another
+// account. Unscoped legacy entries are held while any foreign entry exists.
+func (s queueFile) partition(scope string) (sendable []Event, held int) {
+	events := collapseByDedup(s.Events)
+	foreign := false
+	for _, e := range events {
+		if v, _ := e["_scope"].(string); scope != "" && v != "" && v != scope {
+			foreign = true
+			break
+		}
+	}
+	for _, e := range events {
+		v, _ := e["_scope"].(string)
+		if scope != "" && ((v != "" && v != scope) || (v == "" && foreign)) {
+			held++
+			continue
+		}
+		sendable = append(sendable, e)
+	}
+	return sendable, held
+}
+
+// Pending counts what this scope can still send; held entries wait for their account or expiry.
+func (q *Queue) Pending(now int64, scope string) (remaining, held int, err error) {
+	state, err := q.loadUnlocked()
+	if err != nil {
+		return 0, 0, err
+	}
+	state.clean(now)
+	sendable, held := state.partition(scope)
+	return len(sendable), held, nil
 }
 func collapseByDedup(events []Event) []Event {
 	seen := map[string]bool{}

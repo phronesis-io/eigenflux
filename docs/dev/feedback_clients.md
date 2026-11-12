@@ -152,6 +152,8 @@ timestamp retention window starts again on the next upgraded observation.
 Feedback and queued behavior events carry local endpoint/Agent scope. Foreign
 entries remain queued, expire normally, and are counted as `scope_mismatch` in
 flush output. Legacy unscoped entries are held while any foreign scope remains.
+`remaining` counts only entries the current account can send, so a host loop
+that re-runs while `remaining > 0` never waits on held entries.
 Local `_` metadata never crosses the wire. Feedback is selected before behavior;
 validated feedback results are removed even if the behavior group fails.
 Sending holds only a zero-wait OS-backed flush lock, allowing concurrent enqueue;

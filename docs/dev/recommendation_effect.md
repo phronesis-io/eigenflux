@@ -269,8 +269,9 @@ CLI-inferred IDs; historical events without this metadata remain unknown.
 These event counts must not be divided by delivery-day exposures as coverage.
 
 **Dimensions.** Each row has exactly one dimension: `all`, `runtime_name`,
-`runtime_mode`, `cli_version`, `model`, `skill_revision`,
-`heartbeat_contract_version`, `auto_comment` or `feedback_contract_version`.
+`runtime_mode`, `cli_version`, `delivery_cli_version`, `model`, `skill_revision`,
+`heartbeat_contract_version`, `auto_comment`, `feedback_contract_version` or
+`basis`.
 Runtime product and model use
 trimmed lowercase values; CLI version is trimmed. Mode accepts only `plugin`
 and `skill`; everything else stays unknown. Revision strings retain their
@@ -284,7 +285,7 @@ For each delivery day and dimension, values with fewer than five distinct
 recipients fold into `other`. Event-side rows use that same kept-value set;
 event-only values fold into `other` unless their value already qualifies.
 The `all` row is exempt and is always written, including on an empty day.
-Except for CLI version, settings-based cohorts use current settings at refresh time, normally 2–3 days after
+Settings-based cohorts, including `cli_version`, use current settings at refresh time, normally 2–3 days after
 the event when the day finalizes. Backfills use settings at backfill time.
 Cohorts therefore do not establish historical client identity or a fixed
 longitudinal cohort. Named values and `other` can change across days.
@@ -391,8 +392,8 @@ are sums of trailing-window reports, not counts of server feedback events.
 
 The `feedback_contract_version` cohort uses the latest valid score in
 `[D, min(D+3, cutoff))`: empty versions are `legacy`, no score is `none`, and
-values with fewer than five delivered consumers fold into `other`. Other
-settings cohorts, except CLI version, keep their refresh-time definitions. The additive
+values with fewer than five delivered consumers fold into `other`. All other
+cohorts keep their existing refresh-time settings definitions. The additive
 reporting columns remain zero for historical clients without these fields.
 Final days stored before migration 000122 also have no `feedback_contract_version`
 rows; the same post-deployment backfill of every stored day adds them.
@@ -421,8 +422,9 @@ on time; never add it to the scoring numerator. Historical acceptance is zero
 remain bounded by the existing D+3 policy; later ingestion needs an explicit
 backfill to become visible.
 
-CLI-version cohorts use `replay_logs.agent_features.context.cli_ver` from actual
-delivery requests. Both discovery and legacy Feed record it; cache reuse cannot
+`delivery_cli_version` uses `replay_logs.agent_features.context.cli_ver` from actual
+delivery requests; `cli_version` keeps its refresh-time settings definition.
+Use `delivery_cli_version` for version comparisons on new days. Both discovery and legacy Feed record it; cache reuse cannot
 carry an earlier ranking request's version into a new delivery. A day with one
 version uses it, multiple versions (including missing evidence mixed with known
 versions) use `mixed`, and missing evidence uses `unknown`. Current settings
@@ -430,8 +432,10 @@ never fill missing versions. Historical legacy snapshots are the best available
 ranking-time evidence; exact delivery-time stamping starts at this full rollout.
 Historical discovery rows without version evidence remain unknown.
 
-Apply 000135 before API/Feed/pipeline-cron, then explicitly backfill previously
-finalized days to add basis rows and refresh cohorts. Existing finality does not
+Apply 000135 before API/Feed/pipeline-cron. Do not backfill finalized days to
+obtain the new rows: a backfill recomputes settings-based cohorts with current
+settings and yields `unknown` delivery versions for history. New days carry
+basis and `delivery_cli_version` rows from the rollout onward. Existing finality does not
 automatically rebuild historical days. No migration invents acceptance times or
 claims a coverage gain. Release markers record server readiness; CLI adoption,
 batch supply effects and legacy-contract model behavior require separate analysis.

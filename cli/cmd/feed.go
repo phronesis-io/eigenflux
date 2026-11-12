@@ -529,7 +529,13 @@ Examples:
 			impression, _ := cmd.Flags().GetString("impression-id")
 			entry, status := ledger.LookupImpression(id, impression, now)
 			if impression == "" {
-				entry, status = ledger.LookupHanded(id, reports, now)
+				handed, handedStatus := ledger.LookupHanded(id, reports, now)
+				// LookupHanded skips expired entries; keep expiry visible, but never attribute to an unhanded page.
+				if entry, status = handed, handedStatus; status != feedevent.StatusHit && status != feedevent.StatusExpired {
+					if _, cached := ledger.LookupImpression(id, "", now); cached == feedevent.StatusExpired {
+						status = feedevent.StatusExpired
+					}
+				}
 			}
 			if status != feedevent.StatusHit {
 				errKind := "unknown_item"
@@ -602,8 +608,8 @@ owns the cadence: re-run while remaining > 0 with its own back-off.`,
 		if ferr == nil {
 			result, ferr = flushFeedQueueResult(server, foreground, nil)
 		}
-		depth, _, statusErr := feedevent.NewQueue(filepath.Join(cache.ServerDataDir(server), "events")).Stats(time.Now().UnixMilli())
-		data := map[string]interface{}{"flushed": result.Flushed, "remaining": depth, "scope_mismatch": result.ScopeMismatch, "ok": ferr == nil && statusErr == nil}
+		remaining, held, statusErr := feedevent.NewQueue(filepath.Join(cache.ServerDataDir(server), "events")).Pending(time.Now().UnixMilli(), feedReportScope(server))
+		data := map[string]interface{}{"flushed": result.Flushed, "remaining": remaining, "scope_mismatch": held, "ok": ferr == nil && statusErr == nil}
 		if statusErr != nil {
 			data["queue_status"] = "unreadable"
 		}

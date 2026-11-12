@@ -20,6 +20,8 @@ var (
 	defaultText  string
 	baselineOnce sync.Once
 	baselineText string
+	legacyOnce   sync.Once
+	legacyText   string
 )
 
 // ForMode selects the contract generated from the corresponding dynamic Skill.
@@ -67,19 +69,45 @@ func Load(path string) string {
 	return strings.TrimSpace(string(body))
 }
 
+// pendingOrdersMinCLI is the first released CLI with `order pending-confirmations`
+// (outer-loop 1.0.0); 0.7.x and older lack it.
+var pendingOrdersMinCLI = semver.New("1.0.0")
+
+const pendingOrdersCommand = "eigenflux order pending-confirmations"
+
 // ForClient preserves the contract except for commands absent from this CLI.
-// pending-confirmations first shipped with CLI 1.0.16 (fabf6ef0).
+// Unknown or unparseable versions receive the compatible contract.
 func ForClient(mode, cliVersion string) string {
 	contract := ForMode(mode)
 	version, err := semver.NewVersion(strings.TrimPrefix(strings.TrimSpace(cliVersion), "v"))
-	if mode == "baseline" || (err == nil && !version.LessThan(*semver.New("1.0.16"))) {
+	if mode == "baseline" || (err == nil && !version.LessThan(*pendingOrdersMinCLI)) {
 		return contract
 	}
+	legacyOnce.Do(func() { legacyText = withoutPendingOrders(Default()) })
+	return legacyText
+}
+
+// Replaces each line naming the command, keeping its indentation so list
+// structure survives; only the first replacement carries the full rule.
+func withoutPendingOrders(contract string) string {
 	lines := strings.Split(contract, "\n")
+	notified := false
 	for i, line := range lines {
-		if strings.Contains(line, "eigenflux order pending-confirmations") {
-			lines[i] = "- **Pending Orders compatibility:** This CLI has no verified support for the pending Order check. Continue Feed scoring and delivery. Report the check as unavailable; never claim there are no pending Orders or confirm receipt automatically. Upgrade the CLI before checking pending Orders."
+		if !strings.Contains(line, pendingOrdersCommand) {
+			continue
 		}
+		body := strings.TrimLeft(line, " \t")
+		indent := line[:len(line)-len(body)]
+		marker := ""
+		if strings.HasPrefix(body, "- ") {
+			marker = "- "
+		}
+		if notified {
+			lines[i] = indent + marker + "Pending Order checks are unavailable on this CLI; follow the Pending Orders compatibility rule."
+			continue
+		}
+		notified = true
+		lines[i] = indent + marker + "**Pending Orders compatibility:** This CLI has no verified support for the pending Order check. Continue Feed scoring and delivery. Report the check as unavailable; never claim there are no pending Orders or confirm receipt automatically. Upgrade the CLI before checking pending Orders."
 	}
 	return strings.Join(lines, "\n")
 }

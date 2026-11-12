@@ -378,7 +378,7 @@ func TestPostgresComplianceCohortsAndConservation(t *testing.T) {
 	}{
 		{"runtime_name", "other", 4, 5, 6}, {"runtime_name", "openclaw", 5, 5, 6}, {"runtime_name", "hermes", 5, 5, 5}, {"runtime_name", "unknown", 5, 5, 5},
 		{"runtime_mode", "skill", 9, 10, 10}, {"runtime_mode", "plugin", 5, 5, 5}, {"runtime_mode", "unknown", 5, 5, 7},
-		{"cli_version", "0.6.10", 5, 5, 5}, {"model", strings.Repeat("m", 64), 5, 5, 5},
+		{"cli_version", "0.6.10", 5, 5, 5}, {"delivery_cli_version", "0.6.10", 5, 5, 5}, {"model", strings.Repeat("m", 64), 5, 5, 5},
 		{"skill_revision", strings.Repeat("r", 64), 5, 5, 5}, {"heartbeat_contract_version", strings.Repeat("v", 64), 5, 5, 5},
 		{"auto_comment", "false", 5, 5, 5}, {"auto_comment", "true", 9, 10, 10},
 	} {
@@ -388,7 +388,7 @@ func TestPostgresComplianceCohortsAndConservation(t *testing.T) {
 		}
 	}
 	// Four empty settings plus the missing settings row contribute to unknown in every dimension.
-	for _, dim := range []string{"runtime_name", "runtime_mode", "cli_version", "model", "skill_revision", "heartbeat_contract_version", "auto_comment"} {
+	for _, dim := range []string{"runtime_name", "runtime_mode", "cli_version", "delivery_cli_version", "model", "skill_revision", "heartbeat_contract_version", "auto_comment"} {
 		got := complianceCounts(t, c, dim, "unknown")
 		if got["delivered_agents"] != 5 {
 			t.Errorf("%s unknown: %v", dim, got)
@@ -606,7 +606,7 @@ func TestPostgresComplianceEventOnlyDayAndSchema(t *testing.T) {
 	assertComplianceConservation(t, c)
 	var rows, privateColumns int
 	var barrier bool
-	if err := c.QueryRow(`SELECT count(*) FROM feedback_compliance_daily`).Scan(&rows); err != nil || rows != 9 {
+	if err := c.QueryRow(`SELECT count(*) FROM feedback_compliance_daily`).Scan(&rows); err != nil || rows != 10 {
 		t.Fatal(rows, err)
 	}
 	if err := c.QueryRow(`SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema()
@@ -864,17 +864,24 @@ func TestPostgresCoverageBasisSnapshotAndIngestion(t *testing.T) {
 	if all["delivered_exposures"] != 11 || all["scored_48h_exposures"] != 5 || all["delayed_ingestion_exposures"] != 1 {
 		t.Fatal(all)
 	}
-	before := complianceCounts(t, c, "cli_version", "1.0.15")
+	// cli_version keeps its refresh-time settings definition; delivery_cli_version is request evidence.
+	if got := complianceCounts(t, c, "cli_version", "latest"); got["delivered_exposures"] != 11 {
+		t.Fatal(got)
+	}
+	before := complianceCounts(t, c, "delivery_cli_version", "1.0.15")
 	complianceExec(t, c, `UPDATE agent_settings SET cli_version='future'`)
 	refreshCompliance(t, c)
-	after := complianceCounts(t, c, "cli_version", "1.0.15")
+	after := complianceCounts(t, c, "delivery_cli_version", "1.0.15")
 	if before["delivered_exposures"] != after["delivered_exposures"] || after["delivered_exposures"] != 11 {
 		t.Fatal(before, after)
+	}
+	if got := complianceCounts(t, c, "cli_version", "future"); got["delivered_exposures"] != 11 {
+		t.Fatal(got)
 	}
 	// Missing request metadata never inherits the current settings version.
 	complianceExec(t, c, `UPDATE replay_logs SET agent_features='{}'`)
 	refreshCompliance(t, c)
-	unknown := complianceCounts(t, c, "cli_version", "unknown")
+	unknown := complianceCounts(t, c, "delivery_cli_version", "unknown")
 	if unknown["delivered_exposures"] != 11 {
 		t.Fatal(unknown)
 	}

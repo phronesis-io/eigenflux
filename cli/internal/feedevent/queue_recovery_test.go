@@ -44,7 +44,8 @@ func TestQueueScopedPartialAckAndConcurrentEnqueue(t *testing.T) {
 		}
 		return []string{Identity(batch[0])}, errors.New("behavior failed")
 	}, nil)
-	if err == nil || result.Flushed != 1 || result.ScopeMismatch != 1 || result.Remaining != 63 {
+	// Remaining excludes A's feedback and the held legacy entry; both stay queued.
+	if err == nil || result.Flushed != 1 || result.ScopeMismatch != 2 || result.Remaining != 61 {
 		t.Fatal(result, err)
 	}
 	state, err := q.loadUnlocked()

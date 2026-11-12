@@ -58,3 +58,20 @@ func TestPublishUsesDeliveryVersionInsteadOfCachedRankingVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestDeliveryVersionKeepsNonObjectFeatures(t *testing.T) {
+	for _, raw := range []string{`[1,2]`, `not json`, `{"context":"legacy"}`} {
+		if got := withDeliveryCLIVersion(raw, "1.0.20"); got != raw {
+			t.Fatalf("%s rewritten to %s", raw, got)
+		}
+	}
+	for raw, want := range map[string]string{
+		``:                                      `{"context":{"cli_ver":"1.0.20"}}`,
+		`null`:                                  `{"context":{"cli_ver":"1.0.20"}}`,
+		`{"context":{"cli_ver":"0.6.9"},"x":1}`: `{"context":{"cli_ver":"1.0.20"},"x":1}`,
+	} {
+		if got := withDeliveryCLIVersion(raw, "1.0.20"); got != want {
+			t.Fatalf("%q => %s", raw, got)
+		}
+	}
+}
