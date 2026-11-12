@@ -166,7 +166,7 @@ type requestBucket struct {
 }
 
 func (l *RateLimiter) lane(c *app.RequestContext) *rateLane {
-	if c.FullPath() == integrationsPrefix+controlCheckPath && string(c.Path()) == integrationsPrefix+controlCheckPath {
+	if c.FullPath() == integrationsPrefix+controlCheckPath {
 		return &l.control
 	}
 	return &l.business
@@ -201,6 +201,15 @@ func (l *RateLimiter) ingressLane(c *app.RequestContext) *rateLane {
 
 func (s *Service) limitIngress(ctx context.Context, c *app.RequestContext) {
 	if l := s.RateLimiter; l != nil {
+		// Hertz interprets a colon in the registered route as a parameter.
+		// Reject aliases before auth so they cannot bypass the control budget.
+		if c.FullPath() == integrationsPrefix+controlCheckPath && string(c.Path()) != integrationsPrefix+controlCheckPath {
+			metrics.IntegrationRateLimitTotal.WithLabelValues(l.mode, "control", "ingress", "invalid_path").Inc()
+			if l.reject(c, "ingress", http.StatusNotFound, "INTEGRATION_ROUTE_NOT_FOUND", 0) {
+				c.Next(ctx)
+			}
+			return
+		}
 		lane := l.ingressLane(c)
 		address := l.clientIP(c.RemoteAddr().String(), c.Request.Header.PeekAll("X-Forwarded-For"))
 		key := fmt.Sprintf("integration:rate:%s:{ingress:%s}:", l.mode, lane.name)

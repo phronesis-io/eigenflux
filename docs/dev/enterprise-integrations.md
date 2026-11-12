@@ -134,6 +134,7 @@ replica can use the control reservation. Anonymous and unseen credentials use
 ordinary ingress capacity. This bounded local hint selects a budget only.
 All requests still validate current credentials against PostgreSQL. A replica
 with a cold or expired hint must admit the first request through ordinary ingress.
+Enforcement accepts only the documented control path.
 Gateways use a separate bounded Redis pool with no automatic replay of counting
 scripts. They cache ingress denials locally until their observed expiry, with
 bounded storage, and reserve separate Redis concurrency for control.

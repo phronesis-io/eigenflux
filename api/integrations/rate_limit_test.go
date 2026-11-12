@@ -143,6 +143,11 @@ func TestEnterpriseIngressLimitCoversAllRoutesBeforeSQL(t *testing.T) {
 	if secondLimiter.knownCredentials.Len() != 0 || reads.Load() != 3 {
 		t.Fatal("rejected credential kept its control reservation")
 	}
+	for _, alias := range []string{"/sdk/controlcheck", "/sdk/control:other"} {
+		if got := request(second, "POST", prefix+alias).StatusCode(); got != http.StatusNotFound || reads.Load() != 3 {
+			t.Fatalf("control alias reached auth: status=%d SQL reads=%d", got, reads.Load())
+		}
+	}
 }
 
 func TestEnterpriseAppLimitUsesAuthenticatedApplication(t *testing.T) {
@@ -202,6 +207,9 @@ func TestEnterpriseRateLimitObserveAndRedisFailure(t *testing.T) {
 		if got := request(observe).StatusCode(); got != http.StatusUnauthorized {
 			t.Fatalf("observe mode changed HTTP response: %d", got)
 		}
+	}
+	if got := ut.PerformRequest(observe.Engine, "POST", integrationsPrefix+"/sdk/controlcheck", nil).Result().StatusCode(); got != http.StatusUnauthorized {
+		t.Fatalf("observe mode changed alias response: %d", got)
 	}
 	cache.Close()
 	observer.business.denied.Purge()

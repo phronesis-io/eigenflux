@@ -212,7 +212,6 @@ func TestManagedHTTPRegistrationAndLiveControls(t *testing.T) {
 		}
 		assertRateLimit(t, ut.PerformRequest(limited.Engine, "POST", integrationsPrefix+controlCheckPath, nil,
 			ut.Header{Key: "Authorization", Value: "Bearer " + unknown}).Result())
-		assertRateLimit(t, ut.PerformRequest(limited.Engine, "POST", integrationsPrefix+"/sdk/controlextra", nil, headers...).Result())
 		check := func() *protocol.Response {
 			return ut.PerformRequest(limited.Engine, "POST", integrationsPrefix+controlCheckPath,
 				&ut.Body{Body: bytes.NewReader(controlBody), Len: len(controlBody)}, headers...).Result()
@@ -223,6 +222,10 @@ func TestManagedHTTPRegistrationAndLiveControls(t *testing.T) {
 			t.Fatalf("reserved control request did not report stop: %d %s", result.StatusCode(), result.Body())
 		}
 		assertRateLimit(t, check())
+		if result := ut.PerformRequest(limited.Engine, "POST", integrationsPrefix+"/sdk/controlextra",
+			&ut.Body{Body: bytes.NewReader(controlBody), Len: len(controlBody)}, headers...).Result(); result.StatusCode() != 404 {
+			t.Fatalf("control alias bypassed its budget: %d %s", result.StatusCode(), result.Body())
+		}
 	})
 	if status, _ := request(path, secret, body); status != 403 {
 		t.Fatal("disabled Agent recreated", status)
