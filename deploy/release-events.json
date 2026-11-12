@@ -312,5 +312,16 @@
     "title": "Separate Feed basis and delivery-time feedback evidence",
     "description": "Schema, API, Feed and pipeline rollout adds basis-separated coverage, a delivery_cli_version cohort and acceptance-time evidence. Existing totals and the cli_version cohort keep their definitions; use the new basis series to exclude baseline. New rows start with the rollout; finalized history is not backfilled. Reuse counters and backlog behavior require upgraded clients; their rollout is separate.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/552"
+  },
+  {
+    "id": "discovery-need-recall-v1",
+    "kind": "behavior",
+    "deploy_scope": "full",
+    "dashboards": [
+      "recommendation-effect"
+    ],
+    "title": "Recent Need dense recall available (default off)",
+    "description": "Requires Sort rollout; API-only deployment does not activate it. Compare recorded experiment arms from bucket activation, not deployment time. Lane latency starts after rollout without historical backfill; frozen pages retain their contents.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/553"
   }
 ]

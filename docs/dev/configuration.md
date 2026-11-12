@@ -278,6 +278,13 @@ contents. The global Swing recall setting (`SWING_I2I_RECALL_K=80`) and the
 `swing_i2i` 1/4 page ceiling in `configs/sort/rerank.yaml` apply independently to
 all Agents. See [Need budgets and attribution](discovery.md#need-candidate-budget-and-attribution-experiment).
 
+`DISCOVERY_NEED_RECALL_BPS` defaults to `0` and accepts 0–10000. Independent
+stable Agent buckets add a seven-day, 40-candidate dense lane for vector-backed
+captured broadcast Needs and apply consumed-group exclusion to both dense lanes.
+Their context cap is 240, or 300 when Need budget is also enabled. Search and
+other contexts retain their behavior. Restart Sort after changes; frozen pages
+expire within 30 minutes. See [Need recall depth](discovery.md#need-recall-depth-experiment).
+
 `DISCOVERY_PROFILE_SEMANTIC_BPS` defaults to `0` and accepts 0–10000. It selects
 stable Agent buckets whose broadcast recommendations add profile-vector recall
 for Profile contexts and use cosine to the profile or captured Need vector for

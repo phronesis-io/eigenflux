@@ -27,6 +27,9 @@ func initDiscovery(ctx context.Context, cfg *config.Config, policies func(contex
 	if !cfg.EnableNeedSearch {
 		return nil, func() {}, nil
 	}
+	if cfg.DiscoveryNeedRecallBPS < 0 || cfg.DiscoveryNeedRecallBPS > 10000 {
+		return nil, nil, fmt.Errorf("DISCOVERY_NEED_RECALL_BPS must be in [0,10000]")
+	}
 	if cfg.DiscoveryNeedBudgetBPS < 0 || cfg.DiscoveryNeedBudgetBPS > 10000 {
 		return nil, nil, fmt.Errorf("DISCOVERY_NEED_BUDGET_BPS must be in [0,10000]")
 	}
@@ -95,7 +98,7 @@ func initDiscovery(ctx context.Context, cfg *config.Config, policies func(contex
 	}
 	engine := &discovery.Engine{
 		FriendFeedEnabled: cfg.FriendFeedEnabled, SourceLimits: sourceLimits,
-		NeedBudgetBPS: cfg.DiscoveryNeedBudgetBPS, NeedMix: needMix,
+		NeedBudgetBPS: cfg.DiscoveryNeedBudgetBPS, NeedRecallBPS: cfg.DiscoveryNeedRecallBPS, NeedMix: needMix,
 		ConsumedRefillBPS: cfg.DiscoveryConsumedRefillBPS, ProfileSemanticBPS: cfg.DiscoveryProfileSemanticBPS,
 		Compiler: &discovery.Compiler{Cache: contexts, Embedder: embed, NeedVectors: vectors, EmbeddingVersion: vectors.Generation()},
 		Needs:    discovery.CachedNeeds{NeedReader: need.Store{DB: db.DB}, Cache: contexts},

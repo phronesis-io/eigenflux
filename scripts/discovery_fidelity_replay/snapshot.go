@@ -65,7 +65,11 @@ type snapshot struct {
 }
 
 func channelKey(c discovery.Context, k discovery.Kind, ch string) string {
-	return fmt.Sprintf("%d:%s:%s", c.ID, k, ch)
+	key := fmt.Sprintf("%d:%s:%s", c.ID, k, ch)
+	if c.CreatedSince() > 0 {
+		key += fmt.Sprintf(":since=%d", c.CreatedSince())
+	}
+	return key
 }
 
 // Every recall channel, including empty/error results, is retained before merge,
