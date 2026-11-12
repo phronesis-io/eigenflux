@@ -125,9 +125,23 @@ by its own budget does not consume total ingress capacity. Request admission
 applies to reads, retries, registrations, and control polling. The five-minute
 minimum for new Feed generation and the batch sequence contract are independent.
 
+Each budget reserves a configurable share for `control:check`. Business
+requests, including registration, use the remainder. A full business budget
+cannot block a control check in its own reserved capacity. The reserved and
+business budgets both have limits. Each budget must be at least two requests.
+Before authentication, only credentials recently validated by that gateway
+replica can use the control reservation. Anonymous and unseen credentials use
+ordinary ingress capacity. This bounded local hint selects a budget only.
+All requests still validate current credentials against PostgreSQL. A replica
+with a cold or expired hint must admit the first request through ordinary ingress.
+Gateways use a separate bounded Redis pool with no automatic replay of counting
+scripts. They cache ingress denials locally until their observed expiry, with
+bounded storage, and reserve separate Redis concurrency for control.
+
 Start with `ENTERPRISE_RATE_LIMIT_MODE=observe` on every gateway to measure
-would-be rejections using `integration_rate_limit_total` by mode, scope and
-result. Size the limits for shared egress addresses, startup bursts, and the
+would-be rejections using `integration_rate_limit_total` by mode, lane, scope
+and result. Requests that would fail at ingress do not enter the application
+shadow budget. Size the limits for shared egress addresses, startup bursts, and the
 control traffic of active installations before setting `enforce`. Only proxies
 listed in `ENTERPRISE_RATE_LIMIT_TRUSTED_PROXY_CIDRS` can supply forwarded IPs.
 Configure each trusted proxy to append or overwrite the chain with its observed
@@ -137,7 +151,8 @@ first untrusted address. With no trusted proxies it uses the socket peer.
 Enforcement returns `429 INTEGRATION_RATE_LIMITED` with `Retry-After` and
 `retry_after_seconds` before business work. Redis unavailability returns
 `503 INTEGRATION_RATE_LIMIT_UNAVAILABLE` on enterprise routes in enforcement
-mode. Observation continues to serve requests on Redis errors. The default
+mode, as does a full local limiter concurrency lane. Observation continues to
+serve requests on these errors. The default
 `off` mode does not call the limiter. This is an API gateway configuration
 rollout and does not require a database migration.
 

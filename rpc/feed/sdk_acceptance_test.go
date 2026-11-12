@@ -256,12 +256,13 @@ func enterpriseSDKAcceptance(t *testing.T, failContext bool) {
 		t.Fatal(err)
 	}
 	h := server.New(server.WithListener(listener), server.WithTransport(standard.NewTransporter))
-	rateLimiter, err := integrations.NewRateLimiter(redisClient, config.EnterpriseRateLimitConfig{
-		Mode: "enforce", RequestsPerIP: 600, RequestsTotal: 6000, RequestsPerApp: 600,
+	rateLimiter, err := integrations.NewRateLimiter(&redis.Options{Addr: r.Addr()}, config.EnterpriseRateLimitConfig{
+		Mode: "enforce", RequestsPerIP: 600, RequestsTotal: 6000, RequestsPerApp: 600, ControlReservePct: 50,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = rateLimiter.Close() })
 	(&integrations.Service{Store: identity, RateLimiter: rateLimiter, Feed: func(ctx context.Context, id, version int64, limit int) (integrationfeed.Generated, error) {
 		sourceCalls.Add(1)
 		return upstream(ctx, id, version, limit)

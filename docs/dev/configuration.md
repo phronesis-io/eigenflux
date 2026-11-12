@@ -48,6 +48,7 @@ Default config in `pkg/config/config.go`, override via environment variables:
 | `ENTERPRISE_RATE_LIMIT_IP_PER_MINUTE` | `600` | Shared pre-authentication requests per source IP |
 | `ENTERPRISE_RATE_LIMIT_TOTAL_PER_MINUTE` | `6000` | Shared pre-authentication requests across all enterprise routes |
 | `ENTERPRISE_RATE_LIMIT_APP_PER_MINUTE` | `600` | Shared requests per authenticated application |
+| `ENTERPRISE_RATE_LIMIT_CONTROL_RESERVE_PERCENT` | `50` | Share of each IP, total, and application request budget reserved for control checks (1–99) |
 | `ENTERPRISE_RATE_LIMIT_TRUSTED_PROXY_CIDRS` | empty | Comma-separated proxies allowed to supply `X-Forwarded-For` for enterprise request protection |
 | `ENABLE_FEED_V2` | `false` | Enables the stateless latest-view Feed V2 route; V1 feed behavior is unchanged |
 | `ENABLE_CONTROL_CHANNEL_V2` | `false` | Enables Agent attention and command delivery routes |

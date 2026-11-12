@@ -1,7 +1,10 @@
 package integrations
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"net"
 	"net/http"
 	"net/netip"
 	"strconv"
@@ -26,14 +29,13 @@ import (
 
 func testRequestLimiter(t *testing.T, cache *miniredis.Miniredis, mode string, ip, total, application int) *RateLimiter {
 	t.Helper()
-	client := redis.NewClient(&redis.Options{Addr: cache.Addr(), ContextTimeoutEnabled: true, MaxRetries: -1})
-	t.Cleanup(func() { _ = client.Close() })
-	l, err := NewRateLimiter(client, config.EnterpriseRateLimitConfig{
-		Mode: mode, RequestsPerIP: ip, RequestsTotal: total, RequestsPerApp: application,
+	l, err := NewRateLimiter(&redis.Options{Addr: cache.Addr()}, config.EnterpriseRateLimitConfig{
+		Mode: mode, RequestsPerIP: ip * 2, RequestsTotal: total * 2, RequestsPerApp: application * 2, ControlReservePct: 50,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = l.Close() })
 	return l
 }
 
@@ -62,14 +64,13 @@ func TestRateLimitConfiguration(t *testing.T) {
 		t.Fatalf("off mode requires no limiter: %v, %v", l, err)
 	}
 	cache := miniredis.RunT(t)
-	client := redis.NewClient(&redis.Options{Addr: cache.Addr()})
-	t.Cleanup(func() { _ = client.Close() })
 	for _, cfg := range []config.EnterpriseRateLimitConfig{
 		{Mode: "invalid"},
-		{Mode: "enforce", RequestsPerIP: 0, RequestsTotal: 10, RequestsPerApp: 10},
-		{Mode: "enforce", RequestsPerIP: 1, RequestsTotal: 10, RequestsPerApp: 10, TrustedProxyCIDRs: []string{"0.0.0.0/0"}},
+		{Mode: "enforce", RequestsPerIP: 1, RequestsTotal: 10, RequestsPerApp: 10, ControlReservePct: 50},
+		{Mode: "enforce", RequestsPerIP: 2, RequestsTotal: 10, RequestsPerApp: 10, ControlReservePct: 100},
+		{Mode: "enforce", RequestsPerIP: 2, RequestsTotal: 10, RequestsPerApp: 10, ControlReservePct: 50, TrustedProxyCIDRs: []string{"0.0.0.0/0"}},
 	} {
-		if _, err := NewRateLimiter(client, cfg); err == nil {
+		if _, err := NewRateLimiter(&redis.Options{Addr: cache.Addr()}, cfg); err == nil {
 			t.Fatalf("accepted invalid config: %+v", cfg)
 		}
 	}
@@ -96,8 +97,11 @@ func TestEnterpriseIngressLimitCoversAllRoutesBeforeSQL(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := &integrationidentity.Store{DB: db}
+	var secondLimiter *RateLimiter
 	for _, h := range []*server.Hertz{first, second} {
-		(&Service{Store: store, RateLimiter: testRequestLimiter(t, cache, "enforce", 1, 20, 10)}).Register(h)
+		l := testRequestLimiter(t, cache, "enforce", 1, 20, 10)
+		(&Service{Store: store, RateLimiter: l}).Register(h)
+		secondLimiter = l
 	}
 	second.GET("/api/v1/unrelated", func(_ context.Context, c *app.RequestContext) { c.Status(http.StatusNoContent) })
 	random, _, err := integrationidentity.NewCredential()
@@ -126,8 +130,18 @@ func TestEnterpriseIngressLimitCoversAllRoutesBeforeSQL(t *testing.T) {
 		t.Fatalf("unrelated route limited: %d", got)
 	}
 	cache.FastForward(requestWindow)
+	secondLimiter.business.denied.Purge()
 	if got := request(second, "GET", prefix+"/agents/me/feed").StatusCode(); got != http.StatusUnauthorized || reads.Load() != 2 {
 		t.Fatalf("bucket did not reopen: status=%d SQL reads=%d", got, reads.Load())
+	}
+	// Model a credential that was recently seen but has since been rotated.
+	secondLimiter.rememberCredential(random)
+	if got := request(second, "POST", prefix+controlCheckPath).StatusCode(); got != http.StatusUnauthorized || reads.Load() != 3 {
+		t.Fatalf("cached credential hint bypassed live auth: status=%d SQL reads=%d", got, reads.Load())
+	}
+	assertRateLimit(t, request(second, "POST", prefix+controlCheckPath))
+	if secondLimiter.knownCredentials.Len() != 0 || reads.Load() != 3 {
+		t.Fatal("rejected credential kept its control reservation")
 	}
 }
 
@@ -179,7 +193,8 @@ func TestEnterpriseRateLimitObserveAndRedisFailure(t *testing.T) {
 	cache := miniredis.RunT(t)
 	enforce, observe := server.New(), server.New()
 	(&Service{RateLimiter: testRequestLimiter(t, cache, "enforce", 1, 1, 1)}).Register(enforce)
-	(&Service{RateLimiter: testRequestLimiter(t, cache, "observe", 1, 1, 1)}).Register(observe)
+	observer := testRequestLimiter(t, cache, "observe", 1, 1, 1)
+	(&Service{RateLimiter: observer}).Register(observe)
 	request := func(h *server.Hertz) *protocol.Response {
 		return ut.PerformRequest(h.Engine, "GET", "/api/v2/integrations/agents/me/feed", nil).Result()
 	}
@@ -189,6 +204,7 @@ func TestEnterpriseRateLimitObserveAndRedisFailure(t *testing.T) {
 		}
 	}
 	cache.Close()
+	observer.business.denied.Purge()
 	if got := request(observe).StatusCode(); got != http.StatusUnauthorized {
 		t.Fatalf("observe mode blocked during Redis failure: %d", got)
 	}
@@ -199,13 +215,140 @@ func TestEnterpriseRateLimitObserveAndRedisFailure(t *testing.T) {
 	}
 }
 
+func TestRateLimitObserveMatchesEnforcedAppAccounting(t *testing.T) {
+	cache := miniredis.RunT(t)
+	for _, mode := range []string{"observe", "enforce"} {
+		t.Run(mode, func(t *testing.T) {
+			h := server.New()
+			s := &Service{RateLimiter: testRequestLimiter(t, cache, mode, 1, 20, 2)}
+			h.GET("/probe", s.limitIngress, func(ctx context.Context, c *app.RequestContext) {
+				c.Next(context.WithValue(ctx, appKey{}, "synthetic-app"))
+			}, s.limitApplication, func(_ context.Context, c *app.RequestContext) { c.Status(http.StatusNoContent) })
+			for i := range 3 {
+				want := http.StatusNoContent
+				if i > 0 && mode == "enforce" {
+					want = http.StatusTooManyRequests
+				}
+				if got := ut.PerformRequest(h.Engine, "GET", "/probe", nil).Result().StatusCode(); got != want {
+					t.Fatalf("request %d: status=%d want=%d", i, got, want)
+				}
+			}
+			if got, err := cache.Get("integration:rate:" + mode + ":business:app:synthetic-app"); got != "1" || err != nil {
+				t.Fatalf("application count=%q err=%v", got, err)
+			}
+		})
+	}
+}
+
+func TestIngressReusesDenialsAndReservesControlCapacity(t *testing.T) {
+	cache := miniredis.RunT(t)
+	l := testRequestLimiter(t, cache, "enforce", 1, 1, 1)
+	secret, _, err := integrationidentity.NewCredential()
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.rememberCredential(secret)
+	s := &Service{RateLimiter: l}
+	h := server.New()
+	auth := func(ctx context.Context, c *app.RequestContext) {
+		c.Next(context.WithValue(ctx, appKey{}, "synthetic-app"))
+	}
+	ok := func(_ context.Context, c *app.RequestContext) { c.Status(http.StatusNoContent) }
+	h.GET("/business", s.limitIngress, auth, s.limitApplication, ok)
+	h.POST(integrationsPrefix+controlCheckPath, s.limitIngress, auth, s.limitApplication, ok)
+	call := func(method, path string) *protocol.Response {
+		return ut.PerformRequest(h.Engine, method, path, nil,
+			ut.Header{Key: "Authorization", Value: "Bearer " + secret}).Result()
+	}
+	if got := call("GET", "/business").StatusCode(); got != http.StatusNoContent {
+		t.Fatalf("first business request: %d", got)
+	}
+	assertRateLimit(t, call("GET", "/business"))
+	commands := cache.CommandCount()
+	for range 100 {
+		assertRateLimit(t, call("GET", "/business"))
+	}
+	if extra := cache.CommandCount() - commands; extra != 0 {
+		t.Fatalf("cached denials issued %d Redis commands", extra)
+	}
+
+	// A full business lane cannot take control's budget or its local slots.
+	for range cap(l.business.slots) {
+		l.business.slots <- struct{}{}
+	}
+	cache.FastForward(requestWindow)
+	l.business.denied.Purge()
+	if got := call("GET", "/business").StatusCode(); got != http.StatusServiceUnavailable {
+		t.Fatalf("full business lane: %d", got)
+	}
+	if got := call("POST", integrationsPrefix+controlCheckPath).StatusCode(); got != http.StatusNoContent {
+		t.Fatalf("reserved control capacity blocked: %d", got)
+	}
+	assertRateLimit(t, call("POST", integrationsPrefix+controlCheckPath))
+}
+
+type dropScriptReplyConn struct {
+	net.Conn
+	dropped *atomic.Bool
+	script  bool
+}
+
+func (c *dropScriptReplyConn) Write(p []byte) (int, error) {
+	c.script = bytes.Contains(bytes.ToLower(p), []byte("\r\nevalsha\r\n"))
+	return c.Conn.Write(p)
+}
+
+func (c *dropScriptReplyConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	// Receiving bytes confirms execution. Simulate transport loss before the
+	// Redis client sees the reply, then allow normal reconnections.
+	if n > 0 && c.script && c.dropped.CompareAndSwap(false, true) {
+		_ = c.Conn.Close()
+		return 0, io.EOF
+	}
+	return n, err
+}
+
+func TestLimiterDoesNotReplayAnExecutedScriptAfterReplyLoss(t *testing.T) {
+	cache := miniredis.RunT(t)
+	var dropped atomic.Bool
+	dialer := &net.Dialer{}
+	l, err := NewRateLimiter(&redis.Options{
+		Addr: cache.Addr(),
+		Dialer: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			conn, err := dialer.DialContext(ctx, network, addr)
+			if err != nil {
+				return nil, err
+			}
+			return &dropScriptReplyConn{Conn: conn, dropped: &dropped}, nil
+		},
+	}, config.EnterpriseRateLimitConfig{
+		Mode: "enforce", RequestsPerIP: 2, RequestsTotal: 2, RequestsPerApp: 2, ControlReservePct: 50,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = l.Close() })
+	if _, err := admitRequest.Load(t.Context(), l.redis).Result(); err != nil {
+		t.Fatal(err)
+	}
+	c := app.NewContext(0)
+	if l.allow(t.Context(), c, &l.business, "ingress", requestBucket{"ip", "probe-ip", 1}) ||
+		c.Response.StatusCode() != http.StatusServiceUnavailable || !dropped.Load() {
+		t.Fatalf("ambiguous execution should return 503, got %d, dropped=%v", c.Response.StatusCode(), dropped.Load())
+	}
+	if n, err := cache.Get("probe-ip"); n != "1" || err != nil {
+		t.Fatalf("expected a single debit: count=%s err=%v", n, err)
+	}
+}
+
 func TestIngressBucketsAreAtomicAndRejectsDoNotSpendGlobalBudget(t *testing.T) {
 	cache := miniredis.RunT(t)
 	a := testRequestLimiter(t, cache, "enforce", 1, 2, 1)
 	b := testRequestLimiter(t, cache, "enforce", 1, 2, 1)
 	attempt := func(l *RateLimiter, ip string) bool {
 		c := app.NewContext(0)
-		return l.allow(t.Context(), c, "ingress",
+		return l.allow(t.Context(), c, &l.business, "ingress",
 			requestBucket{"ip", "ip:" + ip, 1}, requestBucket{"total", "total", 2})
 	}
 	if !attempt(a, "first") {

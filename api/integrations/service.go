@@ -29,11 +29,13 @@ type appKey struct{}
 
 const observedAgentKey = "integration_observed_agent"
 const failureCodeKey = "integration_failure_code"
+const integrationsPrefix = "/api/v2/integrations"
+const controlCheckPath = "/sdk/control:check"
 
 func (s *Service) Register(h *server.Hertz) {
-	routes := h.Group("/api/v2/integrations", s.limitIngress, s.authenticate, s.limitApplication, s.observe)
+	routes := h.Group(integrationsPrefix, s.limitIngress, s.authenticate, s.limitApplication, s.observe)
 	routes.POST("/sdk/installations", s.register)
-	routes.POST("/sdk/control:check", s.control)
+	routes.POST(controlCheckPath, s.control)
 	routes.PUT("/agents/me/context", s.putContext)
 	routes.GET("/agents/me/context", s.getContext)
 	routes.GET("/agents/me/card", s.getCard)
@@ -155,9 +157,16 @@ func (s *Service) authenticate(ctx context.Context, c *app.RequestContext) {
 	defer cancel()
 	owner, err := s.Store.Authenticate(bound, secret)
 	if err != nil {
+		var failure *integrationidentity.Error
+		if l := s.RateLimiter; l != nil && errors.As(err, &failure) && failure.Status == 401 {
+			l.forgetCredential(secret)
+		}
 		fail(c, err)
 		c.Abort()
 		return
+	}
+	if l := s.RateLimiter; l != nil && !c.GetBool(shadowIngressDenied) {
+		l.rememberCredential(secret)
 	}
 	c.Next(context.WithValue(ctx, appKey{}, owner.AppID))
 }
