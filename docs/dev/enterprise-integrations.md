@@ -115,6 +115,32 @@ Errors use 401 for credentials, 403 for disabled/out-of-scope ownership, 400 for
 invalid input, and 503 for unavailable infrastructure. No failure creates a
 personal identity or triggers onboarding as a recovery mechanism.
 
+## Request protection
+
+All seven enterprise routes share request admission. The gateway checks
+the source IP and total ingress budget before credential lookup, then checks
+the authenticated application budget before business handlers. The limits use
+atomic one-minute Redis counters shared across gateway replicas. An IP rejected
+by its own budget does not consume total ingress capacity. Request admission
+applies to reads, retries, registrations, and control polling. The five-minute
+minimum for new Feed generation and the batch sequence contract are independent.
+
+Start with `ENTERPRISE_RATE_LIMIT_MODE=observe` on every gateway to measure
+would-be rejections using `integration_rate_limit_total` by mode, scope and
+result. Size the limits for shared egress addresses, startup bursts, and the
+control traffic of active installations before setting `enforce`. Only proxies
+listed in `ENTERPRISE_RATE_LIMIT_TRUSTED_PROXY_CIDRS` can supply forwarded IPs.
+Configure each trusted proxy to append or overwrite the chain with its observed
+peer. The gateway walks from the socket peer toward the client and uses the
+first untrusted address. With no trusted proxies it uses the socket peer.
+
+Enforcement returns `429 INTEGRATION_RATE_LIMITED` with `Retry-After` and
+`retry_after_seconds` before business work. Redis unavailability returns
+`503 INTEGRATION_RATE_LIMIT_UNAVAILABLE` on enterprise routes in enforcement
+mode. Observation continues to serve requests on Redis errors. The default
+`off` mode does not call the limiter. This is an API gateway configuration
+rollout and does not require a database migration.
+
 ## Rollback and delivery stages
 
 The migration installs enterprise tables and a disabled control singleton only.
@@ -219,7 +245,7 @@ controls even when the payload already exists. A restarted/superseded runtime
 cannot read with its previous binding.
 
 Admission uses PostgreSQL time and the shared app-first transaction lock.
-The only usage limit is a fixed five-minute minimum between new generations
+Feed generation has a fixed five-minute minimum between new generations
 for the same Agent. SDK requested cadence and legacy application interval or
 daily quota settings do not restrict HTTP admission. Usage counters remain
 observational. Early new rounds return 429 with Retry-After/retry_after_seconds.

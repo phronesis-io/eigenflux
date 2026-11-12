@@ -21,8 +21,9 @@ import (
 )
 
 type Service struct {
-	Store *integrationidentity.Store
-	Feed  integrationfeed.Generator
+	Store       *integrationidentity.Store
+	Feed        integrationfeed.Generator
+	RateLimiter *RateLimiter
 }
 type appKey struct{}
 
@@ -30,13 +31,14 @@ const observedAgentKey = "integration_observed_agent"
 const failureCodeKey = "integration_failure_code"
 
 func (s *Service) Register(h *server.Hertz) {
-	h.POST("/api/v2/integrations/sdk/installations", s.authenticate, s.observe, s.register)
-	h.POST("/api/v2/integrations/sdk/control:check", s.authenticate, s.observe, s.control)
-	h.PUT("/api/v2/integrations/agents/me/context", s.authenticate, s.observe, s.putContext)
-	h.GET("/api/v2/integrations/agents/me/context", s.authenticate, s.observe, s.getContext)
-	h.GET("/api/v2/integrations/agents/me/card", s.authenticate, s.observe, s.getCard)
-	h.POST("/api/v2/integrations/agents/me/feed", s.authenticate, s.observe, s.pullFeed)
-	h.GET("/api/v2/integrations/agents/me/feed", s.authenticate, s.observe, s.latestFeed)
+	routes := h.Group("/api/v2/integrations", s.limitIngress, s.authenticate, s.limitApplication, s.observe)
+	routes.POST("/sdk/installations", s.register)
+	routes.POST("/sdk/control:check", s.control)
+	routes.PUT("/agents/me/context", s.putContext)
+	routes.GET("/agents/me/context", s.getContext)
+	routes.GET("/agents/me/card", s.getCard)
+	routes.POST("/agents/me/feed", s.pullFeed)
+	routes.GET("/agents/me/feed", s.latestFeed)
 }
 
 func (s *Service) business(ctx context.Context, c *app.RequestContext) (integrationidentity.Agent, error) {
@@ -124,15 +126,22 @@ func fail(c *app.RequestContext, err error) {
 	if !errors.As(err, &typed) {
 		typed = &integrationidentity.Error{Status: 503, Code: "INTEGRATION_UNAVAILABLE"}
 	}
-	response := map[string]any{"code": typed.Status, "msg": typed.Code, "error": map[string]any{"code": typed.Code, "message": typed.Code}}
 	var retry interface{ RetryAfter() int }
+	var seconds int
 	if errors.As(err, &retry) {
-		seconds := retry.RetryAfter()
+		seconds = retry.RetryAfter()
+	}
+	writeFailure(c, typed, seconds)
+}
+
+func writeFailure(c *app.RequestContext, failure *integrationidentity.Error, seconds int) {
+	response := map[string]any{"code": failure.Status, "msg": failure.Code, "error": map[string]any{"code": failure.Code, "message": failure.Code}}
+	if seconds > 0 {
 		c.Header("Retry-After", strconv.Itoa(seconds))
 		response["retry_after_seconds"] = seconds
 	}
-	c.Set(failureCodeKey, typed.Code)
-	c.JSON(typed.Status, response)
+	c.Set(failureCodeKey, failure.Code)
+	c.JSON(failure.Status, response)
 }
 
 func (s *Service) authenticate(ctx context.Context, c *app.RequestContext) {
