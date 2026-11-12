@@ -107,21 +107,22 @@ WITH bounds AS NOT MATERIALIZED (
     SELECT DISTINCT i.agent_id,i.item_id,i.impression_id FROM inferred i
     JOIN mature_keys m USING(agent_id,item_id,impression_id)
 ), outcomes AS MATERIALIZED (
-    SELECT m.agent_id,m.impression_id,s.*,f.*,p.*,(m.agent_id,m.item_id,m.impression_id) IN
+    SELECT m.agent_id,m.item_id,m.impression_id,m.basis,s.*,f.*,p.*,(m.agent_id,m.item_id,m.impression_id) IN
       (SELECT agent_id,item_id,impression_id FROM inferred_exposures) AS inferred
     FROM mature_keys m CROSS JOIN LATERAL (
       SELECT bool_or(f.feedback_at<m.served_at+3600000) AS scored_1h,
         bool_or(f.feedback_at<m.served_at+86400000) AS scored_24h,
-        (array_agg(f.score ORDER BY f.feedback_at DESC,f.id DESC))[1] AS final_score,
-        (array_agg(f.surfaced ORDER BY f.feedback_at DESC,f.id DESC))[1] AS declared_surfaced
+        (array_agg(f.score ORDER BY f.feedback_at DESC,f.id DESC) FILTER (WHERE f.feedback_at<m.served_at+172800000))[1] AS final_score,
+        (array_agg(f.surfaced ORDER BY f.feedback_at DESC,f.id DESC) FILTER (WHERE f.feedback_at<m.served_at+172800000))[1] AS declared_surfaced,
+        bool_or(f.accepted_at>=m.served_at AND f.accepted_at<m.served_at+172800000 AND f.feedback_at>=m.served_at+172800000) AS delayed_ingestion
       FROM (
         -- Fence the impression lookup; the ordered aggregate otherwise favors
         -- time-ordered indexes that scan every event in the 48-hour window.
-        SELECT f.id,f.agent_id,f.item_id,f.feedback_at,f.score,f.surfaced FROM feedback_logs f
+        SELECT f.id,f.agent_id,f.item_id,f.feedback_at,f.accepted_at,f.score,f.surfaced FROM feedback_logs f
         WHERE f.impression_id=m.impression_id OFFSET 0
       ) f
       WHERE f.agent_id=m.agent_id AND f.item_id=m.item_id
-        AND f.feedback_at>=m.served_at AND f.feedback_at<m.served_at+172800000
+        AND f.feedback_at>=m.served_at AND f.feedback_at<(SELECT cutoff FROM bounds)
         AND f.score IN (-1,0,1,2)
     ) s CROSS JOIN LATERAL (
       SELECT bool_or(f.kind='surface') AS surfaced,
@@ -155,9 +156,16 @@ WITH bounds AS NOT MATERIALIZED (
       bool_or(final_score>=1) AS positive,bool_or(surfaced) AS surfaced,
       bool_or(final_score IS NULL AND inferred) AS any_inferred
     FROM outcomes GROUP BY agent_id,impression_id
+), delivery_versions AS MATERIALIZED (
+    -- One pass over the day's deliveries; multiple versions (or known mixed with missing) are 'mixed'.
+    SELECT agent_id,CASE WHEN count(DISTINCT v)=1 THEN min(v) ELSE 'mixed' END AS version
+    FROM (SELECT r.agent_id,COALESCE(NULLIF(left(btrim(r.agent_features #>> '{context,cli_ver}'),64),''),'unknown') AS v
+      FROM day_ids ids JOIN replay_logs r USING(id)) dv
+    GROUP BY agent_id
 ), cohorts AS MATERIALIZED (
     SELECT c.agent_id,v.dimension,v.value
     FROM consumers c LEFT JOIN agent_settings s USING(agent_id)
+    LEFT JOIN delivery_versions dv ON dv.agent_id=c.agent_id
     CROSS JOIN bounds b LEFT JOIN LATERAL (
       -- Only active consumers need a contract observation. LIMIT fences the
       -- Agent/time lookup and preserves the final event, including an empty version.
@@ -173,6 +181,7 @@ WITH bounds AS NOT MATERIALIZED (
       ('runtime_name',COALESCE(NULLIF(left(lower(btrim(s.runtime_name)),64),''),'unknown')),
       ('runtime_mode',CASE WHEN s.mode IN ('plugin','skill') THEN s.mode ELSE 'unknown' END),
       ('cli_version',COALESCE(NULLIF(left(btrim(s.cli_version),64),''),'unknown')),
+      ('delivery_cli_version',COALESCE(dv.version,'unknown')),
       ('model',COALESCE(NULLIF(left(lower(btrim(s.model)),64),''),'unknown')),
       ('skill_revision',COALESCE(NULLIF(left(s.skill_revision,64),''),'unknown')),
       ('heartbeat_contract_version',COALESCE(NULLIF(left(s.heartbeat_contract_version,64),''),'unknown')),
@@ -357,8 +366,14 @@ WITH bounds AS NOT MATERIALIZED (
       sum(health_feedback_failures) AS health_feedback_failures,
       sum(health_queue_drops) AS health_queue_drops
     FROM agent_parts GROUP BY agent_id
-), folded_counts AS (
+), recovery_counts AS (
+    SELECT agent_id,count(*) FILTER (WHERE delayed_ingestion) AS delayed_ingestion_exposures,
+      CASE WHEN count(final_score)>0 THEN 1 ELSE 0 END AS scoring_agents
+    FROM outcomes GROUP BY agent_id
+), cohort_counts AS (
     SELECT c.dimension,CASE WHEN c.dimension='all' OR k.value IS NOT NULL THEN c.value ELSE 'other' END AS value,
+      sum(COALESCE(rc.scoring_agents,0)) AS scoring_agents,
+      sum(COALESCE(rc.delayed_ingestion_exposures,0)) AS delayed_ingestion_exposures,
       sum(t.delivered_agents) AS delivered_agents,
       sum(t.delivered_exposures) AS delivered_exposures,
       sum(t.identifiable_exposures) AS identifiable_exposures,
@@ -404,9 +419,107 @@ WITH bounds AS NOT MATERIALIZED (
       sum(t.health_feedback_attempts) AS health_feedback_attempts,
       sum(t.health_feedback_failures) AS health_feedback_failures,
       sum(t.health_queue_drops) AS health_queue_drops
-    FROM agent_totals t JOIN cohorts c USING(agent_id)
+    FROM agent_totals t JOIN cohorts c USING(agent_id) LEFT JOIN recovery_counts rc USING(agent_id)
     LEFT JOIN kept_values k USING(dimension,value)
     GROUP BY c.dimension,CASE WHEN c.dimension='all' OR k.value IS NOT NULL THEN c.value ELSE 'other' END
+), basis_deliveries AS (
+    SELECT d.basis,count(DISTINCT d.agent_id) AS delivered_agents,count(*) AS delivered_exposures,
+      count(*) FILTER (WHERE m.matches=1) AS identifiable_exposures
+    FROM day_deliveries d LEFT JOIN exact_matches m USING(agent_id,item_id,impression_id) GROUP BY d.basis
+), basis_exposures AS (
+    SELECT basis, count(DISTINCT agent_id) FILTER (WHERE final_score IS NOT NULL) AS scoring_agents,
+      count(*) FILTER (WHERE delayed_ingestion) AS delayed_ingestion_exposures,
+      count(*) AS mature_exposures,
+      count(*) FILTER (WHERE declared_surfaced IS NOT NULL) AS surface_declared_known_exposures,
+      count(*) FILTER (WHERE declared_surfaced) AS surface_declared_exposures,
+      count(*) FILTER (WHERE declared_surfaced=COALESCE(surfaced,false)) AS surface_agreement_exposures,
+      count(*) FILTER (WHERE scored_1h) AS scored_1h_exposures,
+      count(*) FILTER (WHERE scored_24h) AS scored_24h_exposures,
+      count(final_score) AS scored_48h_exposures,
+      count(*) FILTER (WHERE final_score IS NULL AND inferred) AS scored_48h_inferred_exposures,
+      count(*) FILTER (WHERE surfaced) AS surfaced_exposures,
+      count(*) FILTER (WHERE surfaced AND final_score IS NULL) AS surfaced_unscored_exposures,
+      count(*) FILTER (WHERE surfaced AND final_score<=0) AS surfaced_nonpositive_exposures,
+      count(*) FILTER (WHERE final_score>=1) AS positive_exposures,
+      count(*) FILTER (WHERE final_score>=1 AND surfaced) AS positive_surfaced_exposures,
+      count(*) FILTER (WHERE followed_up) AS followup_exposures,
+      count(*) FILTER (WHERE followed_up AND agent_pm) AS followup_agent_pm_exposures,
+      count(*) FILTER (WHERE agent_pm) AS agent_pm_exposures,
+      count(*) FILTER (WHERE author_replied) AS author_replied_exposures
+    FROM outcomes GROUP BY basis
+), basis_batch_items AS (
+    SELECT basis,agent_id,impression_id,count(*) AS exposures,count(final_score) AS scored,
+      min(final_score)=max(final_score) AS degenerate,
+      bool_or(final_score>=1) AS positive,bool_or(surfaced) AS surfaced,
+      bool_or(final_score IS NULL AND inferred) AS any_inferred
+    FROM outcomes GROUP BY basis,agent_id,impression_id
+), basis_batches AS (
+    SELECT basis,
+      count(*) AS mature_batches,
+      count(*) FILTER (WHERE scored=exposures) AS fully_scored_batches,
+      count(*) FILTER (WHERE scored>0 AND scored<exposures) AS partially_scored_batches,
+      count(*) FILTER (WHERE scored=0) AS unscored_batches,
+      count(*) FILTER (WHERE scored=0 AND any_inferred) AS unscored_batches_with_inferred,
+      count(*) FILTER (WHERE scored>=5) AS degenerate_candidate_batches,
+      count(*) FILTER (WHERE scored>=5 AND degenerate) AS degenerate_batches,
+      count(*) FILTER (WHERE positive) AS positive_batches,
+      count(*) FILTER (WHERE positive AND NOT COALESCE(surfaced,false)) AS positive_batches_without_surface
+    FROM basis_batch_items GROUP BY basis
+), basis_rows AS (
+    SELECT (jsonb_populate_record(NULL::feedback_compliance_daily,
+      to_jsonb(d) || COALESCE(to_jsonb(e),'{}'::jsonb) || COALESCE(to_jsonb(b),'{}'::jsonb) ||
+      jsonb_build_object('dimension','basis','value',d.basis))).*
+    FROM basis_deliveries d LEFT JOIN basis_exposures e USING(basis) LEFT JOIN basis_batches b USING(basis)
+), folded_counts AS (
+    SELECT * FROM cohort_counts
+    UNION ALL
+    SELECT dimension,value,scoring_agents,delayed_ingestion_exposures,
+      delivered_agents,
+      delivered_exposures,
+      identifiable_exposures,
+      mature_exposures,
+      scored_1h_exposures,
+      scored_24h_exposures,
+      scored_48h_exposures,
+      mature_batches,
+      fully_scored_batches,
+      partially_scored_batches,
+      unscored_batches,
+      degenerate_candidate_batches,
+      degenerate_batches,
+      surfaced_exposures,
+      surfaced_unscored_exposures,
+      surfaced_nonpositive_exposures,
+      positive_exposures,
+      positive_surfaced_exposures,
+      positive_batches,
+      positive_batches_without_surface,
+      followup_exposures,
+      followup_agent_pm_exposures,
+      agent_pm_exposures,
+      author_replied_exposures,
+      feedback_events,
+      feedback_events_with_impression,
+      feedback_events_exact,
+      surface_events,
+      surface_events_with_impression,
+      surface_events_exact,
+      scored_48h_inferred_exposures,
+      unscored_batches_with_inferred,
+      feedback_events_inferred,
+      silent_agents,
+      feedback_events_keyed,
+      feedback_events_cli_inferred,
+      surface_declared_known_exposures,
+      surface_declared_exposures,
+      surface_agreement_exposures,
+      health_reported_agents,
+      silent_health_reported_agents,
+      silent_attempting_agents,
+      health_feedback_attempts,
+      health_feedback_failures,
+      health_queue_drops
+    FROM basis_rows
 ), row_keys AS (
     SELECT dimension,value FROM folded_counts UNION SELECT 'all','all'
 )
@@ -456,7 +569,7 @@ INSERT INTO feedback_compliance_daily (
     silent_attempting_agents,
     health_feedback_attempts,
     health_feedback_failures,
-    health_queue_drops,snapshot_at,schema_version
+    health_queue_drops,scoring_agents,delayed_ingestion_exposures,snapshot_at,schema_version
 )
 SELECT b.day,k.dimension,k.value,
     COALESCE(f.delivered_exposures,0),
@@ -503,5 +616,5 @@ SELECT b.day,k.dimension,k.value,
     COALESCE(f.silent_attempting_agents,0),
     COALESCE(f.health_feedback_attempts,0),
     COALESCE(f.health_feedback_failures,0),
-    COALESCE(f.health_queue_drops,0),to_timestamp(b.cutoff/1000.0),1
+    COALESCE(f.health_queue_drops,0),COALESCE(f.scoring_agents,0),COALESCE(f.delayed_ingestion_exposures,0),to_timestamp(b.cutoff/1000.0),1
 FROM bounds b CROSS JOIN row_keys k LEFT JOIN folded_counts f USING(dimension,value);

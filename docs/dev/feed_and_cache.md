@@ -221,3 +221,14 @@ ownership of `.queue.lock`. The pathname is retained; process exit releases the
 lock without deletion or a 300-second expiry. Enqueue and flush remain serialized
 and retain their existing queue-busy behavior. See the
 [locking implementation](../../cli/internal/filelock/README.md).
+
+## CLI supply reuse
+
+Upgraded V2 whole-page clients reuse a recent unscored personalized page for at
+most 60 seconds without changing its original impression, after synchronizing
+runtime/context. Eligible batch backlog drains before scheduled fetches;
+`--origin owner` and `--action more` bypass both reuse rules. V1 still fetches
+because its response participates in notification acknowledgement. See
+[client feedback completion](feedback_clients.md) for expiry, scope, queue and
+Surface attribution contracts. Adoption may reduce delivered exposures; compare
+valid scored exposures and scoring Agent-days alongside coverage ratios.

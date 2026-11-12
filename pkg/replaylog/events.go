@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"eigenflux_server/pkg/mq"
+	"eigenflux_server/pkg/reqinfo"
 )
 
 const (
@@ -38,6 +39,7 @@ func Publish(ctx context.Context, impressionID string, agentID int64, agentFeatu
 		return nil
 	}
 
+	agentFeatures = withDeliveryCLIVersion(agentFeatures, reqinfo.ClientFromContext(ctx).CLIVer)
 	itemsJSON, err := json.Marshal(servedItems)
 	if err != nil {
 		return err
@@ -81,4 +83,32 @@ func (s ServedItem) Validate() error {
 		return fmt.Errorf("unknown source kind")
 	}
 	return nil
+}
+
+// Ranking features can come from an older cached page; version belongs to this
+// delivery. Non-object features pass through unchanged so the event is kept.
+func withDeliveryCLIVersion(agentFeatures, cliVersion string) string {
+	features := map[string]any{}
+	if agentFeatures != "" {
+		if err := json.Unmarshal([]byte(agentFeatures), &features); err != nil {
+			return agentFeatures
+		}
+	}
+	if features == nil {
+		features = map[string]any{}
+	}
+	clientContext, ok := features["context"].(map[string]any)
+	if !ok {
+		if features["context"] != nil {
+			return agentFeatures
+		}
+		clientContext = map[string]any{}
+	}
+	clientContext["cli_ver"] = cliVersion
+	features["context"] = clientContext
+	encoded, err := json.Marshal(features)
+	if err != nil {
+		return agentFeatures
+	}
+	return string(encoded)
 }

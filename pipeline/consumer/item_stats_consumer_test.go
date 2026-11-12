@@ -248,3 +248,10 @@ func TestPersistFeedbackEventDeduplicatesClientKey(t *testing.T) {
 	require.NoError(t, database.First(&counts, "item_id = ?", 202).Error)
 	require.Equal(t, int64(4), counts.Score2Count)
 }
+
+func TestFeedbackLogPreservesAcceptanceAndInsertionTimes(t *testing.T) {
+	row := newFeedbackLog("msg", itemstats.Event{AgentID: 1, ItemID: 2, AcceptedAt: 100}, 200)
+	require.Equal(t, int64(100), row.AcceptedAt)
+	require.Equal(t, int64(200), row.FeedbackAt)
+	require.Zero(t, newFeedbackLog("legacy", itemstats.Event{}, 200).AcceptedAt)
+}

@@ -18,12 +18,11 @@ import (
 )
 
 const (
+	feedRepeatReuseWindow     = 60 * time.Second
 	feedBatchMax              = 20
 	feedBatchOutputBudget     = 32 << 10
 	feedBacklogAge            = 24 * time.Hour
 	feedRehandLimit           = 3
-	feedLocalPollLimit        = 2
-	feedFetchInterval         = 30 * time.Minute
 	feedSurfaceReminderWindow = 2 * time.Hour
 )
 
@@ -90,10 +89,16 @@ func cycleBatchCandidates(ledger *feedevent.Ledger, state feedevent.Reports, now
 	return open, backlog
 }
 
-// Owner checks always fetch fresh content; saved work follows through feed next.
-func shouldFetchFeedBatch(action, origin string, state feedevent.Reports, open, backlog int, now int64) bool {
-	return action == "more" || origin == publishOriginOwner || open+backlog == 0 ||
-		(state.LocalPolls >= feedLocalPollLimit && now-state.LastFetchAt >= feedFetchInterval.Milliseconds())
+// Scheduled polls drain eligible saved work; explicit owner/more requests fetch.
+func shouldFetchFeedBatch(action, origin string, open, backlog int) bool {
+	return action == "more" || origin == publishOriginOwner || open+backlog == 0
+}
+
+func reusableFeedPage(action, origin string, state feedevent.Reports, now int64) (string, bool) {
+	age := now - state.LastFetchAt
+	return state.LastImpressionID, action != "more" && origin != publishOriginOwner &&
+		state.LastFetchAt > 0 && age >= 0 && age < feedRepeatReuseWindow.Milliseconds() &&
+		state.PageUnprocessed(state.LastImpressionID)
 }
 
 func expireFeedBacklog(ledger *feedevent.Ledger, state *feedevent.Reports, now int64) {

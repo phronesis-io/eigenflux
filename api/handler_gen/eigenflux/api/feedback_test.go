@@ -33,9 +33,10 @@ func TestNormalizeFeedbackItem(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var item apimodel.FeedbackItem
 			require.NoError(t, json.Unmarshal([]byte(tc.body), &item))
-			got, reason := normalizeFeedbackItem(1, &item, tc.batch, "v2", map[int64]int64{10: 2, 11: 1})
+			got, reason, class := normalizeFeedbackItem(1, &item, tc.batch, "v2", map[int64]int64{10: 2, 11: 1})
 			require.Equal(t, tc.reason, reason)
 			if reason != "" {
+				require.NotEmpty(t, class)
 				return
 			}
 			require.Equal(t, int64(10), got.ItemID)

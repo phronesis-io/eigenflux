@@ -290,5 +290,27 @@
     "title": "Classified runtime stage failures accepted",
     "description": "API accepts bounded categories on confirmed failed stages after deployment. Coverage starts only when compatible CLI callers adopt the optional flag; old receipts remain unknown and missing receipts do not establish failure. No historical backfill.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/522"
+  },
+  {
+    "id": "feedback-contract-cli-compatibility-v1",
+    "kind": "behavior",
+    "deploy_scope": "api",
+    "dashboards": [
+      "feedback-compliance"
+    ],
+    "title": "Match Feed Order guidance to CLI capability",
+    "description": "After API rollout, CLI versions before 1.0.0 and unknown versions receive Feed guidance without the unsupported pending-confirmations command. Coverage benefit and a real legacy-client model turn remain unverified; deployment does not prove client execution.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/552"
+  },
+  {
+    "id": "feedback-coverage-measurement-v2",
+    "kind": "instrumentation",
+    "deploy_scope": "full",
+    "dashboards": [
+      "feedback-compliance"
+    ],
+    "title": "Separate Feed basis and delivery-time feedback evidence",
+    "description": "Schema, API, Feed and pipeline rollout adds basis-separated coverage, a delivery_cli_version cohort and acceptance-time evidence. Existing totals and the cli_version cohort keep their definitions; use the new basis series to exclude baseline. New rows start with the rollout; finalized history is not backfilled. Reuse counters and backlog behavior require upgraded clients; their rollout is separate.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/552"
   }
 ]

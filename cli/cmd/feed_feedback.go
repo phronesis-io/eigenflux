@@ -3,8 +3,11 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -89,7 +92,7 @@ func submitDurableFeedback(cmd *cobra.Command, _ []string) error {
 	server, broadcasts, events := eventDirs()
 	// Validate the saved account locally before deriving its scope. Network
 	// credential refresh happens only after the judgment is durably queued.
-	if _, err := queuedFeedClient(server); err != nil {
+	if _, _, err := queuedFeedClient(server); err != nil {
 		return err
 	}
 	if settingsAgentID(server) == "" {
@@ -132,35 +135,35 @@ func submitDurableFeedback(cmd *cobra.Command, _ []string) error {
 
 // Background delivery uses only the saved access token: refresh/recovery belongs
 // to the foreground authenticated command and cannot exceed this flush budget.
-func queuedFeedClient(server string) (*client.Client, error) {
+func queuedFeedClient(server string) (*client.Client, string, error) {
 	cfg, err := config.Load()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	srv, err := cfg.GetActive(server)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	token, family := "", "/api/v1"
+	token, agentID, family := "", "", "/api/v1"
 	hasV2, err := auth.HasV2Credentials(server)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if hasV2 {
 		creds, err := auth.LoadV2Credentials(server)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
-		token = creds.AccessToken
+		token, agentID = creds.AccessToken, creds.AgentID
 		family = "/api/v2"
 	} else {
 		creds, err := auth.LoadCredentials(server)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
-		token = creds.AccessToken
+		token, agentID = creds.AccessToken, creds.AgentID
 	}
-	return client.New(strings.TrimRight(srv.Endpoint, "/")+family, token, version, clientMetaForServer(srv)), nil
+	return client.New(strings.TrimRight(srv.Endpoint, "/")+family, token, version, clientMetaForServer(srv)), strings.TrimRight(srv.Endpoint, "/") + "\x00" + agentID, nil
 }
 
 type feedbackResult struct {
@@ -174,24 +177,39 @@ func flushFeedQueue(server string, onFeedback func(json.RawMessage)) (int, int, 
 }
 
 func flushFeedQueueWithClient(server string, foreground *client.Client, onFeedback func(json.RawMessage)) (int, int, error) {
+	result, err := flushFeedQueueResult(server, foreground, onFeedback)
+	return result.Flushed, result.Remaining, err
+}
+
+func flushFeedQueueResult(server string, foreground *client.Client, onFeedback func(json.RawMessage)) (feedevent.FlushResult, error) {
 	deadline := time.Now().Add(1750 * time.Millisecond)
 	q := feedevent.NewQueue(cache.ServerDataDir(server) + "/events")
 	store := feedReportStore(server).WithLockWait(50 * time.Millisecond)
 	now := time.Now().UnixMilli()
-	return q.FlushWithDrops(now, func(batch []feedevent.Event) error {
+	options := feedevent.FlushOptions{Scope: feedReportScope(server), Foreground: foreground != nil}
+	credentialName := "credentials.json"
+	if hasV2, _ := auth.HasV2Credentials(server); hasV2 {
+		credentialName = "agent-v2-credentials.json"
+	}
+	if info, err := os.Stat(filepath.Join(config.HomeDir(), "servers", server, credentialName)); err == nil {
+		options.CredentialsModifiedAt = info.ModTime().UnixMilli()
+	}
+	return q.FlushAcknowledged(now, options, func(batch []feedevent.Event) (acked []string, err error) {
+		saved, scope, err := queuedFeedClient(server)
+		if err != nil {
+			return acked, err
+		}
+		if scope != options.Scope {
+			return acked, fmt.Errorf("feed account changed before queue delivery")
+		}
 		c := foreground
 		if c == nil {
-			var err error
-			c, err = queuedFeedClient(server)
-			if err != nil {
-				return err
-			}
+			c = saved
+		} else if c.Token != saved.Token || c.BaseURL != saved.BaseURL {
+			return acked, fmt.Errorf("feed credentials changed before queue delivery")
 		}
 		var feedback, events []feedevent.Event
 		for _, event := range batch {
-			if scope, _ := event["_scope"].(string); scope != "" && scope != feedReportScope(server) {
-				continue
-			}
 			if event["kind"] == "feedback" {
 				feedback = append(feedback, event)
 			} else {
@@ -207,7 +225,7 @@ func flushFeedQueueWithClient(server string, foreground *client.Client, onFeedba
 			}
 			remaining := time.Until(deadline)
 			if remaining <= 0 {
-				return fmt.Errorf("feed queue flush budget exhausted")
+				return acked, fmt.Errorf("feed queue flush budget exhausted")
 			}
 			c.HTTPClient = &http.Client{Timeout: remaining}
 			path, key := "/items/events", "events"
@@ -216,7 +234,7 @@ func flushFeedQueueWithClient(server string, foreground *client.Client, onFeedba
 			for _, item := range group.items {
 				copy := feedevent.Event{}
 				for k, v := range item {
-					if k != "_scope" && (!group.feedback || k != "kind" && k != "ts") {
+					if !strings.HasPrefix(k, "_") && (!group.feedback || k != "kind" && k != "ts") {
 						copy[k] = v
 					}
 				}
@@ -236,29 +254,34 @@ func flushFeedQueueWithClient(server string, foreground *client.Client, onFeedba
 				if group.feedback {
 					warnReportLedger(store.Count(now, map[string]int64{"feedback_failures": int64(len(wire))}))
 				}
-				return err
+				var apiErr *client.APIError
+				if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnauthorized {
+					err = errors.Join(err, feedevent.ErrAuthentication)
+				}
+				return acked, err
 			}
 			if group.feedback {
 				var result struct {
-					Results      []feedbackResult `json:"results"`
-					SkippedCount int              `json:"skipped_count"`
+					Results        []feedbackResult `json:"results"`
+					ProcessedCount *int             `json:"processed_count"`
+					SkippedCount   int              `json:"skipped_count"`
 				}
 				if err := json.Unmarshal(response.Data, &result); err != nil {
-					return err
+					return acked, err
 				}
 				// Older servers omit per-item results. A wholly accepted batch is safe;
 				// ambiguous skips remain queued until a server can identify them.
-				if len(result.Results) == 0 && result.SkippedCount == 0 {
+				if len(result.Results) == 0 && result.SkippedCount == 0 && result.ProcessedCount != nil && *result.ProcessedCount == len(group.items) {
 					for _, item := range group.items {
 						result.Results = append(result.Results, feedbackResult{ItemID: coerceString(item["item_id"]), Status: "accepted"})
 					}
 				}
 				if len(result.Results) != len(group.items) {
-					return fmt.Errorf("feedback response missing per-item results")
+					return acked, fmt.Errorf("feedback response missing per-item results")
 				}
 				for i, res := range result.Results {
 					if res.ItemID != coerceString(group.items[i]["item_id"]) || res.Status != "accepted" && res.Status != "duplicate" && res.Status != "rejected" {
-						return fmt.Errorf("invalid feedback result")
+						return acked, fmt.Errorf("invalid feedback result")
 					}
 				}
 				// The server has recorded the batch; a ledger failure must not keep it
@@ -277,8 +300,11 @@ func flushFeedQueueWithClient(server string, foreground *client.Client, onFeedba
 					}
 				}
 			}
+			for _, item := range group.items {
+				acked = append(acked, feedevent.Identity(item))
+			}
 		}
-		return nil
+		return acked, nil
 	}, func(count int) error {
 		warnReportLedger(store.Count(now, map[string]int64{"queue_drops": int64(count)}))
 		return nil
@@ -291,4 +317,8 @@ func maybeFlushFeedQueue() {
 		return
 	}
 	_, _, _ = flushFeedQueue(server, nil)
+}
+
+func clearFeedAuthBlock(server string) {
+	warnReportLedger(feedevent.NewQueue(cache.ServerDataDir(server) + "/events").ClearAuthBlock(feedReportScope(server)))
 }

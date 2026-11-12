@@ -64,6 +64,7 @@ func newClientForOrigin(serverName string, requireAuth, commission bool) *client
 				baseURL += "/api/v1"
 			}
 			result := client.New(baseURL, credentials.AccessToken, version, clientMetaForServer(srv))
+			result.OnSuccess = sync.OnceFunc(func() { clearFeedAuthBlock(srv.Name) })
 			result.OnUnauthorized = func() (string, error) {
 				refreshed, refreshErr := refreshV2CredentialsAfterUnauthorized(srv.Name, srv.Endpoint, result.Token)
 				if refreshErr != nil {
@@ -115,6 +116,7 @@ func newLegacyClientForResolvedServer(srv *config.Server, requireAuth, commissio
 		serverName := srv.Name
 		c.OnSuccess = sync.OnceFunc(func() {
 			auth.RefreshExpiry(serverName)
+			clearFeedAuthBlock(serverName)
 		})
 	}
 	return c

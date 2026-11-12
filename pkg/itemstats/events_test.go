@@ -72,7 +72,7 @@ func TestFeedbackMetadataRoundTrip(t *testing.T) {
 	mq.RDB = rdb
 	t.Cleanup(func() { mq.RDB = previous; rdb.Close() })
 	no := false
-	for _, feedback := range []Feedback{{AgentID: 1, ItemID: 2, Score: 0}, {AgentID: 1, ItemID: 2, Score: 2, ImpressionID: "imp", ClientKey: "key", ImpressionSource: "cli_inferred", ContractVersion: "feedback/v2", Surfaced: &no}} {
+	for _, feedback := range []Feedback{{AgentID: 1, ItemID: 2, Score: 0}, {AgentID: 1, ItemID: 2, Score: 2, ImpressionID: "imp", ClientKey: "key", ImpressionSource: "cli_inferred", ContractVersion: "feedback/v2", AcceptedAt: 123, Surfaced: &no}} {
 		id, err := PublishFeedback(context.Background(), feedback)
 		require.NoError(t, err)
 		messages, err := rdb.XRange(context.Background(), StreamName, id, id).Result()
@@ -80,6 +80,7 @@ func TestFeedbackMetadataRoundTrip(t *testing.T) {
 		require.Len(t, messages, 1)
 		event, err := ParseEvent(messages[0].Values)
 		require.NoError(t, err)
+		assert.Equal(t, feedback.AcceptedAt, event.AcceptedAt)
 		assert.Equal(t, feedback.AgentID, event.AgentID)
 		assert.Equal(t, feedback.ItemID, event.ItemID)
 		assert.Equal(t, feedback.Score, event.Score)
@@ -99,5 +100,17 @@ func TestFeedbackMetadataRoundTrip(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 1, event.Score)
 		assert.Nil(t, event.Surfaced)
+	}
+}
+
+func TestFeedbackAcceptanceTimeMetadata(t *testing.T) {
+	for _, raw := range []string{"", "bad", "-1", "123"} {
+		event, err := ParseEvent(map[string]interface{}{"event_type": "feedback", "agent_id": "1", "item_id": "2", "score": "1", "accepted_at": raw})
+		require.NoError(t, err)
+		if raw == "123" {
+			require.Equal(t, int64(123), event.AcceptedAt)
+		} else {
+			require.Zero(t, event.AcceptedAt)
+		}
 	}
 }

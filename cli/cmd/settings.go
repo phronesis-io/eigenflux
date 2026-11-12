@@ -258,7 +258,7 @@ func newSettingsClient(cfg *config.Config, serverName string) (*client.Client, e
 		return nil, fmt.Errorf("credentials expired for server %q", serverName)
 	}
 	c := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v1", credentials.AccessToken, version, clientMetaForServer(server))
-	c.OnSuccess = sync.OnceFunc(func() { auth.RefreshExpiry(serverName) })
+	c.OnSuccess = sync.OnceFunc(func() { auth.RefreshExpiry(serverName); clearFeedAuthBlock(serverName) })
 	return c, nil
 }
 
@@ -568,7 +568,10 @@ func reportedFeedbackHealth(cfg *config.Config, server string) map[string]int64 
 		return nil
 	}
 	counts := state.HealthCounts(now)
-	depth, age := feedevent.NewQueue(cache.ServerDataDir(server) + "/events").Stats(now)
+	depth, age, err := feedevent.NewQueue(cache.ServerDataDir(server) + "/events").Stats(now)
+	if err != nil {
+		return nil
+	}
 	counts["queue_depth"] = int64(depth)
 	counts["oldest_queued_age_ms"] = age
 	nonzero := false

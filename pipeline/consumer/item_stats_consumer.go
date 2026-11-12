@@ -113,7 +113,7 @@ func (c *ItemStatsConsumer) handleEventDefault(ctx context.Context, msgID string
 			return err
 		}
 		if !inserted {
-			logger.Default().Info("ItemStatsConsumer deduplicated feedback log", "msgID", msgID, "itemID", event.ItemID)
+			logger.Default().Info("ItemStatsConsumer deduplicated feedback log", "msgID", msgID, "itemID", event.ItemID, "agentID", event.AgentID, "keyed", event.ClientKey != "")
 			return nil
 		}
 

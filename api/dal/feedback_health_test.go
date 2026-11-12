@@ -14,7 +14,7 @@ func TestFeedbackHealthReportBounds(t *testing.T) {
 	require.True(t, absent.Valid())
 	r := FeedbackHealthReport{WindowMS: 1}
 	require.True(t, r.Valid())
-	for _, field := range []string{"Pulls", "DeliveredItems", "ScoredItems", "StatusRuns", "FeedbackAttempts", "QueueDrops", "QueueDepth", "BatchesHanded", "LocalPolls", "RehandedItems", "BacklogExpiredItems", "SurfaceReminders", "DetailFetches", "DetailFetchFailures", "OversizeBatches", "OverlappingCycles"} {
+	for _, field := range []string{"RepeatPullsSuppressed", "Pulls", "DeliveredItems", "ScoredItems", "StatusRuns", "FeedbackAttempts", "QueueDrops", "QueueDepth", "BatchesHanded", "LocalPolls", "RehandedItems", "BacklogExpiredItems", "SurfaceReminders", "DetailFetches", "DetailFetchFailures", "OversizeBatches", "OverlappingCycles"} {
 		for _, n := range []int64{-1, 0, 1000000, 1000001} {
 			r := FeedbackHealthReport{WindowMS: 1}
 			reflect.ValueOf(&r).Elem().FieldByName(field).SetInt(n)
@@ -47,13 +47,14 @@ func TestReportFeedbackHealthLatestShanghaiDay(t *testing.T) {
 	require.Zero(t, count)
 	at := time.Date(2026, 10, 20, 16, 0, 0, 0, time.UTC).UnixMilli()
 	for _, delta := range []int64{1, 2, 0} {
-		r := FeedbackHealthReport{WindowMS: 1000, Pulls: delta + 1, DetailFetches: delta + 1, BatchBodyBytes: 32000 * (delta + 1), BatchBodyMaxBytes: 32000}
+		r := FeedbackHealthReport{WindowMS: 1000, RepeatPullsSuppressed: delta + 1, Pulls: delta + 1, DetailFetches: delta + 1, BatchBodyBytes: 32000 * (delta + 1), BatchBodyMaxBytes: 32000}
 		require.NoError(t, ReportFeedbackHealth(database, 1, at+delta, strings.Repeat("v", 40), &r))
 	}
 	var row FeedbackHealthDaily
 	require.NoError(t, database.Where("day = ?", "2026-10-21").First(&row).Error)
 	require.Equal(t, at+2, row.ReportedAt)
 	require.Equal(t, int64(3), row.Pulls)
+	require.Equal(t, int64(3), row.RepeatPullsSuppressed)
 	require.Equal(t, int64(3), row.DetailFetches)
 	require.Equal(t, int64(96000), row.BatchBodyBytes)
 	require.Equal(t, int64(32000), row.BatchBodyMaxBytes)
