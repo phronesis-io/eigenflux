@@ -453,6 +453,11 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
+					// Load shared history before taking a slot: waiting dense lanes must not starve other channels.
+					if (needBudgetOn || needRecallOn) && kind == Broadcast && channel == "dense" && c.CapturedNeed != nil && userRecalls[shareKey] == nil {
+						historyOnce.Do(loadNeedGroups)
+						c.excludeConsumedGroups = needGroups
+					}
 					select {
 					case sem <- struct{}{}:
 						defer func() { <-sem }()
@@ -502,10 +507,6 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 							docs[i].NeedExclusionText = len(c.Filters.ExcludeTerms) > 0
 						}
 					} else {
-						if (needBudgetOn || needRecallOn) && kind == Broadcast && channel == "dense" && c.CapturedNeed != nil {
-							historyOnce.Do(loadNeedGroups)
-							c.excludeConsumedGroups = needGroups
-						}
 						c.createdSince = since
 						started := time.Now()
 						docs, err = e.Sources.Recall(ctx, c, kind, channel, limit)

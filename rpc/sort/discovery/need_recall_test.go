@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -256,6 +257,119 @@ func TestProfileDenseLaneOrderIsDeterministicWithNeedRecallOff(t *testing.T) {
 			want = got
 		} else {
 			require.Equal(t, string(want), string(got))
+		}
+	}
+}
+
+// slotProbe reports whether six per-context recalls can run concurrently while
+// the shared history read is in progress; a caller holding a slot caps this at
+// five. Shared lanes (Swing) are not held, since their waiters also take slots.
+type slotProbe struct {
+	*needBudgetSource
+	mu       sync.Mutex
+	inFlight int
+	released chan struct{}
+	timedOut bool
+}
+
+func (p *slotProbe) ConsumedGroups(ctx context.Context, owner int64) ([]int64, bool, error) {
+	defer close(p.released)
+	for {
+		p.mu.Lock()
+		n := p.inFlight
+		p.mu.Unlock()
+		if n >= 6 {
+			return p.needBudgetSource.ConsumedGroups(ctx, owner)
+		}
+		select {
+		case <-ctx.Done():
+			p.timedOut = true
+			return nil, false, ctx.Err()
+		case <-time.After(time.Millisecond):
+		}
+	}
+}
+func (p *slotProbe) Recall(ctx context.Context, c Context, k Kind, ch string, n int) ([]Document, error) {
+	if ch == "lexical" || strings.HasSuffix(ch, "_recall") {
+		p.mu.Lock()
+		p.inFlight++
+		p.mu.Unlock()
+		select {
+		case <-p.released:
+		case <-time.After(2 * time.Second):
+		}
+		p.mu.Lock()
+		p.inFlight--
+		p.mu.Unlock()
+	}
+	return p.needBudgetSource.Recall(ctx, c, k, ch, n)
+}
+func TestNeedRecallHistoryDoesNotHoldRecallSlots(t *testing.T) {
+	e, s := budgetFixture()
+	e.NeedRecallBPS = 10000
+	p := &slotProbe{needBudgetSource: s, released: make(chan struct{})}
+	e.Sources = p
+	_, err := e.Execute(context.Background(), 1, Request{SourceKinds: []Kind{Broadcast}}, Recommendation, 1800000000000)
+	require.NoError(t, err)
+	require.False(t, p.timedOut, "a history wait held a recall slot")
+	require.Equal(t, 1, s.historyCalls)
+	q := s.queries["1:dense:40"]["knn"].(map[string]any)["filter"].(map[string]any)["bool"].(map[string]any)
+	require.Contains(t, q["must_not"], terms("group_id", []int64{91, 92}))
+}
+
+type laneCounter struct {
+	distinctNeedLanes
+	inputs [][]int64
+}
+
+func (s *laneCounter) Hydrate(ctx context.Context, owner int64, m Mode, docs []Document) ([]Document, error) {
+	ids := make([]int64, 0, len(docs))
+	for _, d := range docs {
+		ids = append(ids, d.Ref.ID)
+	}
+	s.inputs = append(s.inputs, ids)
+	return s.distinctNeedLanes.Hydrate(ctx, owner, m, docs)
+}
+func TestNeedRecallFreshLaneIsAdditiveAtCap(t *testing.T) {
+	lane := func(id int64) string {
+		switch {
+		case id >= 1501 && id < 2000:
+			return "need_fresh"
+		case id >= 1000 && id < 1500:
+			return "dense"
+		}
+		for _, ch := range []string{"lexical", "dense", "hot_recall", "new_recall", "new_ugc_recall", "friend", "swing_i2i"} {
+			if int64(channelOrder(ch)) == id/1000 {
+				return ch
+			}
+		}
+		return "?"
+	}
+	counts := func(bps int) []map[string]int {
+		e, s := budgetFixture()
+		e.NeedRecallBPS = bps
+		lc := &laneCounter{distinctNeedLanes: distinctNeedLanes{s}}
+		e.Sources = lc
+		_, err := e.Execute(context.Background(), 1, Request{SourceKinds: []Kind{Broadcast}, Prefetch: true}, Recommendation, 1800000000000)
+		require.NoError(t, err)
+		out := []map[string]int{}
+		for _, ids := range lc.inputs {
+			m := map[string]int{}
+			for _, id := range ids {
+				m[lane(id)]++
+			}
+			out = append(out, m)
+		}
+		return out
+	}
+	off, on := counts(0), counts(10000)
+	require.Len(t, off, 3)
+	require.Len(t, on, 3)
+	for i := range on {
+		require.Equal(t, needFreshLimit, on[i]["need_fresh"])
+		require.Zero(t, off[i]["need_fresh"])
+		for ch, n := range off[i] {
+			require.GreaterOrEqual(t, on[i][ch], n, "context %d lane %s lost positions to the fresh lane", i+1, ch)
 		}
 	}
 }
