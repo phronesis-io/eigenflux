@@ -13,6 +13,7 @@ import (
 	"eigenflux_server/pkg/integrationfeed"
 	"eigenflux_server/pkg/integrationidentity"
 	"eigenflux_server/pkg/integrationprofile"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/cloudwego/kitex/client/callopt"
@@ -73,7 +74,9 @@ func TestEnterpriseHTTPFeedRetriesAndDisable(t *testing.T) {
 	calls := 0
 	sourceFails := false
 	h := server.New()
-	(&Service{Store: &integrationidentity.Store{DB: db}, Feed: func(_ context.Context, id, revision int64, limit int) (integrationfeed.Generated, error) {
+	cache := miniredis.RunT(t)
+	limiter := testRequestLimiter(t, cache, "enforce", 100, 100, 2)
+	(&Service{Store: &integrationidentity.Store{DB: db}, RateLimiter: limiter, Feed: func(_ context.Context, id, revision int64, limit int) (integrationfeed.Generated, error) {
 		calls++
 		if sourceFails {
 			return integrationfeed.Generated{}, errors.New("lost response")
@@ -95,10 +98,16 @@ func TestEnterpriseHTTPFeedRetriesAndDisable(t *testing.T) {
 	if status != 200 || calls != 1 || string(first) != string(again) {
 		t.Fatal("retry changed payload", status, string(again), calls)
 	}
-	status, _, retry := request("POST", `{"sequence":2}`)
-	if status != 429 || retry == "" || calls != 1 {
-		t.Fatal(status, retry, calls)
+	status, limited, retry := request("POST", `{"sequence":2}`)
+	if status != 429 || retry == "" || calls != 1 || !strings.Contains(string(limited), `"code":"INTEGRATION_RATE_LIMITED"`) {
+		t.Fatal("request limit should reject before generation", status, string(limited), retry, calls)
 	}
+	cache.FastForward(requestWindow)
+	status, limited, retry = request("POST", `{"sequence":2}`)
+	if status != 429 || retry == "" || calls != 1 || !strings.Contains(string(limited), `"code":"FEED_POLL_TOO_EARLY"`) {
+		t.Fatal("request limit must not change the Feed cadence", status, string(limited), retry, calls)
+	}
+	cache.FastForward(requestWindow)
 	if err := db.Exec(`UPDATE integration_apps SET enabled=false`).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -117,6 +126,7 @@ func TestEnterpriseHTTPFeedRetriesAndDisable(t *testing.T) {
 	if err := db.Exec(`UPDATE integration_feed_batches SET created_at=created_at-3600000`).Error; err != nil {
 		t.Fatal(err)
 	}
+	cache.FastForward(requestWindow)
 	sourceFails = true
 	status, _, _ = request("POST", `{"sequence":2}`)
 	if status != 503 || calls != 2 {

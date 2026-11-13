@@ -1,6 +1,7 @@
 package integrations
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -8,8 +9,10 @@ import (
 
 	"eigenflux_server/pkg/integrationidentity"
 	"eigenflux_server/pkg/integrationprofile"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/ut"
+	"github.com/cloudwego/hertz/pkg/protocol"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -189,6 +192,41 @@ func TestManagedHTTPRegistrationAndLiveControls(t *testing.T) {
 	if control.Data.BusinessEnabled || control.Data.Reason != "AGENT_DISABLED" {
 		t.Fatalf("disabled state not visible %+v", control.Data)
 	}
+	t.Run("stop policy stays readable when business is full", func(t *testing.T) {
+		limited := server.New()
+		cache := miniredis.RunT(t)
+		(&Service{Store: store, RateLimiter: testRequestLimiter(t, cache, "enforce", 1, 1, 1)}).Register(limited)
+		headers := []ut.Header{
+			{Key: "Authorization", Value: "Bearer " + secret},
+			{Key: "X-EigenFlux-Installation-ID", Value: registered.Installation.InstallationID},
+			{Key: "X-EigenFlux-Runtime-Instance-ID", Value: "first"},
+		}
+		cardPath := integrationsPrefix + "/agents/me/card"
+		if status := ut.PerformRequest(limited.Engine, "GET", cardPath, nil, headers...).Result().StatusCode(); status != 403 {
+			t.Fatal("first business request should see the stop policy", status)
+		}
+		assertRateLimit(t, ut.PerformRequest(limited.Engine, "GET", cardPath, nil, headers...).Result())
+		unknown, _, err := integrationidentity.NewCredential()
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertRateLimit(t, ut.PerformRequest(limited.Engine, "POST", integrationsPrefix+controlCheckPath, nil,
+			ut.Header{Key: "Authorization", Value: "Bearer " + unknown}).Result())
+		check := func() *protocol.Response {
+			return ut.PerformRequest(limited.Engine, "POST", integrationsPrefix+controlCheckPath,
+				&ut.Body{Body: bytes.NewReader(controlBody), Len: len(controlBody)}, headers...).Result()
+		}
+		result := check()
+		if result.StatusCode() != 200 || !strings.Contains(string(result.Body()), `"business_enabled":false`) ||
+			!strings.Contains(string(result.Body()), `"reason":"AGENT_DISABLED"`) {
+			t.Fatalf("reserved control request did not report stop: %d %s", result.StatusCode(), result.Body())
+		}
+		assertRateLimit(t, check())
+		if result := ut.PerformRequest(limited.Engine, "POST", integrationsPrefix+"/sdk/controlextra",
+			&ut.Body{Body: bytes.NewReader(controlBody), Len: len(controlBody)}, headers...).Result(); result.StatusCode() != 404 {
+			t.Fatalf("control alias bypassed its budget: %d %s", result.StatusCode(), result.Body())
+		}
+	})
 	if status, _ := request(path, secret, body); status != 403 {
 		t.Fatal("disabled Agent recreated", status)
 	}

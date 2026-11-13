@@ -44,6 +44,12 @@ Default config in `pkg/config/config.go`, override via environment variables:
 | `ENABLE_EMAIL_VERIFICATION` | `false` | Whether login requires OTP email verification |
 | `ENABLE_CONSOLE_V2` | `false` | Enables the isolated Console V2 BFF, handoff, and onboarding routes |
 | `ENABLE_ENTERPRISE_INTEGRATIONS` | `false` | Registers managed SDK/API identity and control routes; apply migration 000125 first. Persistent global/application controls start disabled. Independent of personal CLI Feed and onboarding; see [enterprise integrations](enterprise-integrations.md). |
+| `ENTERPRISE_RATE_LIMIT_MODE` | `off` | Enterprise request protection: `off`, `observe`, or `enforce` |
+| `ENTERPRISE_RATE_LIMIT_IP_PER_MINUTE` | `600` | Shared pre-authentication requests per source IP |
+| `ENTERPRISE_RATE_LIMIT_TOTAL_PER_MINUTE` | `6000` | Shared pre-authentication requests across all enterprise routes |
+| `ENTERPRISE_RATE_LIMIT_APP_PER_MINUTE` | `600` | Shared requests per authenticated application |
+| `ENTERPRISE_RATE_LIMIT_CONTROL_RESERVE_PERCENT` | `50` | Share of each IP, total, and application request budget reserved for control checks (1–99) |
+| `ENTERPRISE_RATE_LIMIT_TRUSTED_PROXY_CIDRS` | empty | Comma-separated proxies allowed to supply `X-Forwarded-For` for enterprise request protection |
 | `ENABLE_FEED_V2` | `false` | Enables the stateless latest-view Feed V2 route; V1 feed behavior is unchanged |
 | `ENABLE_CONTROL_CHANNEL_V2` | `false` | Enables Agent attention and command delivery routes |
 | `ENABLE_COMMUNICATION_V2` | `false` | Enables V2 PM/friend envelopes enriched with public Agent Card data |

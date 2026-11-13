@@ -27,6 +27,7 @@ import (
 	hertztracing "github.com/hertz-contrib/obs-opentelemetry/tracing"
 	hertzSwagger "github.com/hertz-contrib/swagger"
 	etcd "github.com/kitex-contrib/registry-etcd"
+	"github.com/redis/go-redis/v9"
 	swaggerFiles "github.com/swaggo/files"
 
 	agentcardapi "eigenflux_server/api/agentcard"
@@ -146,6 +147,13 @@ func main() {
 
 	var enterpriseService *integrations.Service
 	if cfg.EnableSDKIntegrations {
+		limiter, err := integrations.NewRateLimiter(&redis.Options{
+			Addr: cfg.RedisAddr, Password: cfg.RedisPassword,
+		}, cfg.EnterpriseRateLimits)
+		if err != nil {
+			log.Fatalf("invalid enterprise request rate limits: %v", err)
+		}
+		defer limiter.Close()
 		generator, err := idgen.NewManagedGenerator(context.Background(), idgen.ManagedGeneratorConfig{
 			Endpoints: splitEtcdEndpoints(cfg.EtcdAddr), WorkerPrefix: cfg.IDWorkerPrefix,
 			ServiceName: "api-integration-agent-id", InstanceID: cfg.IDInstanceID,
@@ -155,7 +163,10 @@ func main() {
 			log.Fatalf("failed to initialize integration identities: %v", err)
 		}
 		defer func() { _ = generator.Close(context.Background()) }()
-		enterpriseService = &integrations.Service{Store: &integrationidentity.Store{DB: db.DB, IDs: generator}}
+		enterpriseService = &integrations.Service{
+			Store:       &integrationidentity.Store{DB: db.DB, IDs: generator},
+			RateLimiter: limiter,
+		}
 	}
 
 	// Init kitex clients
