@@ -78,6 +78,7 @@ func TestPostgresSchemaCoverage(t *testing.T) {
 	handled["console_v2_backfill_state"] = true
 	// Removed indirectly: rows cascade from agents via agent_id, and from conversations via conv_id.
 	handled["agent_email_bindings"] = true
+	handled["install_meta_registration_refs"] = true
 	handled["private_messages"] = true
 
 	rows, err := db.Query(`

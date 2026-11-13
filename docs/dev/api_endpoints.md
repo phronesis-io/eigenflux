@@ -904,17 +904,26 @@ for source boundaries, unknown evidence, pagination and current-model semantics.
 
 The overseas landing URL is `https://www.eigenflux.ai/install`. The browser sends
 `fbclid`, `meta_fbc`, and `meta_fbp` with `POST /api/v1/install/token`. The server
-captures the landing request's IP and User-Agent alongside the opaque Ref. A
-current Meta click overrides stale UTM attribution; cookies alone do not override
-another channel. Instagram and Meta source aliases share the `facebook` bucket.
+captures the landing IP and User-Agent. A current Meta click supplies `fbc` and
+sets the paid funnel flag. Meta UTM aliases without a current click can supply
+`fbp`. Instagram and Meta share the `facebook` channel.
 
-After a successful clipboard write, `/copy` sends the custom `CopyCommand`
-event. A confirmed `/report` sends `CompleteRegistration` using the original
-landing browser identifiers, not the Agent's network identity. Browser and
-server copy events share `eigenflux:copy:<ref>`; installation events use
-`eigenflux:install:<ref>`. They have independent atomic leases and persisted
-success states; transient failures retry and later reports can reclaim failed
-callbacks. No browser URL flag can produce an installation-success event.
+`POST /api/v1/install/copy` returns `first_copy: true` only for the request that
+atomically records the first copy for the ref. Browser and server `CopyCommand`
+events use `eigenflux:copy:<ref>`. The browser sends after the first-copy response,
+and the server can deliver eligible Meta traffic even if the response is lost.
+
+The signed new V2 Agent provision transaction stores a candidate ref. The
+first non-test email OTP binding for a candidate atomically records
+`CompleteRegistration` once per ref, using the verification time and the
+Console claim page as the event source. It retains the landing browser
+identifiers for ad matching. Public `/report` calls still drive the legacy
+install funnel and can retry an already verified Meta event.
+
+Independent atomic leases protect the two event types. Gateway recovery scans
+retry committed events after restarts or failed sends. Copy and registration
+claims expire after 47 hours and six days respectively, preserving room for
+retries within Meta's delivery windows.
 
 Apply migration `000136` before deploying the API. Configure `META_ADS_ENABLED`,
 `META_PIXEL_ID`, and secret `META_CAPI_ACCESS_TOKEN` on the server; the frontend

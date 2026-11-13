@@ -29,6 +29,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
+	"eigenflux_server/api/install"
 	"eigenflux_server/kitex_gen/eigenflux/base"
 	feedrpc "eigenflux_server/kitex_gen/eigenflux/feed"
 	notificationrpc "eigenflux_server/kitex_gen/eigenflux/notification"
@@ -237,12 +238,25 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		data := responseData(t, payload)
 		return data["bootstrap_grant"].(string), data["nonce"].(string)
 	}
+	metaToken := &install.Token{Token: install.NewToken(), Channel: "facebook", MetaFbp: "fb.1.1794470000000.123"}
+	if err := install.CreateToken(gdb, metaToken); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { gdb.Delete(metaToken, "token = ?", metaToken.Token) })
+	metaRegistrationAt := func() int64 {
+		t.Helper()
+		var at int64
+		if err := gdb.Raw("SELECT meta_registered_at FROM install_tokens WHERE token = ?", metaToken.Token).Scan(&at).Error; err != nil {
+			t.Fatal(err)
+		}
+		return at
+	}
 	provision := func(entitlement string) map[string]interface{} {
 		grant, nonce := issue(entitlement)
 		draftJSON, _ := json.Marshal(draft)
 		req := provisionRequest{
 			BootstrapGrant: grant, IdempotencyKey: "provision-" + hashString(grant), Nonce: nonce, PublicKey: publicKeyEncoded,
-			IssuedAt: time.Now().UnixMilli(), AgentName: "Integration Agent", Draft: draftJSON,
+			IssuedAt: time.Now().UnixMilli(), AgentName: "Integration Agent", Draft: draftJSON, Ref: metaToken.Token,
 		}
 		transcript, err := provisionTranscript(req)
 		if err != nil {
@@ -268,6 +282,9 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	t.Cleanup(func() { gdb.Exec(`DELETE FROM agents WHERE agent_id = ?`, agentID) })
 	if first["created"] != true {
 		t.Fatal("first provision did not create the Agent")
+	}
+	if at := metaRegistrationAt(); at != 0 {
+		t.Fatalf("provision alone created a Meta registration timestamp: %d", at)
 	}
 	var provisionedCLIVersion string
 	if err := gdb.Raw(`SELECT cli_version FROM agent_settings WHERE agent_id = ?`, agentIDInt).Scan(&provisionedCLIVersion).Error; err != nil || provisionedCLIVersion != "0.0.34" {
@@ -480,6 +497,11 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		t.Fatalf("prior verified email bypassed this session's email claim: status=%d payload=%#v", status, unboundConfirmPayload)
 	}
 
+	// Remove the deliberately seeded prior binding so the next request exercises
+	// the real first-time OTP path for the signed Meta ref.
+	if err := gdb.Exec("DELETE FROM agent_email_bindings WHERE agent_id = ?", parsedAgentID).Error; err != nil {
+		t.Fatal(err)
+	}
 	status, bindChallengePayload, _ := performJSON(t, h, "POST", "/api/v2/account-email-bindings/challenges", createEmailChallengeRequest{
 		Email: boundEmail,
 	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
@@ -499,6 +521,10 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
 	if status != 200 || responseData(t, bindPayload)["verification_level"] != "email_verified" {
 		t.Fatalf("email binding verify status=%d payload=%#v", status, bindPayload)
+	}
+
+	if at := metaRegistrationAt(); at <= 0 {
+		t.Fatal("first verified email did not record a Meta registration")
 	}
 
 	status, boundConfirmPayload, _ := performJSON(t, h, "POST", "/api/v2/agents/me/onboarding-draft/confirm", confirmStepRequest{

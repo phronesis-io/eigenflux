@@ -42,6 +42,14 @@ func Register(h *server.Hertz, baseURL string) {
 	initOceanengineConfig()
 	initBilibiliConfig()
 	initMetaConfig()
+	if metaDeliveryEnabled() {
+		ctx, cancel := context.WithCancel(context.Background())
+		h.OnRun = append(h.OnRun, func(context.Context) error {
+			go recoverMetaCallbacks(ctx)
+			return nil
+		})
+		h.OnShutdown = append(h.OnShutdown, func(context.Context) { cancel() })
+	}
 	g := h.Group("/api/v1/install")
 	g.POST("/token", mintRef)
 	g.POST("/report", reportInstall)
@@ -125,11 +133,7 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 	bilibiliTrackID := normalizeBilibiliTrackID(body.BilibiliTrackID)
 	xingtuClickID := normalizeXingtuClickID(body.XingtuClickID)
 	oceanengineClickID := normalizeOceanengineClickID(body.OceanengineClickID)
-	fbc := metaFbc(body.Fbclid, body.MetaFbc, time.Now().UnixMilli())
-	metaClick := ""
-	if validMetaClick(body.Fbclid) {
-		metaClick = fbc
-	}
+	metaClick := metaFbc(body.Fbclid, body.MetaFbc, time.Now().UnixMilli())
 	t := &Token{
 		Token:                   NewToken(),
 		UTMSource:               trunc(body.UTMSource, 255),
@@ -154,7 +158,7 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 		CreatedAt:               time.Now().UnixMilli(),
 	}
 	if t.Channel == "facebook" {
-		t.MetaFbc = fbc
+		t.MetaFbc = metaClick
 		t.MetaFbp = normalizeMetaCookie(body.MetaFbp)
 		t.MetaUserAgent = trunc(string(c.GetHeader("User-Agent")), 2048)
 	}
@@ -171,7 +175,7 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	event("install_ref_new", t.Token, "channel", t.Channel,
-		"paid", t.ClickID != "" || t.BilibiliTrackID != "" || t.Twclid != "" || t.Gclid != "" || t.XingtuClickID != "" || t.OceanengineClickID != "", "invite_code", t.InviteCode,
+		"paid", t.ClickID != "" || t.BilibiliTrackID != "" || t.Twclid != "" || t.Gclid != "" || t.XingtuClickID != "" || t.OceanengineClickID != "" || t.MetaFbc != "", "invite_code", t.InviteCode,
 		"stage", "landing_token", "preview_checked", true,
 		"user_agent", trunc(string(c.GetHeader("User-Agent")), 512))
 	// The token is now durably created; report this server-confirmed funnel
@@ -279,7 +283,7 @@ func reportCopy(_ context.Context, c *app.RequestContext) {
 		reply(c, http.StatusBadRequest, 400, "invalid ref format, expected EF-xxxxxxxx", nil)
 		return
 	}
-	t, err := MarkCopied(db.DB, body.Ref)
+	t, firstCopy, err := MarkCopied(db.DB, body.Ref)
 	if err != nil {
 		reply(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
@@ -294,7 +298,7 @@ func reportCopy(_ context.Context, c *app.RequestContext) {
 		fireXAdsCopyCommandCallback(t.Token)
 		fireMetaCallback(t.Token, metaCopyEvent)
 	}
-	reply(c, http.StatusOK, 0, "success", map[string]interface{}{"ref": body.Ref})
+	reply(c, http.StatusOK, 0, "success", map[string]interface{}{"ref": body.Ref, "first_copy": firstCopy})
 }
 
 // serveRef serves the agent-facing join bootstrap for a referral code and

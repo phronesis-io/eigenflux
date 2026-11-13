@@ -21,10 +21,13 @@ func TestMetaClickAttribution(t *testing.T) {
 	if got := metaFbc("click_123", cookie, now); got != cookie {
 		t.Fatalf("click time changed: %s", got)
 	}
+	if got := metaFbc("click_123", cookie+".A", now); got != cookie+".A" {
+		t.Fatalf("extended click cookie changed: %s", got)
+	}
 	if got := metaFbc("new-click", cookie, now); got != "fb.1.1794480000000.new-click" {
 		t.Fatal(got)
 	}
-	if got := metaFbc("bad\nclick", "bad-cookie", now); got != "" {
+	if got := metaFbc("bad\nclick", cookie, now); got != "" {
 		t.Fatal(got)
 	}
 	if got := normalizeMetaCookie(strings.Repeat("x", 3000)); got != "" {
@@ -110,8 +113,16 @@ func TestMetaRefConversionLifecycle(t *testing.T) {
 		t.Fatal("install claimed before success", err)
 	}
 	body := `{"ref":"` + ref + `"}`
-	post("/copy", body)
-	post("/copy", body)
+	for _, want := range []bool{true, false} {
+		var reply struct {
+			Data struct {
+				FirstCopy bool `json:"first_copy"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(post("/copy", body), &reply); err != nil || reply.Data.FirstCopy != want {
+			t.Fatalf("first copy = %t, want %t, decode error: %v", reply.Data.FirstCopy, want, err)
+		}
+	}
 	waitForCode := func(column string) {
 		t.Helper()
 		deadline := time.Now().Add(5 * time.Second)
@@ -130,6 +141,20 @@ func TestMetaRefConversionLifecycle(t *testing.T) {
 	waitForCode("meta_copy_code")
 	post("/report", body)
 	post("/report", body)
+	if claimed, _, err := claimMetaCallback(gdb, ref, metaInstallEvent); err != nil || claimed != nil {
+		t.Fatal("public reports made registration eligible", err)
+	}
+	if err := gdb.Exec("CREATE TABLE install_meta_registration_refs (agent_id INTEGER PRIMARY KEY, ref TEXT)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := gdb.Exec("INSERT INTO install_meta_registration_refs (agent_id, ref) VALUES (10, ?)", ref).Error; err != nil {
+		t.Fatal(err)
+	}
+	if confirmed, err := RecordVerifiedMetaRegistration(gdb, 10, time.Now().UnixMilli(), "https://www.eigenflux.ai/dashboard/claim"); err != nil || confirmed != ref {
+		t.Fatalf("verified registration ref=%q err=%v", confirmed, err)
+	}
+	// Recovery sends committed work even if the request never dispatches it.
+	retryPendingMetaCallbacks(t.Context(), metaInstallEvent)
 	waitForCode("meta_install_code")
 	for _, name := range []string{metaCopyEvent, metaInstallEvent} {
 		e := <-events
@@ -167,7 +192,15 @@ func TestMetaRefConversionLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if claimed, _, err := claimMetaCallback(gdb, ref, metaInstallEvent); err != nil || claimed == nil {
-		t.Fatal("expired failure not retried", err)
+		t.Fatal("expired lease did not recover", err)
+	}
+	if err := gdb.Model(&Token{}).Where("token = ?", ref).Updates(map[string]interface{}{
+		"meta_install_sent_at": 0, "meta_registered_at": time.Now().Add(-7 * 24 * time.Hour).UnixMilli(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if claimed, _, err := claimMetaCallback(gdb, ref, metaInstallEvent); err != nil || claimed != nil {
+		t.Fatal("stale event remained eligible", err)
 	}
 }
 
@@ -205,21 +238,21 @@ func TestMetaConversionPayload(t *testing.T) {
 	}))
 	defer srv.Close()
 	metaGraphURL, metaHTTP = srv.URL, srv.Client()
-	tok := &Token{Token: "EF-Abcd1234", MetaFbc: "fb.1.1794470000000.click", MetaFbp: "fb.1.1794470000000.123", ClientIP: "203.0.113.8", MetaUserAgent: "landing-browser", CopiedAt: 1794480000000, ReportedAt: 1794480010000}
+	tok := &Token{Token: "EF-Abcd1234", MetaFbc: "fb.1.1794470000000.click", MetaFbp: "fb.1.1794470000000.123", ClientIP: "203.0.113.8", MetaUserAgent: "landing-browser", CopiedAt: 1794480000000, MetaRegisteredAt: 1794480010000, MetaRegistrationURL: "https://www.eigenflux.ai/dashboard/claim"}
 	for _, name := range []string{metaCopyEvent, metaInstallEvent} {
 		code, err := reportMetaConversion(tok, name)
 		if err != nil || code != 0 {
 			t.Fatalf("code=%d err=%v", code, err)
 		}
 		e := payload.Data[0]
-		stage, at := "install", tok.ReportedAt
+		stage, at, source := "install", tok.MetaRegisteredAt, tok.MetaRegistrationURL
 		if name == metaCopyEvent {
-			stage, at = "copy", tok.CopiedAt
+			stage, at, source = "copy", tok.CopiedAt, "https://www.eigenflux.ai/install"
 		}
 		if e.Name != name || e.ID != "eigenflux:"+stage+":"+tok.Token || e.Time != at/1000 {
 			t.Fatalf("wrong event: %+v", e)
 		}
-		if e.URL != "https://www.eigenflux.ai/install" || e.Source != "website" || payload.Test != "TEST123" {
+		if e.URL != source || e.Source != "website" || payload.Test != "TEST123" {
 			t.Fatalf("wrong source: %+v", payload)
 		}
 		if e.User["fbc"] != tok.MetaFbc || e.User["fbp"] != tok.MetaFbp || e.User["client_user_agent"] != "landing-browser" || e.User["client_ip_address"] != tok.ClientIP {
@@ -235,6 +268,10 @@ func TestMetaConversionPayload(t *testing.T) {
 	status, response = http.StatusBadRequest, `{"error":{"message":"test-secret"}}`
 	if code, err := reportMetaConversion(tok, metaInstallEvent); code != 400 || err == nil || strings.Contains(err.Error(), "test-secret") {
 		t.Fatalf("unsafe error: %d %v", code, err)
+	}
+	response = `{"error":{"code":2,"error_subcode":99,"is_transient":true,"message":"test-secret"}}`
+	if code, err := reportMetaConversion(tok, metaInstallEvent); code != -2 || err == nil || !strings.Contains(err.Error(), "Graph code 2") || strings.Contains(err.Error(), "test-secret") {
+		t.Fatalf("transient Graph failure not classified safely: %d %v", code, err)
 	}
 	if code, err := reportMetaConversion(&Token{}, metaInstallEvent); code == 0 || err == nil {
 		t.Fatal("unconfirmed install accepted")
