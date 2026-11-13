@@ -92,9 +92,10 @@ type Config struct {
 	EmbeddingDimensions         int
 	ResendApiKey                string
 	ResendFromEmail             string
-	EnableEmailVerification     bool     // Whether login requires OTP email verification
-	EnableCLIAutoUpdate         bool     // Administrator policy for heartbeat CLI updates
-	EnableSDKIntegrations       bool     // Managed SDK/API routes, independent of personal onboarding
+	EnableEmailVerification     bool // Whether login requires OTP email verification
+	EnableCLIAutoUpdate         bool // Administrator policy for heartbeat CLI updates
+	EnableSDKIntegrations       bool // Managed SDK/API routes, independent of personal onboarding
+	EnterpriseRateLimits        EnterpriseRateLimitConfig
 	EnableConsoleV2             bool     // Enable the isolated Console V2 BFF and onboarding routes
 	EnableFeedV2                bool     // Enable the stateless latest-view Feed V2 route
 	EnableControlChannelV2      bool     // Enable Agent command routes
@@ -332,6 +333,7 @@ func Load() *Config {
 		EnableEmailVerification:     getEnvBool("ENABLE_EMAIL_VERIFICATION", false),
 		EnableCLIAutoUpdate:         getEnvBool("ENABLE_CLI_AUTO_UPDATE", true),
 		EnableSDKIntegrations:       getEnvBool("ENABLE_ENTERPRISE_INTEGRATIONS", false),
+		EnterpriseRateLimits:        loadEnterpriseRateLimits(),
 		EnableConsoleV2:             getEnvBool("ENABLE_CONSOLE_V2", false),
 		EnableNeedSearch:            getEnvBool("ENABLE_NEED_SEARCH", false),
 		DiscoveryRulesPath:          getEnv("DISCOVERY_RULES_PATH", "configs/discovery/rules.json"),
