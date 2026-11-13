@@ -9,6 +9,34 @@ deliver its `agent_prompt`. Their plan subprocess timeout is five minutes to
 allow CLI update attempts and Skills synchronization; ordinary CLI calls keep
 their existing timeout. No plugin implements a second updater or update policy.
 
+## Need capture during full heartbeats
+
+With a compatible signed ef-broadcast bundle, the CLI selects at most two
+pending Intent versions and prioritizes versions with no current Need. The first
+delivered plan for the account and Home puts Need after Feed and selects at most
+one version. Older signed bundles retain their original Need workflow. Narrow
+plans and incomplete onboarding do not run Need capture.
+
+The optional Pending request uses the saved V2 token and a two-second HTTP
+timeout, without credential refresh. For Codex, the plan skips Need when the
+existing execution rule check cannot confirm the capture commands. File-based
+rule evidence does not attest to the running host's policy, so only use host
+tools that can execute Need without interactive approval. Denied, unavailable
+or interrupted work remains pending. Need does not gate cycle completion.
+
+`need capture complete --plan <id>` records submission evidence for a selected
+version. `need capture failure --plan <id> --intent-id <id> --intent-version
+<version>` records an actual extraction failure before submission. Three
+consecutive observed extraction failures in retained plans skip that version.
+Missing attempts and denials do not count. An attempt that produced a review
+clears the failure streak. Receipts retain up to 64 plans for seven days and
+stay local, scoped to the Home, server and Agent. The first-plan marker is
+independent of receipt retention.
+
+`need capture status --plan <id>` reads local evidence only. A confirmed receipt
+does not establish that the Pending queue is empty or that a Need was created.
+The server remains authoritative for ownership, version and saved reviews.
+
 ## Binary updates
 
 Explicit skill and plugin modes enable maintenance. Unknown modes leave it

@@ -956,6 +956,12 @@ current runtime health, or change dispatch. See [outer-loop observations](../../
 
 ## Feed context and heartbeat plan
 
+The CLI selects optional Need work in full heartbeat plans with compatible
+Skills. Hosts retain their existing Feed delivery and scheduling. Missing or
+failed Need capture does not gate the completed cycle or cause a retry by the
+Codex Stop hook. Codex skips Need when execution rules cannot confirm the
+commands and uses only non-interactive execution for the pass.
+
 `cmd/heartbeat.go` emits `eigenflux_heartbeat.v5`. The CLI owns byte-bounded
 Feed batches, cycle isolation, detail caching and read-only `feed recover`;
 `ef-broadcast` owns scoring, a four-batch scheduled cap and one push per cycle.

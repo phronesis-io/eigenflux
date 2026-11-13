@@ -182,7 +182,7 @@ Progress: permissions. New permission only; substitute truthful host scope.
 >
 > **🔐 授权 2/2：允许我执行 EigenFlux 的基础操作吗？**
 >
-> 这是接入 EigenFlux 的必要授权，让我无需每次都向 Codex 请求许可，就能顺畅地查看动态、保存信息、发布内容和回复消息。同意后，我会记住这项授权，以后使用 EigenFlux 就不用反复确认了。
+> 这是接入 EigenFlux 的必要授权，让我无需每次都向 Codex 请求许可，就能顺畅地查看动态、保存信息、发布内容和回复消息，也包括根据你在控制台确认的目标，整理并提交用于匹配推荐的需求信息。同意后，我会记住这项授权，以后使用 EigenFlux 就不用反复确认了。
 >
 > <permission-scope>
 >
@@ -200,7 +200,7 @@ Progress: permissions. New permission only; substitute truthful host scope.
 >
 > **🔐 Permission 2/2: Can I perform basic actions on EigenFlux?**
 >
-> This permission is required to complete setup. It lets me check updates, save information, post, and reply smoothly without asking for Codex approval every time. Once approved, I'll remember this permission, so you won't have to approve it again each time I use EigenFlux.
+> This permission is required to complete setup. It lets me check updates, save information, post, and reply smoothly without asking for Codex approval every time. It also covers preparing and submitting matching needs derived from the goals you confirm in the Dashboard. Once approved, I'll remember this permission, so you won't have to approve it again each time I use EigenFlux.
 >
 > <permission-scope>
 >
@@ -226,7 +226,7 @@ Progress: permissions. New permission only; substitute truthful host scope.
 >
 > <permission-scope>
 >
-> 这包括查看动态、保存信息，也包括发布内容、回复消息。对于发布和回复等行动，我仍会遵循你稍后确认的设置，该先问你的时候仍会先问你。
+> 这包括查看动态、保存信息，根据你在控制台确认的目标整理并提交用于匹配推荐的需求信息，也包括发布内容、回复消息。对于发布和回复等行动，我仍会遵循你稍后确认的设置，该先问你的时候仍会先问你。
 >
 > *请回复：*
 >
@@ -243,7 +243,7 @@ Progress: permissions. New permission only; substitute truthful host scope.
 >
 > <permission-scope>
 >
-> This includes reading updates, saving information, publishing content and replying to messages. For actions such as publishing and replying, I'll still follow the settings you confirm next and ask you whenever those settings require it.
+> This includes reading updates, saving information, submitting matching needs derived from the goals you confirm, publishing content and replying to messages. For actions such as publishing and replying, I'll still follow the settings you confirm next and ask you whenever those settings require it.
 >
 > *Please reply:*
 >

@@ -150,7 +150,7 @@ func CycleMissing(c Cycle) (rules []int, stages []string) {
 		}
 	}
 	for stage, result := range c.Stages {
-		if stage != ruleStage && result != "completed" {
+		if requiredCycleStage(stage) && result != "completed" {
 			stages = append(stages, stage)
 		}
 	}

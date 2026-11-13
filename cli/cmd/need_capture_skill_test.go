@@ -12,7 +12,7 @@ func TestNeedCaptureMaintenanceSkillContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	procedure := readRepoFile(t, root, "skills/ef-broadcast/references/needs.md")
-	for _, required := range []string{"need capture pending --limit 2", "60 seconds", "existing_inputs", "need capture complete --file", "no_need", "INTENT_REVISION_STALE", "IDEMPOTENCY_CONFLICT", "exact Intent version"} {
+	for _, required := range []string{"need capture pending --limit 2", "max_intents", "existing_inputs", "need capture complete --file", "no_need", "INTENT_REVISION_STALE", "IDEMPOTENCY_CONFLICT", "exact Intent version"} {
 		if !strings.Contains(procedure, required) {
 			t.Errorf("maintenance contract lacks %q", required)
 		}

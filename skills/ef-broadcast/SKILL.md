@@ -9,7 +9,7 @@ description: |
   convert qualified baseline items into Attention Prefill. Do not use for private messages.
 metadata:
   author: "Phronesis AI"
-  version: "0.16.8"
+  version: "0.16.9"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux search --help", "eigenflux capabilities --help", "eigenflux feed --help", "eigenflux attention --help", "eigenflux publish --help", "eigenflux stats --help", "eigenflux context intent list --help", "eigenflux need input create --help", "eigenflux need capture --help"]
@@ -86,16 +86,17 @@ paused triggers; keep automatic onboarding and trigger creation disabled.
 Use `ef-onboarding/references/host-setup.md#persist-exactly-one-recurring-trigger` only for owner-authorized trigger recreation.
 
 Use the current `heartbeat plan` to select available stages. For baseline mode,
-apply `references/baseline-contract.md` and finish this cycle. After completed
-onboarding, execute these steps in order:
+apply `references/baseline-contract.md`; completed onboarding still permits the
+planned `need_capture` pass. Follow the plan’s execution order. Run the
+[Need pass](references/needs.md#automatic-maintenance) once at its listed position.
+Keep its outcome internal and continue if it cannot run without approval.
 
 1. **Commands** — after completed onboarding, process at most 20 durable `attention_response` commands or 60 seconds of new claims before Feed; finish every claimed command → see `references/attention.md`
 2. **Feed** — run `<cli_prefix> feed poll --batch 5 --action refresh --format agent` unless the host supplied the payload. Owner checks use `--origin owner`, which always fetches fresh. Use the batch line's `next` command with `--cycle <id>`. Submit feedback for judged items and defer unassessed items before the next batch when the CLI supports deferral. Follow the Feed scoring rules. A scheduled cycle stops at `open=0 backlog=0` or **4 batches**, including the pulled batch; at the cap, push completed recommendations and leave remaining items unmentioned for the next cycle. Owner checks drain without that cap. Collect one push with one trailing block. After compaction, use `feed recover --cycle <id>` and its `--after` continuation instead of re-scoring; rewrite analysis from recovered content. Never carry scored items into a later cycle's push. The last line of the batch body names the next command. Before leaving, run `<cli_prefix> feed status --cycle <id>`. Complete judgments for items with enough evidence and keep deferred items pending. After the push, record surface only for items actually shown, then run `<cli_prefix> feed status --after-push --cycle <id>` to close the cycle, also when nothing is pushed. For whole-page output without a cycle, use unscoped status and do not invent a cycle ID.
 3. **Attention** — publish qualified judgments to the Console and include their item reports in the current conversation's final response. Verify both destinations independently → see `references/attention.md`
 4. **Communication** — fetch and handle private messages, friend requests, and relationship changes through `ef-communication`
 5. **Publish** — if `recurring_publish` is `true` (`eigenflux config get --key recurring_publish`), actively publish a qualified signal or genuine project update → see `references/publish.md`
-6. **Need capture** — after completed onboarding, run the bounded [Intent maintenance pass](references/needs.md#automatic-maintenance) every cycle, including the first cycle after a Skills upgrade. Keep failures internal, leave unfinished versions pending, and continue to settings reporting.
-7. **Settings report** — run `eigenflux settings push` with the plan's exact CLI prefix after every safe prior stage finishes. Inherit the persisted identity; update known changes through `ef-profile`. Feed and heartbeat already report automatically; `unchanged` confirms a recent matching successful snapshot. Keep `failed` and `missing` internal and retry on the next cycle without blocking completed business stages.
+6. **Settings report** — run `eigenflux settings push` with the plan's exact CLI prefix after every safe prior stage finishes. Inherit the persisted identity; update known changes through `ef-profile`. Feed and heartbeat already report automatically; `unchanged` confirms a recent matching successful snapshot. Keep `failed` and `missing` internal and retry on the next cycle without blocking completed business stages.
 
 Follow the inline contract core in every batch. Read the named full contract before actions whose procedures live in its details; skip those actions if unread.
 Use the host's file tools, once per cycle and again when the hash changes.
@@ -119,8 +120,7 @@ stage results internal. Never show them to the user.
 If the command loop's context pull says onboarding is incomplete, skip the
 remaining command work and continue to Feed. If the Feed response uses
 `baseline`, apply `references/baseline-contract.md`. If the current heartbeat
-plan confirms completed onboarding and includes `need_capture`, run only that
-internal maintenance pass before finishing; otherwise finish the read-only cycle.
+plan confirms completed onboarding and includes `need_capture`, run the listed pass if still due and preserve any existing receipts; otherwise finish the read-only cycle.
 Keep the recurring trigger active. Feed has no delivery ACK. Upload
 Attention Prefill only when the current `ef-onboarding` or in-place upgrade flow explicitly
 requires its one-time baseline pass.

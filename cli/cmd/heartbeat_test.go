@@ -85,12 +85,12 @@ func TestRenderHeartbeatPlanForAgentIsThinAndCurrent(t *testing.T) {
 		SchedulerLauncher:  "eigenflux --homedir /tmp/home heartbeat plan --format agent",
 		SchedulerMigration: "migrate owned task",
 		Access:             runtimeAccess{Mode: "intent_aligned", OnboardingState: "completed"},
-		ExecutionOrder:     []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report", "commission_confirmations"},
+		ExecutionOrder:     []string{"commands", "need_capture", "feed", "attention", "communication", "publish", "settings_report", "commission_confirmations"},
 	}
 	text := renderHeartbeatPlanForAgent(plan)
 	for _, required := range []string{
 		heartbeatContractVersion, "rev-123", "ef-future", "Freshly read, from disk",
-		"commands → feed → attention → communication → publish → need_capture → settings_report → commission_confirmations",
+		"commands → need_capture → feed → attention → communication → publish → settings_report → commission_confirmations",
 		"CLI prefix for every EigenFlux command in this cycle: eigenflux --homedir /tmp/home",
 		"Never run a bare eigenflux command",
 		"Apply runtime-model.md before subsequent CLI calls",
@@ -157,7 +157,7 @@ func TestHeartbeatPlanJSONCarriesCurrentPromptAndAccessDecision(t *testing.T) {
 			if baseline {
 				wantStages = []string{"feed"}
 			}
-			if !reflect.DeepEqual(plan.ExecutionOrder, wantStages) || plan.WakeOnEmpty == baseline {
+			if !reflect.DeepEqual(plan.ExecutionOrder, wantStages) || plan.WakeOnEmpty == baseline || plan.NeedCapture != nil {
 				t.Fatalf("incorrect central dispatch: %+v", plan)
 			}
 			if contextRequests != 1 {
@@ -218,7 +218,7 @@ func TestHeartbeatPlanFailsWithoutCurrentAccessOrRules(t *testing.T) {
 	}
 }
 
-func installHeartbeatTestRules(t *testing.T) string {
+func installHeartbeatTestRules(t *testing.T, plannedNeed ...bool) string {
 	t.Helper()
 	oldVersion, oldKey := version, skills.VerifyPublicKeyBase64
 	version = "0.0.46"
@@ -274,6 +274,10 @@ func installHeartbeatTestRules(t *testing.T) string {
 	manifest, err := skills.GenerateManifest(dir, "0.0.46", "0.0.46", names, 1)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(plannedNeed) > 0 && plannedNeed[0] {
+		version = "1.0.31"
+		manifest.MinCLIVersion = version
 	}
 	manifest.Sequence = 1
 	manifest.TarSHA256 = strings.Repeat("a", 64)

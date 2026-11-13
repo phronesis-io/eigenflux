@@ -89,6 +89,12 @@ func flushesFeedQueue(cmd *cobra.Command) bool {
 	if cmd == feedNextCmd || cmd == feedRecoverCmd || cmd == feedDeferCmd {
 		return false
 	}
+	if cmd.Parent() != nil && cmd.Parent().Name() == "capture" &&
+		cmd.Parent().Parent() != nil && cmd.Parent().Parent().Name() == "need" {
+		if cmd.Name() == "status" || cmd.Name() == "failure" || cmd.Name() == "complete" && cmd.Flags().Changed("plan") {
+			return false
+		}
+	}
 	for c := cmd; c != nil; c = c.Parent() {
 		switch c.Name() {
 		case "uninstall", "uninstall-finalize", "installation", "migrate", "version", "help", "completion", "recovery-notice-ack", "rules", "cycle-check", "stop-check", "host-observe", "guard-setup", "permission-check", "upgrade-repair", "upgrade-repair-report", "upgrade-repair-ack":
