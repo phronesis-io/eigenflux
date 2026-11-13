@@ -80,9 +80,9 @@ Skills rollback journals when the recovery target is a file or symlink. Tests
 isolate both `HOME` and `USERPROFILE`; isolated PowerShell uninstall fixtures
 use process-local `-ExecutionPolicy Bypass`, without changing machine policy.
 Feed contract assertions account for the renderer's documented trimming.
-`TestCodexHiddenPMWindowsOwnerAndSilentReceipt` exercises an isolated named pipe
-and read-only child reader, including empty completed turns and rejection of
-visible input, commentary, missing items, failed turns and permission requests.
+`TestCodexPMOwnerNoticeWindowsReceipt` exercises an isolated named pipe
+and read-only child reader, including exact-thread presentation and rejection of empty, visible-input,
+failed or permission-blocked turns.
 
 From `cli/`, run `go test ./...` and
 `go test -race ./internal/dispatch ./cmd -run 'Test.*(Dispatch|Binding|Decision|Journal|Runner|ACP|Watch)'`.

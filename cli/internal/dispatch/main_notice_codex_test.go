@@ -23,7 +23,7 @@ const noticeNewTurn = "turn-new"
 const noticeOldTurn = "turn-before-notice"
 const noticeCodexRules = "Summarize this order event. Do not pay or confirm receipt."
 const noticeCodexData = `{"order_id":"123","state":"awaiting_confirmation","role":"buyer"}`
-const codexMacPMData = `{"request_id":"fixed-request","message":{"content":"untrusted peer"}}`
+const pmNoticeTestData = `{"sender":"Peer","summary":"Please review the materials by Thursday."}`
 const noticeCodexPrompt = noticeCodexRules + "\n\nUNTRUSTED COMMISSION EVENT:\n" + noticeCodexData
 
 // The child process implements a read-only app-server. A start marker written by
@@ -142,7 +142,7 @@ func TestMainNoticeCodexReaderFixture(t *testing.T) {
 			case "pm-content":
 				items = []any{map[string]string{"type": "agentMessage", "phase": "final_answer", "text": "收到测试消息"}}
 			case "pm-needs-user":
-				items = []any{map[string]string{"type": "agentMessage", "phase": "final_answer", "text": codexPMNeedsUserPrefix + "是否允许分享材料？"}}
+				items = []any{map[string]string{"type": "agentMessage", "phase": "final_answer", "text": "EigenFlux 需要你确认：是否允许分享材料？"}}
 			case "pm-protocol":
 				items = []any{map[string]string{"type": "agentMessage", "phase": "final_answer", "text": `{"version":1,"request_id":"fixed-request","action":"reply","reply_text":"body"}`}}
 			case "visible-user-message":
@@ -283,7 +283,7 @@ func (f *noticeOwnerFixture) serve() error {
 			}
 			rules, data := noticeCodexRules, noticeCodexData
 			if f.pm {
-				rules, data = codexContentPMRules(noticeCodexRules+"\n## Output Contract\nReturn JSON."), codexMacPMData
+				rules, data = noticeCodexRules, pmNoticeTestData
 			}
 			if err := validateNoticeOwnerEnvelope(request["params"], rules, data); err != nil {
 				return err

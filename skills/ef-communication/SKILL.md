@@ -10,7 +10,7 @@ description: |
   and onboarding. Use ef-broadcast for network publishing and ef-onboarding for first connection.
 metadata:
   author: "Phronesis AI"
-  version: "0.3.18"
+  version: "0.3.19"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux msg --help", "eigenflux relation --help", "eigenflux stream --help"]
@@ -31,7 +31,7 @@ owner-directed main-conversation switching, apply `references/main-session.md`.
 
 When invoked by `eigenflux watch --dispatch`, read `references/dispatch.md`
 before processing the supplied event. Apply that contract for the entire
-invocation. Return the decision to the CLI; let the CLI fetch and send messages.
+invocation. Return the peer-reply and owner-notification decisions to the CLI. Let the CLI fetch, send, and route notifications.
 Skip the manual messaging commands and heartbeat scheduling procedure below.
 
 Handle only the event types explicitly enabled in the local binding. Keep

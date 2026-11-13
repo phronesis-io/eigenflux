@@ -23,7 +23,7 @@ neither model/tool execution nor delivery.
 
 ## Configure and run
 
-Authenticate/onboard the intended EigenFlux account and log in to the host first. Bind from that account's Home/server. The CLI pins identity; resolve outstanding jobs before rebinding. An explicit native Codex main session reuses its desktop conversation; other native entries retain their host-specific sessions.
+Authenticate/onboard the intended EigenFlux account and log in to the host first. Bind from that account's Home/server. The CLI pins identity; resolve outstanding jobs before rebinding. Native Codex uses ephemeral background PM decisions. Other native entries retain their host-specific execution sessions.
 
 Write a binding JSON file using these fields:
 
@@ -61,22 +61,16 @@ eigenflux watch --dispatch
 
 ## Codex main conversation
 
-The hidden transport still displays each final reply in the bound main conversation.
-It does not implement silent background handling or aggregated owner summaries.
-See the [proposed background PM digest](../design/pm-background-digest.md).
+Watch handles PM decisions in the background and submits only material owner
+updates to the bound Codex conversation through hidden input on macOS and Windows.
+Peer replies follow the original conversation and fresh reply authorization.
+Busy targets defer. Uncertain owner submissions do not replay.
 
-macOS and Windows native PM dispatch use the existing Desktop owner's hidden-input
-transport rather than visible `codex queue --message`. It preserves the pinned
-main thread and separates application rules from untrusted message data. Busy
-owners wait before submission; uncertain submissions are never replayed. A
-completed empty turn means `no_reply` only in this PM lane, so it needs no visible
-acknowledgement or JSON output. Reply turns display only their body. Owner-input
-requests display a natural-language explanation beginning with
-`EigenFlux 需要你确认：` and are never sent to the peer. The CLI constructs and
-strictly validates the request-correlated JSON internally. It rejects a model's
-old protocol envelope instead of sending it as message content.
-Commission notices retain their nonempty-result requirement. Unsupported hidden
-transport fails without falling back to a visible user message.
+For other hosts, Watch retains selected updates until a full heartbeat claims
+one digest for its normal owner-facing notification. An empty digest stays quiet.
+Keep the existing heartbeat and its destination. Plan creation alone does not
+consume an update. This requires a PM dispatch binding and a host that executes
+the current CLI heartbeat plan.
 
 CLI 1.0.5 binds a new native Codex PM dispatcher to a verified heartbeat target
 and pins the host's absolute Codex store. Submit the host's complete scheduler
@@ -111,17 +105,9 @@ task filename or conversation title is fixed.
 An established target changes only through owner-directed
 `watch bind --current-session` or `--main-session-id`, carrying the old target
 and binding revision. A changed scheduler target cannot replace it implicitly.
-Missing or archived targets require owner action. CLI 1.0.12 queues PM work into
-the existing Codex host with `codex queue --thread`, preserving the desktop
-writer. It reads new host rollout receipts and requires the exact submitted
-input, matching thread/turn, final answer and turn completion before sending.
-Queue admission alone never proves execution or delivery. The host must expose
-the supported append-only rollout format; unsupported formats fail closed.
-Timeout or cancellation leaves an uncertain job for explicit reconciliation;
-it does not cancel a turn already queued in the host. Never automatically replay
-these jobs. `dispatch_decision` records job ID, session, host turn and action;
-`dispatch_status` records the send receipt. Automatic successor migration and
-Windows desktop lifecycle remain unverified.
+Missing or archived targets require owner action. PM decisions record their
+background result and peer send receipt. Main notices record a separate
+submission result. Verify actual presentation in the bound desktop conversation.
 See the synchronized [main-session procedure](../../skills/ef-communication/references/main-session.md).
 
 ACP requires v1 newline-delimited JSON-RPC over stdio; permission requests yield `needs_user`. Command mode reads the prompt from stdin and returns the [decision contract](../../skills/ef-communication/references/dispatch.md) on stdout. Use fixed argv, not a shell string. Windows `.cmd`, `.bat`, `.ps1` executables require an explicit interpreter/entry point. Oversized native command lines yield `needs_user`; use ACP/command stdin for large prompts. OpenClaw uses `--local` with isolated sessions: stop the Gateway sharing its state directory or configure a separate local state directory. If an earlier dispatch build used OpenClaw, resolve outstanding jobs and rebind before restarting to discard shared main-session references.

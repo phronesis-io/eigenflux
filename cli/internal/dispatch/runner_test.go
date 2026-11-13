@@ -30,12 +30,6 @@ func TestRunnerFixture(t *testing.T) {
 		return
 	}
 	switch scenario {
-	case "codex-main", "codex-wrong-main":
-		codexQueueFixture(scenario)
-		os.Exit(0)
-	case "codex-queue-only", "codex-queue-partial", "codex-queue-wrong-turn", "codex-queue-replaced":
-		codexQueueFixture(scenario)
-		os.Exit(0)
 	case "echo":
 		b, _ := io.ReadAll(os.Stdin)
 		fmt.Print(string(b))

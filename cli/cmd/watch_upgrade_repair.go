@@ -158,7 +158,11 @@ func (w *accountWatch) tryUpgradeRepair(ctx context.Context) error {
 	runner := dispatch.MainNoticeRunner{Target: dispatch.MainNoticeTarget{Host: b.Host, SessionID: b.MainSessionID, HiddenInputEnabled: dispatch.MainNoticeBindingEnabled(b), Binding: b}}
 	boundCtx, cancel := w.upgradeRepairContext(ctx, b)
 	defer cancel()
-	_, runErr := runner.RunMaintenance(boundCtx, string(application), string(data))
+	runErr := dispatch.ErrMainNoticeBusy
+	if w.mainNoticeRunMu.TryLock() {
+		_, runErr = runner.RunMaintenance(boundCtx, string(application), string(data))
+		w.mainNoticeRunMu.Unlock()
+	}
 	if err := w.verifyHandoffIdentity(); err != nil {
 		return err
 	}
