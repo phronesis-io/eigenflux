@@ -1,12 +1,14 @@
 package cmd
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,6 +16,7 @@ import (
 	"unicode/utf16"
 
 	"cli.eigenflux.ai/internal/dispatch"
+	"cli.eigenflux.ai/internal/heartbeatmigration"
 	"cli.eigenflux.ai/internal/maintenance"
 	watchstate "cli.eigenflux.ai/internal/watch"
 	"github.com/spf13/cobra"
@@ -131,6 +134,10 @@ func installCodexGuard(codexHome, cli, home, server, thread, agent string, suppl
 	if err != nil {
 		return false, err
 	}
+	return installCodexGuardWithPromptHash(codexHome, cli, home, server, thread, agent, promptHash)
+}
+
+func installCodexGuardWithPromptHash(codexHome, cli, home, server, thread, agent, promptHash string) (bool, error) {
 	definition, err := codexGuardDefinition(codexHome, cli, home, server, thread, agent, promptHash)
 	if err != nil {
 		return false, err
@@ -243,6 +250,8 @@ func newHeartbeatGuardSetupCommand() *cobra.Command {
 	command.Flags().String("codex-home", "", "Absolute owner Codex configuration directory")
 	command.Flags().String("thread", "", "Exact owner thread UUID")
 	command.Flags().String("scheduler-prompt-file", "", "Owner-only file containing the exact native scheduler prompt readback")
+	command.Flags().String("scheduler-readback-file", "", "Fresh complete host scheduler JSON readback; required for a custom prompt")
+	command.Flags().String("scheduler-task-id", "", "Exact task ID in the host readback")
 	command.RunE = func(cmd *cobra.Command, _ []string) error {
 		codexHome, _ := cmd.Flags().GetString("codex-home")
 		thread, _ := cmd.Flags().GetString("thread")
@@ -273,15 +282,25 @@ func newHeartbeatGuardSetupCommand() *cobra.Command {
 			}
 			supplied = []string{string(raw)}
 		}
-		changed, err := installCodexGuard(codexHome, cli, scope.Home, scope.Server, thread, scope.AgentID, supplied...)
-		if err != nil {
-			return err
-		}
 		prompt := ""
 		if len(supplied) == 1 {
 			prompt = supplied[0]
 		}
-		promptHash, err := codexGuardPromptHash(cli, scope.Home, scope.Server, prompt)
+		readbackFile, _ := cmd.Flags().GetString("scheduler-readback-file")
+		taskID, _ := cmd.Flags().GetString("scheduler-task-id")
+		var promptHash string
+		if readbackFile != "" || taskID != "" {
+			if readbackFile == "" || taskID == "" || promptFile == "" {
+				return fmt.Errorf("custom prompt setup requires scheduler readback file, task ID and prompt file together")
+			}
+			promptHash, err = codexGuardReadbackPromptHash(readbackFile, scope.Home, scope.Server, scope.AgentID, thread, taskID, prompt)
+		} else {
+			promptHash, err = codexGuardPromptHash(cli, scope.Home, scope.Server, prompt)
+		}
+		if err != nil {
+			return err
+		}
+		changed, err := installCodexGuardWithPromptHash(codexHome, cli, scope.Home, scope.Server, thread, scope.AgentID, promptHash)
 		if err != nil {
 			return err
 		}
@@ -301,3 +320,60 @@ func newHeartbeatGuardSetupCommand() *cobra.Command {
 }
 
 func init() { heartbeatCmd.AddCommand(newHeartbeatGuardSetupCommand()) }
+
+// A custom prompt is opt-in and must match the fresh host-owned task in full.
+// This validates host input; it neither reads the scheduler nor grants hook trust.
+func codexGuardReadbackPromptHash(path, home, server, agent, thread, taskID, prompt string) (string, error) {
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("scheduler readback file must be absolute")
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() >= 2<<20 {
+		return "", fmt.Errorf("scheduler readback must be a bounded regular file")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, 2<<20))
+	if err != nil || len(raw) >= 2<<20 {
+		return "", fmt.Errorf("cannot read bounded scheduler readback")
+	}
+	var in schedulerReportInput
+	d := json.NewDecoder(bytes.NewReader(raw))
+	d.DisallowUnknownFields()
+	if err := d.Decode(&in); err != nil {
+		return "", fmt.Errorf("invalid scheduler readback: %w", err)
+	}
+	if err := d.Decode(&struct{}{}); err != io.EOF {
+		return "", fmt.Errorf("unexpected trailing scheduler JSON")
+	}
+	return codexGuardVerifiedPromptHash(in, home, server, agent, thread, taskID, prompt)
+}
+
+func codexGuardVerifiedPromptHash(in schedulerReportInput, home, server, agent, thread, taskID, prompt string) (string, error) {
+	if in.ErrorCode != "" || taskID == "" || !guardThreadID.MatchString(thread) {
+		return "", fmt.Errorf("successful scheduler readback and explicit task/thread required")
+	}
+	receipt, err := schedulerReadback(in.Inventory, home, server, agent, in.ObservedAt)
+	if err != nil {
+		return "", err
+	}
+	if receipt.State != "enabled" {
+		return "", fmt.Errorf("custom prompt requires an enabled owned heartbeat")
+	}
+	plan, err := heartbeatmigration.Build(in.Inventory, home, server, heartbeatLauncher(home, server, "skill"))
+	if err != nil {
+		return "", err
+	}
+	if plan.TaskID != taskID || len(plan.Before.Tasks) != 1 || plan.Before.Tasks[0].ThreadID != thread {
+		return "", fmt.Errorf("scheduler readback does not match the requested task and thread")
+	}
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" || len(prompt) > 64<<10 || prompt != strings.TrimSpace(plan.Before.Tasks[0].Prompt) {
+		return "", fmt.Errorf("prompt must exactly match the complete bounded scheduler prompt")
+	}
+	sum := sha256.Sum256([]byte(prompt))
+	return hex.EncodeToString(sum[:]), nil
+}
