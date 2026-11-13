@@ -48,7 +48,8 @@ func TestReportGoogleAdsInstallConversion(t *testing.T) {
 		}, nil
 	})}
 
-	code, err := reportGoogleAdsInstallConversion("EF-test", "gclid-1", time.Date(2026, 8, 6, 1, 2, 3, 0, time.UTC).UnixMilli())
+	reportedAt := time.Date(2026, 8, 6, 1, 2, 3, 164_000_000, time.UTC).UnixMilli()
+	code, err := reportGoogleAdsInstallConversion("EF-test", "gclid-1", reportedAt)
 	if err != nil || code != 0 {
 		t.Fatalf("report conversion code=%d err=%v", code, err)
 	}
@@ -57,6 +58,9 @@ func TestReportGoogleAdsInstallConversion(t *testing.T) {
 		t.Fatalf("events = %#v", ingest["events"])
 	}
 	event := events[0].(map[string]interface{})
+	if got := event["eventTimestamp"]; got != "2026-08-06T01:02:03.164Z" {
+		t.Fatalf("eventTimestamp = %q, want 2026-08-06T01:02:03.164Z", got)
+	}
 	if event["transactionId"] != "install:EF-test" || event["eventSource"] != "WEB" {
 		t.Fatalf("event = %#v", event)
 	}

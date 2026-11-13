@@ -54,12 +54,13 @@ type HealthEvent struct {
 	Counts map[string]int64 `json:"counts"`
 }
 type Reports struct {
-	Cycles      map[string]Cycle  `json:"cycles,omitempty"`
-	Scope       string            `json:"scope"`
-	Entries     map[string]Report `json:"entries"`
-	Health      []HealthEvent     `json:"health,omitempty"`
-	LastFetchAt int64             `json:"last_fetch_at,omitempty"`
-	LocalPolls  int               `json:"local_polls,omitempty"`
+	LastImpressionID string            `json:"last_impression_id,omitempty"`
+	Cycles           map[string]Cycle  `json:"cycles,omitempty"`
+	Scope            string            `json:"scope"`
+	Entries          map[string]Report `json:"entries"`
+	Health           []HealthEvent     `json:"health,omitempty"`
+	LastFetchAt      int64             `json:"last_fetch_at,omitempty"`
+	LocalPolls       int               `json:"local_polls,omitempty"`
 }
 
 // A missing handed_at belongs to an older CLI or a whole-page delivery.
@@ -95,6 +96,20 @@ func (r Reports) Exposure(e Entry) Report {
 		report.ContextRevision = e.ContextRevision
 	}
 	return report
+}
+
+func (r Reports) PageUnprocessed(impression string) bool {
+	found := false
+	for _, entry := range r.Entries {
+		if entry.ImpressionID != impression {
+			continue
+		}
+		if entry.Baseline || entry.ScoredAt > 0 {
+			return false
+		}
+		found = true
+	}
+	return impression != "" && found
 }
 
 func (r Reports) Surfaced(itemID string) bool {

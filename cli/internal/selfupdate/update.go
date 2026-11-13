@@ -99,9 +99,6 @@ func Check(ctx context.Context, o Options) (result Result) {
 	if o.Now.IsZero() {
 		o.Now = time.Now()
 	}
-	if o.Client == nil {
-		o.Client = &http.Client{Timeout: 30 * time.Second}
-	}
 	path, err := filepath.EvalSymlinks(o.Executable)
 	if err != nil {
 		return fail(err)
@@ -241,7 +238,7 @@ func Check(ctx context.Context, o Options) (result Result) {
 		return fail(fmt.Errorf("missing or invalid CLI artifact for %s", name))
 	}
 	startPhase("download")
-	bin, err := download(ctx, o.Client, strings.TrimRight(o.CDN, "/")+"/cli/"+m.Version+"/"+name, a.Size, o.Version)
+	bin, err := downloadArtifact(ctx, o.Client, strings.TrimRight(o.CDN, "/")+"/cli/"+m.Version+"/"+name, a.Size, o.Version)
 	if err != nil {
 		return fail(err)
 	}
@@ -346,7 +343,30 @@ func executableVersion(ctx context.Context, path, home string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+func downloadArtifact(ctx context.Context, client *http.Client, url string, limit int64, version string) ([]byte, error) {
+	const artifactTimeout = 90 * time.Second
+	const postDownloadReserve = 30 * time.Second
+
+	deadline := time.Now().Add(artifactTimeout)
+	// Leave time in the update budget for validation, probing and activation.
+	if updateDeadline, ok := ctx.Deadline(); ok && updateDeadline.Add(-postDownloadReserve).Before(deadline) {
+		deadline = updateDeadline.Add(-postDownloadReserve)
+	}
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if client == nil {
+		client = &http.Client{}
+	}
+	return download(ctx, client, url, limit, version)
+}
+
 func download(ctx context.Context, client *http.Client, url string, limit int64, version string) ([]byte, error) {
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err

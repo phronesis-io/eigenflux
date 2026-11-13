@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
@@ -45,6 +46,7 @@ func newV2ClientForServer(serverName string, requireAuth bool) (*client.Client, 
 	}
 	result := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", token, version, clientMetaForServer(server))
 	if requireAuth {
+		result.OnSuccess = sync.OnceFunc(func() { clearFeedAuthBlock(server.Name) })
 		result.OnUnauthorized = func() (string, error) {
 			refreshed, refreshErr := refreshV2CredentialsAfterUnauthorized(server.Name, server.Endpoint, result.Token)
 			if refreshErr != nil {

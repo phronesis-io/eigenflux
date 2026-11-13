@@ -842,6 +842,46 @@ scripts/cloud/install_lr_model.sh --rollback` as the installer user (on one
 shell line). Disabling `DISCOVERY_LR_ENABLED` and restarting Sort restores rule
 ordering. Keep the legacy model directory intact for a pipeline rollback.
 
+### Need recall depth experiment
+
+`DISCOVERY_NEED_RECALL_BPS` defaults to `0`, accepts 0–10000, and selects stable
+Agent buckets using `discovery-need-recall-v1`, independently of Need budget.
+Search never enables this treatment. Restart Sort after changing the value.
+
+For each captured broadcast Need with a vector, treatment adds a dense lane
+with k=40 and `created_at >= execution time - 7 days`, alongside the main k=80
+lane. Both use the shared consumed-group exclusion described in the Need budget
+section below. One history attempt serves all Needs and both lanes; failed or
+timed-out reads leave recall unfiltered by consumption. Successful bounded
+history remains useful even when truncated. Lexical and downstream seen checks retain their existing behavior.
+
+The affected context's candidate cap rises from 200 to 240. When Need budget is
+also enabled its 300 cap takes precedence; the caps do not add. Other contexts
+keep their existing cap. The global snapshot stays at 200. Both lanes retain the
+`dense` channel, LR features and source ceilings; duplicate candidates keep the
+higher dense score under the existing version checks. Equal channels are merged
+in deterministic lane-key order, including the two existing Profile lanes.
+
+`discovery_need_dense_duration_seconds{lane="main|fresh",exclusion="on|off"}`
+records individual Need dense recall calls, including failures, after history
+loading. Exclusion is `on` only when nonempty group terms were applied. Main
+control calls are also measured. Sample experiment arms are recorded in
+`replay_logs.agent_features.experiments` while the experiment is configured;
+content age uses `fresh_at`, without adding lane provenance to ranking samples.
+
+Offline recall keys append `:since=<milliseconds>` for positive cutoffs, keeping
+unbounded legacy keys unchanged and separating the new lane. Old snapshots lack
+fresh-lane evidence and require recapture for treatment replay. Before activation,
+compare 3/7/14-day windows with read-only production kNN, confirm baseline A/A,
+and measure 20 sequential calls including near-8,192-group history (p95 <=100 ms).
+The deterministic Profile tie-break can resolve previously unstable baseline
+outputs and must be checked separately in A/A.
+
+Roll out with Need budget at 0 and Need recall at 1000 only after offline gates
+pass and runtime activation is approved. Observe latency for 24 hours before
+5000; the 14-day analysis window starts at that ramp. Rollback sets Need recall
+to 0 and restarts Sort; frozen pages retain their content for up to 30 minutes.
+
 ### Need candidate budget and attribution experiment
 
 `DISCOVERY_NEED_BUDGET_BPS=0` preserves the existing recommendation behavior
@@ -853,7 +893,8 @@ Selected recommendations merge up to 300 unique candidates per context and up
 to 300 broadcasts (other kinds retain their 100-candidate limit), instead of
 200. Need dense k remains 80 and the global Feed snapshot remains 200.
 
-Before captured-Need broadcast dense retrieval, one request-local history read
+When either the Need budget or Need recall experiment is enabled, before
+captured-Need broadcast dense retrieval, one request-local history read
 supplies every Need with at most 8,192 verified consumed groups. The same
 `ConsumedGroups` authority used by refill checks rolling delivery history.
 The kNN filter excludes these groups before top-k selection. Failed or timed-out

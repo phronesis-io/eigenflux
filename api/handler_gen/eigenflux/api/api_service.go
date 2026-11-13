@@ -890,7 +890,7 @@ func Feed(ctx context.Context, c *app.RequestContext) {
 	//   - field text   → bind these rules.
 	// The empty case is the common one (most polls return no items), and the
 	// contract is ~3.5K tokens the agent would otherwise re-read every poll.
-	contract := feedOutputContract()
+	contract := feedcontract.ForClient("", reqinfo.ClientFromContext(ctx).CLIVer)
 	if feedPayload["personalization"] != nil {
 		contract = feedcontract.ForMode("baseline")
 	}
@@ -1208,17 +1208,45 @@ func itemdalSplit(raw string) []string {
 // @Router /api/v1/items/feedback [post]
 func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 	var req apimodel.BatchFeedbackReq
-	if !bindOrBadRequest(c, &req) {
+	if err := c.BindAndValidate(&req); err != nil {
+		id, _ := c.Get("agent_id")
+		logger.Ctx(ctx).Warn("BatchFeedback rejected", "agentID", id, "route", c.FullPath(), "stage", "bind", "error_class", feedbackBindErrorClass(c.Request.Body(), err))
+		writeJSON(c, http.StatusBadRequest, 400, err.Error(), nil)
 		return
 	}
+	started := time.Now()
+	id, _ := c.Get("agent_id")
+	rejected := map[feedbackRejection]int{}
+	acceptedCount, keyed, withImpression, publishFailed := 0, 0, 0, 0
+	for _, it := range req.Items {
+		if it == nil {
+			continue
+		}
+		if it.ClientKey != nil && strings.TrimSpace(*it.ClientKey) != "" {
+			keyed++
+		}
+		if (it.ImpressionID != nil && strings.TrimSpace(*it.ImpressionID) != "") || (req.ImpressionID != nil && strings.TrimSpace(*req.ImpressionID) != "") {
+			withImpression++
+		}
+	}
+	defer func() {
+		publishedBeforeFailure := 0
+		if publishFailed > 0 {
+			publishedBeforeFailure = acceptedCount
+		}
+		logger.Ctx(ctx).Info("BatchFeedback result", "agentID", id, "route", c.FullPath(), "items", len(req.Items), "accepted", acceptedCount,
+			"invalid_item_id", rejected["invalid_item_id"], "invalid_score", rejected["invalid_score"], "unknown_item", rejected["unknown_item"], "own_item", rejected["own_item"],
+			"invalid_client_key", rejected["invalid_client_key"], "invalid_impression_source", rejected["invalid_impression_source"],
+			"keyed", keyed, "with_impression", withImpression, "publish_failed", publishFailed, "published_before_failure", publishedBeforeFailure, "duration_ms", time.Since(started).Milliseconds())
+	}()
 	agentID, ok := currentAgentID(c)
 	if !ok {
 		return
 	}
-	logger.Ctx(ctx).Info("BatchFeedback", "agentID", agentID, "items", len(req.Items))
 
 	contract, valid := normalizeFeedbackContract(req.ContractVersion)
 	if !valid {
+		logger.Ctx(ctx).Warn("BatchFeedback rejected", "agentID", agentID, "route", c.FullPath(), "stage", "contract", "error_class", "invalid_contract_version")
 		writeJSON(c, http.StatusBadRequest, 400, "invalid contract_version", nil)
 		return
 	}
@@ -1247,22 +1275,26 @@ func BatchFeedback(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	for _, it := range req.Items {
-		feedback, reason := normalizeFeedbackItem(agentID, it, batchImpressionID, contract, authors)
+		feedback, reason, class := normalizeFeedbackItem(agentID, it, batchImpressionID, contract, authors)
 		result := &apimodel.FeedbackItemResult{Status: "accepted"}
 		if it != nil {
 			result.ItemID = it.ItemID
 		}
 		results = append(results, result)
 		if reason != "" {
+			rejected[class]++
 			result.Status = "rejected"
 			result.Reason = &reason
 			skippedReasons = append(skippedReasons, reason)
 			continue
 		}
+		feedback.AcceptedAt = time.Now().UnixMilli()
 		if _, err := itemstats.PublishFeedback(ctx, feedback); err != nil {
+			publishFailed++
 			writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
 			return
 		}
+		acceptedCount++
 		accepted = append(accepted, acceptedFeedback{clientKey: feedback.ClientKey, score: feedback.Score})
 	}
 

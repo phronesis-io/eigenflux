@@ -5,6 +5,8 @@ import (
 	"regexp"
 )
 
+const runtimeFailuresHeader = "X-EigenFlux-Runtime-Failures"
+
 // Runtime observations never contain device names, user content or hardware identifiers.
 type runtimeObservation struct {
 	Mode           string `json:"mode,omitempty"`
@@ -27,6 +29,19 @@ func runtimeFailureCode(code string) bool {
 		return true
 	}
 	return false
+}
+
+// Enrich only a validated event without a category in its original body.
+func mergeRuntimeFailureMetadata(event maintenanceEvent, code string) maintenanceEvent {
+	if code == "" || event.Runtime == nil || event.ErrorCode != "" {
+		return event
+	}
+	candidate := event
+	candidate.ErrorCode = code
+	if validateRuntimeObservation(candidate) != nil {
+		return event
+	}
+	return candidate
 }
 
 func validateRuntimeObservation(e maintenanceEvent) error {

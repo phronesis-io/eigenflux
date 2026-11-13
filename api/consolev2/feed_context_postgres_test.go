@@ -118,7 +118,7 @@ func TestFeedV2ControlContextPostgres(t *testing.T) {
 			if personalization["mode"] != tc.mode || personalization["onboarding_state"] != tc.state || personalization["context_delivery"] != tc.delivery {
 				t.Fatalf("unexpected personalization: %#v", personalization)
 			}
-			if data["output_contract"] != feedcontract.ForMode(tc.mode) {
+			if data["output_contract"] != feedcontract.ForClient(tc.mode, "") {
 				t.Fatal("Feed output contract does not match its effective mode")
 			}
 			if tc.mode == "baseline" {

@@ -95,7 +95,7 @@ func TestFeedV2PollSupportsFeedbackAndBehaviorWithoutIDTranslation(t *testing.T)
 			}
 			feedback = append(feedback, body.Items...)
 			events = append(events, body.Events...)
-			_, _ = w.Write([]byte(`{"code":0,"data":{"accepted":1}}`))
+			_, _ = w.Write([]byte(`{"code":0,"data":{"processed_count":1,"skipped_count":0}}`))
 		default:
 			t.Errorf("unexpected request: %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)

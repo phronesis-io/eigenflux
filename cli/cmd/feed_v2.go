@@ -17,6 +17,7 @@ import (
 	"cli.eigenflux.ai/internal/cache"
 	clientpkg "cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/controlcontext"
+	"cli.eigenflux.ai/internal/feedevent"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -177,6 +178,43 @@ func pollFeedV2(cmd *cobra.Command, serverName, limit string) error {
 	if err != nil {
 		return err
 	}
+	if batch == 0 {
+		now := time.Now().UnixMilli()
+		state, readErr := feedReportStore(serverName).Read()
+		action, _ := cmd.Flags().GetString("action")
+		if impression, reuse := reusableFeedPage(action, originFlag, state, now); readErr == nil && reuse {
+			if page, err := feedLedger(serverName).Page(impression); err == nil {
+				// Check before hydration: an old embedded snapshot must not replace the current context.
+				var cached struct {
+					Personalization struct {
+						Revision int64 `json:"context_revision"`
+					} `json:"personalization"`
+				}
+				if json.Unmarshal(page, &cached) == nil && cached.Personalization.Revision == appliedRevision {
+					if payload, revision, err := hydrateFeedV2ControlContext(serverName, credentials.AgentID, page); err == nil && revision == appliedRevision {
+						if err := renderFeedV2(cmd, payload); err != nil {
+							return err
+						}
+						warnReportLedger(feedReportStore(serverName).Update(now, func(r *feedevent.Reports) {
+							// A whole-page handout also exposes any never-handed batch backlog.
+							for key, entry := range r.Entries {
+								if entry.ImpressionID == impression {
+									if entry.HandedTime() == 0 {
+										entry.HandedAt = &now
+										entry.HandCount = 1
+									}
+									entry.Batched = false
+									r.Entries[key] = entry
+								}
+							}
+							r.Count(now, map[string]int64{"repeat_pulls_suppressed": 1})
+						}))
+						return nil
+					}
+				}
+			}
+		}
+	}
 	if batch > 0 && appliedRevision > 0 {
 		now := time.Now().UnixMilli()
 		state, readErr := feedReportStore(serverName).Read()
@@ -184,7 +222,7 @@ func pollFeedV2(cmd *cobra.Command, serverName, limit string) error {
 		ledger := feedLedger(serverName)
 		open, backlog := batchCandidates(ledger, state, now)
 		action, _ := cmd.Flags().GetString("action")
-		if readErr == nil && !shouldFetchFeedBatch(action, originFlag, state, len(open), len(backlog), now) {
+		if readErr == nil && !shouldFetchFeedBatch(action, originFlag, len(open), len(backlog)) {
 			payload, meta, localErr := localFeedBatchPayload(serverName, ledger, batch, true, "")
 			warnReportLedger(localErr)
 			if localErr == nil && meta != nil {

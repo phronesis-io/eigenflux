@@ -4,6 +4,7 @@ import "github.com/prometheus/client_golang/prometheus"
 
 // Labels contain bounded modes, source kinds and evaluator reason codes only.
 var (
+	DiscoveryNeedDenseDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "discovery_need_dense_duration_seconds", Help: "Captured-Need dense recall latency, including failed reads and excluding history loading.", Buckets: []float64{.005, .01, .025, .05, .1, .2, .3, .5, 1, 2.5, 5}}, []string{"lane", "exclusion"})
 	DiscoveryHydrateDuration   = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "discovery_hydrate_duration_seconds", Help: "Discovery source hydration latency, including failed reads.", Buckets: []float64{.005, .01, .025, .05, .1, .2, .3, .5, 1, 2.5, 5}}, []string{"mode"})
 	DiscoveryRefill            = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "discovery_consumed_refill_total", Help: "Bounded consumed-candidate refill outcomes."}, []string{"outcome"})
 	DiscoveryLRScoring         = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "discovery_lr_scoring_total", Help: "Discovery LR candidate batches by outcome."}, []string{"result"})
@@ -18,6 +19,6 @@ var (
 )
 
 func init() {
-	Registry.MustRegister(DiscoveryHydrateDuration, DiscoveryLRScoring, DiscoveryLRReload, DiscoveryRefill)
+	Registry.MustRegister(DiscoveryNeedDenseDuration, DiscoveryHydrateDuration, DiscoveryLRScoring, DiscoveryLRReload, DiscoveryRefill)
 	Registry.MustRegister(DiscoveryContextCache, DiscoveryNeedEmbedding, DiscoveryRecordingFailures, DiscoveryDuration, DiscoveryRejected, DiscoveryChannelFailures, DiscoveryFallback)
 }

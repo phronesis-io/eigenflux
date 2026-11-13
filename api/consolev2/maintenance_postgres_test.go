@@ -65,8 +65,9 @@ func TestMaintenancePostgresAgentAuthIdentityAndIdempotency(t *testing.T) {
 	h := server.New()
 	h.POST("/api/v2/maintenance/events:batch", svc.agentAuth("settings:write"), svc.recordMaintenanceBatch)
 	body := map[string]interface{}{"events": []maintenanceEvent{validMaintenanceEvent()}}
-	send := func(id int64) int {
-		status, _, _ := performJSON(t, h, "POST", "/api/v2/maintenance/events:batch", body, ut.Header{Key: "Authorization", Value: fmt.Sprintf("Bearer efv2a_maintenance_%d", id)})
+	send := func(id int64, headers ...ut.Header) int {
+		headers = append(headers, ut.Header{Key: "Authorization", Value: fmt.Sprintf("Bearer efv2a_maintenance_%d", id)})
+		status, _, _ := performJSON(t, h, "POST", "/api/v2/maintenance/events:batch", body, headers...)
 		return status
 	}
 	if status := send(42); status != 202 {
@@ -132,18 +133,30 @@ func TestMaintenancePostgresAgentAuthIdentityAndIdempotency(t *testing.T) {
 	t.Run("cycle and lifecycle persistence", func(t *testing.T) {
 		svc.telemetryRates = map[string]telemetryRateState{}
 		var events []maintenanceEvent
-		add := func(phase, stage, result, planMode string) {
+		add := func(phase, stage, result, planMode string) string {
 			e := runtimeEvent
 			e.EventID, e.AttemptID = fmt.Sprintf("%064x", 12000+len(events)), fmt.Sprintf("%032x", 13000)
 			e.Phase, e.Result = phase, result
 			e.Runtime = &runtimeObservation{Product: "codex", CLI: "1.0.19", Stage: stage, PlanMode: planMode}
 			events = append(events, e)
+			return e.EventID
 		}
 		for _, result := range []string{"plan_created", "incomplete", "permission_required", "permission_denied", "interrupted"} {
 			add("cycle", "cycle", result, "full")
 		}
-		add("cycle", "feed", "failed", "full")
-		events[len(events)-1].ErrorCode = "timeout"
+		feedFailureID := add("cycle", "feed", "failed", "full")
+		inlineFailureID := add("cycle", "pm", "failed", "full")
+		events[len(events)-1].ErrorCode = "network_error"
+		completedID := add("cycle", "rules", "completed", "full")
+		terminalID := add("cycle", "cycle", "failed", "full")
+		unknownFailureID := add("cycle", "publish", "failed", "full")
+		runtimeFailures := map[string]string{
+			feedFailureID:    "timeout",
+			inlineFailureID:  "server_error",
+			completedID:      "timeout",
+			terminalID:       "timeout",
+			unknownFailureID: "unlisted_error",
+		}
 		for _, row := range []struct{ stage, result string }{
 			{"trigger", "observed"}, {"permission", "allowed"}, {"permission", "legacy_mismatch"},
 			{"permission", "prompt"}, {"permission", "forbidden"}, {"permission", "unknown"},
@@ -152,9 +165,20 @@ func TestMaintenancePostgresAgentAuthIdentityAndIdempotency(t *testing.T) {
 			add("lifecycle", row.stage, row.result, "")
 		}
 		body = map[string]interface{}{"events": events}
-		for _, id := range []int64{42, 42, 43} {
-			if status := send(id); status != 202 {
-				t.Fatalf("new runtime batch ingestion for %d: %d", id, status)
+		for _, request := range []struct {
+			agentID  int64
+			failures map[string]string
+		}{
+			{42, runtimeFailures},
+			{42, map[string]string{feedFailureID: "rate_limited", unknownFailureID: "network_error"}},
+			{43, runtimeFailures},
+		} {
+			rawFailures, err := json.Marshal(request.failures)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if status := send(request.agentID, ut.Header{Key: runtimeFailuresHeader, Value: string(rawFailures)}); status != 202 {
+				t.Fatalf("new runtime batch ingestion for %d: %d", request.agentID, status)
 			}
 		}
 		var rows []struct {
@@ -176,7 +200,11 @@ FROM telemetry_events_v2 WHERE properties->>'attempt_id'=? ORDER BY agent_id,eve
 			key := fmt.Sprintf("%d/%s/%s/%s", row.AgentID, row.Phase, row.Stage, row.Result)
 			matched := false
 			for _, want := range events {
-				if row.Phase == want.Phase && row.Stage == want.Runtime.Stage && row.Result == want.Result && row.PlanMode == want.Runtime.PlanMode && row.ErrorCode == want.ErrorCode {
+				wantCode := want.ErrorCode
+				if want.EventID == feedFailureID {
+					wantCode = "timeout"
+				}
+				if row.Phase == want.Phase && row.Stage == want.Runtime.Stage && row.Result == want.Result && row.PlanMode == want.Runtime.PlanMode && row.ErrorCode == wantCode {
 					matched = true
 					break
 				}

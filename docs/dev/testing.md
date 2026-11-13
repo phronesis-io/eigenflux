@@ -4,8 +4,10 @@ Retention runtime failure categories are covered by
 `go test ./internal/maintenance ./cmd -run 'TestRuntime|TestFailedStage|TestCycle'`
 in `cli/`, and `go test ./api/consolev2 -run TestRuntime` in the root module.
 They verify privacy allowlists, failed-stage-only categories, account-local
-durability and immutable idempotent receipts. Database-backed acceptance still
-requires the isolated infrastructure described below.
+durability and immutable idempotent receipts. PostgreSQL Contracts runs
+`TestRuntimeFailureCategoryContract` and `TestMaintenancePostgresAgentAuthIdentityAndIdempotency`
+to verify category validation and authenticated batch persistence with an
+isolated database.
 
 Tests live beside the packages they exercise and in the service integration suites under `tests/`. Shared integration helpers live in `tests/testutil/`. The CLI and Console API are independent Go modules; Console Web has its own Node test command.
 
@@ -407,7 +409,7 @@ normal Skills directory cleanup may still require WorkBuddy authorization.
 CLI feedback completion regressions run with `go test ./cmd ./internal/feedevent`
 from `cli/`. They cover concurrent subprocess writers, process death while a
 report lock is held, 72-hour queue expiry, exact exposure attribution, scheduled
-whole-page pulls that always fetch, opt-in saved batches, a corrupt ledger that never blocks Feed or feedback,
+whole-page reuse with score/context/owner/time bypasses, opt-in saved batches, a corrupt ledger that never blocks Feed or feedback,
 lifecycle commands that skip the queue flush, Unicode status bounds and health
 fields. HTTP fixtures exercise the real
 CLI command paths; production cohort metrics remain rollout acceptance checks.
@@ -504,3 +506,18 @@ CLI cross-platform, PostgreSQL contracts, and release annotation validation grou
 PR runs by workflow and PR number. A new commit cancels older checks in that
 group. Main pushes and manual runs use unique run IDs and are not canceled by
 this policy. Publication workflows retain their existing serialization.
+
+Coverage recovery checks include `go test -race -short ./cmd ./internal/feedevent
+./internal/cache` in `cli/`, and `go test ./api/handler_gen/eigenflux/api ./api/dal
+./pkg/feedcontract ./pkg/itemstats ./pkg/replaylog ./rpc/feed/... ./pipeline/consumer`
+in the root module. Queue tests cover partial acknowledgement, account isolation,
+concurrent enqueue, crash-after-send retry, 401 recovery, corrupt files and
+missing timestamps. API tests exercise real Hertz binding and partial publishing.
+
+With an isolated loopback `RECOMMENDATION_METRICS_TEST_DSN` whose database name
+starts with `recommendation_metrics_`, run `go test ./pkg/recommendationmetrics
+-run 'TestPostgresCompliance|TestPostgresCoverage'`. Tests verify unchanged
+legacy counts, basis-specific coverage, delayed ingestion, snapshot versions and
+migration rollback. Migrate local services through 000135 and run the feedback
+metadata, health, reporting and real-CLI recovery tests in `tests/e2e` with
+`EIGENFLUX_TEST_CLI` pointing to this checkout's built CLI.

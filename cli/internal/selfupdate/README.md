@@ -22,6 +22,9 @@ work on an older version. A bare same-version CLI bootstraps its complete packag
 once despite the old daily throttle. Failed or interrupted checks retry after
 five minutes; successful checks keep the 24-hour interval. Preserve the verified
 target and fixed decision reason separately from raw local error diagnostics.
+Manifest requests use a 30-second timeout. Binary and ZIP downloads use up to
+90 seconds and reserve 30 seconds of the update deadline for validation,
+probing and activation.
 
 `cli/scripts/cli-packages.py` creates deterministic ZIPs before `clirelease`
 signs their final hashes. Build macOS helpers on macOS for each target CPU.

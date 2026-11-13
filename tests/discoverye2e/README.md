@@ -30,6 +30,12 @@ The CLI case verifies query search with filters, automatic selection of a captur
 Need without caller-supplied IDs, cursor pagination across all three kinds,
 batch recommendation limits without padding, and idempotent retries.
 
+For Need recall treatment coverage, run the same suite with
+`DISCOVERY_NEED_BUDGET_BPS=0 DISCOVERY_NEED_RECALL_BPS=10000`. Export
+`EMBEDDING_DIMENSIONS` explicitly: the fixture uses its own model name and cannot
+infer dimensions from the default production model. This validates serving with
+treatment enabled; representative-data freshness and latency gates remain separate.
+
 The runner supplies `APP_ENV=test`. Without `DISCOVERY_E2E=1`, the suite skips.
 The suite enables the new pipeline in its child processes, uses dynamic ports,
 and waits for both RPC registration and HTTP readiness. Process logs and test
