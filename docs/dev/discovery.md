@@ -623,8 +623,8 @@ latency still includes on-demand embedding and must be measured separately.
 
 ### Intent capture maintenance
 
-Completed Agents run a bounded maintenance pass after normal heartbeat business
-stages and after a confirmed Intent add/update. `need capture pending --limit 2`
+Completed Agents run a bounded maintenance pass after Commands and before Feed
+in each full heartbeat, and after a confirmed Intent add/update. `need capture pending --limit 2`
 reads current active Intent versions without a row in `need_capture_reviews`;
 this includes historical Intents and partially captured versions. It returns
 existing Need IDs/types so the Agent reuses them. `need capture complete --file`
@@ -642,8 +642,12 @@ is exposed in search/recommendation CLI parameters. Review status is shared acro
 Homes; heartbeat scheduling stays with the host and stage routing stays in CLI.
 A baseline Feed does not skip maintenance when the current heartbeat plan
 confirms completed onboarding and includes `need_capture`; incomplete onboarding
-remains read-only. At most two versions are reviewed per cycle; the Skill stops starting reviews
-past 60 seconds and continues other safe stages after a recoverable error.
+remains read-only. At most two versions (one on the first cycle) are reviewed per cycle, selected
+by the CLI after skipping versions that stayed unconfirmed in three retained
+plans; the Agent continues other safe stages after a recoverable error. Need outcomes stay internal and never
+suppress Feed or Agent recommendations. Full plans select Pending work once;
+see [heartbeat updates](heartbeat-updates.md#need-capture-before-feed) for local
+submission receipts and the foreground first-check contract.
 
 Apply migration 000109 before deploying these API routes. Publish CLI 0.0.56
 before the updated Skills bundle; its minimum CLI version is 0.0.56. Existing

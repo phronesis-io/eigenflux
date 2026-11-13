@@ -22,6 +22,7 @@ import (
 const heartbeatContractVersion = "eigenflux_heartbeat.v5"
 
 type heartbeatPlan struct {
+	NeedCapture              *needCapturePlan           `json:"need_capture,omitempty"`
 	CycleID                  string                     `json:"cycle_id,omitempty"`
 	FeedCompletionCheck      bool                       `json:"feed_completion_check"`
 	MainSessionBinding       *mainSessionBindingPlan    `json:"main_session_binding,omitempty"`
@@ -363,6 +364,7 @@ var heartbeatPlanCmd = &cobra.Command{
 			}
 		}
 
+		attachNeedCapturePlan(&plan)
 		attachCycleObservation(&plan, skillsScope)
 		if plan.CycleID != "" {
 			if err := maintenance.SetCycleRules(skillsScope, plan.CycleID, plan.RuleSources); err != nil {
@@ -469,11 +471,11 @@ func heartbeatStages(access runtimeAccess) []string {
 	if access.OnboardingState != "completed" {
 		return []string{"feed"}
 	}
-	return []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report", "commission_confirmations"}
+	return []string{"commands", "need_capture", "feed", "attention", "communication", "publish", "settings_report", "commission_confirmations"}
 }
 
 func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
-	receiptText := cycleInstructions(plan)
+	receiptText := cycleInstructions(plan) + needCaptureInstructions(plan)
 	if plan.SkillsUpdateError != "" {
 		receiptText += "\nSkills update incomplete: " + plan.SkillsUpdateError + ". Running retained compatible revision " + plan.SkillRevision + "; target revision " + plan.SkillsTargetRevision + ". Do not report this as an upgrade success or latest-version confirmation.\n"
 	}

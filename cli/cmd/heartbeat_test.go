@@ -85,12 +85,12 @@ func TestRenderHeartbeatPlanForAgentIsThinAndCurrent(t *testing.T) {
 		SchedulerLauncher:  "eigenflux --homedir /tmp/home heartbeat plan --format agent",
 		SchedulerMigration: "migrate owned task",
 		Access:             runtimeAccess{Mode: "intent_aligned", OnboardingState: "completed"},
-		ExecutionOrder:     []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report", "commission_confirmations"},
+		ExecutionOrder:     []string{"commands", "need_capture", "feed", "attention", "communication", "publish", "settings_report", "commission_confirmations"},
 	}
 	text := renderHeartbeatPlanForAgent(plan)
 	for _, required := range []string{
 		heartbeatContractVersion, "rev-123", "ef-future", "Freshly read, from disk",
-		"commands → feed → attention → communication → publish → need_capture → settings_report → commission_confirmations",
+		"commands → need_capture → feed → attention → communication → publish → settings_report → commission_confirmations",
 		"CLI prefix for every EigenFlux command in this cycle: eigenflux --homedir /tmp/home",
 		"Never run a bare eigenflux command",
 		"Apply runtime-model.md before subsequent CLI calls",
@@ -138,6 +138,7 @@ func TestHeartbeatPlanJSONCarriesCurrentPromptAndAccessDecision(t *testing.T) {
 			}))
 			defer server.Close()
 			_, serverName := runtimeTestConfig(t, server.URL, true)
+			seedNeedCaptureHistory(t)
 			version = "0.0.46"
 			rulesDir := installHeartbeatTestRules(t)
 			oldFormat := formatFlag
@@ -153,7 +154,7 @@ func TestHeartbeatPlanJSONCarriesCurrentPromptAndAccessDecision(t *testing.T) {
 			if err := json.Unmarshal([]byte(text), &plan); err != nil {
 				t.Fatalf("invalid JSON %q: %v", text, err)
 			}
-			wantStages := []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report", "commission_confirmations"}
+			wantStages := []string{"commands", "need_capture", "feed", "attention", "communication", "publish", "settings_report", "commission_confirmations"}
 			if baseline {
 				wantStages = []string{"feed"}
 			}
