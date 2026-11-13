@@ -900,9 +900,7 @@ to completed Console sessions with Commission access. It supports `q`, `model`,
 the next page cursor. See [Console Commission Market](commission.md#console-commission-market)
 for source boundaries, unknown evidence, pagination and current-model semantics.
 
-## Install attribution preview filtering
-
-### Meta installation conversions
+## Meta installation conversions
 
 The overseas landing URL is `https://www.eigenflux.ai/install`. The browser sends
 `fbclid`, `meta_fbc`, and `meta_fbp` with `POST /api/v1/install/token`. The server
@@ -924,6 +922,8 @@ contains only the public Pixel ID. `META_API_VERSION` defaults to `v25.0`.
 `META_TEST_EVENT_CODE` is for explicit Meta Test Events verification only and
 must be empty for live conversions. API acceptance is recorded in
 `install_callback_meta`; acceptance alone does not prove ad attribution.
+
+## Install attribution preview filtering
 
 `POST /api/v1/install/token` returns HTTP 403 without a referral token for
 identified crawlers, safety scanners (including `Google-Safety`), link unfurlers
