@@ -44,13 +44,16 @@ Windows installs managed Skills through sync and records the actual target.
 The event is `maintenance_attempt`, `phase=uninstall`, `trigger=manual`.
 Results: `started`, `removed`, `partial`, `failed`, `blocked`. Source distinguishes
 `agent` and `manual`. Platform, version, duration, and fixed error code are
-recorded; free-text reasons and paths never enter telemetry. Categories are
-`not_provided`, `other`, `usability`, `cost`, `performance`, `privacy`,
-`no_longer_needed`. One physical attempt may have multiple account observations;
+recorded. Categories are `declined`, `other`, `usability`, `cost`,
+`performance`, `privacy`, and `no_longer_needed`. Legacy telemetry may
+contain `not_provided`. One physical attempt may have multiple account observations;
 count distinct attempt IDs, not rows. Terminal result currently summarizes the
 CLI-led removal; native host cleanup failure is reported by the Skill.
 
-Started observations use local audits and queues. Terminal observations capture
+The submitting Agent sends the original text or explicit decline and the
+started event before cleanup. Continue only after the API returns the matching
+attempt ID. Retry with the same attempt ID, Agent, server, and feedback. Local
+receipts carry confirmation and no original text. Terminal observations capture
 existing authenticated clients in memory, clear local data, and upload the actual
 cleanup result without recreating local business files. Upload uses existing tokens with no
 refresh/login and one five-second network budget across accounts. The current

@@ -135,7 +135,7 @@ func TestUninstallTerminalFollowsDataCleanup(t *testing.T) {
 			if err := auth.SaveV2Credentials("test", &auth.V2Credentials{AgentID: "42", AccessToken: "fixture-token", RefreshToken: "fixture-refresh", ExpiresAt: time.Now().Add(time.Hour).UnixMilli()}); err != nil {
 				t.Fatal(err)
 			}
-			o := newUninstallObservation(filepath.Join(filepath.Dir(home), "eigenflux"), "manual", "not_provided", "")
+			o := newUninstallObservation(filepath.Join(filepath.Dir(home), "eigenflux"), "manual", "not_provided")
 			o.Homes = []installationHome{{Home: home}}
 			o.discoverScopes()
 			if len(o.Scopes) != 1 {
@@ -173,7 +173,7 @@ func TestUninstallPartialStillClearsLocalData(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "credentials.json"), []byte("secret"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	o := newUninstallObservation(filepath.Join(filepath.Dir(home), "eigenflux"), "manual", "not_provided", "")
+	o := newUninstallObservation(filepath.Join(filepath.Dir(home), "eigenflux"), "manual", "not_provided")
 	o.Homes = []installationHome{{Home: home}}
 	o.Partial = true
 	if err := o.finishAndPurge("partial", "managed_content_preserved"); err != nil {
