@@ -42,14 +42,6 @@ func Register(h *server.Hertz, baseURL string) {
 	initOceanengineConfig()
 	initBilibiliConfig()
 	initMetaConfig()
-	if metaDeliveryEnabled() {
-		ctx, cancel := context.WithCancel(context.Background())
-		h.OnRun = append(h.OnRun, func(context.Context) error {
-			go recoverMetaCallbacks(ctx)
-			return nil
-		})
-		h.OnShutdown = append(h.OnShutdown, func(context.Context) { cancel() })
-	}
 	g := h.Group("/api/v1/install")
 	g.POST("/token", mintRef)
 	g.POST("/report", reportInstall)

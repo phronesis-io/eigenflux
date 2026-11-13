@@ -20,7 +20,6 @@ import (
 	redis "github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
-	"eigenflux_server/api/install"
 	"eigenflux_server/pkg/logger"
 )
 
@@ -503,7 +502,6 @@ func (s *Service) verifyEmailBinding(ctx context.Context, c *app.RequestContext)
 	validOTP := false
 	var recoveryDetails map[string]interface{}
 	rebindRequired := false
-	var metaRef string
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		_, valid, checkErr := s.lockAndCheckEmailChallenge(tx, req, normalizedEmail, "bind", &agentIDValue, &sessionID, now)
 		if checkErr != nil || !valid {
@@ -566,14 +564,6 @@ func (s *Service) verifyEmailBinding(ctx context.Context, c *app.RequestContext)
 			return errConflict
 		}
 		if current.BindingID == 0 {
-			if _, testAccount := s.fixedTestOTP(normalizedEmail); !testAccount {
-				sourceURL := string(c.GetHeader("Origin")) + "/dashboard/claim"
-				var recordErr error
-				metaRef, recordErr = install.RecordVerifiedMetaRegistration(tx, agentIDValue, now, sourceURL)
-				if recordErr != nil {
-					return recordErr
-				}
-			}
 			if err := tx.Exec(`INSERT INTO agent_email_bindings
 				(agent_id, normalized_email, normalization_version, verification_state, status,
 				 verified_at, created_at, updated_at)
@@ -621,7 +611,6 @@ func (s *Service) verifyEmailBinding(ctx context.Context, c *app.RequestContext)
 		fail(c, http.StatusInternalServerError, "EMAIL_BIND_FAILED", "could not bind email", nil)
 		return
 	}
-	install.SendVerifiedMetaRegistration(metaRef)
 	reply(c, http.StatusOK, map[string]interface{}{
 		"bound": true, "verification_level": "email_verified",
 	})

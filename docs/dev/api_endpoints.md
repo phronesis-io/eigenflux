@@ -913,17 +913,16 @@ atomically records the first copy for the ref. Browser and server `CopyCommand`
 events use `eigenflux:copy:<ref>`. The browser sends after the first-copy response,
 and the server can deliver eligible Meta traffic even if the response is lost.
 
-The signed new V2 Agent provision transaction stores a candidate ref. The
-first non-test email OTP binding for a candidate atomically records
-`CompleteRegistration` once per ref, using the verification time and the
-Console claim page as the event source. It retains the landing browser
-identifiers for ad matching. Public `/report` calls still drive the legacy
-install funnel and can retry an already verified Meta event.
+The install callback requires both the existing successful `/report` and a
+committed signed provision of a new V2 Agent for the same ref. Either request
+can arrive first. The event uses the later timestamp and the original landing
+browser identifiers. Registration uses `action_source=other` because the
+provision and report happen outside the landing page.
 
-Independent atomic leases protect the two event types. Gateway recovery scans
-retry committed events after restarts or failed sends. Copy and registration
-claims expire after 47 hours and six days respectively, preserving room for
-retries within Meta's delivery windows.
+The two events use independent atomic leases and persisted success states.
+Transient failures retry, and a later report or provision request can reclaim
+an eligible failed install callback. Copy retries stop before the browser
+deduplication window closes.
 
 Apply migration `000136` before deploying the API. Configure `META_ADS_ENABLED`,
 `META_PIXEL_ID`, and secret `META_CAPI_ACCESS_TOKEN` on the server; the frontend

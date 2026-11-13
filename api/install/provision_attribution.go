@@ -48,8 +48,8 @@ func BindProvisionedAgent(tx *gorm.DB, ref string, agentID int64, now int64) (Pr
 		}
 	}
 	if token.Channel == "facebook" && (token.MetaFbc != "" || token.MetaFbp != "") {
-		if err := tx.Exec(`INSERT INTO install_meta_registration_refs (agent_id, ref) VALUES (?, ?)`,
-			agentID, ref).Error; err != nil {
+		if err := tx.Model(&Token{}).Where("token = ? AND meta_provisioned_at = 0", ref).
+			Update("meta_provisioned_at", now).Error; err != nil {
 			return result, err
 		}
 	}

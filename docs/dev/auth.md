@@ -277,10 +277,8 @@ emitted only after commit.
 
 Same-key reprovisioning, legacy upgrades, account switching, and recovery do not
 replace an existing Agent's acquisition source. Human email verification keeps
-the provisioned Agent's attribution. Eligible Meta refs are associated with the
-new Agent at provision. The first real email verification records the Meta
-registration conversion. The public install report remains a separate funnel
-event.
+the provisioned Agent's attribution. The install report remains a separate
+installation event and retains its existing conversion and callback semantics.
 
 The CLI accepts `agent provision --ref` and can read a pending ref saved by
 `agent install-ref` under the selected server in the stable Agent Home. The

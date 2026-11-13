@@ -2,11 +2,9 @@ package install
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -27,8 +25,7 @@ var (
 	metaPixelID, metaAccessToken, metaAPIVersion, metaTestEventCode string
 	metaHTTP                                                        = &http.Client{Timeout: 10 * time.Second}
 	metaGraphURL                                                    = "https://graph.facebook.com"
-	metaSendSlots                                                   = make(chan struct{}, 32)
-	metaCookiePattern                                               = regexp.MustCompile(`^fb\.[0-9]+\.[0-9]{13}\.[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)?$`)
+	metaCookiePattern                                               = regexp.MustCompile(`^fb\.[0-9]+\.[0-9]{13}\.[A-Za-z0-9_-]+$`)
 	metaClickPattern                                                = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 )
 
@@ -61,8 +58,7 @@ func metaFbc(fbclid, fbc string, now int64) string {
 		return ""
 	}
 	fbc = normalizeMetaCookie(fbc)
-	parts := strings.SplitN(fbc, ".", 5)
-	if len(parts) >= 4 && parts[3] == fbclid {
+	if strings.HasSuffix(fbc, "."+fbclid) {
 		return fbc
 	}
 	return fmt.Sprintf("fb.1.%d.%s", now, fbclid)
@@ -73,34 +69,27 @@ func metaColumns(name string) (code, sent, signal string) {
 	case metaCopyEvent:
 		return "meta_copy_code", "meta_copy_sent_at", "copied_at"
 	case metaInstallEvent:
-		return "meta_install_code", "meta_install_sent_at", "meta_registered_at"
+		return "meta_install_code", "meta_install_sent_at", "meta_provisioned_at"
 	default:
 		return "", "", ""
 	}
 }
 
-func pendingMetaCallbacks(gdb *gorm.DB, name string, now time.Time) *gorm.DB {
-	code, sent, signal := metaColumns(name)
-	// Copy can overlap a Pixel event. Leave room for transport retries inside
-	// Meta's 48-hour deduplication and seven-day event acceptance limits.
-	maxAge := 6 * 24 * time.Hour
-	if name == metaCopyEvent {
-		maxAge = 47 * time.Hour
-	}
-	return gdb.Model(&Token{}).Where(fmt.Sprintf(
-		"channel = 'facebook' AND (meta_fbc <> '' OR meta_fbp <> '') AND %s > 0 AND %s > ? AND %s <> 0 AND (%s = 0 OR %s < ?)"+
-			" AND (%s < 400 OR %s >= 500 OR %s = 429 OR %s < ?)",
-		signal, signal, code, sent, sent, code, code, code, sent),
-		now.Add(-maxAge).UnixMilli(), now.Add(-time.Minute).UnixMilli(), now.Add(-15*time.Minute).UnixMilli())
-}
-
 func claimMetaCallback(gdb *gorm.DB, ref, name string) (*Token, int64, error) {
-	_, sent, _ := metaColumns(name)
-	if sent == "" {
+	code, sent, signal := metaColumns(name)
+	if code == "" {
 		return nil, 0, fmt.Errorf("unsupported Meta event")
 	}
-	now := time.Now()
-	result := pendingMetaCallbacks(gdb, name, now).Where("token = ?", ref).Update(sent, now.UnixMilli())
+	now := time.Now().UnixMilli()
+	eligible := gdb.Model(&Token{}).Where(fmt.Sprintf(
+		"token = ? AND channel = 'facebook' AND (meta_fbc <> '' OR meta_fbp <> '') AND %s > 0 AND %s <> 0 AND (%s = 0 OR %s < ?)", signal, code, sent, sent), ref, now-time.Minute.Milliseconds())
+	if name == metaInstallEvent {
+		eligible = eligible.Where("reported_at > 0")
+	} else {
+		// A delayed copy retry must still overlap Meta's 48-hour Pixel dedup window.
+		eligible = eligible.Where("copied_at > ?", now-(47*time.Hour).Milliseconds())
+	}
+	result := eligible.Update(sent, now)
 	if result.Error != nil {
 		return nil, 0, result.Error
 	}
@@ -111,75 +100,21 @@ func claimMetaCallback(gdb *gorm.DB, ref, name string) (*Token, int64, error) {
 	if err := gdb.First(&tok, "token = ?", ref).Error; err != nil {
 		return nil, 0, err
 	}
-	return &tok, now.UnixMilli(), nil
+	return &tok, now, nil
 }
 
-// RecordVerifiedMetaRegistration records the first email-verified registration
-// for a ref bound during signed provision. Call inside the email transaction.
-func RecordVerifiedMetaRegistration(tx *gorm.DB, agentID, verifiedAt int64, sourceURL string) (string, error) {
-	var ref string
-	err := tx.Raw(`UPDATE install_tokens
-		SET meta_registered_at = ?, meta_registration_url = ?
-		WHERE token = (SELECT ref FROM install_meta_registration_refs WHERE agent_id = ?)
-		  AND meta_registered_at = 0
-		RETURNING token`, verifiedAt, sourceURL, agentID).Scan(&ref).Error
-	return ref, err
-}
-
-// SendVerifiedMetaRegistration schedules delivery after verification commits.
-func SendVerifiedMetaRegistration(ref string) {
+// SendMetaProvisionConversion retries delivery of a committed provision signal.
+func SendMetaProvisionConversion(ref string) {
 	if ref != "" {
 		fireMetaCallback(ref, metaInstallEvent)
 	}
 }
 
-func metaDeliveryEnabled() bool {
-	return metaEnabled && metaPixelID != "" && metaAccessToken != ""
-}
-
-// recoverMetaCallbacks re-enqueues durable signals after a restart or a failed
-// send. The per-event claim also fences sends from other replicas and requests.
-func recoverMetaCallbacks(ctx context.Context) {
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
-	for ctx.Err() == nil {
-		for _, name := range []string{metaCopyEvent, metaInstallEvent} {
-			retryPendingMetaCallbacks(ctx, name)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-func retryPendingMetaCallbacks(ctx context.Context, name string) {
-	_, sent, signal := metaColumns(name)
-	var refs []string
-	err := pendingMetaCallbacks(db.DB.WithContext(ctx), name, time.Now()).
-		Order(sent+" ASC, "+signal+" ASC").Limit(50).Pluck("token", &refs).Error
-	if err != nil {
-		logger.Default().Error("Meta callback recovery scan failed", "event_name", name, "err", err)
-		return
-	}
-	for _, ref := range refs {
-		fireMetaCallback(ref, name)
-	}
-}
-
 func fireMetaCallback(ref, name string) {
-	if !metaDeliveryEnabled() {
-		return
-	}
-	select {
-	case metaSendSlots <- struct{}{}:
-	default:
-		// The periodic scan can pick up work when capacity frees up.
+	if !metaEnabled || metaPixelID == "" || metaAccessToken == "" {
 		return
 	}
 	go func() {
-		defer func() { <-metaSendSlots }()
 		tok, lease, err := claimMetaCallback(db.DB, ref, name)
 		if err != nil {
 			logger.Default().Error("Meta callback claim failed", "ref", ref, "err", err)
@@ -216,9 +151,12 @@ func reportMetaConversion(tok *Token, name string) (int, error) {
 	if signal == "" {
 		return -2, fmt.Errorf("unsupported Meta event")
 	}
-	at, stage, sourceURL := tok.MetaRegisteredAt, "install", tok.MetaRegistrationURL
-	if name == metaCopyEvent {
-		at, stage, sourceURL = tok.CopiedAt, "copy", "https://www.eigenflux.ai/install"
+	at, stage, source := tok.CopiedAt, "copy", "website"
+	if name == metaInstallEvent {
+		if tok.MetaProvisionedAt <= 0 || tok.ReportedAt <= 0 {
+			return -2, fmt.Errorf("Meta install requires provision and report timestamps")
+		}
+		at, stage, source = max(tok.MetaProvisionedAt, tok.ReportedAt), "install", "other"
 	}
 	if at <= 0 {
 		return -2, fmt.Errorf("Meta event has no confirmed timestamp")
@@ -230,18 +168,21 @@ func reportMetaConversion(tok *Token, name string) (int, error) {
 	if tok.MetaFbp != "" {
 		user["fbp"] = tok.MetaFbp
 	}
-	if net.ParseIP(tok.ClientIP) != nil {
+	if tok.ClientIP != "" {
 		user["client_ip_address"] = tok.ClientIP
 	}
 	if tok.MetaUserAgent != "" {
 		user["client_user_agent"] = tok.MetaUserAgent
 	}
-	payload := map[string]interface{}{"data": []interface{}{map[string]interface{}{
+	conversion := map[string]interface{}{
 		"event_name": name, "event_time": at / 1000,
-		"event_id":      "eigenflux:" + stage + ":" + tok.Token,
-		"action_source": "website", "event_source_url": sourceURL,
+		"event_id": "eigenflux:" + stage + ":" + tok.Token, "action_source": source,
 		"user_data": user,
-	}}}
+	}
+	if name == metaCopyEvent {
+		conversion["event_source_url"] = "https://www.eigenflux.ai/install"
+	}
+	payload := map[string]interface{}{"data": []interface{}{conversion}}
 	if metaTestEventCode != "" {
 		payload["test_event_code"] = metaTestEventCode
 	}
@@ -265,30 +206,17 @@ func reportMetaConversion(tok *Token, name string) (int, error) {
 	if err != nil {
 		return -2, fmt.Errorf("Meta response read failed")
 	}
-	var result struct {
-		EventsReceived int `json:"events_received"`
-		Error          *struct {
-			Code        int  `json:"code"`
-			Subcode     int  `json:"error_subcode"`
-			IsTransient bool `json:"is_transient"`
-		} `json:"error"`
-	}
-	decodeErr := json.Unmarshal(body, &result)
-	if result.Error != nil {
-		code := resp.StatusCode
-		if result.Error.IsTransient || code < 400 {
-			code = -2
-		}
-		return code, fmt.Errorf("Meta HTTP %d, Graph code %d, subcode %d, transient %t",
-			resp.StatusCode, result.Error.Code, result.Error.Subcode, result.Error.IsTransient)
-	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return resp.StatusCode, fmt.Errorf("Meta HTTP %d", resp.StatusCode)
 	}
-	if decodeErr != nil {
+	var result struct {
+		EventsReceived int             `json:"events_received"`
+		Error          json.RawMessage `json:"error"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
 		return -2, fmt.Errorf("invalid Meta response")
 	}
-	if result.EventsReceived != 1 {
+	if result.EventsReceived != 1 || len(result.Error) > 0 && string(result.Error) != "null" {
 		return -2, fmt.Errorf("Meta did not accept the event")
 	}
 	return 0, nil

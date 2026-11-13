@@ -88,6 +88,46 @@ func TestV2InstallAttribution(t *testing.T) {
 		}
 	})
 
+	t.Run("meta_install_requires_signed_new_provision", func(t *testing.T) {
+		for _, reportFirst := range []bool{true, false} {
+			ref := h.json(t, http.MethodPost, "/api/v1/install/token", map[string]any{
+				"fbclid": "test-meta-click",
+			}, http.StatusOK)["ref"].(string)
+			load := func() install.Token {
+				t.Helper()
+				var row install.Token
+				if err := h.db.First(&row, "token = ?", ref).Error; err != nil {
+					t.Fatal(err)
+				}
+				return row
+			}
+			report := func() {
+				h.json(t, http.MethodPost, "/api/v1/install/report", map[string]any{"ref": ref}, http.StatusOK)
+			}
+			if reportFirst {
+				report()
+				if row := load(); row.ReportedAt == 0 || row.MetaProvisionedAt != 0 {
+					t.Fatalf("public report set a signed provision marker: %+v", row)
+				}
+			}
+			key := newKey(t)
+			req := h.request(t, key, ref)
+			first := h.provision(t, key, req)
+			stamped := load()
+			if stamped.MetaProvisionedAt == 0 || (stamped.ReportedAt != 0) != reportFirst {
+				t.Fatalf("unexpected timestamp state after provision: %+v", stamped)
+			}
+			if !reportFirst {
+				report()
+			}
+			replay := h.provision(t, key, req)
+			complete := load()
+			if complete.MetaProvisionedAt != stamped.MetaProvisionedAt || complete.ReportedAt == 0 || replay["agent_id"] != first["agent_id"] {
+				t.Fatalf("retry did not preserve both signals: %+v", complete)
+			}
+		}
+	})
+
 	t.Run("ref_is_signed_and_receipt_bound", func(t *testing.T) {
 		key := newKey(t)
 		req := h.request(t, key, h.mint(t, "bilibili", ""))

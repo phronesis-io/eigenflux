@@ -42,8 +42,7 @@ type Token struct {
 	MetaUserAgent                 string `gorm:"column:meta_user_agent;type:text;not null;default:''"`
 	MetaCopyCode                  int    `gorm:"column:meta_copy_code;not null;default:-1"`
 	MetaCopySentAt                int64  `gorm:"column:meta_copy_sent_at;not null;default:0"`
-	MetaRegisteredAt              int64  `gorm:"column:meta_registered_at;not null;default:0"`
-	MetaRegistrationURL           string `gorm:"column:meta_registration_url;type:text;not null;default:''"`
+	MetaProvisionedAt             int64  `gorm:"column:meta_provisioned_at;not null;default:0"`
 	MetaInstallCode               int    `gorm:"column:meta_install_code;not null;default:-1"`
 	MetaInstallSentAt             int64  `gorm:"column:meta_install_sent_at;not null;default:0"`
 	XingtuClickID                 string `gorm:"column:xingtu_callback;type:text;not null;default:''"`
