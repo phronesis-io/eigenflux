@@ -1,6 +1,11 @@
 # CLI installation removal
 
-`eigenflux uninstall` previews the registered installation without writing files or contacting the network. `--begin` records an attempt before native cleanup; resume it through `--attempt`. Before cleanup, the uninstall Skill asks whether other Agents still need EigenFlux. Explicit owner scope is reused. `--scope current` removes only the invoking registered Home, while `--scope all` removes the full installation. Begin/apply require an explicit scope; `--all-homes` remains an alias for complete removal. Apply requires `--host-cleanup-confirmed`.
+`eigenflux uninstall` previews the registered installation without writing files or contacting the network. `--begin` records an attempt before native cleanup; resume it through `--attempt`. Before cleanup, the uninstall Skill asks whether other Agents still need EigenFlux. Explicit owner scope is reused. `--scope current` removes only the invoking registered Home, while `--scope all` removes the full installation. Begin/apply require an explicit scope; `--all-homes` remains an alias for complete removal. Apply requires `--host-cleanup-confirmed`. Submit the owner's reason with
+`--reason-stdin`, or use `--reason-category declined` when the owner explicitly
+declines. The selected Agent and server must be authenticated. The CLI requires
+the server's feedback confirmation before cleanup. The official Skill requires
+that confirmation before native host cleanup. If submission fails after the
+attempt ID is allocated, rerun `--begin --attempt` with the same response.
 
 The installers register the actual executable selected or installed, the
 normalized Agent Home, the invoking host, and any successfully synchronized
@@ -38,8 +43,12 @@ Successful removal deletes the registered CLI, its owned sidecars and wrappers, 
 
 Missing registered Skills directories are already removed. Existing targets with missing or invalid manifests fail ownership validation. For complete Windows removal, the uninstall Skill also verifies and clears EigenFlux-owned legacy entries under `%USERPROFILE%\.agents\skills` using host-native tools; unrelated entries remain.
 
-Terminal upload clients capture existing credentials in memory before cleanup.
-Successful cleanup deletes local files before uploading the actual terminal outcome; it does not recreate credentials or queues. Free-text reasons remain local during an attempt and are deleted after successful cleanup. Upload has one five-second budget across accounts and does not block removal. Offline uninstall has no retained delivery queue after successful data cleanup.
+The server stores the reason text or explicit decline at begin. Local receipts
+retain the attempt ID and confirmation. Terminal upload clients capture existing
+credentials in memory before cleanup. After deleting local data, they report
+the actual outcome with one five-second network budget across accounts.
+Network or credential failures at that point can leave the outcome unknown
+while the submitted feedback remains recorded.
 
 Installation/update/activation/watch lock files remain to prevent replacement of live lock inodes. Successful removal retains no business data or credentials in those files. An abnormal wrapper does not skip Home cleanup; partial removal reports retained paths and exits unsuccessfully. Cleanup failures keep failure/audit state; successful Home cleanup does not recreate that state.
 

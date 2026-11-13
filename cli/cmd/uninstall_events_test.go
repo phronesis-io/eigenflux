@@ -38,7 +38,7 @@ func TestUninstallTelemetryAccountIsolationPrivacyAndReplay(t *testing.T) {
 		_, _ = w.Write([]byte(`{"code":0,"data":{"accepted_events":2}}`))
 	}))
 	defer srv.Close()
-	o := newUninstallObservation(filepath.Join(t.TempDir(), "eigenflux"), "agent", "other", "私人原因 中文 owner@example.com")
+	o := newUninstallObservation(filepath.Join(t.TempDir(), "eigenflux"), "agent", "other")
 	o.Homes = nil
 	for _, id := range []string{"42", "43"} {
 		home := filepath.Join(t.TempDir(), ".eigenflux")
@@ -74,8 +74,8 @@ func TestUninstallTelemetryAccountIsolationPrivacyAndReplay(t *testing.T) {
 	}
 	for _, entry := range o.Homes {
 		data, _ := os.ReadFile(filepath.Join(entry.Home, "uninstall.json"))
-		if !strings.Contains(string(data), "私人原因") {
-			t.Fatal("optional local reason lost")
+		if strings.Contains(string(data), `"reason"`) {
+			t.Fatal("audit contained a reason")
 		}
 	}
 	before := len(received)
@@ -102,7 +102,7 @@ func TestUninstallOriginalRevalidationAndLocks(t *testing.T) {
 			t.Fatal(err)
 		}
 		home, _ = filepath.EvalSymlinks(home)
-		o := newUninstallObservation(bin, "manual", "not_provided", "")
+		o := newUninstallObservation(bin, "manual", "not_provided")
 		o.Homes = []installationHome{{Home: home}}
 		o.FileDigests = map[string]string{bin: uninstallscript.Digest([]byte("fixture binary"))}
 		return o

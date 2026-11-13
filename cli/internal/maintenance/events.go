@@ -111,7 +111,7 @@ func Validate(e Event) error {
 		if !contains([]string{"cli", "skills", "plugin", "scheduler", "notifier"}, e.Component) || e.Trigger != "manual" || !contains([]string{"started", "removed", "partial", "failed", "blocked"}, e.Result) {
 			return errors.New("invalid uninstall category")
 		}
-		if !contains([]string{"agent", "manual"}, e.Source) || !contains([]string{"darwin", "windows", "linux"}, e.Platform) || !contains([]string{"not_provided", "other", "usability", "cost", "performance", "privacy", "no_longer_needed"}, e.ReasonCategory) {
+		if !contains([]string{"agent", "manual"}, e.Source) || !contains([]string{"darwin", "windows", "linux"}, e.Platform) || !contains([]string{"not_provided", "declined", "other", "usability", "cost", "performance", "privacy", "no_longer_needed"}, e.ReasonCategory) {
 			return errors.New("invalid uninstall metadata")
 		}
 		if !safeValue.MatchString(e.Host) || !safeValue.MatchString(e.FromVersion) || !safeValue.MatchString(e.ErrorCode) || e.DurationMS < 0 || e.DurationMS > int64(24*time.Hour/time.Millisecond) || e.Mode != "" && e.Mode != "skill" && e.Mode != "plugin" {

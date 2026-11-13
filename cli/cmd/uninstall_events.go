@@ -45,11 +45,15 @@ type uninstallObservation struct {
 	Partial               bool                            `json:"partial"`
 	Mutated               bool                            `json:"mutated"`
 	Result                string                          `json:"result,omitempty"`
-	LocalReason           string                          `json:"-"`
+	FeedbackUploaded      bool                            `json:"feedback_uploaded,omitempty"`
+	FeedbackServer        string                          `json:"feedback_server,omitempty"`
+	FeedbackAgentID       string                          `json:"feedback_agent_id,omitempty"`
+	FeedbackEndpoint      string                          `json:"feedback_endpoint,omitempty"`
+	ReadyToFinalize       bool                            `json:"ready_to_finalize,omitempty"`
 }
 
-func newUninstallObservation(bin, source, category, reason string) *uninstallObservation {
-	return &uninstallObservation{AttemptID: maintenance.NewID(), Executable: bin, Homes: []installationHome{{Home: config.HomeDir()}}, Started: time.Now().UTC(), Source: source, ReasonCategory: category, Version: version, LocalReason: reason}
+func newUninstallObservation(bin, source, category string) *uninstallObservation {
+	return &uninstallObservation{AttemptID: maintenance.NewID(), Executable: bin, Homes: []installationHome{{Home: config.HomeDir()}}, Started: time.Now().UTC(), Source: source, ReasonCategory: category, Version: version}
 }
 
 func (o *uninstallObservation) discoverScopes() {
@@ -177,21 +181,7 @@ func (o *uninstallObservation) audit(result, code string) {
 			continue
 		}
 		seen[entry.Home] = true
-		// Preserve the voluntarily supplied reason when Windows finalizes later.
-		reason := o.LocalReason
-		if reason == "" {
-			var previous struct {
-				Reason    string `json:"reason"`
-				AttemptID string `json:"attempt_id"`
-			}
-			if data, err := os.ReadFile(filepath.Join(entry.Home, "uninstall.json")); err == nil {
-				_ = json.Unmarshal(data, &previous)
-				if previous.AttemptID == o.AttemptID {
-					reason = previous.Reason
-				}
-			}
-		}
-		if err := saveMaintenance(filepath.Join(entry.Home, "uninstall.json"), map[string]interface{}{"attempt_id": o.AttemptID, "reason": reason, "at": o.Started, "executable": o.Executable, "result": result, "error_code": code}); err != nil {
+		if err := saveMaintenance(filepath.Join(entry.Home, "uninstall.json"), map[string]interface{}{"attempt_id": o.AttemptID, "at": o.Started, "executable": o.Executable, "result": result, "error_code": code}); err != nil {
 			fmt.Fprintln(os.Stderr, "Uninstall audit could not be saved; removal continues.")
 		}
 	}
@@ -344,6 +334,9 @@ func init() {
 			return errors.New("invalid uninstall receipt")
 		}
 		remove, _ := cmd.Flags().GetBool("remove-original")
+		if !o.FeedbackUploaded || !o.ReadyToFinalize {
+			return errors.New("uninstall finalization requires an applied attempt with confirmed feedback")
+		}
 		if !o.Pending && !(remove && o.Result == "partial" && o.PackageCleanup != nil) {
 			if o.Result == "removed" || o.Result == "partial" || o.Result == "blocked" || o.Result == "failed" {
 				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"attempt_id": attempt, "result": o.Result}); err != nil {

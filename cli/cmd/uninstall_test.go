@@ -3,15 +3,21 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/filelock"
+	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/skills"
 	watchstate "cli.eigenflux.ai/internal/watch"
 )
@@ -114,8 +120,73 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 			t.Fatalf("record: %v %s", err, out)
 		}
 		home, _ = filepath.EvalSymlinks(home)
+		configureUninstallFeedbackTest(t, home, uninstallFeedbackTestServer(t, nil))
 		return bin, home, invoke
 	}
+	t.Run("feedback_required_and_confirmed_before_cleanup", func(t *testing.T) {
+		bin, home, invoke := fixture(t)
+		var uploads atomic.Int32
+		attempts := make(chan string, 2)
+		configureUninstallFeedbackTest(t, home, uninstallFeedbackTestServer(t, func(w http.ResponseWriter, event maintenance.Event, reason string) bool {
+			if event.Source != "agent" || reason != " 中文反馈\n第二行 " {
+				t.Errorf("feedback changed: %+v %q", event, reason)
+			}
+			if n := uploads.Add(1); int(n) <= cap(attempts) {
+				attempts <- event.AttemptID
+				if n == 1 {
+					w.WriteHeader(http.StatusServiceUnavailable)
+					return false
+				}
+			}
+			return true
+		}))
+
+		if out, err := invoke("uninstall", "--scope", "all", "--begin"); err == nil || !strings.Contains(string(out), "provide an uninstall reason") {
+			t.Fatalf("missing feedback: %v %s", err, out)
+		}
+		if out, err := invoke("uninstall", "--scope", "all", "--apply", "--host-cleanup-confirmed", "--source", "agent", "--reason", " 中文反馈\n第二行 "); err == nil || !strings.Contains(string(out), "upload failed") {
+			t.Fatalf("failed upload: %v %s", err, out)
+		}
+		receipts, err := filepath.Glob(filepath.Join(home, "uninstall-*.json"))
+		if err != nil || len(receipts) != 1 {
+			t.Fatalf("expected one retry receipt: %v %v", receipts, err)
+		}
+		attemptID := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(receipts[0]), "uninstall-"), ".json")
+		receipt, err := os.ReadFile(receipts[0])
+		if err != nil || strings.Contains(string(receipt), "中文反馈") {
+			t.Fatalf("local receipt: %v %s", err, receipt)
+		}
+		if out, err := invoke("uninstall", "--scope", "all", "--attempt", attemptID, "--apply", "--host-cleanup-confirmed"); err == nil || !strings.Contains(string(out), "not been confirmed") {
+			t.Fatalf("unconfirmed apply: %v %s", err, out)
+		}
+		if _, err := os.Stat(bin); err != nil {
+			t.Fatal("failed upload removed executable:", err)
+		}
+		wrapper := bin + ".uninstall.sh"
+		args := []string{wrapper}
+		shell := "sh"
+		if runtime.GOOS == "windows" {
+			shell = "powershell.exe"
+			args = []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", bin + ".uninstall.ps1"}
+		}
+		cmd := exec.Command(shell, append(args, bin, "--homedir", home, "--format", "json", "--begin", "--attempt", attemptID, "--source", "agent", "--reason-stdin")...)
+		cmd.Stdin = strings.NewReader(" 中文反馈\n第二行 ")
+		if out, err := cmd.CombinedOutput(); err != nil || !strings.Contains(string(out), "reason_uploaded") {
+			t.Fatalf("retry through wrapper stdin: %v %s", err, out)
+		}
+		if out, err := invoke("uninstall", "--attempt", attemptID, "--apply", "--host-cleanup-confirmed", "--source", "manual"); err == nil || !strings.Contains(string(out), "source changed") {
+			t.Fatalf("changed source accepted: %v %s", err, out)
+		}
+		if out, err := invoke("uninstall-finalize", "--attempt", attemptID, "--remove-original"); err == nil || !strings.Contains(string(out), "requires an applied attempt") {
+			t.Fatalf("unapplied receipt finalized: %v %s", err, out)
+		}
+		if uploads.Load() != 2 {
+			t.Fatalf("feedback upload count: %d", uploads.Load())
+		}
+		if first, retry := <-attempts, <-attempts; first != attemptID || retry != attemptID {
+			t.Fatalf("upload attempts: %s and %s, want %s", first, retry, attemptID)
+		}
+	})
 	t.Run("abnormal_wrapper_reports_partial_and_clears_home", func(t *testing.T) {
 		bin, home, invoke := fixture(t)
 		wrapper := bin + ".uninstall.sh"
@@ -143,11 +214,11 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		var out []byte
 		var err error
 		if runtime.GOOS == "windows" {
-			command := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", reporterWrapper, bin, "--homedir", home, "--scope", "all", "--apply", "--host-cleanup-confirmed")
+			command := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", reporterWrapper, bin, "--homedir", home, "--scope", "all", "--apply", "--host-cleanup-confirmed", "--reason-category", "declined")
 			command.Env = append(os.Environ(), "HOME="+filepath.Dir(bin), "USERPROFILE="+filepath.Dir(bin), "EIGENFLUX_HOME="+home)
 			out, err = command.CombinedOutput()
 		} else {
-			out, err = invoke("uninstall", "--scope", "all", "--apply", "--host-cleanup-confirmed")
+			out, err = invoke("uninstall", "--scope", "all", "--apply", "--host-cleanup-confirmed", "--reason-category", "declined")
 		}
 		if err == nil || !strings.Contains(string(out), "partial") || !strings.Contains(string(out), filepath.Base(wrapper)) {
 			t.Fatalf("partial result: %v %s", err, out)
@@ -178,7 +249,7 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		if !bytes.Equal(before, after) {
 			t.Fatal("preview mutated fixture files")
 		}
-		if out, err = invoke("uninstall", "--scope", "all", "--apply"); err == nil || !strings.Contains(string(out), "native tools") {
+		if out, err = invoke("uninstall", "--scope", "all", "--apply", "--reason-category", "declined"); err == nil || !strings.Contains(string(out), "native tools") {
 			t.Fatalf("missing host cleanup accepted: %v %s", err, out)
 		}
 		if out, err = invoke("uninstall", "--scope", "all", "--apply", "--host-cleanup-confirmed", "--reason", "fixture retirement"); err != nil {
@@ -236,10 +307,10 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 			t.Fatalf("record host failure: %v %s", err, out)
 		}
 		data, _ := os.ReadFile(filepath.Join(home, "uninstall.json"))
-		if !strings.Contains(string(data), "host_cleanup_failed") || !strings.Contains(string(data), "中文原因") {
+		if !strings.Contains(string(data), "host_cleanup_failed") || strings.Contains(string(data), "中文原因") {
 			t.Fatalf("wrong local audit: %s", data)
 		}
-		out, err = invoke("uninstall", "--scope", "all", "--begin", "--source", "agent")
+		out, err = invoke("uninstall", "--scope", "all", "--begin", "--source", "agent", "--reason-category", "declined")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -264,7 +335,7 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 	})
 	t.Run("changed_registration_blocks_resumed_attempt", func(t *testing.T) {
 		bin, _, invoke := fixture(t)
-		out, err := invoke("uninstall", "--scope", "all", "--begin")
+		out, err := invoke("uninstall", "--scope", "all", "--begin", "--reason-category", "declined")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -276,7 +347,7 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		if err := os.WriteFile(bin+".install.json", append(data, '\n'), 0600); err != nil {
 			t.Fatal(err)
 		}
-		if out, err = invoke("uninstall", "--scope", "all", "--attempt", start.Attempt, "--apply", "--host-cleanup-confirmed"); err == nil || !strings.Contains(string(out), "changed since") {
+		if out, err = invoke("uninstall", "--scope", "all", "--attempt", start.Attempt, "--apply", "--host-cleanup-confirmed", "--reason-category", "declined"); err == nil || !strings.Contains(string(out), "changed since") {
 			t.Fatalf("changed registration accepted: %v %s", err, out)
 		}
 		if _, err := os.Stat(bin); err != nil {
@@ -293,10 +364,10 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		if err := registerInstallation(bin, installationHome{Home: other, Host: "claude-code"}); err != nil {
 			t.Fatal(err)
 		}
-		if out, err := invoke("uninstall", "--apply", "--host-cleanup-confirmed"); err == nil || !strings.Contains(string(out), "choose uninstall scope") {
+		if out, err := invoke("uninstall", "--apply", "--host-cleanup-confirmed", "--reason-category", "declined"); err == nil || !strings.Contains(string(out), "choose uninstall scope") {
 			t.Fatalf("shared guard: %v %s", err, out)
 		}
-		if out, err := invoke("uninstall", "--scope", "all", "--apply", "--all-homes", "--host-cleanup-confirmed"); err != nil {
+		if out, err := invoke("uninstall", "--scope", "all", "--apply", "--all-homes", "--host-cleanup-confirmed", "--reason-category", "declined"); err != nil {
 			t.Fatalf("shared apply: %v %s", err, out)
 		}
 		for _, path := range []string{home, other} {
@@ -333,13 +404,15 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 				}
 			}
 		}
+		configureUninstallFeedbackTest(t, home, uninstallFeedbackTestServer(t, nil))
+		configureUninstallFeedbackTest(t, other, uninstallFeedbackTestServer(t, nil))
 		// Another Agent's active watch must not block uninstalling this Agent.
 		release, err := watchstate.Acquire(other, "other-server")
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer release()
-		out, err := invoke("uninstall", "--scope", "current", "--begin")
+		out, err := invoke("uninstall", "--scope", "current", "--begin", "--reason-category", "declined")
 		if err != nil {
 			t.Fatalf("current begin: %v %s", err, out)
 		}
@@ -349,7 +422,7 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		if err := json.Unmarshal(out, &start); err != nil || start.Attempt == "" {
 			t.Fatalf("missing current attempt: %s", out)
 		}
-		if out, err := invoke("uninstall", "--scope", "all", "--attempt", start.Attempt, "--apply", "--host-cleanup-confirmed"); err == nil || !strings.Contains(string(out), "scope changed") {
+		if out, err := invoke("uninstall", "--scope", "all", "--attempt", start.Attempt, "--apply", "--host-cleanup-confirmed", "--reason-category", "declined"); err == nil || !strings.Contains(string(out), "scope changed") {
 			t.Fatalf("changed scope accepted: %v %s", err, out)
 		}
 		for _, path := range []string{home, other} {
@@ -359,7 +432,7 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 				}
 			}
 		}
-		out, err = invoke("uninstall", "--scope", "current", "--attempt", start.Attempt, "--apply", "--host-cleanup-confirmed")
+		out, err = invoke("uninstall", "--scope", "current", "--attempt", start.Attempt, "--apply", "--host-cleanup-confirmed", "--reason-category", "declined")
 		release()
 		if err != nil {
 			t.Fatalf("current apply: %v %s", err, out)
@@ -385,7 +458,7 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		if len(record.Homes) != 1 || record.Homes[0].Home != other {
 			t.Fatalf("current Home still registered or other Home missing: %+v", record)
 		}
-		command := exec.Command(bin, "--homedir", other, "--format", "json", "uninstall", "--scope", "all", "--apply", "--host-cleanup-confirmed")
+		command := exec.Command(bin, "--homedir", other, "--format", "json", "uninstall", "--scope", "all", "--apply", "--host-cleanup-confirmed", "--reason-category", "declined")
 		command.Env = append(os.Environ(), "HOME="+filepath.Dir(bin), "USERPROFILE="+filepath.Dir(bin), "EIGENFLUX_HOME="+other)
 		if out, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("remaining Agent all apply: %v %s", err, out)
@@ -404,7 +477,7 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out, err := invoke("uninstall", "--scope", "all", "--apply", "--host-cleanup-confirmed")
+		out, err := invoke("uninstall", "--scope", "all", "--apply", "--host-cleanup-confirmed", "--reason-category", "declined")
 		release()
 		if err == nil || !strings.Contains(string(out), "active watch") {
 			t.Fatalf("watch guard: %v %s", err, out)
@@ -413,7 +486,7 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out, err = invoke("uninstall", "--scope", "all", "--apply", "--host-cleanup-confirmed")
+		out, err = invoke("uninstall", "--scope", "all", "--apply", "--host-cleanup-confirmed", "--reason-category", "declined")
 		release()
 		if err == nil || !strings.Contains(string(out), "update is active") {
 			t.Fatalf("update guard: %v %s", err, out)
@@ -451,7 +524,7 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 			t.Fatal(locked, err)
 		}
 		t.Cleanup(heldLock.Release)
-		args := []string{"uninstall", "--scope", "all", "--apply", "--all-homes", "--skills", "--host-cleanup-confirmed"}
+		args := []string{"uninstall", "--scope", "all", "--apply", "--all-homes", "--skills", "--host-cleanup-confirmed", "--reason-category", "declined"}
 		out, err := invoke(args...)
 		if err == nil || !strings.Contains(string(out), "synchronization is active") {
 			t.Fatalf("expected partial failure: %v %s", err, out)
@@ -482,7 +555,7 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 		if err := os.Symlink(outside, bin+".previous"); err != nil {
 			t.Skip(err)
 		}
-		if out, err := invoke("uninstall", "--scope", "all", "--apply", "--host-cleanup-confirmed"); err == nil || !strings.Contains(string(out), "regular file") {
+		if out, err := invoke("uninstall", "--scope", "all", "--apply", "--host-cleanup-confirmed", "--reason-category", "declined"); err == nil || !strings.Contains(string(out), "regular file") {
 			t.Fatalf("foreign sidecar: %v %s", err, out)
 		}
 		if data, _ := os.ReadFile(outside); string(data) != "keep" {
@@ -556,5 +629,45 @@ exit 0
 	}
 	if !strings.Contains(string(out), "RESULT:"+filepath.Join(binDir, "eigenflux")+"|"+home+"|"+skillsDir) {
 		t.Fatalf("incorrect installer registry inputs: %s", out)
+	}
+}
+
+func uninstallFeedbackTestServer(t *testing.T, check func(http.ResponseWriter, maintenance.Event, string) bool) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Events   []maintenance.Event `json:"events"`
+			Feedback *struct {
+				Reason string `json:"reason"`
+			} `json:"uninstall_feedback"`
+		}
+		if r.URL.Path != "/api/v2/maintenance/events:batch" || json.NewDecoder(r.Body).Decode(&req) != nil || len(req.Events) == 0 {
+			t.Error("invalid uninstall maintenance request")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if req.Feedback != nil && check != nil && !check(w, req.Events[0], req.Feedback.Reason) {
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+		if req.Feedback != nil {
+			fmt.Fprintf(w, `{"data":{"uninstall_feedback_attempt_id":%q}}`, req.Events[0].AttemptID)
+		} else {
+			fmt.Fprint(w, `{"data":{"accepted_events":1}}`)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+func configureUninstallFeedbackTest(t *testing.T, home, endpoint string) {
+	t.Helper()
+	defer config.UseHomeDir(home)()
+	cfg := config.Config{DefaultServer: "test", Servers: []config.Server{{Name: "test", Endpoint: endpoint}}}
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.SaveV2Credentials("test", &auth.V2Credentials{AgentID: "42", AccessToken: "fixture-access", RefreshToken: "fixture-refresh"}); err != nil {
+		t.Fatal(err)
 	}
 }
