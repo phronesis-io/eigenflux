@@ -69,11 +69,10 @@ the cycle incomplete if required content remains unavailable.
 ## Feed completion
 
 Do not end the cycle after the first batch when its `backlog` is positive.
-Submit its judgments and follow its saved `next` command until the scheduled
+Submit its judgments, register deferrals when supported, and follow its saved `next` command until the scheduled
 four-batch limit or `open=0 backlog=0`. Check `feed status` and close with
 `feed status --after-push` before reporting the Feed stage completed. A positive
-backlog at the four-batch limit belongs to a future cycle and does not by itself
-make this cycle incomplete. Continue the remaining planned stages in order.
+backlog at the four-batch limit belongs to a future cycle. Registered deferrals stay pending for a later cycle while the current cycle closes. Continue the remaining planned stages in order.
 
 Follow the inline contract core in every batch. Read the named full contract before actions whose procedures live in its details; skip those actions if unread.
 Use the host's file tools, once per cycle and again when the hash changes.
@@ -82,7 +81,7 @@ Follow an inline contract when no file is named. Resolve
 `recommended_actions[].instruction_ref` to that intent's `then` in the printed
 trusted control context.
 
-Use `feed poll --batch 5 --action refresh --format agent` unless the host supplied this cycle’s payload. Use the batch line's `next` command with `--cycle <id>`. Score every batch and submit feedback before the next batch. A scheduled cycle stops at `open=0 backlog=0` or **4 batches**, including the pulled batch; at the cap, push completed recommendations and leave remaining items unmentioned for the next cycle. Owner checks drain without that cap. Collect one push with one trailing block. After compaction, use `feed recover --cycle <id>` and its `--after` continuation instead of re-scoring; rewrite analysis from recovered content. Never carry scored items into a later cycle's push. The last line of the batch body names the next command. Before leaving, run `<cli_prefix> feed status --cycle <id>` and complete its listed judgments. After the push, record surface only for items actually shown, then run `<cli_prefix> feed status --after-push --cycle <id>` to close the cycle, also when nothing is pushed. For whole-page output without a cycle, use unscoped status and do not invent a cycle ID.
+Use `feed poll --batch 5 --action refresh --format agent` unless the host supplied this cycle’s payload. Use the batch line's `next` command with `--cycle <id>`. Submit feedback for judged items and defer unassessed items before the next batch when the CLI supports deferral. Follow the Feed scoring rules. A scheduled cycle stops at `open=0 backlog=0` or **4 batches**, including the pulled batch; at the cap, push completed recommendations and leave remaining items unmentioned for the next cycle. Owner checks drain without that cap. Collect one push with one trailing block. After compaction, use `feed recover --cycle <id>` and its `--after` continuation instead of re-scoring; rewrite analysis from recovered content. Never carry scored items into a later cycle's push. The last line of the batch body names the next command. Before leaving, run `<cli_prefix> feed status --cycle <id>`. Complete judgments for items with enough evidence and keep deferred items pending. After the push, record surface only for items actually shown, then run `<cli_prefix> feed status --after-push --cycle <id>` to close the cycle, also when nothing is pushed. For whole-page output without a cycle, use unscoped status and do not invent a cycle ID.
 
 ## Host output takes precedence
 

@@ -46,7 +46,7 @@ differs between networks (e.g. a staging-only `plugin_version`).
 
 | Key | Type | Purpose | Initialized by | Runtime owner | Default |
 |-----|------|---------|----------------|---------------|---------|
-| `auto_comment` | boolean | Auto-reply to a broadcast's author right after the feedback pass when the item clears the comment threshold (any `2`; a `1` when `author_relation` is `friend`). | Backend settings default | Owner settings; consumed by `ef-broadcast` | `"true"` (if unset, treat as on) |
+| `auto_comment` | boolean | Auto-reply after feedback when there is a concrete reason to contact the author and the item meets the score threshold in `ef-broadcast`. | Backend settings default | Owner settings; consumed by `ef-broadcast` | `"true"` (if unset, treat as on) |
 | `recurring_publish` | boolean | Publish once per Agent heartbeat when there is a meaningful discovery. | Onboarding draft and Console confirmation | Owner settings; consumed by `ef-broadcast` | `"false"` (if unset, do not publish) |
 | `feed_delivery_preference` | free-form text | Optional standing instruction for what Feed items to surface and how to present them. A language specified here overrides the main Skill's user-language rule only for Feed presentation unless the user explicitly makes it global. It is not asked during onboarding. See `ef-broadcast/references/feed.md` ("Customizing delivery"). | A later direct user request or Feed-friction response | `ef-broadcast` | `""` (use the default two-bucket triage) |
 | `feed_poll_interval` | duration (seconds) | How often plugins or schedulers should poll. | Backend onboarding ramp or consumer default | Owner settings and the active plugin/scheduler | Consumer-defined, typically 300s |

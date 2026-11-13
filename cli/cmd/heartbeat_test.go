@@ -387,7 +387,7 @@ func TestHeartbeatPlanAcceptsLegacyEnvironmentMode(t *testing.T) {
 
 func TestHeartbeatPlanFeedCompletionStep(t *testing.T) {
 	prompt := renderHeartbeatPlanForAgent(heartbeatPlan{CLIPrefix: "test-prefix", FeedCompletionCheck: true})
-	if !strings.Contains(prompt, "Before leaving the Feed stage, run test-prefix feed status --cycle <id>. Score every item it lists, then continue.") {
+	if !strings.Contains(prompt, "Before leaving the Feed stage, run test-prefix feed status --cycle <id>. Finish any remaining judgments you can make. Keep deferred items for a later cycle.") {
 		t.Fatal(prompt)
 	}
 	if strings.Contains(renderHeartbeatPlanForAgent(heartbeatPlan{CLIPrefix: "test-prefix"}), "feed status") {
@@ -396,7 +396,7 @@ func TestHeartbeatPlanFeedCompletionStep(t *testing.T) {
 	if heartbeatContractVersion != "eigenflux_heartbeat.v5" {
 		t.Fatal(heartbeatContractVersion)
 	}
-	for _, line := range []string{"After the Feed push, run test-prefix feed status --after-push --cycle <id>", "feed next reads this cycle's saved page and is not a pull.", "Do not stop after the first batch while backlog is positive", "Remaining backlog at the four-batch limit is deferred, not an incomplete cycle", "Follow the inline contract core; read the named details before their actions, otherwise skip those actions."} {
+	for _, line := range []string{"After the Feed push, run test-prefix feed status --after-push --cycle <id>", "use feed defer for unassessed items", "Score 0 means assessed neutral.", "feed next reads this cycle's saved page and is not a pull.", "Do not stop after the first batch while backlog is positive", "Remaining backlog at the four-batch limit is deferred, not an incomplete cycle", "Follow the inline contract core; read the named details before their actions, otherwise skip those actions."} {
 		if !strings.Contains(prompt, line) {
 			t.Fatal(prompt)
 		}
