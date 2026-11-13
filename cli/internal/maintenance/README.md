@@ -207,7 +207,7 @@ of runtime telemetry and never enter the upload queue. They hold selected Intent
 IDs/versions, CLI/Skills versions and fixed result/error codes, not source text.
 Confirmed submissions survive later failed retries. Missing responses remain
 unconfirmed; local receipts do not replace the server's Pending selection.
-`NeedCaptureHistory` counts retained plans that selected a version without
-confirmation; planning skips a version at three. Retention expiry and new
-Intent versions restore eligibility. An account without retained plans is in its
-first Need cycle.
+`NeedCaptureHistory` counts consecutive recorded extraction failures by Intent
+version. It ignores selections that were not attempted. A generated review
+clears the streak. The first delivered plan is tracked separately from expiring
+receipts.

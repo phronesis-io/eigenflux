@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -149,7 +150,7 @@ func TestNeedCaptureFullPlanFailureStillDeliversFeed(t *testing.T) {
 			defer server.Close()
 			runtimeTestConfig(t, server.URL, true)
 			seedNeedCaptureHistory(t)
-			installHeartbeatTestRules(t)
+			installHeartbeatTestRules(t, true)
 			old := formatFlag
 			formatFlag = "json"
 			t.Cleanup(func() { formatFlag = old })
@@ -170,7 +171,7 @@ func TestNeedCaptureFullPlanFailureStillDeliversFeed(t *testing.T) {
 			if !strings.Contains(plan.AgentPrompt, "feed poll") && !plan.FeedCompletionCheck {
 				t.Fatal("Feed was suppressed")
 			}
-			if !strings.Contains(plan.AgentPrompt, "never makes the owner-facing Feed/first-check result fail") {
+			if !strings.Contains(plan.AgentPrompt, "Need capture is optional for cycle completion") {
 				t.Fatal("Need failure changed owner notifications")
 			}
 			scope, _ := maintenanceScope(activeServerName())
@@ -340,16 +341,24 @@ func TestNeedCaptureReceiptFailureDoesNotPreventServerSubmission(t *testing.T) {
 	}
 }
 
-// seedNeedCaptureHistory records one earlier empty Need plan so the next plan is
-// not treated as the account's first completed-onboarding cycle.
 func seedNeedCaptureHistory(t *testing.T) {
 	t.Helper()
 	scope, err := maintenanceScope(activeServerName())
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := maintenance.NeedCaptureRun{ID: maintenance.NewID(), CreatedAt: time.Now().UnixMilli(), QueryStatus: "empty", Items: []maintenance.NeedCaptureItem{}}
-	if err := maintenance.SaveNeedCaptureRun(scope, run); err != nil {
+	if err := maintenance.MarkNeedCaptureStarted(scope); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func recordExtractionFailure(t *testing.T, p heartbeatPlan, intent plannedNeedIntent) {
+	t.Helper()
+	scope, err := maintenanceScope(activeServerName())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := maintenance.RecordNeedCaptureResult(scope, p.NeedCapture.PlanID, intent.IntentID, intent.IntentVersion, "extraction_failed", "", ""); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -389,7 +398,11 @@ func TestNeedCaptureFirstCycleRunsAfterFeedWithOneIntent(t *testing.T) {
 	if !strings.Contains(needCaptureInstructions(first), "after Feed") {
 		t.Fatal("first-cycle instructions do not place Need after Feed")
 	}
-	// The retained first plan makes the next cycle an ordinary one.
+	// Delivery, rather than plan construction, makes the next cycle ordinary.
+	if p := attachFresh(fullOrder); !p.NeedCapture.FirstCycle {
+		t.Fatal("an undelivered plan consumed the first cycle")
+	}
+	seedNeedCaptureHistory(t)
 	next := attachFresh(fullOrder)
 	if !slices.Equal(next.ExecutionOrder, fullOrder) || next.NeedCapture.FirstCycle || next.NeedCapture.MaxIntents != 2 || len(next.NeedCapture.Intents) != 2 {
 		t.Fatalf("ordinary cycle: %v %+v", next.ExecutionOrder, next.NeedCapture)
@@ -399,13 +412,20 @@ func TestNeedCaptureFirstCycleRunsAfterFeedWithOneIntent(t *testing.T) {
 	}
 }
 
-func TestNeedCaptureSkipsVersionsAfterThreeUnconfirmedPlans(t *testing.T) {
+func TestNeedCaptureSkipsVersionsAfterThreeExtractionFailures(t *testing.T) {
 	needPlanAgainst(t, threePendingFixture)
 	seedNeedCaptureHistory(t)
+	for i := 0; i < maintenance.NeedCaptureStrikeLimit; i++ {
+		attachFresh(fullOrder) // Denied or interrupted: no extraction result.
+	}
 	for i := 0; i < maintenance.NeedCaptureStrikeLimit; i++ {
 		p := attachFresh(fullOrder)
 		if got := p.NeedCapture.Intents; len(got) != 2 || got[0].IntentID != "1" || got[1].IntentID != "2" {
 			t.Fatalf("strike %d selection: %+v", i, got)
+		}
+		for _, intent := range p.NeedCapture.Intents {
+			recordExtractionFailure(t, p, intent)
+			recordExtractionFailure(t, p, intent) // Same cycle counts once.
 		}
 	}
 	p := attachFresh(fullOrder)
@@ -439,7 +459,10 @@ func TestNeedCaptureNewIntentVersionRestoresEligibility(t *testing.T) {
 	runtimeTestConfig(t, server.URL, true)
 	seedNeedCaptureHistory(t)
 	for i := 0; i < maintenance.NeedCaptureStrikeLimit; i++ {
-		attachFresh(fullOrder)
+		p := attachFresh(fullOrder)
+		for _, intent := range p.NeedCapture.Intents {
+			recordExtractionFailure(t, p, intent)
+		}
 	}
 	if p := attachFresh(fullOrder); len(p.NeedCapture.Intents) != 1 || p.NeedCapture.Intents[0].IntentID != "3" {
 		t.Fatalf("precondition: struck versions still selected: %+v", p.NeedCapture)
@@ -449,5 +472,64 @@ func TestNeedCaptureNewIntentVersionRestoresEligibility(t *testing.T) {
 	p := attachFresh(fullOrder)
 	if len(p.NeedCapture.Intents) != 1 || p.NeedCapture.Intents[0].IntentID != "1" || p.NeedCapture.Intents[0].IntentVersion != 2 || p.NeedCapture.Skipped != 1 {
 		t.Fatalf("new version not eligible: %+v", p.NeedCapture)
+	}
+}
+
+func TestCodexNeedCapturePolicyDoesNotAdmitPrompt(t *testing.T) {
+	for _, result := range []string{"allow", "prompt", "forbidden", "unknown"} {
+		t.Run(result, func(t *testing.T) {
+			calls := 0
+			run := func(_ context.Context, _ string, _ []string) ([]byte, error) {
+				calls++
+				decision := "allow"
+				if calls == 2 {
+					decision = result
+				}
+				return []byte(`{"decision":"` + decision + `","matchedRules":[{}]}`), nil
+			}
+			if got := codexNeedPolicyAllows(context.Background(), "codex", nil, []string{"eigenflux"}, run); got != (result == "allow") {
+				t.Fatalf("policy %s admitted=%v", result, got)
+			}
+		})
+	}
+}
+
+func TestNeedCapturePendingTimeoutAndUnauthorizedNeverRefresh(t *testing.T) {
+	for _, status := range []int{0, http.StatusUnauthorized} {
+		calls := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls++
+			if status == 0 {
+				<-r.Context().Done()
+				return
+			}
+			w.WriteHeader(status)
+		}))
+		runtimeTestConfig(t, srv.URL, true)
+		scope, err := maintenanceScope(activeServerName())
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, err := newNeedCaptureClient(scope, client.Meta{}, needCaptureQueryTimeout)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.HTTPClient.Timeout != needCaptureQueryTimeout {
+			t.Fatal("missing Pending timeout")
+		}
+		c.HTTPClient.Timeout = 75 * time.Millisecond
+		p := queryNeedCapturePlan(c, 1, nil)
+		srv.Close()
+		if p.Status != "failed" || calls != 1 {
+			t.Fatalf("status=%d: plan=%+v calls=%d", status, p, calls)
+		}
+	}
+}
+
+func TestNeedCapturePrioritizesIntentWithoutCurrentNeed(t *testing.T) {
+	needPlanAgainst(t, `{"intents":[{"intent_id":"1","intent_version":1,"existing_inputs":[{"need_input_id":"8","need_type":"broadcast"}]},{"intent_id":"2","intent_version":1,"existing_inputs":[]}],"has_more":false}`)
+	p := attachFresh(fullOrder)
+	if len(p.NeedCapture.Intents) != 1 || p.NeedCapture.Intents[0].IntentID != "2" {
+		t.Fatalf("first slot went to an Intent with a Need: %+v", p.NeedCapture)
 	}
 }

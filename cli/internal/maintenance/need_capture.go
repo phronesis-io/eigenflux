@@ -79,8 +79,8 @@ func ReadNeedCaptureRun(scope Scope, id string) (NeedCaptureRun, error) {
 }
 
 func RecordNeedCaptureResult(scope Scope, plan, intent string, version int64, status, outcome, code string) error {
-	if !idValue.MatchString(plan) || !contains([]string{"unconfirmed", "failed", "confirmed"}, status) ||
-		!contains([]string{"captured", "no_need"}, outcome) || !safeValue.MatchString(code) || status == "confirmed" && code != "" {
+	if !idValue.MatchString(plan) || !contains([]string{"unconfirmed", "failed", "confirmed", "extraction_failed"}, status) ||
+		!(status == "extraction_failed" && outcome == "" || status != "extraction_failed" && contains([]string{"captured", "no_need"}, outcome)) || !safeValue.MatchString(code) || status == "confirmed" && code != "" {
 		return fmt.Errorf("%w: invalid capture result", ErrNeedCaptureSelection)
 	}
 	return updateNeedCapture(scope, func(st *State) error {
@@ -94,7 +94,7 @@ func RecordNeedCaptureResult(scope Scope, plan, intent string, version int64, st
 				continue
 			}
 			// An uncertain or failed retry cannot erase an observed successful save.
-			if item.Status == "confirmed" {
+			if item.Status == "confirmed" || status == "extraction_failed" && item.Status != "pending" {
 				return nil
 			}
 			item.Status, item.Outcome, item.ErrorCode = status, outcome, code
@@ -138,28 +138,48 @@ func updateNeedCapture(scope Scope, fn func(*State) error) error {
 	return updatePath(strings.TrimSuffix(path, "-events.json")+"-need-capture.json", fn)
 }
 
-// NeedCaptureStrikeLimit is the number of retained plans in which one Intent
-// version may be selected without a confirmed submission before planning skips it.
+// NeedCaptureStrikeLimit is the number of observed extraction failures before planning skips a version.
 const NeedCaptureStrikeLimit = 3
 
-// NeedCaptureHistory summarizes retained local plans. strikes counts, per
-// "intent_id@version", plans that selected the version without confirming it.
-// hasPrior reports whether any Need plan has been retained for this account.
-// Retention bounds both: expired receipts restore eligibility.
-func NeedCaptureHistory(scope Scope) (strikes map[string]int, hasPrior bool, err error) {
+// MarkNeedCaptureStarted records that the first plan was delivered, independent
+// of receipt retention. It is safe to call again after a concurrent delivery.
+func MarkNeedCaptureStarted(scope Scope) error {
+	return updateNeedCapture(scope, func(st *State) error {
+		st.NeedCaptureStarted = true
+		return nil
+	})
+}
+
+// NeedCaptureHistory counts consecutive observed extraction failures per version.
+// Missing attempts and submission outcomes of unknown effect do not count.
+func NeedCaptureHistory(scope Scope) (strikes map[string]int, started bool, err error) {
 	strikes = map[string]int{}
 	err = updateNeedCapture(scope, func(st *State) error {
-		hasPrior = len(st.NeedCaptures) > 0
+		started = st.NeedCaptureStarted
+		runs := make([]NeedCaptureRun, 0, len(st.NeedCaptures))
 		for _, run := range st.NeedCaptures {
+			runs = append(runs, run)
+		}
+		sort.Slice(runs, func(i, j int) bool {
+			if runs[i].CreatedAt == runs[j].CreatedAt {
+				return runs[i].ID < runs[j].ID
+			}
+			return runs[i].CreatedAt < runs[j].CreatedAt
+		})
+		for _, run := range runs {
 			for _, item := range run.Items {
-				if item.Status != "confirmed" {
-					strikes[NeedCaptureKey(item.IntentID, item.IntentVersion)]++
+				key := NeedCaptureKey(item.IntentID, item.IntentVersion)
+				switch item.Status {
+				case "extraction_failed":
+					strikes[key]++
+				case "confirmed", "unconfirmed", "failed":
+					delete(strikes, key)
 				}
 			}
 		}
 		return nil
 	})
-	return strikes, hasPrior, err
+	return strikes, started, err
 }
 
 func NeedCaptureKey(intent string, version int64) string {

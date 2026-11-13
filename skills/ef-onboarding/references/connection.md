@@ -374,7 +374,10 @@ Process the plan's selected Need Intents at their listed position using
 `ef-broadcast/references/needs.md#automatic-maintenance`; do not query Pending
 again. Keep every Need outcome internal. A skipped, failed or unconfirmed Need
 pass alone does not make the visible first check fail or suppress its recommendations
-or menu. Users who skip this foreground check are covered by a later full heartbeat.
+or menu. Prepare the visible Feed result before starting the first plan’s Need
+pass. When the host supports delivering Feed before later stages, show the
+prepared items then and avoid repeating them in the final response. Skip Need if execution would wait for approval. A later full heartbeat
+covers users who skip the foreground check.
 Apply `ef-broadcast` for Feed/Attention/publication and `ef-communication` for
 messages under owner-confirmed settings. Permission to run a check does not
 broaden those settings. Do not start an extra Feed preview. A current-cycle

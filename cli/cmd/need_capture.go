@@ -34,16 +34,18 @@ func newNeedCaptureCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		cli, _, err := newV2ClientForServer(serverFlag, true)
-		if err != nil {
-			return err
-		}
 		var scope maintenance.Scope
+		var cli *client.Client
 		if plan != "" {
 			scope, err = maintenanceScope(activeServerName())
-			if err != nil {
-				return err
+			if err == nil {
+				cli, err = newNeedCaptureClient(scope, clientMetaForServerName(scope.Server), needCaptureSubmitTimeout)
 			}
+		} else {
+			cli, _, err = newV2ClientForServer(serverFlag, true)
+		}
+		if err != nil {
+			return err
 		}
 		response, err := submitNeedCapture(cli, raw, scope, plan)
 		return printNeedResponse(response, err)
@@ -87,7 +89,20 @@ Maximum file size: 100 KiB. Each input remains limited to 32 KiB.`
 		return nil
 	}}
 	status.Flags().String("plan", "", "Heartbeat Need plan ID")
-	group.AddCommand(pending, complete, status)
+	failure := &cobra.Command{Use: "failure --plan <id> --intent-id <id> --intent-version <version>", Short: "Record an actual extraction failure for a selected Intent", Args: cobra.NoArgs, RunE: func(c *cobra.Command, _ []string) error {
+		plan, _ := c.Flags().GetString("plan")
+		id, _ := c.Flags().GetString("intent-id")
+		version, _ := c.Flags().GetInt64("intent-version")
+		scope, err := maintenanceScope(activeServerName())
+		if err != nil {
+			return err
+		}
+		return maintenance.RecordNeedCaptureResult(scope, plan, id, version, "extraction_failed", "", "")
+	}}
+	failure.Flags().String("plan", "", "Heartbeat Need plan ID")
+	failure.Flags().String("intent-id", "", "Selected Intent ID")
+	failure.Flags().Int64("intent-version", 0, "Selected Intent version")
+	group.AddCommand(pending, complete, status, failure)
 	return group
 }
 

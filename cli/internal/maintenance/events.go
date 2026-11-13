@@ -58,6 +58,7 @@ type CLIAdoption struct {
 }
 
 type State struct {
+	NeedCaptureStarted bool                      `json:"need_capture_started,omitempty"`
 	NeedCaptures       map[string]NeedCaptureRun `json:"need_captures,omitempty"`
 	PendingCLIAdoption *CLIAdoption              `json:"pending_cli_adoption,omitempty"`
 	RuntimeNextFlush   int64                     `json:"runtime_next_flush,omitempty"`

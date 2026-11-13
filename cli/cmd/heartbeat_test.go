@@ -138,7 +138,6 @@ func TestHeartbeatPlanJSONCarriesCurrentPromptAndAccessDecision(t *testing.T) {
 			}))
 			defer server.Close()
 			_, serverName := runtimeTestConfig(t, server.URL, true)
-			seedNeedCaptureHistory(t)
 			version = "0.0.46"
 			rulesDir := installHeartbeatTestRules(t)
 			oldFormat := formatFlag
@@ -154,11 +153,11 @@ func TestHeartbeatPlanJSONCarriesCurrentPromptAndAccessDecision(t *testing.T) {
 			if err := json.Unmarshal([]byte(text), &plan); err != nil {
 				t.Fatalf("invalid JSON %q: %v", text, err)
 			}
-			wantStages := []string{"commands", "need_capture", "feed", "attention", "communication", "publish", "settings_report", "commission_confirmations"}
+			wantStages := []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report", "commission_confirmations"}
 			if baseline {
 				wantStages = []string{"feed"}
 			}
-			if !reflect.DeepEqual(plan.ExecutionOrder, wantStages) || plan.WakeOnEmpty == baseline {
+			if !reflect.DeepEqual(plan.ExecutionOrder, wantStages) || plan.WakeOnEmpty == baseline || plan.NeedCapture != nil {
 				t.Fatalf("incorrect central dispatch: %+v", plan)
 			}
 			if contextRequests != 1 {
@@ -219,7 +218,7 @@ func TestHeartbeatPlanFailsWithoutCurrentAccessOrRules(t *testing.T) {
 	}
 }
 
-func installHeartbeatTestRules(t *testing.T) string {
+func installHeartbeatTestRules(t *testing.T, plannedNeed ...bool) string {
 	t.Helper()
 	oldVersion, oldKey := version, skills.VerifyPublicKeyBase64
 	version = "0.0.46"
@@ -275,6 +274,10 @@ func installHeartbeatTestRules(t *testing.T) string {
 	manifest, err := skills.GenerateManifest(dir, "0.0.46", "0.0.46", names, 1)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(plannedNeed) > 0 && plannedNeed[0] {
+		version = "1.0.31"
+		manifest.MinCLIVersion = version
 	}
 	manifest.Sequence = 1
 	manifest.TarSHA256 = strings.Repeat("a", 64)
