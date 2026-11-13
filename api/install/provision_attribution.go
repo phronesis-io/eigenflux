@@ -47,6 +47,12 @@ func BindProvisionedAgent(tx *gorm.DB, ref string, agentID int64, now int64) (Pr
 			result.Channel = token.Channel
 		}
 	}
+	if token.Channel == "facebook" && (token.MetaFbc != "" || token.MetaFbp != "") {
+		if err := tx.Model(&Token{}).Where("token = ? AND meta_provisioned_at = 0", ref).
+			Update("meta_provisioned_at", now).Error; err != nil {
+			return result, err
+		}
+	}
 	var code *invite.Code
 	if agentidentity.ValidShortID(token.InviteCode) {
 		inviterID, err := agentidentity.Lookup(tx.Statement.Context, tx, token.InviteCode)

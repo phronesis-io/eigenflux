@@ -56,24 +56,27 @@ func ValidTokenFormat(token string) bool {
 // DB `channel` column for cheap per-channel funnel rollups. This map is the
 // single source of truth (server-side); the landing page only sends raw utm.
 var channelMap = map[string]string{
-	"google":   "google",
-	"facebook": "facebook",
-	"meta":     "facebook",
-	"twitter":  "twitter",
-	"x":        "twitter",
-	"linkedin": "linkedin",
-	"reddit":   "reddit",
-	"tiktok":   "tiktok",
-	"youtube":  "youtube",
-	"discord":  "discord",
-	"telegram": "telegram",
-	"wechat":   "wechat",
-	"weixin":   "wechat",
-	"weibo":    "weibo",
-	"baidu":    "baidu",
-	"organic":  "organic",
-	"direct":   "direct",
-	"referral": "referral",
+	"google":    "google",
+	"facebook":  "facebook",
+	"meta":      "facebook",
+	"fb":        "facebook",
+	"instagram": "facebook",
+	"ig":        "facebook",
+	"twitter":   "twitter",
+	"x":         "twitter",
+	"linkedin":  "linkedin",
+	"reddit":    "reddit",
+	"tiktok":    "tiktok",
+	"youtube":   "youtube",
+	"discord":   "discord",
+	"telegram":  "telegram",
+	"wechat":    "wechat",
+	"weixin":    "wechat",
+	"weibo":     "weibo",
+	"baidu":     "baidu",
+	"organic":   "organic",
+	"direct":    "direct",
+	"referral":  "referral",
 	// Xiaohongshu (小红书 / RED) aliases — all normalize to one bucket.
 	"xiaohongshu": "xiaohongshu",
 	"xhs":         "xiaohongshu",
@@ -104,7 +107,7 @@ func normalizeChannel(utmSource string) string {
 // deriveChannel resolves the channel bucket for a mint. A dedicated landing
 // entry is authoritative even when an ad platform drops its dynamic click
 // macros. Otherwise an explicit utm_source wins, followed by platform click IDs.
-func deriveChannel(entryChannel, utmSource, clickID, bilibiliTrackID, twclid, gclid, xingtuClickID, oceanengineClickID string) string {
+func deriveChannel(entryChannel, utmSource, clickID, bilibiliTrackID, twclid, gclid, xingtuClickID, oceanengineClickID string, metaFbc ...string) string {
 	if c := normalizeChannel(entryChannel); c != "unknown" {
 		return c
 	}
@@ -112,6 +115,9 @@ func deriveChannel(entryChannel, utmSource, clickID, bilibiliTrackID, twclid, gc
 	// than a stale UTM cookie left by an earlier visit.
 	if bilibiliTrackID != "" {
 		return "bilibili"
+	}
+	if len(metaFbc) > 0 && metaFbc[0] != "" {
+		return "facebook"
 	}
 	c := normalizeChannel(utmSource)
 	if c == "unknown" {

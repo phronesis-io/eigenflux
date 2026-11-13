@@ -41,6 +41,7 @@ func Register(h *server.Hertz, baseURL string) {
 	initGoogleAdsConfig()
 	initOceanengineConfig()
 	initBilibiliConfig()
+	initMetaConfig()
 	g := h.Group("/api/v1/install")
 	g.POST("/token", mintRef)
 	g.POST("/report", reportInstall)
@@ -65,10 +66,13 @@ type mintBody struct {
 	// non-app landing page supplies `clickid`; the frontend normalizes it to the
 	// dedicated xingtu_click_id field so it is never confused with Xiaohongshu's
 	// click_id even though both platforms use similar names in their URLs.
-	ClickID                 string `json:"click_id"`             // Xiaohongshu 聚光
-	BilibiliTrackID         string `json:"bilibili_track_id"`    // Bilibili campaign track_id
-	Twclid                  string `json:"twclid"`               // X (Twitter) Ads
-	Gclid                   string `json:"gclid"`                // Google Ads
+	ClickID                 string `json:"click_id"`          // Xiaohongshu 聚光
+	BilibiliTrackID         string `json:"bilibili_track_id"` // Bilibili campaign track_id
+	Twclid                  string `json:"twclid"`            // X (Twitter) Ads
+	Gclid                   string `json:"gclid"`             // Google Ads
+	Fbclid                  string `json:"fbclid"`
+	MetaFbc                 string `json:"meta_fbc"`
+	MetaFbp                 string `json:"meta_fbp"`
 	XingtuClickID           string `json:"xingtu_click_id"`      // Xingtu landing URL clickid
 	OceanengineClickID      string `json:"oceanengine_click_id"` // 巨量营销 clickid
 	OceanengineAdID         string `json:"oceanengine_ad_id"`
@@ -121,6 +125,7 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 	bilibiliTrackID := normalizeBilibiliTrackID(body.BilibiliTrackID)
 	xingtuClickID := normalizeXingtuClickID(body.XingtuClickID)
 	oceanengineClickID := normalizeOceanengineClickID(body.OceanengineClickID)
+	metaClick := metaFbc(body.Fbclid, body.MetaFbc, time.Now().UnixMilli())
 	t := &Token{
 		Token:                   NewToken(),
 		UTMSource:               trunc(body.UTMSource, 255),
@@ -128,7 +133,7 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 		UTMCampaign:             trunc(body.UTMCampaign, 255),
 		UTMContent:              trunc(body.UTMContent, 255),
 		UTMTerm:                 trunc(body.UTMTerm, 255),
-		Channel:                 deriveChannel(body.EntryChannel, body.UTMSource, body.ClickID, bilibiliTrackID, body.Twclid, body.Gclid, xingtuClickID, oceanengineClickID),
+		Channel:                 deriveChannel(body.EntryChannel, body.UTMSource, body.ClickID, bilibiliTrackID, body.Twclid, body.Gclid, xingtuClickID, oceanengineClickID, metaClick),
 		Referrer:                trunc(body.Referrer, 2048),
 		ClickID:                 trunc(body.ClickID, 128),
 		BilibiliTrackID:         bilibiliTrackID,
@@ -144,6 +149,11 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 		ClientIP:                ip,
 		CreatedAt:               time.Now().UnixMilli(),
 	}
+	if t.Channel == "facebook" {
+		t.MetaFbc = metaClick
+		t.MetaFbp = normalizeMetaCookie(body.MetaFbp)
+		t.MetaUserAgent = trunc(string(c.GetHeader("User-Agent")), 2048)
+	}
 	if ic := lookupInviteCode(body.InviteCode); ic != nil {
 		t.InviteCode = ic.Code
 		// An explicit utm_source still names the platform the link was posted
@@ -157,7 +167,7 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 		return
 	}
 	event("install_ref_new", t.Token, "channel", t.Channel,
-		"paid", t.ClickID != "" || t.BilibiliTrackID != "" || t.Twclid != "" || t.Gclid != "" || t.XingtuClickID != "" || t.OceanengineClickID != "", "invite_code", t.InviteCode,
+		"paid", t.ClickID != "" || t.BilibiliTrackID != "" || t.Twclid != "" || t.Gclid != "" || t.XingtuClickID != "" || t.OceanengineClickID != "" || t.MetaFbc != "", "invite_code", t.InviteCode,
 		"stage", "landing_token", "preview_checked", true,
 		"user_agent", trunc(string(c.GetHeader("User-Agent")), 512))
 	// The token is now durably created; report this server-confirmed funnel
@@ -219,6 +229,8 @@ func reportInstall(_ context.Context, c *app.RequestContext) {
 	fireBilibiliCallback(t.Token, bilibiliEventClueValid)
 	fireXAdsInstallCallback(t.Token)
 	fireGoogleAdsInstallCallback(t.Token)
+	fireMetaCallback(t.Token, metaCopyEvent)
+	fireMetaCallback(t.Token, metaInstallEvent)
 	// Registration attribution: the CLI's login-time report carries agent_id,
 	// which pins the acquisition channel — and for an invite-coded ref, 被谁邀请
 	// — onto the agent (first-wins). Runs on every report, not just the
@@ -263,7 +275,7 @@ func reportCopy(_ context.Context, c *app.RequestContext) {
 		reply(c, http.StatusBadRequest, 400, "invalid ref format, expected EF-xxxxxxxx", nil)
 		return
 	}
-	t, err := MarkCopied(db.DB, body.Ref)
+	t, firstCopy, err := MarkCopied(db.DB, body.Ref)
 	if err != nil {
 		reply(c, http.StatusInternalServerError, 500, err.Error(), nil)
 		return
@@ -276,8 +288,9 @@ func reportCopy(_ context.Context, c *app.RequestContext) {
 		fireBilibiliCallback(t.Token, bilibiliEventFormSubmit)
 		// Copy was confirmed by the server and is idempotent per ref.
 		fireXAdsCopyCommandCallback(t.Token)
+		fireMetaCallback(t.Token, metaCopyEvent)
 	}
-	reply(c, http.StatusOK, 0, "success", map[string]interface{}{"ref": body.Ref})
+	reply(c, http.StatusOK, 0, "success", map[string]interface{}{"ref": body.Ref, "first_copy": firstCopy})
 }
 
 // serveRef serves the agent-facing join bootstrap for a referral code and

@@ -900,6 +900,37 @@ to completed Console sessions with Commission access. It supports `q`, `model`,
 the next page cursor. See [Console Commission Market](commission.md#console-commission-market)
 for source boundaries, unknown evidence, pagination and current-model semantics.
 
+## Meta installation conversions
+
+The overseas landing URL is `https://www.eigenflux.ai/install`. The browser sends
+`fbclid`, `meta_fbc`, and `meta_fbp` with `POST /api/v1/install/token`. The server
+captures the landing IP and User-Agent. A current Meta click supplies `fbc` and
+sets the paid funnel flag. Meta UTM aliases without a current click can supply
+`fbp`. Instagram and Meta share the `facebook` channel.
+
+`POST /api/v1/install/copy` returns `first_copy: true` only for the request that
+atomically records the first copy for the ref. Browser and server `CopyCommand`
+events use `eigenflux:copy:<ref>`. The browser sends after the first-copy response,
+and the server can deliver eligible Meta traffic even if the response is lost.
+
+The install callback requires both the existing successful `/report` and a
+committed signed provision of a new V2 Agent for the same ref. Either request
+can arrive first. The event uses the later timestamp and the original landing
+browser identifiers. Registration uses `action_source=other` because the
+provision and report happen outside the landing page.
+
+The two events use independent atomic leases and persisted success states.
+Transient failures retry, and a later report or provision request can reclaim
+an eligible failed install callback. Copy retries stop before the browser
+deduplication window closes.
+
+Apply migration `000136` before deploying the API. Configure `META_ADS_ENABLED`,
+`META_PIXEL_ID`, and secret `META_CAPI_ACCESS_TOKEN` on the server; the frontend
+contains only the public Pixel ID. `META_API_VERSION` defaults to `v25.0`.
+`META_TEST_EVENT_CODE` is for explicit Meta Test Events verification only and
+must be empty for live conversions. API acceptance is recorded in
+`install_callback_meta`; acceptance alone does not prove ad attribution.
+
 ## Install attribution preview filtering
 
 `POST /api/v1/install/token` returns HTTP 403 without a referral token for

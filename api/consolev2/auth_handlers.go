@@ -659,6 +659,9 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 		failure.unavailable(reason, err)
 		return
 	}
+	// The callback claim requires a committed new-Agent provision for the ref.
+	// An authenticated receipt replay can retry delivery of that same signal.
+	install.SendMetaProvisionConversion(req.Ref)
 	if created {
 		if attribution.Channel != "" {
 			logger.Default().Info("install", "ev", "install_acq_channel", "ref", req.Ref,

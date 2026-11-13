@@ -30,6 +30,24 @@ func TestValidateURL(t *testing.T) {
 	}
 }
 
+func TestUpgradeRepairNotificationAllowsOnlyExactCodexThreadLinks(t *testing.T) {
+	link := "codex://threads/01a0d200-9d41-7cd2-9214-3f04761910c4"
+	m := Message{ID: "scope:upgrade-repair:request:action-hash", Title: "Review hooks", Body: "Open Codex", URL: link}
+	if err := Validate(m); err != nil {
+		t.Fatal(err)
+	}
+	for _, invalid := range []string{link + "?prompt=run", link + "#fragment", link + "\n", "codex://threads/new", "codex://launch", "codex://user@threads/" + strings.TrimPrefix(link, "codex://threads/")} {
+		m.URL = invalid
+		if err := Validate(m); err == nil {
+			t.Errorf("accepted %q", invalid)
+		}
+	}
+	m.ID, m.URL = "scope:order:event", link
+	if err := Validate(m); err == nil {
+		t.Fatal("ordinary desktop notification can open a Codex link")
+	}
+}
+
 func TestWindowsInputDoesNotRequireAConsoleCodePage(t *testing.T) {
 	source, err := os.ReadFile("windows.ps1")
 	if err != nil {
