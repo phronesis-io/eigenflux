@@ -902,6 +902,29 @@ for source boundaries, unknown evidence, pagination and current-model semantics.
 
 ## Install attribution preview filtering
 
+### Meta installation conversions
+
+The overseas landing URL is `https://www.eigenflux.ai/install`. The browser sends
+`fbclid`, `meta_fbc`, and `meta_fbp` with `POST /api/v1/install/token`. The server
+captures the landing request's IP and User-Agent alongside the opaque Ref. A
+current Meta click overrides stale UTM attribution; cookies alone do not override
+another channel. Instagram and Meta source aliases share the `facebook` bucket.
+
+After a successful clipboard write, `/copy` sends the custom `CopyCommand`
+event. A confirmed `/report` sends `CompleteRegistration` using the original
+landing browser identifiers, not the Agent's network identity. Browser and
+server copy events share `eigenflux:copy:<ref>`; installation events use
+`eigenflux:install:<ref>`. They have independent atomic leases and persisted
+success states; transient failures retry and later reports can reclaim failed
+callbacks. No browser URL flag can produce an installation-success event.
+
+Apply migration `000136` before deploying the API. Configure `META_ADS_ENABLED`,
+`META_PIXEL_ID`, and secret `META_CAPI_ACCESS_TOKEN` on the server; the frontend
+contains only the public Pixel ID. `META_API_VERSION` defaults to `v25.0`.
+`META_TEST_EVENT_CODE` is for explicit Meta Test Events verification only and
+must be empty for live conversions. API acceptance is recorded in
+`install_callback_meta`; acceptance alone does not prove ad attribution.
+
 `POST /api/v1/install/token` returns HTTP 403 without a referral token for
 identified crawlers, safety scanners (including `Google-Safety`), link unfurlers
 (including Feishu `LarkUrl`), and explicit
