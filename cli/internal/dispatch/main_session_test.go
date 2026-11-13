@@ -112,24 +112,8 @@ func TestMainSessionRunnerNeverFallsBack(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(b.Env["CODEX_HOME"], "sessions")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Run(context.Background(), Request{Kind: "pm_push", SessionID: mainTestID}); !errors.Is(err, ErrMainSessionUnavailable) {
+	if _, err := r.Run(context.Background(), Request{Kind: "pm_push", SessionID: mainTestID}); !errors.Is(err, ErrMainSessionMismatch) {
 		t.Fatal(err)
-	}
-}
-
-func TestMainSessionRunnerVerifiesNativeReceipt(t *testing.T) {
-	for _, scenario := range []string{"codex-main", "codex-wrong-main"} {
-		b := mainSessionFixture(t)
-		b.Command = append(b.Command, "-test.run=^TestRunnerFixture$", "--")
-		b.Env["EF_RUNNER_FIXTURE"] = scenario
-		result, err := (Runner{Binding: b}).runCodexQueue(context.Background(), Request{Kind: "pm_push", SessionID: mainTestID, Prompt: "test"})
-		if scenario == "codex-main" {
-			if err != nil || result.SessionID != mainTestID {
-				t.Fatalf("%+v %v", result, err)
-			}
-		} else if !errors.Is(err, ErrMainSessionMismatch) {
-			t.Fatalf("wrong native session accepted: %+v %v", result, err)
-		}
 	}
 }
 

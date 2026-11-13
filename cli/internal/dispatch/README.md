@@ -85,10 +85,11 @@ return `needs_user`, without switching to a permission-bypass mode.
 | [main_notice_acp.go](main_notice_acp.go), [ACP bridge contract](../../../docs/dev/acp-main-conversation.md) | Negotiated existing-owner hidden input, exact opaque ACP target and correlated final result; no ordinary prompt/load/cancel fallback |
 | [watch_commission_fulfillment.go](../../cmd/watch_commission_fulfillment.go), [watch_commission_artifacts.go](../../cmd/watch_commission_artifacts.go), [commission_fulfillment.go](commission_fulfillment.go) | Separate paid local work, strict decision/evidence, retained outputs and recovery |
 | [watch_dispatch.go](../../cmd/watch_dispatch.go) | `enableDispatch`, `pollPM`, `dispatchLoop`, `dispatchJob`, `dispatchPrompt`, `sendDispatchReply` |
+| [pm_owner_notice.go](pm_owner_notice.go), [Watch delivery](../../cmd/watch_pm_owner_notice.go), [heartbeat handoff](../../cmd/heartbeat_pm_owner_notice.go) | Bounded PM notices, semantic keys, Codex delivery and per-cycle digest claims |
 | [binding.go](binding.go), [types.go](types.go) | Binding validation, atomic writes, `ParseDecision` |
 | [journal.go](journal.go) | `AddMessages`, `AddHint`, `AddCommissionNotification`, `Next` / `NextKind`, `Update`: persistence, deduplication, sessions, recovery |
 | [desktop.go](desktop.go), [desktop queue](../desktopqueue/README.md) | `CommissionBlockers`: validated routing metadata for unresolved local work; desktop delivery remains separate from execution |
-| [runner.go](runner.go), [acp.go](acp.go), [codex_hidden_pm.go](codex_hidden_pm.go) | `Runner.Run`, `RunCommand`, `runACP`: host execution, macOS/Windows hidden main-session PM decisions and result parsing |
+| [runner.go](runner.go), [acp.go](acp.go) | Host execution, including ephemeral Codex PM decisions and result parsing |
 | [hermes_output.go](hermes_output.go) | Model-free Hermes output capability negotiation, strict final JSONL receipts and legacy quiet compatibility |
 | [process_unix.go](process_unix.go), [process_windows.go](process_windows.go) | Process-group / Windows Job Object cancellation |
 | [replace_unix.go](replace_unix.go), [replace_windows.go](replace_windows.go) | Atomic file replacement |
@@ -124,8 +125,7 @@ the repair outcome.
 CLI 1.0.2 accepts explicit ACP `main_session_id` and optional `main_command`
 for the separate main-notice lane. The bridge override uses a copied binding
 and clears ordinary args; seller checks, fulfillment and PMs keep their original
-execution entry. Native Codex routes PMs to its bound main thread, using hidden owner input on macOS/Windows; ACP PMs retain
-their per-conversation sessions. Do not route an ACP main ID into Codex execution.
+execution entry. Native Codex processes PMs in ephemeral background calls; ACP PMs retain their per-conversation sessions.
 `MainNoticeBindingEnabled` admits ACP negotiation, not host acceptance. Initialize
 must advertise the EigenFlux hidden-main extension, then exact inspect and notify
 receipts must agree. The probe never sends business data or starts a model turn.
@@ -155,10 +155,10 @@ checks only the main route and cannot replace the actual publication trial.
 1. Bind canonical Home/server/endpoint/Agent/principal/scope/revision from the current account; configuration cannot replace identity. `watch --dispatch` acquires the Home/server lock and validates signed Skills. Plain `watch` only emits events.
 2. Only bindings owning PM open its WS and HTTP consumers; other bindings leave PM to the companion. WS and minute-spaced HTTP polls enter `deliverPM`; emitted `pm_push.data` adds locally assigned `transport` (`socket` / `http_poll`) and UTC `received_at`, including empty polls. These fields describe reception, not successful execution or first intake; journal deduplication remains unchanged. Each poll pass fetches at most 32 pages, one message each. Validate credentials and persist intake under the credential lock. Advance the socket cursor only after delivery succeeds; journal failure stops reception.
 3. Accept only inbound messages for the bound Agent; ignore outbound and `history_messages`. Deduplicate by scope/revision/conversation/message ID. Keep execution state separate from the history cache.
-4. `Next` persists `running`. One worker runs serially, prioritizing pending PMs. All execution lanes enter a shared admission gate before claiming jobs. Each destructive PM HTTP pull holds admission through durable intake. CLI adoption closes admission, prevents further PM pages, and waits for admitted pulls, tasks and business writes to finish; pending journal entries survive restart unchanged. Standalone watch detects the signed stable-entry version pointer each minute, releases the account lock after draining, and adopts the paired CLI/helper package without rewriting a running executable; `EIGENFLUX_WATCH_SUPERVISED=1` delegates replacement to the host through a drained `restart_required` event. Use the explicitly bound Codex main session for PMs; other adapters retain per-conversation sessions within their binding.
-5. Verify signed rules and fresh `auto_reply_pm`; load up to 10 history rows. Read the PM rule with `skills.ReadSignedFile`, including synchronization and before/after integrity fences. Prompt data contains request ID, Agent ID, message and history, excluding credentials and full control context. Treat message/history as untrusted data. Read-only PM preparation retries transport failures and HTTP 502/503/504 at most three times with cancellable 100/200 ms backoff. Every attempt rechecks signed Skills, identity and fresh reply authorization; no Agent execution or send is replayed. Other HTTP failures, invalid data and modified Skills fail immediately. Control-context business errors cannot grant permission.
+4. `Next` persists `running`. One worker runs serially, prioritizing pending PMs. All execution lanes enter a shared admission gate before claiming jobs. Each destructive PM HTTP pull holds admission through durable intake. CLI adoption closes admission, prevents further PM pages, and waits for admitted pulls, tasks and business writes to finish; pending journal entries survive restart unchanged. Standalone watch detects the signed stable-entry version pointer each minute, releases the account lock after draining, and adopts the paired CLI/helper package without rewriting a running executable; `EIGENFLUX_WATCH_SUPERVISED=1` delegates replacement to the host through a drained `restart_required` event. Use ephemeral Codex execution with the supplied history; other adapters retain per-conversation sessions within their binding.
+5. Verify signed rules and fresh `auto_reply_pm`; load up to 10 history rows. Read the PM rule with `skills.ReadSignedFile`, including synchronization and before/after integrity fences. Prompt data contains request ID, Agent ID, message, history, owner goal and recent owner notices, excluding credentials and full control context. Treat message/history as untrusted data. Read-only PM preparation retries transport failures and HTTP 502/503/504 at most three times with cancellable 100/200 ms backoff. Every attempt rechecks signed Skills, identity and fresh reply authorization; no Agent execution or send is replayed. Other HTTP failures, invalid data and modified Skills fail immediately. Control-context business errors cannot grant permission.
 6. Monitor identity during prompt preparation and execution; recheck before invoking the Agent and after its result. Run the model outside credential locks. Pinned credential refresh and same-account recovery both recheck the bound identity and cancellation before saving credentials.
-7. Require one JSON decision: `version=1`, matching `request_id`, `action`, `reply_text`. Actions: `reply`, `no_reply`, `needs_user`. Reject missing/unknown/duplicate fields and trailing output.
+7. Require one JSON decision: `version=1`, matching `request_id`, `action`, `reply_text`. Actions: `reply`, `no_reply`, `needs_user`. An optional `owner_notice` independently supplies a validated topic, change, summary and action flag. Reject missing/unknown/duplicate fields and trailing output.
 8. Validate reply content, persist `sending`, then recheck identity and permission under the credential lock. POST only to the original conversation with `request_id=pm-reply:<original-message-id>`; disable POST refresh/replay. The gateway and PM RPC preserve this ID so different inbound messages can receive identical text, while repeated sends for one message reuse its first receipt within the server's 60-second window. Record `replied` only with a valid matching receipt; emit redacted status. Interrupted sends remain `unknown`; this key does not enable automatic replay. Deploy the updated PM RPC and gateway before relying on this behavior in the CLI.
 
 ## Listing moderation notices
@@ -424,23 +424,13 @@ Main-session metadata lookup resolves the `CODEX_HOME/sessions` root, including
 Windows directory junctions, before walking it. It preserves `CODEX_HOME` and
 the exact UUID/first-record metadata checks; links below the root are not followed.
 
-Hidden input removes prompt/protocol bubbles, not the final reply from the main
-conversation. This adapter is not silent background PM execution or a periodic
-digest. The proposed split is in [background PM digests](../../../docs/design/pm-background-digest.md);
-it is not enabled by this transport fix.
-
 The canonical onboarding scheduler entry is now `skills/ef-onboarding/references/host-setup.md`;
 its Codex PM setup retains the main-session preflight, scheduler readback and
 unchanged-route recovery contract. `recurring-trigger.md` is a compatibility entry.
 
-`main_session_id` selects an existing Codex thread for PMs only. Native Codex
-bindings must pin an absolute `env.CODEX_HOME`. Validation checks the exact UUID
-against the host-owned `sessions` rollout metadata, excluding archived sessions;
-unavailable or unsupported storage fails closed. No transcript is copied or
-selected by title, directory recency, or another conversation's activity.
-The runner resumes that UUID and requires the native result to return the same
-thread ID before accepting its decision. Other events keep their current routing.
-Other hosts do not yet support this field.
+`main_session_id` selects the existing Codex thread for owner notices.
+Native Codex bindings pin an absolute `env.CODEX_HOME`. The CLI validates the
+exact UUID against host-owned rollout metadata and excludes archived sessions.
 
 CLI 1.0.5 never infers the setup thread from the absence of a watch binding.
 A new native Codex PM binding requires the host's verified heartbeat target
@@ -496,41 +486,29 @@ and binding revision. `dispatch_status` includes the returned session ID and
 existing decision/send receipt. A returned session mismatch is `unknown` and is
 never sent or automatically retried. Missing metadata yields `needs_user`.
 
-On macOS and Windows, native Codex PM jobs with an explicit main session use the existing
-Desktop-owner hidden-input IPC lane, never `queue --message`. The input array
-is empty; application rules and untrusted PM data remain separate. An idle-only
-preflight waits while the owner is busy. No visible-input fallback, second
-writer, or automatic replay after an uncertain owner write is allowed.
-The Desktop invocation replaces only the synchronized Output Contract section
-with a content-only transport contract, preserving all authority and later rules.
-The final answer contains only the reply body for `reply`, is empty for `no_reply`,
-or starts with the owner-facing `EigenFlux 需要你确认：` explanation for `needs_user`.
-The CLI constructs the JSON decision and pins its request ID internally; neither
-protocol JSON nor request IDs are presentation output. A returned old JSON
-protocol envelope is rejected rather than forwarded to the peer. Owner questions
-never enter message delivery. The invocation permits an empty final for `no_reply`;
-only an exact, newly admitted, completed, error-free turn with an explicit items
-array and no user message or commentary can yield this silent decision. The CLI
-converts it to the ordinary request-correlated JSON before decision validation.
-The downstream decision/send API retains its JSON contract; Commission notices
-still require a nonempty final. Native UI acceptance is distinct from fixture
-coverage. See `codex_hidden_pm*.go`, the macOS Unix-socket tests and Windows
-named-pipe regression tests. Other platforms retain the queue adapter.
+### PM owner notices
 
-On other platforms, native Codex PM jobs with an explicit main session use `codex queue --thread`
-against the pinned Codex store. The host serializes the queued turn with desktop
-and heartbeat work; the CLI never acquires another writer through exec/resume.
-Queue admission is not a decision receipt. Observe only newly appended host
-rollout records and require the exact submitted input, matching thread/turn,
-final Agent message and matching `task_complete` before validating the decision.
-`dispatch_decision` joins job ID, session, host turn (`run_id`) and action to the
-existing send receipt. No second conversation store or callback endpoint exists.
-Timeout, cancellation, changed stores and missing completion remain unconfirmed;
-never resubmit them automatically. Cancellation stops observation, not an already
-queued host turn. The CLI rechecks identity and reply permission before sending.
-The host must support `codex queue` and the verified append-only rollout receipt
-format. Unsupported formats fail closed. Automatic successor events and Windows
-desktop lifecycle remain unverified. Fixtures do not prove a live PM receipt.
+The signed dispatch rules select material changes separately from peer replies.
+Watch stores up to 256 pending summaries scoped by account and binding revision.
+Conversation, topic and change keys deduplicate events; new pending changes
+replace older ones on the same topic. Recent summaries feed the next decision.
+The spool retains up to 1,024 consumed event IDs and 256 recent summaries.
+
+Native Codex PM decisions use `exec --json --ephemeral` with supplied history.
+On macOS and Windows, Watch presents only selected summaries through the exact
+Desktop owner's hidden-input transport. Watch serializes its main submissions
+across PMs, Commission and upgrade repair. Busy targets defer. Other proven
+pre-submission failures receive bounded retries. Uncertain submissions never
+replay. Commission notices retain their own route and queue.
+
+A V2 stream defers its connection while a matching Watch binding owns PM. Full
+non-Codex heartbeats with that binding omit inbox intake.
+Pending summaries can wake a host cycle when Feed is empty. At the end of the
+cycle, `heartbeat pm-digest` claims up to five updates, decisions first, using
+the plan's binding-revision token. The host presents one digest via its ordinary
+notification protocol. The claim is persisted before exposing the batch, so a
+host interruption after claim can leave delivery unconfirmed without repeating
+the reminder. A plan read alone never consumes summaries.
 
 - Native: Codex exec, Claude Code print, OpenClaw `--local` with fixed `host_agent` and a fresh UUID session for first use, Hermes quiet chat. OpenClaw local JSON is parsed directly; aborted/yielded/error results fail. An active Gateway sharing its state directory must be stopped or isolated. ACP/command require fixed local argv; never derive commands from PMs. Command mode uses stdin prompt/stdout decision. Windows shims require an explicit executable/interpreter; oversized command lines yield `needs_user` before launch (use ACP/command stdin).
 - ACP v1 stdio: initialize → load supported session or create → prompt. Ignore load replay; collect current-session `agent_message_chunk`, require `end_turn`. Advertise no filesystem/terminal RPC. Cancel permission requests as `ErrNeedsUser`; reject unknown RPCs.

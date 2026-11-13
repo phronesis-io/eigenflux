@@ -46,7 +46,7 @@ func TestCapabilityRegistryMatchesFunctionalCLILeaves(t *testing.T) {
 
 	// Local commands do not require server capability publication. Keep this
 	// explicit so adding a network command still requires a catalog contract.
-	localDiagnostics := map[string]bool{"eigenflux feed status": true, "eigenflux feed next": true, "eigenflux feed recover": true, "eigenflux watch recover": true, "eigenflux watch notices": true, "eigenflux heartbeat recovery-notice-ack": true, "eigenflux heartbeat rules": true, "eigenflux heartbeat cycle-check": true, "eigenflux heartbeat stop-check": true, "eigenflux heartbeat host-observe": true, "eigenflux heartbeat guard-setup": true, "eigenflux heartbeat permission-check": true, "eigenflux heartbeat upgrade-repair": true, "eigenflux heartbeat upgrade-repair-report": true, "eigenflux heartbeat upgrade-repair-ack": true}
+	localDiagnostics := map[string]bool{"eigenflux feed status": true, "eigenflux feed next": true, "eigenflux feed recover": true, "eigenflux watch recover": true, "eigenflux watch notices": true, "eigenflux heartbeat recovery-notice-ack": true, "eigenflux heartbeat pm-digest": true, "eigenflux heartbeat rules": true, "eigenflux heartbeat cycle-check": true, "eigenflux heartbeat stop-check": true, "eigenflux heartbeat host-observe": true, "eigenflux heartbeat guard-setup": true, "eigenflux heartbeat permission-check": true, "eigenflux heartbeat upgrade-repair": true, "eigenflux heartbeat upgrade-repair-report": true, "eigenflux heartbeat upgrade-repair-ack": true}
 	for path := range localDiagnostics {
 		if !functional[path] {
 			t.Fatalf("stale local diagnostic: %s", path)

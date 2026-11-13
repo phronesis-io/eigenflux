@@ -40,6 +40,7 @@ type Message struct {
 	ID           string `json:"msg_id"`
 	Conversation string `json:"conv_id"`
 	Sender       string `json:"sender_id"`
+	SenderName   string `json:"sender_name,omitempty"`
 	Receiver     string `json:"receiver_id"`
 	Content      string `json:"content"`
 	CreatedAt    int64  `json:"created_at,omitempty"`
@@ -223,10 +224,11 @@ type Result struct {
 
 // Decision is a business result inside a model response, not an ACP extension.
 type Decision struct {
-	Version   int    `json:"version"`
-	RequestID string `json:"request_id"`
-	Action    string `json:"action"`
-	ReplyText string `json:"reply_text"`
+	Version     int            `json:"version"`
+	RequestID   string         `json:"request_id"`
+	Action      string         `json:"action"`
+	ReplyText   string         `json:"reply_text"`
+	OwnerNotice *PMOwnerNotice `json:"owner_notice,omitempty"`
 }
 
 func ParseDecision(raw, requestID string) (Decision, error) {
@@ -246,6 +248,14 @@ func ParseDecision(raw, requestID string) (Decision, error) {
 	}
 	if strings.TrimSpace(requestID) == "" || d.Version != 1 || d.RequestID != requestID {
 		return d, errors.New("result_identity_mismatch")
+	}
+	if d.OwnerNotice != nil {
+		var noticeFields map[string]json.RawMessage
+		_ = json.Unmarshal(fields["owner_notice"], &noticeFields)
+		action := string(noticeFields["needs_action"])
+		if !d.OwnerNotice.valid() || action != "true" && action != "false" {
+			return d, errors.New("invalid_pm_owner_notice")
+		}
 	}
 	switch d.Action {
 	case "reply":
