@@ -182,6 +182,12 @@ func (w *accountWatch) desktopLoop(ctx context.Context) error {
 				if err == nil {
 					current, currentErr = w.buyerMaterialDesktopCurrent(call, entry.Message.ID)
 				}
+				if currentErr == nil && current {
+					current, currentErr = w.repairDesktopCurrent(entry.Message.ID)
+					if !current {
+						skipCode = "upgrade_repair_action_changed"
+					}
+				}
 				if currentErr == nil && !w.pmDesktopBlockerCurrent(entry.Message.ID) {
 					current = false
 					skipCode = "pm_failure_resolved"

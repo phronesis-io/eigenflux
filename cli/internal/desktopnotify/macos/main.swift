@@ -13,7 +13,12 @@ struct Request: Decodable {
     let message: NotificationMessage
 }
 
-func safeURL(_ value: String) -> URL? {
+func safeURL(_ value: String, id: String) -> URL? {
+    if id.contains(":upgrade-repair:"),
+       value.range(of: #"\Acodex://threads/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z"#,
+                   options: .regularExpression) != nil {
+        return URL(string: value)
+    }
     guard value.utf8.count <= 4096,
           !value.contains("\\"),
           !value.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
@@ -69,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     return
                 }
                 guard request.action == "show" else { self.finish(path, nil); return }
-                guard safeURL(request.message.url) != nil,
+                guard safeURL(request.message.url, id: request.message.id) != nil,
                       !request.message.id.isEmpty, request.message.id.count <= 256,
                       !request.message.title.isEmpty, request.message.title.count <= 200,
                       !request.message.body.isEmpty, request.message.body.count <= 2000 else {
@@ -100,7 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         guard response.actionIdentifier == UNNotificationDefaultActionIdentifier,
               let raw = response.notification.request.content.userInfo["url"] as? String,
-              let url = safeURL(raw) else { completionHandler(); return }
+              let url = safeURL(raw, id: response.notification.request.identifier) else { completionHandler(); return }
         DispatchQueue.main.async {
             NSWorkspace.shared.open(url)
             completionHandler()

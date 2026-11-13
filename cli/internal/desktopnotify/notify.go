@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -69,8 +70,13 @@ func Validate(message Message) error {
 			}
 		}
 	}
+	if strings.Contains(message.ID, ":upgrade-repair:") && codexThreadURL.MatchString(message.URL) {
+		return nil
+	}
 	return ValidateURL(message.URL)
 }
+
+var codexThreadURL = regexp.MustCompile(`^codex://threads/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // ValidateURL rejects command protocols, credentials and non-local cleartext.
 func ValidateURL(raw string) error {
