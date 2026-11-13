@@ -966,6 +966,12 @@ remain available to `watch status` and explicit operator retry; restarting watch
 does not replay them. Modified managed Skills stay protected and require repair
 without overwriting owner changes.
 
+Codex upgrade repair uses the desktop queue only for recorded owner actions
+that can be resumed in the verified bound thread. Background transport errors
+remain in the repair receipt. The desktop queue deduplicates by repair request,
+thread and owner actions and checks the current repair before delivery, including
+skipping legacy Dashboard notices. Clicking opens the bound Codex thread.
+
 CLI 1.0.15 reuses the opt-in desktop queue for failed PM prompt preparation.
 The desktop worker groups retained failures by conversation and fixed cause;
 only the oldest unresolved job in a group generates a reminder. Its retained

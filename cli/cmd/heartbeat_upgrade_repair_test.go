@@ -221,7 +221,7 @@ func TestUpgradeRepairGatePreservesDisabledSetup(t *testing.T) {
 	}
 }
 
-func TestUpgradeRepairNotificationOnlyFallbackIsDurableAndDoesNotStopWatch(t *testing.T) {
+func TestUpgradeRepairWithoutOwnerBindingStaysPendingAndSilent(t *testing.T) {
 	w := newNotificationWatch(t, "https://repair.example.invalid")
 	oldMeta := clientMeta
 	t.Cleanup(func() { clientMeta = oldMeta })
@@ -232,8 +232,8 @@ func TestUpgradeRepairNotificationOnlyFallbackIsDurableAndDoesNotStopWatch(t *te
 		}
 	}
 	pending, delivered := w.desktop.Counts()
-	if pending != 1 || delivered != 0 {
-		t.Fatalf("fallback repeated: %d/%d", pending, delivered)
+	if pending != 0 || delivered != 0 {
+		t.Fatalf("missing owner binding produced a notification: %d/%d", pending, delivered)
 	}
 	r, err := currentUpgradeRepair(false)
 	if err != nil || r.Status != "pending" || r.Attempts != 0 {
@@ -305,24 +305,60 @@ func TestUpgradeRepairSkillsTargetFailureUsesExistingWrappedClassification(t *te
 	}
 }
 
-func TestUpgradeRepairNewBlockerIsNotSuppressedByOldFallback(t *testing.T) {
+func TestUpgradeRepairDesktopRequiresActionAndDeduplicatesByOwnerTask(t *testing.T) {
 	w := newNotificationWatch(t, "https://repair.example.invalid")
-	r, _ := currentUpgradeRepair(true)
-	if err := w.repairFallback(r); err != nil {
+	thread := "01a0d200-9d41-7cd2-9214-3f04761910c4"
+	home := t.TempDir()
+	sessions := filepath.Join(home, "sessions")
+	if err := os.Mkdir(sessions, 0700); err != nil {
 		t.Fatal(err)
 	}
-	r, err := reportUpgradeRepair(r.ID, "user_action", []string{"hook_review"})
-	if err != nil {
+	if err := os.WriteFile(filepath.Join(sessions, "rollout-"+thread+".jsonl"), []byte(`{"type":"session_meta","payload":{"id":"`+thread+`"}}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 3; i++ {
-		if err := w.repairFallback(r); err != nil {
+	b := dispatch.Binding{Host: "codex", Mode: "native", Revision: "revision", MainSessionID: thread, Env: map[string]string{"CODEX_HOME": home}}
+	r := upgradeRepair{ID: "repair", Binding: b.Revision, DispatchThread: thread}
+	for _, status := range []string{"pending", "blocked", "deferred", "awaiting_run", "verified"} {
+		r.Status = status
+		if _, ok := w.repairDesktopMessage(&r, b, "zh"); ok {
+			t.Fatalf("%s prompted owner", status)
+		}
+	}
+	r.Status = "user_action"
+	r.Blockers = []string{"host_unavailable"}
+	if _, ok := w.repairDesktopMessage(&r, b, "zh"); ok {
+		t.Fatal("host diagnostic prompted owner")
+	}
+	r.Blockers = []string{"hook_review"}
+	first, ok := w.repairDesktopMessage(&r, b, "zh")
+	if !ok || first.URL != "codex://threads/"+thread || !strings.Contains(first.Body, "审核 EigenFlux Hook") {
+		t.Fatalf("missing actionable thread link: %+v", first)
+	}
+	for _, blockers := range [][]string{{"hook_review"}, {"hook_review", "host_unavailable"}, {"hook_review", "host_restart"}} {
+		r.Generation++
+		r.Blockers = blockers
+		message, ok := w.repairDesktopMessage(&r, b, "zh")
+		if !ok {
+			t.Fatalf("missing owner action %v", blockers)
+		}
+		if err := w.desktop.Enqueue(message); err != nil {
 			t.Fatal(err)
 		}
 	}
-	pending, _ := w.desktop.Counts()
-	if pending != 2 {
-		t.Fatalf("new state dropped or same state repeated: %d", pending)
+	if pending, _ := w.desktop.Counts(); pending != 2 {
+		t.Fatalf("wanted one notice per distinct owner action, got %d", pending)
+	}
+	r.Acknowledged = repairNoticeHash(r)
+	if _, ok := w.repairDesktopMessage(&r, b, "zh"); ok {
+		t.Fatal("acknowledged prompt produced a desktop notice")
+	}
+	r.Acknowledged = ""
+	b.MainSessionID = ""
+	if _, ok := w.repairDesktopMessage(&r, b, "zh"); ok {
+		t.Fatal("missing binding produced a desktop notice")
+	}
+	if current, err := w.repairDesktopCurrent(w.scope + ":upgrade-repair:repair:legacy"); current || err != nil {
+		t.Fatalf("legacy Dashboard notice may still deliver: %v %v", current, err)
 	}
 }
 
@@ -395,27 +431,6 @@ func TestUpgradeRepairBackgroundScopeCannotFollowChangedForegroundDefault(t *tes
 	}
 }
 
-func TestUpgradeRepairPersistentOwnerUnavailablePromptsOnceWithoutStoppingRetries(t *testing.T) {
-	r := &upgradeRepair{Status: "pending", Attempts: 5, UnavailableAttempts: 5}
-	unavailable := errors.Join(dispatch.ErrMainNoticeNotSubmitted, errors.New("reader unavailable"))
-	if !upgradeRepairOwnerUnavailable(r, unavailable, nil) {
-		t.Fatal("persistent unavailable owner has no continuation notice")
-	}
-	for _, err := range []error{dispatch.ErrMainNoticeBusy, nil, errors.New("uncertain write")} {
-		if upgradeRepairOwnerUnavailable(r, err, nil) {
-			t.Fatal("busy or unconfirmed transport gained a user prompt", err)
-		}
-	}
-	if upgradeRepairOwnerUnavailable(r, unavailable, context.Canceled) {
-		t.Fatal("cancellation prompted owner")
-	}
-	r.Attempts = 1
-	r.UnavailableAttempts = 1
-	if upgradeRepairOwnerUnavailable(r, unavailable, nil) {
-		t.Fatal("transient failure prompted owner")
-	}
-}
-
 func TestUpgradeRepairUnavailableRetryCounterSurvivesRestartAndBusyResetsIt(t *testing.T) {
 	runtimeTestConfig(t, "https://repair.example.invalid", true)
 	r, _ := currentUpgradeRepair(true)
@@ -430,7 +445,7 @@ func TestUpgradeRepairUnavailableRetryCounterSurvivesRestartAndBusyResetsIt(t *t
 			t.Fatal(err2)
 		}
 	}
-	if !upgradeRepairOwnerUnavailable(r, dispatch.ErrMainNoticeNotSubmitted, nil) || r.NextAttempt <= time.Now().UnixMilli() {
+	if r.Status != "pending" || r.UnavailableAttempts != 5 || r.NextAttempt <= time.Now().UnixMilli() {
 		t.Fatalf("persistent failure lost retry or continuation action %+v", r)
 	}
 	_, err := mutateUpgradeRepair(false, func(r *upgradeRepair) error { r.Status = "submitted"; return nil })

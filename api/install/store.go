@@ -43,23 +43,24 @@ func MarkFetched(db *gorm.DB, ref string) (*Token, error) {
 }
 
 // MarkCopied stamps copied_at the first time the visitor copies the install
-// command on the landing page (idempotent: only the first copy sets it). Returns
-// the row, or (nil, nil) when the ref doesn't exist.
-func MarkCopied(db *gorm.DB, ref string) (*Token, error) {
-	if err := db.Model(&Token{}).
+// command on the landing page and reports whether this request stamped it.
+// An unknown ref returns no row and no first copy.
+func MarkCopied(db *gorm.DB, ref string) (*Token, bool, error) {
+	result := db.Model(&Token{}).
 		Where("token = ? AND copied_at = 0", ref).
-		Update("copied_at", time.Now().UnixMilli()).Error; err != nil {
-		return nil, err
+		Update("copied_at", time.Now().UnixMilli())
+	if result.Error != nil {
+		return nil, false, result.Error
 	}
 	var t Token
 	err := db.Where("token = ?", ref).First(&t).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil
+		return nil, false, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return &t, nil
+	return &t, result.RowsAffected == 1, nil
 }
 
 // callbackCols returns the (code, sent_at) column names for an event type. The

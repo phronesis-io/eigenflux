@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -45,30 +46,93 @@ func (w *accountWatch) upgradeRepairLoop(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func (w *accountWatch) repairFallback(r *upgradeRepair) error {
-	if r == nil || w.desktop == nil || r.Notification == "unchanged" {
-		return nil
+func (w *accountWatch) repairDesktopMessage(r *upgradeRepair, b dispatch.Binding, language string) (desktopnotify.Message, bool) {
+	if r == nil || r.Status != "user_action" || r.Acknowledged == repairNoticeHash(*r) {
+		return desktopnotify.Message{}, false
 	}
-	// Queue IDs survive process restarts; there is one fallback per request, not
-	// one toast for every retry. The original owner chat is never guessed.
-	title, body := upgradeRepairDesktopCopy(desktopnotify.SystemLanguage())
-	noticeKey := r.NoticeID
-	if noticeKey == "" {
-		noticeKey = "owner-unavailable"
+	if b.Host != "codex" || b.MainSessionID == "" || b.MainSessionID != r.DispatchThread ||
+		b.Revision != r.Binding {
+		return desktopnotify.Message{}, false
 	}
-	return w.desktop.Enqueue(desktopnotify.Message{
-		ID:    w.scope + ":upgrade-repair:" + r.ID + ":" + noticeKey,
+	var actions, labels []string
+	zh := strings.HasPrefix(strings.ToLower(language), "zh")
+	for _, action := range []struct{ key, en, zh string }{
+		{"hook_review", "review the EigenFlux hooks", "审核 EigenFlux Hook"},
+		{"policy_approval", "review the execution permission", "确认执行权限"},
+		{"host_restart", "restart Codex", "重启 Codex"},
+	} {
+		if !slices.Contains(r.Blockers, action.key) {
+			continue
+		}
+		actions = append(actions, action.key)
+		label := action.en
+		if zh {
+			label = action.zh
+		}
+		labels = append(labels, label)
+	}
+	if len(actions) == 0 || slices.Contains(r.Blockers, "scheduler_paused") || b.ValidateMainSession() != nil {
+		return desktopnotify.Message{}, false
+	}
+	title := "EigenFlux needs your help to finish the update"
+	body := "Open Codex to " + strings.Join(labels, ", then ") + "."
+	if zh {
+		title = "EigenFlux 更新需要你确认"
+		body = "打开 Codex，继续" + strings.Join(labels, "、") + "。"
+	}
+	key := sha256.Sum256([]byte(b.MainSessionID + "\x00" + strings.Join(actions, ",")))
+	return desktopnotify.Message{
+		ID:    w.scope + ":upgrade-repair:" + r.ID + ":action-" + hex.EncodeToString(key[:]),
 		Title: title,
 		Body:  body,
-		URL:   strings.TrimRight(w.server.Endpoint, "/") + "/dashboard",
-	})
+		URL:   "codex://threads/" + b.MainSessionID,
+	}, true
 }
 
-func upgradeRepairDesktopCopy(language string) (string, string) {
-	if strings.HasPrefix(strings.ToLower(language), "zh") {
-		return "EigenFlux 升级后的连接需要完成验收", "请回到原来的 EigenFlux 会话继续修复。Agent 会自动完成检查和修复；确需你的操作时，会一次列清 Hook 审核、权限确认及重启步骤，无需手动运行命令。"
+func (w *accountWatch) upgradeRepairBinding() (dispatch.Binding, bool) {
+	b, err := dispatch.ReadBinding(w.home, w.server.Name)
+	expected := dispatch.Binding{Home: w.home, Server: w.server.Name, Endpoint: w.server.Endpoint, AgentID: w.identity.AgentID, PrincipalID: w.identity.PrincipalID, Scope: w.scope}
+	return b, err == nil && sameBindingIdentity(b, expected) && b.Host == "codex"
+}
+
+func (w *accountWatch) enqueueUpgradeRepairDesktop(r *upgradeRepair) error {
+	if w.desktop != nil && r != nil && r.Status == "user_action" {
+		if b, ok := w.upgradeRepairBinding(); ok {
+			if message, ok := w.repairDesktopMessage(r, b, desktopnotify.SystemLanguage()); ok {
+				return w.desktop.Enqueue(message)
+			}
+		}
 	}
-	return "Finish EigenFlux upgrade acceptance", "Return to your original EigenFlux chat. Your Agent will perform the checks and repairs, then combine any required hook review, approval and restart into one message. You do not need to run commands."
+	return nil
+}
+
+func (w *accountWatch) repairDesktopCurrent(id string) (bool, error) {
+	prefix := w.scope + ":upgrade-repair:"
+	rest, ok := strings.CutPrefix(id, prefix)
+	if !ok {
+		return true, nil
+	}
+	_, key, _ := strings.Cut(rest, ":")
+	if !strings.HasPrefix(key, "action-") || !codexUpgradeRepairEnabled() {
+		return false, nil
+	}
+	path, scope, err := upgradeRepairPath()
+	if err != nil {
+		return false, err
+	}
+	r, err := readUpgradeRepair(path, scope)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	b, ok := w.upgradeRepairBinding()
+	if !ok {
+		return false, nil
+	}
+	message, ok := w.repairDesktopMessage(&r, b, "en")
+	return ok && message.ID == id, nil
 }
 
 func (w *accountWatch) tryUpgradeRepair(ctx context.Context) error {
@@ -89,40 +153,27 @@ func (w *accountWatch) tryUpgradeRepair(ctx context.Context) error {
 		return nil
 	}
 	if r.Status != "pending" {
-		return w.repairFallback(r)
+		return w.enqueueUpgradeRepairDesktop(r)
 	}
 	if r.NextAttempt > time.Now().UnixMilli() {
 		return nil
 	}
-	b, err := dispatch.ReadBinding(w.home, w.server.Name)
-	expected := dispatch.Binding{Home: w.home, Server: w.server.Name, Endpoint: w.server.Endpoint, AgentID: w.identity.AgentID, PrincipalID: w.identity.PrincipalID, Scope: w.scope}
-	if err != nil || !sameBindingIdentity(b, expected) || b.Host != "codex" || !dispatch.MainNoticeBindingEnabled(b) {
-		return w.repairFallback(r)
+	b, ok := w.upgradeRepairBinding()
+	if !ok || !dispatch.MainNoticeBindingEnabled(b) {
+		return nil
 	}
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
 	if err := syncUpgradeWatchRules(cfg, b, false); err != nil {
-		failed, receiptErr := recordUpgradeSkillsFailure(r.ID, err)
-		if receiptErr != nil {
-			return receiptErr
-		}
-		if failed.Status == "pending" {
-			return nil
-		}
-		return w.repairFallback(failed)
+		_, receiptErr := recordUpgradeSkillsFailure(r.ID, err)
+		return receiptErr
 	}
 	application, err := readUpgradeRepairRules(b.SkillsDir, automaticMaintenanceEnabled(cfg, autoSkillSyncKey))
 	if err != nil {
-		failed, receiptErr := recordUpgradeSkillsFailure(r.ID, err)
-		if receiptErr != nil {
-			return receiptErr
-		}
-		if failed.Status == "pending" {
-			return nil
-		}
-		return w.repairFallback(failed)
+		_, receiptErr := recordUpgradeSkillsFailure(r.ID, err)
+		return receiptErr
 	}
 	cli, err := stableInstalledExecutable()
 	if err != nil {
@@ -174,18 +225,10 @@ func (w *accountWatch) tryUpgradeRepair(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if runErr != nil && !dispatch.MainNoticeCanRetry(runErr) {
-		return w.repairFallback(latest)
+	if ctx.Err() != nil {
+		return nil
 	}
-	if upgradeRepairOwnerUnavailable(latest, runErr, ctx.Err()) {
-		return w.repairFallback(latest)
-	}
-	return nil
-}
-
-func upgradeRepairOwnerUnavailable(r *upgradeRepair, runErr, canceled error) bool {
-	return canceled == nil && r != nil && r.Status == "pending" && r.UnavailableAttempts >= 5 &&
-		dispatch.MainNoticeCanRetry(runErr) && !errors.Is(runErr, dispatch.ErrMainNoticeBusy)
+	return w.enqueueUpgradeRepairDesktop(latest)
 }
 
 // CLI publication precedes its companion Skills publication. An intact signed
