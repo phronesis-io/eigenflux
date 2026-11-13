@@ -330,7 +330,7 @@
     "deploy_scope": "api",
     "dashboards": ["feedback-compliance", "recommendation-effect"],
     "title": "Recommend useful reads and preserve unassessed Feed items",
-    "description": "API activation changes the served scoring contract. Explicit deferral requires CLI 1.0.29 and compatible rules. Compare feedback and surface receipts after observed client adoption; historical zero scores remain ambiguous.",
+    "description": "API activation changes the served scoring contract. Explicit deferral requires CLI 1.0.30 and compatible rules. Compare feedback and surface receipts after observed client adoption; historical zero scores remain ambiguous.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/560"
   }
 ]
