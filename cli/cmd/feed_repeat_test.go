@@ -13,14 +13,14 @@ import (
 func TestReusableFeedPage(t *testing.T) {
 	now := time.Now().UnixMilli()
 	for _, tc := range []struct {
-		name, action, origin    string
-		age                     int64
-		baseline, scored, empty bool
-		want                    bool
+		name, action, origin              string
+		age                               int64
+		baseline, scored, deferred, empty bool
+		want                              bool
 	}{
 		{name: "unprocessed", age: 1, want: true}, {name: "boundary", age: 60000},
 		{name: "future", age: -1}, {name: "more", action: "more"}, {name: "owner", origin: "owner"},
-		{name: "baseline", baseline: true}, {name: "scored", scored: true}, {name: "empty", empty: true},
+		{name: "baseline", baseline: true}, {name: "scored", scored: true}, {name: "empty", empty: true}, {name: "deferred", deferred: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			state := feedevent.Reports{LastFetchAt: now - tc.age, LastImpressionID: "p", Entries: map[string]feedevent.Report{}}
@@ -28,6 +28,9 @@ func TestReusableFeedPage(t *testing.T) {
 				r := feedevent.Report{ImpressionID: "p", Baseline: tc.baseline}
 				if tc.scored {
 					r.ScoredAt = now
+				}
+				if tc.deferred {
+					r.DeferredAt = now
 				}
 				state.Entries["p\x001"] = r
 			}

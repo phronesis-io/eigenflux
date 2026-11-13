@@ -68,9 +68,13 @@ func cycleBatchCandidates(ledger *feedevent.Ledger, state feedevent.Reports, now
 		if !e.Feed || r.Baseline || r.ServedAt <= now-feedBacklogAge.Milliseconds() || r.ServedAt > now {
 			continue
 		}
+		if r.DeferredAt > 0 && (r.BacklogExpiredAt > 0 || r.CycleID == cycle || state.Cycles[r.CycleID].Active(now)) {
+			continue
+		}
 		if r.HandedTime() == 0 {
 			backlog = append(backlog, e)
-		} else if r.Batched && r.ScoredAt == 0 && r.Delivery == "" && !state.Surfaced(e.ItemID) && r.Hands() < feedRehandLimit {
+		} else if r.Batched && r.ScoredAt == 0 && r.Delivery == "" && !state.Surfaced(e.ItemID) &&
+			(r.DeferredAt > 0 || r.Hands() < feedRehandLimit) {
 			open = append(open, e)
 		}
 	}
@@ -102,17 +106,25 @@ func reusableFeedPage(action, origin string, state feedevent.Reports, now int64)
 }
 
 func expireFeedBacklog(ledger *feedevent.Ledger, state *feedevent.Reports, now int64) {
-	var expired int64
-	for _, e := range ledger.Entries() {
+	counts := map[string]int64{}
+	for _, e := range ledger.ReportEntries(*state) {
 		r := state.Exposure(e)
-		if e.Feed && !r.Baseline && r.HandedTime() == 0 && r.BacklogExpiredAt == 0 && r.ServedAt <= now-feedBacklogAge.Milliseconds() {
-			r.BacklogExpiredAt = now
-			state.Entries[r.ImpressionID+"\x00"+r.ItemID] = r
-			expired++
+		if !e.Feed || r.Baseline || r.BacklogExpiredAt > 0 || r.ServedAt > now-feedBacklogAge.Milliseconds() {
+			continue
 		}
+		switch {
+		case r.DeferredAt > 0:
+			counts["deferred_expired_items"]++
+		case r.HandedTime() == 0:
+			counts["backlog_expired_items"]++
+		default:
+			continue
+		}
+		r.BacklogExpiredAt = now
+		state.Entries[r.ImpressionID+"\x00"+r.ItemID] = r
 	}
-	if expired > 0 {
-		state.Count(now, map[string]int64{"backlog_expired_items": expired})
+	if len(counts) > 0 {
+		state.Count(now, counts)
 	}
 }
 
@@ -344,13 +356,6 @@ func saveAndBatchFeed(cmd *cobra.Command, server string, payload json.RawMessage
 		return renderFeedV2(cmd, payload)
 	}
 	cache.Cleanup(server, "broadcasts")
-	var fetched struct {
-		Items []json.RawMessage `json:"items"`
-	}
-	if json.Unmarshal(payload, &fetched) == nil && len(fetched.Items) == 0 {
-		warnReportLedger(recordFeedPull(server, payload))
-		return renderFeedV2(cmd, payload)
-	}
 	now := time.Now().UnixMilli()
 	ledger := feedLedger(server)
 	var batch json.RawMessage
@@ -376,6 +381,10 @@ func saveAndBatchFeed(cmd *cobra.Command, server string, payload json.RawMessage
 		}
 		expireFeedBacklog(ledger, state, now)
 		open, backlog := cycleBatchCandidates(ledger, *state, now, cycle, true)
+		if len(entries) == 0 && len(open)+len(backlog) == 0 {
+			*original = *state
+			return
+		}
 		available := map[string]bool{}
 		for _, e := range append(open, backlog...) {
 			available[e.ImpressionID+"\x00"+e.ItemID] = true
@@ -408,6 +417,9 @@ func saveAndBatchFeed(cmd *cobra.Command, server string, payload json.RawMessage
 		warnReportLedger(err)
 		warnReportLedger(batchErr)
 		warnReportLedger(recordFeedPull(server, payload))
+		return renderFeedV2(cmd, payload)
+	}
+	if meta.CycleID == "" {
 		return renderFeedV2(cmd, payload)
 	}
 	return renderFeedV2Batch(cmd, server, batch, &meta)

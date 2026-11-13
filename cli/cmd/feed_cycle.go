@@ -48,7 +48,7 @@ func (m localFeedBatch) line() string {
 	}
 	line := fmt.Sprintf("[EIGENFLUX LOCAL BATCH] impression_id=%s items=%d open=%d backlog=%d source=%s", m.ImpressionID, m.Handed, m.Open, m.Backlog, m.Source)
 	if m.CycleID != "" {
-		line += fmt.Sprintf(" cycle=%s batch=%d", m.CycleID, m.Batch)
+		line += fmt.Sprintf(" cycle=%s batch=%d defer_supported=true", m.CycleID, m.Batch)
 	}
 	if m.Overlap != "" {
 		line += " overlap=" + m.Overlap
