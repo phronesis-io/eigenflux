@@ -501,7 +501,8 @@ across PMs, Commission and upgrade repair. Busy targets defer. Other proven
 pre-submission failures receive bounded retries. Uncertain submissions never
 replay. Commission notices retain their own route and queue.
 
-Full non-Codex heartbeats with a matching PM Watch binding omit inbox intake.
+A V2 stream defers its connection while a matching Watch binding owns PM. Full
+non-Codex heartbeats with that binding omit inbox intake.
 Pending summaries can wake a host cycle when Feed is empty. At the end of the
 cycle, `heartbeat pm-digest` claims up to five updates, decisions first, using
 the plan's binding-revision token. The host presents one digest via its ordinary

@@ -333,3 +333,18 @@ func TestStreamCancellationInterruptsHandshake(t *testing.T) {
 		t.Fatal("canceled stream left its handshake pending")
 	}
 }
+
+func TestStreamDefersToBoundPMWatch(t *testing.T) {
+	f := newDispatchWatchFixture(t, "")
+	cache.SaveProfile(f.watch.server.Name, &cache.Profile{AgentID: f.watch.identity.AgentID})
+	for _, once := range []bool{true, false} {
+		command := streamTestCommand(t, "", once)
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		command.SetContext(ctx)
+		err := streamCmd.RunE(command, nil)
+		cancel()
+		if err != nil || f.sockets.Load() != 0 {
+			t.Fatalf("once=%t: legacy stream competed with Watch: sockets=%d err=%v", once, f.sockets.Load(), err)
+		}
+	}
+}
