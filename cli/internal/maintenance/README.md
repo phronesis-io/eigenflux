@@ -162,9 +162,10 @@ revision, thread, environment, runtime mode and account before submission,
 during execution and after return. Persist submission before native input;
 retry only confirmed pre-admission failures with backoff. Unknown submission
 stays blocked for foreground continuation; never replay a possibly admitted
-maintenance turn. Missing binding leaves a durable request and one desktop
-fallback instead of guessing an owner. New blocker fingerprints may notify;
-unchanged acknowledged actions stay quiet. Rules changes remain foreground
+maintenance turn. Missing binding leaves a durable request for foreground recovery. Desktop notices
+require a verified Codex thread and a recorded owner action. Deduplication uses
+the repair request, target thread and owner actions. Transport diagnostics and
+acknowledged prompts stay quiet. Rules changes remain foreground
 operations under verified authority. Hook trust remains an owner operation.
 
 `heartbeat upgrade-repair-report --stdin` records the complete fixed blocker

@@ -8,7 +8,7 @@ accepted the notification, not that the user saw or clicked it. Focus modes and
 disabled banners remain controlled by the OS. Callers own account isolation,
 deduplication, bounded retries, and non-blocking event delivery.
 
-`Message` carries an opaque ID, rendered title/body, and an HTTPS URL. Only loopback
+`Message` carries an opaque ID, rendered title/body, and an HTTPS URL or a local upgrade repair link to an exact Codex thread UUID. Only loopback
 HTTP is allowed for local development. Reject credential-bearing URLs, command
 protocols, control characters, and oversized fields. Never include credentials
 or order input text. Account checking belongs to the destination Console page.
