@@ -323,5 +323,14 @@
     "title": "Recent Need dense recall available (default off)",
     "description": "Requires Sort rollout; API-only deployment does not activate it. Compare recorded experiment arms from bucket activation, not deployment time. Lane latency starts after rollout without historical backfill; frozen pages retain their contents.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/553"
+  },
+  {
+    "id": "feed-pending-judgments-and-useful-reads-v1",
+    "kind": "behavior",
+    "deploy_scope": "api",
+    "dashboards": ["feedback-compliance", "recommendation-effect"],
+    "title": "Recommend useful reads and preserve unassessed Feed items",
+    "description": "API activation changes the served scoring contract. Explicit deferral requires CLI 1.0.29 and compatible rules. Compare feedback and surface receipts after observed client adoption; historical zero scores remain ambiguous.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/560"
   }
 ]
