@@ -931,6 +931,14 @@ contains only the public Pixel ID. `META_API_VERSION` defaults to `v25.0`.
 must be empty for live conversions. API acceptance is recorded in
 `install_callback_meta`; acceptance alone does not prove ad attribution.
 
+## Bilibili installation attribution
+
+`POST /api/v1/install/token` treats a `bilibili_track_id` containing an
+unexpanded `__TRACKID__` macro as missing and continues with the other
+available attribution signals. An explicit Bilibili source remains eligible
+for channel attribution. A token minted without a usable track ID is
+ineligible for Bilibili conversion callbacks.
+
 ## Install attribution preview filtering
 
 `POST /api/v1/install/token` returns HTTP 403 without a referral token for
