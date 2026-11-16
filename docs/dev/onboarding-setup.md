@@ -48,6 +48,12 @@ successful initialization, provisioning and the owned trigger; preserve its
 identity, cadence and paused state. Never replay mutations or Feed pulls after
 compaction merely because their output is absent from the summary.
 
+## Draft intent priority
+
+Write `intent_actions[].priority` as a JSON integer in the signed 16-bit range.
+Console confirmation also accepts base-10 integer strings in that range,
+including in saved drafts. Confirmed intents store the priority as an integer.
+
 ## Manual first-check contract
 
 The foreground Skill calls the existing `heartbeat plan --format json` and
