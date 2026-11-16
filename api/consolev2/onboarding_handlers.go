@@ -466,7 +466,7 @@ func (p *onboardingIntentPriority) UnmarshalJSON(data []byte) error {
 	}
 	priority, err := strconv.ParseInt(strings.TrimSpace(value), 10, 16)
 	if err != nil {
-		return errors.New("intent_actions.priority must be a signed 16-bit integer")
+		return errInvalidOnboardingIntentPriority
 	}
 	*p = onboardingIntentPriority(priority)
 	return nil
@@ -493,8 +493,9 @@ type draftPayload struct {
 }
 
 var (
-	errInvalidOnboardingDraft = errors.New("invalid onboarding draft")
-	errEmailBindingRequired   = errors.New("verified email binding required")
+	errInvalidOnboardingDraft          = errors.New("invalid onboarding draft")
+	errInvalidOnboardingIntentPriority = errors.New("priority must be a signed 16-bit integer")
+	errEmailBindingRequired            = errors.New("verified email binding required")
 )
 
 func validateDraftPayload(payload draftPayload) error {
@@ -517,6 +518,39 @@ func validateDraftPayload(payload draftPayload) error {
 		}
 	}
 	return nil
+}
+
+func decodeOnboardingDraftStep(draft []byte, step int16) (draftPayload, error) {
+	var sections struct {
+		IdentityCard     json.RawMessage `json:"identity_card"`
+		NetworkGoal      json.RawMessage `json:"network_goal"`
+		IntentActions    json.RawMessage `json:"intent_actions"`
+		SecurityBoundary json.RawMessage `json:"security_boundary"`
+	}
+	var payload draftPayload
+	if err := json.Unmarshal(draft, &sections); err != nil {
+		return payload, err
+	}
+
+	var data json.RawMessage
+	var dest interface{}
+	var field string
+	switch step {
+	case 2:
+		data, dest, field = sections.IdentityCard, &payload.IdentityCard, "identity_card"
+	case 3:
+		data, dest, field = sections.NetworkGoal, &payload.NetworkGoal, "network_goal"
+	case 4:
+		data, dest, field = sections.IntentActions, &payload.IntentActions, "intent_actions"
+	case 5:
+		data, dest, field = sections.SecurityBoundary, &payload.SecurityBoundary, "security_boundary"
+	}
+	if len(data) != 0 {
+		if err := json.Unmarshal(data, dest); err != nil {
+			return payload, fmt.Errorf("%s: %w", field, err)
+		}
+	}
+	return payload, nil
 }
 
 func validateDraftStep(payload draftPayload, step int16) error {
@@ -700,8 +734,16 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		if err != nil {
 			return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)
 		}
-		var payload draftPayload
-		if err := json.Unmarshal(normalizedDraftJSON, &payload); err != nil {
+		payload, err := decodeOnboardingDraftStep(normalizedDraftJSON, req.Step)
+		if err != nil {
+			fields := []interface{}{"step", req.Step}
+			var typeError *json.UnmarshalTypeError
+			if errors.As(err, &typeError) {
+				fields = append(fields, "field", typeError.Field, "expected_type", typeError.Type.String())
+			} else if errors.Is(err, errInvalidOnboardingIntentPriority) {
+				fields = append(fields, "field", "intent_actions.priority", "expected_type", "int16")
+			}
+			logger.Ctx(ctx).Warn("onboarding_confirm_draft_decode_failed", fields...)
 			return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)
 		}
 		if req.Step == 4 {

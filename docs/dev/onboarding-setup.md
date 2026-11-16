@@ -53,6 +53,8 @@ compaction merely because their output is absent from the summary.
 Write `intent_actions[].priority` as a JSON integer in the signed 16-bit range.
 Console confirmation also accepts base-10 integer strings in that range,
 including in saved drafts. Confirmed intents store the priority as an integer.
+Each confirmation decodes the typed fields for that step, so a type error in
+another section does not block it.
 
 ## Manual first-check contract
 
