@@ -46,6 +46,7 @@ func Register(h *server.Hertz, baseURL string) {
 	g.POST("/token", mintRef)
 	g.POST("/report", reportInstall)
 	g.POST("/copy", reportCopy)
+	g.POST("/status", installStatus)
 	g.GET("/google-ads/oauth/authorize", googleAdsOAuthAuthorize)
 	g.GET("/google-ads/oauth/callback", googleAdsOAuthCallback)
 	// Agent join entry: the /install page hands the user a command pointing here
@@ -55,13 +56,14 @@ func Register(h *server.Hertz, baseURL string) {
 }
 
 type mintBody struct {
-	UTMSource    string `json:"utm_source"`
-	UTMMedium    string `json:"utm_medium"`
-	UTMCampaign  string `json:"utm_campaign"`
-	UTMContent   string `json:"utm_content"`
-	UTMTerm      string `json:"utm_term"`
-	Referrer     string `json:"referrer"`
-	EntryChannel string `json:"entry_channel"`
+	UTMSource     string `json:"utm_source"`
+	UTMMedium     string `json:"utm_medium"`
+	UTMCampaign   string `json:"utm_campaign"`
+	UTMContent    string `json:"utm_content"`
+	UTMTerm       string `json:"utm_term"`
+	Referrer      string `json:"referrer"`
+	EntryChannel  string `json:"entry_channel"`
+	StatusKeyHash string `json:"status_key_hash"`
 	// Platform click identifiers from the landing URL (paid traffic). Xingtu's
 	// non-app landing page supplies `clickid`; the frontend normalizes it to the
 	// dedicated xingtu_click_id field so it is never confused with Xiaohongshu's
@@ -103,7 +105,7 @@ func normalizeLang(s string) string {
 // ref (localStorage) and not re-mint on refresh; the IP rate limit is the
 // server-side backstop against write amplification.
 // @router /api/v1/install/token [POST]
-func mintRef(_ context.Context, c *app.RequestContext) {
+func mintRef(ctx context.Context, c *app.RequestContext) {
 	c.Header("Cache-Control", "no-store")
 	if isPreviewRequest(c) {
 		logPreview(c, "landing_token", "", previewMintInviteCode(c))
@@ -121,6 +123,10 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 			reply(c, http.StatusBadRequest, 400, "invalid JSON body", nil)
 			return
 		}
+	}
+	if body.StatusKeyHash != "" && (body.UTMSource != "eigenflux_ios" || !validStatusKey(body.StatusKeyHash)) {
+		reply(c, http.StatusBadRequest, 400, "invalid status credential", nil)
+		return
 	}
 	bilibiliTrackID := normalizeBilibiliTrackID(body.BilibiliTrackID)
 	xingtuClickID := normalizeXingtuClickID(body.XingtuClickID)
@@ -160,6 +166,12 @@ func mintRef(_ context.Context, c *app.RequestContext) {
 		// on; only an otherwise-unknown entry falls back to the invite bucket.
 		if t.Channel == "unknown" {
 			t.Channel = ic.TokenChannel()
+		}
+	}
+	if body.StatusKeyHash != "" {
+		if err := rememberStatusKey(ctx, mq.RDB, t.Token, body.StatusKeyHash); err != nil {
+			reply(c, http.StatusServiceUnavailable, 503, "install status temporarily unavailable", nil)
+			return
 		}
 	}
 	if err := CreateToken(db.DB, t); err != nil {
