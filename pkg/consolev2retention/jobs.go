@@ -35,6 +35,7 @@ func Jobs() []Job {
 			AND NOT EXISTS (SELECT 1 FROM agent_cli_account_switches account_switch WHERE account_switch.target_console_session_id = row.session_id)`)},
 		{"credential_sessions", boundedDelete("agent_credential_sessions", "absolute_expires_at < clock_ms() - 90*day_ms()")},
 		{"idempotency_responses", boundedDelete("agent_idempotency_requests", "expires_at < clock_ms()")},
+		{"uninstall_feedback", boundedDelete("uninstall_feedback", "created_at < clock_ms() - 30*day_ms()")},
 		{"telemetry_events", boundedDelete("telemetry_events_v2", "expires_at < clock_ms()")},
 		{"usage_sessions", boundedDelete("console_usage_sessions", "updated_at < clock_ms() - 90*day_ms()")},
 		{"runtime_leases", boundedDelete("agent_runtime_leases", "lease_until < clock_ms() - day_ms()")},

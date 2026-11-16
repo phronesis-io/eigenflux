@@ -189,5 +189,6 @@ func (o *uninstallObservation) finishAndPurge(result, code string) error {
 		}
 	}
 
+	o.reportUnregisteredOutcome(result, code)
 	return cleanupErr
 }

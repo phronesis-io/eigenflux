@@ -53,7 +53,8 @@ CLI-led removal; native host cleanup failure is reported by the Skill.
 The submitting Agent sends the original text or explicit decline and the
 started event before cleanup. Continue only after the API returns the matching
 attempt ID. Retry with the same attempt ID, Agent, server, and feedback. Local
-receipts carry confirmation and no original text. Terminal observations capture
+receipts carry confirmation and no original text. Unregistered installations
+use a per-attempt proof for feedback and terminal outcomes. Terminal observations capture
 existing authenticated clients in memory, clear local data, and upload the actual
 cleanup result without recreating local business files. Upload uses existing tokens with no
 refresh/login and one five-second network budget across accounts. The current

@@ -1,16 +1,21 @@
 -- +goose Up
 CREATE TABLE uninstall_feedback (
     attempt_id VARCHAR(32) PRIMARY KEY,
-    agent_id BIGINT NOT NULL,
+    agent_id BIGINT REFERENCES agents(agent_id) ON DELETE CASCADE,
+    proof_hash TEXT,
     source TEXT NOT NULL CHECK (source IN ('manual', 'agent')),
     reason_category TEXT NOT NULL CHECK (reason_category IN (
         'declined', 'other', 'usability', 'cost', 'performance', 'privacy', 'no_longer_needed'
     )),
     reason TEXT,
     created_at BIGINT NOT NULL,
+    CHECK ((agent_id IS NULL) = (proof_hash IS NOT NULL)),
     CHECK ((reason_category = 'declined' AND reason IS NULL)
         OR (reason_category <> 'declined' AND reason IS NOT NULL AND octet_length(reason) BETWEEN 1 AND 1000))
 );
+
+CREATE INDEX idx_uninstall_feedback_created_at ON uninstall_feedback(created_at);
+CREATE INDEX idx_uninstall_feedback_agent ON uninstall_feedback(agent_id) WHERE agent_id IS NOT NULL;
 
 REVOKE ALL ON uninstall_feedback FROM PUBLIC;
 -- +goose StatementBegin

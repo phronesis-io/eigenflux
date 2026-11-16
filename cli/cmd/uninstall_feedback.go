@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -56,46 +59,84 @@ func validateUninstallReason(reason, category string) error {
 	return nil
 }
 
-func (o *uninstallObservation) submitFeedback(reason string) error {
+// feedbackTarget resolves the invoking registered Home and pins the selected
+// identity. An absent V2 credential file means an unregistered installation.
+// A present but expired or damaged session never falls back to anonymous.
+func (o *uninstallObservation) feedbackTarget() (*config.Server, string, string, error) {
 	cfg, err := config.Load()
 	if err != nil {
-		return err
+		return nil, "", "", err
 	}
-	server, err := cfg.GetActive(serverFlag)
+	selected := serverFlag
+	if selected == "" {
+		selected = o.FeedbackServer
+	}
+	server, err := cfg.GetActive(selected)
 	if err != nil {
-		return err
+		return nil, "", "", err
+	}
+	if server.Name == "." || server.Name == ".." || strings.ContainsAny(server.Name, "\\/") {
+		return nil, "", "", errors.New("invalid uninstall feedback server name")
+	}
+	endpoint, err := url.Parse(server.Endpoint)
+	if err != nil || endpoint.Hostname() == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" ||
+		(endpoint.Scheme != "https" && !(endpoint.Scheme == "http" &&
+			(endpoint.Hostname() == "localhost" || net.ParseIP(endpoint.Hostname()).IsLoopback()))) {
+		return nil, "", "", errors.New("uninstall feedback requires an HTTPS server or an HTTP loopback endpoint")
 	}
 	homePath, err := filepath.EvalSymlinks(config.HomeDir())
 	if err != nil {
-		return err
+		return nil, "", "", err
 	}
-	var scope maintenance.Scope
-	for _, candidate := range o.Scopes {
-		if candidate.Home == homePath && candidate.Server == server.Name {
-			scope = candidate
+	registered := false
+	for _, home := range o.Homes {
+		if home.Home == homePath {
+			registered = true
 			break
 		}
 	}
-	if scope.AgentID == "" {
-		return errors.New("uninstall feedback requires a signed-in Agent in the selected installation and server")
+	if !registered {
+		return nil, "", "", errors.New("uninstall feedback requires the invoking Home to be registered")
 	}
-	regular, err := auth.HasV2Credentials(server.Name)
-	if err != nil || !regular {
-		return errors.New("uninstall feedback requires regular Agent credentials")
+	var id, token string
+	present, err := auth.HasV2Credentials(server.Name)
+	if err != nil {
+		return nil, "", "", err
 	}
-	credentials, err := auth.LoadV2Credentials(server.Name)
-	if err != nil || credentials.AgentID != scope.AgentID {
-		return errors.New("uninstall feedback requires a signed-in Agent in the selected installation and server")
+	if present {
+		credentials, err := auth.LoadV2Credentials(server.Name)
+		if err != nil {
+			return nil, "", "", errors.New("repair the selected Agent credentials before uninstalling")
+		}
+		id, token = credentials.AgentID, credentials.AccessToken
 	}
-	if o.FeedbackServer != "" && (o.FeedbackServer != server.Name || o.FeedbackAgentID != credentials.AgentID || o.FeedbackEndpoint != server.Endpoint) {
-		return errors.New("uninstall feedback must be retried with the original Agent and server")
+	if o.FeedbackServer != "" && (o.FeedbackServer != server.Name || o.FeedbackAgentID != id || o.FeedbackEndpoint != server.Endpoint) {
+		return nil, "", "", errors.New("uninstall feedback is bound to the original Agent and server; start a new attempt")
+	}
+	return server, id, token, nil
+}
+
+func (o *uninstallObservation) feedbackClient(token string, meta client.Meta) *client.Client {
+	c := client.New(strings.TrimRight(o.FeedbackEndpoint, "/")+"/api/v2", token, o.Version, meta)
+	c.HTTPClient.Timeout = 5 * time.Second
+	c.HTTPClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return c
+}
+
+func (o *uninstallObservation) submitFeedback(reason string) error {
+	server, id, token, err := o.feedbackTarget()
+	if err != nil {
+		return err
 	}
 
 	path, err := uninstallReceiptPath(o.AttemptID)
 	if err != nil {
 		return err
 	}
-	o.FeedbackServer, o.FeedbackAgentID, o.FeedbackEndpoint = server.Name, credentials.AgentID, server.Endpoint
+	o.FeedbackServer, o.FeedbackAgentID, o.FeedbackEndpoint = server.Name, id, server.Endpoint
+	if id == "" && o.FeedbackProof == "" {
+		o.FeedbackProof = maintenance.NewID()
+	}
 	o.Pending = true
 	// Persist the retry identity before the request. Feedback text stays in memory.
 	if err := saveMaintenance(path, o); err != nil {
@@ -107,17 +148,21 @@ func (o *uninstallObservation) submitFeedback(reason string) error {
 	event.Source, event.Platform, event.ReasonCategory = o.Source, runtime.GOOS, o.ReasonCategory
 	event.FromVersion = o.Version
 	for _, home := range o.Homes {
-		if home.Home == scope.Home {
+		if home.Home == config.HomeDir() {
 			event.Host = runtimeProduct(home.Host)
 			break
 		}
 	}
-	c := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", credentials.AccessToken, o.Version, clientMetaForServer(server))
-	c.HTTPClient.Timeout = 5 * time.Second
-	c.HTTPClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	response, err := c.Post("/maintenance/events:batch", map[string]interface{}{
+	c := o.feedbackClient(token, clientMetaForServer(server))
+	route := "/maintenance/events:batch"
+	feedback := map[string]string{"reason": reason}
+	if id == "" {
+		route = "/maintenance/unregistered-uninstall"
+		feedback["proof"] = o.FeedbackProof
+	}
+	response, err := c.Post(route, map[string]interface{}{
 		"events":             []maintenance.Event{event},
-		"uninstall_feedback": map[string]string{"reason": reason},
+		"uninstall_feedback": feedback,
 	})
 	if err != nil {
 		var apiErr *client.APIError
@@ -142,4 +187,24 @@ func (o *uninstallObservation) submitFeedback(reason string) error {
 		return fmt.Errorf("save uninstall feedback confirmation; retry --begin --attempt %s: %w", o.AttemptID, err)
 	}
 	return nil
+}
+
+// Unregistered installations have no Agent token. Their attempt proof is
+// narrowly scoped to reporting outcomes for the previously accepted feedback.
+func (o *uninstallObservation) reportUnregisteredOutcome(result, code string) {
+	if !o.FeedbackUploaded || o.FeedbackProof == "" {
+		return
+	}
+	event := maintenance.NewEvent(o.AttemptID, "cli", "manual", "uninstall", result)
+	event.Source, event.Platform, event.ReasonCategory = o.Source, runtime.GOOS, o.ReasonCategory
+	event.FromVersion, event.ErrorCode = o.Version, code
+	event.DurationMS = time.Since(o.Started).Milliseconds()
+	c := o.feedbackClient("", client.Meta{})
+	response, err := c.Post("/maintenance/unregistered-uninstall", map[string]interface{}{
+		"events":             []maintenance.Event{event},
+		"uninstall_feedback": map[string]string{"proof": o.FeedbackProof},
+	})
+	if err != nil || response.HTTPStatus != http.StatusAccepted {
+		fmt.Fprintln(os.Stderr, "Uninstall outcome upload failed.")
+	}
 }

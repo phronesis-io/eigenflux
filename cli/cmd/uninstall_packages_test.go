@@ -171,7 +171,8 @@ func main() {
 	invoke("installation", "record", "--host", "codex", "--skills-target", "")
 	configureUninstallFeedbackTest(t, home, feedbackEndpoint)
 	// Current-Agent scope keeps the shared immutable package and activation.
-	invoke("uninstall", "--scope", "current", "--apply", "--host-cleanup-confirmed", "--reason-category", "declined")
+	attempt := beginUninstallTest(t, func(args ...string) ([]byte, error) { return invoke(args...), nil }, "--scope", "current", "--reason-category", "declined")
+	invoke("uninstall", "--attempt", attempt, "--apply", "--host-cleanup-confirmed")
 	for _, path := range []string{stable, directory, stable + ".current.json"} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("current scope removed a shared package: %s: %v", path, err)
@@ -182,7 +183,7 @@ func main() {
 	_ = os.WriteFile(filepath.Join(home, "credentials.keep"), []byte("fixture"), 0600)
 	foreign := filepath.Join(directory, "foreign.txt")
 	_ = os.WriteFile(foreign, []byte("preserve"), 0600)
-	reject := exec.Command(stable, "--homedir", home, "uninstall", "--scope", "all", "--apply", "--host-cleanup-confirmed", "--reason-category", "declined")
+	reject := exec.Command(stable, "--homedir", home, "uninstall", "--scope", "all", "--begin", "--reason-category", "declined")
 	reject.Env = environment
 	if out, err := reject.CombinedOutput(); err == nil {
 		t.Fatalf("foreign package content accepted: %s", out)
@@ -210,14 +211,24 @@ func main() {
 		if err := json.Unmarshal(rawReceipt, &applied); err != nil {
 			t.Fatal(err)
 		}
-		applied.ReadyToFinalize = true
+		legacy := scenario == "partial"
+		if legacy {
+			applied.FeedbackUploaded = false
+			applied.FeedbackServer, applied.FeedbackAgentID, applied.FeedbackEndpoint = "", "", ""
+		} else {
+			applied.ReadyToFinalize = true
+		}
 		if err := saveMaintenance(receiptPath, &applied); err != nil {
 			t.Fatal(err)
 		}
 		// The standalone binary remains runnable after the active version is
 		// partially removed; the old stable entry cannot serve as a reporter.
 		finalize := func() ([]byte, error) {
-			cmd := exec.Command(built, "--homedir", home, "uninstall-finalize", "--attempt", receipt.AttemptID, "--remove-original", "--format", "json")
+			args := []string{"--homedir", home, "uninstall-finalize", "--attempt", receipt.AttemptID, "--remove-original", "--format", "json"}
+			if legacy {
+				args = append(args, "--legacy-cleanup-confirmed")
+			}
+			cmd := exec.Command(built, args...)
 			cmd.Env = environment
 			return cmd.Output()
 		}

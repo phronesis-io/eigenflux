@@ -169,7 +169,15 @@ in the same transaction as the start event. HTTP 202 includes
 `data.uninstall_feedback_attempt_id` after commit. Replay with the same
 attempt ID, Agent, source, category, and reason returns the same confirmation.
 Conflicting feedback returns HTTP 409. General telemetry stores only the
-category. Authorized database access is required to read the text.
+category. Authorized database access is required to read the text. Feedback is retained
+for 30 days, and known-account feedback cascades on Agent deletion.
+
+Unregistered installations use `POST /api/v2/maintenance/unregistered-uninstall`.
+This rate-limited endpoint accepts exactly one CLI uninstall observation and
+requires an attempt-scoped random proof in `uninstall_feedback.proof`. The start
+request carries the reason or decline. Terminal requests omit the reason and
+must match the proof, source, and category of the accepted start. The service
+stores a hash of the proof and leaves Agent identity unset.
 
 Count distinct `attempt_id` across accounts. Only `removed` counts toward
 the reason distribution for successful uninstallations.
