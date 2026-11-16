@@ -56,6 +56,16 @@ including in saved drafts. Confirmed intents store the priority as an integer.
 Each confirmation decodes the typed fields for that step, so a type error in
 another section does not block it.
 
+## Confirmation failure logs
+
+Search the API gateway logs for `onboarding_confirm_failed`. Match the
+browser response's `X-Trace-Id` to the log's `traceId` when tracing is enabled.
+The event records the status, error code, stage, requested step, and revisions.
+Draft decode errors include the field and input type when available. Invalid
+priority strings report their format or range failure. The log includes a
+recognized priority label when present. It excludes arbitrary draft values and
+the request body.
+
 ## Manual first-check contract
 
 The foreground Skill calls the existing `heartbeat plan --format json` and

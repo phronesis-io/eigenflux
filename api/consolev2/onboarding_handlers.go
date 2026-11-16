@@ -464,12 +464,48 @@ func (p *onboardingIntentPriority) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &value); err != nil {
 		return err
 	}
-	priority, err := strconv.ParseInt(strings.TrimSpace(value), 10, 16)
+	value = strings.TrimSpace(value)
+	priority, err := strconv.ParseInt(value, 10, 16)
 	if err != nil {
-		return errInvalidOnboardingIntentPriority
+		failure := &onboardingIntentPriorityError{reason: "invalid_integer_string"}
+		if errors.Is(err, strconv.ErrRange) {
+			failure.reason = "integer_out_of_range"
+		}
+		switch label := strings.ToLower(value); label {
+		case "high", "medium", "low", "normal", "高", "中", "低":
+			failure.label = label
+		}
+		return failure
 	}
 	*p = onboardingIntentPriority(priority)
 	return nil
+}
+
+type onboardingIntentPriorityError struct {
+	reason string
+	label  string
+}
+
+func (*onboardingIntentPriorityError) Error() string {
+	return "priority must be a signed 16-bit integer"
+}
+
+func onboardingDraftDecodeLogFields(err error) []interface{} {
+	var priorityError *onboardingIntentPriorityError
+	if errors.As(err, &priorityError) {
+		fields := []interface{}{"reason", priorityError.reason, "field", "intent_actions.priority", "expected_type", "int16", "received_type", "string"}
+		if priorityError.label != "" {
+			fields = append(fields, "received_label", priorityError.label)
+		}
+		return fields
+	}
+	var typeError *json.UnmarshalTypeError
+	if errors.As(err, &typeError) {
+		// Go appends the submitted literal to numeric type errors.
+		receivedType, _, _ := strings.Cut(typeError.Value, " ")
+		return []interface{}{"reason", "type_mismatch", "field", typeError.Field, "expected_type", typeError.Type.String(), "received_type", receivedType}
+	}
+	return []interface{}{"reason", "decode_failed"}
 }
 
 type onboardingIntentDraft struct {
@@ -493,9 +529,8 @@ type draftPayload struct {
 }
 
 var (
-	errInvalidOnboardingDraft          = errors.New("invalid onboarding draft")
-	errInvalidOnboardingIntentPriority = errors.New("priority must be a signed 16-bit integer")
-	errEmailBindingRequired            = errors.New("verified email binding required")
+	errInvalidOnboardingDraft = errors.New("invalid onboarding draft")
+	errEmailBindingRequired   = errors.New("verified email binding required")
 )
 
 func validateDraftPayload(payload draftPayload) error {
@@ -658,8 +693,19 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		return
 	}
 	var req confirmStepRequest
+	stage := "request"
+	var currentRevision int64
+	reject := func(status int, code, message string, diagnostics ...interface{}) {
+		fields := []interface{}{"status", status, "code", code, "stage", stage,
+			"step", req.Step, "expected_revision", req.ExpectedOnboardingRevision}
+		if currentRevision > 0 {
+			fields = append(fields, "current_revision", currentRevision)
+		}
+		logger.Ctx(ctx).Warn("onboarding_confirm_failed", append(fields, diagnostics...)...)
+		fail(c, status, code, message, nil)
+	}
 	if err := decodeBody(c, &req); err != nil || req.Step < 2 || req.Step > 5 || req.ExpectedOnboardingRevision <= 0 || req.IdempotencyKey == "" {
-		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "step, expected_onboarding_revision, and idempotency_key are required", nil)
+		reject(http.StatusBadRequest, "INVALID_REQUEST", "step, expected_onboarding_revision, and idempotency_key are required")
 		return
 	}
 	requestHash := hashString(fmt.Sprintf("%d:%d", req.Step, req.ExpectedOnboardingRevision))
@@ -669,6 +715,7 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 	confirmedIntentCount := 0
 	now := time.Now().UnixMilli()
 	err := s.db.Transaction(func(tx *gorm.DB) error {
+		stage = "idempotency"
 		var prior struct {
 			RequestHash string `gorm:"column:request_hash"`
 			Response    string `gorm:"column:response_snapshot"`
@@ -683,17 +730,20 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 			}
 			return json.Unmarshal([]byte(prior.Response), &response)
 		}
+		stage = "state"
 		var state onboardingState
 		if err := tx.Raw(`SELECT state, current_step, revision, active_context_revision, completed_at
 			FROM agent_onboarding_v2 WHERE agent_id = ? FOR UPDATE`, id).Scan(&state).Error; err != nil {
 			return err
 		}
+		currentRevision = state.Revision
 		// A user may revisit and re-confirm any already unlocked step. A prior
 		// step updates its canonical data but never moves the onboarding cursor
 		// backwards; future/locked steps remain rejected.
 		if !canConfirmOnboardingStep(state.State, state.CurrentStep, req.Step) || state.Revision != req.ExpectedOnboardingRevision {
 			return errConflict
 		}
+		stage = "email_binding"
 		var emailVerifiedForSession bool
 		if err := tx.Raw(`SELECT EXISTS (
 			SELECT 1 FROM v2_email_challenges challenges
@@ -719,6 +769,7 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		if !emailVerifiedForSession {
 			return errEmailBindingRequired
 		}
+		stage = "read_draft"
 		var storedDraft struct {
 			DraftData       string `gorm:"column:draft_data"`
 			FieldProvenance string `gorm:"column:field_provenance"`
@@ -730,21 +781,15 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 			WHERE agent_id = ? ORDER BY revision DESC LIMIT 1`, id).Scan(&storedDraft).Error; err != nil {
 			return err
 		}
+		stage = "normalize_draft"
 		normalizedDraftJSON, rawDraft, err := normalizeOnboardingDraftJSON(json.RawMessage(storedDraft.DraftData))
 		if err != nil {
 			return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)
 		}
+		stage = "decode_draft"
 		payload, err := decodeOnboardingDraftStep(normalizedDraftJSON, req.Step)
 		if err != nil {
-			fields := []interface{}{"step", req.Step}
-			var typeError *json.UnmarshalTypeError
-			if errors.As(err, &typeError) {
-				fields = append(fields, "field", typeError.Field, "expected_type", typeError.Type.String())
-			} else if errors.Is(err, errInvalidOnboardingIntentPriority) {
-				fields = append(fields, "field", "intent_actions.priority", "expected_type", "int16")
-			}
-			logger.Ctx(ctx).Warn("onboarding_confirm_draft_decode_failed", fields...)
-			return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)
+			return fmt.Errorf("%w: %w", errInvalidOnboardingDraft, err)
 		}
 		if req.Step == 4 {
 			confirmedIntentCount = len(payload.IntentActions)
@@ -753,9 +798,11 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		if len(provenance) == 0 && validProvenance(storedDraft.ActorType) {
 			provenance = deriveInitialProvenance(rawDraft, storedDraft.ActorType, nil, now)
 		}
+		stage = "validate_draft"
 		if err := validateDraftStep(payload, req.Step); err != nil {
 			return err
 		}
+		stage = "apply_step"
 		provenance = confirmStepProvenance(rawDraft, provenance, req.Step, now)
 		if err := applyConfirmedStep(tx, id, req.Step, payload, provenance, now); err != nil {
 			return err
@@ -765,6 +812,7 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		newState := "in_progress"
 		var contextRevision interface{}
 		if req.Step == 5 && req.Step == state.CurrentStep {
+			stage = "complete_onboarding"
 			compiled, revision, err := compileAndActivateContext(tx, id, now)
 			if err != nil {
 				return err
@@ -823,6 +871,7 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 				response["account_switch"] = map[string]interface{}{"status": "completed", "refresh_required": true}
 			}
 		}
+		stage = "save_confirmation"
 		snapshot, _ := json.Marshal(response)
 		return tx.Exec(`INSERT INTO agent_idempotency_requests
 			(agent_id, operation, idempotency_key, request_hash, response_snapshot, expires_at, created_at)
@@ -833,8 +882,10 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		found, hashConflict, replayErr := s.loadIdempotentResponse(id, "onboarding_confirm", req.IdempotencyKey, requestHash, &response)
 		switch {
 		case replayErr != nil:
+			stage = "idempotency"
 			err = replayErr
 		case found && hashConflict:
+			stage = "idempotency"
 			err = errConflict
 		case found:
 			replayed = true
@@ -842,19 +893,27 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		}
 	}
 	if errors.Is(err, errConflict) {
-		fail(c, http.StatusConflict, "REVISION_CONFLICT", "onboarding step or revision changed", nil)
+		reject(http.StatusConflict, "REVISION_CONFLICT", "onboarding step or revision changed")
 		return
 	}
 	if errors.Is(err, errEmailBindingRequired) {
-		fail(c, http.StatusConflict, "EMAIL_BINDING_REQUIRED", "bind and verify an email before confirming onboarding", nil)
+		reject(http.StatusConflict, "EMAIL_BINDING_REQUIRED", "bind and verify an email before confirming onboarding")
 		return
 	}
 	if errors.Is(err, errInvalidOnboardingDraft) {
-		fail(c, http.StatusBadRequest, "CONFIRM_FAILED", err.Error(), nil)
+		var diagnostics []interface{}
+		if stage == "decode_draft" {
+			diagnostics = onboardingDraftDecodeLogFields(err)
+		}
+		reject(http.StatusBadRequest, "CONFIRM_FAILED", err.Error(), diagnostics...)
 		return
 	}
 	if err != nil {
-		fail(c, http.StatusInternalServerError, "CONFIRM_FAILED", "could not confirm onboarding step", nil)
+		var diagnostics []interface{}
+		if state := sqlState(err); validSQLState(state) {
+			diagnostics = append(diagnostics, "sql_state", state)
+		}
+		reject(http.StatusInternalServerError, "CONFIRM_FAILED", "could not confirm onboarding step", diagnostics...)
 		return
 	}
 	cache.InvalidateDiscovery(ctx, s.redisClient, id)
