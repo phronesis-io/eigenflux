@@ -452,6 +452,34 @@ type identityCardDraft struct {
 	InterestsNegative []string `json:"interests_negative"`
 }
 
+// onboardingIntentPriority accepts integer strings in Agent-generated drafts.
+type onboardingIntentPriority int16
+
+func (p *onboardingIntentPriority) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || data[0] != '"' {
+		return json.Unmarshal(data, (*int16)(p))
+	}
+
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	priority, err := strconv.ParseInt(strings.TrimSpace(value), 10, 16)
+	if err != nil {
+		return errors.New("intent_actions.priority must be a signed 16-bit integer")
+	}
+	*p = onboardingIntentPriority(priority)
+	return nil
+}
+
+type onboardingIntentDraft struct {
+	WatchFor          string                   `json:"watch_for"`
+	TriggerWhen       string                   `json:"trigger_when"`
+	ActionInstruction string                   `json:"action_instruction"`
+	ActionPolicy      string                   `json:"action_policy"`
+	Priority          onboardingIntentPriority `json:"priority"`
+}
+
 type draftPayload struct {
 	IdentityCard     identityCardDraft `json:"identity_card"`
 	SecurityBoundary struct {
@@ -460,14 +488,8 @@ type draftPayload struct {
 		AutoComment      bool `json:"auto_comment"`
 		ShowAddFriend    bool `json:"show_add_friend"`
 	} `json:"security_boundary"`
-	NetworkGoal   string `json:"network_goal"`
-	IntentActions []struct {
-		WatchFor          string `json:"watch_for"`
-		TriggerWhen       string `json:"trigger_when"`
-		ActionInstruction string `json:"action_instruction"`
-		ActionPolicy      string `json:"action_policy"`
-		Priority          int16  `json:"priority"`
-	} `json:"intent_actions"`
+	NetworkGoal   string                  `json:"network_goal"`
+	IntentActions []onboardingIntentDraft `json:"intent_actions"`
 }
 
 var (
@@ -489,7 +511,7 @@ func validateDraftPayload(payload draftPayload) error {
 		if err := validateIntent(IntentWriteFields{
 			WatchFor: intent.WatchFor, TriggerWhen: intent.TriggerWhen,
 			ActionInstruction: intent.ActionInstruction, ActionPolicy: intent.ActionPolicy,
-			Priority: intent.Priority,
+			Priority: int16(intent.Priority),
 		}); err != nil {
 			return err
 		}
@@ -565,7 +587,7 @@ func validateDraftStep(payload draftPayload, step int16) error {
 			if err := validateIntent(IntentWriteFields{
 				WatchFor: intent.WatchFor, TriggerWhen: intent.TriggerWhen,
 				ActionInstruction: intent.ActionInstruction, ActionPolicy: intent.ActionPolicy,
-				Priority: intent.Priority,
+				Priority: int16(intent.Priority),
 			}); err != nil {
 				return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)
 			}
@@ -907,7 +929,7 @@ func applyConfirmedStep(tx *gorm.DB, agentID int64, step int16, payload draftPay
 				 source, status, version, created_at, updated_at)
 				VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 1, ?, ?)`, agentID,
 				intent.WatchFor, intent.TriggerWhen, intent.ActionInstruction, intent.ActionPolicy,
-				intent.Priority, canonicalSource(provenance, "intent_actions"), now, now).Error; err != nil {
+				int16(intent.Priority), canonicalSource(provenance, "intent_actions"), now, now).Error; err != nil {
 				return err
 			}
 		}

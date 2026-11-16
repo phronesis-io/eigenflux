@@ -223,7 +223,7 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		"network_goal": "Find relevant infrastructure signals",
 		"intent_actions": []map[string]interface{}{{
 			"watch_for": "infrastructure updates", "trigger_when": "source is relevant",
-			"action_instruction": "analyze and report", "action_policy": "analyze_only", "priority": 10,
+			"action_instruction": "analyze and report", "action_policy": "analyze_only", "priority": "10",
 		}},
 	}
 	issue := func(entitlement string) (string, string) {
@@ -535,6 +535,11 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 			t.Fatal("onboarding confirmation left an old discovery input cached")
 		}
 		revision++
+	}
+
+	var priority int16
+	if err := gdb.Raw(`SELECT priority FROM agent_intent_actions WHERE agent_id = ? AND status = 'active'`, agentIDInt).Scan(&priority).Error; err != nil || priority != 10 {
+		t.Fatalf("confirmed intent priority=%d err=%v, want 10", priority, err)
 	}
 
 	status, sessionPayload, _ := performJSON(t, h, "GET", "/api/v2/console/session", map[string]interface{}{},
