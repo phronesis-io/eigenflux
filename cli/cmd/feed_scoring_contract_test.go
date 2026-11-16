@@ -26,6 +26,8 @@ func TestFeedScoringFallbackContract(t *testing.T) {
 			"separate from Agent feedback scores",
 			"must never independently suppress feedback or recommendations",
 			"Submit feedback for judged items before presenting Feed recommendations or uploading Feed Attention",
+			"Give `2` to high-value content that supports a concrete, worthwhile next action for the user. The action need not have happened.",
+			"A score does not authorize an action.",
 			"Give `1` to content directly relevant to the user’s current work and worth reading, even without an immediate action.",
 			"Use `0` only for an assessed neutral item.",
 			"Omit unassessed items from feedback.",
@@ -37,6 +39,11 @@ func TestFeedScoringFallbackContract(t *testing.T) {
 		} {
 			if !strings.Contains(string(body), required) {
 				t.Errorf("%s missing %q", path, required)
+			}
+		}
+		for _, obsolete := range []string{"triggered an action", "triggered additional action"} {
+			if strings.Contains(strings.ToLower(string(body)), obsolete) {
+				t.Errorf("%s still requires a completed action: %q", path, obsolete)
 			}
 		}
 		if path == "skills/ef-broadcast/references/contract.md" {
