@@ -22,6 +22,26 @@ func TestNormalizeBilibiliTrackID(t *testing.T) {
 	}
 }
 
+func TestBilibiliTrackIDMacroFallsBackToOtherAttribution(t *testing.T) {
+	for _, value := range []string{"__TRACKID__", "prefix-__TRACKID__-suffix"} {
+		t.Run(value, func(t *testing.T) {
+			trackID := normalizeBilibiliTrackID(value)
+			if trackID != "" {
+				t.Fatalf("unexpanded track id was retained: %q", trackID)
+			}
+			if channel := deriveChannel("", "", "", trackID, "", "", "", "", ""); channel != "unknown" {
+				t.Errorf("macro-only channel = %q, want unknown", channel)
+			}
+			if channel := deriveChannel("", "facebook", "", trackID, "", "", "", "", ""); channel != "facebook" {
+				t.Errorf("channel with Facebook UTM = %q, want facebook", channel)
+			}
+			if channel := deriveChannel("", "bilibili", "", trackID, "", "", "", "", ""); channel != "bilibili" {
+				t.Errorf("channel with Bilibili UTM = %q, want bilibili", channel)
+			}
+		})
+	}
+}
+
 func TestBilibiliEventTimestamp(t *testing.T) {
 	tok := &Token{CopiedAt: 1604888786102, ReportedAt: 1604888888000}
 	if got := bilibiliEventTimestamp(tok, bilibiliEventFormSubmit); got != tok.CopiedAt {
