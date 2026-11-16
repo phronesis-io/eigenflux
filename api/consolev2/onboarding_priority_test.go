@@ -2,6 +2,7 @@ package consolev2
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 )
 
@@ -55,5 +56,28 @@ func TestDecodeOnboardingDraftStepChecksOnlyCurrentSection(t *testing.T) {
 		if _, err := decodeOnboardingDraftStep(draft, step); err == nil {
 			t.Fatalf("step %d accepted an invalid field in its own section", step)
 		}
+	}
+}
+
+func TestOnboardingDraftDecodeLogFields(t *testing.T) {
+	for _, tt := range []struct {
+		name, priority string
+		want           []interface{}
+	}{
+		{"known label", `"HIGH"`, []interface{}{"reason", "invalid_integer_string", "field", "intent_actions.priority", "expected_type", "int16", "received_type", "string", "received_label", "high"}},
+		{"arbitrary text", `"private draft text"`, []interface{}{"reason", "invalid_integer_string", "field", "intent_actions.priority", "expected_type", "int16", "received_type", "string"}},
+		{"string out of range", `"32768"`, []interface{}{"reason", "integer_out_of_range", "field", "intent_actions.priority", "expected_type", "int16", "received_type", "string"}},
+		{"numeric literal omitted", `123456789`, []interface{}{"reason", "type_mismatch", "field", "priority", "expected_type", "int16", "received_type", "number"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			draft := []byte(`{"intent_actions":[{"priority":` + tt.priority + `}]}`)
+			_, err := decodeOnboardingDraftStep(draft, 4)
+			if err == nil {
+				t.Fatal("expected priority decoding to fail")
+			}
+			if got := onboardingDraftDecodeLogFields(err); !slices.Equal(got, tt.want) {
+				t.Fatalf("log fields = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
