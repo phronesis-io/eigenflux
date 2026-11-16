@@ -941,6 +941,18 @@ ineligible for Bilibili conversion callbacks.
 
 ## Install attribution preview filtering
 
+The EigenFlux iOS app can send an optional `status_key_hash` on
+`POST /api/v1/install/token` with `utm_source=eigenflux_ios`. The hash is the
+hexadecimal SHA-256 of a private, random 64-character hexadecimal status key.
+The status credential is separate from the public install ref and expires
+after 90 days.
+
+`POST /api/v1/install/status` accepts an `entries` array of up to ten
+`{ref, status_key}` pairs. The no-store response maps each requested ref to
+`pending`, `installed` or `unavailable`. An unknown, expired or unauthorized
+pair returns the same `unavailable` state. `installed` means an installation
+report was recorded. It does not assert Agent ownership or connectivity.
+
 `POST /api/v1/install/token` returns HTTP 403 without a referral token for
 identified crawlers, safety scanners (including `Google-Safety`), link unfurlers
 (including Feishu `LarkUrl`), and explicit
