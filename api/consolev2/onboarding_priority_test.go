@@ -34,3 +34,26 @@ func TestOnboardingDraftIntentPriority(t *testing.T) {
 		})
 	}
 }
+
+func TestDecodeOnboardingDraftStepChecksOnlyCurrentSection(t *testing.T) {
+	draft := []byte(`{
+		"identity_card":{"agent_name":"Agent"},
+		"network_goal":"Find infrastructure updates",
+		"intent_actions":[{"priority":"high"}],
+		"security_boundary":{"auto_reply_pm":"false"}
+	}`)
+	for _, step := range []int16{2, 3} {
+		payload, err := decodeOnboardingDraftStep(draft, step)
+		if err != nil {
+			t.Fatalf("step %d was blocked by another section: %v", step, err)
+		}
+		if err := validateDraftStep(payload, step); err != nil {
+			t.Fatalf("step %d validation failed: %v", step, err)
+		}
+	}
+	for _, step := range []int16{4, 5} {
+		if _, err := decodeOnboardingDraftStep(draft, step); err == nil {
+			t.Fatalf("step %d accepted an invalid field in its own section", step)
+		}
+	}
+}
