@@ -332,5 +332,14 @@
     "title": "Recommend useful reads and preserve unassessed Feed items",
     "description": "API activation changes the served scoring contract. Explicit deferral requires CLI 1.0.30 and compatible rules. Compare feedback and surface receipts after observed client adoption; historical zero scores remain ambiguous.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/560"
+  },
+  {
+    "id": "feed-plus-two-concrete-next-action-v1",
+    "kind": "behavior",
+    "deploy_scope": "api",
+    "dashboards": ["feedback-compliance", "recommendation-effect"],
+    "title": "Allow +2 before a worthwhile Feed action is taken",
+    "description": "API deployment changes the served +2 scoring rule. Compare +2 rates after the updated rules reach the Agent. Skill adoption varies by client; historical scores retain their original meaning.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/564"
   }
 ]
