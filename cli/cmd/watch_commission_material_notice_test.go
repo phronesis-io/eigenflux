@@ -20,6 +20,10 @@ func TestBuyerMissingFilesEscalatesOnceAndOnlyWhileCurrent(t *testing.T) {
 	order := clarificationBuyerOrder()
 	order.InputRequest.MissingInputs = []string{"inputs/brief.pdf"}
 	server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/api/v2/public/agents/by-id/41/card" {
+			materialTestResponse(out, map[string]any{})
+			return
+		}
 		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/orders/901" {
 			t.Errorf("unexpected mutation %s %s", r.Method, r.URL.Path)
 			http.NotFound(out, r)

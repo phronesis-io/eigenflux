@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -204,7 +205,11 @@ func TestDesktopLocalBlockerRecoveredOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry, ok := w.desktop.Next(time.Now())
-	wantTitle, _ := desktopCommissionBlockerText(desktopnotify.SystemLanguage(), "needs_user", "missing_skill")
+	language := desktopnotify.SystemLanguage()
+	wantTitle, wantBody := desktopCommissionBlockerText(language, "needs_user", "missing_skill")
+	if runtime.GOOS == "darwin" {
+		wantTitle, _ = desktopCommissionBlockerCard(language, wantTitle, wantBody)
+	}
 	if !ok || entry.Message.Title != wantTitle {
 		t.Fatal(entry)
 	}

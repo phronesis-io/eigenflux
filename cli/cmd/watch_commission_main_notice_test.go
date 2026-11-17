@@ -19,7 +19,7 @@ func TestCommissionBuyerNoticeCarriesSignedAcceptanceReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, state := range []string{"validating", "awaiting_buyer_confirmation"} {
-		prompt, err := w.commissionMainNoticePrompt(dispatch.MainNotice{ID: "11", OrderID: "901", Version: 5, Role: "buyer", State: state})
+		prompt, err := w.commissionMainNoticePrompt(context.Background(), dispatch.MainNotice{ID: "11", OrderID: "901", Version: 5, Role: "buyer", State: state})
 		if err != nil {
 			t.Fatal(err)
 		}

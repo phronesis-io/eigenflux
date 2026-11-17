@@ -110,6 +110,36 @@ var desktopOrderCopy = map[string]desktopRoleCopy{
 			en: "“{service_name}” order cancelled\nThe order is closed. Nothing for you to do.",
 		},
 	},
+	"payment_expired": {buyer: desktopLocalizedCopy{
+		zh: "「{service_name}」付款超时，订单已关闭\n如有扣款，退款结果会另行通知。",
+		en: "Payment timed out for “{service_name}”\nThe order is closed. If a payment was taken, the refund result will follow.",
+	}},
+	"seller_expired": {buyer: desktopLocalizedCopy{
+		zh: "「{service_name}」卖家接单超时\n订单已关闭，未扣款。",
+		en: "Seller acceptance timed out for “{service_name}”\nThe order is closed. No payment was taken.",
+	}},
+	"buyer_cancelled": {buyer: desktopLocalizedCopy{
+		zh: "「{service_name}」买家已取消订单\n如有扣款，退款结果会另行通知。",
+		en: "The buyer cancelled “{service_name}”\nIf a payment was taken, the refund result will follow.",
+	}},
+	"late_payment_detected": {buyer: desktopLocalizedCopy{
+		zh: "「{service_name}」超时付款，正在退款\n退款结果会另行通知。",
+		en: "Late payment for “{service_name}”, refund in progress\nThe refund result will follow.",
+	}},
+	"risk_blocked": {buyer: desktopLocalizedCopy{
+		zh: "「{service_name}」因平台风控关闭\n如有扣款，退款结果会另行通知。",
+		en: "“{service_name}” was closed by platform risk checks\nIf a payment was taken, the refund result will follow.",
+	}},
+	"auto_completed": {
+		buyer: desktopLocalizedCopy{
+			zh: "「{service_name}」确认超时，订单已自动完成\n点击查看交付结果。",
+			en: "“{service_name}” completed automatically after the confirmation deadline\nClick to view the delivery.",
+		},
+		seller: desktopLocalizedCopy{
+			zh: "「{service_name}」确认超时，订单已自动完成\n收益入账后会另行通知你。",
+			en: "“{service_name}” completed automatically after the confirmation deadline\nYou'll be notified when the earnings are credited.",
+		},
+	},
 	"refund_pending": {
 		buyer: desktopLocalizedCopy{
 			zh: "「{service_name}」未按时交付，正在退款\n款项将退回你的付款账户，到账后另行通知。",
@@ -117,7 +147,7 @@ var desktopOrderCopy = map[string]desktopRoleCopy{
 		},
 		seller: desktopLocalizedCopy{
 			zh: "「{service_name}」交付超时，订单转为退款\n本单款项退还买方，不计收益。",
-			en: "“{service_name}” delivery overdue, order refunded\nThe payment goes back to the buyer. No earnings for this order.",
+			en: "“{service_name}” delivery overdue, refund in progress\nThe payment goes back to the buyer. No earnings for this order.",
 		},
 	},
 	"refunded": {
@@ -158,8 +188,8 @@ var desktopOrderCopy = map[string]desktopRoleCopy{
 	},
 	"order.settlement.completed.v1": {
 		buyer: desktopLocalizedCopy{
-			zh: "「{service_name}」收益已存入平台钱包\n可在控制台查看余额或提现。",
-			en: "“{service_name}” earnings added to your wallet\nCheck your balance or withdraw in the Console.",
+			zh: "「{service_name}」收益已存入平台钱包\n点击查看订单收益。",
+			en: "“{service_name}” earnings added to your wallet\nClick to view the order earnings.",
 		},
 	},
 	"order.validation.processing_error.v1": {
@@ -215,27 +245,7 @@ var desktopOrderCopy = map[string]desktopRoleCopy{
 }
 
 func commissionDesktopCopy(language, notificationType string, payload orderNotificationPayload) (string, string) {
-	key := payload.ToState
-	switch key {
-	case "awaiting_payment":
-		key = "pending_payment"
-	case "awaiting_materials":
-		key = "preparing_materials"
-	case "delivered":
-		key = "awaiting_buyer_confirmation"
-	case "refunding":
-		key = "refund_pending"
-	}
-	if payload.CommandKind == "reject_order" && payload.ToState == "cancelled" {
-		key = "rejected"
-	}
-	// Match the existing terminal resolver's result/reminder precedence.
-	for _, kind := range []string{payload.EventKind, notificationType} {
-		if commissionResultNotificationText("en", kind) != "" || kind == "order.reminder.buyer_confirmation_24h.v1" {
-			key = kind
-			break
-		}
-	}
+	key := commissionDesktopCopyKey(notificationType, payload)
 	title, body := desktopCopyText(language, payload.RecipientRole, key)
 	if key == "order.review.created.v1" {
 		score := "—"
@@ -250,6 +260,87 @@ func commissionDesktopCopy(language, notificationType string, payload orderNotif
 		"{confirm_due}", desktopDeadline(language, payload.BuyerConfirmDue),
 	).Replace(body)
 	return title, body
+}
+
+func commissionDesktopCopyKey(notificationType string, payload orderNotificationPayload) string {
+	key := payload.ToState
+	switch key {
+	case "awaiting_payment":
+		key = "pending_payment"
+	case "awaiting_materials":
+		key = "preparing_materials"
+	case "delivered":
+		key = "awaiting_buyer_confirmation"
+	case "refunding":
+		key = "refund_pending"
+	}
+	// Report the specific result before the underlying order state.
+	event := commissionNoticeResultKind(notificationType, payload)
+	if event != "" {
+		key = event
+	} else if key == "cancelled" {
+		switch payload.CommandKind {
+		case "reject_order":
+			key = "rejected"
+		case "payment_expired":
+			key = "payment_expired"
+		case "seller_expired":
+			key = "seller_expired"
+		case "cancel":
+			key = "buyer_cancelled"
+		case "late_payment_detected":
+			key = "late_payment_detected"
+		case "risk_blocked":
+			key = "risk_blocked"
+		}
+	} else if key == "completed" && payload.CommandKind == "buyer_confirmation_expired" {
+		key = "auto_completed"
+	}
+	return key
+}
+
+func commissionNoticeResultKind(notificationType string, payload orderNotificationPayload) string {
+	for _, kind := range []string{payload.EventKind, notificationType} {
+		if commissionResultNotificationText("en", kind) != "" || kind == "order.reminder.buyer_confirmation_24h.v1" {
+			return kind
+		}
+	}
+	return ""
+}
+
+func commissionDesktopDetails(language, notificationType string, payload orderNotificationPayload) string {
+	details := desktopCounterpartyPlaceholder
+	switch commissionNoticeResultKind(notificationType, payload) {
+	case "order.settlement.completed.v1":
+		return desktopCreditPlaceholder + details
+	case "order.refund.completed.v1", "order.refund.processing_error.v1":
+		return desktopRefundAmountPlaceholder + details
+	}
+	switch payload.ToState {
+	case "awaiting_seller":
+		if payload.RecipientRole == "seller" {
+			details += desktopOrderAmountPlaceholder
+			if payload.SellerConfirmDue > 0 {
+				at := desktopDeadline(language, payload.SellerConfirmDue)
+				if language == "zh" {
+					details += "接单截止 " + at + "\n"
+				} else {
+					details += "Accept by " + at + "\n"
+				}
+			} else {
+				details += desktopActionDeadlinePlaceholder
+			}
+		}
+	case "pending_payment", "awaiting_payment":
+		details += desktopOrderAmountPlaceholder
+	case "refund_pending", "refunding", "refunded":
+		details = desktopRefundAmountPlaceholder + details
+	case "cancelled":
+		if payload.CommandKind == "late_payment_detected" {
+			details = desktopRefundAmountPlaceholder + details
+		}
+	}
+	return details
 }
 
 func desktopCopyText(language, role, key string) (string, string) {
