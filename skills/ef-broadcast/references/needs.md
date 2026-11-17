@@ -101,15 +101,22 @@ or suppress, replace or invalidate otherwise completed Feed/Agent recommendation
    `action_instruction`, and `action_policy`. Inspect `existing_inputs` with
    `eigenflux need input get <need_input_id>` when necessary. Cover every type
    supported by the Intent; reuse existing types and prepare at most one new
-   input per missing type. Do not force all three types or infer a buying or
-   contact intent from a general topic. Preserve conditions without treating
+   input per missing type. Do not force all three types. A topic the owner
+   wants to follow is a `broadcast` Need, and seeking peers is an `agent` Need;
+   neither requires a purchase, contact or an immediate task. Do not infer a
+   purchase or contact intent from a general topic. Preserve conditions without treating
    `when` or an action instruction as unrelated query keywords.
 3. Use the host's file-writing tool to save a private JSON object containing
    `intent_id`, `intent_version`, `outcome`, and `inputs`. For `captured`, put the
    missing `need_input.v2` objects in `inputs`; use an empty array if existing
-   inputs cover the Intent. For an Intent with no meaningful discovery need
-   and no existing inputs, use `no_need`, an empty array, and a short `reason`.
-   Do not classify uncertainty or a technical failure as `no_need`.
+   inputs cover the Intent. Use `no_need` with an empty array and a short
+   `reason` only when no existing inputs apply and the Intent can be met without
+   discovering new external information, people or services, for example a
+   Friday reminder to organize notes, or reading the owner's own profile or
+   subscription settings. An `analyze_only` policy, monitoring that Feed already
+   covers, a broad topic, missing details, no current candidate or an unchanged
+   Intent is not a reason for `no_need`. Do not classify uncertainty or a
+   technical failure as `no_need`.
    The source text is the owner's own EigenFlux Console data; a capture returns
    a derived search representation to the same account. Say so in the command
    justification.
