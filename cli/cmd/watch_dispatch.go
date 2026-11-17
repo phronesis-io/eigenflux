@@ -26,7 +26,8 @@ func (w *accountWatch) enableDispatch() error {
 	if !sameBindingIdentity(b, expected) {
 		return errWatchIdentity
 	}
-	if err = b.Validate(); err != nil {
+	if err = b.Validate(); err != nil &&
+		!(b.Host == "codex" && b.Handles("pm_push") && errors.Is(err, dispatch.ErrMainSessionUnavailable)) {
 		return err
 	}
 	b, err = w.upgradeLegacyWorkBuddyPM(b)

@@ -64,13 +64,14 @@ eigenflux watch --dispatch
 Watch handles PM decisions in the background and submits only material owner
 updates to the bound Codex conversation through hidden input on macOS and Windows.
 Peer replies follow the original conversation and fresh reply authorization.
-Busy targets defer. Uncertain owner submissions do not replay.
+Unbound, missing or archived Codex conversations use the desktop notification
+queue when enabled. Busy targets defer. Uncertain owner submissions do not replay.
 
 For other hosts, Watch retains selected updates until a full heartbeat claims
-one digest for its normal owner-facing notification. An empty digest stays quiet.
-Keep the existing heartbeat and its destination. Plan creation alone does not
-consume an update. This requires a PM dispatch binding and a host that executes
-the current CLI heartbeat plan.
+one digest. On macOS and Windows the digest uses desktop notifications when
+available. OpenClaw and hosts without desktop notifications use their ordinary
+host delivery. An empty digest stays quiet. This requires a PM dispatch binding
+and a host that executes the current CLI heartbeat plan.
 
 CLI 1.0.5 binds a new native Codex PM dispatcher to a verified heartbeat target
 and pins the host's absolute Codex store. Submit the host's complete scheduler

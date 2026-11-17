@@ -114,8 +114,11 @@ func (p *mainNoticeRPC) checkMainNoticeTarget(session string) (map[string]bool, 
 			} `json:"status"`
 		} `json:"thread"`
 	}
-	if json.Unmarshal(raw, &current) != nil || current.Thread.ID != session || current.Thread.Archived {
+	if json.Unmarshal(raw, &current) != nil || current.Thread.ID != session {
 		return nil, ErrMainSessionMismatch
+	}
+	if current.Thread.Archived {
+		return nil, ErrMainSessionUnavailable
 	}
 	switch current.Thread.Status.Type {
 	case "active":

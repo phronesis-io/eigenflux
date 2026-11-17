@@ -75,7 +75,7 @@ func TestMainNoticeCodexReaderFixture(t *testing.T) {
 			case "not-loaded":
 				state = "notLoaded"
 			}
-			reply(map[string]any{"thread": map[string]any{"id": id, "status": map[string]string{"type": state}}})
+			reply(map[string]any{"thread": map[string]any{"id": id, "status": map[string]string{"type": state}, "archived": scenario == "archived"}})
 		case "thread/turns/list":
 			var params struct {
 				ThreadID      string `json:"threadId"`
@@ -315,7 +315,7 @@ func (f *noticeOwnerFixture) serve() error {
 }
 
 func TestMainNoticeCodexDesktopOwnerReceipts(t *testing.T) {
-	for _, scenario := range []string{"success", "large-history", "not-loaded", "unsupported", "missing-capability", "wrong-thread", "active", "baseline-busy", "wrong-owner", "owner-error", "owner-busy", "owner-timeout", "stale-receipt", "wrong-completion", "failed", "interrupted", "turn-error", "no-final", "empty-final", "visible-user-message", "permission", "oversize", "timeout"} {
+	for _, scenario := range []string{"success", "large-history", "not-loaded", "unsupported", "missing-capability", "wrong-thread", "archived", "active", "baseline-busy", "wrong-owner", "owner-error", "owner-busy", "owner-timeout", "stale-receipt", "wrong-completion", "failed", "interrupted", "turn-error", "no-final", "empty-final", "visible-user-message", "permission", "oversize", "timeout"} {
 		t.Run(scenario, func(t *testing.T) {
 			target, fixture := newNoticeOwnerFixture(t, scenario)
 			// Existing native flags must never select a proxy, change a writer's
@@ -345,11 +345,14 @@ func TestMainNoticeCodexDesktopOwnerReceipts(t *testing.T) {
 			}
 			wantStarts := 1
 			switch scenario {
-			case "unsupported", "missing-capability", "wrong-thread", "active", "baseline-busy":
+			case "unsupported", "missing-capability", "wrong-thread", "archived", "active", "baseline-busy":
 				wantStarts = 0
 			}
 			if starts != wantStarts {
 				t.Fatalf("owner turn replayed or admitted before validation: got %d want %d", starts, wantStarts)
+			}
+			if scenario == "archived" && !errors.Is(err, ErrMainSessionUnavailable) {
+				t.Fatalf("archived conversation did not report unavailability: %v", err)
 			}
 			wantRetry := scenario == "active" || scenario == "baseline-busy"
 			if MainNoticeCanRetry(err) != wantRetry {

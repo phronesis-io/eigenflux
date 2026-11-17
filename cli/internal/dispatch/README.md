@@ -497,17 +497,20 @@ The spool retains up to 1,024 consumed event IDs and 256 recent summaries.
 Native Codex PM decisions use `exec --json --ephemeral` with supplied history.
 On macOS and Windows, Watch presents only selected summaries through the exact
 Desktop owner's hidden-input transport. Watch serializes its main submissions
-across PMs, Commission and upgrade repair. Busy targets defer. Other proven
-pre-submission failures remain pending with capped retry delay. Uncertain submissions never
-replay. Commission notices retain their own route and queue.
+across PMs, Commission and upgrade repair. An unbound, missing or archived
+Codex conversation routes PM notices to the desktop queue when enabled.
+The notification links to the inbox and excludes private message text. Busy
+targets defer. Other proven pre-submission failures remain pending with capped
+retry delay. Uncertain main-conversation submissions never replay. Commission notices retain their own route and queue.
 
 Full non-Codex heartbeats with a matching PM Watch binding omit inbox intake.
 Pending summaries can wake a host cycle when Feed is empty. At the end of the
 cycle, `heartbeat pm-digest` claims up to five updates, decisions first, using
-the plan's binding-revision token. The host presents one digest via its ordinary
-notification protocol. The CLI records a batch as handed off after writing the digest successfully.
-A failed write leaves the batch pending for the next heartbeat. This receipt
-confirms CLI output only. A plan read alone never consumes summaries.
+the plan's binding-revision token. On macOS and Windows, a ready desktop notifier
+submits one inbox-linked alert for the batch. OpenClaw uses its existing host
+route. When desktop notifications are unavailable, the host handles the digest.
+A failed handoff leaves the batch pending for the next heartbeat. A receipt records
+OS submission or CLI output. A plan read alone never consumes summaries.
 
 The Watch checkpoints decisions with an owner notice before enqueueing it or
 sending a reply. For `pm_owner_notice_save_failed`, retry the job after restoring

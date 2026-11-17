@@ -186,3 +186,117 @@ func TestPMPromptNativeDesktopFailureNotice(t *testing.T) {
 	}
 	t.Log("failed PM preparation -> durable alert -> installed native helper -> OS submitted once; banner visibility not asserted")
 }
+
+func TestCodexPMOwnerNoticeDesktopFallback(t *testing.T) {
+	for _, scenario := range []string{"unbound", "missing", "archived", "busy", "unconfirmed", "desktop-disabled"} {
+		t.Run(scenario, func(t *testing.T) {
+			ctx := context.Background()
+			f := newDispatchWatchFixture(t, "")
+			w := f.watch
+			w.binding.Host = "codex"
+			w.binding.MainSessionID = "bound-main"
+			switch scenario {
+			case "unbound", "desktop-disabled":
+				w.binding.MainSessionID = ""
+			case "missing":
+				w.binding.Mode = "native"
+				w.binding.MainSessionID = "12345678-1234-1234-1234-123456789abc"
+				w.binding.Env = map[string]string{"CODEX_HOME": t.TempDir()}
+			}
+			if err := dispatch.WriteJSON(dispatch.BindingPath(w.home, w.server.Name), w.binding); err != nil {
+				t.Fatal(err)
+			}
+			if scenario == "missing" {
+				if err := w.enableDispatch(); err != nil {
+					t.Fatalf("missing main thread prevented Watch from starting: %v", err)
+				}
+			}
+			q, err := desktopqueue.Open(filepath.Join(t.TempDir(), "desktop.json"), w.scope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if scenario != "desktop-disabled" {
+				w.desktop = q
+			}
+			w.runMainNotice = func(context.Context, string) (dispatch.Result, error) {
+				switch scenario {
+				case "archived":
+					return dispatch.Result{}, dispatch.ErrMainSessionUnavailable
+				case "busy":
+					return dispatch.Result{}, dispatch.ErrMainNoticeBusy
+				case "unconfirmed":
+					return dispatch.Result{}, context.DeadlineExceeded
+				default:
+					t.Fatal("submitted to a missing main conversation")
+					return dispatch.Result{}, nil
+				}
+			}
+			job := dispatchTestNext(t, w)
+			notice := dispatch.PMOwnerNotice{Topic: "topic", Change: "first", Summary: "private message text"}
+			if err := dispatch.SavePMNotice(ctx, *w.binding, job, notice); err != nil {
+				t.Fatal(err)
+			}
+			for range 2 {
+				if err := w.deliverCodexPMOwnerNotice(ctx); err != nil {
+					t.Fatal(err)
+				}
+			}
+			count, _ := q.Counts()
+			pending, err := dispatch.HasPendingPMNotices(ctx, *w.binding)
+			wantDesktop := scenario == "unbound" || scenario == "missing" || scenario == "archived"
+			wantPending := scenario == "busy" || scenario == "desktop-disabled"
+			if err != nil || count > 1 || (count == 1) != wantDesktop || pending != wantPending {
+				t.Fatalf("desktop=%d pending=%v err=%v", count, pending, err)
+			}
+			if wantDesktop {
+				entry, ok := q.Next(time.Now())
+				if !ok || strings.Contains(entry.Message.Body, notice.Summary) || !strings.HasSuffix(entry.Message.URL, "/dashboard/messages") {
+					t.Fatalf("incorrect notification: %+v", entry)
+				}
+			}
+		})
+	}
+}
+
+func TestHeartbeatPMDigestUsesOneDesktopNotice(t *testing.T) {
+	for _, showErr := range []error{nil, desktopnotify.ErrPermission, context.DeadlineExceeded} {
+		label := "success"
+		if showErr != nil {
+			label = showErr.Error()
+		}
+		t.Run(label, func(t *testing.T) {
+			b := dispatch.Binding{Endpoint: "https://www.eigenflux.ai", Scope: "account"}
+			entries := []dispatch.PMNoticeEntry{{ID: "notice-a"}, {ID: "notice-b"}}
+			var output []dispatch.PMNoticeEntry
+			shows, writes := 0, 0
+			err := presentHeartbeatPMDigest(context.Background(), b, entries, func(batch []dispatch.PMNoticeEntry) error {
+				writes++
+				output = batch
+				return nil
+			}, func(_ context.Context, message desktopnotify.Message) error {
+				shows++
+				if !strings.HasSuffix(message.URL, "/dashboard/messages") {
+					t.Fatalf("wrong notification target: %s", message.URL)
+				}
+				return showErr
+			})
+			switch showErr {
+			case nil:
+				if err != nil || len(output) != 0 || writes != 1 {
+					t.Fatalf("desktop delivery echoed to host: %+v %v", output, err)
+				}
+			case desktopnotify.ErrPermission:
+				if err != nil || len(output) != len(entries) {
+					t.Fatalf("permission failure lost host fallback: %+v %v", output, err)
+				}
+			default:
+				if !errors.Is(err, showErr) || writes != 0 {
+					t.Fatalf("uncertain submission yielded a second route: %+v %v", output, err)
+				}
+			}
+			if shows != 1 {
+				t.Fatalf("expected one system notification per batch, got %d", shows)
+			}
+		})
+	}
+}
