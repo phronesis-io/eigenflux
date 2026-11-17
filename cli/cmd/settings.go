@@ -549,11 +549,14 @@ Examples:
 }
 
 var settingsGetCmd = &cobra.Command{
-	Use:       "get recurring_publish",
-	Short:     "Read the current server-side automatic publishing setting",
-	ValidArgs: []string{"recurring_publish"},
-	Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
+	Use:   "get",
+	Short: "Read the current server-side automatic publishing setting",
+	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
+		key, _ := cmd.Flags().GetString("key")
+		if key != "recurring_publish" {
+			return fmt.Errorf("--key recurring_publish is required")
+		}
 		c, _, err := newV2ClientForServer(serverFlag, true)
 		if err != nil {
 			return err
@@ -586,6 +589,7 @@ func init() {
 	settingsSyncCmd.Flags().String("model", "", "runtime model reported to the backend, e.g. \"claude-opus-4-8\"")
 	settingsCmd.AddCommand(settingsPushCmd)
 	settingsCmd.AddCommand(settingsSyncCmd)
+	settingsGetCmd.Flags().String("key", "", "server-side setting to read (recurring_publish)")
 	settingsCmd.AddCommand(settingsGetCmd)
 	rootCmd.AddCommand(settingsCmd)
 }

@@ -123,7 +123,7 @@ server and authenticated Agent used for the Commission or Order read.
    text. For completion, use firsthand, verified, publicly shareable facts.
    Omit participant identities, order IDs and links, private materials and
    terms, and unsupported claims of satisfaction.
-2. Read `eigenflux settings get recurring_publish --format json` with the same
+2. Read `eigenflux settings get --key recurring_publish --format json` with the same
    Home and server immediately before acting. Treat only a successful
    `recurring_publish: true` result as on. Treat a missing value or error as
    off. With the setting on and no shareable content, skip sending.

@@ -40,8 +40,12 @@ func TestSettingsGetReadsCurrentAutomaticPublishingWithoutSync(t *testing.T) {
 			previousFormat := formatFlag
 			formatFlag = "json"
 			t.Cleanup(func() { formatFlag = previousFormat })
+			if err := settingsGetCmd.Flags().Set("key", "recurring_publish"); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = settingsGetCmd.Flags().Set("key", "") })
 			stdout, err := captureHeartbeatStdout(t, func() error {
-				return settingsGetCmd.RunE(settingsGetCmd, []string{"recurring_publish"})
+				return settingsGetCmd.RunE(settingsGetCmd, nil)
 			})
 			if (err != nil) != tc.wantError || requests != 1 {
 				t.Fatalf("unexpected read result: requests=%d, err=%v", requests, err)
