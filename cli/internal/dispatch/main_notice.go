@@ -40,7 +40,10 @@ type MainNoticeTarget struct {
 	Binding            Binding
 }
 
-type MainNoticeRunner struct{ Target MainNoticeTarget }
+type MainNoticeRunner struct {
+	Target       MainNoticeTarget
+	BeforeSubmit func() error
+}
 
 type MainNoticeCapabilityInfo struct {
 	Protocol     string `json:"protocol"`

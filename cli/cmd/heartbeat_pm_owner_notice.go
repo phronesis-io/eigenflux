@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
+	"cli.eigenflux.ai/internal/desktopnotify"
 	"cli.eigenflux.ai/internal/dispatch"
 	"github.com/spf13/cobra"
 )
@@ -73,7 +75,8 @@ func init() {
 			if raw, err := hex.DecodeString(token); err != nil || len(raw) != 32 {
 				return errors.New("expected the private-message digest token from the current heartbeat plan")
 			}
-			if runtimeProduct(clientMetaForServerName(activeServerName()).Host) == "codex" {
+			host := runtimeProduct(clientMetaForServerName(activeServerName()).Host)
+			if host == "codex" {
 				return errors.New("Codex private-message notices use the bound main conversation")
 			}
 			access, err := runtimeAccessForServer(activeServerName())
@@ -100,12 +103,51 @@ func init() {
 				if b.Host == "" || b.Host == "codex" || token[:32] != b.Revision {
 					return write(nil)
 				}
-				return dispatch.DeliverPMDigest(cmd.Context(), b, token, write)
+				if !nativeDesktopSupported() || host == "openclaw" || b.Host == "openclaw" {
+					return dispatch.DeliverPMDigest(cmd.Context(), b, token, write)
+				}
+				status := readWatchLiveStatus(b, false, time.Now())
+				if !status.Running || (status.DesktopStatus != "ready" && status.DesktopStatus != "registered") {
+					return dispatch.DeliverPMDigest(cmd.Context(), b, token, write)
+				}
+				notifier := observedDesktopNotifierAt(b.Home, b.Server, b.AgentID, "heartbeat")
+				return dispatch.DeliverDesktopPMDigest(cmd.Context(), b, token, write, func(entries []dispatch.PMNoticeEntry) (bool, error) {
+					return presentHeartbeatPMDigest(cmd.Context(), b, entries, notifier.Show)
+				})
 			})
 		},
 	}
 	digest.Flags().String("cycle", "", "Private-message digest token from the current heartbeat plan")
 	heartbeatCmd.AddCommand(digest)
+}
+
+func presentHeartbeatPMDigest(ctx context.Context, b dispatch.Binding, entries []dispatch.PMNoticeEntry, show func(context.Context, desktopnotify.Message) error) (bool, error) {
+	// Keep the same OS notification ID if the same batch has to be handed off again.
+	ids := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		ids = append(ids, entry.ID)
+	}
+	slices.Sort(ids)
+	id := sha256.New()
+	for _, item := range ids {
+		_, _ = id.Write([]byte(item))
+	}
+	message, err := pmOwnerDesktopMessage(b.Endpoint, b.Scope, hex.EncodeToString(id.Sum(nil)))
+	if err != nil {
+		return false, nil
+	}
+	call, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	err = show(call, message)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, desktopnotify.ErrPermission), errors.Is(err, desktopnotify.ErrPermissionRequired),
+		errors.Is(err, desktopnotify.ErrHelperMissing), errors.Is(err, desktopnotify.ErrUnsupported):
+		return false, nil
+	default:
+		return false, err
+	}
 }
 
 type pmDigestItem struct {

@@ -186,3 +186,156 @@ func TestPMPromptNativeDesktopFailureNotice(t *testing.T) {
 	}
 	t.Log("failed PM preparation -> durable alert -> installed native helper -> OS submitted once; banner visibility not asserted")
 }
+
+func TestCodexPMOwnerNoticeDesktopFallback(t *testing.T) {
+	for _, scenario := range []string{"unbound", "missing", "archived", "busy", "not-submitted", "unconfirmed", "desktop-disabled"} {
+		t.Run(scenario, func(t *testing.T) {
+			ctx := context.Background()
+			f := newDispatchWatchFixture(t, "")
+			w := f.watch
+			w.binding.Host = "codex"
+			w.binding.MainSessionID = "bound-main"
+			switch scenario {
+			case "unbound", "desktop-disabled":
+				w.binding.MainSessionID = ""
+			case "missing":
+				w.binding.Mode = "native"
+				w.binding.MainSessionID = "12345678-1234-1234-1234-123456789abc"
+				w.binding.Env = map[string]string{"CODEX_HOME": t.TempDir()}
+			}
+			if err := dispatch.WriteJSON(dispatch.BindingPath(w.home, w.server.Name), w.binding); err != nil {
+				t.Fatal(err)
+			}
+			if scenario == "missing" {
+				if err := w.enableDispatch(); err != nil {
+					t.Fatalf("missing main thread prevented Watch from starting: %v", err)
+				}
+			}
+			q, err := desktopqueue.Open(filepath.Join(t.TempDir(), "desktop.json"), w.scope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if scenario != "desktop-disabled" {
+				w.desktop = q
+			}
+			w.runPMMainNotice = func(_ context.Context, _ string, commit func() error) (dispatch.Result, error) {
+				switch scenario {
+				case "archived":
+					return dispatch.Result{}, dispatch.ErrMainSessionUnavailable
+				case "busy":
+					return dispatch.Result{}, dispatch.ErrMainNoticeBusy
+				case "not-submitted", "unconfirmed":
+					if err := commit(); err != nil {
+						return dispatch.Result{}, err
+					}
+					if scenario == "not-submitted" {
+						return dispatch.Result{}, dispatch.ErrMainNoticeNotSubmitted
+					}
+					return dispatch.Result{}, context.DeadlineExceeded
+				default:
+					t.Fatal("submitted to a missing main conversation")
+					return dispatch.Result{}, nil
+				}
+			}
+			job := dispatchTestNext(t, w)
+			notice := dispatch.PMOwnerNotice{Topic: "topic", Change: "first", Summary: "private message text"}
+			if err := dispatch.SavePMNotice(ctx, *w.binding, job, notice); err != nil {
+				t.Fatal(err)
+			}
+			for range 2 {
+				if err := w.deliverCodexPMOwnerNotice(ctx); err != nil {
+					t.Fatal(err)
+				}
+			}
+			count, _ := q.Counts()
+			pending, err := dispatch.HasPendingPMNotices(ctx, *w.binding)
+			wantDesktop := scenario == "unbound" || scenario == "missing" || scenario == "archived"
+			wantPending := scenario == "busy" || scenario == "not-submitted" || scenario == "desktop-disabled"
+			if err != nil || count > 1 || (count == 1) != wantDesktop || pending != wantPending {
+				t.Fatalf("desktop=%d pending=%v err=%v", count, pending, err)
+			}
+			if wantDesktop {
+				entry, ok := q.Next(time.Now())
+				if !ok || strings.Contains(entry.Message.Body, notice.Summary) || !strings.HasSuffix(entry.Message.URL, "/dashboard/messages") {
+					t.Fatalf("incorrect notification: %+v", entry)
+				}
+			}
+		})
+	}
+}
+
+func TestHeartbeatPMDigestDesktopResult(t *testing.T) {
+	for _, showErr := range []error{nil, desktopnotify.ErrPermission, context.DeadlineExceeded} {
+		label := "success"
+		if showErr != nil {
+			label = showErr.Error()
+		}
+		t.Run(label, func(t *testing.T) {
+			b := dispatch.Binding{Endpoint: "https://www.eigenflux.ai", Scope: "account"}
+			entries := []dispatch.PMNoticeEntry{{ID: "notice-a"}, {ID: "notice-b"}}
+			shows := 0
+			submitted, err := presentHeartbeatPMDigest(context.Background(), b, entries, func(_ context.Context, message desktopnotify.Message) error {
+				shows++
+				if !strings.HasSuffix(message.URL, "/dashboard/messages") {
+					t.Fatalf("wrong notification target: %s", message.URL)
+				}
+				return showErr
+			})
+			wantErr := showErr
+			if errors.Is(showErr, desktopnotify.ErrPermission) {
+				wantErr = nil
+			}
+			if shows != 1 || submitted != (showErr == nil) || !errors.Is(err, wantErr) {
+				t.Fatalf("shows=%d submitted=%v err=%v", shows, submitted, err)
+			}
+		})
+	}
+}
+
+func TestCodexPMDesktopQueueReceiptSurvivesInterruptedHandoff(t *testing.T) {
+	ctx := context.Background()
+	f := newDispatchWatchFixture(t, "")
+	w := f.watch
+	w.binding.Host = "codex"
+	w.binding.MainSessionID = "recovered-main"
+	if err := dispatch.WriteJSON(dispatch.BindingPath(w.home, w.server.Name), w.binding); err != nil {
+		t.Fatal(err)
+	}
+	job := dispatchTestNext(t, w)
+	if err := dispatch.SavePMNotice(ctx, *w.binding, job, dispatch.PMOwnerNotice{Topic: "materials", Change: "ready", Summary: "Ready"}); err != nil {
+		t.Fatal(err)
+	}
+	entry, found, err := dispatch.NextPMNotice(ctx, *w.binding, time.Now())
+	if err != nil || !found {
+		t.Fatalf("expected pending notice: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "desktop.json")
+	q, err := desktopqueue.Open(path, w.scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := pmOwnerDesktopMessage(w.server.Endpoint, w.scope, entry.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Enqueue(message); err != nil {
+		t.Fatal(err)
+	}
+	// Restart after desktop persistence but before acknowledging the PM spool.
+	w.desktop, err = desktopqueue.Open(path, w.scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.runPMMainNotice = func(context.Context, string, func() error) (dispatch.Result, error) {
+		t.Fatal("desktop receipt was ignored after the main chat became available")
+		return dispatch.Result{}, nil
+	}
+	if err := w.deliverCodexPMOwnerNotice(ctx); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := dispatch.HasPendingPMNotices(ctx, *w.binding)
+	queued, _ := w.desktop.Counts()
+	if err != nil || pending || queued != 1 {
+		t.Fatalf("PM pending=%v desktop queued=%d err=%v", pending, queued, err)
+	}
+}

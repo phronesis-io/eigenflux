@@ -114,8 +114,11 @@ func (p *mainNoticeRPC) checkMainNoticeTarget(session string) (map[string]bool, 
 			} `json:"status"`
 		} `json:"thread"`
 	}
-	if json.Unmarshal(raw, &current) != nil || current.Thread.ID != session || current.Thread.Archived {
+	if json.Unmarshal(raw, &current) != nil || current.Thread.ID != session {
 		return nil, ErrMainSessionMismatch
+	}
+	if current.Thread.Archived {
+		return nil, ErrMainSessionUnavailable
 	}
 	switch current.Thread.Status.Type {
 	case "active":
@@ -171,6 +174,9 @@ func (r MainNoticeRunner) runCodexEnvelope(ctx context.Context, application, dat
 
 func (r MainNoticeRunner) runCodexEnvelopeOnIPC(ctx context.Context, ipc *codexOwnerIPC, application, data string, allowSilent bool) (Result, error) {
 	owner, err := mainNoticeOwner(ctx, ipc, r.Target.SessionID)
+	if errors.Is(err, ErrMainSessionUnavailable) {
+		return Result{}, err
+	}
 	if err != nil {
 		return Result{}, mainNoticeNotSubmitted(err)
 	}
@@ -180,6 +186,9 @@ func (r MainNoticeRunner) runCodexEnvelopeOnIPC(ctx context.Context, ipc *codexO
 	}
 	defer closeReader()
 	baseline, err := reader.checkMainNoticeTarget(r.Target.SessionID)
+	if errors.Is(err, ErrMainSessionUnavailable) {
+		return Result{}, err
+	}
 	if err != nil {
 		return Result{}, mainNoticeNotSubmitted(err)
 	}
@@ -202,10 +211,10 @@ func (r MainNoticeRunner) runCodexEnvelopeOnIPC(ctx context.Context, ipc *codexO
 		map[string]any{"type": "function_call", "call_id": callID, "name": "untrusted_input", "arguments": "{}"},
 		map[string]any{"type": "function_call_output", "call_id": callID, "output": []any{map[string]string{"type": "input_text", "text": data}}},
 	}
-	raw, handledBy, err := ipc.call(ctx, "thread-follower-start-turn", 2, map[string]any{
+	raw, handledBy, err := ipc.callWithCheckpoint(ctx, "thread-follower-start-turn", 2, map[string]any{
 		"conversationId": r.Target.SessionID,
 		"turnStart":      map[string]any{"request": request, "context": map[string]any{"inheritThreadSettings": true, "responseItems": responseItems}},
-	}, owner)
+	}, owner, r.BeforeSubmit)
 	if err != nil {
 		return Result{}, err
 	}

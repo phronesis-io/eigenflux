@@ -27,7 +27,10 @@ func TestWatchPMOwnerNoticeRoutesByHost(t *testing.T) {
 				t.Fatal(err)
 			}
 			mainCalls := 0
-			w.runMainNotice = func(_ context.Context, prompt string) (dispatch.Result, error) {
+			w.runPMMainNotice = func(_ context.Context, prompt string, commit func() error) (dispatch.Result, error) {
+				if err := commit(); err != nil {
+					return dispatch.Result{}, err
+				}
 				mainCalls++
 				if !strings.Contains(prompt, "材料已齐") || strings.Contains(prompt, "Ignore routing") || strings.Contains(prompt, "A safe response") {
 					t.Fatalf("incorrect presentation payload: %s", prompt)

@@ -83,7 +83,11 @@ func codexOwnerIPCRequestID() (string, error) {
 
 // call serializes one absolute-deadline exchange. Cancellation or any malformed
 // response closes this connection; a caller cannot accidentally reuse its stream.
-func (c *codexOwnerIPC) call(ctx context.Context, method string, version int, params any, owner string) (result json.RawMessage, handledBy string, callErr error) {
+func (c *codexOwnerIPC) call(ctx context.Context, method string, version int, params any, owner string) (json.RawMessage, string, error) {
+	return c.callWithCheckpoint(ctx, method, version, params, owner, nil)
+}
+
+func (c *codexOwnerIPC) callWithCheckpoint(ctx context.Context, method string, version int, params any, owner string, checkpoint func() error) (_ json.RawMessage, _ string, callErr error) {
 	if err := ctx.Err(); err != nil {
 		return nil, "", err
 	}
@@ -118,7 +122,10 @@ func (c *codexOwnerIPC) call(ctx context.Context, method string, version int, pa
 	if owner != "" {
 		request["targetClientId"] = owner
 	}
-	if err := writeCodexOwnerIPCFrame(c.conn, request); err != nil {
+	if err := writeCodexOwnerIPCFrameWithCheckpoint(ctx, c.conn, request, checkpoint); err != nil {
+		if checkpoint != nil {
+			return nil, "", err
+		}
 		if ctx.Err() != nil {
 			return nil, "", ctx.Err()
 		}
@@ -167,6 +174,9 @@ func (c *codexOwnerIPC) call(ctx context.Context, method string, version int, pa
 				return nil, "", errors.New("main_notice_owner_request_mismatch")
 			}
 			if message.ResultType != "success" {
+				if method == "thread-owner-discovery" && message.Method == method && message.ResultType == "error" && message.HandledBy == "" {
+					return nil, "", ErrMainSessionUnavailable
+				}
 				return nil, "", errors.New("main_notice_owner_request_failed")
 			}
 			initialized := method == "initialize" && owner == ""
@@ -181,24 +191,44 @@ func (c *codexOwnerIPC) call(ctx context.Context, method string, version int, pa
 }
 
 func writeCodexOwnerIPCFrame(writer io.Writer, value any) error {
+	return writeCodexOwnerIPCFrameWithCheckpoint(context.Background(), writer, value, nil)
+}
+
+func writeCodexOwnerIPCFrameWithCheckpoint(ctx context.Context, writer io.Writer, value any, checkpoint func() error) error {
 	raw, err := json.Marshal(value)
 	if err != nil || len(raw) == 0 || len(raw) > codexOwnerIPCMaxFrame {
 		return errors.New("invalid_owner_frame")
 	}
+	if checkpoint != nil {
+		if err := ctx.Err(); err != nil {
+			return mainNoticeNotSubmitted(err)
+		}
+		if err := checkpoint(); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return mainNoticeNotSubmitted(err)
+		}
+	}
 	var header [4]byte
 	binary.LittleEndian.PutUint32(header[:], uint32(len(raw)))
+	wrote := false
 	for _, part := range [][]byte{header[:], raw} {
 		for len(part) > 0 {
 			n, err := writer.Write(part)
 			if n < 0 || n > len(part) {
 				return io.ErrShortWrite
 			}
+			wrote = wrote || n > 0
 			part = part[n:]
-			if err != nil {
-				return err
+			if n == 0 && err == nil {
+				err = io.ErrShortWrite
 			}
-			if n == 0 {
-				return io.ErrShortWrite
+			if err != nil {
+				if checkpoint != nil && !wrote {
+					return mainNoticeNotSubmitted(err)
+				}
+				return err
 			}
 		}
 	}

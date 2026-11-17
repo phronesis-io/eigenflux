@@ -1,13 +1,68 @@
 package cmd
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/url"
 	"strings"
+	"time"
 
 	"cli.eigenflux.ai/internal/desktopnotify"
+	"cli.eigenflux.ai/internal/dispatch"
 )
+
+func desktopPMInboxURL(endpoint string) (string, error) {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return "", err
+	}
+	u.Path, u.RawPath, u.RawQuery, u.Fragment = "/dashboard/messages", "", "", ""
+	return u.String(), desktopnotify.ValidateURL(u.String())
+}
+
+func (w *accountWatch) deliverPMOwnerDesktopNotice(ctx context.Context, entry dispatch.PMNoticeEntry) error {
+	restore := func(cause error) error {
+		return errors.Join(cause, dispatch.RetryCodexPMNotice(context.WithoutCancel(ctx), *w.binding, entry, false, time.Now(), false))
+	}
+	if w.desktop == nil {
+		return restore(nil)
+	}
+	if err := w.dispatchIdentityOK(); err != nil {
+		return restore(err)
+	}
+	message, err := pmOwnerDesktopMessage(w.server.Endpoint, w.scope, entry.ID)
+	if err != nil {
+		return restore(err)
+	}
+	err = dispatch.HandoffPMNotice(ctx, *w.binding, entry.ID, func() error {
+		return w.desktop.Enqueue(message)
+	})
+	if errors.Is(err, dispatch.ErrPMNoticeSuperseded) {
+		return nil
+	}
+	if err != nil {
+		return restore(err)
+	}
+	return w.emit("pm_owner_notice", map[string]string{"status": "desktop_queued", "notice_id": entry.ID})
+}
+
+func pmOwnerDesktopMessage(endpoint, scope, noticeID string) (desktopnotify.Message, error) {
+	target, err := desktopPMInboxURL(endpoint)
+	if err != nil {
+		return desktopnotify.Message{}, err
+	}
+	title, body := "EigenFlux private message", "An important private message is ready to review."
+	if strings.HasPrefix(desktopnotify.SystemLanguage(), "zh") {
+		title, body = "EigenFlux 私信提醒", "有重要私信待查看。"
+	}
+	return desktopnotify.Message{ID: pmOwnerDesktopID(scope, noticeID), Title: title, Body: body, URL: target}, nil
+}
+
+func pmOwnerDesktopID(scope, noticeID string) string {
+	return "pm-owner:" + scope + ":" + noticeID
+}
 
 // One reminder per unresolved conversation/reason, using the oldest retained
 // failed job as its generation. No message text or peer identity enters OS UI.
@@ -15,12 +70,8 @@ func (w *accountWatch) pmDesktopBlockers() []desktopnotify.Message {
 	if w.journal == nil || w.binding == nil || !w.binding.Handles("pm_push") {
 		return nil
 	}
-	u, err := url.Parse(w.server.Endpoint)
+	target, err := desktopPMInboxURL(w.server.Endpoint)
 	if err != nil {
-		return nil
-	}
-	u.Path, u.RawPath, u.RawQuery, u.Fragment = "/dashboard/messages", "", "", ""
-	if desktopnotify.ValidateURL(u.String()) != nil {
 		return nil
 	}
 	seen := map[string]bool{}
@@ -40,7 +91,7 @@ func (w *accountWatch) pmDesktopBlockers() []desktopnotify.Message {
 		if strings.HasPrefix(desktopnotify.SystemLanguage(), "zh") {
 			title, body = "EigenFlux 私信需要处理", "私信自动处理未能启动，请打开控制台查看消息。"
 		}
-		messages = append(messages, desktopnotify.Message{ID: "pm-blocker:" + hex.EncodeToString(sum[:]), Title: title, Body: body, URL: u.String()})
+		messages = append(messages, desktopnotify.Message{ID: "pm-blocker:" + hex.EncodeToString(sum[:]), Title: title, Body: body, URL: target})
 	}
 	return messages
 }
