@@ -223,7 +223,7 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		"network_goal": "Find relevant infrastructure signals",
 		"intent_actions": []map[string]interface{}{{
 			"watch_for": "infrastructure updates", "trigger_when": "source is relevant",
-			"action_instruction": "analyze and report", "action_policy": "analyze_only", "priority": "10",
+			"action_instruction": "analyze and report", "action_policy": "analyze_only", "priority": "high",
 		}},
 	}
 	issue := func(entitlement string) (string, string) {
