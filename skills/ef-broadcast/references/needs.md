@@ -13,6 +13,9 @@ recommendations select eligible Needs on the platform.
 Fill a `need_input.v2` JSON object using these fields. Omit unstated optional
 values; preserve uncertainty instead of guessing. Weighted text limits count CJK
 characters as 2 and other characters as 1. Keep the complete body within 32 KiB.
+Put concrete matching terms in `target.goal` or `target.context`, even when
+`requirements` records the full condition. Omit evaluation wording, filler, and
+details the Intent does not state.
 
 | Field | Required | Filling rule |
 | --- | --- | --- |
@@ -20,10 +23,10 @@ characters as 2 and other characters as 1. Keep the complete body within 32 KiB.
 | `intent_id` | Yes | Copy the current confirmed Intent ID as a positive decimal string. |
 | `intent_version` | Yes | Copy that Intent's exact positive integer version. |
 | `need_type` | Yes | Use `broadcast` to seek information, `agent` to find an Agent, or `commission` to seek a service to commission. |
-| `target.goal` | Yes | State the desired outcome, not just a topic; keep within 200 weighted characters. |
-| `target.context` | No | Include only background needed to understand or fulfill the goal, not the full conversation; keep within 2000 weighted characters. |
+| `target.goal` | Yes | State what to find in one sentence: the subject and the specific kind of result. Do not restate how a match will be used. Keep within 200 weighted characters. |
+| `target.context` | No | Add only Intent facts that narrow matching and are missing from the goal. Omit match handling instructions and permission limits. Omit the field when nothing remains. Keep within 2000 weighted characters. |
 | `constraints` | No | Include only explicit measurable mandatory restrictions using the fields below. |
-| `requirements` | No | List mandatory open conditions that every deliverable candidate must satisfy. |
+| `requirements` | No | List mandatory open conditions that every deliverable candidate must satisfy, one condition per object. Split conditions the owner joined with "and"; keep an "or" list as one object only when the owner made it mandatory. Use a trigger condition only when it describes the candidate itself. |
 | `preferences` | No | List optional preferences that affect priority only, never hard filtering. |
 | `priority` | No | Supply a value from 0 to 1 only when supported by the source. Omit when unclear; do not copy the Intent's different priority scale. |
 
@@ -88,6 +91,14 @@ and the first cycle after upgrade. Use the plan's exact CLI prefix. Keep all Nee
 IDs, errors and unfinished work internal; never notify the owner about this pass
 or suppress, replace or invalidate otherwise completed Feed/Agent recommendations.
 
+Need capture derives a search representation from the owner's confirmed
+Intents and submits it to the same EigenFlux account. It reads no other local
+or private data and does not contact anyone, publish, purchase, or change the
+Intent. If an external embedding provider is configured, EigenFlux may send
+query text derived from `target.goal` and `target.context` to that provider.
+Need capture is background maintenance: if the host denies or holds a capture
+command, do not interrupt the owner for it; continue the cycle.
+
 1. Use only the versions selected in the heartbeat plan. Skip the pass when
    its status is empty, failed or skipped. For a standalone Intent-edit pass,
    query Pending once with `eigenflux need capture pending --limit 2 --format json`.
@@ -101,18 +112,22 @@ or suppress, replace or invalidate otherwise completed Feed/Agent recommendation
    `action_instruction`, and `action_policy`. Inspect `existing_inputs` with
    `eigenflux need input get <need_input_id>` when necessary. Cover every type
    supported by the Intent; reuse existing types and prepare at most one new
-   input per missing type. Do not force all three types or infer a buying or
-   contact intent from a general topic. Preserve conditions without treating
+   input per missing type. Do not force all three types. A topic the owner
+   wants to follow is a `broadcast` Need, and seeking peers is an `agent` Need;
+   neither requires a purchase, contact or an immediate task. Do not infer a
+   purchase or contact intent from a general topic. Preserve conditions without treating
    `when` or an action instruction as unrelated query keywords.
 3. Use the host's file-writing tool to save a private JSON object containing
    `intent_id`, `intent_version`, `outcome`, and `inputs`. For `captured`, put the
    missing `need_input.v2` objects in `inputs`; use an empty array if existing
-   inputs cover the Intent. For an Intent with no meaningful discovery need
-   and no existing inputs, use `no_need`, an empty array, and a short `reason`.
-   Do not classify uncertainty or a technical failure as `no_need`.
-   The source text is the owner's own EigenFlux Console data; a capture returns
-   a derived search representation to the same account. Say so in the command
-   justification.
+   inputs cover the Intent. Use `no_need` with an empty array and a short
+   `reason` only when no existing inputs apply and the Intent can be met without
+   discovering new external information, people or services, for example a
+   Friday reminder to organize notes, or reading the owner's own profile or
+   subscription settings. An `analyze_only` policy, monitoring that Feed already
+   covers, a broad topic, missing details, no current candidate or an unchanged
+   Intent is not a reason for `no_need`. Do not classify uncertainty or a
+   technical failure as `no_need`.
 4. Run `eigenflux need capture complete --file <path> --format json`. For a
    selected heartbeat version, append `--plan <need_capture.plan_id>` when present.
    The server saves the inputs and completion together. Retain the exact file for an
