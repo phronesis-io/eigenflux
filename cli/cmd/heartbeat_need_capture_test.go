@@ -15,6 +15,7 @@ import (
 
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/maintenance"
+	"cli.eigenflux.ai/internal/selfupdate"
 	"cli.eigenflux.ai/internal/skills"
 	"github.com/spf13/cobra"
 )
@@ -480,8 +481,15 @@ func TestPlannedNeedCaptureRequiresNewRelease(t *testing.T) {
 	config := readRepoFile(t, "../..", "cli/.cli.config")
 	lines := strings.Split(config, "\n")
 	for _, key := range []string{"CLI_VERSION", "SKILLS_MIN_CLI_VERSION"} {
-		if !slices.Contains(lines, key+"="+plannedNeedCaptureMinCLI) {
-			t.Fatalf("%s does not publish the planned Need commands at %s", key, plannedNeedCaptureMinCLI)
+		release := ""
+		for _, line := range lines {
+			if value, ok := strings.CutPrefix(line, key+"="); ok {
+				release = value
+				break
+			}
+		}
+		if !selfupdate.ValidVersion(release) || selfupdate.Compare(release, plannedNeedCaptureMinCLI) < 0 {
+			t.Fatalf("%s=%q must publish the planned Need commands at %s or newer", key, release, plannedNeedCaptureMinCLI)
 		}
 	}
 	if supportsPlannedNeedCapture(&skills.Manifest{MinCLIVersion: "1.0.31"}) ||
