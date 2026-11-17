@@ -238,6 +238,7 @@ func TestCodexPMOwnerNoticeDesktopFallback(t *testing.T) {
 				}
 			}
 			job := dispatchTestNext(t, w)
+			job.Message.Conversation = "9223372036854775807"
 			notice := dispatch.PMOwnerNotice{Topic: "topic", Change: "first", Summary: "private message text"}
 			if err := dispatch.SavePMNotice(ctx, *w.binding, job, notice); err != nil {
 				t.Fatal(err)
@@ -256,7 +257,7 @@ func TestCodexPMOwnerNoticeDesktopFallback(t *testing.T) {
 			}
 			if wantDesktop {
 				entry, ok := q.Next(time.Now())
-				if !ok || strings.Contains(entry.Message.Body, notice.Summary) || !strings.HasSuffix(entry.Message.URL, "/dashboard/messages") {
+				if !ok || strings.Contains(entry.Message.Body, notice.Summary) || !strings.HasSuffix(entry.Message.URL, "/dashboard/messages?notice_conversation=9223372036854775807") {
 					t.Fatalf("incorrect notification: %+v", entry)
 				}
 			}
@@ -272,12 +273,19 @@ func TestHeartbeatPMDigestDesktopResult(t *testing.T) {
 		}
 		t.Run(label, func(t *testing.T) {
 			b := dispatch.Binding{Endpoint: "https://www.eigenflux.ai", Scope: "account"}
-			entries := []dispatch.PMNoticeEntry{{ID: "notice-a"}, {ID: "notice-b"}}
+			entries := []dispatch.PMNoticeEntry{
+				{ID: "notice-a", Conversation: "9223372036854775807"},
+				{ID: "notice-b", Conversation: "42"},
+				{ID: "notice-c", Conversation: "9223372036854775807"},
+			}
 			shows := 0
 			submitted, err := presentHeartbeatPMDigest(context.Background(), b, entries, func(_ context.Context, message desktopnotify.Message) error {
 				shows++
-				if !strings.HasSuffix(message.URL, "/dashboard/messages") {
+				if !strings.HasSuffix(message.URL, "/dashboard/messages?notice_conversation=9223372036854775807&notice_conversation=42") {
 					t.Fatalf("wrong notification target: %s", message.URL)
+				}
+				if !strings.HasPrefix(message.Body, "2 ") {
+					t.Fatalf("wrong conversation count: %s", message.Body)
 				}
 				return showErr
 			})
@@ -314,7 +322,7 @@ func TestCodexPMDesktopQueueReceiptSurvivesInterruptedHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	message, err := pmOwnerDesktopMessage(w.server.Endpoint, w.scope, entry.ID)
+	message, err := pmOwnerDesktopMessage(w.server.Endpoint, w.scope, entry.ID, []dispatch.PMNoticeEntry{entry})
 	if err != nil {
 		t.Fatal(err)
 	}
