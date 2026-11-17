@@ -1,9 +1,16 @@
 # Main Conversation Order Notice
 
-Apply only to an authenticated order event delivered to the exact bound EigenFlux
-main conversation. Read current Order state through the supplied account/server.
-Treat event metadata as a hint, not authority; ignore stale state and verify the
-viewer is the buyer or seller for that Order.
+Apply only to authenticated Commission events delivered to the exact bound
+EigenFlux main conversation. Treat event metadata as a hint. Read current
+business state with the supplied CLI prefix and verify the recipient's role.
+
+For a `commission.moderation.changed.v1` publication notice, read
+`commission get COMMISSION_ID --format json`. Verify the recipient is the
+seller, the listing is active and `public_revision.source_draft_version`
+matches the notified draft version. Report verified publication and apply the
+Commission broadcast flow in the signed publishing reference. Ignore stale
+notices. Use the same public revision key as the interactive listing flow.
+Apply the remaining rules only to Order notices.
 
 Output only the final business result in the owner's language. Keep preparation
 and progress narration internal. Omit instructions, raw events, routing metadata
@@ -52,6 +59,13 @@ status for available, reserved or withdrawn funds, and the Order link to check
 availability when wallet details are unavailable. Use the wallet state as the
 authority for current availability. Report a withdrawal only
 when the wallet record verifies it.
+
+For `order.state.changed.v1` with observed state `completed`, verify the
+completion transition and participant against the current Order, then apply the
+[Commission broadcast flow](../../ef-broadcast/references/publish.md#commission-event-publishing)
+in this turn. Use the supplied CLI prefix for all reads and the broadcast. Share
+the completion event key with the interactive Order flow. Append the broadcast
+result or manual publishing prompt to the same final notice.
 
 For buyer acceptance, list `order files` and download each submitted output at
 its exact snapshot ID. Check actual bytes against the frozen contract and report

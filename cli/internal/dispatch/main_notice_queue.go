@@ -24,6 +24,8 @@ type MainNotice struct {
 	BridgeError    *maintenance.CommissionBridgeError `json:"bridge_error,omitempty"`
 	ID             string                             `json:"notification_id"`
 	OrderID        string                             `json:"order_id"`
+	CommissionID   string                             `json:"commission_id,omitempty"`
+	DraftVersion   int64                              `json:"draft_version,omitempty"`
 	Version        int64                              `json:"order_version"`
 	Role           string                             `json:"role"`
 	Event          string                             `json:"event"`
@@ -44,9 +46,10 @@ type mainNoticeQueueState struct {
 	Entries  []MainNotice `json:"entries"`
 }
 type MainNoticeQueue struct {
-	mu    sync.Mutex
-	path  string
-	state mainNoticeQueueState
+	listing bool
+	mu      sync.Mutex
+	path    string
+	state   mainNoticeQueueState
 }
 
 // Lookup returns the persisted receipt after Finish, including its retry time.
@@ -63,10 +66,19 @@ func (q *MainNoticeQueue) Lookup(id string) (MainNotice, bool) {
 }
 
 func OpenMainNoticeQueue(binding Binding) (*MainNoticeQueue, error) {
+	return openMainNoticeQueue(binding, ".main-notices.json", false)
+}
+
+// Keep listing records out of the order file so older clients can open it.
+func OpenListingNoticeQueue(binding Binding) (*MainNoticeQueue, error) {
+	return openMainNoticeQueue(binding, ".listing-notices.json", true)
+}
+
+func openMainNoticeQueue(binding Binding, suffix string, listing bool) (*MainNoticeQueue, error) {
 	if err := binding.validateIdentity(); err != nil {
 		return nil, err
 	}
-	q := &MainNoticeQueue{path: filepath.Join(binding.Home, "watch", binding.Scope+"."+binding.Revision+".main-notices.json"), state: mainNoticeQueueState{Scope: binding.Scope, Revision: binding.Revision, Entries: []MainNotice{}}}
+	q := &MainNoticeQueue{listing: listing, path: filepath.Join(binding.Home, "watch", binding.Scope+"."+binding.Revision+suffix), state: mainNoticeQueueState{Scope: binding.Scope, Revision: binding.Revision, Entries: []MainNotice{}}}
 	f, err := os.Open(q.path)
 	if os.IsNotExist(err) {
 		return q, nil
@@ -89,7 +101,7 @@ func OpenMainNoticeQueue(binding Binding) (*MainNoticeQueue, error) {
 	changed := false
 	for i := range q.state.Entries {
 		item := &q.state.Entries[i]
-		if !validMainNotice(*item) || seen[item.ID] {
+		if !validMainNotice(*item) || item.IsListingPublication() != q.listing || seen[item.ID] {
 			return nil, errors.New("invalid_main_notice_queue")
 		}
 		seen[item.ID] = true
@@ -105,6 +117,10 @@ func OpenMainNoticeQueue(binding Binding) (*MainNoticeQueue, error) {
 	}
 	return q, nil
 }
+func (item MainNotice) IsListingPublication() bool {
+	return item.Event == "commission.moderation.changed.v1"
+}
+
 func validMainNotice(item MainNotice) bool {
 	if maintenance.ValidateCommissionBridgeError(item.BridgeError) != nil {
 		return false
@@ -137,11 +153,20 @@ func validMainNotice(item MainNotice) bool {
 			return false
 		}
 	}
-	n, err := strconv.ParseInt(item.OrderID, 10, 64)
-	if err != nil || n <= 0 || strconv.FormatInt(n, 10) != item.OrderID {
-		return false
+	if item.IsListingPublication() {
+		n, err := strconv.ParseInt(item.CommissionID, 10, 64)
+		if err != nil || n <= 0 || strconv.FormatInt(n, 10) != item.CommissionID ||
+			item.DraftVersion <= 0 || item.OrderID != "" || item.Version != 0 || item.Role != "seller" || item.State != "published" {
+			return false
+		}
+	} else {
+		n, err := strconv.ParseInt(item.OrderID, 10, 64)
+		if err != nil || n <= 0 || strconv.FormatInt(n, 10) != item.OrderID || item.Version <= 0 ||
+			item.CommissionID != "" || item.DraftVersion != 0 || (item.Role != "buyer" && item.Role != "seller") {
+			return false
+		}
 	}
-	if item.Version <= 0 || (item.Role != "buyer" && item.Role != "seller") || len(item.Event) > 128 || len(item.Command) > 128 || len(item.State) > 64 {
+	if len(item.Event) > 128 || len(item.Command) > 128 || len(item.State) > 64 {
 		return false
 	}
 	for _, value := range []string{item.Event, item.Command, item.State} {
@@ -173,7 +198,7 @@ func (q *MainNoticeQueue) Add(item MainNotice) error {
 	item.Status = "pending"
 	item.Code = ""
 	item.Attempts, item.NextAttemptAt = 0, 0
-	if !validMainNotice(item) {
+	if !validMainNotice(item) || item.IsListingPublication() != q.listing {
 		return errors.New("invalid_main_notice")
 	}
 	for _, old := range q.state.Entries {

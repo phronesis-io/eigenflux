@@ -66,12 +66,15 @@ net on a confirmed credit event and link to the Order for availability.
 
 Main notices do not authorize payments, acceptance, receipt confirmation, refunds,
 cancellation or retries. Read current Order state rather than trusting event hints.
-Only model results appear in the main conversation; no instruction/event echo.
-When OS notification permission is confirmed enabled, busy or failed calls proven
-not submitted get at most five total attempts. After failures, wait 1, 2, 5 and
+The signed Skill applies the owner’s automatic publishing setting to verified Order completion transitions. It claims the event locally before sending a broadcast or offering to share, using the same claim as the interactive flow. Only model results appear in the main conversation; no instruction/event echo.
+Busy or failed calls proven not submitted get at most five total attempts.
+Listing-publication and Order-completion notices use the bound conversation
+independently of OS permissions. Other notices require confirmed OS permission.
+Store listing notices separately so older CLI builds can reopen the Order queue. After failures, wait 1, 2, 5 and
 10 minutes. Persist attempts and due times under the original notification ID;
-successful delivery stops retries. Before retrying, recheck permission, identity
-and the current Order version/state; discard obsolete notices. Delayed entries
+successful delivery stops retries. Before retrying, recheck identity, applicable
+permission, and current Order state. Discard obsolete notices. A completed
+Order can advance its version without invalidating the completion notice. Delayed entries
 do not block other due notices. Permission checks never request authorization.
 Unsupported bindings and uncertain submitted turns are skipped without another
 target or transport fallback. Running entries recovered after a crash remain
