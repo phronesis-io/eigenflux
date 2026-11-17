@@ -669,6 +669,8 @@ settlement and refund events. Buyer delivery notices require downloaded-artifact
 and an owner-facing acceptance report with files, contract compliance, defects or
 verification limits, and a recommendation. Platform validation remains distinct
 from content inspection; unchanged delivery snapshots reuse the verified conclusion.
+Native Commission cards preserve full sanitized labels and the same Order link.
+The OS controls text wrapping in its compact preview.
 Receipt confirmation still requires buyer authorization. A verified completed transition uses the signed Skill’s Commission broadcast procedure and shares its local event claim with the interactive Order flow. Guard identity before/during/after execution. Proven
 pre-submission failures get up to five total attempts, with 1/2/5/10-minute
 delays. Listing and completion events need a supported main binding. Other

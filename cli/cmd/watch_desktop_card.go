@@ -4,7 +4,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 const (
@@ -111,30 +110,6 @@ func desktopCardDeadline(zh bool, labelZH, labelEN string, millis int64) string 
 	return label + " " + desktopCardTime(millis)
 }
 
-// Keep two untrusted labels on separate, bounded rows of the macOS card.
-func desktopCardLabel(value string, maxRunes, maxWide int) string {
-	if utf8.RuneCountInString(value) <= maxWide {
-		return value
-	}
-	for _, r := range value {
-		if r > 0x7f {
-			maxRunes = maxWide
-			break
-		}
-	}
-	runes := []rune(value)
-	if len(runes) <= maxRunes {
-		return value
-	}
-	return string(runes[:maxRunes-1]) + "…"
-}
-
-func desktopCardServiceLine(order commissionNoticeOrder, account string) string {
-	service := desktopCardLabel(desktopServiceName(order.Contract.Title), 15, 10)
-	account = desktopCardLabel(account, 8, 5)
-	return service + " · " + account
-}
-
 func desktopCardCreditLine(credit *commissionNoticeCredit, english bool) string {
 	zh, en := "可提现时间见订单", "Availability in order"
 	if credit != nil {
@@ -162,10 +137,8 @@ func desktopCommissionBlockerCard(language, title, body string) (string, string)
 	body = strings.TrimPrefix(body, desktopActionDeadlinePlaceholder)
 	if language == "zh" {
 		title = strings.TrimPrefix(title, "「"+desktopServiceNamePlaceholder+"」")
-		body, _, _ = strings.Cut(body, "。")
 	} else {
 		title = strings.TrimSuffix(title, " for “"+desktopServiceNamePlaceholder+"”")
-		body, _, _ = strings.Cut(body, ". ")
 	}
-	return title, desktopCardService + "\n" + desktopActionDeadlinePlaceholder + desktopCardLabel(body, 28, 16)
+	return title, desktopCardService + "\n" + desktopActionDeadlinePlaceholder + body
 }

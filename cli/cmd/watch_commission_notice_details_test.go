@@ -17,6 +17,11 @@ const noticeTestDeadline = int64(1795000020000)
 
 func commissionNoticeDetailsFixture(t *testing.T, state string, credit bool) *accountWatch {
 	t.Helper()
+	return commissionNoticeDetailsFixtureWithLabels(t, state, credit, "冰雪奇缘之歌", "Sienna🐈", "测试卖家")
+}
+
+func commissionNoticeDetailsFixtureWithLabels(t *testing.T, state string, credit bool, service, buyer, seller string) *accountWatch {
+	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Errorf("notice attempted a mutation: %s %s", r.Method, r.URL.Path)
@@ -29,7 +34,7 @@ func commissionNoticeDetailsFixture(t *testing.T, state string, credit bool) *ac
 				"order_id": "901", "buyer_agent_id": "41", "seller_agent_id": "42", "version": 3, "state": state,
 				"seller_confirm_due_at": noticeTestDeadline, "payment_due_at": noticeTestDeadline,
 				"delivery_due_at": noticeTestDeadline, "buyer_confirm_due_at": noticeTestDeadline,
-				"contract": map[string]any{"title": "冰雪奇缘之歌", "currency": "CNY", "gross_amount_fen": 10, "seller_net_fen": 8},
+				"contract": map[string]any{"title": service, "currency": "CNY", "gross_amount_fen": 10, "seller_net_fen": 8},
 			}})
 		case "/api/v1/wallet/credits":
 			if !credit {
@@ -46,9 +51,9 @@ func commissionNoticeDetailsFixture(t *testing.T, state string, credit bool) *ac
 				map[string]any{"order_id": "901", "amount_fen": 8, "currency": "CNY", "available_at": noticeTestDeadline, "settlement_state": "unmatured"},
 			}})
 		case "/api/v2/public/agents/by-id/41/card":
-			materialTestResponse(out, map[string]any{"card": map[string]string{"agent_name": "Sienna🐈"}})
+			materialTestResponse(out, map[string]any{"card": map[string]string{"agent_name": buyer}})
 		case "/api/v2/public/agents/by-id/42/card":
-			materialTestResponse(out, map[string]any{"card": map[string]string{"agent_name": "测试卖家"}})
+			materialTestResponse(out, map[string]any{"card": map[string]string{"agent_name": seller}})
 		default:
 			t.Errorf("unexpected notice read: %s", r.URL.Path)
 			http.NotFound(out, r)
@@ -168,6 +173,10 @@ func TestCommissionMacOSCardFitsPriorityFacts(t *testing.T) {
 	for _, tc := range []struct {
 		state, event, command, title, lastLine string
 	}{
+		{"completed", "order.state.changed.v1", "buyer_complete", "订单已完成", ""},
+		{"validating", "order.state.changed.v1", "", "交付检查中", ""},
+		{"in_progress", "order.state.changed.v1", "", "已付款 · 待交付", "交付截止 " + desktopCardTime(noticeTestDeadline)},
+		{"awaiting_buyer_confirmation", "order.state.changed.v1", "", "待确认交付", "确认截止 " + desktopCardTime(noticeTestDeadline)},
 		{"completed", "order.settlement.completed.v1", "", "净入账 ¥0.08", "可提现 " + desktopCardTime(noticeTestDeadline)},
 		{"cancelled", "order.state.changed.v1", "seller_expired", "接单超时 · 订单关闭", "未扣款"},
 		{"refund_pending", "order.state.changed.v1", "delivery_expired", "交付超时 · 退款中 · ¥0.10", ""},
@@ -176,12 +185,13 @@ func TestCommissionMacOSCardFitsPriorityFacts(t *testing.T) {
 		{"awaiting_buyer_confirmation", "order.reminder.buyer_confirmation_24h.v1", "", "交付确认提醒", "确认截止 " + desktopCardTime(noticeTestDeadline)},
 	} {
 		t.Run(tc.title, func(t *testing.T) {
-			w := commissionNoticeDetailsFixture(t, tc.state, true)
+			w := commissionNoticeDetailsFixtureWithLabels(t, tc.state, true, "GPT 模型低成本体验", "Lynn's Agent", "凯瑞’s Codex")
 			var fact desktopOrderFact
 			if err := json.Unmarshal(commissionNoticeDetailsEvent(t, tc.state, tc.event, tc.command), &fact); err != nil {
 				t.Fatal(err)
 			}
 			fact.Payload.PaymentDueAt = noticeTestDeadline
+			fact.Payload.DeliveryDueAt = noticeTestDeadline
 			fact.Payload.BuyerConfirmDue = noticeTestDeadline
 			raw, err := json.Marshal(fact)
 			if err != nil {
@@ -195,7 +205,7 @@ func TestCommissionMacOSCardFitsPriorityFacts(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			body := "买家：Sienna🐈\n冰雪奇缘之歌 · 测试卖家"
+			body := "买家：Lynn's Agent · 当前：凯瑞’s Codex\nGPT 模型低成本体验"
 			if tc.lastLine != "" {
 				body += "\n" + tc.lastLine
 			}
@@ -203,5 +213,39 @@ func TestCommissionMacOSCardFitsPriorityFacts(t *testing.T) {
 				t.Fatalf("wrong macOS card: %+v, want %q and %q", message, tc.title, body)
 			}
 		})
+	}
+}
+
+func TestCommissionDesktopLongLabelsStayInPayload(t *testing.T) {
+	service := strings.Repeat("数据备份与恢复", 9)
+	account := strings.Repeat("Team Alpha ", 17) + "Lead"
+	w := commissionNoticeDetailsFixtureWithLabels(t, "completed", true, service, "Lynn's Agent", account)
+	for _, platform := range []string{"darwin", "windows"} {
+		t.Run(platform, func(t *testing.T) {
+			raw := commissionNoticeDetailsEvent(t, "completed", "order.state.changed.v1", "buyer_complete")
+			queued, err := commissionDesktopMessageForPlatform(raw, w.server.Endpoint, "42", "zh", platform)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := w.resolveDesktopServiceName(context.Background(), queued)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(got.Body, service) || !strings.Contains(got.Body, account) ||
+				strings.Contains(got.Title+got.Body, "…") || got.URL != queued.URL {
+				t.Fatalf("full labels lost or order target changed: %+v", got)
+			}
+		})
+	}
+}
+
+func TestCommissionMaterialCardDoesNotClipQuestionOrFile(t *testing.T) {
+	question := "请补充用于版本恢复演练的详细备份目录说明和可公开的示例"
+	file := "inputs/backup-and-recovery-implementation-notes.md"
+	_, body := buyerMaterialDesktopCard("zh", &commissionInputRequest{
+		Question: question, MissingInputs: []string{file},
+	})
+	if !strings.Contains(body, question) || !strings.Contains(body, file) || strings.Contains(body, "…") {
+		t.Fatal(body)
 	}
 }

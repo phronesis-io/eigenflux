@@ -68,8 +68,8 @@ func buyerMaterialDesktopID(scope string, data dispatch.CommissionClarificationJ
 }
 
 func buyerMaterialNoticeCopy(language string, request *commissionInputRequest) (string, string) {
-	question := desktopServiceName(request.Question)
-	missing := desktopServiceName(strings.Join(request.MissingInputs, ", "))
+	question := desktopCleanDisplayText(request.Question)
+	missing := desktopCleanDisplayText(strings.Join(request.MissingInputs, ", "))
 	if missing == "required_input_files" {
 		missing = "files required by the order"
 		if language == "zh" {
@@ -84,6 +84,9 @@ func buyerMaterialNoticeCopy(language string, request *commissionInputRequest) (
 		if missing != "" {
 			body += "\n待补文件：" + missing
 		}
+		if len([]rune(body)) > 1800 {
+			body = "请打开订单查看完整补充要求。"
+		}
 		return "「{service_name}」需要你补充资料", body
 	}
 	body := "Open the order to add the requested information. The seller's Agent will check it again after submission."
@@ -93,6 +96,9 @@ func buyerMaterialNoticeCopy(language string, request *commissionInputRequest) (
 	if missing != "" {
 		body += "\nFiles needed: " + missing
 	}
+	if len([]rune(body)) > 1800 {
+		body = "Open the order to see the full material request."
+	}
 	return "“{service_name}” needs information from you", body
 }
 
@@ -101,10 +107,10 @@ func buyerMaterialDesktopCard(language string, request *commissionInputRequest) 
 	if language == "zh" {
 		title = "待补充订单材料"
 	}
-	question := desktopCardLabel(desktopServiceName(request.Question), 28, 16)
+	question := desktopCleanDisplayText(request.Question)
 	missing := len(request.MissingInputs)
 	if missing == 1 && request.MissingInputs[0] != "required_input_files" {
-		file := desktopCardLabel(desktopServiceName(request.MissingInputs[0]), 21, 12)
+		file := desktopCleanDisplayText(request.MissingInputs[0])
 		if question != "" {
 			question += "\n"
 		}
@@ -123,6 +129,12 @@ func buyerMaterialDesktopCard(language string, request *commissionInputRequest) 
 		}
 		if missing > 1 {
 			title += fmt.Sprintf(" (%d)", missing)
+		}
+	}
+	if len([]rune(question)) > 1500 {
+		question = "Open the order to see the full material request."
+		if language == "zh" {
+			question = "请打开订单查看完整补充要求。"
 		}
 	}
 	return title, desktopCardService + "\n" + desktopActionDeadlinePlaceholder + question

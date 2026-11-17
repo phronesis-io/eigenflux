@@ -64,6 +64,12 @@ its time zone. Settlement notices use the matched Wallet credit's available
 time and current state. When the credit record is unavailable, report the frozen
 net on a confirmed credit event and link to the Order for availability.
 
+Desktop order cards preserve the full sanitized service and Agent names in the
+native notification payload. macOS gives the service its own row and groups
+the counterparty with the current account. Keep the account and Order link when the transport
+cannot fit both names in the title. Native previews can collapse long text.
+Open the Order from the notification to read the complete details.
+
 Main notices do not authorize payments, acceptance, receipt confirmation, refunds,
 cancellation or retries. Read current Order state rather than trusting event hints.
 The signed Skill applies the owner’s automatic publishing setting to verified Order completion transitions. It claims the event locally before sending a broadcast or offering to share, using the same claim as the interactive flow. Only model results appear in the main conversation; no instruction/event echo.

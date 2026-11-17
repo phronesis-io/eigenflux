@@ -17,7 +17,6 @@ import (
 )
 
 const desktopAgentNamePlaceholder = "{recipient_agent_name}"
-const desktopShortServiceNamePlaceholder = "{short_service_name}"
 
 var errDesktopServiceName = errors.New("service_name_unavailable")
 
@@ -44,11 +43,12 @@ func (w *accountWatch) resolveDesktopServiceName(ctx context.Context, message de
 	if err != nil {
 		return message, errDesktopServiceName
 	}
-	name := desktopServiceName(order.Contract.Title)
+	name := desktopCleanDisplayText(order.Contract.Title)
 	if name == "" {
 		return message, errDesktopServiceName
 	}
 	english := !strings.HasPrefix(message.Title, "「")
+	orderStateTitle := ""
 	if compact {
 		first, _ := utf8.DecodeRuneInString(message.Title)
 		english = first < utf8.RuneSelf
@@ -68,9 +68,24 @@ func (w *accountWatch) resolveDesktopServiceName(ctx context.Context, message de
 			if status == "已接单，等待买方付款" {
 				status = "已接单 · 待付款"
 			}
-			message.Title = status + "｜" + desktopShortServiceNamePlaceholder
+			orderStateTitle = status
+			message.Title = status + "｜" + desktopServiceNamePlaceholder
 		}
 		message.Title = "【" + roleName + " · " + desktopAgentNamePlaceholder + "】" + message.Title
+	}
+	counterparty := w.desktopCommissionCounterparty(ctx, message.Body, order, role, english)
+	if compact {
+		accountLine := desktopAgentNamePlaceholder
+		if strings.HasPrefix(message.Body, desktopCounterpartyPlaceholder) {
+			label := "当前："
+			if english {
+				label = "Account: "
+			}
+			accountLine = desktopCounterpartyPlaceholder + " · " + label + accountLine
+			message.Body = strings.TrimPrefix(message.Body, desktopCounterpartyPlaceholder)
+			counterparty = strings.TrimSuffix(counterparty, "\n")
+		}
+		message.Body = accountLine + "\n" + message.Body
 	}
 	agentName := w.commissionPublicAgentName(ctx, w.identity.AgentID, english, false)
 	if agentName == "" {
@@ -102,16 +117,15 @@ func (w *accountWatch) resolveDesktopServiceName(ctx context.Context, message de
 	}
 	// A single replacer never expands placeholder-like text within display names.
 	replace := strings.NewReplacer(
-		desktopShortServiceNamePlaceholder, desktopShortServiceName(order.Contract.Title),
 		desktopServiceNamePlaceholder, name,
 		desktopAgentNamePlaceholder, agentName,
 		"{order_buyer_agent_name}", "「"+buyerName+"」",
-		desktopCounterpartyPlaceholder, w.desktopCommissionCounterparty(ctx, message.Body, order, role, english, compact),
+		desktopCounterpartyPlaceholder, counterparty,
 		desktopOrderAmountPlaceholder, desktopCommissionAmount(order, orderAmount),
 		desktopRefundAmountPlaceholder, desktopCommissionAmount(order, refundAmount),
 		desktopCreditPlaceholder, creditText,
 		desktopActionDeadlinePlaceholder, desktopCommissionActionDeadline(order, english, compact),
-		desktopCardService, desktopCardServiceLine(order, agentName),
+		desktopCardService, name,
 		desktopCardGross, gross,
 		desktopCardRefund, gross,
 		desktopCardNet, net,
@@ -121,6 +135,10 @@ func (w *accountWatch) resolveDesktopServiceName(ctx context.Context, message de
 	message.Body = replace.Replace(message.Body)
 	if compact {
 		message.Body = strings.TrimSpace(message.Body)
+	} else if orderStateTitle != "" && desktopnotify.Validate(message) != nil {
+		// Keep the state in the title when the full labels exceed the notifier's title limit.
+		message.Title = orderStateTitle
+		message.Body = name + " · " + agentName + "\n" + message.Body
 	}
 	if desktopnotify.Validate(message) != nil {
 		return message, errDesktopServiceName
@@ -154,33 +172,13 @@ func (w *accountWatch) commissionPublicAgentName(ctx context.Context, agentID st
 				candidates = append([]string{profile.Identity.DisplayNameEN, profile.Card.DisplayNameEN, profile.Card.NameEN}, candidates...)
 			}
 			for _, candidate := range candidates {
-				if cleaned := desktopServiceName(candidate); cleaned != "" {
-					runes := []rune(cleaned)
-					if len(runes) > 40 {
-						cleaned = string(runes[:39]) + "…"
-					}
+				if cleaned := desktopCleanDisplayText(candidate); cleaned != "" {
 					return cleaned
 				}
 			}
 		}
 	}
 	return ""
-}
-
-func desktopServiceName(title string) string {
-	runes := []rune(desktopCleanDisplayText(title))
-	if len(runes) > 80 {
-		runes = append(runes[:79], '…')
-	}
-	return string(runes)
-}
-
-func desktopShortServiceName(title string) string {
-	runes := []rune(desktopCleanDisplayText(title))
-	if len(runes) <= 13 {
-		return string(runes)
-	}
-	return string(runes[:6]) + "…" + string(runes[len(runes)-6:])
 }
 
 func desktopCleanDisplayText(title string) string {
