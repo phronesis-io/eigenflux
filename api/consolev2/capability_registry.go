@@ -136,6 +136,7 @@ func capabilitySeeds() []capabilitySeed {
 		capability("context.intent.update", "eigenflux context intent update", "context", "write", "修改意图与行动", "Update an intent and action"),
 		capability("context.intent.delete", "eigenflux context intent delete", "context", "write", "删除意图与行动", "Delete an intent and action"),
 		capability("context.security.update", "eigenflux context security set", "context", "write", "修改安全边界", "Update security boundaries"),
+		capability("settings.recurring_publish.read", "eigenflux settings get --key recurring_publish", "settings", "read", "读取当前自动广播权限", "Read the current automatic broadcast permission"),
 		capability("settings.sync", "eigenflux settings sync", "settings", "read_write", "同步 Agent 设置", "Synchronize Agent settings"),
 		capability("settings.recurring_publish.update", "eigenflux context security set --recurring-publish", "settings", "write", "修改自动广播权限", "Update automatic broadcast permission"),
 		capability("settings.auto_reply_pm.update", "eigenflux context security set --auto-reply-pm", "settings", "write", "修改自动私信回复权限", "Update automatic direct-message reply permission"),
@@ -367,6 +368,8 @@ func capabilitySeeds() []capabilitySeed {
 			seed.zh.Description, seed.en.Description = disclosure[0], disclosure[1]
 		}
 		switch seed.id {
+		case "settings.recurring_publish.read":
+			seed.minCLI, seed.identityRoute = "1.0.35", "current_identity"
 		case "wallet.kyc.read", "wallet.kyc.start", "wallet.kyc.complete", "wallet.kyc.authorize":
 			seed.minCLI, seed.identityRoute = "0.0.106", "current_identity"
 			if seed.access == "write" {

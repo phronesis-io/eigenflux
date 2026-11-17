@@ -647,22 +647,28 @@ main_notice_queue.go persists one notice per notification ID before ACK, separat
 from seller execution and desktop delivery. Explicit main-notice capacity overflow
 skips only that notice; business intake, desktop enqueue and ACK continue. Other
 persistence errors retain the existing fail-closed behavior. Signed main-notice.md pins the exact
-Home/server read prefix. Main notice context supplies the account-protected
-Order link, transition hint, role-checked counterparty, current deadline and
-matched Wallet credit when available. Credit lookup stays bounded and uses the
-exact Order ID. The signed rule verifies current Order history and selects
-workflow results by event kind, including same-version settlement and refund
-events. Buyer delivery notices require downloaded-artifact inspection
+Home/server CLI prefix. Published moderation events enter a separate listing
+queue for a supported main binding. This preserves the Order queue for older
+CLI builds. Other moderation states retain desktop delivery. The signed notice
+verifies the active public revision and uses the same local event claim as
+interactive listing publication. Order notice context supplies the
+account-protected Order link, transition hint, role-checked counterparty,
+current deadline and matched Wallet credit when available. Credit lookup stays
+bounded and uses the exact Order ID. The signed rule verifies current Order
+history and selects workflow results by event kind, including same-version
+settlement and refund events. Buyer delivery notices require downloaded-artifact inspection
 and an owner-facing acceptance report with files, contract compliance, defects or
 verification limits, and a recommendation. Platform validation remains distinct
 from content inspection; unchanged delivery snapshots reuse the verified conclusion.
-Receipt confirmation still requires buyer authorization. Guard identity before/during/after execution. With OS
-notification permission confirmed enabled, proven pre-submission failures get up
-to five total attempts, with 1/2/5/10-minute delays after failure. Persist Attempts
+Receipt confirmation still requires buyer authorization. A verified completed transition uses the signed Skill’s Commission broadcast procedure and shares its local event claim with the interactive Order flow. Guard identity before/during/after execution. Proven
+pre-submission failures get up to five total attempts, with 1/2/5/10-minute
+delays. Listing and completion events need a supported main binding. Other
+events also require confirmed OS notification permission. Persist Attempts
 and NextAttemptAt under the same scoped notification ID. Repeated enqueue and
 restarts preserve pending schedules; success stops retries. Retry-time permission
 checks use Check only, never Setup or Show. Revalidate Order version/state and
-recipient before retrying; discard changed Orders and resolved local requests.
+recipient before retrying. Allow a newer version for completion if the Order
+remains completed. Discard other obsolete Orders and resolved local requests.
 MainNoticeCanRetry marks only busy or pre-write transport/preparation failures;
 post-write errors and missing receipts remain skipped/unconfirmed. Unsupported
 targets never enter retries. No alternative target or Order mutation is allowed.

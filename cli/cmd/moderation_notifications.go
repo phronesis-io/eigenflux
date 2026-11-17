@@ -102,6 +102,9 @@ func (e *moderationSinkError) Unwrap() error { return e.cause }
 
 func (w *accountWatch) enqueueModerationNotification(notice moderationNotification) (bool, error) {
 	fresh, err := saveModerationNoticeWithSink(w.home, w.scope, w.identity.AgentID, notice, func() error {
+		if err := w.enqueueListingPublicationNotice(notice); err != nil {
+			return err
+		}
 		if w.desktop == nil {
 			return nil
 		}

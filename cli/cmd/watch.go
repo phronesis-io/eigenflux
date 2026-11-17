@@ -67,6 +67,7 @@ type accountWatch struct {
 	binding               *dispatch.Binding
 	journal               *dispatch.Journal
 	mainNotices           *dispatch.MainNoticeQueue
+	listingNotices        *dispatch.MainNoticeQueue
 	mainNoticeMu          sync.Mutex
 	mainNoticeRunMu       sync.Mutex
 	runMainNotice         func(context.Context, string) (dispatch.Result, error)
