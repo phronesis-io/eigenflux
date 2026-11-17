@@ -51,8 +51,9 @@ compaction merely because their output is absent from the summary.
 ## Draft intent priority
 
 Write `intent_actions[].priority` as a JSON integer in the signed 16-bit range.
-Console confirmation also accepts base-10 integer strings in that range,
-including in saved drafts. Confirmed intents store the priority as an integer.
+Console confirmation accepts base-10 integer strings in that range and the
+labels `high` (10), `medium` (5), and `normal` (5), including in saved drafts.
+Labels are case-insensitive. Confirmed intents store the priority as an integer.
 Each confirmation decodes the typed fields for that step, so a type error in
 another section does not block it.
 

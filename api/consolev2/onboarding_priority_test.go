@@ -18,7 +18,10 @@ func TestOnboardingDraftIntentPriority(t *testing.T) {
 		{name: "integer", field: `"priority":10`, want: 10},
 		{name: "integer string", field: `"priority":"10"`, want: 10},
 		{name: "negative integer string", field: `"priority":"-32768"`, want: -32768},
-		{name: "non-numeric label", field: `"priority":"high"`, wantErr: true},
+		{name: "high label", field: `"priority":" HIGH "`, want: 10},
+		{name: "medium label", field: `"priority":"medium"`, want: 5},
+		{name: "normal label", field: `"priority":"normal"`, want: 5},
+		{name: "unknown label", field: `"priority":"urgent"`, wantErr: true},
 		{name: "fraction", field: `"priority":"1.5"`, wantErr: true},
 		{name: "overflow", field: `"priority":"32768"`, wantErr: true},
 	} {
@@ -40,7 +43,7 @@ func TestDecodeOnboardingDraftStepChecksOnlyCurrentSection(t *testing.T) {
 	draft := []byte(`{
 		"identity_card":{"agent_name":"Agent"},
 		"network_goal":"Find infrastructure updates",
-		"intent_actions":[{"priority":"high"}],
+		"intent_actions":[{"priority":"urgent"}],
 		"security_boundary":{"auto_reply_pm":"false"}
 	}`)
 	for _, step := range []int16{2, 3} {
@@ -64,7 +67,7 @@ func TestOnboardingDraftDecodeLogFields(t *testing.T) {
 		name, priority string
 		want           []interface{}
 	}{
-		{"known label", `"HIGH"`, []interface{}{"reason", "invalid_integer_string", "field", "intent_actions.priority", "expected_type", "int16", "received_type", "string", "received_label", "high"}},
+		{"unsupported label", `"LOW"`, []interface{}{"reason", "invalid_integer_string", "field", "intent_actions.priority", "expected_type", "int16", "received_type", "string", "received_label", "low"}},
 		{"arbitrary text", `"private draft text"`, []interface{}{"reason", "invalid_integer_string", "field", "intent_actions.priority", "expected_type", "int16", "received_type", "string"}},
 		{"string out of range", `"32768"`, []interface{}{"reason", "integer_out_of_range", "field", "intent_actions.priority", "expected_type", "int16", "received_type", "string"}},
 		{"numeric literal omitted", `123456789`, []interface{}{"reason", "type_mismatch", "field", "priority", "expected_type", "int16", "received_type", "number"}},

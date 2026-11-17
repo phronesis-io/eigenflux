@@ -452,7 +452,7 @@ type identityCardDraft struct {
 	InterestsNegative []string `json:"interests_negative"`
 }
 
-// onboardingIntentPriority accepts integer strings in Agent-generated drafts.
+// onboardingIntentPriority accepts integer strings and legacy labels in drafts.
 type onboardingIntentPriority int16
 
 func (p *onboardingIntentPriority) UnmarshalJSON(data []byte) error {
@@ -465,14 +465,23 @@ func (p *onboardingIntentPriority) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	value = strings.TrimSpace(value)
+	label := strings.ToLower(value)
+	switch label {
+	case "high":
+		*p = 10
+		return nil
+	case "medium", "normal":
+		*p = 5
+		return nil
+	}
 	priority, err := strconv.ParseInt(value, 10, 16)
 	if err != nil {
 		failure := &onboardingIntentPriorityError{reason: "invalid_integer_string"}
 		if errors.Is(err, strconv.ErrRange) {
 			failure.reason = "integer_out_of_range"
 		}
-		switch label := strings.ToLower(value); label {
-		case "high", "medium", "low", "normal", "高", "中", "低":
+		switch label {
+		case "low", "高", "中", "低":
 			failure.label = label
 		}
 		return failure
