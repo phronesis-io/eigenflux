@@ -51,6 +51,7 @@ func (w *accountWatch) enqueueCommissionMainNotice(raw json.RawMessage) error {
 			Version int64          `json:"order_version"`
 			Role    string         `json:"recipient_role"`
 			Event   string         `json:"event_kind"`
+			Command string         `json:"command_kind"`
 			State   string         `json:"state"`
 			ToState string         `json:"to_state"`
 		} `json:"payload"`
@@ -68,7 +69,7 @@ func (w *accountWatch) enqueueCommissionMainNotice(raw json.RawMessage) error {
 	}
 	id := strconv.FormatInt(int64(notice.ID), 10)
 	_, existed := queue.Lookup(id)
-	err = queue.Add(dispatch.MainNotice{ID: id, OrderID: strconv.FormatInt(int64(notice.Payload.Order), 10), Version: notice.Payload.Version, Role: notice.Payload.Role, Event: event, State: state})
+	err = queue.Add(dispatch.MainNotice{ID: id, OrderID: strconv.FormatInt(int64(notice.Payload.Order), 10), Version: notice.Payload.Version, Role: notice.Payload.Role, Event: event, Command: notice.Payload.Command, State: state})
 	if err == nil && !existed {
 		observation := mainNoticeObservation(dispatch.MainNotice{ID: id, OrderID: strconv.FormatInt(int64(notice.Payload.Order), 10), Version: notice.Payload.Version, Role: notice.Payload.Role})
 		observation.Stage, observation.Attempt = "queued", 0
@@ -162,7 +163,7 @@ func (w *accountWatch) commissionMainNoticeLoop(ctx context.Context) error {
 	}
 	return ctx.Err()
 }
-func (w *accountWatch) commissionMainNoticePrompt(item dispatch.MainNotice) (string, error) {
+func (w *accountWatch) commissionMainNoticePrompt(ctx context.Context, item dispatch.MainNotice) (string, error) {
 	rules, err := localHeartbeatSkillsAt(w.binding.SkillsDir, w.binding.Host)
 	if err != nil {
 		return "", err
@@ -181,13 +182,39 @@ func (w *accountWatch) commissionMainNoticePrompt(item dispatch.MainNotice) (str
 	if item.IsLocalBlocker() {
 		payload["local_execution"] = map[string]string{"job_id": item.JobID, "status": item.JobStatus, "code": item.JobCode}
 	}
+	if item.Command != "" {
+		payload["observed_command_kind"] = item.Command
+	}
 	if item.IsBuyerInputRequest() {
 		payload["input_request_id"] = item.InputRequestID
-		target, err := orderDesktopURL(w.server.Endpoint, w.binding.AgentID, item.OrderID, "buyer")
-		if err != nil {
+	}
+	if !item.IsListingPublication() {
+		target, err := orderDesktopURL(w.server.Endpoint, w.binding.AgentID, item.OrderID, item.Role)
+		if err == nil {
+			payload["order_url"] = target
+		} else if item.IsBuyerInputRequest() {
 			return "", err
 		}
-		payload["order_url"] = target
+		if !item.IsLocalBlocker() {
+			lookup, cancel := context.WithTimeout(ctx, 6*time.Second)
+			defer cancel()
+			if api, order, err := w.readCommissionNoticeOrder(lookup, item.OrderID, item.Role, w.binding.AgentID); err == nil {
+				if due := order.deadline(); due > 0 && order.Version == item.Version && order.State == item.State {
+					payload["order_deadline_at_local"] = desktopDeadline("en", due)
+				}
+				if item.Role == "seller" && item.Event == "order.settlement.completed.v1" {
+					if credit := readCommissionNoticeCredit(lookup, api, order.ID); credit != nil {
+						payload["wallet_credit"] = credit
+						if credit.AvailableAt > 0 {
+							payload["wallet_credit_available_at_local"] = desktopDeadline("en", credit.AvailableAt)
+						}
+					}
+				}
+				if name := w.commissionNoticeCounterparty(lookup, order, item.Role, false); name != "" {
+					payload["counterparty_agent_name"] = name
+				}
+			}
+		}
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -270,7 +297,7 @@ func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item di
 	if item.IsBuyerInputRequest() && !w.buyerInputNoticeCurrent(ctx, item) {
 		return "skipped", "main_notice_input_request_changed"
 	}
-	prompt, err := w.commissionMainNoticePrompt(item)
+	prompt, err := w.commissionMainNoticePrompt(ctx, item)
 	if err != nil || w.runMainNotice == nil {
 		return w.retryCommissionMainNotice(ctx, item, "main_notice_unavailable")
 	}

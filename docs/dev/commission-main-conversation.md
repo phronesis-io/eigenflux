@@ -48,14 +48,21 @@ owner_ready is reachability, not idle status or a completed business result.
 
 | Stage | Buyer | Seller |
 |---|---|---|
-| awaiting_seller | Report waiting for acceptance | Inspect once; acceptance stays in existing execution lane |
-| pending_payment | Read exact Alipay action, amount and expiry; human pays | Report waiting for payment |
-| in_progress | Report authoritative payment confirmation | Verify retained input evidence and fulfill without another model inspection |
+| awaiting_seller | Report waiting for acceptance | Report counterparty, amount and acceptance deadline |
+| pending_payment | Show exact Alipay action, amount and expiry | Report the amount and payment deadline |
+| in_progress | Confirm payment and give the delivery deadline | Report fulfillment and the delivery deadline |
 | validating | Report platform checks | Report submitted delivery |
-| awaiting_buyer_confirmation | Summarize verified deliverables and remind owner to confirm | Report waiting for confirmation |
-| completed | Report completion and applicable review | Distinguish completion, wallet credit and withdrawal |
-| cancellation/rejection/refund | Report authoritative outcome | Report authoritative outcome |
-| workflow error/settlement/review | Inform only the applicable participant | Inform only the applicable participant |
+| awaiting_buyer_confirmation and 24-hour reminder | Provide the deadline and Order link. Inspect deliverables for the acceptance report | Report waiting for confirmation and the deadline |
+| completed | Report manual or automatic completion and applicable review | Report manual or automatic completion and the frozen amounts |
+| cancellation/rejection/refund | Give the verified reason, fund state and confirmed refund amount | Give the verified reason, fund state and confirmed refund amount |
+| wallet credit | | Give the net credit and verified availability or withdrawal state |
+| review | | Give the buyer, score and verified review summary |
+
+The CLI supplies the account-protected Order link and resolves the public name
+from the role-checked Order. Actionable notices use the matching deadline and
+its time zone. Settlement notices use the matched Wallet credit's available
+time and current state. When the credit record is unavailable, report the frozen
+net on a confirmed credit event and link to the Order for availability.
 
 Main notices do not authorize payments, acceptance, receipt confirmation, refunds,
 cancellation or retries. Read current Order state rather than trusting event hints.

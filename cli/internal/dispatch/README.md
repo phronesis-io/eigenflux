@@ -298,6 +298,19 @@ notification ID. Terminal and desktop use the same event priority:
 recognized `payload.event_kind`, then envelope `type`, then order state. Seller
 rejection uses `command_kind=reject_order`. Wallet credit does not mean withdrawal.
 
+At desktop submission, read the role-checked Order for its frozen title,
+counterparty and amounts. Resolve the counterparty through the public Agent
+Card. Use the event command to distinguish cancellations and automatic
+completion. Show the refund amount with the verified lifecycle stage, and
+use the matched seller Wallet credit for maturity and withdrawal state.
+Keep the account-protected Order URL on actionable notices. Use the
+applicable deadline when the Order or event provides it.
+
+macOS Order cards place status and the relevant monetary amount in the title.
+The body keeps the counterparty, service and applicable deadline or credit
+availability on separate compact lines. Long names use bounded display text;
+clicking the card opens the full Order.
+
 Desktop copy follows the current user's first OS UI language: Chinese variants
 use Simplified Chinese; other languages or detection failures use English.
 Restart watch after changing OS language; already queued messages keep their
@@ -636,9 +649,14 @@ skips only that notice; business intake, desktop enqueue and ACK continue. Other
 persistence errors retain the existing fail-closed behavior. Signed main-notice.md pins the exact
 Home/server CLI prefix. Published moderation events enter a separate listing
 queue for a supported main binding. This preserves the Order queue for older
-CLI builds. Other moderation states retain desktop delivery. The signed notice verifies the
-active public revision and uses the same local event claim as interactive
-listing publication. Buyer delivery notices require downloaded-artifact inspection
+CLI builds. Other moderation states retain desktop delivery. The signed notice
+verifies the active public revision and uses the same local event claim as
+interactive listing publication. Order notice context supplies the
+account-protected Order link, transition hint, role-checked counterparty,
+current deadline and matched Wallet credit when available. Credit lookup stays
+bounded and uses the exact Order ID. The signed rule verifies current Order
+history and selects workflow results by event kind, including same-version
+settlement and refund events. Buyer delivery notices require downloaded-artifact inspection
 and an owner-facing acceptance report with files, contract compliance, defects or
 verification limits, and a recommendation. Platform validation remains distinct
 from content inspection; unchanged delivery snapshots reuse the verified conclusion.

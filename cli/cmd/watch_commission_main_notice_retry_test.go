@@ -38,6 +38,10 @@ func TestCommissionMainNoticeRetryReopensAndDeliversOnce(t *testing.T) {
 			order := testCommissionOrder()
 			order.BuyerID, order.SellerID, order.State = 42, 43, state
 			server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet && r.URL.Path == "/api/v2/public/agents/by-id/43/card" {
+					materialTestResponse(out, map[string]any{})
+					return
+				}
 				if r.Method != http.MethodGet || r.URL.Path != "/api/v1/orders/901" {
 					t.Errorf("notice performed a business mutation: %s %s", r.Method, r.URL.Path)
 					http.NotFound(out, r)

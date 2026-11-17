@@ -19,7 +19,7 @@ func TestCommissionBuyerNoticeCarriesSignedAcceptanceReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, state := range []string{"validating", "awaiting_buyer_confirmation"} {
-		prompt, err := w.commissionMainNoticePrompt(dispatch.MainNotice{ID: "11", OrderID: "901", Version: 5, Role: "buyer", State: state})
+		prompt, err := w.commissionMainNoticePrompt(context.Background(), dispatch.MainNotice{ID: "11", OrderID: "901", Version: 5, Role: "buyer", State: state})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -151,7 +151,7 @@ func TestPublishedModerationQueuesSignedBroadcastRules(t *testing.T) {
 	if err != nil || !ok || !item.IsListingPublication() || item.CommissionID != "9007199254740993" || item.DraftVersion != 3 {
 		t.Fatalf("wrong queued notice: %+v, %v", item, err)
 	}
-	prompt, err := w.commissionMainNoticePrompt(item)
+	prompt, err := w.commissionMainNoticePrompt(context.Background(), item)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestPublishedModerationQueuesSignedBroadcastRules(t *testing.T) {
 		t.Fatalf("listing without desktop notifications should retry a busy main: %s, %s", status, code)
 	}
 
-	completion, err := w.commissionMainNoticePrompt(dispatch.MainNotice{
+	completion, err := w.commissionMainNoticePrompt(context.Background(), dispatch.MainNotice{
 		ID: "83", OrderID: "901", Version: 9, Role: "buyer", Event: "order.state.changed.v1", State: "completed",
 	})
 	if err != nil || !strings.Contains(completion, "SIGNED BROADCAST REFERENCE") || !strings.Contains(completion, "completion-<order-id>") {
