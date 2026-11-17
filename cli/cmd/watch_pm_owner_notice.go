@@ -64,11 +64,14 @@ func (w *accountWatch) deliverCodexPMOwnerNotice(ctx context.Context) error {
 	}
 	call, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
+	claimed := false
 	commit := func() error {
 		if err := w.dispatchIdentityOK(); err != nil {
 			return err
 		}
-		return dispatch.CommitPMNotice(call, b, entry.ID)
+		err := dispatch.CommitPMNotice(call, b, entry.ID)
+		claimed = err == nil
+		return err
 	}
 	result, err := w.runPMMainNotice(call, codexPMOwnerNoticeRules+dispatch.PMOwnerNoticeMarker+string(data), commit)
 	if errors.Is(err, dispatch.ErrPMNoticeSuperseded) {
@@ -80,7 +83,7 @@ func (w *accountWatch) deliverCodexPMOwnerNotice(ctx context.Context) error {
 	if dispatch.MainNoticeCanRetry(err) {
 		// The submission was rejected before any write. Restore the item even if
 		// watch is shutting down, without reopening a cancelled host invocation.
-		return dispatch.RetryCodexPMNotice(context.WithoutCancel(ctx), b, entry, errors.Is(err, dispatch.ErrMainNoticeBusy), time.Now())
+		return dispatch.RetryCodexPMNotice(context.WithoutCancel(ctx), b, entry, errors.Is(err, dispatch.ErrMainNoticeBusy), time.Now(), claimed)
 	}
 	status := "unconfirmed"
 	if err == nil && result.SessionID == b.MainSessionID && result.RunID != "" && result.Text != "" {

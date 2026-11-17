@@ -89,6 +89,19 @@ func TestCodexOwnerIPCFraming(t *testing.T) {
 	}
 }
 
+type ownerIPCFailedWriter int
+
+func (w ownerIPCFailedWriter) Write([]byte) (int, error) { return int(w), io.ErrClosedPipe }
+
+func TestCodexOwnerIPCCheckpointRetryRequiresZeroBytes(t *testing.T) {
+	for _, n := range []int{0, 1} {
+		err := writeCodexOwnerIPCFrameWithCheckpoint(context.Background(), ownerIPCFailedWriter(n), map[string]string{"type": "request"}, func() error { return nil })
+		if !errors.Is(err, io.ErrClosedPipe) || MainNoticeCanRetry(err) != (n == 0) {
+			t.Fatalf("write of %d bytes classified incorrectly: %v", n, err)
+		}
+	}
+}
+
 func ownerIPCResponse(request map[string]json.RawMessage) map[string]any {
 	var id, method string
 	_ = json.Unmarshal(request["requestId"], &id)

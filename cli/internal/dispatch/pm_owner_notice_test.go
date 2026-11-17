@@ -100,7 +100,7 @@ func TestPMOwnerNoticeCodexRetryRequiresProvenPreSubmission(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("first lookup: %+v %v", entry, err)
 	}
-	if err := RetryCodexPMNotice(ctx, b, entry, true, now); err != nil {
+	if err := RetryCodexPMNotice(ctx, b, entry, true, now, false); err != nil {
 		t.Fatal(err)
 	}
 	entry, found, err = NextPMNotice(ctx, b, now)
@@ -165,14 +165,6 @@ func TestDesktopPMDigestDoesNotReplayAfterSubmission(t *testing.T) {
 			if shows != 1 {
 				t.Fatalf("notification was submitted %d times", shows)
 			}
-			if err := withPMNotices(ctx, b, func(state *pmNoticeState) (bool, error) {
-				if (len(state.DesktopUnconfirmed) != 0) != uncertain {
-					t.Fatalf("wrong unconfirmed state: %+v", state.DesktopUnconfirmed)
-				}
-				return false, nil
-			}); err != nil {
-				t.Fatal(err)
-			}
 		})
 	}
 }
@@ -197,6 +189,57 @@ func TestDesktopPMDigestKnownRejectionPreservesHostRetry(t *testing.T) {
 	entries, err := testPMDigest(ctx, b, "next")
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("failed host handoff lost reminder: %+v %v", entries, err)
+	}
+}
+
+func TestDesktopPMDigestAllowsConcurrentWatchSave(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	b := Binding{Home: t.TempDir(), Scope: "scope", Revision: "rev", AgentID: "owner"}
+	job := Job{Kind: "pm_push", Scope: b.Scope, Revision: b.Revision, Message: &Message{Conversation: "one"}}
+	save := func(ctx context.Context, change string) error {
+		return SavePMNotice(ctx, b, job, PMOwnerNotice{Topic: "materials", Change: change, Summary: change})
+	}
+	if err := save(ctx, "initial"); err != nil {
+		t.Fatal(err)
+	}
+	showing := make(chan struct{})
+	reject := make(chan struct{})
+	done := make(chan error, 1)
+	var hostBatch []PMNoticeEntry
+	go func() {
+		done <- DeliverDesktopPMDigest(ctx, b, "one", func(batch []PMNoticeEntry) error {
+			hostBatch = batch
+			return nil
+		}, func([]PMNoticeEntry) (bool, error) {
+			close(showing)
+			select {
+			case <-reject:
+				return false, nil
+			case <-ctx.Done():
+				return false, ctx.Err()
+			}
+		})
+	}()
+	select {
+	case <-showing:
+	case <-ctx.Done():
+		t.Fatal("desktop notifier did not start")
+	}
+	saveCtx, stopSave := context.WithTimeout(ctx, time.Second)
+	defer stopSave()
+	if err := save(saveCtx, "latest"); err != nil {
+		t.Fatalf("desktop notifier prevented Watch from saving: %v", err)
+	}
+	if batch, err := testPMDigest(saveCtx, b, "one"); err != nil || len(batch) != 0 {
+		t.Fatalf("cycle was claimed twice: %+v %v", batch, err)
+	}
+	close(reject)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if len(hostBatch) != 1 || hostBatch[0].Notice.Change != "latest" {
+		t.Fatalf("fallback did not keep the newest update: %+v", hostBatch)
 	}
 }
 

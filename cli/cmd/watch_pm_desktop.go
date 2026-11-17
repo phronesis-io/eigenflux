@@ -24,7 +24,7 @@ func desktopPMInboxURL(endpoint string) (string, error) {
 
 func (w *accountWatch) deliverPMOwnerDesktopNotice(ctx context.Context, entry dispatch.PMNoticeEntry) error {
 	restore := func(cause error) error {
-		return errors.Join(cause, dispatch.RetryCodexPMNotice(context.WithoutCancel(ctx), *w.binding, entry, false, time.Now()))
+		return errors.Join(cause, dispatch.RetryCodexPMNotice(context.WithoutCancel(ctx), *w.binding, entry, false, time.Now(), false))
 	}
 	if w.desktop == nil {
 		return restore(nil)

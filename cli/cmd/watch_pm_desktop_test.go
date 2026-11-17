@@ -188,7 +188,7 @@ func TestPMPromptNativeDesktopFailureNotice(t *testing.T) {
 }
 
 func TestCodexPMOwnerNoticeDesktopFallback(t *testing.T) {
-	for _, scenario := range []string{"unbound", "missing", "archived", "busy", "unconfirmed", "desktop-disabled"} {
+	for _, scenario := range []string{"unbound", "missing", "archived", "busy", "not-submitted", "unconfirmed", "desktop-disabled"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := context.Background()
 			f := newDispatchWatchFixture(t, "")
@@ -224,9 +224,12 @@ func TestCodexPMOwnerNoticeDesktopFallback(t *testing.T) {
 					return dispatch.Result{}, dispatch.ErrMainSessionUnavailable
 				case "busy":
 					return dispatch.Result{}, dispatch.ErrMainNoticeBusy
-				case "unconfirmed":
+				case "not-submitted", "unconfirmed":
 					if err := commit(); err != nil {
 						return dispatch.Result{}, err
+					}
+					if scenario == "not-submitted" {
+						return dispatch.Result{}, dispatch.ErrMainNoticeNotSubmitted
 					}
 					return dispatch.Result{}, context.DeadlineExceeded
 				default:
@@ -247,7 +250,7 @@ func TestCodexPMOwnerNoticeDesktopFallback(t *testing.T) {
 			count, _ := q.Counts()
 			pending, err := dispatch.HasPendingPMNotices(ctx, *w.binding)
 			wantDesktop := scenario == "unbound" || scenario == "missing" || scenario == "archived"
-			wantPending := scenario == "busy" || scenario == "desktop-disabled"
+			wantPending := scenario == "busy" || scenario == "not-submitted" || scenario == "desktop-disabled"
 			if err != nil || count > 1 || (count == 1) != wantDesktop || pending != wantPending {
 				t.Fatalf("desktop=%d pending=%v err=%v", count, pending, err)
 			}

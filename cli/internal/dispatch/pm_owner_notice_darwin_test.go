@@ -9,7 +9,7 @@ import (
 )
 
 func TestCodexPMOwnerNoticeUsesHiddenOwnerReceipt(t *testing.T) {
-	for _, scenario := range []string{"pm-content", "empty-final", "visible-user-message", "failed", "unsupported", "wrong-completion", "checkpoint-failed"} {
+	for _, scenario := range []string{"pm-content", "empty-final", "visible-user-message", "failed", "unsupported", "wrong-completion", "checkpoint-failed", "checkpoint-cancelled"} {
 		t.Run(scenario, func(t *testing.T) {
 			target, fixture := newNoticeOwnerFixture(t, scenario, true)
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -22,11 +22,17 @@ func TestCodexPMOwnerNoticeUsesHiddenOwnerReceipt(t *testing.T) {
 				if scenario == "checkpoint-failed" {
 					return checkpointErr
 				}
+				if scenario == "checkpoint-cancelled" {
+					cancel()
+				}
 				return nil
 			}
 			result, err := runner.Run(ctx, noticeCodexRules+PMOwnerNoticeMarker+pmNoticeTestData)
 			if scenario == "checkpoint-failed" && !errors.Is(err, checkpointErr) {
 				t.Fatalf("missing pre-submission checkpoint error: %v", err)
+			}
+			if scenario == "checkpoint-cancelled" && (!errors.Is(err, context.Canceled) || !MainNoticeCanRetry(err)) {
+				t.Fatalf("cancellation before the first write was not retryable: %v", err)
 			}
 			if scenario == "pm-content" {
 				if err != nil || result.Text != "收到测试消息" || result.SessionID != noticeSession || result.RunID != noticeNewTurn {
@@ -48,7 +54,7 @@ func TestCodexPMOwnerNoticeUsesHiddenOwnerReceipt(t *testing.T) {
 				wantStarts = 0
 			}
 			wantCheckpoints := wantStarts
-			if scenario == "checkpoint-failed" {
+			if scenario == "checkpoint-failed" || scenario == "checkpoint-cancelled" {
 				wantStarts = 0
 			}
 			if checkpoints != wantCheckpoints {

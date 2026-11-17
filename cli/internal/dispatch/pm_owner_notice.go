@@ -50,22 +50,17 @@ type PMNoticeEntry struct {
 }
 
 type pmNoticeState struct {
-	Pending            []PMNoticeEntry `json:"pending"`
-	History            []PMNoticeEntry `json:"history"`
-	Seen               []string        `json:"seen"`
-	Cycles             []string        `json:"cycles"`
-	DesktopUnconfirmed []string        `json:"desktop_unconfirmed,omitempty"`
+	Pending []PMNoticeEntry `json:"pending"`
+	History []PMNoticeEntry `json:"history"`
+	Seen    []string        `json:"seen"`
+	Cycles  []string        `json:"cycles"`
+	// Older builds also stored uncertain cycles separately.
+	LegacyDesktopUnconfirmed []string `json:"desktop_unconfirmed,omitempty"`
 }
 
-// Watch and heartbeat share this small spool. Hold the retained OS lock only
-// across local reads/writes. A claimed item never replays after an uncertain handoff.
+// Watch and heartbeat share this spool under a retained OS lock.
+// A claimed item never replays after an uncertain handoff.
 func withPMNotices(ctx context.Context, b Binding, change func(*pmNoticeState) (bool, error)) error {
-	return editPMNotices(ctx, b, func(state *pmNoticeState, _ func(*pmNoticeState) error) (bool, error) {
-		return change(state)
-	})
-}
-
-func editPMNotices(ctx context.Context, b Binding, change func(*pmNoticeState, func(*pmNoticeState) error) (bool, error)) error {
 	if err := validJournalBinding(b); err != nil {
 		return err
 	}
@@ -109,12 +104,12 @@ func editPMNotices(ctx context.Context, b Binding, change func(*pmNoticeState, f
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	save := func(next *pmNoticeState) error { return WriteJSON(path, next) }
-	write, err := change(&state, save)
+	write, err := change(&state)
 	if err != nil || !write {
 		return err
 	}
-	return save(&state)
+	state.LegacyDesktopUnconfirmed = nil
+	return WriteJSON(path, &state)
 }
 
 func HasPendingPMNotices(ctx context.Context, b Binding) (bool, error) {
@@ -157,7 +152,7 @@ func SavePMNotice(ctx context.Context, b Binding, job Job, n PMOwnerNotice) erro
 		if index < 0 && len(state.Pending) >= pmNoticeLimit {
 			// Keep the bounded queue available for urgent decisions.
 			evict := slices.IndexFunc(state.Pending, func(e PMNoticeEntry) bool { return !e.Notice.NeedsAction })
-			if !n.NeedsAction || evict < 0 {
+			if !n.NeedsAction || evict < 0 || len(state.Pending) > pmNoticeLimit {
 				return false, errors.New("pm_owner_notice_queue_full")
 			}
 			state.Seen = appendPMNoticeReceipt(state.Seen, state.Pending[evict].ID)
@@ -195,63 +190,76 @@ func appendPMNoticeReceipt(receipts []string, id string) []string {
 
 // DeliverPMDigest records handoff after the CLI writes the digest to the host.
 func DeliverPMDigest(ctx context.Context, b Binding, cycle string, write func([]PMNoticeEntry) error) error {
-	return deliverPMDigest(ctx, b, cycle, write, nil)
+	batch, err := claimPMDigest(ctx, b, cycle, write)
+	if err != nil || len(batch) != 0 {
+		return err
+	}
+	return write(nil)
 }
 
-// DeliverDesktopPMDigest records the submission intent before calling the OS.
-// A false result confirms no OS submission and permits the host route.
+// DeliverDesktopPMDigest claims the batch before calling the OS outside the
+// spool lock. Only a confirmed rejection can reopen the cycle for host delivery.
 func DeliverDesktopPMDigest(ctx context.Context, b Binding, cycle string, write func([]PMNoticeEntry) error, show func([]PMNoticeEntry) (bool, error)) error {
-	return deliverPMDigest(ctx, b, cycle, write, show)
+	batch, err := claimPMDigest(ctx, b, cycle, nil)
+	if err != nil {
+		return err
+	}
+	if len(batch) == 0 {
+		return write(nil)
+	}
+	submitted, err := show(batch)
+	if err != nil {
+		return err
+	}
+	if submitted {
+		return write(nil)
+	}
+	if err := withPMNotices(context.WithoutCancel(ctx), b, func(state *pmNoticeState) (bool, error) {
+		for i := len(batch) - 1; i >= 0; i-- {
+			restorePMNotice(state, batch[i])
+		}
+		state.Cycles = slices.DeleteFunc(state.Cycles, func(id string) bool { return id == cycle })
+		return true, nil
+	}); err != nil {
+		return err
+	}
+	return DeliverPMDigest(ctx, b, cycle, write)
 }
 
-func deliverPMDigest(ctx context.Context, b Binding, cycle string, write func([]PMNoticeEntry) error, show func([]PMNoticeEntry) (bool, error)) error {
-	wroteHostDigest := false
-	err := editPMNotices(ctx, b, func(state *pmNoticeState, save func(*pmNoticeState) error) (bool, error) {
+func claimPMDigest(ctx context.Context, b Binding, cycle string, write func([]PMNoticeEntry) error) ([]PMNoticeEntry, error) {
+	var batch []PMNoticeEntry
+	err := withPMNotices(ctx, b, func(state *pmNoticeState) (bool, error) {
 		if slices.Contains(state.Cycles, cycle) {
 			return false, nil
 		}
 		sortPMNotices(state.Pending)
-		batch := slices.Clone(state.Pending[:min(pmNoticeBatchLimit, len(state.Pending))])
-		if len(batch) != 0 && show != nil {
-			before := *state
-			next := *state
-			next.Pending = slices.Clone(state.Pending[len(batch):])
-			next.Cycles = appendPMNoticeReceipt(slices.Clone(state.Cycles), cycle)
-			next.Seen = slices.Clone(state.Seen)
-			next.History = slices.Clone(state.History)
-			recordPMNotices(&next, batch)
-			next.DesktopUnconfirmed = appendPMNoticeReceipt(slices.Clone(state.DesktopUnconfirmed), cycle)
-			if err := save(&next); err != nil {
-				return false, err
-			}
-			submitted, err := show(batch)
-			if err != nil {
-				// The provider may have accepted the notification before failing.
-				return false, err
-			}
-			if submitted {
-				next.DesktopUnconfirmed = slices.DeleteFunc(next.DesktopUnconfirmed, func(id string) bool { return id == cycle })
-				return false, save(&next)
-			}
-			if err := save(&before); err != nil {
-				return false, err
-			}
-		}
-		if len(batch) != 0 {
+		batch = slices.Clone(state.Pending[:min(pmNoticeBatchLimit, len(state.Pending))])
+		if len(batch) != 0 && write != nil {
 			if err := write(batch); err != nil {
 				return false, err
 			}
-			wroteHostDigest = true
 		}
 		state.Pending = slices.Delete(state.Pending, 0, len(batch))
 		state.Cycles = appendPMNoticeReceipt(state.Cycles, cycle)
 		recordPMNotices(state, batch)
 		return true, nil
 	})
-	if err != nil || wroteHostDigest {
-		return err
+	return batch, err
+}
+
+// Restore only a claimed update that a newer update has not superseded.
+func restorePMNotice(state *pmNoticeState, entry PMNoticeEntry) bool {
+	index := slices.IndexFunc(state.History, func(claimed PMNoticeEntry) bool { return claimed.ID == entry.ID })
+	sameTopic := func(other PMNoticeEntry) bool {
+		return other.Conversation == entry.Conversation && other.Notice.Topic == entry.Notice.Topic
 	}
-	return write(nil)
+	if index < 0 || slices.ContainsFunc(state.Pending, sameTopic) || slices.ContainsFunc(state.History[index+1:], sameTopic) {
+		return false
+	}
+	state.History = slices.Delete(state.History, index, index+1)
+	state.Seen = slices.DeleteFunc(state.Seen, func(id string) bool { return id == entry.ID })
+	state.Pending = slices.Insert(state.Pending, 0, entry)
+	return true
 }
 
 func sortPMNotices(entries []PMNoticeEntry) {
@@ -314,8 +322,8 @@ func HandoffPMNotice(ctx context.Context, b Binding, id string, deliver func() e
 	})
 }
 
-// RetryCodexPMNotice defers a pending notice after a proven pre-submission failure.
-func RetryCodexPMNotice(ctx context.Context, b Binding, entry PMNoticeEntry, busy bool, now time.Time) error {
+// RetryCodexPMNotice defers a notice after a proven pre-submission failure.
+func RetryCodexPMNotice(ctx context.Context, b Binding, entry PMNoticeEntry, busy bool, now time.Time, claimed bool) error {
 	if !busy {
 		entry.Attempts = min(entry.Attempts+1, 5)
 	}
@@ -323,7 +331,7 @@ func RetryCodexPMNotice(ctx context.Context, b Binding, entry PMNoticeEntry, bus
 	return withPMNotices(ctx, b, func(state *pmNoticeState) (bool, error) {
 		index := slices.IndexFunc(state.Pending, func(pending PMNoticeEntry) bool { return pending.ID == entry.ID })
 		if index < 0 {
-			return false, nil
+			return claimed && restorePMNotice(state, entry), nil
 		}
 		state.Pending[index].Attempts = entry.Attempts
 		state.Pending[index].RetryAt = entry.RetryAt
