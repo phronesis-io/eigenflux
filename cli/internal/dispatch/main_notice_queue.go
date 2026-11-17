@@ -27,6 +27,7 @@ type MainNotice struct {
 	Version        int64                              `json:"order_version"`
 	Role           string                             `json:"role"`
 	Event          string                             `json:"event"`
+	Command        string                             `json:"command_kind,omitempty"`
 	State          string                             `json:"state"`
 	Status         string                             `json:"status"`
 	Code           string                             `json:"code,omitempty"`
@@ -140,10 +141,10 @@ func validMainNotice(item MainNotice) bool {
 	if err != nil || n <= 0 || strconv.FormatInt(n, 10) != item.OrderID {
 		return false
 	}
-	if item.Version <= 0 || (item.Role != "buyer" && item.Role != "seller") || len(item.Event) > 128 || len(item.State) > 64 {
+	if item.Version <= 0 || (item.Role != "buyer" && item.Role != "seller") || len(item.Event) > 128 || len(item.Command) > 128 || len(item.State) > 64 {
 		return false
 	}
-	for _, value := range []string{item.Event, item.State} {
+	for _, value := range []string{item.Event, item.Command, item.State} {
 		if strings.ContainsAny(value, "\x00\r\n") {
 			return false
 		}

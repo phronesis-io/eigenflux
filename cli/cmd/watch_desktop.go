@@ -55,6 +55,10 @@ type desktopOrderFact struct {
 }
 
 func commissionDesktopMessage(raw json.RawMessage, endpoint, agentID, language string) (desktopnotify.Message, error) {
+	return commissionDesktopMessageForPlatform(raw, endpoint, agentID, language, "")
+}
+
+func commissionDesktopMessageForPlatform(raw json.RawMessage, endpoint, agentID, language, platform string) (desktopnotify.Message, error) {
 	var fact desktopOrderFact
 	if json.Unmarshal(raw, &fact) != nil || fact.ID <= 0 || fact.Source != "commission_order" || strconv.FormatInt(int64(fact.Payload.AgentID), 10) != agentID {
 		return desktopnotify.Message{}, errors.New("invalid_desktop_commission_identity")
@@ -66,6 +70,11 @@ func commissionDesktopMessage(raw json.RawMessage, endpoint, agentID, language s
 		return desktopnotify.Message{}, err
 	}
 	title, body := commissionDesktopCopy(language, fact.Type, p.orderNotificationPayload)
+	if platform == "darwin" {
+		title, body = commissionDesktopCard(language, fact.Type, p.orderNotificationPayload)
+	} else {
+		body = commissionDesktopDetails(language, fact.Type, p.orderNotificationPayload) + body
+	}
 	return desktopnotify.Message{ID: "commission:" + strconv.FormatInt(int64(fact.ID), 10), Title: title, Body: body, URL: target}, nil
 }
 func (w *accountWatch) enableDesktop() error {
@@ -88,7 +97,7 @@ func (w *accountWatch) enqueueDesktopCommission(raw json.RawMessage) error {
 	if w.desktop == nil {
 		return nil
 	}
-	m, err := commissionDesktopMessage(raw, w.server.Endpoint, w.identity.AgentID, desktopnotify.SystemLanguage())
+	m, err := commissionDesktopMessageForPlatform(raw, w.server.Endpoint, w.identity.AgentID, desktopnotify.SystemLanguage(), runtime.GOOS)
 	if err != nil {
 		return err
 	}
@@ -121,7 +130,12 @@ func (w *accountWatch) enqueueDesktopBlockers() error {
 			return err
 		}
 		sum := sha256.Sum256([]byte(w.scope + ":" + job.ID + ":" + job.Status + ":" + job.Code))
-		title, body := desktopCommissionBlockerText(desktopnotify.SystemLanguage(), job.Status, job.Code)
+		language := desktopnotify.SystemLanguage()
+		title, body := desktopCommissionBlockerText(language, job.Status, job.Code)
+		body = desktopActionDeadlinePlaceholder + body
+		if runtime.GOOS == "darwin" {
+			title, body = desktopCommissionBlockerCard(language, title, body)
+		}
 		m := desktopnotify.Message{ID: "local:" + hex.EncodeToString(sum[:]), Title: title, Body: body, URL: target}
 		trace := &maintenance.WatchNotification{Origin: "local_blocker", OrderID: orderID, OrderVersion: job.OrderVersion, Role: role, JobID: job.ID, JobKind: job.Kind, JobStatus: job.Status, JobCode: maintenance.WatchJobCode(job.Code)}
 		if err := w.desktop.EnqueueWithTrace(m, trace); err != nil {

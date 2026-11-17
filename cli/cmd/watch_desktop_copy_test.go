@@ -98,7 +98,8 @@ func TestDesktopCopyMatchesRevisedDocument(t *testing.T) {
 							t.Fatal(err)
 						}
 					}
-					if got := message.Title + "\n" + message.Body; got != want {
+					body := strings.NewReplacer(desktopCounterpartyPlaceholder, "", desktopOrderAmountPlaceholder, "", desktopRefundAmountPlaceholder, "", desktopCreditPlaceholder, "", desktopActionDeadlinePlaceholder, "").Replace(message.Body)
+					if got := message.Title + "\n" + body; got != want {
 						t.Fatalf("document mismatch:\n got %q\nwant %q", got, want)
 					}
 					if err := desktopnotify.Validate(message); err != nil {
