@@ -341,5 +341,16 @@
     "title": "Allow +2 before a worthwhile Feed action is taken",
     "description": "API deployment changes the served +2 scoring rule. Compare +2 rates after the updated rules reach the Agent. Skill adoption varies by client; historical scores retain their original meaning.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/564"
+  },
+  {
+    "id": "agent-install-receipts-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "full",
+    "dashboards": [
+      "agent-retention"
+    ],
+    "title": "Agent 安装回执开始按身份记录",
+    "description": "新版 CLI 为新建 Agent 上报安装回执，覆盖无 Ref 安装。旧客户端和历史注册缺少可验证回执，相关漏斗显示数据不完整。",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/578"
   }
 ]
