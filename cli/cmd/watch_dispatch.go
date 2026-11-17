@@ -56,12 +56,17 @@ func (w *accountWatch) enableDispatch() error {
 	// Enable only implemented exact-bound adapters. Capability/status separately
 	// report real-host acceptance; never substitute queue/exec or visible input.
 	mainRunner := dispatch.MainNoticeRunner{Target: dispatch.MainNoticeTarget{Host: b.Host, SessionID: b.MainSessionID, HiddenInputEnabled: dispatch.MainNoticeBindingEnabled(b), Binding: b}}
-	w.runMainNotice = func(ctx context.Context, prompt string) (dispatch.Result, error) {
+	w.runPMMainNotice = func(ctx context.Context, prompt string, beforeSubmit func() error) (dispatch.Result, error) {
 		if !w.mainNoticeRunMu.TryLock() {
 			return dispatch.Result{}, dispatch.ErrMainNoticeBusy
 		}
 		defer w.mainNoticeRunMu.Unlock()
-		return mainRunner.Run(ctx, prompt)
+		runner := mainRunner
+		runner.BeforeSubmit = beforeSubmit
+		return runner.Run(ctx, prompt)
+	}
+	w.runMainNotice = func(ctx context.Context, prompt string) (dispatch.Result, error) {
+		return w.runPMMainNotice(ctx, prompt, nil)
 	}
 	w.backfillCommissionDiagnostics()
 	return nil

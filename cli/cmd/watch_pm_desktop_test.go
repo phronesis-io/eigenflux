@@ -218,13 +218,16 @@ func TestCodexPMOwnerNoticeDesktopFallback(t *testing.T) {
 			if scenario != "desktop-disabled" {
 				w.desktop = q
 			}
-			w.runMainNotice = func(context.Context, string) (dispatch.Result, error) {
+			w.runPMMainNotice = func(_ context.Context, _ string, commit func() error) (dispatch.Result, error) {
 				switch scenario {
 				case "archived":
 					return dispatch.Result{}, dispatch.ErrMainSessionUnavailable
 				case "busy":
 					return dispatch.Result{}, dispatch.ErrMainNoticeBusy
 				case "unconfirmed":
+					if err := commit(); err != nil {
+						return dispatch.Result{}, err
+					}
 					return dispatch.Result{}, context.DeadlineExceeded
 				default:
 					t.Fatal("submitted to a missing main conversation")
@@ -258,7 +261,7 @@ func TestCodexPMOwnerNoticeDesktopFallback(t *testing.T) {
 	}
 }
 
-func TestHeartbeatPMDigestUsesOneDesktopNotice(t *testing.T) {
+func TestHeartbeatPMDigestDesktopResult(t *testing.T) {
 	for _, showErr := range []error{nil, desktopnotify.ErrPermission, context.DeadlineExceeded} {
 		label := "success"
 		if showErr != nil {
@@ -267,36 +270,69 @@ func TestHeartbeatPMDigestUsesOneDesktopNotice(t *testing.T) {
 		t.Run(label, func(t *testing.T) {
 			b := dispatch.Binding{Endpoint: "https://www.eigenflux.ai", Scope: "account"}
 			entries := []dispatch.PMNoticeEntry{{ID: "notice-a"}, {ID: "notice-b"}}
-			var output []dispatch.PMNoticeEntry
-			shows, writes := 0, 0
-			err := presentHeartbeatPMDigest(context.Background(), b, entries, func(batch []dispatch.PMNoticeEntry) error {
-				writes++
-				output = batch
-				return nil
-			}, func(_ context.Context, message desktopnotify.Message) error {
+			shows := 0
+			submitted, err := presentHeartbeatPMDigest(context.Background(), b, entries, func(_ context.Context, message desktopnotify.Message) error {
 				shows++
 				if !strings.HasSuffix(message.URL, "/dashboard/messages") {
 					t.Fatalf("wrong notification target: %s", message.URL)
 				}
 				return showErr
 			})
-			switch showErr {
-			case nil:
-				if err != nil || len(output) != 0 || writes != 1 {
-					t.Fatalf("desktop delivery echoed to host: %+v %v", output, err)
-				}
-			case desktopnotify.ErrPermission:
-				if err != nil || len(output) != len(entries) {
-					t.Fatalf("permission failure lost host fallback: %+v %v", output, err)
-				}
-			default:
-				if !errors.Is(err, showErr) || writes != 0 {
-					t.Fatalf("uncertain submission yielded a second route: %+v %v", output, err)
-				}
+			wantErr := showErr
+			if errors.Is(showErr, desktopnotify.ErrPermission) {
+				wantErr = nil
 			}
-			if shows != 1 {
-				t.Fatalf("expected one system notification per batch, got %d", shows)
+			if shows != 1 || submitted != (showErr == nil) || !errors.Is(err, wantErr) {
+				t.Fatalf("shows=%d submitted=%v err=%v", shows, submitted, err)
 			}
 		})
+	}
+}
+
+func TestCodexPMDesktopQueueReceiptSurvivesInterruptedHandoff(t *testing.T) {
+	ctx := context.Background()
+	f := newDispatchWatchFixture(t, "")
+	w := f.watch
+	w.binding.Host = "codex"
+	w.binding.MainSessionID = "recovered-main"
+	if err := dispatch.WriteJSON(dispatch.BindingPath(w.home, w.server.Name), w.binding); err != nil {
+		t.Fatal(err)
+	}
+	job := dispatchTestNext(t, w)
+	if err := dispatch.SavePMNotice(ctx, *w.binding, job, dispatch.PMOwnerNotice{Topic: "materials", Change: "ready", Summary: "Ready"}); err != nil {
+		t.Fatal(err)
+	}
+	entry, found, err := dispatch.NextPMNotice(ctx, *w.binding, time.Now())
+	if err != nil || !found {
+		t.Fatalf("expected pending notice: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "desktop.json")
+	q, err := desktopqueue.Open(path, w.scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := pmOwnerDesktopMessage(w.server.Endpoint, w.scope, entry.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Enqueue(message); err != nil {
+		t.Fatal(err)
+	}
+	// Restart after desktop persistence but before acknowledging the PM spool.
+	w.desktop, err = desktopqueue.Open(path, w.scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.runPMMainNotice = func(context.Context, string, func() error) (dispatch.Result, error) {
+		t.Fatal("desktop receipt was ignored after the main chat became available")
+		return dispatch.Result{}, nil
+	}
+	if err := w.deliverCodexPMOwnerNotice(ctx); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := dispatch.HasPendingPMNotices(ctx, *w.binding)
+	queued, _ := w.desktop.Counts()
+	if err != nil || pending || queued != 1 {
+		t.Fatalf("PM pending=%v desktop queued=%d err=%v", pending, queued, err)
 	}
 }

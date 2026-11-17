@@ -70,6 +70,7 @@ type accountWatch struct {
 	mainNoticeMu          sync.Mutex
 	mainNoticeRunMu       sync.Mutex
 	runMainNotice         func(context.Context, string) (dispatch.Result, error)
+	runPMMainNotice       func(context.Context, string, func() error) (dispatch.Result, error)
 	runAgent              func(context.Context, dispatch.Request) (dispatch.Result, error)
 	desktop               *desktopqueue.Queue
 	desktopProvider       desktopProvider

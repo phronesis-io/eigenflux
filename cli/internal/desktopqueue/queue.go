@@ -106,6 +106,19 @@ func (q *Queue) EnqueueWithTrace(message desktopnotify.Message, trace *maintenan
 	entries = append(entries, Entry{Message: message, Created: time.Now().Unix(), Watch: frozen})
 	return q.save(entries)
 }
+
+// Contains also checks retained receipts for delivered notifications.
+func (q *Queue) Contains(id string) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for _, entry := range q.state.Entries {
+		if entry.Message.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func (q *Queue) Next(now time.Time) (Entry, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()

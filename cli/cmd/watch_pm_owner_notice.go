@@ -38,16 +38,19 @@ func (w *accountWatch) deliverCodexPMOwnerNotice(ctx context.Context) error {
 		return err
 	}
 	b := *w.binding
-	entries, err := dispatch.ClaimPMNotices(ctx, b, time.Now())
-	if err != nil || len(entries) == 0 {
+	entry, found, err := dispatch.NextPMNotice(ctx, b, time.Now())
+	if err != nil || !found {
 		return err
 	}
-	entry := entries[0]
 	if err := w.dispatchIdentityOK(); err != nil {
-		return errors.Join(err, dispatch.RetryCodexPMNotice(context.WithoutCancel(ctx), b, entry, true, time.Now()))
+		return err
 	}
-	if ctx.Err() != nil {
-		return dispatch.RetryCodexPMNotice(context.WithoutCancel(ctx), b, entry, true, time.Now())
+	if w.desktop != nil && w.desktop.Contains(pmOwnerDesktopID(w.scope, entry.ID)) {
+		err := dispatch.CommitPMNotice(ctx, b, entry.ID)
+		if errors.Is(err, dispatch.ErrPMNoticeSuperseded) {
+			return nil
+		}
+		return err
 	}
 	if b.MainSessionID == "" || b.Mode == "native" && errors.Is(b.ValidateMainSession(), dispatch.ErrMainSessionUnavailable) {
 		return w.deliverPMOwnerDesktopNotice(ctx, entry)
@@ -61,7 +64,16 @@ func (w *accountWatch) deliverCodexPMOwnerNotice(ctx context.Context) error {
 	}
 	call, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
-	result, err := w.runMainNotice(call, codexPMOwnerNoticeRules+dispatch.PMOwnerNoticeMarker+string(data))
+	commit := func() error {
+		if err := w.dispatchIdentityOK(); err != nil {
+			return err
+		}
+		return dispatch.CommitPMNotice(call, b, entry.ID)
+	}
+	result, err := w.runPMMainNotice(call, codexPMOwnerNoticeRules+dispatch.PMOwnerNoticeMarker+string(data), commit)
+	if errors.Is(err, dispatch.ErrPMNoticeSuperseded) {
+		return nil
+	}
 	if errors.Is(err, dispatch.ErrMainSessionUnavailable) {
 		return w.deliverPMOwnerDesktopNotice(ctx, entry)
 	}

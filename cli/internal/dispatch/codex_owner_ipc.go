@@ -167,6 +167,9 @@ func (c *codexOwnerIPC) call(ctx context.Context, method string, version int, pa
 				return nil, "", errors.New("main_notice_owner_request_mismatch")
 			}
 			if message.ResultType != "success" {
+				if method == "thread-owner-discovery" && message.Method == method && message.ResultType == "error" && message.HandledBy == "" {
+					return nil, "", ErrMainSessionUnavailable
+				}
 				return nil, "", errors.New("main_notice_owner_request_failed")
 			}
 			initialized := method == "initialize" && owner == ""

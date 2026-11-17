@@ -277,6 +277,11 @@ func (f *noticeOwnerFixture) serve() error {
 			if f.scenario == "missing-capability" {
 				response["result"] = map[string]bool{}
 			}
+			if f.scenario == "owner-not-found" {
+				delete(response, "handledByClientId")
+				delete(response, "result")
+				response["resultType"] = "error"
+			}
 		case "thread-follower-start-turn":
 			if version != 2 || source != "external-notice-client" || target != noticeOwnerID {
 				return fmt.Errorf("start was not directed at discovered owner: %s", raw)
@@ -315,7 +320,7 @@ func (f *noticeOwnerFixture) serve() error {
 }
 
 func TestMainNoticeCodexDesktopOwnerReceipts(t *testing.T) {
-	for _, scenario := range []string{"success", "large-history", "not-loaded", "unsupported", "missing-capability", "wrong-thread", "archived", "active", "baseline-busy", "wrong-owner", "owner-error", "owner-busy", "owner-timeout", "stale-receipt", "wrong-completion", "failed", "interrupted", "turn-error", "no-final", "empty-final", "visible-user-message", "permission", "oversize", "timeout"} {
+	for _, scenario := range []string{"success", "large-history", "not-loaded", "unsupported", "missing-capability", "owner-not-found", "wrong-thread", "archived", "active", "baseline-busy", "wrong-owner", "owner-error", "owner-busy", "owner-timeout", "stale-receipt", "wrong-completion", "failed", "interrupted", "turn-error", "no-final", "empty-final", "visible-user-message", "permission", "oversize", "timeout"} {
 		t.Run(scenario, func(t *testing.T) {
 			target, fixture := newNoticeOwnerFixture(t, scenario)
 			// Existing native flags must never select a proxy, change a writer's
@@ -345,21 +350,21 @@ func TestMainNoticeCodexDesktopOwnerReceipts(t *testing.T) {
 			}
 			wantStarts := 1
 			switch scenario {
-			case "unsupported", "missing-capability", "wrong-thread", "archived", "active", "baseline-busy":
+			case "unsupported", "missing-capability", "owner-not-found", "wrong-thread", "archived", "active", "baseline-busy":
 				wantStarts = 0
 			}
 			if starts != wantStarts {
 				t.Fatalf("owner turn replayed or admitted before validation: got %d want %d", starts, wantStarts)
 			}
-			if scenario == "archived" && !errors.Is(err, ErrMainSessionUnavailable) {
-				t.Fatalf("archived conversation did not report unavailability: %v", err)
+			if (scenario == "archived" || scenario == "owner-not-found") && !errors.Is(err, ErrMainSessionUnavailable) {
+				t.Fatalf("missing conversation did not report unavailability: %v", err)
 			}
 			wantRetry := scenario == "active" || scenario == "baseline-busy"
 			if MainNoticeCanRetry(err) != wantRetry {
 				t.Fatalf("unsafe retry classification: starts=%d err=%v want retry=%v", starts, err, wantRetry)
 			}
 			readerCalls, readErr := os.ReadFile(target.Binding.Env["EF_MAIN_NOTICE_MARKER"])
-			if scenario == "unsupported" || scenario == "missing-capability" {
+			if scenario == "unsupported" || scenario == "missing-capability" || scenario == "owner-not-found" {
 				if !errors.Is(readErr, os.ErrNotExist) {
 					t.Fatalf("unsupported owner started reader: %s %v", readerCalls, readErr)
 				}

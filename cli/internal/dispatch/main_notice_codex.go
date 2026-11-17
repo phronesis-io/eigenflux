@@ -205,6 +205,14 @@ func (r MainNoticeRunner) runCodexEnvelopeOnIPC(ctx context.Context, ipc *codexO
 		map[string]any{"type": "function_call", "call_id": callID, "name": "untrusted_input", "arguments": "{}"},
 		map[string]any{"type": "function_call_output", "call_id": callID, "output": []any{map[string]string{"type": "input_text", "text": data}}},
 	}
+	if r.BeforeSubmit != nil {
+		if err := ctx.Err(); err != nil {
+			return Result{}, mainNoticeNotSubmitted(err)
+		}
+		if err := r.BeforeSubmit(); err != nil {
+			return Result{}, err
+		}
+	}
 	raw, handledBy, err := ipc.call(ctx, "thread-follower-start-turn", 2, map[string]any{
 		"conversationId": r.Target.SessionID,
 		"turnStart":      map[string]any{"request": request, "context": map[string]any{"inheritThreadSettings": true, "responseItems": responseItems}},

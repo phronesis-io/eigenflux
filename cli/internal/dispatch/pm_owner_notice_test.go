@@ -96,26 +96,127 @@ func TestPMOwnerNoticeCodexRetryRequiresProvenPreSubmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	items, err := ClaimPMNotices(ctx, b, now)
-	if err != nil || len(items) != 1 {
-		t.Fatalf("first claim: %+v %v", items, err)
+	entry, found, err := NextPMNotice(ctx, b, now)
+	if err != nil || !found {
+		t.Fatalf("first lookup: %+v %v", entry, err)
 	}
-	if err := RetryCodexPMNotice(ctx, b, items[0], true, now); err != nil {
+	if err := RetryCodexPMNotice(ctx, b, entry, true, now); err != nil {
 		t.Fatal(err)
 	}
-	items, err = ClaimPMNotices(ctx, b, now)
-	if err != nil || len(items) != 0 {
-		t.Fatalf("busy target retried immediately: %+v %v", items, err)
+	entry, found, err = NextPMNotice(ctx, b, now)
+	if err != nil || found {
+		t.Fatalf("busy target retried immediately: %+v %v", entry, err)
 	}
-	items, err = ClaimPMNotices(ctx, b, now.Add(time.Minute))
-	if err != nil || len(items) != 1 {
-		t.Fatalf("busy retry did not resume: %+v %v", items, err)
+	entry, found, err = NextPMNotice(ctx, b, now.Add(time.Minute))
+	if err != nil || !found {
+		t.Fatalf("busy retry did not resume: %+v %v", entry, err)
+	}
+	if err := CommitPMNotice(ctx, b, entry.ID); err != nil {
+		t.Fatal(err)
 	}
 	if err := SavePMNotice(ctx, b, job, n); err != nil {
 		t.Fatal(err)
 	}
-	items, err = ClaimPMNotices(ctx, b, now.Add(time.Hour))
-	if err != nil || len(items) != 0 {
-		t.Fatalf("uncertain claim replayed: %+v %v", items, err)
+	entry, found, err = NextPMNotice(ctx, b, now.Add(time.Hour))
+	if err != nil || found {
+		t.Fatalf("uncertain submission replayed: %+v %v", entry, err)
+	}
+}
+
+func TestDesktopPMDigestDoesNotReplayAfterSubmission(t *testing.T) {
+	for _, uncertain := range []bool{false, true} {
+		t.Run(fmt.Sprintf("uncertain=%t", uncertain), func(t *testing.T) {
+			ctx := context.Background()
+			b := Binding{Home: t.TempDir(), Scope: "scope", Revision: "rev", AgentID: "owner"}
+			job := Job{Kind: "pm_push", Scope: b.Scope, Revision: b.Revision, Message: &Message{Conversation: "one"}}
+			if err := SavePMNotice(ctx, b, job, PMOwnerNotice{Topic: "materials", Change: "ready", Summary: "Ready"}); err != nil {
+				t.Fatal(err)
+			}
+			brokenOutput := errors.New("broken stdout")
+			shows := 0
+			show := func(entries []PMNoticeEntry) (bool, error) {
+				shows++
+				if len(entries) != 1 {
+					t.Fatalf("unexpected batch: %+v", entries)
+				}
+				if uncertain {
+					return false, context.DeadlineExceeded
+				}
+				return true, nil
+			}
+			err := DeliverDesktopPMDigest(ctx, b, "first", func([]PMNoticeEntry) error { return brokenOutput }, show)
+			want := brokenOutput
+			if uncertain {
+				want = context.DeadlineExceeded
+			}
+			if !errors.Is(err, want) {
+				t.Fatalf("handoff error = %v, want %v", err, want)
+			}
+			for _, cycle := range []string{"first", "next"} {
+				if err := DeliverDesktopPMDigest(ctx, b, cycle, func(entries []PMNoticeEntry) error {
+					if len(entries) != 0 {
+						t.Fatalf("repeated using host delivery: %+v", entries)
+					}
+					return nil
+				}, show); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if shows != 1 {
+				t.Fatalf("notification was submitted %d times", shows)
+			}
+			if err := withPMNotices(ctx, b, func(state *pmNoticeState) (bool, error) {
+				if (len(state.DesktopUnconfirmed) != 0) != uncertain {
+					t.Fatalf("wrong unconfirmed state: %+v", state.DesktopUnconfirmed)
+				}
+				return false, nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestDesktopPMDigestKnownRejectionPreservesHostRetry(t *testing.T) {
+	ctx := context.Background()
+	b := Binding{Home: t.TempDir(), Scope: "scope", Revision: "rev", AgentID: "owner"}
+	job := Job{Kind: "pm_push", Scope: b.Scope, Revision: b.Revision, Message: &Message{Conversation: "one"}}
+	if err := SavePMNotice(ctx, b, job, PMOwnerNotice{Topic: "materials", Change: "ready", Summary: "Ready"}); err != nil {
+		t.Fatal(err)
+	}
+	brokenOutput := errors.New("broken stdout")
+	err := DeliverDesktopPMDigest(ctx, b, "first", func(entries []PMNoticeEntry) error {
+		if len(entries) != 1 {
+			t.Fatalf("missing host fallback: %+v", entries)
+		}
+		return brokenOutput
+	}, func([]PMNoticeEntry) (bool, error) { return false, nil })
+	if !errors.Is(err, brokenOutput) {
+		t.Fatalf("host error: %v", err)
+	}
+	entries, err := testPMDigest(ctx, b, "next")
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("failed host handoff lost reminder: %+v %v", entries, err)
+	}
+}
+
+func TestPMOwnerNoticeHandoffFailureKeepsPendingNotice(t *testing.T) {
+	ctx := context.Background()
+	b := Binding{Home: t.TempDir(), Scope: "scope", Revision: "rev", AgentID: "owner"}
+	job := Job{Kind: "pm_push", Scope: b.Scope, Revision: b.Revision, Message: &Message{Conversation: "one"}}
+	if err := SavePMNotice(ctx, b, job, PMOwnerNotice{Topic: "materials", Change: "ready", Summary: "Ready"}); err != nil {
+		t.Fatal(err)
+	}
+	entry, found, err := NextPMNotice(ctx, b, time.Now())
+	if err != nil || !found {
+		t.Fatalf("missing pending notice: %v", err)
+	}
+	queueErr := errors.New("desktop queue write interrupted")
+	if err := HandoffPMNotice(ctx, b, entry.ID, func() error { return queueErr }); !errors.Is(err, queueErr) {
+		t.Fatalf("queue failure: %v", err)
+	}
+	recovered, found, err := NextPMNotice(ctx, b, time.Now())
+	if err != nil || !found || recovered.ID != entry.ID {
+		t.Fatalf("failed enqueue lost notice: %+v %v", recovered, err)
 	}
 }

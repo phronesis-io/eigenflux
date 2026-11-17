@@ -36,7 +36,13 @@ func (w *accountWatch) deliverPMOwnerDesktopNotice(ctx context.Context, entry di
 	if err != nil {
 		return restore(err)
 	}
-	if err := w.desktop.Enqueue(message); err != nil {
+	err = dispatch.HandoffPMNotice(ctx, *w.binding, entry.ID, func() error {
+		return w.desktop.Enqueue(message)
+	})
+	if errors.Is(err, dispatch.ErrPMNoticeSuperseded) {
+		return nil
+	}
+	if err != nil {
 		return restore(err)
 	}
 	return w.emit("pm_owner_notice", map[string]string{"status": "desktop_queued", "notice_id": entry.ID})
@@ -51,7 +57,11 @@ func pmOwnerDesktopMessage(endpoint, scope, noticeID string) (desktopnotify.Mess
 	if strings.HasPrefix(desktopnotify.SystemLanguage(), "zh") {
 		title, body = "EigenFlux 私信提醒", "有重要私信待查看。"
 	}
-	return desktopnotify.Message{ID: "pm-owner:" + scope + ":" + noticeID, Title: title, Body: body, URL: target}, nil
+	return desktopnotify.Message{ID: pmOwnerDesktopID(scope, noticeID), Title: title, Body: body, URL: target}, nil
+}
+
+func pmOwnerDesktopID(scope, noticeID string) string {
+	return "pm-owner:" + scope + ":" + noticeID
 }
 
 // One reminder per unresolved conversation/reason, using the oldest retained

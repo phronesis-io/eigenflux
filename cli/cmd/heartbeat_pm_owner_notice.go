@@ -111,8 +111,8 @@ func init() {
 					return dispatch.DeliverPMDigest(cmd.Context(), b, token, write)
 				}
 				notifier := observedDesktopNotifierAt(b.Home, b.Server, b.AgentID, "heartbeat")
-				return dispatch.DeliverPMDigest(cmd.Context(), b, token, func(entries []dispatch.PMNoticeEntry) error {
-					return presentHeartbeatPMDigest(cmd.Context(), b, entries, write, notifier.Show)
+				return dispatch.DeliverDesktopPMDigest(cmd.Context(), b, token, write, func(entries []dispatch.PMNoticeEntry) (bool, error) {
+					return presentHeartbeatPMDigest(cmd.Context(), b, entries, notifier.Show)
 				})
 			})
 		},
@@ -121,10 +121,7 @@ func init() {
 	heartbeatCmd.AddCommand(digest)
 }
 
-func presentHeartbeatPMDigest(ctx context.Context, b dispatch.Binding, entries []dispatch.PMNoticeEntry, write func([]dispatch.PMNoticeEntry) error, show func(context.Context, desktopnotify.Message) error) error {
-	if len(entries) == 0 {
-		return write(nil)
-	}
+func presentHeartbeatPMDigest(ctx context.Context, b dispatch.Binding, entries []dispatch.PMNoticeEntry, show func(context.Context, desktopnotify.Message) error) (bool, error) {
 	// Keep the same OS notification ID if the same batch has to be handed off again.
 	ids := make([]string, 0, len(entries))
 	for _, entry := range entries {
@@ -137,19 +134,19 @@ func presentHeartbeatPMDigest(ctx context.Context, b dispatch.Binding, entries [
 	}
 	message, err := pmOwnerDesktopMessage(b.Endpoint, b.Scope, hex.EncodeToString(id.Sum(nil)))
 	if err != nil {
-		return write(entries)
+		return false, nil
 	}
 	call, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	err = show(call, message)
 	switch {
 	case err == nil:
-		return write(nil)
+		return true, nil
 	case errors.Is(err, desktopnotify.ErrPermission), errors.Is(err, desktopnotify.ErrPermissionRequired),
 		errors.Is(err, desktopnotify.ErrHelperMissing), errors.Is(err, desktopnotify.ErrUnsupported):
-		return write(entries)
+		return false, nil
 	default:
-		return err
+		return false, err
 	}
 }
 

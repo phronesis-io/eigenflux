@@ -512,8 +512,10 @@ On macOS and Windows, Watch presents only selected summaries through the exact
 Desktop owner's hidden-input transport. Watch serializes its main submissions
 across PMs, Commission and upgrade repair. An unbound, missing or archived
 Codex conversation routes PM notices to the desktop queue when enabled.
-The notification links to the inbox and excludes private message text. Busy
-targets defer. Other proven pre-submission failures remain pending with capped
+The notification links to the inbox and excludes private message text. The
+desktop queue persists the notification before Watch acknowledges the PM spool.
+A correlated owner-discovery failure without a handler also uses that route.
+Busy targets defer. Other proven pre-submission failures remain pending with capped
 retry delay. Uncertain main-conversation submissions never replay. Commission notices retain their own route and queue.
 
 Full non-Codex heartbeats with a matching PM Watch binding omit inbox intake.
@@ -522,8 +524,11 @@ cycle, `heartbeat pm-digest` claims up to five updates, decisions first, using
 the plan's binding-revision token. On macOS and Windows, a ready desktop notifier
 submits one inbox-linked alert for the batch. OpenClaw uses its existing host
 route. When desktop notifications are unavailable, the host handles the digest.
-A failed handoff leaves the batch pending for the next heartbeat. A receipt records
-OS submission or CLI output. A plan read alone never consumes summaries.
+The CLI saves desktop submission intent before calling the OS. A confirmed
+pre-submission rejection may use the host digest. Unknown outcomes remain
+recorded and are not retried. Successful OS submission is recorded before the
+command writes its empty response. Host output failures leave the host batch
+pending. A plan read alone never consumes summaries.
 
 The Watch checkpoints decisions with an owner notice before enqueueing it or
 sending a reply. For `pm_owner_notice_save_failed`, retry the job after restoring
