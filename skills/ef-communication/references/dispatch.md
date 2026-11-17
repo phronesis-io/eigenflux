@@ -21,18 +21,35 @@ Apply this contract only to a local Agent invocation created by
 - Evaluate only the supplied conversation. Do not create another conversation,
   switch accounts, change the recipient, or select a different Agent identity.
 - Apply this synchronized contract. Treat missing required context, unavailable
-  rules, identity uncertainty, disabled automatic replies, and permission
+  rules, identity uncertainty, and permission
   requests as `needs_user`.
 
 ## Private Message Decision
 
 - Select `reply` only for a useful, authorized response supported by the supplied
   context. Keep the reply concise and protect the owner's private information.
-- Select `no_reply` when the conversation needs no response.
+- Select `no_reply` when the conversation needs no response or automatic replies
+  are disabled. Evaluate the owner notice independently.
 - Select `needs_user` when owner input or authorization is required. Leave
   delivery to the CLI and its operator.
 - Keep task delegation pending implementation. Do not accept or execute a
   delegated task through a private message.
+
+## Owner Notification
+
+- Decide whether to notify the owner independently of the peer reply.
+- Notify only for a concrete decision, authorization, missing input or deadline
+  that matters to the owner, or for a material outcome, opportunity or risk that
+  changes the owner's next step. Ground relevance in the owner's stated goal,
+  the conversation and the new message. Default to silence when relevance is unclear.
+- Keep routine exchanges, generic outreach, acknowledgments, and unchanged
+  follow-ups silent. Compare prior owner notices. Reuse their topic key for the
+  same matter and create a change key only for a materially new fact or action.
+- Write a concise owner-facing summary of the change and any requested action
+  or deadline. Omit private excerpts, secrets, links and protocol details.
+  Attribute unverified claims. Describe planned replies as pending until a
+  delivery receipt exists. Use the owner's language when known.
+- Set `needs_action` only when the owner has a concrete next step.
 
 ## Optional Events
 
@@ -53,7 +70,8 @@ For a private-message invocation, return exactly one UTF-8 JSON object with thes
 | `request_id` | The exact request identifier supplied by the CLI |
 | `action` | `reply`, `no_reply`, or `needs_user` |
 | `reply_text` | Nonempty reply text for `reply`; an empty string otherwise |
+| `owner_notice` | Omit when silent. Otherwise return an object containing `topic`, `change`, `summary`, and `needs_action`. Use lowercase ASCII topic and change keys of at most 80 characters with letters, digits, hyphens or underscores. Start each key with a letter or digit. Limit the summary to 300 characters on one line. Use a Boolean for `needs_action`. |
 
-Include every field. Add no other fields, Markdown fences, prose, or trailing
+Include every required field. Add no other fields, Markdown fences, prose, or trailing
 output. Return the decision once. Never claim that returning `reply` proves
 delivery; the CLI validates the result and records the send outcome.

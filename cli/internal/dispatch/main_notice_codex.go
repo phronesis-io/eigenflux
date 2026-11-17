@@ -150,13 +150,16 @@ func mainNoticeUUID() (string, error) {
 
 func (r MainNoticeRunner) runCodex(ctx context.Context, prompt string) (Result, error) {
 	application, data, ok := strings.Cut(prompt, "\n\nUNTRUSTED COMMISSION EVENT:\n")
+	if !ok {
+		application, data, ok = strings.Cut(prompt, PMOwnerNoticeMarker)
+	}
 	if !ok || strings.TrimSpace(application) == "" || !json.Valid([]byte(data)) {
 		return Result{}, errors.New("invalid_main_notice_envelope")
 	}
 	return r.runCodexEnvelope(ctx, application, data, false)
 }
 
-// Both lanes use the Desktop owner. Only PM decisions may finish silently.
+// Use the Desktop owner for all hidden-input lanes.
 func (r MainNoticeRunner) runCodexEnvelope(ctx context.Context, application, data string, allowSilent bool) (Result, error) {
 	ipc, err := openCodexOwnerIPC(ctx, r.Target.Binding)
 	if err != nil {
@@ -242,7 +245,7 @@ func (p *mainNoticeRPC) waitCodexHiddenTurn(session, id string, allowSilent bool
 				continue
 			}
 			if allowSilent && turn.Items == nil {
-				return Result{}, errors.New("codex_pm_items_unconfirmed")
+				return Result{}, errors.New("main_notice_items_unconfirmed")
 			}
 			text := ""
 			for _, item := range turn.Items {
@@ -253,7 +256,7 @@ func (p *mainNoticeRPC) waitCodexHiddenTurn(session, id string, allowSilent bool
 					text = item.Text
 				}
 				if allowSilent && item.Type == "agentMessage" && item.Phase != "final_answer" && strings.TrimSpace(item.Text) != "" {
-					return Result{}, errors.New("codex_pm_unexpected_commentary")
+					return Result{}, errors.New("main_notice_unexpected_commentary")
 				}
 			}
 			if strings.TrimSpace(text) == "" && !allowSilent {

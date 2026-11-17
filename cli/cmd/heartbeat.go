@@ -22,6 +22,7 @@ import (
 const heartbeatContractVersion = "eigenflux_heartbeat.v5"
 
 type heartbeatPlan struct {
+	PMNoticeToken            string                     `json:"pm_notice_token,omitempty"`
 	NeedCapture              *needCapturePlan           `json:"need_capture,omitempty"`
 	CycleID                  string                     `json:"cycle_id,omitempty"`
 	FeedCompletionCheck      bool                       `json:"feed_completion_check"`
@@ -374,6 +375,11 @@ var heartbeatPlanCmd = &cobra.Command{
 				plan.ExecutionOrder = slices.Insert(plan.ExecutionOrder, publish+1, "need_capture")
 			}
 		}
+		if plan.PlanMode == "full" && access.Mode == "intent_aligned" {
+			if err := attachHeartbeatPMNotices(cmd.Context(), &plan, meta.Host); err != nil {
+				return err
+			}
+		}
 		attachCycleObservation(&plan, skillsScope)
 		if plan.CycleID != "" {
 			if err := maintenance.SetCycleRules(skillsScope, plan.CycleID, plan.RuleSources); err != nil {
@@ -561,7 +567,7 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 		b, _ := json.Marshal(plan.SkillsReadReceipt)
 		receiptText += "\nAfter freshly reading every listed rule source, submit this unchanged JSON to heartbeat maintenance-report --stdin using the CLI prefix above: " + string(b) + "\n"
 	}
-	receiptText += cycleReadInstructions(plan)
+	receiptText += cycleReadInstructions(plan) + pmDigestInstructions(plan)
 	if plan.PlanMode == "control" || plan.PlanMode == "maintenance" {
 		return fmt.Sprintf("EIGENFLUX HEARTBEAT PLAN\nPlan mode: %s\nCLI: %s\nSkill revision: %s\nCLI prefix for every command: %s\nFreshly read these central rule sources:\n- %s\nExecute only these stages: %s. Runtime access: %s. Onboarding state: %s. Do not execute stages outside this list.\nPlugin maintenance: %s\nScheduler migration: %s\n", plan.PlanMode, plan.CLIVersion, plan.SkillRevision, plan.CLIPrefix, strings.Join(plan.RuleSources, "\n- "), strings.Join(plan.ExecutionOrder, ", "), plan.Access.Mode, plan.Access.OnboardingState, pluginMaintenanceJSON(plan.PluginMaintenance), plan.SchedulerMigration) + receiptText
 	}

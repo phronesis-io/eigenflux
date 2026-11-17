@@ -11,7 +11,7 @@ import (
 )
 
 func TestWatchMainSessionRoutingAndReceipt(t *testing.T) {
-	for _, actual := range []string{"bound-main", "wrong-session", ""} {
+	for _, actual := range []string{"bound-main", "background-session", ""} {
 		t.Run("result-"+actual, func(t *testing.T) {
 			f := newDispatchWatchFixture(t, "")
 			w := f.watch
@@ -24,7 +24,7 @@ func TestWatchMainSessionRoutingAndReceipt(t *testing.T) {
 			w.emit = func(kind string, data interface{}) error {
 				if kind == "dispatch_started" {
 					value := data.(map[string]string)
-					if value["session_id"] != "bound-main" || value["main_session_id"] != "bound-main" {
+					if value["session_id"] != "" || value["main_session_id"] != "bound-main" {
 						t.Fatal(value)
 					}
 					started = true
@@ -32,8 +32,8 @@ func TestWatchMainSessionRoutingAndReceipt(t *testing.T) {
 				return nil
 			}
 			w.runAgent = func(_ context.Context, r dispatch.Request) (dispatch.Result, error) {
-				if r.SessionID != "bound-main" || !started {
-					t.Fatal("did not dispatch to the bound main session")
+				if r.SessionID != "" || !started {
+					t.Fatal("private-message decision targeted an existing session")
 				}
 				out := dispatchTestDecision(r, "reply")
 				out.SessionID = actual
@@ -44,7 +44,7 @@ func TestWatchMainSessionRoutingAndReceipt(t *testing.T) {
 				t.Fatal(err)
 			}
 			got := dispatchTestStatus(t, w, job.ID)
-			if actual == "bound-main" {
+			if actual != "bound-main" {
 				if f.sends.Load() != 1 || got.Status != "replied" || got.SessionID != actual {
 					t.Fatalf("missing receipt: %+v", got)
 				}

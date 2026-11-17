@@ -96,5 +96,5 @@ switching succeeds. Treat `unavailable` as requiring owner action.
 Automatic successor discovery remains unsupported. Execute initial binding in
 the independent host upgrade or heartbeat cycle; serialize explicit switching
 with the desktop and heartbeat.
-Claim PM acceptance only after matching requested/returned session IDs,
-decision and send receipt in logs.
+Verify background PM decisions and peer send receipts separately. Verify an
+owner notice against the exact bound Codex session and its presentation receipt.

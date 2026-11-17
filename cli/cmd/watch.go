@@ -68,6 +68,7 @@ type accountWatch struct {
 	journal               *dispatch.Journal
 	mainNotices           *dispatch.MainNoticeQueue
 	mainNoticeMu          sync.Mutex
+	mainNoticeRunMu       sync.Mutex
 	runMainNotice         func(context.Context, string) (dispatch.Result, error)
 	runAgent              func(context.Context, dispatch.Request) (dispatch.Result, error)
 	desktop               *desktopqueue.Queue
@@ -267,7 +268,7 @@ func (w *accountWatch) run(parent context.Context, out io.Writer) error {
 	}
 	runners = append(runners, w.cliUpdateLoop, w.upgradeRepairLoop)
 	if w.journal != nil {
-		runners = append(runners, w.dispatchLoop, w.commissionDispatchLoop, w.commissionClarificationLoop, w.commissionFulfillmentLoop, w.commissionExecutionReportLoop, w.commissionMainNoticeLoop, w.workBuddyMigrationLoop)
+		runners = append(runners, w.dispatchLoop, w.codexPMOwnerNoticeLoop, w.commissionDispatchLoop, w.commissionClarificationLoop, w.commissionFulfillmentLoop, w.commissionExecutionReportLoop, w.commissionMainNoticeLoop, w.workBuddyMigrationLoop)
 	}
 	for _, run := range runners {
 		workers.Add(1)

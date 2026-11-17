@@ -40,14 +40,8 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	if err := r.Binding.validateExecutionCommand(); err != nil {
 		return Result{}, err
 	}
-	boundMain := req.Kind == "pm_push" && r.Binding.Host == "codex" && r.Binding.Mode == "native" && r.Binding.MainSessionID != ""
-	if boundMain {
-		if req.SessionID != r.Binding.MainSessionID {
-			return Result{}, ErrMainSessionMismatch
-		}
-		if err := r.Binding.ValidateMainSession(); err != nil {
-			return Result{}, ErrMainSessionUnavailable
-		}
+	if req.Kind == "pm_push" && r.Binding.Host == "codex" && r.Binding.Mode == "native" && req.SessionID != "" {
+		return Result{}, ErrMainSessionMismatch
 	}
 	if len(req.Prompt) > maxRunnerOutput || !utf8.ValidString(req.Prompt) {
 		return Result{}, errors.New("invalid_prompt")
@@ -61,12 +55,6 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
-	if boundMain {
-		if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
-			return r.runCodexHiddenPM(ctx, req)
-		}
-		return r.runCodexQueue(ctx, req)
-	}
 	if r.Binding.Mode == "acp" {
 		var err error
 		r, err = r.withReadOnlySkillAccess(req)
@@ -193,6 +181,9 @@ func (r Runner) arguments(req Request) ([]string, string, error) {
 	switch r.Binding.Host {
 	case "codex":
 		args = append(args, "exec", "--json")
+		if req.Kind == "pm_push" {
+			args = append(args, "--ephemeral", "--skip-git-repo-check", "--sandbox", "read-only")
+		}
 		if req.SessionID != "" {
 			args = append(args, "resume", req.SessionID)
 		}

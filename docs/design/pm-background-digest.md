@@ -1,6 +1,6 @@
 # Background private messages and owner digests
 
-Status: proposed; not implemented by the hidden-input transport fix.
+Status: historical proposal. See [Local Agent Dispatch](../dev/agent-dispatch.md#codex-main-conversation) for the current implementation and host-specific timing.
 
 ## Product behavior
 
