@@ -21,7 +21,7 @@ var ErrMainNoticeNotSubmitted = errors.New("main_notice_not_submitted")
 // Only failures before the first hidden-input write may be retried. A missing
 // receipt after that write does not prove the host did not execute the notice.
 func mainNoticeNotSubmitted(err error) error {
-	if err == nil || errors.Is(err, ErrMainNoticeUnsupported) || errors.Is(err, ErrMainSessionMismatch) || errors.Is(err, ErrMainSessionUnavailable) || errors.Is(err, ErrNeedsUser) {
+	if err == nil || errors.Is(err, ErrMainNoticeUnsupported) || errors.Is(err, ErrMainSessionMismatch) || errors.Is(err, ErrNeedsUser) {
 		return err
 	}
 	return fmt.Errorf("%w: %w", ErrMainNoticeNotSubmitted, err)

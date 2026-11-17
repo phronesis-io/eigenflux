@@ -174,6 +174,9 @@ func (r MainNoticeRunner) runCodexEnvelope(ctx context.Context, application, dat
 
 func (r MainNoticeRunner) runCodexEnvelopeOnIPC(ctx context.Context, ipc *codexOwnerIPC, application, data string, allowSilent bool) (Result, error) {
 	owner, err := mainNoticeOwner(ctx, ipc, r.Target.SessionID)
+	if errors.Is(err, ErrMainSessionUnavailable) {
+		return Result{}, err
+	}
 	if err != nil {
 		return Result{}, mainNoticeNotSubmitted(err)
 	}
@@ -183,6 +186,9 @@ func (r MainNoticeRunner) runCodexEnvelopeOnIPC(ctx context.Context, ipc *codexO
 	}
 	defer closeReader()
 	baseline, err := reader.checkMainNoticeTarget(r.Target.SessionID)
+	if errors.Is(err, ErrMainSessionUnavailable) {
+		return Result{}, err
+	}
 	if err != nil {
 		return Result{}, mainNoticeNotSubmitted(err)
 	}
