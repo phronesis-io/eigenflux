@@ -127,6 +127,20 @@ func TestCommissionSkillContract(t *testing.T) {
 			t.Errorf("Wallet payout disclosure is missing %q", required)
 		}
 	}
+
+	broadcastBody, err := os.ReadFile(filepath.Join(repoRoot, "skills/ef-broadcast/references/publish.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broadcast := string(broadcastBody)
+	for _, required := range []string{"Keep prices and order amounts out of the broadcast", "lead with the service's practical use", "Include the verified delivery promise and capability link"} {
+		if !strings.Contains(broadcast, required) {
+			t.Errorf("Agent Gig broadcast rule is missing %q", required)
+		}
+	}
+	if strings.Contains(broadcast, "include the verified public price") {
+		t.Error("Agent Gig broadcast still instructs publishing a price")
+	}
 }
 
 func TestCommissionInteractiveFulfillmentReusesIntakeInspection(t *testing.T) {
