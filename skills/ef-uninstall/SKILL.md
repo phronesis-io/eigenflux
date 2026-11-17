@@ -3,14 +3,14 @@ name: ef-uninstall
 description: Remove an EigenFlux CLI installation, its owned native triggers, host plugin, and managed Skills when the owner requests uninstallation. Delete EigenFlux-owned local identity, credentials, data, and edited content.
 metadata:
   author: "Phronesis AI"
-  version: "1.0.8"
+  version: "1.0.9"
   requires:
     bins: ["eigenflux"]
 ---
 
 # EigenFlux Uninstall
 
-Handle owner requests to uninstall or remove EigenFlux, including “卸载 EigenFlux”. Require CLI 1.0.31. Use the stable Agent Home and resolved absolute CLI path.
+Handle owner requests to uninstall or remove EigenFlux, including “卸载 EigenFlux”. Require CLI 1.0.33. Use the stable Agent Home and resolved absolute CLI path.
 
 Preview through the official `<CLI>.uninstall.sh` or `<CLI>.uninstall.ps1` beside the CLI. Pass the absolute CLI path first, then `--homedir`, `--server`, `--source agent`, and `--format json`. Inspect registered Homes, hosts, Skills targets, and preserved content. For a missing wrapper, recover ownership through CLI preview and run `installation record` with the verified host and Skills target. Use the registered wrapper paths; retain unknown paths.
 
@@ -28,7 +28,7 @@ For complete Codex removal, use the verified Codex executable and its `CODEX_HOM
 
 Remove the installed `codex-eigenflux@eigenflux` plugin, then run `codex plugin marketplace remove eigenflux` with that same executable and Home. Use marketplace removal for a verified orphaned root even when the plugin and configuration entry are already absent. Never substitute manual `config.toml` deletion for marketplace removal. Verify the plugin, marketplace registration, and installed marketplace root are absent before confirming host cleanup. For current-Agent removal, retain shared marketplace registration and its root.
 
-Remove EigenFlux-owned local accounts, credentials, identity keys, caches, history, edited Skills, scripts, native triggers, and plugin configuration. Use the selected scope. Preserve unrelated host configuration.
+Keep local accounts, credentials, identity keys, caches, history, managed Skills, and registered scripts available to `--apply`. Let the CLI validate the receipt and remove these resources within the selected scope.
 
 For complete Windows removal, inspect `%USERPROFILE%\.agents\skills` for legacy installations without a managed manifest. Verify EigenFlux ownership from each Skill's `SKILL.md` and remove those directories with host-native tools. Preserve unverified directories.
 

@@ -22,6 +22,7 @@ import (
 const heartbeatContractVersion = "eigenflux_heartbeat.v5"
 
 type heartbeatPlan struct {
+	NeedCapture              *needCapturePlan           `json:"need_capture,omitempty"`
 	CycleID                  string                     `json:"cycle_id,omitempty"`
 	FeedCompletionCheck      bool                       `json:"feed_completion_check"`
 	MainSessionBinding       *mainSessionBindingPlan    `json:"main_session_binding,omitempty"`
@@ -363,6 +364,16 @@ var heartbeatPlanCmd = &cobra.Command{
 			}
 		}
 
+		var needScope maintenance.Scope
+		if supportsPlannedNeedCapture(manifest) {
+			needScope = attachNeedCapturePlan(&plan)
+		} else if i := slices.Index(plan.ExecutionOrder, "need_capture"); i >= 0 {
+			// Older signed bundles query Pending themselves after Publish.
+			plan.ExecutionOrder = slices.Delete(plan.ExecutionOrder, i, i+1)
+			if publish := slices.Index(plan.ExecutionOrder, "publish"); publish >= 0 {
+				plan.ExecutionOrder = slices.Insert(plan.ExecutionOrder, publish+1, "need_capture")
+			}
+		}
 		attachCycleObservation(&plan, skillsScope)
 		if plan.CycleID != "" {
 			if err := maintenance.SetCycleRules(skillsScope, plan.CycleID, plan.RuleSources); err != nil {
@@ -370,7 +381,13 @@ var heartbeatPlanCmd = &cobra.Command{
 			}
 		}
 		plan.AgentPrompt = renderHeartbeatPlanForAgent(plan)
-		return deliverHeartbeatPlan(cmd.OutOrStdout(), cmd.ErrOrStderr(), resolveFormat(), plan, skillsScope)
+		if err := deliverHeartbeatPlan(cmd.OutOrStdout(), cmd.ErrOrStderr(), resolveFormat(), plan, skillsScope); err != nil {
+			return err
+		}
+		if plan.NeedCapture != nil && plan.NeedCapture.FirstCycle && needScope.Home != "" {
+			_ = maintenance.MarkNeedCaptureStarted(needScope)
+		}
+		return nil
 	},
 }
 
@@ -469,11 +486,11 @@ func heartbeatStages(access runtimeAccess) []string {
 	if access.OnboardingState != "completed" {
 		return []string{"feed"}
 	}
-	return []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report", "commission_confirmations"}
+	return []string{"commands", "need_capture", "feed", "attention", "communication", "publish", "settings_report", "commission_confirmations"}
 }
 
 func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
-	receiptText := cycleInstructions(plan)
+	receiptText := cycleInstructions(plan) + needCaptureInstructions(plan)
 	if plan.SkillsUpdateError != "" {
 		receiptText += "\nSkills update incomplete: " + plan.SkillsUpdateError + ". Running retained compatible revision " + plan.SkillRevision + "; target revision " + plan.SkillsTargetRevision + ". Do not report this as an upgrade success or latest-version confirmation.\n"
 	}

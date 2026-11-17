@@ -2,6 +2,7 @@ package consolev2
 
 import (
 	"context"
+	"database/sql"
 	"eigenflux_server/pkg/cache"
 	"eigenflux_server/pkg/cache/keys"
 	"encoding/json"
@@ -133,53 +134,63 @@ func (s *Service) writeHomeActivityCache(ctx context.Context, result homeActivit
 
 func (s *Service) loadHomeActivity(ctx context.Context, now int64) (homeActivityResponse, error) {
 	var rows []homeActivityRow
-	query := `WITH bounds AS (SELECT ?::bigint AS cutoff), events AS (
-		SELECT 'broadcast:' || r.item_id AS event_id, 'broadcast' AS event_type, r.created_at,
+	// Each source needs only its own top results under the final ordering.
+	// Applying the same cutoff and order before the union lets PostgreSQL use time indexes.
+	query := `WITH events AS (
+		(SELECT 'broadcast:' || r.item_id AS event_id, 'broadcast' AS event_type, r.created_at,
 		       a.agent_name AS actor_name, COALESCE(a.agent_name_en,'') AS actor_name_en, COALESCE(a.short_id,'') AS actor_short_id,
 		       COALESCE(ap.private_card->>'geo','') AS actor_country, '' AS counterpart_name, '' AS counterpart_name_en,
 		       '' AS counterpart_country, r.item_id AS broadcast_id,
 		       LEFT(r.raw_content, 4001) AS broadcast_content, false AS is_private
 		FROM raw_items r JOIN processed_items p ON p.item_id=r.item_id AND p.status=3
-		  AND p.homepage_eligible=TRUE AND p.homepage_evaluation_version=?
+		  AND p.homepage_eligible=TRUE AND p.homepage_evaluation_version=@version
 		JOIN agents a ON a.agent_id=r.author_agent_id LEFT JOIN agent_cards ap ON ap.agent_id=a.agent_id
-		WHERE r.created_at >= (SELECT cutoff FROM bounds) AND a.short_id IS NOT NULL
+		WHERE r.created_at >= @cutoff AND a.short_id IS NOT NULL
 		  AND COALESCE(a.email,'') NOT LIKE '%@pgc.eigenflux.one' AND COALESCE(a.email,'') NOT LIKE '%@bot.eigenflux.one'
+		ORDER BY 3 DESC, 1 DESC LIMIT @limit)
 		UNION ALL
-		SELECT 'profile:' || c.agent_id || ':' || c.public_card_generated_at, 'profile', c.public_card_generated_at,
+		(SELECT 'profile:' || c.agent_id || ':' || c.public_card_generated_at, 'profile', c.public_card_generated_at,
 		       a.agent_name, COALESCE(a.agent_name_en,''), COALESCE(a.short_id,''), COALESCE(c.private_card->>'geo',''), '', '', '', 0, '', false
 		FROM agent_cards c JOIN agents a ON a.agent_id=c.agent_id
-		WHERE c.public_card_generated_at >= (SELECT cutoff FROM bounds) AND c.public_card_version > 1 AND a.short_id IS NOT NULL
+		WHERE c.public_card_generated_at >= @cutoff AND c.public_card_version > 1 AND a.short_id IS NOT NULL
+		ORDER BY 3 DESC, 1 DESC LIMIT @limit)
 		UNION ALL
-		SELECT 'relation:' || r.id, 'relation', r.created_at, a.agent_name, COALESCE(a.agent_name_en,''), '', COALESCE(ap.private_card->>'geo',''),
+		(SELECT 'relation:' || r.id, 'relation', r.created_at, a.agent_name, COALESCE(a.agent_name_en,''), '', COALESCE(ap.private_card->>'geo',''),
 		       b.agent_name, COALESCE(b.agent_name_en,''), COALESCE(bp.private_card->>'geo',''), 0, '', true
 		FROM user_relations r JOIN agents a ON a.agent_id=r.from_uid JOIN agents b ON b.agent_id=r.to_uid
 		LEFT JOIN agent_cards ap ON ap.agent_id=a.agent_id LEFT JOIN agent_cards bp ON bp.agent_id=b.agent_id
-		WHERE r.created_at >= (SELECT cutoff FROM bounds) AND r.rel_type=1 AND r.from_uid < r.to_uid
+		WHERE r.created_at >= @cutoff AND r.rel_type=1 AND r.from_uid < r.to_uid
+		ORDER BY 3 DESC, 1 DESC LIMIT @limit)
 		UNION ALL
-		SELECT 'message:' || pm.msg_id, 'message', pm.created_at, sender.agent_name, COALESCE(sender.agent_name_en,''), '', COALESCE(sp.private_card->>'geo',''),
+		(SELECT 'message:' || pm.msg_id, 'message', pm.created_at, sender.agent_name, COALESCE(sender.agent_name_en,''), '', COALESCE(sp.private_card->>'geo',''),
 		       receiver.agent_name, COALESCE(receiver.agent_name_en,''), COALESCE(rp.private_card->>'geo',''), 0, '', true
 		FROM private_messages pm JOIN conversations c ON c.conv_id=pm.conv_id
 		JOIN agents sender ON sender.agent_id=pm.sender_id JOIN agents receiver ON receiver.agent_id=pm.receiver_id
 		LEFT JOIN agent_cards sp ON sp.agent_id=sender.agent_id LEFT JOIN agent_cards rp ON rp.agent_id=receiver.agent_id
-		WHERE pm.created_at >= (SELECT cutoff FROM bounds) AND COALESCE(c.origin_type,'') <> 'broadcast'
+		WHERE pm.created_at >= @cutoff AND COALESCE(c.origin_type,'') <> 'broadcast'
+		ORDER BY 3 DESC, 1 DESC LIMIT @limit)
 		UNION ALL
-		SELECT 'reply:' || pm.msg_id, 'reply', pm.created_at, sender.agent_name, COALESCE(sender.agent_name_en,''), COALESCE(sender.short_id,''),
+		(SELECT 'reply:' || pm.msg_id, 'reply', pm.created_at, sender.agent_name, COALESCE(sender.agent_name_en,''), COALESCE(sender.short_id,''),
 		       COALESCE(sp.private_card->>'geo',''), '', '', '', r.item_id, LEFT(r.raw_content,4001), false
 		FROM private_messages pm JOIN conversations c ON c.conv_id=pm.conv_id AND c.origin_type='broadcast'
 		JOIN raw_items r ON r.item_id=c.origin_id JOIN processed_items p ON p.item_id=r.item_id AND p.status=3
-		  AND p.homepage_eligible=TRUE AND p.homepage_evaluation_version=?
+		  AND p.homepage_eligible=TRUE AND p.homepage_evaluation_version=@version
 		JOIN agents sender ON sender.agent_id=pm.sender_id LEFT JOIN agent_cards sp ON sp.agent_id=sender.agent_id
-		WHERE pm.created_at >= (SELECT cutoff FROM bounds) AND sender.short_id IS NOT NULL
+		WHERE pm.created_at >= @cutoff AND sender.short_id IS NOT NULL
+		ORDER BY 3 DESC, 1 DESC LIMIT @limit)
 		UNION ALL
-		SELECT 'delegation:' || command_id, 'delegation', command.created_at, a.agent_name, COALESCE(a.agent_name_en,''), '', COALESCE(ap.private_card->>'geo',''),
+		(SELECT 'delegation:' || command_id, 'delegation', command.created_at, a.agent_name, COALESCE(a.agent_name_en,''), '', COALESCE(ap.private_card->>'geo',''),
 		       '', '', '', 0, '', true
 		FROM agent_commands command JOIN agents a ON a.agent_id=command.agent_id
 		LEFT JOIN agent_cards ap ON ap.agent_id=a.agent_id
-		WHERE command.created_at >= (SELECT cutoff FROM bounds) AND command.command_type='task_delegation'
+		WHERE command.created_at >= @cutoff AND command.command_type='task_delegation'
+		ORDER BY 3 DESC, 1 DESC LIMIT @limit)
 	)
-	SELECT * FROM events ORDER BY created_at DESC, event_id DESC LIMIT ?`
-	if err := s.db.WithContext(ctx).Raw(query, homeActivityWindowStart(now), homepageEvaluationVersion,
-		homepageEvaluationVersion, homeActivityLimit).Scan(&rows).Error; err != nil {
+	SELECT * FROM events ORDER BY created_at DESC, event_id DESC LIMIT @limit`
+	if err := s.db.WithContext(ctx).Raw(query,
+		sql.Named("cutoff", homeActivityWindowStart(now)),
+		sql.Named("version", homepageEvaluationVersion),
+		sql.Named("limit", homeActivityLimit)).Scan(&rows).Error; err != nil {
 		return homeActivityResponse{}, err
 	}
 	events := make([]homeActivityEvent, 0, len(rows))

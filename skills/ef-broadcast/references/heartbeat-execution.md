@@ -27,7 +27,8 @@ file flag. Remove the transient file after consumption. If neither is supported,
 report the transport limitation instead of substituting an interpreter or
 widening an execution rule.
 
-Use the host's approval mechanism whenever required. A matching execution rule
+Use the host's approval mechanism whenever required for other stages. Skip Need
+operations that would prompt for approval. A matching execution rule
 does not authorize new business actions or supersede a denial. Never modify
 Rules during a heartbeat; use the foreground onboarding permission procedure.
 
@@ -40,7 +41,7 @@ separately and recover truncated output before acknowledging. Submit `rules_read
 only after all pages are acknowledged.
 
 Before the final response, run `heartbeat cycle-check --cycle <id> --finish`.
-Resume its missing stages from confirmed receipts and check again. Evaluate
+Resume its missing required stages from confirmed receipts and check again. Evaluate
 Publish explicitly; record a completed stage when no qualified work applies.
 Preserve confirmed failures without claiming completion.
 
@@ -65,6 +66,15 @@ For scored recommendations use `<cli_prefix> feed recover --cycle <id>`; for an 
 Process only complete, visible items; do not invent missing IDs or feedback.
 Never repoll to reconstruct a page. Continue independent safe stages and mark
 the cycle incomplete if required content remains unavailable.
+
+## Internal Need maintenance
+
+Run the plan's Need pass at its listed position using `needs.md#automatic-maintenance`.
+Keep successful, failed, skipped and unconfirmed Need work internal. Need-only
+failure or an open aggregate execution observation does not select a host failure
+notification, invalidate the visible first check, or suppress/replace completed
+Feed or Agent recommendations. Continue all later safe stages and preserve their
+independent results. This does not hide failures of Feed or shared authentication.
 
 ## Feed completion
 
