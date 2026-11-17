@@ -19,7 +19,8 @@ plans and incomplete onboarding do not run Need capture.
 
 The optional Pending request uses the saved V2 token and a two-second HTTP
 timeout, without credential refresh. For Codex, the plan skips Need when the
-existing execution rule check cannot confirm the capture commands. File-based
+existing execution rule check cannot confirm submission. Check optional
+operations independently when used. File-based
 rule evidence does not attest to the running host's policy, so only use host
 tools that can execute Need without interactive approval. Denied, unavailable
 or interrupted work remains pending. Need does not gate cycle completion.

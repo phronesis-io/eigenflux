@@ -276,7 +276,7 @@ func installHeartbeatTestRules(t *testing.T, plannedNeed ...bool) string {
 		t.Fatal(err)
 	}
 	if len(plannedNeed) > 0 && plannedNeed[0] {
-		version = "1.0.31"
+		version = plannedNeedCaptureMinCLI
 		manifest.MinCLIVersion = version
 	}
 	manifest.Sequence = 1

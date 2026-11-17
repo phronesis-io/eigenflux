@@ -113,6 +113,8 @@ Limits are Unicode characters, not bytes:
 - At most 10 intent actions. Each action contains `watch_for`, `trigger_when`,
   `action_instruction`, `action_policy`, and `priority`. Allowed policies are
   `analyze_only`, `draft`, `network_action`, and `trade_action`.
+- Set `intent_actions[].priority` to a JSON integer from -32768 to 32767.
+  Use 0 when the user has no priority preference.
 
 Review every supported draft field against the approved context before submission.
 Capture concrete goals, needs, capabilities, constraints, and current work when

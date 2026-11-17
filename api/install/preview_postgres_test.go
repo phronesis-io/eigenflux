@@ -53,10 +53,10 @@ func TestPostgresPreviewLandingFlow(t *testing.T) {
 	h := server.New()
 	h.POST("/api/v1/install/token", mintRef)
 	h.GET("/r/:ref", serveRef)
-	mint := func(ua string) (int, string) {
+	mint := func(ua, payload string) (int, string) {
 		t.Helper()
 		resp := ut.PerformRequest(h.Engine, http.MethodPost, "/api/v1/install/token",
-			&ut.Body{Body: strings.NewReader(`{"utm_source":"youtube"}`), Len: len(`{"utm_source":"youtube"}`)},
+			&ut.Body{Body: strings.NewReader(payload), Len: len(payload)},
 			ut.Header{Key: "User-Agent", Value: ua}).Result()
 		var body struct {
 			Data struct {
@@ -69,13 +69,13 @@ func TestPostgresPreviewLandingFlow(t *testing.T) {
 		return resp.StatusCode(), body.Data.Ref
 	}
 	for _, ua := range []string{"LarkUrl", "redditbot/1.0", "Bytespider", "Google-Safety", "Mozilla/5.0 (compatible; Google-Safety; +http://www.google.com/bot.html)"} {
-		status, ref := mint(ua)
+		status, ref := mint(ua, `{"utm_source":"youtube"}`)
 		if status != http.StatusForbidden || ref != "" {
 			t.Fatalf("preview minted: %s status=%d ref=%s", ua, status, ref)
 		}
 	}
 	for _, ua := range []string{"Mozilla/5.0 MicroMessenger/8.0", "Mozilla/5.0 QQ/9.0", "Mozilla/5.0 BiliApp/9.0", "Mozilla/5.0 Xiaohongshu/8.0", "Mozilla/5.0 BiliApp/9150300 metadata/2aWQiOiJYVTdBOTQyN0NBMDA0Mz"} {
-		status, ref := mint(ua)
+		status, ref := mint(ua, `{"utm_source":"youtube"}`)
 		if status != http.StatusOK || !ValidTokenFormat(ref) {
 			t.Fatalf("real visit failed: %s status=%d ref=%s", ua, status, ref)
 		}
@@ -108,4 +108,27 @@ func TestPostgresPreviewLandingFlow(t *testing.T) {
 	if count != 5 {
 		t.Fatalf("landing rows=%d, want only five browser entries", count)
 	}
+
+	t.Run("Bilibili track attribution", func(t *testing.T) {
+		for _, tc := range []struct {
+			payload, wantChannel, wantTrackID string
+		}{
+			{`{"bilibili_track_id":"__TRACKID__"}`, "unknown", ""},
+			{`{"bilibili_track_id":"__TRACKID__","utm_source":"bilibili"}`, "bilibili", ""},
+			{`{"bilibili_track_id":"valid-track","utm_source":"facebook"}`, "bilibili", "valid-track"},
+		} {
+			status, ref := mint("Mozilla/5.0 BiliApp/9.0", tc.payload)
+			if status != http.StatusOK || !ValidTokenFormat(ref) {
+				t.Fatalf("mint failed: status=%d ref=%q", status, ref)
+			}
+			var token Token
+			if err := gdb.First(&token, "token = ?", ref).Error; err != nil {
+				t.Fatal(err)
+			}
+			if token.Channel != tc.wantChannel || token.BilibiliTrackID != tc.wantTrackID {
+				t.Errorf("%s persisted channel=%q track ID=%q, want %q and %q",
+					tc.payload, token.Channel, token.BilibiliTrackID, tc.wantChannel, tc.wantTrackID)
+			}
+		}
+	})
 }

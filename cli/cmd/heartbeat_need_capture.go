@@ -50,6 +50,7 @@ type needCapturePlan struct {
 }
 
 const (
+	plannedNeedCaptureMinCLI   = "1.0.32"
 	needCaptureMaxIntents      = 2
 	needCaptureFirstMaxIntents = 1
 	// The server orders Pending deterministically. Query its maximum window so
@@ -140,7 +141,7 @@ func queryNeedCapturePlan(cli *client.Client, max int, strikes map[string]int) n
 func supportsPlannedNeedCapture(manifest *skills.Manifest) bool {
 	// The signed compatibility floor identifies the first bundle with this contract.
 	minimum := manifest.MinCLIVersion
-	return selfupdate.ValidVersion(minimum) && selfupdate.Compare(minimum, "1.0.31") >= 0
+	return selfupdate.ValidVersion(minimum) && selfupdate.Compare(minimum, plannedNeedCaptureMinCLI) >= 0
 }
 
 func attachNeedCapturePlan(plan *heartbeatPlan) maintenance.Scope {
@@ -252,19 +253,11 @@ func codexNeedCaptureAllowed(scope maintenance.Scope, mode string) bool {
 }
 
 func codexNeedPolicyAllows(ctx context.Context, executable string, rules, prefix []string, run heartbeatPolicyRunner) bool {
-	for _, args := range [][]string{
-		{"need", "capture", "complete", "--file", "<path>", "--format", "json", "--plan", "<plan>"},
-		{"need", "capture", "status", "--plan", "<plan>", "--format", "json"},
-		{"need", "capture", "failure", "--plan", "<plan>", "--intent-id", "<id>", "--intent-version", "1"},
-		{"need", "input", "get", "<id>"},
-	} {
-		command := append(slices.Clone(prefix), args...)
-		decision, err := heartbeatPolicyDecision(ctx, executable, rules, command, run)
-		if err != nil || decision != "allow" {
-			return false
-		}
-	}
-	return true
+	// Submission is the only required CLI command. Check optional operations
+	// independently at their point of use without holding up this plan.
+	command := append(slices.Clone(prefix), "need", "capture", "complete", "--file", "<path>", "--format", "json", "--plan", "<plan>")
+	decision, err := heartbeatPolicyDecision(ctx, executable, rules, command, run)
+	return err == nil && decision == "allow"
 }
 
 func needCaptureAfterFeed(order []string) []string {

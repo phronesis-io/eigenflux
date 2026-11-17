@@ -15,6 +15,7 @@ import (
 
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/maintenance"
+	"cli.eigenflux.ai/internal/skills"
 	"github.com/spf13/cobra"
 )
 
@@ -475,20 +476,34 @@ func TestNeedCaptureNewIntentVersionRestoresEligibility(t *testing.T) {
 	}
 }
 
+func TestPlannedNeedCaptureRequiresNewRelease(t *testing.T) {
+	config := readRepoFile(t, "../..", "cli/.cli.config")
+	lines := strings.Split(config, "\n")
+	for _, key := range []string{"CLI_VERSION", "SKILLS_MIN_CLI_VERSION"} {
+		if !slices.Contains(lines, key+"="+plannedNeedCaptureMinCLI) {
+			t.Fatalf("%s does not publish the planned Need commands at %s", key, plannedNeedCaptureMinCLI)
+		}
+	}
+	if supportsPlannedNeedCapture(&skills.Manifest{MinCLIVersion: "1.0.31"}) ||
+		!supportsPlannedNeedCapture(&skills.Manifest{MinCLIVersion: plannedNeedCaptureMinCLI}) {
+		t.Fatal("planned Need admitted a pre-feature bundle or rejected the feature bundle")
+	}
+}
+
 func TestCodexNeedCapturePolicyDoesNotAdmitPrompt(t *testing.T) {
 	for _, result := range []string{"allow", "prompt", "forbidden", "unknown"} {
 		t.Run(result, func(t *testing.T) {
 			calls := 0
-			run := func(_ context.Context, _ string, _ []string) ([]byte, error) {
+			run := func(_ context.Context, _ string, args []string) ([]byte, error) {
 				calls++
-				decision := "allow"
-				if calls == 2 {
+				decision := "forbidden"
+				if slices.Contains(args, "complete") {
 					decision = result
 				}
 				return []byte(`{"decision":"` + decision + `","matchedRules":[{}]}`), nil
 			}
-			if got := codexNeedPolicyAllows(context.Background(), "codex", nil, []string{"eigenflux"}, run); got != (result == "allow") {
-				t.Fatalf("policy %s admitted=%v", result, got)
+			if got := codexNeedPolicyAllows(context.Background(), "codex", nil, []string{"eigenflux"}, run); got != (result == "allow") || calls != 1 {
+				t.Fatalf("submission policy %s admitted=%v checks=%d", result, got, calls)
 			}
 		})
 	}

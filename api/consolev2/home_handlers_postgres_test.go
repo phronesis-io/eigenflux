@@ -314,6 +314,58 @@ func TestHomeHTTPContracts(t *testing.T) {
 		assertHomeCachedResponse(t, h, "/api/v2/console/home/worth-watching", "items", "item_id", "301", cookie)
 	})
 
+	t.Run("activity limits after filtering with a shared tie breaker", func(t *testing.T) {
+		tx := db.Begin()
+		if tx.Error != nil {
+			t.Fatal(tx.Error)
+		}
+		defer tx.Rollback()
+		base := agentIDValue + 10_000
+		createdAt := now + 1
+		if err := tx.Exec(`INSERT INTO raw_items (item_id, author_agent_id, raw_content, created_at)
+			SELECT ?::bigint + n, ?, 'activity boundary', ? FROM generate_series(1, ?) AS n`,
+			base, agentIDValue, createdAt, homeActivityLimit+1).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Exec(`INSERT INTO processed_items
+			(item_id, status, summary, updated_at, homepage_eligible, homepage_evaluation_version)
+			SELECT ?::bigint + n, 3, 'activity boundary', ?, n <= ?, ?
+			FROM generate_series(1, ?) AS n`,
+			base, createdAt, homeActivityLimit, homepageEvaluationVersion, homeActivityLimit+1).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Exec(`INSERT INTO conversations
+			(conv_id, participant_a, participant_b, initiator_id, last_sender_id, origin_type, origin_id, updated_at)
+			VALUES (?, ?, ?, ?, ?, 'broadcast', ?, ?)`,
+			base, agentIDValue, demandAgentID, demandAgentID, demandAgentID, base+1, createdAt).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Exec(`INSERT INTO private_messages (msg_id, conv_id, sender_id, receiver_id, content, created_at)
+			VALUES (?, ?, ?, ?, 'private reply', ?)`,
+			base, base, demandAgentID, agentIDValue, createdAt).Error; err != nil {
+			t.Fatal(err)
+		}
+		originalDB := svc.db
+		svc.db = tx
+		defer func() { svc.db = originalDB }()
+		result, err := svc.loadHomeActivity(context.Background(), now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Events) != homeActivityLimit {
+			t.Fatalf("got %d events, want %d", len(result.Events), homeActivityLimit)
+		}
+		if got, want := result.Events[0].ID, fmt.Sprintf("reply:%d", base); got != want {
+			t.Fatalf("first event = %s, want %s", got, want)
+		}
+		for i, event := range result.Events[1:] {
+			want := fmt.Sprintf("broadcast:%d", base+int64(homeActivityLimit-i))
+			if event.ID != want {
+				t.Fatalf("event %d = %s, want %s", i+1, event.ID, want)
+			}
+		}
+	})
+
 	t.Run("corrupt cache falls back to SQL and rebuilds bounded responses", func(t *testing.T) {
 		for _, key := range []string{discoveryKey, homeActivityCacheKey, worthKey} {
 			if err := redisClient.Set(context.Background(), key, "{", time.Minute).Err(); err != nil {

@@ -288,6 +288,14 @@ func TestFeedCoreContractAndPreviewSemantics(t *testing.T) {
 	if !strings.Contains(got, "OUTPUT CONTRACT CORE") || strings.Contains(got, "## Contract details") || !strings.Contains(got, "[EIGENFLUX OUTPUT CONTRACT]") {
 		t.Fatal("core extraction failed")
 	}
+	for _, rule := range []string{
+		"Give `2` to high-value content that supports a concrete, worthwhile next action for the user. The action need not have happened.",
+		"A score does not authorize an action. Require a concrete reason to contact the author independently of the score.",
+	} {
+		if !strings.Contains(got, rule) {
+			t.Errorf("Agent output without contract details omitted %q", rule)
+		}
+	}
 }
 
 func TestFeedGetCachesPrintedDetailsAndCountsFailures(t *testing.T) {
