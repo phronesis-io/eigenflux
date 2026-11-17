@@ -120,16 +120,18 @@ func TestWatchPMPromptRetryRechecksAuthorization(t *testing.T) {
 	f := newDispatchWatchFixture(t, "")
 	f.historyFailures.Store(1)
 	f.onHistory = func() { f.autoReply.Store(false) }
-	f.watch.runAgent = func(context.Context, dispatch.Request) (dispatch.Result, error) {
-		t.Fatal("Agent invoked after permission revocation")
-		return dispatch.Result{}, nil
+	f.watch.runAgent = func(_ context.Context, req dispatch.Request) (dispatch.Result, error) {
+		if !strings.Contains(req.Prompt, "Automatic peer replies are disabled.") {
+			t.Fatal("prompt retry did not pick up revoked reply permission")
+		}
+		return dispatchTestDecision(req, "reply"), nil
 	}
 	job := dispatchTestNext(t, f.watch)
 	if err := f.watch.dispatchJob(context.Background(), job); err != nil {
 		t.Fatal(err)
 	}
 	state := dispatchTestStatus(t, f.watch, job.ID)
-	if state.Status != "needs_user" || state.Code != "automatic_reply_not_authorized" || f.histories.Load() != 1 || f.sends.Load() != 0 {
+	if state.Status != "needs_user" || state.Code != "automatic_reply_not_authorized" || f.histories.Load() != 2 || f.sends.Load() != 0 {
 		t.Fatalf("authorization bypassed during retry: %+v", state)
 	}
 }
