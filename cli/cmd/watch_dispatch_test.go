@@ -588,11 +588,7 @@ func TestWatchDispatchRespectsAutoReplyPermission(t *testing.T) {
 				t.Fatal(err)
 			}
 			state := dispatchTestStatus(t, w, job.ID)
-			wantCalls, wantContexts := 0, int32(1)
-			if when == "revoked-during-agent" {
-				wantCalls, wantContexts = 1, 2
-			}
-			if state.Status != "needs_user" || calls != wantCalls || f.sends.Load() != 0 || f.contexts.Load() != wantContexts {
+			if state.Status != "needs_user" || calls != 1 || f.sends.Load() != 0 || f.contexts.Load() != 2 {
 				t.Fatalf("auto_reply_pm ignored: state=%#v agent_calls=%d sends=%d fresh_context_reads=%d", state, calls, f.sends.Load(), f.contexts.Load())
 			}
 		})

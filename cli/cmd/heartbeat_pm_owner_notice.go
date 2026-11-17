@@ -83,27 +83,25 @@ func init() {
 			if access.OnboardingState != "completed" {
 				return errors.New("private-message digests require completed onboarding")
 			}
-			result := struct {
-				Items []pmDigestItem `json:"items"`
-			}{Items: []pmDigestItem{}}
-			err = auth.WithV2CredentialsLockContext(cmd.Context(), activeServerName(), 3*time.Second, func() error {
-				b, err := heartbeatPMNoticeBinding()
-				if err != nil || b.Host == "" || b.Host == "codex" || token[:32] != b.Revision {
-					return err
+			write := func(entries []dispatch.PMNoticeEntry) error {
+				items := make([]pmDigestItem, 0, len(entries))
+				for _, e := range entries {
+					items = append(items, pmDigestItem{e.Sender, e.Notice.Summary, e.Notice.NeedsAction})
 				}
-				entries, err := dispatch.ClaimPMNotices(cmd.Context(), b, token, time.Now())
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(struct {
+					Items []pmDigestItem `json:"items"`
+				}{Items: items})
+			}
+			return auth.WithV2CredentialsLockContext(cmd.Context(), activeServerName(), 3*time.Second, func() error {
+				b, err := heartbeatPMNoticeBinding()
 				if err != nil {
 					return err
 				}
-				for _, e := range entries {
-					result.Items = append(result.Items, pmDigestItem{e.Sender, e.Notice.Summary, e.Notice.NeedsAction})
+				if b.Host == "" || b.Host == "codex" || token[:32] != b.Revision {
+					return write(nil)
 				}
-				return nil
+				return dispatch.DeliverPMDigest(cmd.Context(), b, token, write)
 			})
-			if err != nil {
-				return err
-			}
-			return json.NewEncoder(cmd.OutOrStdout()).Encode(result)
 		},
 	}
 	digest.Flags().String("cycle", "", "Private-message digest token from the current heartbeat plan")

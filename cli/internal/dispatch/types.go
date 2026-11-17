@@ -47,6 +47,7 @@ type Message struct {
 }
 
 type Job struct {
+	PMDecision            *Decision                    `json:"pm_decision,omitempty"`
 	ID                    string                       `json:"id"`
 	Kind                  string                       `json:"kind"`
 	Scope                 string                       `json:"scope"`

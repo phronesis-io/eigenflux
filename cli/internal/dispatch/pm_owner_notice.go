@@ -185,9 +185,26 @@ func appendPMNoticeReceipt(receipts []string, id string) []string {
 	return receipts[max(0, len(receipts)-pmNoticeHistoryLimit):]
 }
 
-// ClaimPMNotices returns one batch at most once for the given heartbeat token.
-// Codex claims one item at a time, so a pre-submission retry cannot replay others.
-func ClaimPMNotices(ctx context.Context, b Binding, cycle string, now time.Time) ([]PMNoticeEntry, error) {
+// DeliverPMDigest commits receipt deduplication only after the CLI writes the
+// digest to the host. Serialize that bounded handoff with other claims.
+func DeliverPMDigest(ctx context.Context, b Binding, cycle string, write func([]PMNoticeEntry) error) error {
+	written := false
+	_, err := claimPMNotices(ctx, b, cycle, time.Now(), func(entries []PMNoticeEntry) error {
+		written = true
+		return write(entries)
+	})
+	if err != nil || written {
+		return err
+	}
+	return write(nil)
+}
+
+// ClaimPMNotices reserves one Codex notice before submitting to the main chat.
+func ClaimPMNotices(ctx context.Context, b Binding, now time.Time) ([]PMNoticeEntry, error) {
+	return claimPMNotices(ctx, b, "", now, nil)
+}
+
+func claimPMNotices(ctx context.Context, b Binding, cycle string, now time.Time, write func([]PMNoticeEntry) error) ([]PMNoticeEntry, error) {
 	var claimed []PMNoticeEntry
 	err := withPMNotices(ctx, b, func(state *pmNoticeState) (bool, error) {
 		if cycle != "" && slices.Contains(state.Cycles, cycle) {
@@ -219,6 +236,9 @@ func ClaimPMNotices(ctx context.Context, b Binding, cycle string, now time.Time)
 		} else {
 			count := min(pmNoticeBatchLimit, len(state.Pending))
 			claimed = slices.Clone(state.Pending[:count])
+			if err := write(claimed); err != nil {
+				return false, err
+			}
 			state.Pending = slices.Delete(state.Pending, 0, count)
 			state.Cycles = appendPMNoticeReceipt(state.Cycles, cycle)
 		}
@@ -238,14 +258,11 @@ func ClaimPMNotices(ctx context.Context, b Binding, cycle string, now time.Time)
 // RetryCodexPMNotice restores only a proven pre-submission failure.
 func RetryCodexPMNotice(ctx context.Context, b Binding, entry PMNoticeEntry, busy bool, now time.Time) error {
 	if !busy {
-		entry.Attempts++
-	}
-	if entry.Attempts >= 5 {
-		return nil
+		entry.Attempts = min(entry.Attempts+1, 5)
 	}
 	entry.RetryAt = now.Add(time.Duration(max(1, entry.Attempts)) * time.Minute).Unix()
 	return withPMNotices(ctx, b, func(state *pmNoticeState) (bool, error) {
-		if len(state.Pending) >= pmNoticeLimit || slices.ContainsFunc(state.Pending, func(e PMNoticeEntry) bool {
+		if slices.ContainsFunc(state.Pending, func(e PMNoticeEntry) bool {
 			return e.Conversation == entry.Conversation && e.Notice.Topic == entry.Notice.Topic
 		}) {
 			return false, nil

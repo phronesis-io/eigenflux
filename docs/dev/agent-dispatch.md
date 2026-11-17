@@ -57,7 +57,7 @@ eigenflux watch doctor
 eigenflux watch --dispatch
 ```
 
-`doctor` checks configuration only; `status` shows redacted execution state. Neither proves live Agent execution. CLI checks fresh `auto_reply_pm` before invoking the Agent and before sending; disabled permission yields `needs_user`.
+`doctor` checks configuration only; `status` shows redacted execution state. Neither proves live Agent execution. The CLI reads `auto_reply_pm` before invoking the Agent and checks it again before sending a peer reply. Disabled automatic replies still allow an owner notice.
 
 ## Codex main conversation
 

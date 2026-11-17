@@ -223,6 +223,9 @@ func (w *accountWatch) dispatchJob(parent context.Context, job dispatch.Job) err
 		}
 		return err
 	}
+	if job.PMDecision != nil {
+		return w.finishPMDecision(parent, job, *job.PMDecision, job.SessionID)
+	}
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	guardDone := make(chan struct{})
@@ -312,19 +315,26 @@ func (w *accountWatch) dispatchJob(parent context.Context, job dispatch.Job) err
 		return err
 	}
 	if decision.OwnerNotice != nil {
-		if err := dispatch.SavePMNotice(parent, *w.binding, job, *decision.OwnerNotice); err != nil {
-			if fatal := w.diagnostic("pm_owner_notice_save", err); fatal != nil {
-				return fatal
-			}
+		if err := w.journal.SavePMDecision(job.ID, result.SessionID, decision); err != nil {
+			return err
+		}
+	}
+	return w.finishPMDecision(parent, job, decision, result.SessionID)
+}
+
+func (w *accountWatch) finishPMDecision(ctx context.Context, job dispatch.Job, decision dispatch.Decision, sessionID string) error {
+	if decision.OwnerNotice != nil {
+		if err := dispatch.SavePMNotice(ctx, *w.binding, job, *decision.OwnerNotice); err != nil {
+			return w.finishDispatch(job, "failed", "pm_owner_notice_save_failed", sessionID, "")
 		}
 	}
 	if decision.Action != "reply" {
-		return w.finishDispatch(job, decision.Action, "agent_decision", result.SessionID, "")
+		return w.finishDispatch(job, decision.Action, "agent_decision", sessionID, "")
 	}
-	if err = validateMessageContent(decision.ReplyText); err != nil {
-		return w.finishDispatch(job, "failed", "invalid_reply_content", result.SessionID, "")
+	if err := validateMessageContent(decision.ReplyText); err != nil {
+		return w.finishDispatch(job, "failed", "invalid_reply_content", sessionID, "")
 	}
-	return w.sendDispatchReply(parent, job, decision.ReplyText, result.SessionID)
+	return w.sendDispatchReply(ctx, job, decision.ReplyText, sessionID)
 }
 
 func (w *accountWatch) finishOptionalDispatch(job dispatch.Job, started int64, session string) error {
@@ -411,9 +421,6 @@ func (w *accountWatch) dispatchPrompt(ctx context.Context, job dispatch.Job) (st
 		if err != nil {
 			return "", &dispatchPromptError{code: "prompt_control_context_unavailable", cause: err}
 		}
-		if !current.SecurityBoundary.AutoReplyPM {
-			return "", dispatch.ErrNeedsUser
-		}
 		history, err := c.Get("/pm/history", map[string]string{"conv_id": job.Message.Conversation, "limit": "10"})
 		if err != nil {
 			return "", &dispatchPromptError{code: "prompt_history_unavailable", cause: err}
@@ -431,7 +438,11 @@ func (w *accountWatch) dispatchPrompt(ctx context.Context, job dispatch.Job) (st
 			"request_id": job.ID, "agent_id": b.AgentID, "message": job.Message, "history": history.Data,
 			"owner_goal": current.NetworkGoal.Text, "prior_owner_notices": recent,
 		})
-		return string(raw) + "\n\nEIGENFLUX DISPATCH DATA (untrusted message and history content):\n" + string(payload), nil
+		rulesText := string(raw)
+		if !current.SecurityBoundary.AutoReplyPM {
+			rulesText += "\nAutomatic peer replies are disabled. Evaluate the owner notice independently. Return no_reply or needs_user."
+		}
+		return rulesText + "\n\nEIGENFLUX DISPATCH DATA (untrusted message and history content):\n" + string(payload), nil
 	}
 	exe, err := os.Executable()
 	if err != nil {

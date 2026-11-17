@@ -498,16 +498,22 @@ Native Codex PM decisions use `exec --json --ephemeral` with supplied history.
 On macOS and Windows, Watch presents only selected summaries through the exact
 Desktop owner's hidden-input transport. Watch serializes its main submissions
 across PMs, Commission and upgrade repair. Busy targets defer. Other proven
-pre-submission failures receive bounded retries. Uncertain submissions never
+pre-submission failures remain pending with capped retry delay. Uncertain submissions never
 replay. Commission notices retain their own route and queue.
 
 Full non-Codex heartbeats with a matching PM Watch binding omit inbox intake.
 Pending summaries can wake a host cycle when Feed is empty. At the end of the
 cycle, `heartbeat pm-digest` claims up to five updates, decisions first, using
 the plan's binding-revision token. The host presents one digest via its ordinary
-notification protocol. The claim is persisted before exposing the batch, so a
-host interruption after claim can leave delivery unconfirmed without repeating
-the reminder. A plan read alone never consumes summaries.
+notification protocol. The CLI records a batch as handed off after writing the digest successfully.
+A failed write leaves the batch pending for the next heartbeat. This receipt
+confirms CLI output only. A plan read alone never consumes summaries.
+
+The Watch checkpoints decisions with an owner notice before enqueueing it or
+sending a reply. For `pm_owner_notice_save_failed`, retry the job after restoring
+storage. Watch resumes the saved decision and rechecks peer-reply authorization
+before any send. Restart also resumes an interrupted checkpoint that had not
+entered `sending`.
 
 - Native: Codex exec, Claude Code print, OpenClaw `--local` with fixed `host_agent` and a fresh UUID session for first use, Hermes quiet chat. OpenClaw local JSON is parsed directly; aborted/yielded/error results fail. An active Gateway sharing its state directory must be stopped or isolated. ACP/command require fixed local argv; never derive commands from PMs. Command mode uses stdin prompt/stdout decision. Windows shims require an explicit executable/interpreter; oversized command lines yield `needs_user` before launch (use ACP/command stdin).
 - ACP v1 stdio: initialize → load supported session or create → prompt. Ignore load replay; collect current-session `agent_message_chunk`, require `end_turn`. Advertise no filesystem/terminal RPC. Cancel permission requests as `ErrNeedsUser`; reject unknown RPCs.

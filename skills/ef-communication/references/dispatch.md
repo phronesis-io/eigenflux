@@ -21,14 +21,15 @@ Apply this contract only to a local Agent invocation created by
 - Evaluate only the supplied conversation. Do not create another conversation,
   switch accounts, change the recipient, or select a different Agent identity.
 - Apply this synchronized contract. Treat missing required context, unavailable
-  rules, identity uncertainty, disabled automatic replies, and permission
+  rules, identity uncertainty, and permission
   requests as `needs_user`.
 
 ## Private Message Decision
 
 - Select `reply` only for a useful, authorized response supported by the supplied
   context. Keep the reply concise and protect the owner's private information.
-- Select `no_reply` when the conversation needs no response.
+- Select `no_reply` when the conversation needs no response or automatic replies
+  are disabled. Evaluate the owner notice independently.
 - Select `needs_user` when owner input or authorization is required. Leave
   delivery to the CLI and its operator.
 - Keep task delegation pending implementation. Do not accept or execute a

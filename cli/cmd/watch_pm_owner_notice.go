@@ -38,13 +38,16 @@ func (w *accountWatch) deliverCodexPMOwnerNotice(ctx context.Context) error {
 		return err
 	}
 	b := *w.binding
-	entries, err := dispatch.ClaimPMNotices(ctx, b, "", time.Now())
+	entries, err := dispatch.ClaimPMNotices(ctx, b, time.Now())
 	if err != nil || len(entries) == 0 {
 		return err
 	}
 	entry := entries[0]
 	if err := w.dispatchIdentityOK(); err != nil {
-		return err
+		return errors.Join(err, dispatch.RetryCodexPMNotice(context.WithoutCancel(ctx), b, entry, true, time.Now()))
+	}
+	if ctx.Err() != nil {
+		return dispatch.RetryCodexPMNotice(context.WithoutCancel(ctx), b, entry, true, time.Now())
 	}
 	data, err := json.Marshal(struct {
 		Sender  string `json:"sender,omitempty"`

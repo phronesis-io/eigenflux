@@ -92,6 +92,15 @@ func readJournal(b Binding) (journalState, bool, error) {
 			return journalState{}, false, errors.New("invalid_journal_job")
 		}
 		seen[job.ID] = true
+		if job.PMDecision != nil {
+			rawDecision, err := json.Marshal(job.PMDecision)
+			if err != nil || job.Kind != "pm_push" || job.Message == nil || job.PMDecision.OwnerNotice == nil {
+				return journalState{}, false, errors.New("invalid_journal_pm_decision")
+			}
+			if _, err := ParseDecision(string(rawDecision), job.ID); err != nil {
+				return journalState{}, false, errors.New("invalid_journal_pm_decision")
+			}
+		}
 		if !validCommissionDelivery(job) {
 			return journalState{}, false, errors.New("invalid_journal_commission_delivery")
 		}
@@ -175,6 +184,11 @@ func OpenJournal(b Binding) (*Journal, error) {
 	changed := !exists
 	for i := range s.Jobs {
 		if recoverCommissionDelivery(&s.Jobs[i], time.Now()) {
+			changed = true
+			continue
+		}
+		if s.Jobs[i].Status == "running" && s.Jobs[i].PMDecision != nil {
+			s.Jobs[i].Status = "pending"
 			changed = true
 			continue
 		}
@@ -457,6 +471,22 @@ func (j *Journal) next(kind string) (Job, bool, error) {
 	return cloneJob(j.state.Jobs[index]), true, nil
 }
 
+// SavePMDecision checkpoints a validated decision before either output is sent.
+func (j *Journal) SavePMDecision(id, sessionID string, decision Decision) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	next := cloneJournal(j.state)
+	for i := range next.Jobs {
+		job := &next.Jobs[i]
+		if job.ID == id && job.Kind == "pm_push" && job.Status == "running" {
+			job.PMDecision = &decision
+			job.SessionID = sessionID
+			return j.save(next)
+		}
+	}
+	return errors.New("pm_decision_requires_running_job")
+}
+
 func (j *Journal) Update(id, status, code, sessionID, replyID string) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -477,6 +507,9 @@ func (j *Journal) Update(id, status, code, sessionID, replyID string) error {
 		}
 		job.Status = status
 		job.Code = code
+		if code != "pm_owner_notice_save_failed" {
+			job.PMDecision = nil
+		}
 		if sessionID != "" {
 			job.SessionID = sessionID
 			if job.Message != nil {
@@ -659,6 +692,14 @@ func trimCompleted(s *journalState) {
 }
 
 func cloneJob(job Job) Job {
+	if job.PMDecision != nil {
+		decision := *job.PMDecision
+		if decision.OwnerNotice != nil {
+			notice := *decision.OwnerNotice
+			decision.OwnerNotice = &notice
+		}
+		job.PMDecision = &decision
+	}
 	job.CommissionDiagnostic = cloneCommissionDiagnostic(job.CommissionDiagnostic)
 	if job.CommissionReadiness != nil {
 		value := *job.CommissionReadiness
@@ -709,6 +750,7 @@ func redactedJobs(jobs []Job) []Job {
 	for _, job := range jobs {
 		job = cloneJob(job)
 		job.Data = nil
+		job.PMDecision = nil
 		if job.Message != nil {
 			job.Message.Content = ""
 		}
