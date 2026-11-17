@@ -19,7 +19,7 @@
     "D10": "买方收到：\n「{服务名}」订单已取消\n如已付款，退款结果会另行通知。\n\n卖方收到：\n「{服务名}」订单已取消\n订单已关闭，无需操作。",
     "F10": "Buyer sees:\n“{service_name}” order cancelled\nIf you already paid, you'll be notified about the refund.\n\nSeller sees:\n“{service_name}” order cancelled\nThe order is closed. Nothing for you to do.",
     "D11": "买方收到：\n「{服务名}」未按时交付，正在退款\n款项将退回你的付款账户，到账后另行通知。\n\n卖方收到：\n「{服务名}」交付超时，订单转为退款\n本单款项退还买方，不计收益。",
-    "F11": "Buyer sees:\n“{service_name}” was not delivered on time, refund started\nYour payment is being returned. You'll be notified when it arrives.\n\nSeller sees:\n“{service_name}” delivery overdue, order refunded\nThe payment goes back to the buyer. No earnings for this order.",
+    "F11": "Buyer sees:\n“{service_name}” was not delivered on time, refund started\nYour payment is being returned. You'll be notified when it arrives.\n\nSeller sees:\n“{service_name}” delivery overdue, refund in progress\nThe payment goes back to the buyer. No earnings for this order.",
     "D12": "买方收到：\n「{服务名}」已退款\n款项已退回你的付款账户。\n\n卖方收到：\n「{服务名}」订单已退款\n本单不计收益，无需操作。",
     "F12": "Buyer sees:\n“{service_name}” refunded\nYour payment has been returned.\n\nSeller sees:\n“{service_name}” order refunded\nNo earnings for this order. Nothing for you to do."
   },
@@ -30,8 +30,8 @@
     "F3": "Buyer sees:\n“{service_name}” cancelled, payment returned\nYour payment has been returned.\n\nSeller sees:\n“{service_name}” cancelled, buyer refunded\nNo earnings for this order. Nothing for you to do.",
     "D4": "「{服务名}」收益入账遇到问题，系统正在重试\n无需操作，入账成功后会通知你。",
     "F4": "“{service_name}” earnings credit hit a problem, retrying\nNothing for you to do. You'll be notified once it's credited.",
-    "D5": "「{服务名}」收益已存入平台钱包\n可在控制台查看余额或提现。",
-    "F5": "“{service_name}” earnings added to your wallet\nCheck your balance or withdraw in the Console.",
+    "D5": "「{服务名}」收益已存入平台钱包\n点击查看订单收益。",
+    "F5": "“{service_name}” earnings added to your wallet\nClick to view the order earnings.",
     "D6": "买方收到：\n「{服务名}」交付检查暂时出错，系统正在重试\n无需操作，检查通过后会通知你确认。\n\n卖方收到：\n「{服务名}」交付检查暂时出错，系统正在重试\n无需操作，检查通过后会转给买方确认。",
     "F6": "Buyer sees:\n“{service_name}” delivery check hit a problem, retrying\nNothing for you to do. You'll be asked to confirm once it passes.\n\nSeller sees:\n“{service_name}” delivery check hit a problem, retrying\nNothing for you to do. It goes to the buyer once the check passes."
   },

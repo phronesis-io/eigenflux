@@ -3,6 +3,8 @@ package cmd
 import (
 	"context"
 	"errors"
+	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -33,7 +35,12 @@ func (w *accountWatch) finishBuyerMaterialWaiting(ctx context.Context, job dispa
 		if err != nil {
 			return err
 		}
-		title, body := buyerMaterialNoticeCopy(desktopnotify.SystemLanguage(), order.InputRequest)
+		language := desktopnotify.SystemLanguage()
+		title, body := buyerMaterialNoticeCopy(language, order.InputRequest)
+		body = desktopActionDeadlinePlaceholder + body
+		if runtime.GOOS == "darwin" {
+			title, body = buyerMaterialDesktopCard(language, order.InputRequest)
+		}
 		message := desktopnotify.Message{ID: buyerMaterialDesktopID(w.scope, data), Title: title, Body: body, URL: target}
 		trace := &maintenance.WatchNotification{Origin: "input_request", OrderID: data.OrderID, OrderVersion: data.OrderVersion, Role: "buyer", JobID: job.ID, JobKind: "commission_clarification", InputRequestIDHash: commissionDiagnosticHash(data.RequestID), InputRound: data.Round}
 		if err := w.desktop.EnqueueWithTrace(message, trace); err != nil {
@@ -87,6 +94,38 @@ func buyerMaterialNoticeCopy(language string, request *commissionInputRequest) (
 		body += "\nFiles needed: " + missing
 	}
 	return "“{service_name}” needs information from you", body
+}
+
+func buyerMaterialDesktopCard(language string, request *commissionInputRequest) (string, string) {
+	title := "Materials needed"
+	if language == "zh" {
+		title = "待补充订单材料"
+	}
+	question := desktopCardLabel(desktopServiceName(request.Question), 28, 16)
+	missing := len(request.MissingInputs)
+	if missing == 1 && request.MissingInputs[0] != "required_input_files" {
+		file := desktopCardLabel(desktopServiceName(request.MissingInputs[0]), 21, 12)
+		if question != "" {
+			question += "\n"
+		}
+		if language == "zh" {
+			title += " · 缺 1 个文件"
+			question += "待补 " + file
+		} else {
+			title += " · 1 file"
+			question += "Missing " + file
+		}
+	} else if missing > 0 {
+		if language == "zh" {
+			title += " · 待补文件"
+		} else {
+			title += " · Files required"
+		}
+		if missing > 1 {
+			title += fmt.Sprintf(" (%d)", missing)
+		}
+	}
+	return title, desktopCardService + "\n" + desktopActionDeadlinePlaceholder + question
 }
 
 func (w *accountWatch) buyerInputNoticeCurrent(ctx context.Context, item dispatch.MainNotice) bool {
