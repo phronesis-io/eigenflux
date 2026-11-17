@@ -21,9 +21,7 @@ import (
 	"cli.eigenflux.ai/internal/cache"
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
-	"cli.eigenflux.ai/internal/dispatch"
 	"cli.eigenflux.ai/internal/output"
-	watchstate "cli.eigenflux.ai/internal/watch"
 
 	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
@@ -134,24 +132,6 @@ func dialStreamWithCredentialRefresh(dialer streamDialer, rawURL string, headers
 	return conn, credentials, true, err
 }
 
-// Avoid a competing inbox socket for an account whose persisted Watch
-// binding owns PM intake, even if the Watch is temporarily restarting.
-func watchOwnsStreamPM(server config.Server, credentials *auth.V2Credentials) (bool, error) {
-	home, err := watchstate.CanonicalHome(config.HomeDir())
-	if err != nil {
-		return false, err
-	}
-	b, err := dispatch.ReadBinding(home, server.Name)
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return b.Handles("pm_push") && b.Endpoint == server.Endpoint &&
-		b.AgentID == credentials.AgentID && b.PrincipalID == credentials.PrincipalID, nil
-}
-
 var streamCmd = &cobra.Command{
 	Use:   "stream",
 	Short: "Stream real-time PM push updates via WebSocket",
@@ -252,16 +232,6 @@ Examples:
 				credentials, credentialErr := ensureV2Credentials(srv.Name, srv.Endpoint)
 				if credentialErr != nil {
 					return credentialErr
-				}
-				owned, err := watchOwnsStreamPM(*srv, credentials)
-				if err != nil {
-					return err
-				}
-				if owned {
-					if once || !watchPause(ctx, reconnectMin) {
-						return nil
-					}
-					continue
 				}
 				if activeAgentID != "" && activeAgentID != credentials.AgentID {
 					mu.Lock()
