@@ -217,7 +217,10 @@ configuration and invalid-output failures do not publish. `pending`,
 `processing`, and `pass` remain unfinished until `published`; verify the public
 revision's `source_draft_version`. A changed draft or lifecycle invalidates old
 approval (`stale`). Existing public revisions and historical Orders are unchanged.
-Read status instead of repeating the local publication trial to poll. A corrected
+Read status instead of repeating the local publication trial to poll. For a
+bound main conversation, the CLI queues the `published` moderation notice
+alongside the desktop notice. The signed Skill verifies the public revision and
+applies the owner’s automatic publishing setting in that turn. A corrected
 failure can be retried explicitly with a fresh idempotency key; a rejection or
 manual-review hold cannot be bypassed by another key.
 

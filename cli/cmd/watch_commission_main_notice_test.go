@@ -102,3 +102,52 @@ func TestCommissionMainNoticeCancelsOnIdentityChange(t *testing.T) {
 		t.Fatal(status)
 	}
 }
+
+func TestPublishedModerationQueuesSignedBroadcastRules(t *testing.T) {
+	w := newCommissionWatch(t, "http://127.0.0.1:1", "commission_order")
+	installCommissionIntakeRules(t, w)
+	w.runMainNotice = func(_ context.Context, _ string) (dispatch.Result, error) {
+		return dispatch.Result{}, errors.New("unexpected direct submission")
+	}
+	for _, event := range []struct {
+		id    notificationID
+		state string
+	}{{81, "review"}, {82, "pass"}, {83, "published"}, {83, "published"}} {
+		notice, err := parseModerationNotification(moderationTestNotification("42", event.state), "42")
+		if err != nil {
+			t.Fatal(err)
+		}
+		notice.ID = event.id
+		if _, err := w.enqueueModerationNotification(notice); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Reopen from disk to verify the durable queue, not only the in-memory wake-up.
+	queue, err := dispatch.OpenMainNoticeQueue(*w.binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, ok, err := queue.Next()
+	if err != nil || !ok || !item.IsListingPublication() || item.CommissionID != "9007199254740993" || item.DraftVersion != 3 {
+		t.Fatalf("wrong queued notice: %+v, %v", item, err)
+	}
+	prompt, err := w.commissionMainNoticePrompt(item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{`"commission_id":"9007199254740993"`, `"draft_version":3`, "public_revision.source_draft_version", "SIGNED BROADCAST REFERENCE", "recurring_publish"} {
+		if !strings.Contains(prompt, expected) {
+			t.Errorf("publication prompt missing %q", expected)
+		}
+	}
+	if _, ok, err := queue.Next(); err != nil || ok {
+		t.Fatalf("unpublished or duplicate notice queued: %t, %v", ok, err)
+	}
+
+	completion, err := w.commissionMainNoticePrompt(dispatch.MainNotice{
+		ID: "83", OrderID: "901", Version: 9, Role: "buyer", Event: "order.state.changed.v1", State: "completed",
+	})
+	if err != nil || !strings.Contains(completion, "SIGNED BROADCAST REFERENCE") || !strings.Contains(completion, "completion-<order-id>") {
+		t.Fatalf("completion is missing the shared broadcast rules: %v", err)
+	}
+}

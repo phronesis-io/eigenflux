@@ -59,7 +59,7 @@ owner_ready is reachability, not idle status or a completed business result.
 
 Main notices do not authorize payments, acceptance, receipt confirmation, refunds,
 cancellation or retries. Read current Order state rather than trusting event hints.
-Only model results appear in the main conversation; no instruction/event echo.
+The signed Skill applies the owner’s automatic publishing setting to verified Order completion transitions. It claims the event locally before sending a broadcast or offering to share, using the same claim as the interactive flow. Only model results appear in the main conversation; no instruction/event echo.
 When OS notification permission is confirmed enabled, busy or failed calls proven
 not submitted get at most five total attempts. After failures, wait 1, 2, 5 and
 10 minutes. Persist attempts and due times under the original notification ID;

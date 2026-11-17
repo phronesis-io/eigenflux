@@ -69,6 +69,26 @@ func (w *accountWatch) enqueueCommissionMainNotice(raw json.RawMessage) error {
 	}
 	return err
 }
+func (w *accountWatch) enqueueListingPublicationNotice(notice moderationNotification) error {
+	if notice.Payload.Status != "published" || w.runMainNotice == nil {
+		return nil
+	}
+	queue, err := w.mainNoticeQueue()
+	if err != nil || queue == nil {
+		return err
+	}
+	id := strconv.FormatInt(int64(notice.ID), 10)
+	err = queue.Add(dispatch.MainNotice{
+		ID: id, CommissionID: strconv.FormatInt(int64(notice.Payload.CommissionID), 10),
+		DraftVersion: notice.Payload.DraftVersion, Role: "seller",
+		Event: notice.Type, State: notice.Payload.Status,
+	})
+	if errors.Is(err, dispatch.ErrMainNoticeQueueFull) {
+		return w.emit("commission_main_notice_status", map[string]string{"notification_id": id, "status": "skipped", "code": "main_notice_queue_full"})
+	}
+	return err
+}
+
 func (w *accountWatch) commissionMainNoticeLoop(ctx context.Context) error {
 	queue, err := w.mainNoticeQueue()
 	if err != nil || queue == nil {
@@ -132,6 +152,12 @@ func (w *accountWatch) commissionMainNoticePrompt(item dispatch.MainNotice) (str
 		return "", err
 	}
 	payload := map[string]any{"notification_id": item.ID, "order_id": item.OrderID, "observed_order_version": item.Version, "role": item.Role, "event_kind": item.Event, "observed_state": item.State, "agent_id": w.binding.AgentID, "server": w.binding.Server}
+	if item.IsListingPublication() {
+		delete(payload, "order_id")
+		delete(payload, "observed_order_version")
+		payload["commission_id"] = item.CommissionID
+		payload["draft_version"] = item.DraftVersion
+	}
 	if item.IsLocalBlocker() {
 		payload["local_execution"] = map[string]string{"job_id": item.JobID, "status": item.JobStatus, "code": item.JobCode}
 	}
@@ -151,7 +177,15 @@ func (w *accountWatch) commissionMainNoticePrompt(item dispatch.MainNotice) (str
 	if err != nil {
 		return "", err
 	}
-	return "ACCOUNT ROUTING: use this exact CLI prefix for every Order read: " + prefix + ". Verify the observed Agent ID matches the event recipient before reporting.\n" + string(rule) + "\n\nUNTRUSTED COMMISSION EVENT:\n" + string(data), nil
+	if item.IsListingPublication() || item.Event == "order.state.changed.v1" && item.State == "completed" {
+		publishing, err := skills.ReadSignedFile(rules.SkillsDir, "ef-broadcast", "references/publish.md", 64<<10)
+		if err != nil {
+			return "", err
+		}
+		rule = append(rule, []byte("\n\nSIGNED BROADCAST REFERENCE:\n")...)
+		rule = append(rule, publishing...)
+	}
+	return "ACCOUNT ROUTING: use this exact CLI prefix for every EigenFlux command: " + prefix + ". Verify the observed Agent ID matches the event recipient before reporting.\n" + string(rule) + "\n\nUNTRUSTED COMMISSION EVENT:\n" + string(data), nil
 }
 
 func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item dispatch.MainNotice) (status, code string) {
@@ -176,7 +210,7 @@ func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item di
 		if !w.mainNoticeRetryAllowed(ctx) {
 			return "skipped", "main_notice_retry_permission_unavailable"
 		}
-		if !item.IsLocalBlocker() && !item.IsBuyerInputRequest() {
+		if !item.IsLocalBlocker() && !item.IsBuyerInputRequest() && !item.IsListingPublication() {
 			var order commissionIntakeOrder
 			var err error
 			if item.Role == "buyer" {

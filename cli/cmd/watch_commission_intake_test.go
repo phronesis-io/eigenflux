@@ -25,8 +25,10 @@ import (
 func installCommissionIntakeRules(t *testing.T, w *accountWatch) {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.CopyFS(filepath.Join(dir, "ef-commission"), os.DirFS("../../skills/ef-commission")); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"ef-commission", "ef-broadcast"} {
+		if err := os.CopyFS(filepath.Join(dir, name), os.DirFS("../../skills/"+name)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := os.Mkdir(filepath.Join(dir, "input-review"), 0700); err != nil {
 		t.Fatal(err)
@@ -42,7 +44,7 @@ func installCommissionIntakeRules(t *testing.T, w *accountWatch) {
 	skills.VerifyPublicKeyBase64 = base64.StdEncoding.EncodeToString(pub)
 	version = "1.0.0"
 	t.Cleanup(func() { skills.VerifyPublicKeyBase64 = oldKey; version = oldVersion })
-	manifest, err := skills.GenerateManifest(dir, "1.0.0", "1.0.0", []string{"ef-commission"}, 1)
+	manifest, err := skills.GenerateManifest(dir, "1.0.0", "1.0.0", []string{"ef-commission", "ef-broadcast"}, 1)
 	if err != nil {
 		t.Fatal(err)
 	}

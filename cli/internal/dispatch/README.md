@@ -634,11 +634,15 @@ main_notice_queue.go persists one notice per notification ID before ACK, separat
 from seller execution and desktop delivery. Explicit main-notice capacity overflow
 skips only that notice; business intake, desktop enqueue and ACK continue. Other
 persistence errors retain the existing fail-closed behavior. Signed main-notice.md pins the exact
-Home/server read prefix. Buyer delivery notices require downloaded-artifact inspection
+Home/server CLI prefix. Published moderation events reuse this queue with a Commission
+ID and reviewed draft version. Only the published event enters the main queue;
+other moderation states retain desktop delivery. The signed notice verifies the
+active public revision and uses the same local event claim as interactive
+listing publication. Buyer delivery notices require downloaded-artifact inspection
 and an owner-facing acceptance report with files, contract compliance, defects or
 verification limits, and a recommendation. Platform validation remains distinct
 from content inspection; unchanged delivery snapshots reuse the verified conclusion.
-Receipt confirmation still requires buyer authorization. Guard identity before/during/after execution. With OS
+Receipt confirmation still requires buyer authorization. A verified completed transition uses the signed Skill’s Commission broadcast procedure and shares its local event claim with the interactive Order flow. Guard identity before/during/after execution. With OS
 notification permission confirmed enabled, proven pre-submission failures get up
 to five total attempts, with 1/2/5/10-minute delays after failure. Persist Attempts
 and NextAttemptAt under the same scoped notification ID. Repeated enqueue and
