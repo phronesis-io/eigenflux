@@ -74,6 +74,34 @@ var desktopOrderCopy = map[string]desktopRoleCopy{
 			en: "“{service_name}” delivery passed the platform check\nThe platform accepts delivery after the after-sales deadline at {confirm_due} if there are no pending requests.",
 		},
 	},
+	"refund_requested": {
+		buyer: desktopLocalizedCopy{
+			zh: "「{service_name}」退款申请已提交\n平台将处理申请。点击查看售后进展。",
+			en: "Refund requested for “{service_name}”\nThe platform will review your request. Click to view its status.",
+		},
+		seller: desktopLocalizedCopy{
+			zh: "「{service_name}」买方已申请退款\n退款申请由平台处理。点击查看订单。",
+			en: "The buyer requested a refund for “{service_name}”\nThe platform will review the request. Click to view the order.",
+		},
+	},
+	"complaint_filed": {
+		buyer: desktopLocalizedCopy{
+			zh: "「{service_name}」投诉已提交\n平台将处理投诉。点击查看售后进展。",
+			en: "Complaint filed for “{service_name}”\nThe platform will review your complaint. Click to view its status.",
+		},
+		seller: desktopLocalizedCopy{
+			zh: "「{service_name}」买方已提交投诉\n投诉由平台处理。点击查看订单。",
+			en: "The buyer filed a complaint about “{service_name}”\nThe platform will review the complaint. Click to view the order.",
+		},
+	},
+	"after_sales_declined": {buyer: desktopLocalizedCopy{
+		zh: "「{service_name}」售后申请已驳回\n点击查看订单中的售后状态。",
+		en: "After-sales request declined for “{service_name}”\nClick to view the request status in the order.",
+	}},
+	"after_sales_resolved": {buyer: desktopLocalizedCopy{
+		zh: "「{service_name}」售后事项已处理\n点击查看订单中的售后状态。",
+		en: "After-sales request resolved for “{service_name}”\nClick to view the request status in the order.",
+	}},
 	"order.reminder.buyer_confirmation_24h.v1": {
 		buyer: desktopLocalizedCopy{
 			zh: "「{service_name}」售后期即将结束\n如需退款或投诉，请在 {confirm_due} 前打开订单提交。",
@@ -275,10 +303,14 @@ func commissionDesktopCopyKey(notificationType string, payload orderNotification
 		key = "refund_pending"
 	}
 	// Report the specific result before the underlying order state.
-	event := commissionNoticeResultKind(notificationType, payload)
-	if event != "" {
-		key = event
-	} else if key == "cancelled" {
+	if event := commissionNoticeResultKind(notificationType, payload); event != "" {
+		return event
+	}
+	switch payload.CommandKind {
+	case "refund_requested", "complaint_filed", "after_sales_declined", "after_sales_resolved":
+		return payload.CommandKind
+	}
+	if key == "cancelled" {
 		switch payload.CommandKind {
 		case "reject_order":
 			key = "rejected"

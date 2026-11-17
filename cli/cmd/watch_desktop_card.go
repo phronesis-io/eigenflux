@@ -20,6 +20,12 @@ var commissionDesktopCardTitles = map[string]desktopLocalizedCopy{
 	"in_progress":                 {"已付款 · 待交付", "Paid · Delivery due"},
 	"validating":                  {"交付检查中", "Checking delivery"},
 	"awaiting_buyer_confirmation": {"售后期内", "After-sales period"},
+
+	"refund_requested":     {"退款申请待平台处理", "Refund request pending platform review"},
+	"complaint_filed":      {"投诉待平台处理", "Complaint pending platform review"},
+	"after_sales_declined": {"售后申请已驳回", "After-sales request declined"},
+	"after_sales_resolved": {"售后事项已处理", "After-sales request resolved"},
+
 	"order.reminder.buyer_confirmation_24h.v1": {"售后期提醒", "After-sales reminder"},
 	"completed":                            {"订单已完成", "Order completed"},
 	"auto_completed":                       {"平台已验收", "Accepted by the platform"},
