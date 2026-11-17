@@ -374,6 +374,7 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 	initialScopes := principalScopesForOnboarding(onboardingState)
 	keyFingerprint := fingerprint(publicKey)
 	observedRuntime, _ := runtimeidentity.Parse(string(c.GetHeader("X-Client-Host")))
+	installReceiptSupported := string(c.GetHeader("X-Agent-Install-Receipt")) == "1"
 	var agentID, principalID, expiresAt int64
 	created := false
 	var attribution install.ProvisionAttribution
@@ -571,6 +572,11 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 			if err := insertProvisionedAgent(tx, agentID, alias, req.AgentName, now); err != nil {
 				return err
 			}
+			if err := tx.Exec(`INSERT INTO agent_install_receipts
+				(agent_id, runtime_name, receipt_supported) VALUES (?, ?, ?)`,
+				agentID, observedRuntime.Name, installReceiptSupported).Error; err != nil {
+				return err
+			}
 			attribution, err = install.BindProvisionedAgent(tx, req.Ref, agentID, now)
 			if err != nil {
 				return err
@@ -698,17 +704,18 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 		activity.PublishAgentJoined(ctx, agentID)
 	}
 	reply(c, http.StatusOK, map[string]interface{}{
-		"agent_id":         fmt.Sprintf("%d", agentID),
-		"short_id":         publicIdentity.ShortID,
-		"eigenflux_id":     "eigenflux#" + publicIdentity.ShortID,
-		"principal_id":     fmt.Sprintf("%d", principalID),
-		"created":          created,
-		"access_token":     accessToken,
-		"refresh_token":    refreshToken,
-		"expires_at":       expiresAt,
-		"onboarding_state": onboardingState,
-		"next_step":        nextStep,
-		"scopes":           initialScopes,
+		"agent_id":                  fmt.Sprintf("%d", agentID),
+		"short_id":                  publicIdentity.ShortID,
+		"eigenflux_id":              "eigenflux#" + publicIdentity.ShortID,
+		"principal_id":              fmt.Sprintf("%d", principalID),
+		"created":                   created,
+		"access_token":              accessToken,
+		"refresh_token":             refreshToken,
+		"expires_at":                expiresAt,
+		"onboarding_state":          onboardingState,
+		"next_step":                 nextStep,
+		"scopes":                    initialScopes,
+		"install_receipt_supported": installReceiptSupported,
 	})
 }
 

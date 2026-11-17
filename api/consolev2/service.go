@@ -364,6 +364,7 @@ func (s *Service) Register(h *server.Hertz) {
 		h.POST("/api/v2/agent-identities/registration-challenges", s.issuePublicRegistrationChallenge)
 	}
 	h.POST("/api/v2/agent-identities/provision", s.provision)
+	h.POST("/api/v2/agents/me/install-receipt", s.agentAuth("console:handoff:create"), s.acknowledgeInstallReceipt)
 	h.POST("/api/v2/agent-sessions/refresh-challenges", s.createRefreshChallenge)
 	h.POST("/api/v2/agent-sessions/refresh", s.refreshAgentSession)
 	h.POST("/api/v2/account-email-bindings/challenges", s.consoleAuth(true), s.createEmailBindingChallenge)

@@ -260,15 +260,16 @@ type v2Poster interface {
 }
 
 type provisionV2Response struct {
-	AgentID         string   `json:"agent_id"`
-	PrincipalID     string   `json:"principal_id"`
-	Created         bool     `json:"created"`
-	AccessToken     string   `json:"access_token"`
-	RefreshToken    string   `json:"refresh_token"`
-	ExpiresAt       int64    `json:"expires_at"`
-	Scopes          []string `json:"scopes"`
-	NextStep        int16    `json:"next_step"`
-	createdProvided bool
+	AgentID                 string   `json:"agent_id"`
+	PrincipalID             string   `json:"principal_id"`
+	Created                 bool     `json:"created"`
+	AccessToken             string   `json:"access_token"`
+	RefreshToken            string   `json:"refresh_token"`
+	ExpiresAt               int64    `json:"expires_at"`
+	Scopes                  []string `json:"scopes"`
+	NextStep                int16    `json:"next_step"`
+	InstallReceiptSupported bool     `json:"install_receipt_supported"`
+	createdProvided         bool
 }
 
 func requestV2Provision(v2 v2Poster, request provisionV2Request, privateKey ed25519.PrivateKey) (*provisionV2Response, error) {
@@ -460,6 +461,7 @@ var agentV2ProvisionCmd = &cobra.Command{
 			return err
 		}
 		v2 := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", "", version, meta)
+		v2.Meta.InstallReceipt = true
 		expectedAgentID := ""
 		preserveExistingIdentity := false
 		var legacyCredentials *auth.Credentials
@@ -566,6 +568,11 @@ var agentV2ProvisionCmd = &cobra.Command{
 			"next_step":    provisioned.NextStep,
 			"runtime_host": meta.Host, "mode": meta.Mode,
 			"runtime_identity_complete": meta.Host != "" && meta.Mode != "",
+		}
+		if provisioned.InstallReceiptSupported {
+			if err := acknowledgeAgentInstall(*server, provisioned.AccessToken); err != nil {
+				output.PrintMessage("Agent registration succeeded, but the Agent installation receipt is pending. Retry agent provision with the same Home and server.")
+			}
 		}
 		if recovery := completePendingWatchRecovery(cmd, cfg); recovery != nil {
 			result["watch_recovery"] = recovery

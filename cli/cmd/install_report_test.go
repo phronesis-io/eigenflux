@@ -136,6 +136,60 @@ func TestV2ProvisionRetriesSavedInstallAfterReportFailure(t *testing.T) {
 	}
 }
 
+func TestV2ProvisionAcknowledgesAgentInstallWithoutRef(t *testing.T) {
+	calls := 0
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/agent-identities/registration-challenges":
+			fmt.Fprint(w, `{"code":0,"data":{"bootstrap_grant":"grant","nonce":"nonce"}}`)
+		case "/api/v2/agent-identities/provision":
+			var request provisionV2Request
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.Ref != "" ||
+				r.Header.Get("X-Agent-Install-Receipt") != "1" {
+				t.Errorf("unexpected provision report capability or ref: %v", err)
+			}
+			fmt.Fprint(w, `{"code":0,"data":{"agent_id":"agent-1","access_token":"new-token","refresh_token":"refresh","expires_at":4102444800000,"created":true,"install_receipt_supported":true}}`)
+		case "/api/v2/agents/me/install-receipt":
+			calls++
+			cfg, err := config.Load()
+			if err != nil {
+				t.Error(err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			server, err := cfg.GetActive(serverFlag)
+			if err != nil {
+				t.Error(err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			credentials, err := auth.LoadV2Credentials(server.Name)
+			if err != nil || credentials.AccessToken != "new-token" || r.Header.Get("Authorization") != "Bearer new-token" {
+				t.Errorf("receipt must use the saved Agent credential: %v", err)
+			}
+			fmt.Fprint(w, `{"code":0,"data":{"recorded":true}}`)
+		default:
+			t.Errorf("unexpected route %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer endpoint.Close()
+	_, serverName := runtimeTestConfig(t, endpoint.URL, false)
+	if err := auth.DeleteCredentials(serverName); err != nil {
+		t.Fatal(err)
+	}
+	command := &cobra.Command{}
+	command.Flags().String("mode", "skill", "")
+	command.Flags().String("runtime-name", "codex", "")
+	command.Flags().Bool("no-handoff", true, "")
+	if _, err := captureHeartbeatStdout(t, func() error { return agentV2ProvisionCmd.RunE(command, nil) }); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("Agent install receipt calls=%d, want 1", calls)
+	}
+}
+
 func TestProvisionInstallReportRetryBudget(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

@@ -12,6 +12,22 @@ import (
 	"cli.eigenflux.ai/internal/config"
 )
 
+func acknowledgeAgentInstall(server config.Server, accessToken string) error {
+	c := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", accessToken, version, client.Meta{})
+	c.HTTPClient.Timeout = 5 * time.Second
+	response, err := c.Post("/agents/me/install-receipt", nil)
+	if err != nil {
+		return err
+	}
+	var receipt struct {
+		Recorded *bool `json:"recorded"`
+	}
+	if response.HTTPStatus != 200 || response.Code != 0 || json.Unmarshal(response.Data, &receipt) != nil || receipt.Recorded == nil {
+		return fmt.Errorf("invalid Agent installation receipt acknowledgement")
+	}
+	return nil
+}
+
 // reportProvisionedInstall records the running CLI's installation separately
 // from the identity attribution already committed by V2 provision. The server
 // deduplicates conversions by ref; reprovisioning can retry a missed report.
