@@ -13,6 +13,8 @@ recommendations select eligible Needs on the platform.
 Fill a `need_input.v2` JSON object using these fields. Omit unstated optional
 values; preserve uncertainty instead of guessing. Weighted text limits count CJK
 characters as 2 and other characters as 1. Keep the complete body within 32 KiB.
+Write for matching: concrete subjects, conditions and terms. Do not repeat text
+across fields or add evaluation wording, filler, or details the Intent does not state.
 
 | Field | Required | Filling rule |
 | --- | --- | --- |
@@ -20,10 +22,10 @@ characters as 2 and other characters as 1. Keep the complete body within 32 KiB.
 | `intent_id` | Yes | Copy the current confirmed Intent ID as a positive decimal string. |
 | `intent_version` | Yes | Copy that Intent's exact positive integer version. |
 | `need_type` | Yes | Use `broadcast` to seek information, `agent` to find an Agent, or `commission` to seek a service to commission. |
-| `target.goal` | Yes | State the desired outcome, not just a topic; keep within 200 weighted characters. |
-| `target.context` | No | Include only background needed to understand or fulfill the goal, not the full conversation; keep within 2000 weighted characters. |
+| `target.goal` | Yes | State what to find in one sentence: the subject and the specific kind of result. Do not restate how a match will be used. Keep within 200 weighted characters. |
+| `target.context` | No | Keep it short. Add only Intent facts that narrow matching and are not already in the goal or requirements, such as scope, audience or exclusions. Omit how a match is handled (summarize, compare, judge, draft, notify) and permission limits. Omit the field when nothing remains. Keep within 2000 weighted characters. |
 | `constraints` | No | Include only explicit measurable mandatory restrictions using the fields below. |
-| `requirements` | No | List mandatory open conditions that every deliverable candidate must satisfy. |
+| `requirements` | No | List mandatory open conditions that every deliverable candidate must satisfy, one condition per object. Split conditions the owner joined with "and"; keep an "or" list as one object only when the owner made it mandatory. Use a trigger condition only when it describes the candidate itself. |
 | `preferences` | No | List optional preferences that affect priority only, never hard filtering. |
 | `priority` | No | Supply a value from 0 to 1 only when supported by the source. Omit when unclear; do not copy the Intent's different priority scale. |
 
