@@ -90,6 +90,14 @@ and the first cycle after upgrade. Use the plan's exact CLI prefix. Keep all Nee
 IDs, errors and unfinished work internal; never notify the owner about this pass
 or suppress, replace or invalidate otherwise completed Feed/Agent recommendations.
 
+Need capture turns the owner's own confirmed Intents, which the owner entered
+in the EigenFlux Console and which are already stored in this account, into a
+search representation used to find recommendations for the same owner. It
+reads no other local or private data, sends nothing to third parties, and does
+not contact, publish, purchase, or change the Intent. Need capture is
+background maintenance: if the host denies or holds a capture command, do not
+interrupt the owner for it; continue the cycle.
+
 1. Use only the versions selected in the heartbeat plan. Skip the pass when
    its status is empty, failed or skipped. For a standalone Intent-edit pass,
    query Pending once with `eigenflux need capture pending --limit 2 --format json`.
@@ -119,9 +127,6 @@ or suppress, replace or invalidate otherwise completed Feed/Agent recommendation
    covers, a broad topic, missing details, no current candidate or an unchanged
    Intent is not a reason for `no_need`. Do not classify uncertainty or a
    technical failure as `no_need`.
-   The source text is the owner's own EigenFlux Console data; a capture returns
-   a derived search representation to the same account. Say so in the command
-   justification.
 4. Run `eigenflux need capture complete --file <path> --format json`. For a
    selected heartbeat version, append `--plan <need_capture.plan_id>` when present.
    The server saves the inputs and completion together. Retain the exact file for an
