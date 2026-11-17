@@ -13,7 +13,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/config"
@@ -141,12 +140,12 @@ func TestDesktopServiceNameLeavesExistingQueueCopyUnchanged(t *testing.T) {
 	}
 }
 
-func TestDesktopServiceNameNormalizationAndLength(t *testing.T) {
+func TestDesktopDisplayTextKeepsFullLabels(t *testing.T) {
 	for _, tc := range []struct{ raw, want string }{
 		{" a\n\tb\u00a0c\x00\u202e ", "a b c"}, {"\x00\u202e \n", ""}, {string([]byte{0xff}), ""},
-		{strings.Repeat("服", 90), strings.Repeat("服", 79) + "…"},
+		{strings.Repeat("服", 90), strings.Repeat("服", 90)},
 	} {
-		if got := desktopServiceName(tc.raw); got != tc.want || utf8.RuneCountInString(got) > 80 {
+		if got := desktopCleanDisplayText(tc.raw); got != tc.want {
 			t.Fatalf("normalized title %q, want %q", got, tc.want)
 		}
 	}
@@ -259,7 +258,7 @@ func TestDesktopRecipientIdentityFallbackAndLanguages(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					expected := desktopServiceName(name)
+					expected := desktopCleanDisplayText(name)
 					if expected == "" {
 						expected = "Agent 42"
 					}
@@ -363,21 +362,6 @@ func TestDesktopBuyerNameUsesOrderBuyerAndKeepsReceiverPrefix(t *testing.T) {
 	}
 }
 
-func TestDesktopShortServiceNamePreservesBothEnds(t *testing.T) {
-	for _, tc := range []struct{ raw, want string }{
-		{"短服务名", "短服务名"},
-		{"1234567890123", "1234567890123"},
-		{"12345678901234", "123456…901234"},
-		{"动物起源与演化科普撰写（指定物种）", "动物起源与演…（指定物种）"},
-		{"开头六个汉字" + strings.Repeat("中", 100) + "结尾六个汉字", "开头六个汉字…结尾六个汉字"},
-		{"  开头\n服务\u202e  ", "开头 服务"},
-	} {
-		if got := desktopShortServiceName(tc.raw); got != tc.want {
-			t.Errorf("got %q want %q", got, tc.want)
-		}
-	}
-}
-
 func TestDesktopStyleThreePreservesAccountBuyerAndRouting(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -401,10 +385,10 @@ func TestDesktopStyleThreePreservesAccountBuyerAndRouting(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.HasPrefix(got.Title, "【卖方 · 凯瑞’s Codex】") || !strings.HasSuffix(got.Title, "｜动物起源与演…（指定物种）") || got.ID != m.ID || got.URL != m.URL {
+		if !strings.HasPrefix(got.Title, "【卖方 · 凯瑞’s Codex】") || !strings.HasSuffix(got.Title, "｜动物起源与演化科普撰写（指定物种）") || got.ID != m.ID || got.URL != m.URL {
 			t.Fatalf("%s: %+v", key, got)
 		}
-		if key == "pending_payment" && (got.Title != "【卖方 · 凯瑞’s Codex】已接单 · 待付款｜动物起源与演…（指定物种）" || !strings.Contains(got.Body, "买方「宝镜」付款后")) {
+		if key == "pending_payment" && (got.Title != "【卖方 · 凯瑞’s Codex】已接单 · 待付款｜动物起源与演化科普撰写（指定物种）" || !strings.Contains(got.Body, "买方「宝镜」付款后")) {
 			t.Fatalf("wrong pending-payment layout: %+v", got)
 		}
 	}

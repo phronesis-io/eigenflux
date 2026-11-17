@@ -112,14 +112,11 @@ func readCommissionNoticeCredit(ctx context.Context, api *client.Client, orderID
 	return nil
 }
 
-func (w *accountWatch) desktopCommissionCounterparty(ctx context.Context, body string, order commissionNoticeOrder, role string, english, compact bool) string {
+func (w *accountWatch) desktopCommissionCounterparty(ctx context.Context, body string, order commissionNoticeOrder, role string, english bool) string {
 	if !strings.Contains(body, desktopCounterpartyPlaceholder) {
 		return ""
 	}
 	name := w.commissionNoticeCounterparty(ctx, order, role, english)
-	if compact {
-		name = desktopCardLabel(name, 20, 12)
-	}
 	if english {
 		label := "Seller"
 		if role == "seller" {
