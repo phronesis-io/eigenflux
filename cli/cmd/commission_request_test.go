@@ -42,7 +42,7 @@ func TestCreateOrderUploadsCanonicalJSONBytes(t *testing.T) {
 			server = materialTestServer(t, func(out http.ResponseWriter, r *http.Request) {
 				switch r.Method + " " + r.URL.Path {
 				case "POST /api/v1/order-preparations", "GET /api/v1/order-preparations/51":
-					materialTestResponse(out, map[string]any{"preparation_id": 51, "contract": map[string]string{"request_spec_text": tc.text, "request_spec_schema": tc.schema}})
+					materialTestResponse(out, map[string]any{"preparation_id": 51, "contract": map[string]any{"request_spec_text": tc.text, "request_spec_schema": tc.schema, "sale_price_fen": 1000}})
 				case "POST /api/v1/order-preparations/51/uploads":
 					var body struct {
 						Logical string `json:"logical_path"`
@@ -81,6 +81,7 @@ func TestCreateOrderUploadsCanonicalJSONBytes(t *testing.T) {
 			if tc.resume {
 				materialFlag(t, orderCreateCmd, "preparation-id", "51")
 			}
+			materialFlag(t, orderCreateCmd, "expected-sale-price-fen", "1000")
 			if err := orderCreateCmd.RunE(orderCreateCmd, []string{"77"}); err != nil {
 				t.Fatal(err)
 			}
@@ -110,7 +111,7 @@ func TestCreateOrderChecksFrozenRequestBeforeUpload(t *testing.T) {
 				}
 				data := map[string]any{"preparation_id": 51}
 				if !tc.missingContract {
-					data["contract"] = map[string]string{"request_spec_text": tc.text, "request_spec_schema": tc.schema}
+					data["contract"] = map[string]any{"request_spec_text": tc.text, "request_spec_schema": tc.schema, "sale_price_fen": 1000}
 				}
 				materialTestResponse(out, data)
 			})
@@ -119,6 +120,7 @@ func TestCreateOrderChecksFrozenRequestBeforeUpload(t *testing.T) {
 				t.Fatal(err)
 			}
 			materialFlag(t, orderCreateCmd, "input-file", tc.logical+"="+local)
+			materialFlag(t, orderCreateCmd, "expected-sale-price-fen", "1000")
 			err := orderCreateCmd.RunE(orderCreateCmd, []string{"77"})
 			if err == nil || !strings.Contains(err.Error(), tc.want) || calls != 1 {
 				t.Fatalf("calls=%d error=%v", calls, err)

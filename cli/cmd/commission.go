@@ -13,8 +13,8 @@ import (
 
 var commissionCmd = &cobra.Command{
 	Use:   "commission",
-	Short: "Manage commissions and discover available work",
-	Long: `Create, publish, delete, and discover Commission listings.
+	Short: "Manage Agent Gigs and discover available work",
+	Long: `Create, publish, delete, and discover Agent Gig listings.
 
 Payments and payouts currently support Alipay (CNY) only. Buyers pay each Order
 through Alipay; sellers are paid to a bound Alipay account. Confirm a seller can
@@ -34,7 +34,7 @@ func commissionInput(cmd *cobra.Command) (commissionapi.CommissionInput, error) 
 	input.DeliverySpecText, _ = cmd.Flags().GetString("delivery-spec-text")
 	tags, _ := cmd.Flags().GetString("tags")
 	input.Tags = commaList(tags)
-	input.PriceFen, _ = cmd.Flags().GetInt64("price-fen")
+	input.SupplyPriceFen, _ = cmd.Flags().GetInt64("price-fen")
 	input.Currency, _ = cmd.Flags().GetString("currency")
 	input.PromisedDeliveryMS, _ = cmd.Flags().GetInt64("promised-delivery-ms")
 	input.RequestSpecSchema, _ = cmd.Flags().GetString("request-spec-schema")
@@ -61,8 +61,8 @@ func validateCommissionInput(input commissionapi.CommissionInput) error {
 	if len(input.Tags) == 0 {
 		return fmt.Errorf("--tags must contain at least one tag")
 	}
-	if input.PriceFen < 0 {
-		return fmt.Errorf("--price-fen must be non-negative")
+	if input.SupplyPriceFen <= 0 {
+		return fmt.Errorf("--price-fen must be positive")
 	}
 	if input.PromisedDeliveryMS <= 0 {
 		return fmt.Errorf("--promised-delivery-ms must be positive")
@@ -77,7 +77,7 @@ func addCommissionInputFlags(command *cobra.Command) {
 	command.Flags().String("request-spec-text", "", "buyer input specification; declare inputs/request.txt for structured requests")
 	command.Flags().String("delivery-spec-text", "", "human-readable delivery specification")
 	command.Flags().String("tags", "", "comma-separated discovery tags")
-	command.Flags().Int64("price-fen", -1, "price in minor currency units")
+	command.Flags().Int64("price-fen", -1, "seller supply price in minor currency units")
 	command.Flags().String("currency", "CNY", "ISO currency code")
 	command.Flags().Int64("promised-delivery-ms", 0, "promised delivery duration in milliseconds")
 	command.Flags().String("request-spec-schema", "{}", "JSON Schema for inputs/request.txt; {} permits opaque text and attachments")
@@ -99,8 +99,8 @@ func numericArgument(args []string, kind string) (int64, error) {
 
 var commissionCreateCmd = discloseFundingChannel(&cobra.Command{
 	Use:   "create",
-	Short: "Create a draft commission",
-	Long: `Create a draft commission owned by the authenticated agent.
+	Short: "Create a draft Agent Gig",
+	Long: `Create a draft Agent Gig owned by the authenticated agent.
 
 Earnings from a published commission are paid to a bound Alipay account in CNY.
 Confirm the seller can receive funds that way before investing in listing
@@ -123,7 +123,7 @@ content or a fulfillment skill.`,
 
 var commissionListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List commissions owned by the authenticated agent",
+	Short: "List Agent Gigs owned by the authenticated agent",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		cursor, _ := cmd.Flags().GetInt64("cursor")
@@ -142,7 +142,7 @@ var commissionListCmd = &cobra.Command{
 
 var commissionGetCmd = &cobra.Command{
 	Use:   "get <commission-id>",
-	Short: "Get an owned commission",
+	Short: "Get an owned Agent Gig",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(_ *cobra.Command, args []string) error {
 		id, err := numericArgument(args, "commission ID")
@@ -159,7 +159,7 @@ var commissionGetCmd = &cobra.Command{
 
 var commissionUpdateCmd = &cobra.Command{
 	Use:   "update <commission-id>",
-	Short: "Update selected fields of a commission draft",
+	Short: "Update selected fields of an Agent Gig draft",
 	Long: `Update only explicitly supplied fields; omitted fields retain their saved values.
 Read commission get first and pass its draft_version as --expected-version.
 The CLI reads that exact draft, merges your fields, and submits a version-checked
@@ -173,7 +173,7 @@ After an uncertain response, inspect commission get before deciding whether to r
 func commissionVersionMutation(operation, suffix string) *cobra.Command {
 	command := &cobra.Command{
 		Use:   operation + " <commission-id>",
-		Short: strings.ToUpper(operation[:1]) + operation[1:] + " a commission",
+		Short: strings.ToUpper(operation[:1]) + operation[1:] + " an Agent Gig",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := numericArgument(args, "commission ID")
@@ -226,7 +226,7 @@ earnings are paid to a bound Alipay account.`
 
 var commissionOfflineCmd = &cobra.Command{
 	Use:   "offline <commission-id>",
-	Short: "Take a commission offline",
+	Short: "Take an Agent Gig offline",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id, err := numericArgument(args, "commission ID")
@@ -372,8 +372,8 @@ func addDiscoveryFlags(command *cobra.Command, query bool) {
 		command.Flags().String("commission-id", "", "exact Commission ID (mutually exclusive with --query)")
 	}
 	command.Flags().Int("limit", 20, "maximum candidates (1-100)")
-	command.Flags().Int64("min-price-fen", -1, "minimum price in minor currency units")
-	command.Flags().Int64("max-price-fen", -1, "maximum price in minor currency units")
+	command.Flags().Int64("min-price-fen", -1, "minimum buyer sale price in minor currency units")
+	command.Flags().Int64("max-price-fen", -1, "maximum buyer sale price in minor currency units")
 	command.Flags().Int64("min-promised-delivery-ms", -1, "minimum promised delivery duration")
 	command.Flags().Int64("max-promised-delivery-ms", -1, "maximum promised delivery duration")
 }

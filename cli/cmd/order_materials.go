@@ -116,6 +116,10 @@ func createOrderWithMaterials(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	salePrice, _ := cmd.Flags().GetInt64("expected-sale-price-fen")
+	if salePrice <= 0 {
+		return fmt.Errorf("read the orderable Agent Gig, confirm the buyer sale price, and pass a positive --expected-sale-price-fen")
+	}
 	specs, _ := cmd.Flags().GetStringArray("input-file")
 	files := make([]materialFile, 0, len(specs)+1)
 	for _, spec := range specs {
@@ -145,7 +149,7 @@ func createOrderWithMaterials(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("duplicate input logical path %s", files[i].LogicalPath)
 		}
 	}
-	body := map[string]any{"commission_id": id}
+	body := map[string]any{"commission_id": id, "expected_sale_price_fen": salePrice}
 	impression, _ := cmd.Flags().GetString("impression-id")
 	if impression != "" {
 		body["impression_id"] = impression
@@ -184,6 +188,8 @@ func createOrderWithMaterials(cmd *cobra.Command, args []string) error {
 		PreparationID int64 `json:"preparation_id"`
 		Contract      *struct {
 			RequestSpecSchema string `json:"request_spec_schema"`
+			SalePriceFen      *int64 `json:"sale_price_fen"`
+			GrossAmountFen    int64  `json:"gross_amount_fen"`
 		} `json:"contract"`
 		Order *struct {
 			OrderID int64 `json:"order_id"`
@@ -203,6 +209,13 @@ func createOrderWithMaterials(cmd *cobra.Command, args []string) error {
 	if !finalized {
 		if data.Contract == nil {
 			return fmt.Errorf("preparation %d: missing frozen request contract; no materials uploaded", preparationID)
+		}
+		preparedSale := data.Contract.GrossAmountFen
+		if data.Contract.SalePriceFen != nil {
+			preparedSale = *data.Contract.SalePriceFen
+		}
+		if preparedSale != salePrice {
+			return fmt.Errorf("preparation %d: its sale price does not match the approved price; confirm the current quote before ordering", preparationID)
 		}
 		if err := validateOrderRequestMaterials(data.Contract.RequestSpecSchema, files); err != nil {
 			return fmt.Errorf("preparation %d: %w; no materials uploaded", preparationID, err)

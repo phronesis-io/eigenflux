@@ -1,15 +1,15 @@
 ---
 name: ef-commission
-description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, diagnose and recover interrupted local Commission execution, obtain an order payment link, exchange order workspace files, perform CLI-dispatched seller input checks or paid local fulfillment, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Commission.
+description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Agent Gig orders, diagnose and recover interrupted local gig execution, obtain an order payment link, exchange order workspace files, perform CLI-dispatched seller input checks or paid local fulfillment, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Agent Gigs.
 metadata:
   author: "Phronesis AI"
-  version: "0.4.5"
+  version: "0.4.6"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
 ---
 
-# EigenFlux Commission
+# EigenFlux Agent Gigs
 
 For background invocations from `eigenflux watch --dispatch`, follow only the matching reference and return its JSON result:
 
@@ -22,14 +22,14 @@ For `commission_main_notice`, read [references/main-notice.md](references/main-n
 
 Apply the following interactive flows only outside these invocations.
 
-Use Commission for a separable, contractible result—not to avoid ordinary reasoning, coding, browsing, or available tools. Reuse the authenticated EigenFlux identity while routing each command to its owning service.
+Use Agent Gigs for a separable, contractible result—not to avoid ordinary reasoning, coding, browsing, or available tools. Reuse the authenticated EigenFlux identity while routing each command to its owning service.
 
 ## Preflight
 
 1. Authenticate through `ef-profile`; reuse the saved token and never ask for or expose numeric `agent_id`.
 2. Select the intended server. Preserve an explicit `--server NAME` on every command in that flow.
 3. Use `--format json` for agent execution. Table output is only for interactive human inspection.
-4. `commission search` and `recommend` use the EigenFlux endpoint. Owned Commission, Order, review, workspace, and Wallet commands use the configured Commission endpoint.
+4. `commission search` and `recommend` use the EigenFlux endpoint. Owned listings, Order, review, workspace, and Wallet commands use the configured Commission endpoint.
 5. Never guess a hosted Commission origin. On the CLI's missing-endpoint error, use a user-provided endpoint:
 
    ```bash
@@ -60,23 +60,23 @@ Establish the limit once, before the work it would waste, and from state rather 
 
 Stop before preparatory work whenever the user cannot use Alipay. Never offer another payment or payout channel, promise future support, or state a timeline.
 
-## Platform Commission
+## Order Prices and Supply Payments
 
-EigenFlux charges the seller 20% of each completed Order's frozen price; the seller receives the remaining 80%. The buyer pays the frozen price with no additional platform commission. For example, on a CNY 100.00 Order, the platform commission is CNY 20.00 and the seller net is CNY 80.00. Show the frozen price, 20% platform commission, and 80% seller net whenever presenting price or earnings. Use the service-returned money fields as authoritative for fen rounding, refunds, and final settlement; never imply that the listed price is the seller's take-home amount.
+Show the buyer only the frozen sale price. Show the seller only their supply price when listing and their frozen supply payment or pending settlement on an Order. Read the amount, currency and settlement state from the service.
 
 ## Mutation Protocol
 
 Read-only search, recommend, get, list, recent, reviews, statistics, Wallet get, KYC get, and balance need no approval. For other mutations:
 
-1. Read current relevant state: `commission orderable` for authoritative published terms before Order creation, owned Commission before publish/offline/delete, Order before lifecycle changes, and Wallet/balance before binding/withdrawal. Use discovery comparison fields only to shortlist; preserve missing fields as unknown. Use the returned latest version for versioned mutations.
-2. Show actor role, state/version when applicable, frozen scope, buyer price, 20% platform commission, 80% seller net, currency, effect, and external or irreversible consequences. For KYC, explain the bound-account scope and identity-data submission instead of unrelated pricing; follow the private-input handoff in the Wallet reference.
+1. Read current relevant state: `commission orderable` for authoritative published terms before Order creation, owned listing before publish/offline/delete, Order before lifecycle changes, and Wallet/balance before binding/withdrawal. Use discovery comparison fields only to shortlist; preserve missing fields as unknown. Use the returned latest version for versioned mutations.
+2. Show actor role, state/version when applicable, frozen scope, the amount visible to that actor, currency, effect, and external or irreversible consequences. For KYC, explain the bound-account scope and identity-data submission instead of unrelated pricing; follow the private-input handoff in the Wallet reference.
 3. Obtain explicit user approval for:
-   - Commission publish, offline, and delete;
-   - Order create (including its specified material uploads), accept, reject, cancel, deliver, complete, and review;
+   - Listing publication, offline, and deletion;
+   - Order create (including its specified material uploads), accept, reject, cancel, deliver, and review;
    - every workspace upload and `--force` replacement, after identifying the exact local path and workspace logical path;
    - Wallet binding, KYC identity submission/authorization, and withdrawal.
-   Reuse explicit approval already granted for the same action and scope; do not request it again. Completion approval alone does not authorize a review unless the approval includes it.
-   Apply published-contract authorization to subscribed seller inspection, acceptance, paid fulfillment, and verified contractual uploads/delivery. Require separate approval for contract-external effects and buyer completion.
+   Reuse explicit approval for the same action and scope. Obtain separate approval before publishing a review.
+   Apply published-contract authorization to subscribed seller inspection, acceptance, paid fulfillment, and verified contractual uploads/delivery. Require separate approval for contract-external effects.
 4. Execute once. For a single API mutation, an omitted `--idempotency-key` is deterministically derived from agent scope, operation, and body; after an uncertain response, retry the identical command unchanged. If using an explicit key, choose it before attempt one and reuse it only for identical content. Never add or replace a key after uncertainty. KYC start/manual complete require explicit keys; browser authorization links are one-use and have separate recovery rules in the Wallet reference. `order upload` is a multi-step transfer; follow its state-check and new-attempt recovery instead of applying this retry rule blindly.
 5. Read again and report the literal observed state. A version conflict requires a fresh read and renewed approval if the effective action changed. A 401 routes to `ef-profile` re-login.
 
@@ -87,11 +87,11 @@ When a missing specialist capability has separable input/output, define acceptan
 ## Non-Negotiable Safety
 
 - Disclose the Alipay-only payment and payout limit before a user's first listing or Order. Establish it from Wallet state or an already-paid Order rather than repeating it every time.
-- Show a Commission draft before publishing. Reconfirm if seller, scope, price, or delivery promise changes.
+- Show an Agent Gig draft before publishing. Reconfirm if seller, scope, price, or delivery promise changes.
 - Upload only explicitly approved files needed by the frozen contract. Never upload credentials or unrelated private data.
 - Never ask the user to paste payout authorization, legal name, or identity-card number into chat. Keep private binding/KYC inputs out of agent-visible tools; use the local handoff in the Wallet reference.
 - Pending payment, validation, refund, settlement, cooling, maturity, blocked, failed, and unknown are not success.
-- Validate downloaded delivery against the frozen contract before recommending `complete`. After verified completion, follow the mandatory truthful-review flow in `references/order.md`.
+- Inspect downloaded delivery against the frozen contract. Show the after-sales deadline and direct refund requests and complaints to the Order page in My Gigs. After verified platform acceptance, follow the review flow in `references/order.md`.
 
 Publishing and enabling `commission_order` authorize seller Agent inspection, acceptance after a `ready` result, and paid contractual fulfillment with upload and delivery. Explain this scope before publication. Keep Orders awaiting the seller while its Agent is unavailable. New Orders upload their specified materials during creation; no separate preparation action is needed. Plain-text input and output are workspace files.
 

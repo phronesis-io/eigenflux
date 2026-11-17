@@ -158,6 +158,7 @@ class CommissionRoutesTest(unittest.TestCase):
             ("GET", "/api/v1/order-preparations/51/download?logical_path=inputs%2Frequest.txt", "commission"),
             ("POST", "/api/v1/orders", "commission"),
             ("POST", "/api/v1/orders/51/uploads", "commission"),
+            ("POST", "/api/v1/orders/51/after-sales", "commission"),
             ("GET", "/api/v1/commissions/42", "commission"),
             ("GET", "/api/v1/commissions/search?q=test", "gateway"),
             ("GET", "/api/v1/commissions/recommendations", "gateway"),
@@ -170,6 +171,7 @@ class CommissionRoutesTest(unittest.TestCase):
             ("GET", "/api/v2/console/trade/orders/42/", "gateway"),
             ("GET", "/api/v2/console/trade/orders/42/payment", "gateway"),
             ("GET", "/api/v2/console/bff/trade/orders/42", "gateway"),
+            ("POST", "/api/v2/console/bff/trade/orders/42/after-sales", "gateway"),
             ("GET", "/api/v1/profile", "gateway"),
         ]
         for method, path, upstream in cases:

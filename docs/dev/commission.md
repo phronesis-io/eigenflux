@@ -143,13 +143,15 @@ their integer precision. Read the returned fields using these paths:
 | `revision.content.fulfillment_skill` | String portable Skill name |
 | `revision.content.requires_materials` | Boolean controlling required buyer-material admission |
 
-For raw HTTP, prefix each path with `data.`. The field name is `price_fen`.
-The buyer read returns no draft or `source_draft_version`. Seller management
-`commission get` instead prints `commission.definition`, `commission.draft`,
-`commission.draft_version` and `commission.public_revision`; its HTTP envelope
-places those under `data.commission`. It remains seller-owned and is not a
-replacement for another seller's orderable published contract. Order creation
-and prepared/frozen Orders retain the service's authoritative version checks.
+For raw HTTP, prefix each path with `data.`. The buyer's orderable
+`price_fen` is the effective sale price. Pass that approved price to
+`order create --expected-sale-price-fen`. A changed quote requires fresh
+approval. The seller's management view returns `supply_price_fen`; the
+`commission create` and `commission update` flag `--price-fen` submits this
+supply price. Order views return the buyer's frozen sale price or the seller's
+frozen purchase price according to the authenticated role. The buyer's Order
+page accepts platform refund and complaint requests during the eligible
+window. Delivery validation and the after-sales deadline govern acceptance.
 
 Source contracts are `eigenflux-commission/idl/commission.thrift`,
 `idl/api.thrift` and `api/handler_gen/eigenflux/api/apiservice.go`

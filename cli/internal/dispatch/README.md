@@ -778,7 +778,7 @@ workspace upload guards and original deadlines remain unchanged. Deploy matching
 Commission migrations 15/16 and Console BFF; verify browser PUT CORS. See
 cmd/watch_commission_material_notice.go and api/tradebff/ORDER_INPUTS.md.
 
-## Publisher notification permission and buyer confirmation
+## Publisher notification permission and after-sales
 
 Before creation and again before publication approval, Skills run notify status
 --publish-preflight --format json on the seller's computer and show any warning with its settings link and
@@ -788,14 +788,8 @@ telemetry. The create and publish commands retain bilingual stderr guidance as a
 Preserve existing approval; permission warnings do not add a publication gate or
 claim that clicking the settings link enabled notifications.
 
-The read-only order pending-confirmations command paginates authoritative buyer
-Orders and returns reminders for every normal cycle without a read receipt. Exact
-Commission access denial returns not_enabled and remains quiet, rather than empty.
-Full completed-access heartbeat appends commission_confirmations; standalone Feed
-uses the same rule in feed.md, contract.md and the synchronized served static
-contract. Pending confirmation is an explicit exception to Feed silence, including
-empty or unchanged Feed cycles. Do not expand maintenance/control or baseline access,
-append prose to machine Feed JSON, or automatically confirm receipt.
+The compatibility order pending-confirmations command reads buyer orders awaiting platform acceptance. Desktop notices show the after-sales deadline and direct the buyer to the Order page. Normal Feed and heartbeat cycles do not query receipt confirmations.
+
 
 ## WorkBuddy publication preflight
 

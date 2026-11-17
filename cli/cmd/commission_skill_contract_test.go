@@ -18,7 +18,14 @@ func TestCommissionSkillContract(t *testing.T) {
 	}
 
 	skill := string(skillBody)
+	for _, retired := range []string{"## Platform Commission", "buyer completion", "recommending `complete`", "deliver, complete"} {
+		if strings.Contains(skill, retired) {
+			t.Errorf("Skill still instructs %q", retired)
+		}
+	}
 	for _, required := range []string{
+		"## Order Prices and Supply Payments",
+		"direct refund requests and complaints to the Order page in My Gigs",
 		"## Funding Channel",
 		"Payments and payouts currently support Alipay in CNY only",
 		"never as a separate qualification to raise up front",
@@ -67,17 +74,21 @@ func TestCommissionSkillContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	order := string(orderBody)
+	for _, retired := range []string{"eigenflux order complete ", "pending-confirmations", "20% platform commission"} {
+		if strings.Contains(order, retired) {
+			t.Errorf("Order workflow still instructs %q", retired)
+		}
+	}
 	for _, required := range []string{
-		"## Buyer Acceptance Report",
+		"## Buyer Delivery Report",
 		"actual downloaded files",
 		"contract compliance, concrete defects or verification limits",
-		"recommendation in the current conversation",
 		"Distinguish platform validation",
-		"Retain buyer authorization for receipt confirmation",
+		"Direct refunds and complaints to the Order page",
 		"reuse the verified inspection and restate its",
 	} {
 		if !strings.Contains(order, required) {
-			t.Errorf("buyer acceptance report is missing %q", required)
+			t.Errorf("buyer delivery report is missing %q", required)
 		}
 	}
 	for _, required := range []string{

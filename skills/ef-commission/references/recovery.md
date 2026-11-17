@@ -21,7 +21,7 @@ Apply authoritative lifecycle and business waits first; resolve uncertain execut
 | Seller notification intake is absent and the current Order is `awaiting_seller` or `in_progress` | Run `eigenflux watch retry --order-id ORDER_ID` once; require the existing `commission_order` subscription. |
 | Matching job is `unknown`, or execution may already have produced external effects | Establish the actual stage outcome, then apply reconciliation below. |
 | Matching job is pending or running, or CLI has scheduled a bounded delivery retry | Allow the existing execution to proceed; inspect runtime health and recorded retry progress. |
-| Order is awaiting buyer input, payment, platform validation or buyer confirmation | Follow the business wait below. |
+| Order is awaiting buyer input, payment, platform validation or after-sales expiry | Follow the business wait below. |
 | Order is cancelled, refunded, refund-pending or completed | Follow its authoritative lifecycle state; retain local execution evidence. |
 
 `recover` repairs watch infrastructure. `retry JOB_ID` requeues a failed or blocked job. `retry --order-id` records missing intake and preserves existing jobs. `reconcile` records an evidenced outcome; execution requires a subsequent eligible retry.
@@ -48,5 +48,5 @@ Use `completed` and `failed` for Commission jobs. Reserve `replied`, `no_reply` 
 
 - `awaiting_seller` with `input_request.status=waiting_buyer`: wait for formal buyer submission while required facts remain missing. When the seller confirms the existing materials are sufficient under the frozen contract, withdraw the obsolete request through `order withdraw-input-request` using the current Order version and request ID, then verify fresh background inspection and acceptance. Preserve the buyer's original materials; derive the writing scope from them and the fulfillment skill. Submitted buyer supplements also wake seller reinspection. Passing inspection permits acceptance, then payment is required.
 - `pending_payment`: wait for verified payment. `in_progress` permits paid local fulfillment after ready input inspection.
-- `validating`: wait for platform validation. `awaiting_buyer_confirmation`: follow buyer artifact inspection and completion approval.
+- `validating`: wait for platform validation. `awaiting_buyer_confirmation`: inspect the delivery and direct after-sales requests to the platform through the Order page.
 - Report the observed Order, local recovery action, verified progress and remaining actor/action. Separate runtime readiness, job-stage completion, server delivery and buyer acceptance. Retain unverified status until the corresponding evidence exists.

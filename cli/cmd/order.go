@@ -16,8 +16,8 @@ import (
 
 var orderCmd = &cobra.Command{
 	Use:   "order",
-	Short: "Manage commission orders and workspace files",
-	Long: `Create, resume, and fulfill Commission orders and exchange workspace files.
+	Short: "Manage Agent Gig orders and workspace files",
+	Long: `Create, resume, and fulfill Agent Gig orders and exchange workspace files.
 
 An Order is payable through Alipay (CNY) only. Confirm the buyer can pay that way
 before preparing or uploading materials; an Order left unpaid past its payment
@@ -26,8 +26,8 @@ deadline is cancelled. Seller earnings are paid to a bound Alipay account.`,
 
 var orderCreateCmd = discloseFundingChannel(&cobra.Command{
 	Use:   "create <commission-id>",
-	Short: "Create an order from a published commission",
-	Long: `Create an order from a published commission and transfer its required materials.
+	Short: "Create an order from a published Agent Gig",
+	Long: `Create an order from a published Agent Gig and transfer its required materials.
 
 Creation freezes the contract and creates a payment obligation payable through
 Alipay (CNY) only. Confirm the buyer can pay through Alipay before preparing or
@@ -141,7 +141,7 @@ var orderCancelCmd = orderLifecycleCommand("cancel")
 var orderAcceptCmd = orderLifecycleCommand("accept")
 var orderRejectCmd = orderLifecycleCommand("reject")
 var orderDeliverCmd = orderLifecycleCommand("deliver")
-var orderCompleteCmd = orderLifecycleCommand("complete")
+var orderCompleteCmd = retiredOrderCommand("complete", "EigenFlux accepts delivery after the after-sales period; open the order in My Gigs for help")
 
 var orderReviewCmd = &cobra.Command{
 	Use:   "review <order-id>",
@@ -272,6 +272,7 @@ func init() {
 	orderCreateCmd.Flags().String("buyer-input", "", "text material saved as inputs/request.txt")
 	orderCreateCmd.Flags().String("buyer-input-file", "", "UTF-8 text material file saved as inputs/request.txt")
 	orderCreateCmd.Flags().StringArray("input-file", nil, "material LOGICAL_PATH=LOCAL_FILE (repeatable)")
+	orderCreateCmd.Flags().Int64("expected-sale-price-fen", 0, "buyer-approved sale price from the orderable service quote in minor currency units")
 	orderCreateCmd.Flags().Int64("preparation-id", 0, "resume an existing buyer-owned preparation")
 	orderDeliverCmd.Flags().String("text", "", "text result uploaded as outputs/result.txt")
 	orderDeliverCmd.Flags().String("text-file", "", "UTF-8 result file uploaded as outputs/result.txt")

@@ -39,7 +39,7 @@ func TestCreateOrderPreparationOrderPresence(t *testing.T) {
 						if tc.order != "" {
 							order = `,"order":` + tc.order
 						}
-						fmt.Fprintf(w, `{"code":0,"data":{"preparation_id":51,"contract":{"request_spec_schema":"{}"}%s}}`, order)
+						fmt.Fprintf(w, `{"code":0,"data":{"preparation_id":51,"contract":{"sale_price_fen":1000,"request_spec_schema":"{}"}%s}}`, order)
 					case "/api/v1/order-preparations/51/uploads":
 						fmt.Fprintf(w, `{"code":0,"data":{"grant":{"object_id":71,"method":"PUT","url":%q}}}`, server.URL+"/object")
 					case "/object":
@@ -64,6 +64,7 @@ func TestCreateOrderPreparationOrderPresence(t *testing.T) {
 					materialFlag(t, orderCreateCmd, "preparation-id", "51")
 					want[0] = "GET /api/v1/order-preparations/51"
 				}
+				materialFlag(t, orderCreateCmd, "expected-sale-price-fen", "1000")
 				err := orderCreateCmd.RunE(orderCreateCmd, []string{"77"})
 				if tc.wantErr {
 					if err == nil {
@@ -83,5 +84,20 @@ func TestCreateOrderPreparationOrderPresence(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestOrderPreparationWithDifferentApprovedPriceStopsBeforeUpload(t *testing.T) {
+	var calls []string
+	materialTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		fmt.Fprint(w, `{"code":0,"data":{"preparation_id":51,"contract":{"sale_price_fen":900,"request_spec_schema":"{}"}}}`)
+	})
+	materialFlag(t, orderCreateCmd, "preparation-id", "51")
+	materialFlag(t, orderCreateCmd, "expected-sale-price-fen", "1000")
+	materialFlag(t, orderCreateCmd, "buyer-input", "Prepared material")
+	err := orderCreateCmd.RunE(orderCreateCmd, []string{"77"})
+	if err == nil || !strings.Contains(err.Error(), "does not match the approved price") || !reflect.DeepEqual(calls, []string{"GET /api/v1/order-preparations/51"}) {
+		t.Fatalf("got requests %v and error %v", calls, err)
 	}
 }

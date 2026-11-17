@@ -62,6 +62,28 @@ func TestCommissionConsumerProjectsActiveSnapshot(t *testing.T) {
 	}
 }
 
+func TestCommissionPriceChangeWaitsForUpdatedQuote(t *testing.T) {
+	event := map[string]any{
+		"event_id": "2", "schema_version": "1", "topic": featureindex.CommissionPriceChangedTopic,
+		"aggregate_type": "commission", "aggregate_id": "4", "aggregate_version": "3",
+		"occurred_at": "2", "payload_json": "{}",
+	}
+	store := &commissionTestStore{}
+	source := commissionTestSource{
+		catalogue:  featureindex.CommissionCatalogueSnapshot{CommissionID: 4, Status: "active", CatalogueVersion: 2, PriceFen: 1000},
+		statistics: featureindex.CommissionStatisticsSnapshot{CommissionID: 4, StatisticsVersion: 3},
+	}
+	c := &CommissionIndexConsumer{source: source, store: store, embedder: commissionTestEmbedder{}}
+	if got := c.Handle(context.Background(), "2-0", event); got != HandleRetry || store.document.CommissionID != 0 {
+		t.Fatalf("stale quote was persisted: %#v, %v", store.document, got)
+	}
+	source.catalogue.PriceFen, source.catalogue.CatalogueVersion = 900, 3
+	c.source = source
+	if got := c.Handle(context.Background(), "2-0", event); got != HandleSuccess || store.document.PriceFen != 900 {
+		t.Fatalf("price update was not indexed: %#v, %v", store.document, got)
+	}
+}
+
 func TestCommissionConsumerProjectsStatisticsEnvelope(t *testing.T) {
 	store := &commissionTestStore{}
 	c := &CommissionIndexConsumer{
@@ -119,7 +141,7 @@ func TestCommissionStatisticsProjectionRetries(t *testing.T) {
 }
 
 func TestCommissionDeletionAndDelayedEventsKeepTombstone(t *testing.T) {
-	for _, topic := range []string{featureindex.CommissionDeletedTopic, commissionPublishedTopic, commissionStatsTopic} {
+	for _, topic := range []string{featureindex.CommissionDeletedTopic, commissionPublishedTopic, featureindex.CommissionPriceChangedTopic, commissionStatsTopic} {
 		t.Run(topic, func(t *testing.T) {
 			catalogue := featureindex.CommissionCatalogueSnapshot{CommissionID: 4, Status: "offline", CatalogueVersion: 9}
 			statistics := featureindex.CommissionStatisticsSnapshot{CommissionID: 4, StatisticsVersion: 3}

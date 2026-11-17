@@ -86,15 +86,15 @@ func TestCommissionDesktopNoticeVerifiedDetails(t *testing.T) {
 		credit                              bool
 		want, omit                          []string
 	}{
-		{"credited", "completed", "order.settlement.completed.v1", "", "zh", true, []string{"买家：Sienna", "净入账 ¥0.08", "结算期至 " + deadline}, []string{"¥9.99", "可在控制台查看余额或提现"}},
-		{"credit fallback", "completed", "order.settlement.completed.v1", "", "en", false, []string{"Buyer: Sienna", "Net credited ¥0.08", "See the order for withdrawal availability"}, []string{deadline, "funds have matured"}},
-		{"auto complete", "completed", "order.state.changed.v1", "buyer_confirmation_expired", "zh", false, []string{"确认超时", "已自动完成", "Sienna"}, []string{"净入账"}},
+		{"credited", "completed", "order.settlement.completed.v1", "", "zh", true, []string{"买家：Sienna", "供货款入账 ¥0.08", "结算期至 " + deadline}, []string{"¥9.99", "可在控制台查看余额或提现"}},
+		{"credit fallback", "completed", "order.settlement.completed.v1", "", "en", false, []string{"Buyer: Sienna", "Supply payment credited ¥0.08", "See the order for withdrawal availability"}, []string{deadline, "funds have matured"}},
+		{"auto complete", "completed", "order.state.changed.v1", "buyer_confirmation_expired", "zh", false, []string{"平台已验收", "Sienna"}, []string{"供货款入账"}},
 		{"payment timeout", "cancelled", "order.state.changed.v1", "payment_expired", "zh", false, []string{"付款超时", "Sienna"}, []string{"已退款"}},
 		{"seller timeout", "cancelled", "order.state.changed.v1", "seller_expired", "zh", false, []string{"卖家接单超时", "未扣款"}, []string{"付款超时"}},
 		{"buyer cancellation", "cancelled", "order.state.changed.v1", "cancel", "zh", false, []string{"买家已取消订单"}, []string{"已退款"}},
-		{"refund pending", "refund_pending", "order.state.changed.v1", "delivery_expired", "en", false, []string{"refund in progress", "Refund amount ¥0.10"}, []string{"order refunded"}},
-		{"refund completed", "cancelled", "order.refund.completed.v1", "late_payment_detected", "zh", false, []string{"款项已退还买方", "退款金额 ¥0.10"}, []string{"正在退款"}},
-		{"waiting for seller", "awaiting_seller", "order.state.changed.v1", "", "zh", false, []string{"Sienna", "订单金额 ¥0.10", deadline}, nil},
+		{"refund pending", "refund_pending", "order.state.changed.v1", "delivery_expired", "en", false, []string{"refund in progress"}, []string{"order refunded", "Refund amount ¥0.10"}},
+		{"refund completed", "cancelled", "order.refund.completed.v1", "late_payment_detected", "zh", false, []string{"款项已退还买方"}, []string{"正在退款", "退款金额 ¥0.10"}},
+		{"waiting for seller", "awaiting_seller", "order.state.changed.v1", "", "zh", false, []string{"Sienna", "供货款 ¥0.08", deadline}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := commissionNoticeDetailsFixture(t, tc.state, tc.credit)
@@ -176,13 +176,13 @@ func TestCommissionMacOSCardFitsPriorityFacts(t *testing.T) {
 		{"completed", "order.state.changed.v1", "buyer_complete", "订单已完成", ""},
 		{"validating", "order.state.changed.v1", "", "交付检查中", ""},
 		{"in_progress", "order.state.changed.v1", "", "已付款 · 待交付", "交付截止 " + desktopCardTime(noticeTestDeadline)},
-		{"awaiting_buyer_confirmation", "order.state.changed.v1", "", "待确认交付", "确认截止 " + desktopCardTime(noticeTestDeadline)},
-		{"completed", "order.settlement.completed.v1", "", "净入账 ¥0.08", "可提现 " + desktopCardTime(noticeTestDeadline)},
+		{"awaiting_buyer_confirmation", "order.state.changed.v1", "", "售后期内", "售后截止 " + desktopCardTime(noticeTestDeadline)},
+		{"completed", "order.settlement.completed.v1", "", "供货款入账 ¥0.08", "可提现 " + desktopCardTime(noticeTestDeadline)},
 		{"cancelled", "order.state.changed.v1", "seller_expired", "接单超时 · 订单关闭", "未扣款"},
-		{"refund_pending", "order.state.changed.v1", "delivery_expired", "交付超时 · 退款中 · ¥0.10", ""},
-		{"cancelled", "order.refund.completed.v1", "", "取消订单 · 退款已退回 · ¥0.10", ""},
-		{"pending_payment", "order.state.changed.v1", "", "待付款 · ¥0.10", "付款截止 " + desktopCardTime(noticeTestDeadline)},
-		{"awaiting_buyer_confirmation", "order.reminder.buyer_confirmation_24h.v1", "", "交付确认提醒", "确认截止 " + desktopCardTime(noticeTestDeadline)},
+		{"refund_pending", "order.state.changed.v1", "delivery_expired", "订单退款中", ""},
+		{"cancelled", "order.refund.completed.v1", "", "取消订单 · 退款已退回", ""},
+		{"pending_payment", "order.state.changed.v1", "", "待付款 · ¥0.08", "付款截止 " + desktopCardTime(noticeTestDeadline)},
+		{"awaiting_buyer_confirmation", "order.reminder.buyer_confirmation_24h.v1", "", "售后期提醒", "售后截止 " + desktopCardTime(noticeTestDeadline)},
 	} {
 		t.Run(tc.title, func(t *testing.T) {
 			w := commissionNoticeDetailsFixtureWithLabels(t, tc.state, true, "GPT 模型低成本体验", "Lynn's Agent", "凯瑞’s Codex")

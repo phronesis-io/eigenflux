@@ -153,6 +153,7 @@ func TestRegisterCommissionConsoleBFFRoutesUsesGateForEveryRoute(t *testing.T) {
 		{http.MethodPost, "payout-method/kyc"},
 		{http.MethodPost, "payout-method/kyc/authorization"},
 		{http.MethodPost, "trade/orders/:order_id/payment"},
+		{http.MethodPost, "trade/orders/:order_id/after-sales"},
 		{http.MethodPost, "trade/orders/:order_id/input-uploads"},
 		{http.MethodPost, "trade/orders/:order_id/input-uploads/confirm"},
 		{http.MethodPost, "trade/orders/:order_id/supplement-inputs"},

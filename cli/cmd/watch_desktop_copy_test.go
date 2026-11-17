@@ -115,7 +115,7 @@ func TestDesktopCopyEventPrecedenceAndAliases(t *testing.T) {
 	for _, tt := range []struct{ state, kind, envelope, command, want string }{
 		{"cancelled", "order.refund.processing_error.v1", "order.refund.completed.v1", "reject_order", "refund hit a problem"},
 		{"in_progress", "future.event", "order.refund.completed.v1", "", "cancelled, payment returned"},
-		{"in_progress", "future.event", "order.reminder.buyer_confirmation_24h.v1", "", "still needs your confirmation"},
+		{"in_progress", "future.event", "order.reminder.buyer_confirmation_24h.v1", "", "after-sales period ends soon"},
 		{"awaiting_payment", "", "order.state.changed.v1", "", "accepted, payment needed"},
 		{"awaiting_materials", "", "order.state.changed.v1", "", "order is being updated"},
 		{"refunding", "", "order.state.changed.v1", "", "refund started"},

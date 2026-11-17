@@ -56,28 +56,28 @@ var desktopOrderCopy = map[string]desktopRoleCopy{
 	},
 	"validating": {
 		buyer: desktopLocalizedCopy{
-			zh: "「{service_name}」已交付，平台检查中\n检查通过后会通知你查看并确认结果。",
-			en: "“{service_name}” delivered, platform check in progress\nYou'll be asked to review and confirm once the check passes.",
+			zh: "「{service_name}」已交付，平台检查中\n检查通过后可在订单页查看交付结果。",
+			en: "“{service_name}” delivered, platform check in progress\nOpen the order to view the delivery once the check passes.",
 		},
 		seller: desktopLocalizedCopy{
-			zh: "「{service_name}」已提交交付，平台检查中\n无需操作，检查通过后会转给买方确认。",
-			en: "“{service_name}” submitted, platform check in progress\nNothing for you to do. It goes to the buyer for confirmation once the check passes.",
+			zh: "「{service_name}」已提交交付，平台检查中\n检查通过后进入售后期。",
+			en: "“{service_name}” submitted, platform check in progress\nThe after-sales period starts once the check passes.",
 		},
 	},
 	"awaiting_buyer_confirmation": {
 		buyer: desktopLocalizedCopy{
-			zh: "「{service_name}」交付完成，请查看并确认\n请在 {confirm_due} 前确认，逾期将自动确认完成。",
-			en: "“{service_name}” is ready for your review\nPlease confirm by {confirm_due}, or it's confirmed automatically.",
+			zh: "「{service_name}」平台已通过交付检查\n请在 {confirm_due} 前查看交付结果。如需售后，请打开订单。",
+			en: "“{service_name}” is ready for your review\nView the delivery by {confirm_due}. Open the order for after-sales help.",
 		},
 		seller: desktopLocalizedCopy{
-			zh: "「{service_name}」已交给买方，等待确认\n无需操作。买方 {confirm_due} 前未确认将自动完成。",
-			en: "“{service_name}” delivered, waiting for the buyer\nNothing for you to do. If the buyer doesn't confirm by {confirm_due}, it completes automatically.",
+			zh: "「{service_name}」已通过平台交付检查\n售后期至 {confirm_due}，到期后由平台验收。",
+			en: "“{service_name}” delivery passed the platform check\nThe platform accepts delivery after the after-sales deadline at {confirm_due} if there are no pending requests.",
 		},
 	},
 	"order.reminder.buyer_confirmation_24h.v1": {
 		buyer: desktopLocalizedCopy{
-			zh: "「{service_name}」还未确认交付\n请尽快查看结果，{confirm_due} 后将自动确认完成。",
-			en: "“{service_name}” still needs your confirmation\nPlease review it soon. It's confirmed automatically after {confirm_due}.",
+			zh: "「{service_name}」售后期即将结束\n如需退款或投诉，请在 {confirm_due} 前打开订单提交。",
+			en: "“{service_name}” after-sales period ends soon\nOpen the order before {confirm_due} to request a refund or file a complaint.",
 		},
 	},
 	"completed": {
@@ -132,22 +132,22 @@ var desktopOrderCopy = map[string]desktopRoleCopy{
 	}},
 	"auto_completed": {
 		buyer: desktopLocalizedCopy{
-			zh: "「{service_name}」确认超时，订单已自动完成\n点击查看交付结果。",
-			en: "“{service_name}” completed automatically after the confirmation deadline\nClick to view the delivery.",
+			zh: "「{service_name}」平台已验收\n点击查看交付结果。",
+			en: "“{service_name}” accepted by the platform\nClick to view the delivery.",
 		},
 		seller: desktopLocalizedCopy{
-			zh: "「{service_name}」确认超时，订单已自动完成\n收益入账后会另行通知你。",
-			en: "“{service_name}” completed automatically after the confirmation deadline\nYou'll be notified when the earnings are credited.",
+			zh: "「{service_name}」平台已验收\n收益入账后会另行通知你。",
+			en: "“{service_name}” accepted by the platform\nYou'll be notified when the earnings are credited.",
 		},
 	},
 	"refund_pending": {
 		buyer: desktopLocalizedCopy{
-			zh: "「{service_name}」未按时交付，正在退款\n款项将退回你的付款账户，到账后另行通知。",
-			en: "“{service_name}” was not delivered on time, refund started\nYour payment is being returned. You'll be notified when it arrives.",
+			zh: "「{service_name}」正在退款\n款项将退回你的付款账户，到账后另行通知。",
+			en: "“{service_name}” refund started\nYour payment is being returned. You'll be notified when it arrives.",
 		},
 		seller: desktopLocalizedCopy{
-			zh: "「{service_name}」交付超时，订单转为退款\n本单款项退还买方，不计收益。",
-			en: "“{service_name}” delivery overdue, refund in progress\nThe payment goes back to the buyer. No earnings for this order.",
+			zh: "「{service_name}」订单正在退款\n本单款项退还买方，不计收益。",
+			en: "“{service_name}” refund in progress\nThe payment goes back to the buyer. No earnings for this order.",
 		},
 	},
 	"refunded": {
@@ -194,12 +194,12 @@ var desktopOrderCopy = map[string]desktopRoleCopy{
 	},
 	"order.validation.processing_error.v1": {
 		buyer: desktopLocalizedCopy{
-			zh: "「{service_name}」交付检查暂时出错，系统正在重试\n无需操作，检查通过后会通知你确认。",
-			en: "“{service_name}” delivery check hit a problem, retrying\nNothing for you to do. You'll be asked to confirm once it passes.",
+			zh: "「{service_name}」交付检查暂时出错，系统正在重试\n无需操作，检查通过后可在订单页查看。",
+			en: "“{service_name}” delivery check hit a problem, retrying\nNothing for you to do. Open the order to view the delivery once it passes.",
 		},
 		seller: desktopLocalizedCopy{
-			zh: "「{service_name}」交付检查暂时出错，系统正在重试\n无需操作，检查通过后会转给买方确认。",
-			en: "“{service_name}” delivery check hit a problem, retrying\nNothing for you to do. It goes to the buyer once the check passes.",
+			zh: "「{service_name}」交付检查暂时出错，系统正在重试\n检查通过后进入售后期。",
+			en: "“{service_name}” delivery check hit a problem, retrying\nNothing for you to do. The after-sales period starts once the check passes.",
 		},
 	},
 	"local.needs_user": {

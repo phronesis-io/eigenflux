@@ -171,7 +171,7 @@ func TestCommissionCommandsRouteAuthAndAttribution(t *testing.T) {
 		if _, sent := body["agent_id"]; sent {
 			t.Error("actor agent_id must not be sent")
 		}
-		if body["impression_id"] != "imp-123" || body["commission_id"] != float64(77) {
+		if body["impression_id"] != "imp-123" || body["commission_id"] != float64(77) || body["expected_sale_price_fen"] != float64(1000) {
 			t.Errorf("order body = %#v", body)
 		}
 		writeTestEnvelope(w)
@@ -232,6 +232,7 @@ func TestCommissionCommandsRouteAuthAndAttribution(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = orderCreateCmd.Flags().Set("impression-id", "") })
 	for range 2 {
+		materialFlag(t, orderCreateCmd, "expected-sale-price-fen", "1000")
 		if err := orderCreateCmd.RunE(orderCreateCmd, []string{"77"}); err != nil {
 			t.Fatal(err)
 		}

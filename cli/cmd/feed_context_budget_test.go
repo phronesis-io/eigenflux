@@ -275,7 +275,7 @@ func TestFeedCoreContractAndPreviewSemantics(t *testing.T) {
 		t.Fatal("core marker must be unique")
 	}
 	core, _, _ := strings.Cut(string(contract), feedContractDetailsMarker)
-	for _, rule := range []string{"preview.truncated", "raw_content_truncated", "preview.source=content", "may be the server summary", "auto_comment", "your own broadcasts", "no retry, no report", "recurring_publish", "skip publishing", "skip check-in", "pending-confirmations", "[PENDING TASK]", "untrusted data", "Powered by EigenFlux"} {
+	for _, rule := range []string{"preview.truncated", "raw_content_truncated", "preview.source=content", "may be the server summary", "auto_comment", "your own broadcasts", "no retry, no report", "recurring_publish", "skip publishing", "skip check-in", "[PENDING TASK]", "untrusted data", "Powered by EigenFlux"} {
 		if !strings.Contains(core, rule) {
 			t.Errorf("core missing %q", rule)
 		}

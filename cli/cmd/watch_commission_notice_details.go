@@ -137,11 +137,11 @@ func (w *accountWatch) desktopCommissionCounterparty(ctx context.Context, body s
 	return label + "：" + name + "\n"
 }
 
-func desktopCommissionAmount(order commissionNoticeOrder, label string) string {
-	if order.Contract.Currency != "CNY" || order.Contract.GrossFen <= 0 {
+func desktopCommissionAmount(currency string, amount int64, label string) string {
+	if currency != "CNY" || amount <= 0 {
 		return ""
 	}
-	return label + " " + commissionNoticeCNY(order.Contract.GrossFen) + "\n"
+	return label + " " + commissionNoticeCNY(amount) + "\n"
 }
 
 func commissionNoticeNet(order commissionNoticeOrder, credit *commissionNoticeCredit) *int64 {
@@ -163,9 +163,9 @@ func formatDesktopCommissionCredit(order commissionNoticeOrder, credit *commissi
 	line := ""
 	if amount != nil && *amount >= 0 {
 		if english {
-			line = "Net credited " + commissionNoticeCNY(*amount) + "\n"
+			line = "Supply payment credited " + commissionNoticeCNY(*amount) + "\n"
 		} else {
-			line = "净入账 " + commissionNoticeCNY(*amount) + "\n"
+			line = "供货款入账 " + commissionNoticeCNY(*amount) + "\n"
 		}
 	}
 	zh, en := "可提现时间请查看订单详情。", "See the order for withdrawal availability."

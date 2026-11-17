@@ -22,6 +22,9 @@ func mergeCommissionDraft(cmd *cobra.Command, draft map[string]json.RawMessage) 
 			return
 		}
 		key := strings.ReplaceAll(f.Name, "-", "_")
+		if f.Name == "price-fen" {
+			key = "supply_price_fen"
+		}
 		var value any
 		switch f.Value.Type() {
 		case "bool":
@@ -44,6 +47,7 @@ func mergeCommissionDraft(cmd *cobra.Command, draft map[string]json.RawMessage) 
 	if len(changed) == 0 {
 		return nil, fmt.Errorf("no draft fields supplied; specify at least one field to update")
 	}
+	delete(draft, "price_fen")
 	raw, err := json.Marshal(draft)
 	if err != nil {
 		return nil, err

@@ -1,6 +1,6 @@
 # Wallet, Binding, KYC, and Withdrawals
 
-Use Wallet commands for seller earnings and payouts. Follow the preflight and mutation protocol in `SKILL.md`. Financial mutations require explicit approval. EigenFlux deducts its 20% platform commission from the completed Order price before crediting the seller's 80% net; Wallet amounts are seller-side amounts after that deduction. Payouts currently support Alipay in CNY only: funds leave the Wallet solely to a bound Alipay account, and withdrawal requires that account to pass the identity comparison below. State this once when the seller first reaches earnings, binding, or withdrawal, and never offer or promise another payout channel.
+Use Wallet commands for seller earnings and payouts. Follow the preflight and mutation protocol in `SKILL.md`. Financial mutations require explicit approval. Report the frozen supply payment and pending settlement from the seller Wallet. The platform accepts delivery after its check and the after-sales period, then credits the supply payment. Payouts currently support Alipay in CNY only: funds leave the Wallet solely to a bound Alipay account, and withdrawal requires that account to pass the identity comparison below. State this once when the seller first reaches earnings, binding, or withdrawal, and never offer or promise another payout channel.
 
 ## Read Wallet State
 

@@ -31,14 +31,14 @@ report each submission or answer once. Keep private details out of summaries.
 
 | Current state or result | Buyer result | Seller result |
 |---|---|---|
-| awaiting_seller | Report that the seller is checking the request | Report inspection progress, frozen amount and acceptance deadline; leave acceptance to the execution worker |
-| pending_payment | Obtain the existing Alipay payment action and show amount, exact link and expiry; payment remains human-operated | Report acceptance, frozen amount and payment deadline |
+| awaiting_seller | Report that the seller is checking the request | Report inspection progress, frozen supply payment and seller acceptance deadline; leave acceptance to the execution worker |
+| pending_payment | Obtain the existing Alipay payment action and show amount, exact link and expiry; payment remains human-operated | Report acceptance, frozen supply payment and payment deadline |
 | in_progress | Report confirmed payment and delivery deadline | Report fulfillment progress and delivery deadline |
-| validating | Report platform delivery checks in progress | Report submitted delivery, without claiming buyer acceptance |
-| awaiting_buyer_confirmation | Download and inspect the delivery; report the files, contract compliance, defects or verification limits, and acceptance recommendation; show the Order link and request receipt-confirmation authorization | Report waiting for buyer confirmation |
-| 24-hour confirmation reminder | Report the outstanding confirmation, deadline and Order link | |
-| completed | State who confirmed or whether the confirmation deadline triggered automatic completion; identify any outstanding review | State who confirmed or whether the confirmation deadline triggered automatic completion; report the frozen gross amount, commission and seller net |
-| settlement credited | | Report the confirmed net wallet credit and verified maturity, reservation or withdrawal state |
+| validating | Report platform delivery checks in progress | Report submitted delivery and the platform check |
+| awaiting_buyer_confirmation | Download and inspect the delivery; report the files, contract compliance, defects or verification limits; show the Order link and after-sales deadline, and direct requests to the platform | Report the after-sales deadline and pending platform acceptance |
+| After-sales deadline reminder | Report the deadline and Order link | |
+| completed | Report platform acceptance or the recorded historical completion; identify any outstanding review | Report platform acceptance or the recorded historical completion and the frozen supply payment |
+| settlement credited | | Report the confirmed supply payment credited to the wallet and verified maturity, reservation or withdrawal state |
 | rejected, cancelled, refunded | Report the verified cause and fund status | Report the verified cause and fund status |
 | refund, settlement or validation processing result | Report the verified result and next step | Report the verified result and next step |
 | review created | Do not repeat a review action | Read with `order get-review`; give the buyer, score and verified review summary |
@@ -50,10 +50,10 @@ version and transition in Order history. For workflow results, verify the curren
 Order and use the authenticated event kind. Use the matching command to explain
 buyer cancellation, seller rejection, acceptance or payment timeout, late
 payment, or platform risk checks. Distinguish unpaid, refund pending, retrying
-and refunded, and give the amount for a confirmed full refund.
+and refunded. Show the refund amount only to the buyer.
 
-Use the verified wallet credit for net credit and maturity. For
-`order.settlement.completed.v1`, use frozen seller net when the credit amount
+Use the verified wallet entry for supply payment and maturity. For
+`order.settlement.completed.v1`, use the frozen supply payment when the credit amount
 cannot be read. Show the available date while funds are maturing, the verified
 status for available, reserved or withdrawn funds, and the Order link to check
 availability when wallet details are unavailable. Use the wallet state as the
@@ -67,7 +67,7 @@ in this turn. Use the supplied CLI prefix for all reads and the broadcast. Share
 the completion event key with the interactive Order flow. Append the broadcast
 result or manual publishing prompt to the same final notice.
 
-For buyer acceptance, list `order files` and download each submitted output at
+To inspect delivery for the buyer, list `order files` and download each submitted output at
 its exact snapshot ID. Check actual bytes against the frozen contract and report
 unreadable files as verification blockers. Distinguish platform validation from Agent content inspection. For an unchanged
 delivery snapshot, reuse the verified inspection and restate its conclusion;
@@ -85,6 +85,6 @@ account-protected Order link. Explain that submitting resumes seller inspection
 and preserves the original deadline. Do not repeat an answered or superseded
 request, select ambient files or claim that opening the link submitted materials.
 
-Do not pay, accept, confirm receipt, refund, cancel, modify terms or restart work
+Do not pay, accept, refund, cancel, modify terms or restart work
 from a notice. Never infer payment from a generated link or infer withdrawal from
 wallet credit. When the Order cannot be verified, return no business claim.

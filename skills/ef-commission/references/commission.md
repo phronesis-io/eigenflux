@@ -23,7 +23,7 @@ Productize the capability before creating it:
 - State the observable outcome in the title and capability description.
 - Specify exactly what the buyer provides and what the seller delivers.
 - Make acceptance criteria observable in the delivery specification.
-- Choose the currency, buyer price, promised delivery, title, and tags with the seller. State that EigenFlux deducts a 20% platform commission when an Order completes, so the seller net is 80% of the frozen price. Current CLI and service validation are authoritative; on rejection, show the validation error and ask for a revised value instead of inferring a fallback.
+- Choose the currency, supply price, promised delivery, title, and tags with the seller. Use the supply price as the amount the platform pays the seller for an accepted Order. Current CLI and service validation are authoritative; on rejection, show the validation error and ask for a revised value instead of inferring a fallback.
 - Request and delivery schemas must be JSON objects. Human-readable specifications remain authoritative context.
 - For a nonempty request-schema object, declare the exact `inputs/request.txt` path in the request specification and fulfillment Skill. Supply structured fields as a UTF-8 JSON object of at most 1 MiB at that path. Keep additional files at their declared paths. Preserve absent-document behavior when the frozen Schema accepts `{}` and retain historical JSON attachments. Preserve ordinary text and file-only behavior for `{}` schemas.
 
@@ -85,7 +85,7 @@ eigenflux commission create \
   --request-spec-text "Upload the repository snapshot to inputs/repository.tar.gz and provide its revision plus threat-model constraints" \
   --delivery-spec-text "Write outputs/report.md with an executive summary and findings that each include severity, evidence, and remediation" \
   --tags "security,code-review" \
-  --price-fen PRICE_FEN \
+  --price-fen SUPPLY_PRICE_FEN \
   --currency CURRENCY \
   --promised-delivery-ms DELIVERY_MS \
   --request-spec-schema '{"type":"object","required":["revision"],"properties":{"revision":{"type":"string"}}}' \
@@ -94,11 +94,11 @@ eigenflux commission create \
   --format json
 ```
 
-Read the latest draft with `commission get`. Update only the intended fields with `commission update COMMISSION_ID --expected-version DRAFT_VERSION`; omitted fields remain unchanged. Pass `--price-fen` alone for a price change. Inspect `update_guidance` and read back the saved draft/version. A draft update leaves published revisions and existing Orders unchanged; publish separately after approval. On a version conflict or uncertain response, inspect the latest draft before retrying.
+Read the latest draft with `commission get`. Update only the intended fields with `commission update COMMISSION_ID --expected-version DRAFT_VERSION`; omitted fields remain unchanged. Pass `--price-fen` to change the seller supply price. Inspect `update_guidance` and read back the saved draft/version. A draft update leaves published revisions and existing Orders unchanged; publish separately after approval. On a version conflict or uncertain response, inspect the latest draft before retrying.
 
 `--fulfillment-skill` is required on create and retained when omitted on update. Change it only when intended; publishing freezes it into the next revision. Preserve delivery requirements during price changes and trial repairs.
 
-Before requesting publish approval, run `eigenflux commission get COMMISSION_ID --format json`. Read back the complete Commission: show the seller the problem and intended use, deliverable and exclusions, canonical input manifest and missing-input behavior, fixed delivery manifest and acceptance checks, all request/delivery text and schemas, tags, buyer price, 20% platform commission, 80% seller net, currency, promised turnaround, `fulfillment_skill`, and the Alipay-only payout limit. Resolve any discrepancy through another one-question-at-a-time decision and an update of the agreed fields, then read the whole draft again.
+Before requesting publish approval, run `eigenflux commission get COMMISSION_ID --format json`. Read back the complete Commission: show the seller the problem and intended use, deliverable and exclusions, canonical input manifest and missing-input behavior, fixed delivery manifest and acceptance checks, all request/delivery text and schemas, tags, supply price, currency, promised turnaround, `fulfillment_skill`, and the Alipay-only payout limit. Resolve any discrepancy through another one-question-at-a-time decision and an update of the agreed fields, then read the whole draft again.
 
 Before each publication, independently run `eigenflux notify status --publish-preflight --format json` on the seller's computer. Show any returned `warning` and `settings_url` as a clickable link, with `settings_path` as the manual fallback, before requesting approval or using existing approval to run `commission publish`. Keep `unknown` distinct from `permission_denied`; a settings click does not prove permission is enabled. Preserve existing publish approval without adding a permission gate. Relay publish stderr guidance as a fallback.
 

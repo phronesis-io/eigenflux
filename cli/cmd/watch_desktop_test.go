@@ -58,7 +58,7 @@ func TestDesktopAllStagesAndSameVersionReminder(t *testing.T) {
 	}
 	raw := strings.ReplaceAll(string(commissionTestNotification(82, 9007199254740995, "42")), "order.state.changed.v1", "order.reminder.buyer_confirmation_24h.v1")
 	m, err := commissionDesktopMessage(json.RawMessage(raw), "https://example.com", "42", "zh")
-	if err != nil || m.ID != "commission:82" || !strings.Contains(m.Title, "还未确认交付") {
+	if err != nil || m.ID != "commission:82" || !strings.Contains(m.Title, "售后期即将结束") {
 		t.Fatal(m, err)
 	}
 	if _, err := commissionDesktopMessage(commissionTestNotification(1, 2, "43"), "https://example.com", "42", "zh"); err == nil {
@@ -94,7 +94,7 @@ func TestDesktopCopyUsesOneLanguageAndPreservesRouting(t *testing.T) {
 		}
 	}
 	for _, tt := range []struct{ kind, command, state, summary string }{
-		{"order.reminder.buyer_confirmation_24h.v1", "", "awaiting_buyer_confirmation", "“{service_name}” still needs your confirmation"},
+		{"order.reminder.buyer_confirmation_24h.v1", "", "awaiting_buyer_confirmation", "“{service_name}” after-sales period ends soon"},
 		{"order.state.changed.v1", "reject_order", "cancelled", "“{service_name}” declined by the seller"},
 	} {
 		var fact desktopOrderFact

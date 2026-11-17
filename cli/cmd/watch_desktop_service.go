@@ -108,11 +108,21 @@ func (w *accountWatch) resolveDesktopServiceName(ctx context.Context, message de
 		credit = readCommissionNoticeCredit(ctx, api, order.ID)
 		creditText = formatDesktopCommissionCredit(order, credit, english)
 	}
-	gross, net := "", ""
-	if order.Contract.Currency == "CNY" && order.Contract.GrossFen > 0 {
-		gross = " · " + commissionNoticeCNY(order.Contract.GrossFen)
-	}
-	if amount := commissionNoticeNet(order, credit); amount != nil {
+	var orderAmountText, refundAmountText, orderAmountCard, refundAmountCard, net string
+	if role == "buyer" {
+		orderAmountText = desktopCommissionAmount(order.Contract.Currency, order.Contract.GrossFen, orderAmount)
+		refundAmountText = desktopCommissionAmount(order.Contract.Currency, order.Contract.GrossFen, refundAmount)
+		if order.Contract.Currency == "CNY" && order.Contract.GrossFen > 0 {
+			orderAmountCard = " · " + commissionNoticeCNY(order.Contract.GrossFen)
+			refundAmountCard = orderAmountCard
+		}
+	} else if amount := commissionNoticeNet(order, credit); amount != nil {
+		label := "供货款"
+		if english {
+			label = "Supply payment"
+		}
+		orderAmountText = desktopCommissionAmount(order.Contract.Currency, *amount, label)
+		orderAmountCard = " · " + commissionNoticeCNY(*amount)
 		net = " " + commissionNoticeCNY(*amount)
 	}
 	// A single replacer never expands placeholder-like text within display names.
@@ -121,13 +131,13 @@ func (w *accountWatch) resolveDesktopServiceName(ctx context.Context, message de
 		desktopAgentNamePlaceholder, agentName,
 		"{order_buyer_agent_name}", "「"+buyerName+"」",
 		desktopCounterpartyPlaceholder, counterparty,
-		desktopOrderAmountPlaceholder, desktopCommissionAmount(order, orderAmount),
-		desktopRefundAmountPlaceholder, desktopCommissionAmount(order, refundAmount),
+		desktopOrderAmountPlaceholder, orderAmountText,
+		desktopRefundAmountPlaceholder, refundAmountText,
 		desktopCreditPlaceholder, creditText,
 		desktopActionDeadlinePlaceholder, desktopCommissionActionDeadline(order, english, compact),
 		desktopCardService, name,
-		desktopCardGross, gross,
-		desktopCardRefund, gross,
+		desktopCardGross, orderAmountCard,
+		desktopCardRefund, refundAmountCard,
 		desktopCardNet, net,
 		desktopCardCredit, desktopCardCreditLine(credit, english),
 	)
