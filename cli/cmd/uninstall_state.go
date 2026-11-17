@@ -15,14 +15,23 @@ func saveMaintenance(path string, v interface{}) error {
 }
 
 func writeFileAtomic(path string, b []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(filepath.Dir(path), ".maintenance-*")
+	staged, err := stageAtomicWrite(path, b)
 	if err != nil {
 		return err
 	}
-	defer os.Remove(f.Name())
+	defer os.Remove(staged)
+	return os.Rename(staged, path)
+}
+
+// Write and sync the replacement beside its destination before committing it.
+func stageAtomicWrite(path string, b []byte) (string, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), ".maintenance-*")
+	if err != nil {
+		return "", err
+	}
 	if _, err = f.Write(b); err == nil {
 		err = f.Sync()
 	}
@@ -31,7 +40,8 @@ func writeFileAtomic(path string, b []byte) error {
 		err = ce
 	}
 	if err != nil {
-		return err
+		_ = os.Remove(f.Name())
+		return "", err
 	}
-	return os.Rename(f.Name(), path)
+	return f.Name(), nil
 }

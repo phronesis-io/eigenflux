@@ -495,6 +495,32 @@ func TestUninstallIsolatedExecutable(t *testing.T) {
 				}
 			}
 		}
+		if runtime.GOOS != "windows" && os.Geteuid() != 0 {
+			binDir := filepath.Dir(bin)
+			info, err := os.Stat(binDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(binDir, info.Mode().Perm()&^0222); err != nil {
+				t.Fatal(err)
+			}
+			failedOutput, failedErr := invoke("uninstall", "--attempt", start.Attempt, "--apply", "--host-cleanup-confirmed")
+			if err := os.Chmod(binDir, info.Mode().Perm()); err != nil {
+				t.Fatal(err)
+			}
+			if failedErr == nil || !strings.Contains(string(failedOutput), "prepare shared installation registration") {
+				t.Fatalf("expected registration preparation to fail: %v %s", failedErr, failedOutput)
+			}
+			for _, path := range []string{
+				filepath.Join(home, "config.json"),
+				filepath.Join(home, "servers", "test", "agent-v2-credentials.json"),
+				filepath.Join(home, "uninstall-"+start.Attempt+".json"),
+			} {
+				if _, err := os.Stat(path); err != nil {
+					t.Fatalf("registration failure removed retry data %s: %v", path, err)
+				}
+			}
+		}
 		out, err = invoke("uninstall", "--scope", "current", "--attempt", start.Attempt, "--apply", "--host-cleanup-confirmed", "--reason-category", "declined")
 		release()
 		if err != nil {
