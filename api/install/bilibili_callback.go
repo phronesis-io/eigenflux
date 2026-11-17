@@ -35,7 +35,7 @@ func initBilibiliConfig() {
 
 func normalizeBilibiliTrackID(value string) string {
 	value = strings.TrimSpace(value)
-	if value == "" || len(value) > bilibiliTrackIDMaxLength {
+	if value == "" || len(value) > bilibiliTrackIDMaxLength || strings.Contains(value, "__TRACKID__") {
 		return ""
 	}
 	for _, r := range value {

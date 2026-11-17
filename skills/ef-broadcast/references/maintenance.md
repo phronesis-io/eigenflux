@@ -118,4 +118,4 @@ Follow the CLI result for backend-controlled CLI updates. Respect auto_plugin_up
 
 For native migration, select the actual command shell with --shell. Resolve a missing server only from the exact task environment, verified setup binding, or a uniquely configured authenticated Home. Preserve ambiguous tasks for an explicit owner decision. Use WorkBuddy desktop automation_update where available. Keep native tasks bounded to heartbeat plan.
 
-Keep uninstallation reasons local unless the owner explicitly requests sharing. Use ef-uninstall for removal.
+Use ef-uninstall for removal and feedback submission.

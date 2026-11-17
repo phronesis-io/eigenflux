@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"strings"
+	"slices"
 	"time"
 
 	"cli.eigenflux.ai/internal/config"
@@ -160,12 +160,15 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 	if scope != "" && scope != "current" && scope != "all" {
 		return errors.New("uninstall scope must be current or all")
 	}
-	if (apply || begin) && scope == "" {
+	resumeAttempt, _ := cmd.Flags().GetString("attempt")
+	if (apply || begin) && scope == "" && resumeAttempt == "" {
 		return errors.New("choose uninstall scope: do other Agents still need EigenFlux? use --scope current to keep the shared CLI, or --scope all to uninstall everything")
 	}
 
-	resumeAttempt, _ := cmd.Flags().GetString("attempt")
 	recordResult, _ := cmd.Flags().GetString("record-result")
+	if resumeAttempt != "" && !begin && !apply && recordResult == "" {
+		return errors.New("--attempt requires --begin, --apply, or --record-result")
+	}
 	if begin && apply {
 		return errors.New("begin and apply are separate steps")
 	}
@@ -178,11 +181,19 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 	}
 	source, _ := cmd.Flags().GetString("source")
 	category, _ := cmd.Flags().GetString("reason-category")
-	reason, _ := cmd.Flags().GetString("reason")
+	if apply && resumeAttempt == "" {
+		return errors.New("run uninstall --begin with feedback before host cleanup, then use the confirmed --attempt with --apply")
+	}
+	reason, err := readUninstallReason(cmd, begin)
+	if err != nil {
+		return err
+	}
 	if category == "" {
-		category = "not_provided"
-		if strings.TrimSpace(reason) != "" {
-			category = "other"
+		category = "other"
+	}
+	if begin {
+		if err := validateUninstallReason(reason, category); err != nil {
+			return err
 		}
 	}
 	probe := maintenance.NewEvent(maintenance.NewID(), "cli", "manual", "uninstall", "started")
@@ -190,9 +201,30 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 	if err := maintenance.Validate(probe); err != nil {
 		return err
 	}
+	var releases []func()
+	defer func() {
+		for i := len(releases) - 1; i >= 0; i-- {
+			releases[i]()
+		}
+	}()
+	if apply || begin || recordResult != "" {
+		for _, lockPath := range []string{bin + ".install.lock", bin + ".update.lock", bin + ".activation.lock"} {
+			if info, e := os.Lstat(lockPath); e == nil && !info.Mode().IsRegular() {
+				return errors.New("installation lock must be a regular file")
+			} else if e != nil && !os.IsNotExist(e) {
+				return e
+			}
+			release, e := watchstate.AcquirePath(lockPath)
+			if e != nil {
+				return fmt.Errorf("installation registration or update is active: %w", e)
+			}
+			releases = append(releases, release)
+		}
+	}
+	legacyBegin := false
 	var observation *uninstallObservation
 	if apply || begin || recordResult != "" {
-		observation = newUninstallObservation(bin, source, category, reason)
+		observation = newUninstallObservation(bin, source, category)
 		observation.RemovalScope = scope
 		if resumeAttempt != "" {
 			path, err := uninstallReceiptPath(resumeAttempt)
@@ -207,39 +239,44 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 			if err != nil {
 				return err
 			}
-			if json.Unmarshal(data, observation) != nil || observation.AttemptID != resumeAttempt || observation.Executable != bin || (!observation.Pending && !(observation.Result == "partial" && observation.PackageCleanup != nil)) || observation.Started.IsZero() || time.Since(observation.Started) < 0 || time.Since(observation.Started) > 24*time.Hour {
+			if json.Unmarshal(data, observation) != nil || observation.AttemptID != resumeAttempt ||
+				observation.Executable != bin || observation.Started.IsZero() ||
+				time.Since(observation.Started) < 0 || time.Since(observation.Started) > 24*time.Hour {
 				return errors.New("uninstall attempt does not match this installation")
 			}
 			if scope != "" && observation.RemovalScope != scope {
 				return errors.New("uninstall scope changed since begin; start a new attempt")
 			}
+			if cmd.Flags().Changed("source") && observation.Source != source {
+				return errors.New("uninstall source changed since begin; use the original source")
+			}
+			if begin {
+				if !observation.Pending || observation.ReadyToFinalize {
+					return errors.New("uninstall attempt cannot be submitted again")
+				}
+				if observation.FeedbackServer == "" {
+					legacyBegin = true
+					observation.ReasonCategory = category
+				} else if observation.ReasonCategory != category {
+					return errors.New("uninstall reason category changed; start a new attempt")
+				}
+			} else {
+				if observation.ReadyToFinalize && observation.Pending {
+					return errors.New("uninstall was already applied; continue with the official finalizer")
+				}
+				if !observation.FeedbackUploaded {
+					return errors.New("uninstall feedback has not been confirmed; run --begin with feedback before cleanup")
+				}
+				if !observation.Pending && !(apply && (observation.Result == "partial" || observation.Result == "failed" || observation.Result == "blocked")) {
+					return errors.New("uninstall attempt is no longer pending")
+				}
+				if _, _, _, err := observation.feedbackTarget(); err != nil {
+					return err
+				}
+				observation.Pending = false
+				observation.Result = ""
+			}
 			scope = observation.RemovalScope
-			observation.LocalReason = reason
-			if cmd.Flags().Changed("reason-category") {
-				observation.ReasonCategory = category
-			}
-			if cmd.Flags().Changed("reason") && strings.TrimSpace(reason) != "" && observation.ReasonCategory == "not_provided" {
-				observation.ReasonCategory = "other"
-			}
-			if reason == "" {
-				var previous struct {
-					AttemptID string `json:"attempt_id"`
-					Reason    string `json:"reason"`
-				}
-				if data, err := os.ReadFile(filepath.Join(config.HomeDir(), "uninstall.json")); err == nil {
-					_ = json.Unmarshal(data, &previous)
-					if previous.AttemptID == resumeAttempt {
-						observation.LocalReason = previous.Reason
-						reason = previous.Reason
-					}
-				}
-			}
-			observation.Pending = false
-			observation.Result = ""
-		} else {
-			observation.discoverScopes()
-			observation.emit("started", "")
-			observation.audit("started", "")
 		}
 		if recordResult != "" {
 			observation.finish(recordResult, "host_cleanup_failed")
@@ -251,7 +288,7 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 			return nil
 		}
 		defer func() {
-			if retErr != nil && observation.Result == "" {
+			if apply && retErr != nil && observation.Result == "" {
 				result, code := "failed", uninstallErrorCode(retErr)
 				if observation.Mutated {
 					result = "partial"
@@ -259,36 +296,8 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 					result = "blocked"
 				}
 				observation.finish(result, code)
-			} else if apply && !observation.Pending && observation.Result == "" {
-				result := "removed"
-				code := ""
-				if observation.Partial {
-					result = "partial"
-					code = "managed_content_preserved"
-				}
-				observation.finish(result, code)
 			}
 		}()
-	}
-	var releases []func()
-	defer func() {
-		for i := len(releases) - 1; i >= 0; i-- {
-			releases[i]()
-		}
-	}()
-	if apply || begin {
-		for _, lockPath := range []string{bin + ".install.lock", bin + ".update.lock", bin + ".activation.lock"} {
-			if info, e := os.Lstat(lockPath); e == nil && !info.Mode().IsRegular() {
-				return errors.New("installation lock must be a regular file")
-			} else if e != nil && !os.IsNotExist(e) {
-				return e
-			}
-			release, e := watchstate.AcquirePath(lockPath)
-			if e != nil {
-				return fmt.Errorf("installation registration or update is active: %w", e)
-			}
-			releases = append(releases, release)
-		}
 	}
 	b, err := os.ReadFile(bin + ".install.json")
 	if err != nil {
@@ -298,7 +307,7 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 	if json.Unmarshal(b, &r) != nil || r.Version != 1 || r.Executable != bin || len(r.Homes) == 0 {
 		return errors.New("invalid installation record")
 	}
-	if apply && resumeAttempt != "" {
+	if resumeAttempt != "" && !legacyBegin {
 		for _, path := range []string{bin, bin + ".install.json"} {
 			data, err := os.ReadFile(path)
 			if err != nil {
@@ -314,6 +323,9 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 		return err
 	}
 	r.Homes = plan.Selected
+	if legacyBegin && !slices.Equal(observation.Homes, r.Homes) {
+		return errors.New("registered Homes changed since the legacy uninstall began; inspect a fresh attempt")
+	}
 	if observation != nil {
 		observation.Homes = r.Homes
 		observation.RemovalScope = scope
@@ -323,19 +335,16 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 			observation.RemainingRegistration = &remaining
 		}
 
-		if resumeAttempt == "" {
-			observation.Scopes = nil
-			observation.discoverScopes()
-			observation.emit("started", "")
-			observation.audit("started", "")
+		current := uninstallObservation{Homes: r.Homes}
+		current.discoverScopes()
+		if resumeAttempt != "" && !sameUninstallScopes(observation.Scopes, current.Scopes) {
+			return errors.New("registered Agent identities changed since uninstall began; inspect a fresh attempt")
 		}
+		observation.Scopes = current.Scopes
 	}
 	cleanup, _ := cmd.Flags().GetBool("host-cleanup-confirmed")
 	if apply && !cleanup {
 		return errors.New("stop and remove registered host triggers/plugins with their native tools before applying uninstall")
-	}
-	if len(reason) > 1000 {
-		return errors.New("uninstall reason exceeds 1000 bytes")
 	}
 	removeSkills, _ := cmd.Flags().GetBool("skills")
 	if !removeSkills {
@@ -387,7 +396,7 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 	var cleanupFiles, preservedScripts []string
 	var packageCleanup *selfupdate.InstallationCleanup
 	if scope != "current" {
-		if observation != nil && resumeAttempt != "" {
+		if observation != nil && resumeAttempt != "" && !legacyBegin {
 			if err = observation.verifyPackageCleanup(cmd.Context()); err != nil {
 				return err
 			}
@@ -426,7 +435,7 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 	if observation != nil && len(preservedScripts) > 0 {
 		observation.Partial = true
 	}
-	if begin || (observation != nil && scope != "current") {
+	if observation != nil && (begin || scope != "current") {
 		observation.CleanupFiles = cleanupFiles
 		observation.FileDigests = map[string]string{}
 		for _, path := range append([]string{bin, bin + ".install.json"}, cleanupFiles...) {
@@ -438,13 +447,10 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 		}
 	}
 	if begin {
-		observation.Pending = true
-		path, _ := uninstallReceiptPath(observation.AttemptID)
-		if err := saveMaintenance(path, observation); err != nil {
+		if err := observation.submitFeedback(reason); err != nil {
 			return err
 		}
-		observation.flush()
-		output.PrintData(map[string]interface{}{"attempt_id": observation.AttemptID, "result": "started", "executable": bin, "homes": r.Homes, "uninstall_scripts": r.Scripts}, resolveFormat())
+		output.PrintData(map[string]interface{}{"attempt_id": observation.AttemptID, "result": "started", "reason_uploaded": true, "reason_category": observation.ReasonCategory, "executable": bin, "homes": r.Homes, "uninstall_scripts": r.Scripts}, resolveFormat())
 		return nil
 	}
 	if apply {
@@ -472,6 +478,18 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 			skillResults[i] = removed
 		}
 		if runtime.GOOS != "windows" && scope != "current" {
+			// Native and Skills cleanup are complete. An independent reporter
+			// can now resume interrupted package and executable removal.
+			observation.ReadyToFinalize = true
+			observation.Pending = true
+			path, err := uninstallReceiptPath(observation.AttemptID)
+			if err != nil {
+				return err
+			}
+			if err := saveMaintenance(path, observation); err != nil {
+				return err
+			}
+			observation.Pending = false
 			if err := observation.removePackages(); err != nil {
 				return err
 			}
@@ -492,6 +510,7 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 		if runtime.GOOS == "windows" && scope != "current" {
 			observation.audit("started", "")
 			observation.Pending = true
+			observation.ReadyToFinalize = true
 			observation.CleanupFiles = cleanupFiles
 			observation.FileDigests = map[string]string{}
 			for _, path := range append([]string{bin, bin + ".install.json"}, cleanupFiles...) {
@@ -536,7 +555,7 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 		}
 		localDataRemoved = true
 	}
-	output.PrintData(map[string]interface{}{"result": result, "scope": scope, "scope_selection_required": scope == "", "scope_question": "Do other Agents still need EigenFlux?", "scope_choices": []string{"current", "all"}, "shared_cli_preserved": scope == "current", "shared_resources_preserved": plan.RetainedPaths, "notification_cleanup": notificationCleanup, "attempt_id": attempt, "receipt_home": receiptHome, "apply": apply, "executable": bin, "homes": r.Homes, "skills": skillResults, "cleanup_files": cleanupFiles, "uninstall_scripts": r.Scripts, "preserved_scripts": preservedScripts, "package_cleanup": packageCleanup, "reporter_executable": reporter, "reporter_sha256": reporterDigest, "retained_lock_files": []string{bin + ".install.lock", bin + ".update.lock", bin + ".activation.lock"}, "data_preserved": !localDataRemoved, "data_cleanup_pending": apply && runtime.GOOS == "windows" && scope != "current", "executable_removal_pending": apply && runtime.GOOS == "windows" && scope != "current", "reason_saved": apply && !localDataRemoved && strings.TrimSpace(reason) != "", "path_cleanup": "retain shared PATH entries; use host tools for scheduler/plugin cleanup"}, resolveFormat())
+	output.PrintData(map[string]interface{}{"result": result, "scope": scope, "scope_selection_required": scope == "", "scope_question": "Do other Agents still need EigenFlux?", "scope_choices": []string{"current", "all"}, "shared_cli_preserved": scope == "current", "shared_resources_preserved": plan.RetainedPaths, "notification_cleanup": notificationCleanup, "attempt_id": attempt, "receipt_home": receiptHome, "apply": apply, "executable": bin, "homes": r.Homes, "skills": skillResults, "cleanup_files": cleanupFiles, "uninstall_scripts": r.Scripts, "preserved_scripts": preservedScripts, "package_cleanup": packageCleanup, "reporter_executable": reporter, "reporter_sha256": reporterDigest, "retained_lock_files": []string{bin + ".install.lock", bin + ".update.lock", bin + ".activation.lock"}, "data_preserved": !localDataRemoved, "data_cleanup_pending": apply && runtime.GOOS == "windows" && scope != "current", "executable_removal_pending": apply && runtime.GOOS == "windows" && scope != "current", "reason_saved": false, "reason_uploaded": observation != nil && observation.FeedbackUploaded, "path_cleanup": "retain shared PATH entries; use host tools for scheduler/plugin cleanup"}, resolveFormat())
 	if apply && result == "partial" {
 		return fmt.Errorf("uninstall incomplete; retained managed paths: %v", preservedScripts)
 	}
@@ -617,14 +636,15 @@ func init() {
 	uninstallCmd.Flags().Int("script-protocol", 0, "official uninstall script protocol")
 	_ = uninstallCmd.Flags().MarkHidden("script-protocol")
 	uninstallCmd.Flags().String("source", "manual", "uninstall source: agent or manual")
-	uninstallCmd.Flags().String("reason-category", "", "optional fixed uninstall reason category")
+	uninstallCmd.Flags().String("reason-category", "", "uninstall reason category, or declined when the owner explicitly declines")
 	uninstallCmd.Flags().Bool("notifications", false, "remove owned per-user notification integration")
 	uninstallCmd.Flags().Bool("notification-cleanup-confirmed", false, "all users of the shared notification integration were reviewed")
 	uninstallCmd.Flags().Bool("apply", false, "apply the inspected removal plan")
 	uninstallCmd.Flags().Bool("all-homes", false, "remove a binary shared by all registered Homes")
 	uninstallCmd.Flags().Bool("host-cleanup-confirmed", false, "native host triggers and plugin owners have been stopped and removed")
 	uninstallCmd.Flags().Bool("skills", true, "remove registered EigenFlux Skills, including edited content (always enabled)")
-	uninstallCmd.Flags().String("reason", "", "optional uninstall reason, temporary local audit erased after successful cleanup")
+	uninstallCmd.Flags().String("reason", "", "owner-provided uninstall reason uploaded before cleanup")
+	uninstallCmd.Flags().Bool("reason-stdin", false, "read the uninstall reason from standard input")
 	remove := &cobra.Command{Use: "uninstall", Short: "Remove EigenFlux-managed Skills, including edited content, from one explicit target", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		target, _ := cmd.Flags().GetString("into")
 		if target == "" {

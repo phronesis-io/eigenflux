@@ -193,3 +193,34 @@ func TestRuntimeOverflowPreservesExistingMaintenance(t *testing.T) {
 		t.Fatal("runtime backlog evicted maintenance")
 	}
 }
+
+func TestOptionalNeedDoesNotGateFeedCycle(t *testing.T) {
+	for _, outcome := range []string{"", "failed"} {
+		scope := Scope{Home: t.TempDir(), Server: "test", AgentID: "1"}
+		cycle, err := StartCycle(scope, "full", []string{"feed", "need_capture"}, RuntimeObservation{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if outcome != "" {
+			if err := ReportCycle(scope, cycle.ID, "need_capture", outcome); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := ReportCycle(scope, cycle.ID, "cycle", "failed"); err == nil {
+			t.Fatal("Need alone failed the cycle")
+		}
+		if err := ReportCycle(scope, cycle.ID, "feed", "completed"); err != nil {
+			t.Fatal(err)
+		}
+		cycle, err = ReadCycle(scope, cycle.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, missing := CycleMissing(cycle); len(missing) != 0 {
+			t.Fatalf("missing stages: %v", missing)
+		}
+		if err := ReportCycle(scope, cycle.ID, "cycle", "completed"); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

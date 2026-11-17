@@ -85,12 +85,12 @@ func TestRenderHeartbeatPlanForAgentIsThinAndCurrent(t *testing.T) {
 		SchedulerLauncher:  "eigenflux --homedir /tmp/home heartbeat plan --format agent",
 		SchedulerMigration: "migrate owned task",
 		Access:             runtimeAccess{Mode: "intent_aligned", OnboardingState: "completed"},
-		ExecutionOrder:     []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report", "commission_confirmations"},
+		ExecutionOrder:     []string{"commands", "need_capture", "feed", "attention", "communication", "publish", "settings_report", "commission_confirmations"},
 	}
 	text := renderHeartbeatPlanForAgent(plan)
 	for _, required := range []string{
 		heartbeatContractVersion, "rev-123", "ef-future", "Freshly read, from disk",
-		"commands → feed → attention → communication → publish → need_capture → settings_report → commission_confirmations",
+		"commands → need_capture → feed → attention → communication → publish → settings_report → commission_confirmations",
 		"CLI prefix for every EigenFlux command in this cycle: eigenflux --homedir /tmp/home",
 		"Never run a bare eigenflux command",
 		"Apply runtime-model.md before subsequent CLI calls",
@@ -157,7 +157,7 @@ func TestHeartbeatPlanJSONCarriesCurrentPromptAndAccessDecision(t *testing.T) {
 			if baseline {
 				wantStages = []string{"feed"}
 			}
-			if !reflect.DeepEqual(plan.ExecutionOrder, wantStages) || plan.WakeOnEmpty == baseline {
+			if !reflect.DeepEqual(plan.ExecutionOrder, wantStages) || plan.WakeOnEmpty == baseline || plan.NeedCapture != nil {
 				t.Fatalf("incorrect central dispatch: %+v", plan)
 			}
 			if contextRequests != 1 {
@@ -218,7 +218,7 @@ func TestHeartbeatPlanFailsWithoutCurrentAccessOrRules(t *testing.T) {
 	}
 }
 
-func installHeartbeatTestRules(t *testing.T) string {
+func installHeartbeatTestRules(t *testing.T, plannedNeed ...bool) string {
 	t.Helper()
 	oldVersion, oldKey := version, skills.VerifyPublicKeyBase64
 	version = "0.0.46"
@@ -274,6 +274,10 @@ func installHeartbeatTestRules(t *testing.T) string {
 	manifest, err := skills.GenerateManifest(dir, "0.0.46", "0.0.46", names, 1)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(plannedNeed) > 0 && plannedNeed[0] {
+		version = plannedNeedCaptureMinCLI
+		manifest.MinCLIVersion = version
 	}
 	manifest.Sequence = 1
 	manifest.TarSHA256 = strings.Repeat("a", 64)
@@ -387,7 +391,7 @@ func TestHeartbeatPlanAcceptsLegacyEnvironmentMode(t *testing.T) {
 
 func TestHeartbeatPlanFeedCompletionStep(t *testing.T) {
 	prompt := renderHeartbeatPlanForAgent(heartbeatPlan{CLIPrefix: "test-prefix", FeedCompletionCheck: true})
-	if !strings.Contains(prompt, "Before leaving the Feed stage, run test-prefix feed status --cycle <id>. Score every item it lists, then continue.") {
+	if !strings.Contains(prompt, "Before leaving the Feed stage, run test-prefix feed status --cycle <id>. Finish any remaining judgments you can make. Keep deferred items for a later cycle.") {
 		t.Fatal(prompt)
 	}
 	if strings.Contains(renderHeartbeatPlanForAgent(heartbeatPlan{CLIPrefix: "test-prefix"}), "feed status") {
@@ -396,7 +400,7 @@ func TestHeartbeatPlanFeedCompletionStep(t *testing.T) {
 	if heartbeatContractVersion != "eigenflux_heartbeat.v5" {
 		t.Fatal(heartbeatContractVersion)
 	}
-	for _, line := range []string{"After the Feed push, run test-prefix feed status --after-push --cycle <id>", "feed next reads this cycle's saved page and is not a pull.", "Do not stop after the first batch while backlog is positive", "Remaining backlog at the four-batch limit is deferred, not an incomplete cycle", "Follow the inline contract core; read the named details before their actions, otherwise skip those actions."} {
+	for _, line := range []string{"After the Feed push, run test-prefix feed status --after-push --cycle <id>", "use feed defer for unassessed items", "Score 0 means assessed neutral.", "feed next reads this cycle's saved page and is not a pull.", "Do not stop after the first batch while backlog is positive", "Remaining backlog at the four-batch limit is deferred, not an incomplete cycle", "Follow the inline contract core; read the named details before their actions, otherwise skip those actions."} {
 		if !strings.Contains(prompt, line) {
 			t.Fatal(prompt)
 		}

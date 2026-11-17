@@ -931,7 +931,27 @@ contains only the public Pixel ID. `META_API_VERSION` defaults to `v25.0`.
 must be empty for live conversions. API acceptance is recorded in
 `install_callback_meta`; acceptance alone does not prove ad attribution.
 
+## Bilibili installation attribution
+
+`POST /api/v1/install/token` treats a `bilibili_track_id` containing an
+unexpanded `__TRACKID__` macro as missing and continues with the other
+available attribution signals. An explicit Bilibili source remains eligible
+for channel attribution. A token minted without a usable track ID is
+ineligible for Bilibili conversion callbacks.
+
 ## Install attribution preview filtering
+
+The EigenFlux iOS app can send an optional `status_key_hash` on
+`POST /api/v1/install/token` with `utm_source=eigenflux_ios`. The hash is the
+hexadecimal SHA-256 of a private, random 64-character hexadecimal status key.
+The status credential is separate from the public install ref and expires
+after 90 days.
+
+`POST /api/v1/install/status` accepts an `entries` array of up to ten
+`{ref, status_key}` pairs. The no-store response maps each requested ref to
+`pending`, `installed` or `unavailable`. An unknown, expired or unauthorized
+pair returns the same `unavailable` state. `installed` means an installation
+report was recorded. It does not assert Agent ownership or connectivity.
 
 `POST /api/v1/install/token` returns HTTP 403 without a referral token for
 identified crawlers, safety scanners (including `Google-Safety`), link unfurlers

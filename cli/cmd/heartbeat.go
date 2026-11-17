@@ -22,8 +22,9 @@ import (
 const heartbeatContractVersion = "eigenflux_heartbeat.v5"
 
 type heartbeatPlan struct {
-	CycleID                  string                     `json:"cycle_id,omitempty"`
 	PMNoticeToken            string                     `json:"pm_notice_token,omitempty"`
+	NeedCapture              *needCapturePlan           `json:"need_capture,omitempty"`
+	CycleID                  string                     `json:"cycle_id,omitempty"`
 	FeedCompletionCheck      bool                       `json:"feed_completion_check"`
 	MainSessionBinding       *mainSessionBindingPlan    `json:"main_session_binding,omitempty"`
 	WatchManaged             bool                       `json:"watch_managed,omitempty"`
@@ -364,6 +365,16 @@ var heartbeatPlanCmd = &cobra.Command{
 			}
 		}
 
+		var needScope maintenance.Scope
+		if supportsPlannedNeedCapture(manifest) {
+			needScope = attachNeedCapturePlan(&plan)
+		} else if i := slices.Index(plan.ExecutionOrder, "need_capture"); i >= 0 {
+			// Older signed bundles query Pending themselves after Publish.
+			plan.ExecutionOrder = slices.Delete(plan.ExecutionOrder, i, i+1)
+			if publish := slices.Index(plan.ExecutionOrder, "publish"); publish >= 0 {
+				plan.ExecutionOrder = slices.Insert(plan.ExecutionOrder, publish+1, "need_capture")
+			}
+		}
 		if plan.PlanMode == "full" && access.Mode == "intent_aligned" {
 			if err := attachHeartbeatPMNotices(cmd.Context(), &plan, meta.Host); err != nil {
 				return err
@@ -376,7 +387,13 @@ var heartbeatPlanCmd = &cobra.Command{
 			}
 		}
 		plan.AgentPrompt = renderHeartbeatPlanForAgent(plan)
-		return deliverHeartbeatPlan(cmd.OutOrStdout(), cmd.ErrOrStderr(), resolveFormat(), plan, skillsScope)
+		if err := deliverHeartbeatPlan(cmd.OutOrStdout(), cmd.ErrOrStderr(), resolveFormat(), plan, skillsScope); err != nil {
+			return err
+		}
+		if plan.NeedCapture != nil && plan.NeedCapture.FirstCycle && needScope.Home != "" {
+			_ = maintenance.MarkNeedCaptureStarted(needScope)
+		}
+		return nil
 	},
 }
 
@@ -475,11 +492,11 @@ func heartbeatStages(access runtimeAccess) []string {
 	if access.OnboardingState != "completed" {
 		return []string{"feed"}
 	}
-	return []string{"commands", "feed", "attention", "communication", "publish", "need_capture", "settings_report", "commission_confirmations"}
+	return []string{"commands", "need_capture", "feed", "attention", "communication", "publish", "settings_report", "commission_confirmations"}
 }
 
 func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
-	receiptText := cycleInstructions(plan)
+	receiptText := cycleInstructions(plan) + needCaptureInstructions(plan)
 	if plan.SkillsUpdateError != "" {
 		receiptText += "\nSkills update incomplete: " + plan.SkillsUpdateError + ". Running retained compatible revision " + plan.SkillRevision + "; target revision " + plan.SkillsTargetRevision + ". Do not report this as an upgrade success or latest-version confirmation.\n"
 	}
@@ -550,8 +567,7 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 		b, _ := json.Marshal(plan.SkillsReadReceipt)
 		receiptText += "\nAfter freshly reading every listed rule source, submit this unchanged JSON to heartbeat maintenance-report --stdin using the CLI prefix above: " + string(b) + "\n"
 	}
-	receiptText += cycleReadInstructions(plan)
-	receiptText += pmDigestInstructions(plan)
+	receiptText += cycleReadInstructions(plan) + pmDigestInstructions(plan)
 	if plan.PlanMode == "control" || plan.PlanMode == "maintenance" {
 		return fmt.Sprintf("EIGENFLUX HEARTBEAT PLAN\nPlan mode: %s\nCLI: %s\nSkill revision: %s\nCLI prefix for every command: %s\nFreshly read these central rule sources:\n- %s\nExecute only these stages: %s. Runtime access: %s. Onboarding state: %s. Do not execute stages outside this list.\nPlugin maintenance: %s\nScheduler migration: %s\n", plan.PlanMode, plan.CLIVersion, plan.SkillRevision, plan.CLIPrefix, strings.Join(plan.RuleSources, "\n- "), strings.Join(plan.ExecutionOrder, ", "), plan.Access.Mode, plan.Access.OnboardingState, pluginMaintenanceJSON(plan.PluginMaintenance), plan.SchedulerMigration) + receiptText
 	}
@@ -568,7 +584,7 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 	}
 	completion := ""
 	if plan.FeedCompletionCheck {
-		completion = "\nBefore leaving the Feed stage, run " + plan.CLIPrefix + " feed status --cycle <id>. Score every item it lists, then continue. Without a cycle use unscoped status."
+		completion = "\nBefore leaving the Feed stage, run " + plan.CLIPrefix + " feed status --cycle <id>. Finish any remaining judgments you can make. Keep deferred items for a later cycle. Without a cycle use unscoped status."
 		completion += "\nAfter the Feed push, run " + plan.CLIPrefix + " feed status --after-push --cycle <id> to close the cycle after recording surface for items actually shown; close it the same way when nothing is pushed. Without a cycle use unscoped status."
 	}
 	executorNotice := ""
@@ -596,7 +612,7 @@ MANDATORY FOR THIS CYCLE
 %s
 2. Apply runtime-model.md before subsequent CLI calls: resolve the current model and pass it through --runtime-model for each invocation. If unavailable, keep it unset and continue permitted Feed work.
 3. Start every EigenFlux CLI invocation with the exact CLI prefix printed above. Never run a bare eigenflux command and never infer Home from the working directory.
-4. Runtime access: %s. Execute the available stages in order: %s. Apply the current Skills to each stage. A Feed payload supplied by the host is this cycle's completed pull. feed next reads this cycle's saved page and is not a pull. Follow the inline contract core; read the named details before their actions, otherwise skip those actions. Score and submit each batch before following its next command with --cycle. Do not stop after the first batch while backlog is positive: continue through the saved next command. Scheduled cycles stop at 4 batches or open=0 backlog=0, then push completed recommendations once. Remaining backlog at the four-batch limit is deferred, not an incomplete cycle. Owner checks drain without that cap. After compaction use feed recover --cycle <id>, never re-score recovered items.
+4. Runtime access: %s. Execute the available stages in order: %s. Apply the current Skills to each stage. A Feed payload supplied by the host is this cycle's completed pull. feed next reads this cycle's saved page and is not a pull. Follow the inline contract core; read the named details before their actions, otherwise skip those actions. Submit feedback for judged items and use feed defer for unassessed items in a supported local batch before following its next command with --cycle. Score 0 means assessed neutral. Do not stop after the first batch while backlog is positive: continue through the saved next command. Scheduled cycles stop at 4 batches or open=0 backlog=0, then push completed recommendations once. Remaining backlog at the four-batch limit is deferred, not an incomplete cycle. Owner checks drain without that cap. After compaction use feed recover --cycle <id>, never re-score recovered items.
 %s
 5. Follow the current Skills for onboarding restrictions and recovery. Host harness output and notification requirements take precedence over Skill silence tokens and display conventions.
 

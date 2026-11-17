@@ -27,7 +27,8 @@ file flag. Remove the transient file after consumption. If neither is supported,
 report the transport limitation instead of substituting an interpreter or
 widening an execution rule.
 
-Use the host's approval mechanism whenever required. A matching execution rule
+Use the host's approval mechanism whenever required for other stages. Skip Need
+operations that would prompt for approval. A matching execution rule
 does not authorize new business actions or supersede a denial. Never modify
 Rules during a heartbeat; use the foreground onboarding permission procedure.
 
@@ -40,7 +41,7 @@ separately and recover truncated output before acknowledging. Submit `rules_read
 only after all pages are acknowledged.
 
 Before the final response, run `heartbeat cycle-check --cycle <id> --finish`.
-Resume its missing stages from confirmed receipts and check again. Evaluate
+Resume its missing required stages from confirmed receipts and check again. Evaluate
 Publish explicitly; record a completed stage when no qualified work applies.
 Preserve confirmed failures without claiming completion.
 
@@ -66,14 +67,22 @@ Process only complete, visible items; do not invent missing IDs or feedback.
 Never repoll to reconstruct a page. Continue independent safe stages and mark
 the cycle incomplete if required content remains unavailable.
 
+## Internal Need maintenance
+
+Run the plan's Need pass at its listed position using `needs.md#automatic-maintenance`.
+Keep successful, failed, skipped and unconfirmed Need work internal. Need-only
+failure or an open aggregate execution observation does not select a host failure
+notification, invalidate the visible first check, or suppress/replace completed
+Feed or Agent recommendations. Continue all later safe stages and preserve their
+independent results. This does not hide failures of Feed or shared authentication.
+
 ## Feed completion
 
 Do not end the cycle after the first batch when its `backlog` is positive.
-Submit its judgments and follow its saved `next` command until the scheduled
+Submit its judgments, register deferrals when supported, and follow its saved `next` command until the scheduled
 four-batch limit or `open=0 backlog=0`. Check `feed status` and close with
 `feed status --after-push` before reporting the Feed stage completed. A positive
-backlog at the four-batch limit belongs to a future cycle and does not by itself
-make this cycle incomplete. Continue the remaining planned stages in order.
+backlog at the four-batch limit belongs to a future cycle. Registered deferrals stay pending for a later cycle while the current cycle closes. Continue the remaining planned stages in order.
 
 Follow the inline contract core in every batch. Read the named full contract before actions whose procedures live in its details; skip those actions if unread.
 Use the host's file tools, once per cycle and again when the hash changes.
@@ -82,7 +91,7 @@ Follow an inline contract when no file is named. Resolve
 `recommended_actions[].instruction_ref` to that intent's `then` in the printed
 trusted control context.
 
-Use `feed poll --batch 5 --action refresh --format agent` unless the host supplied this cycle’s payload. Use the batch line's `next` command with `--cycle <id>`. Score every batch and submit feedback before the next batch. A scheduled cycle stops at `open=0 backlog=0` or **4 batches**, including the pulled batch; at the cap, push completed recommendations and leave remaining items unmentioned for the next cycle. Owner checks drain without that cap. Collect one push with one trailing block. After compaction, use `feed recover --cycle <id>` and its `--after` continuation instead of re-scoring; rewrite analysis from recovered content. Never carry scored items into a later cycle's push. The last line of the batch body names the next command. Before leaving, run `<cli_prefix> feed status --cycle <id>` and complete its listed judgments. After the push, record surface only for items actually shown, then run `<cli_prefix> feed status --after-push --cycle <id>` to close the cycle, also when nothing is pushed. For whole-page output without a cycle, use unscoped status and do not invent a cycle ID.
+Use `feed poll --batch 5 --action refresh --format agent` unless the host supplied this cycle’s payload. Use the batch line's `next` command with `--cycle <id>`. Submit feedback for judged items and defer unassessed items before the next batch when the CLI supports deferral. Follow the Feed scoring rules. A scheduled cycle stops at `open=0 backlog=0` or **4 batches**, including the pulled batch; at the cap, push completed recommendations and leave remaining items unmentioned for the next cycle. Owner checks drain without that cap. Collect one push with one trailing block. After compaction, use `feed recover --cycle <id>` and its `--after` continuation instead of re-scoring; rewrite analysis from recovered content. Never carry scored items into a later cycle's push. The last line of the batch body names the next command. Before leaving, run `<cli_prefix> feed status --cycle <id>`. Complete judgments for items with enough evidence and keep deferred items pending. After the push, record surface only for items actually shown, then run `<cli_prefix> feed status --after-push --cycle <id>` to close the cycle, also when nothing is pushed. For whole-page output without a cycle, use unscoped status and do not invent a cycle ID.
 
 ## Host output takes precedence
 

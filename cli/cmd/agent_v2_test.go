@@ -387,6 +387,23 @@ func TestProvisionLiteralDraftValidation(t *testing.T) {
 	}
 }
 
+func TestProvisionDraftPriorityValidation(t *testing.T) {
+	for _, priority := range []string{`10`, `"10"`, `" HIGH "`, `"medium"`, `"normal"`, `null`} {
+		draft := `{"intent_actions":[{"priority":` + priority + `}]}`
+		got, _, err := parseProvisionDraft([]byte(draft))
+		if err != nil || string(got) != draft {
+			t.Fatalf("priority %s changed draft: %s, %v", priority, got, err)
+		}
+	}
+	for _, priority := range []string{`"urgent"`, `32768`, `"32768"`, `1.5`, `true`} {
+		draft := `{"intent_actions":[{},{"priority":` + priority + `}]}`
+		_, _, err := parseProvisionDraft([]byte(draft))
+		if err == nil || !strings.Contains(err.Error(), "intent_actions[1].priority") {
+			t.Fatalf("priority %s returned %v, want indexed field error", priority, err)
+		}
+	}
+}
+
 func TestProvisionLiteralDraftReachesSignedRequest(t *testing.T) {
 	const payload = `{"identity_card":{"agent_name":"Atlas ' $HOME 中文","geo":"SG"},"field_provenance":{"identity_card.geo":"agent_user_context"}}`
 	var received provisionV2Request
