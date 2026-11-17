@@ -55,6 +55,12 @@ func TestMaintenancePostgresAgentAuthIdentityAndIdempotency(t *testing.T) {
 	} {
 		exec(query)
 	}
+	migration, err := os.ReadFile("../../migrations/000137_uninstall_feedback.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := strings.SplitN(strings.TrimPrefix(string(migration), "-- +goose Up"), ";", 2)[0]
+	exec(strings.Replace(schema, "CREATE TABLE", "CREATE TEMP TABLE", 1) + " ON COMMIT DROP")
 	for _, id := range []int64{42, 43} {
 		exec(`INSERT INTO agents VALUES (?,'active')`, id)
 		exec(`INSERT INTO agent_principals VALUES (?,?,'active',NULL)`, id, id)
@@ -64,6 +70,7 @@ func TestMaintenancePostgresAgentAuthIdentityAndIdempotency(t *testing.T) {
 	svc := &Service{db: tx, telemetryRates: map[string]telemetryRateState{}}
 	h := server.New()
 	h.POST("/api/v2/maintenance/events:batch", svc.agentAuth("settings:write"), svc.recordMaintenanceBatch)
+	h.POST("/api/v2/maintenance/unregistered-uninstall", svc.recordUnregisteredUninstall)
 	body := map[string]interface{}{"events": []maintenanceEvent{validMaintenanceEvent()}}
 	send := func(id int64, headers ...ut.Header) int {
 		headers = append(headers, ut.Header{Key: "Authorization", Value: fmt.Sprintf("Bearer efv2a_maintenance_%d", id)})
@@ -260,6 +267,121 @@ FROM telemetry_events_v2 WHERE properties->>'attempt_id'=? ORDER BY agent_id,eve
 	if uninstallCount != 2 {
 		t.Fatalf("uninstall metadata or identity deduplication: %d", uninstallCount)
 	}
+	t.Run("uninstall_feedback_commit_and_replay", func(t *testing.T) {
+		defer func() { svc.telemetryRates = map[string]telemetryRateState{} }()
+		event := uninstall
+		event.EventID, event.AttemptID = fmt.Sprintf("%064x", 900), fmt.Sprintf("%032x", 901)
+		event.Result = "started"
+		const original = "  隐私顾虑\n希望少收集数据  "
+		submit := func(agent int64, event maintenanceEvent, reason string) (int, string) {
+			status, payload, _ := performJSON(t, h, "POST", "/api/v2/maintenance/events:batch", map[string]interface{}{
+				"events":             []maintenanceEvent{event},
+				"uninstall_feedback": uninstallFeedback{Reason: reason},
+			}, ut.Header{Key: "Authorization", Value: fmt.Sprintf("Bearer efv2a_maintenance_%d", agent)})
+			raw, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return status, string(raw)
+		}
+		if status, _ := submit(42, event, "  "); status != 400 {
+			t.Fatalf("blank feedback: %d", status)
+		}
+		for i := 0; i < 2; i++ {
+			if status, response := submit(42, event, original); status != 202 || !strings.Contains(response, event.AttemptID) || strings.Contains(response, "隐私顾虑") {
+				t.Fatalf("confirmed feedback: %d %s", status, response)
+			}
+		}
+		if status, _ := submit(42, event, "changed"); status != 409 {
+			t.Fatalf("changed feedback: %d", status)
+		}
+		if status, _ := submit(43, event, original); status != 409 {
+			t.Fatalf("foreign feedback attempt: %d", status)
+		}
+		event.EventID, event.AttemptID = fmt.Sprintf("%064x", 902), fmt.Sprintf("%032x", 903)
+		event.Source, event.ReasonCategory = "manual", "declined"
+		if status, _ := submit(43, event, original); status != 400 {
+			t.Fatalf("decline with text: %d", status)
+		}
+		if status, _ := submit(43, event, ""); status != 202 {
+			t.Fatalf("decline: %d", status)
+		}
+		var rows []struct {
+			AgentID        int64
+			Source         string
+			ReasonCategory string
+			Reason         *string
+		}
+		if err := tx.Raw("SELECT agent_id, source, reason_category, reason FROM uninstall_feedback ORDER BY agent_id").Scan(&rows).Error; err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != 2 || rows[0].AgentID != 42 || rows[0].Source != "agent" || rows[0].ReasonCategory != "privacy" ||
+			rows[0].Reason == nil || *rows[0].Reason != original ||
+			rows[1].AgentID != 43 || rows[1].Source != "manual" || rows[1].ReasonCategory != "declined" || rows[1].Reason != nil {
+			t.Fatalf("feedback persistence: %+v", rows)
+		}
+		var events, exposed int
+		if err := tx.Raw(`SELECT count(*), count(*) FILTER (WHERE properties::text LIKE '%隐私顾虑%')
+             FROM telemetry_events_v2 WHERE properties->>'result'='started' AND properties->>'phase'='uninstall'`).Row().Scan(&events, &exposed); err != nil || events != 2 || exposed != 0 {
+			t.Fatalf("uninstall start telemetry: %d events, %d with raw reasons, %v", events, exposed, err)
+		}
+
+		// Force a write failure after the feedback insert to verify rollback.
+		exec(`ALTER TABLE telemetry_events_v2 ADD CONSTRAINT reject_fixture_start
+            CHECK (properties->>'attempt_id' <> '00000000000000000000000000000905')`)
+		event.EventID, event.AttemptID = fmt.Sprintf("%064x", 0x904), fmt.Sprintf("%032x", 0x905)
+		if status, _ := submit(43, event, ""); status != 500 {
+			t.Fatalf("failed event write: %d", status)
+		}
+		var found bool
+		if err := tx.Raw("SELECT EXISTS (SELECT 1 FROM uninstall_feedback WHERE attempt_id=?)", event.AttemptID).Scan(&found).Error; err != nil || found {
+			t.Fatalf("orphaned feedback: %v %v", found, err)
+		}
+	})
+	t.Run("unregistered_uninstall", func(t *testing.T) {
+		defer func() { svc.telemetryRates = map[string]telemetryRateState{} }()
+		event := uninstall
+		event.EventID, event.AttemptID = fmt.Sprintf("%064x", 0x910), fmt.Sprintf("%032x", 0x911)
+		event.Source, event.ReasonCategory = "manual", "other"
+		proof := strings.Repeat("a", 32)
+		submit := func(result, reason, key string) int {
+			event.Result = result
+			status, response, _ := performJSON(t, h, "POST", "/api/v2/maintenance/unregistered-uninstall", map[string]interface{}{
+				"events":             []maintenanceEvent{event},
+				"uninstall_feedback": uninstallFeedback{Reason: reason, Proof: key},
+			})
+			if status == 202 && !strings.Contains(fmt.Sprint(response), event.AttemptID) {
+				t.Fatalf("missing confirmation: %v", response)
+			}
+			return status
+		}
+		if status := submit("removed", "", proof); status != 409 {
+			t.Fatalf("outcome without feedback: %d", status)
+		}
+		const original = "  尚未开始使用\n原文  "
+		for i := 0; i < 2; i++ {
+			if status := submit("started", original, proof); status != 202 {
+				t.Fatalf("anonymous feedback replay: %d", status)
+			}
+		}
+		if status := submit("removed", "", strings.Repeat("b", 32)); status != 409 {
+			t.Fatalf("wrong proof: %d", status)
+		}
+		for i := 0; i < 2; i++ {
+			if status := submit("removed", "", proof); status != 202 {
+				t.Fatalf("anonymous outcome replay: %d", status)
+			}
+		}
+		var reason string
+		if err := tx.Raw(`SELECT reason FROM uninstall_feedback WHERE attempt_id=? AND agent_id IS NULL AND proof_hash=?`,
+			event.AttemptID, hashString(proof)).Row().Scan(&reason); err != nil || reason != original {
+			t.Fatalf("anonymous feedback: %q %v", reason, err)
+		}
+		var events int64
+		if err := tx.Raw(`SELECT count(*) FROM telemetry_events_v2 WHERE agent_id IS NULL AND properties->>'attempt_id'=?`, event.AttemptID).Scan(&events).Error; err != nil || events != 2 {
+			t.Fatalf("anonymous events: %d %v", events, err)
+		}
+	})
 	// Notification setup and submission are independently queryable. Replay
 	// inserts no extra row and identity remains the authenticated Agent's.
 	for i, result := range []string{"registered", "submitted", "failed"} {

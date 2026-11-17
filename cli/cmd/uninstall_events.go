@@ -25,7 +25,7 @@ import (
 
 var regexpUninstallAttempt = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
-// No credentials or free-text reasons are carried in a finalization receipt.
+// Receipts carry no account credentials or free-text reasons.
 type uninstallObservation struct {
 	RemovalScope          string                          `json:"removal_scope,omitempty"`
 	RetainedPaths         []string                        `json:"retained_paths,omitempty"`
@@ -45,11 +45,32 @@ type uninstallObservation struct {
 	Partial               bool                            `json:"partial"`
 	Mutated               bool                            `json:"mutated"`
 	Result                string                          `json:"result,omitempty"`
-	LocalReason           string                          `json:"-"`
+	FeedbackUploaded      bool                            `json:"feedback_uploaded,omitempty"`
+	FeedbackServer        string                          `json:"feedback_server,omitempty"`
+	FeedbackAgentID       string                          `json:"feedback_agent_id,omitempty"`
+	FeedbackEndpoint      string                          `json:"feedback_endpoint,omitempty"`
+	FeedbackProof         string                          `json:"feedback_proof,omitempty"`
+	ReadyToFinalize       bool                            `json:"ready_to_finalize,omitempty"`
 }
 
-func newUninstallObservation(bin, source, category, reason string) *uninstallObservation {
-	return &uninstallObservation{AttemptID: maintenance.NewID(), Executable: bin, Homes: []installationHome{{Home: config.HomeDir()}}, Started: time.Now().UTC(), Source: source, ReasonCategory: category, Version: version, LocalReason: reason}
+func newUninstallObservation(bin, source, category string) *uninstallObservation {
+	return &uninstallObservation{AttemptID: maintenance.NewID(), Executable: bin, Homes: []installationHome{{Home: config.HomeDir()}}, Started: time.Now().UTC(), Source: source, ReasonCategory: category, Version: version}
+}
+
+func sameUninstallScopes(a, b []maintenance.Scope) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	scopes := make(map[maintenance.Scope]bool, len(a))
+	for _, scope := range a {
+		scopes[scope] = true
+	}
+	for _, scope := range b {
+		if !scopes[scope] {
+			return false
+		}
+	}
+	return true
 }
 
 func (o *uninstallObservation) discoverScopes() {
@@ -168,6 +189,7 @@ func (o *uninstallObservation) finish(result, code string) {
 		}
 	}
 	o.flush()
+	o.reportUnregisteredOutcome(result, code)
 }
 
 func (o *uninstallObservation) audit(result, code string) {
@@ -177,21 +199,7 @@ func (o *uninstallObservation) audit(result, code string) {
 			continue
 		}
 		seen[entry.Home] = true
-		// Preserve the voluntarily supplied reason when Windows finalizes later.
-		reason := o.LocalReason
-		if reason == "" {
-			var previous struct {
-				Reason    string `json:"reason"`
-				AttemptID string `json:"attempt_id"`
-			}
-			if data, err := os.ReadFile(filepath.Join(entry.Home, "uninstall.json")); err == nil {
-				_ = json.Unmarshal(data, &previous)
-				if previous.AttemptID == o.AttemptID {
-					reason = previous.Reason
-				}
-			}
-		}
-		if err := saveMaintenance(filepath.Join(entry.Home, "uninstall.json"), map[string]interface{}{"attempt_id": o.AttemptID, "reason": reason, "at": o.Started, "executable": o.Executable, "result": result, "error_code": code}); err != nil {
+		if err := saveMaintenance(filepath.Join(entry.Home, "uninstall.json"), map[string]interface{}{"attempt_id": o.AttemptID, "at": o.Started, "executable": o.Executable, "result": result, "error_code": code}); err != nil {
 			fmt.Fprintln(os.Stderr, "Uninstall audit could not be saved; removal continues.")
 		}
 	}
@@ -281,6 +289,16 @@ func (o *uninstallObservation) removeOriginal(afterRemoval ...func() error) erro
 		}
 		releases = append(releases, locks...)
 	}
+	if o.FeedbackUploaded {
+		if _, _, _, err := o.feedbackTarget(); err != nil {
+			return err
+		}
+		current := uninstallObservation{Homes: o.Homes}
+		current.discoverScopes()
+		if !sameUninstallScopes(o.Scopes, current.Scopes) {
+			return errors.New("registered Agent identities changed before uninstall finalization")
+		}
+	}
 	paths := append([]string{o.Executable}, o.CleanupFiles...)
 	if err := o.verifyPackageCleanup(context.Background()); err != nil {
 		return err
@@ -344,7 +362,15 @@ func init() {
 			return errors.New("invalid uninstall receipt")
 		}
 		remove, _ := cmd.Flags().GetBool("remove-original")
-		if !o.Pending && !(remove && o.Result == "partial" && o.PackageCleanup != nil) {
+		legacy, _ := cmd.Flags().GetBool("legacy-cleanup-confirmed")
+		// Old begin and Windows apply receipts share the same shape. Require
+		// explicit recovery confirmation before continuing legacy cleanup.
+		legacyRecovery := legacy && o.FeedbackServer == "" && o.RemovalScope == "all" && remove
+		if (!o.FeedbackUploaded || !o.ReadyToFinalize) && !legacyRecovery {
+			return errors.New("uninstall finalization requires an applied attempt with confirmed feedback")
+		}
+
+		if !o.Pending && !(remove && o.Result == "partial") {
 			if o.Result == "removed" || o.Result == "partial" || o.Result == "blocked" || o.Result == "failed" {
 				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"attempt_id": attempt, "result": o.Result}); err != nil {
 					return err
@@ -406,6 +432,10 @@ func init() {
 			}
 			return nil
 		}
+		// A check without removal cannot certify that Home data was purged.
+		if result == "removed" {
+			result, code = "partial", "local_cleanup_not_confirmed"
+		}
 		o.finish(result, code)
 		if err := saveMaintenance(path, &o); err != nil {
 			return err
@@ -420,5 +450,6 @@ func init() {
 	}}
 	finalize.Flags().String("attempt", "", "pending uninstall attempt")
 	finalize.Flags().Bool("remove-original", false, "remove unchanged receipt-owned original installation")
+	finalize.Flags().Bool("legacy-cleanup-confirmed", false, "recover an old receipt after verifying cleanup already started")
 	rootCmd.AddCommand(finalize)
 }

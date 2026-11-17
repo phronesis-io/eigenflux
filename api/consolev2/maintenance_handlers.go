@@ -6,15 +6,20 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 type maintenanceEvent struct {
@@ -39,6 +44,60 @@ type maintenanceEvent struct {
 	Source         string                       `json:"source,omitempty"`
 	Platform       string                       `json:"platform,omitempty"`
 	ReasonCategory string                       `json:"reason_category,omitempty"`
+}
+
+type uninstallFeedback struct {
+	Reason string `json:"reason"`
+	Proof  string `json:"proof,omitempty"`
+}
+
+var uninstallFeedbackAttemptID = regexp.MustCompile(`^[a-f0-9]{32}$`)
+
+func validUninstallFeedback(events []maintenanceEvent, feedback *uninstallFeedback) bool {
+	if len(events) != 1 {
+		return false
+	}
+	event := events[0]
+	if event.Phase != "uninstall" || event.Component != "cli" || event.Result != "started" ||
+		!uninstallFeedbackAttemptID.MatchString(event.AttemptID) || event.ReasonCategory == "not_provided" {
+		return false
+	}
+	if event.ReasonCategory == "declined" {
+		return feedback.Reason == ""
+	}
+	return strings.TrimSpace(feedback.Reason) != "" && len(feedback.Reason) <= 1000 &&
+		utf8.ValidString(feedback.Reason) && !strings.ContainsRune(feedback.Reason, 0)
+}
+
+var errUninstallFeedbackConflict = errors.New("uninstall feedback conflict")
+
+func storeUninstallFeedback(tx *gorm.DB, id any, event maintenanceEvent, feedback *uninstallFeedback, now int64) error {
+	// Keep submitted text out of SQL logs, including errors and slow statements.
+	db := tx.Session(&gorm.Session{Logger: logger.Default.LogMode(logger.Silent)})
+	var proofHash any
+	if feedback.Proof != "" {
+		proofHash = hashString(feedback.Proof)
+	}
+	if event.Result == "started" {
+		result := db.Exec(`INSERT INTO uninstall_feedback (attempt_id, agent_id, source, reason_category, reason, created_at, proof_hash)
+            VALUES (?, ?, ?, ?, NULLIF(?, ''), ?, ?) ON CONFLICT (attempt_id) DO NOTHING`,
+			event.AttemptID, id, event.Source, event.ReasonCategory, feedback.Reason, now, proofHash)
+		if result.Error != nil || result.RowsAffected != 0 {
+			return result.Error
+		}
+	}
+	var matches bool
+	if err := db.Raw(`SELECT EXISTS (SELECT 1 FROM uninstall_feedback
+        WHERE attempt_id=? AND agent_id IS NOT DISTINCT FROM CAST(? AS bigint) AND source=? AND reason_category=?
+        AND proof_hash IS NOT DISTINCT FROM CAST(? AS text)
+        AND (? <> 'started' OR reason IS NOT DISTINCT FROM NULLIF(?, '')))`,
+		event.AttemptID, id, event.Source, event.ReasonCategory, proofHash, event.Result, feedback.Reason).Scan(&matches).Error; err != nil {
+		return err
+	}
+	if !matches {
+		return errUninstallFeedbackConflict
+	}
+	return nil
 }
 
 var maintenanceID = regexp.MustCompile(`^[a-f0-9]{32,64}$`)
@@ -84,7 +143,7 @@ func validateMaintenanceEvent(e maintenanceEvent, now time.Time) error {
 		if !maintenanceOneOf(e.Component, "cli", "skills", "plugin", "scheduler", "notifier") || e.Trigger != "manual" || !maintenanceOneOf(e.Result, "started", "removed", "partial", "failed", "blocked") {
 			return fmt.Errorf("invalid uninstall category")
 		}
-		if !maintenanceOneOf(e.Source, "agent", "manual") || !maintenanceOneOf(e.Platform, "darwin", "windows", "linux") || !maintenanceOneOf(e.ReasonCategory, "not_provided", "other", "usability", "cost", "performance", "privacy", "no_longer_needed") {
+		if !maintenanceOneOf(e.Source, "agent", "manual") || !maintenanceOneOf(e.Platform, "darwin", "windows", "linux") || !maintenanceOneOf(e.ReasonCategory, "not_provided", "declined", "other", "usability", "cost", "performance", "privacy", "no_longer_needed") {
 			return fmt.Errorf("invalid uninstall metadata")
 		}
 		if !maintenanceValue.MatchString(e.Host) || !maintenanceValue.MatchString(e.FromVersion) || !maintenanceValue.MatchString(e.ErrorCode) || e.DurationMS < 0 || e.DurationMS > int64(24*time.Hour/time.Millisecond) || !maintenanceOneOf(e.Mode, "", "skill", "plugin") || e.ToVersion != "" || e.RunningVersion != "" {
@@ -137,23 +196,36 @@ func parseMaintenanceFailureMetadata(raw string) map[string]string {
 
 // recordMaintenanceBatch is intentionally separate from Console telemetry. Agent
 // identity is provided by agentAuth(settings:write), never by request properties.
-func (s *Service) recordMaintenanceBatch(_ context.Context, c *app.RequestContext) {
+func (s *Service) recordMaintenanceBatch(ctx context.Context, c *app.RequestContext) {
 	id, ok := agentID(c)
 	if !ok || id <= 0 {
 		fail(c, http.StatusUnauthorized, "AGENT_REQUIRED", "Agent authentication is required", nil)
 		return
 	}
+	s.persistMaintenanceBatch(ctx, c, id, "maintenance:"+strconv.FormatInt(id, 10), false)
+}
+
+func (s *Service) recordUnregisteredUninstall(ctx context.Context, c *app.RequestContext) {
+	s.persistMaintenanceBatch(ctx, c, nil, "unregistered-uninstall:"+s.clientIPHash(c), true)
+}
+
+func (s *Service) persistMaintenanceBatch(ctx context.Context, c *app.RequestContext, id any, rateKey string, unregistered bool) {
 	now := time.Now()
-	if !s.allowTelemetryRequest("maintenance:"+strconv.FormatInt(id, 10), now) {
+	if !s.allowTelemetryRequest(rateKey, now) {
 		fail(c, http.StatusTooManyRequests, "MAINTENANCE_RATE_LIMITED", "maintenance request rate exceeded", nil)
 		return
 	}
-	if len(c.Request.Body()) > 128<<10 {
+	limit := 128 << 10
+	if unregistered {
+		limit = 8 << 10
+	}
+	if len(c.Request.Body()) > limit || !utf8.Valid(c.Request.Body()) {
 		fail(c, http.StatusBadRequest, "INVALID_MAINTENANCE_BATCH", "maintenance batch too large", nil)
 		return
 	}
 	var req struct {
-		Events []maintenanceEvent `json:"events"`
+		Events            []maintenanceEvent `json:"events"`
+		UninstallFeedback *uninstallFeedback `json:"uninstall_feedback,omitempty"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(c.Request.Body()))
 	decoder.DisallowUnknownFields()
@@ -163,6 +235,24 @@ func (s *Service) recordMaintenanceBatch(_ context.Context, c *app.RequestContex
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		fail(c, http.StatusBadRequest, "INVALID_MAINTENANCE_BATCH", "unexpected trailing JSON", nil)
+		return
+	}
+	if unregistered {
+		if len(req.Events) != 1 || req.UninstallFeedback == nil || !uninstallFeedbackAttemptID.MatchString(req.UninstallFeedback.Proof) {
+			fail(c, http.StatusBadRequest, "INVALID_UNINSTALL_FEEDBACK", "expected one uninstall event and installation proof", nil)
+			return
+		}
+		event := req.Events[0]
+		if event.Phase != "uninstall" || event.Component != "cli" || event.ReasonCategory == "not_provided" ||
+			!uninstallFeedbackAttemptID.MatchString(event.AttemptID) ||
+			(event.Result != "started" && req.UninstallFeedback.Reason != "") {
+			fail(c, http.StatusBadRequest, "INVALID_UNINSTALL_FEEDBACK", "invalid unregistered uninstall event", nil)
+			return
+		}
+	}
+	if req.UninstallFeedback != nil && ((!unregistered && req.UninstallFeedback.Proof != "") ||
+		((!unregistered || req.Events[0].Result == "started") && !validUninstallFeedback(req.Events, req.UninstallFeedback))) {
+		fail(c, http.StatusBadRequest, "INVALID_UNINSTALL_FEEDBACK", "expected one uninstall start with a reason or explicit decline", nil)
 		return
 	}
 	watchFailures := parseMaintenanceFailureMetadata(string(c.Request.Header.Peek(watchFailuresHeader)))
@@ -183,21 +273,50 @@ func (s *Service) recordMaintenanceBatch(_ context.Context, c *app.RequestContex
 		_ = json.Unmarshal(raw, &properties)
 		delete(properties, "event_id")
 		delete(properties, "event_at")
-		// Namespace the global table key by authenticated Agent. One Agent cannot
-		// pre-empt another's idempotency key, even when both share an installation.
-		// The colon also excludes these internal keys from browser telemetry IDs.
-		key := sha256.Sum256([]byte(strconv.FormatInt(id, 10) + "\x00" + event.EventID))
-		rows = append(rows, telemetryEventRequest{EventID: "maintenance:" + hex.EncodeToString(key[:]), EventType: "maintenance_attempt", EventAt: event.EventAt, Properties: properties})
+		// Regular maintenance is account-scoped. Feedback events are attempt-scoped
+		// and use a separate namespace from both regular and browser telemetry.
+		prefix := "maintenance:"
+		key := sha256.Sum256([]byte(fmt.Sprint(id) + "\x00" + event.EventID))
+		if req.UninstallFeedback != nil {
+			prefix = "uninstall-feedback:"
+			key = sha256.Sum256([]byte(event.AttemptID + "\x00" + event.Result))
+		}
+		rows = append(rows, telemetryEventRequest{EventID: prefix + hex.EncodeToString(key[:]), EventType: "maintenance_attempt", EventAt: event.EventAt, Properties: properties})
 	}
 	encoded, _ := json.Marshal(rows)
-	result := s.db.Exec(`INSERT INTO telemetry_events_v2
+	var accepted int64
+	persistEvents := func(db *gorm.DB) error {
+		result := db.Exec(`INSERT INTO telemetry_events_v2
  (event_id,agent_id,install_session_id,console_session_id,event_type,properties,event_at,created_at,expires_at)
  SELECT event_id, ?, NULL, NULL, event_type, properties, event_at, ?, ?
  FROM jsonb_to_recordset(?::jsonb) AS event(event_id text,event_type text,event_at bigint,properties jsonb)
  ON CONFLICT (event_id) DO NOTHING`, id, now.UnixMilli(), now.Add(30*24*time.Hour).UnixMilli(), string(encoded))
-	if result.Error != nil {
+		accepted = result.RowsAffected
+		return result.Error
+	}
+	data := map[string]interface{}{}
+	var err error
+	db := s.db.WithContext(ctx)
+	if req.UninstallFeedback == nil {
+		err = persistEvents(db)
+	} else {
+		event := req.Events[0]
+		err = db.Transaction(func(tx *gorm.DB) error {
+			if err := storeUninstallFeedback(tx, id, event, req.UninstallFeedback, now.UnixMilli()); err != nil {
+				return err
+			}
+			return persistEvents(tx)
+		})
+		data["uninstall_feedback_attempt_id"] = event.AttemptID
+	}
+	if errors.Is(err, errUninstallFeedbackConflict) {
+		fail(c, http.StatusConflict, "UNINSTALL_FEEDBACK_CONFLICT", "uninstall feedback already exists for this attempt", nil)
+		return
+	}
+	if err != nil {
 		fail(c, http.StatusInternalServerError, "MAINTENANCE_WRITE_FAILED", "could not persist maintenance events", nil)
 		return
 	}
-	reply(c, http.StatusAccepted, map[string]interface{}{"accepted_events": result.RowsAffected})
+	data["accepted_events"] = accepted
+	reply(c, http.StatusAccepted, data)
 }

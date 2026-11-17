@@ -5,6 +5,7 @@ import (
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/maintenance"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -40,7 +41,7 @@ func validateUninstallHome(home string) error {
 }
 
 // Clear business data before terminal telemetry; retain live lock inodes.
-func (o *uninstallObservation) purgeHomes() error {
+func (o *uninstallObservation) purgeHomes(preserve ...string) error {
 	for _, entry := range o.Homes {
 		if err := validateUninstallHome(entry.Home); err != nil {
 			return err
@@ -54,6 +55,9 @@ func (o *uninstallObservation) purgeHomes() error {
 		}
 		seen[entry.Home] = true
 		protected := map[string]bool{o.Executable + ".install.lock": true, o.Executable + ".update.lock": true}
+		for _, path := range preserve {
+			protected[path] = true
+		}
 		for _, path := range o.RetainedPaths {
 			protected[path] = true
 		}
@@ -117,6 +121,29 @@ func (o *uninstallObservation) purgeHomes() error {
 	return nil
 }
 
+func (o *uninstallObservation) purgeCurrentHome() error {
+	if o.RemainingRegistration == nil {
+		return fmt.Errorf("remaining installation registration required")
+	}
+	path := o.Executable + ".install.json"
+	data, err := json.MarshalIndent(o.RemainingRegistration, "", "  ")
+	if err != nil {
+		return err
+	}
+	staged, err := stageAtomicWrite(path, data)
+	if err != nil {
+		return fmt.Errorf("prepare shared installation registration: %w", err)
+	}
+	defer os.Remove(staged)
+	if err := o.purgeHomes(staged); err != nil {
+		return err
+	}
+	if err := os.Rename(staged, path); err != nil {
+		return fmt.Errorf("commit shared installation registration: %w", err)
+	}
+	return nil
+}
+
 // Hold credentials only in memory while clearing local files; report the actual
 // cleanup outcome without recreating a queue, receipt, or credential file.
 func (o *uninstallObservation) finishAndPurge(result, code string) error {
@@ -146,13 +173,10 @@ func (o *uninstallObservation) finishAndPurge(result, code string) error {
 	}
 	var cleanupErr error
 	if result == "removed" || result == "partial" {
-		cleanupErr = o.purgeHomes()
-		if cleanupErr == nil && o.RemovalScope == "current" {
-			if o.RemainingRegistration == nil {
-				cleanupErr = fmt.Errorf("remaining installation registration required")
-			} else {
-				cleanupErr = saveMaintenance(o.Executable+".install.json", o.RemainingRegistration)
-			}
+		if o.RemovalScope == "current" {
+			cleanupErr = o.purgeCurrentHome()
+		} else {
+			cleanupErr = o.purgeHomes()
 		}
 		if cleanupErr != nil {
 			result = "partial"
@@ -189,5 +213,6 @@ func (o *uninstallObservation) finishAndPurge(result, code string) error {
 		}
 	}
 
+	o.reportUnregisteredOutcome(result, code)
 	return cleanupErr
 }
