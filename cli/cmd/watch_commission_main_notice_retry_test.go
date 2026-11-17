@@ -33,7 +33,7 @@ func enableMainNoticeRetryTest(t *testing.T, w *accountWatch) *mainNoticePermiss
 }
 
 func TestCommissionMainNoticeRetryReopensAndDeliversOnce(t *testing.T) {
-	for _, state := range []string{"pending_payment", "awaiting_buyer_confirmation"} {
+	for _, state := range []string{"pending_payment", "awaiting_buyer_confirmation", "completed"} {
 		t.Run(state, func(t *testing.T) {
 			order := testCommissionOrder()
 			order.BuyerID, order.SellerID, order.State = 42, 43, state
@@ -47,13 +47,21 @@ func TestCommissionMainNoticeRetryReopensAndDeliversOnce(t *testing.T) {
 			}))
 			defer server.Close()
 			w := newCommissionWatch(t, server.URL, "commission_order")
+			event, observedVersion := "", order.Version
+			if state == "completed" {
+				w.binding.MainSessionID = "existing-main"
+				w.binding.MainCommand = w.binding.Command
+				event = "order.state.changed.v1"
+				order.Version++ // Settlement changed the version after completion.
+			} else {
+				enableMainNoticeRetryTest(t, w)
+			}
 			installCommissionIntakeRules(t, w)
-			enableMainNoticeRetryTest(t, w)
 			queue, err := w.mainNoticeQueue()
 			if err != nil {
 				t.Fatal(err)
 			}
-			original := dispatch.MainNotice{ID: "11", OrderID: "901", Version: order.Version, Role: "buyer", State: state}
+			original := dispatch.MainNotice{ID: "11", OrderID: "901", Version: observedVersion, Role: "buyer", Event: event, State: state}
 			if err := queue.Add(original); err != nil {
 				t.Fatal(err)
 			}

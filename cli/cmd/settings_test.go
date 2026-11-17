@@ -14,6 +14,48 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func TestSettingsGetReadsCurrentAutomaticPublishingWithoutSync(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		data      string
+		wantError bool
+	}{{"disabled remotely", `{"recurring_publish":false}`, false}, {"missing remotely", `{}`, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			requests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				if r.Method != http.MethodGet || r.URL.Path != "/api/v2/agents/me/settings" {
+					t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+				}
+				_, _ = w.Write([]byte(`{"code":0,"data":` + tc.data + `}`))
+			}))
+			defer server.Close()
+			cfg, _ := runtimeTestConfig(t, server.URL, true)
+			if err := cfg.SetKV("recurring_publish", "true"); err != nil {
+				t.Fatal(err)
+			}
+			if err := cfg.SetKV(settingsDirtyKey, "1"); err != nil {
+				t.Fatal(err)
+			}
+			previousFormat := formatFlag
+			formatFlag = "json"
+			t.Cleanup(func() { formatFlag = previousFormat })
+			stdout, err := captureHeartbeatStdout(t, func() error {
+				return settingsGetCmd.RunE(settingsGetCmd, []string{"recurring_publish"})
+			})
+			if (err != nil) != tc.wantError || requests != 1 {
+				t.Fatalf("unexpected read result: requests=%d, err=%v", requests, err)
+			}
+			if !tc.wantError {
+				var result map[string]bool
+				if err := json.Unmarshal([]byte(stdout), &result); err != nil || !reflect.DeepEqual(result, map[string]bool{"recurring_publish": false}) {
+					t.Fatalf("expected the current off value, got %s (%v)", stdout, err)
+				}
+			}
+		})
+	}
+}
+
 func TestRuntimeReportObservesCLIUpdatesWithoutSyncingLocalOverride(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

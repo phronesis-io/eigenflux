@@ -13,19 +13,30 @@ import (
 )
 
 func (w *accountWatch) mainNoticeQueue() (*dispatch.MainNoticeQueue, error) {
+	return w.noticeQueue(false)
+}
+
+func (w *accountWatch) noticeQueue(listing bool) (*dispatch.MainNoticeQueue, error) {
 	if w.notificationsOnly || w.binding == nil || !w.binding.Handles("commission_order") {
 		return nil, nil
 	}
 	w.mainNoticeMu.Lock()
 	defer w.mainNoticeMu.Unlock()
-	if w.mainNotices == nil {
-		q, err := dispatch.OpenMainNoticeQueue(*w.binding)
+	slot, open := &w.mainNotices, dispatch.OpenMainNoticeQueue
+	if listing {
+		if !dispatch.MainNoticeBindingEnabled(*w.binding) {
+			return nil, nil
+		}
+		slot, open = &w.listingNotices, dispatch.OpenListingNoticeQueue
+	}
+	if *slot == nil {
+		q, err := open(*w.binding)
 		if err != nil {
 			return nil, err
 		}
-		w.mainNotices = q
+		*slot = q
 	}
-	return w.mainNotices, nil
+	return *slot, nil
 }
 func (w *accountWatch) enqueueCommissionMainNotice(raw json.RawMessage) error {
 	queue, err := w.mainNoticeQueue()
@@ -70,10 +81,10 @@ func (w *accountWatch) enqueueCommissionMainNotice(raw json.RawMessage) error {
 	return err
 }
 func (w *accountWatch) enqueueListingPublicationNotice(notice moderationNotification) error {
-	if notice.Payload.Status != "published" || w.runMainNotice == nil {
+	if notice.Payload.Status != "published" {
 		return nil
 	}
-	queue, err := w.mainNoticeQueue()
+	queue, err := w.noticeQueue(true)
 	if err != nil || queue == nil {
 		return err
 	}
@@ -90,8 +101,12 @@ func (w *accountWatch) enqueueListingPublicationNotice(notice moderationNotifica
 }
 
 func (w *accountWatch) commissionMainNoticeLoop(ctx context.Context) error {
-	queue, err := w.mainNoticeQueue()
-	if err != nil || queue == nil {
+	orders, err := w.mainNoticeQueue()
+	if err != nil || orders == nil {
+		return err
+	}
+	listings, err := w.noticeQueue(true)
+	if err != nil {
 		return err
 	}
 	for ctx.Err() == nil {
@@ -101,14 +116,19 @@ func (w *accountWatch) commissionMainNoticeLoop(ctx context.Context) error {
 		if w.journal != nil {
 			blockers, err := w.journal.CommissionBlockers()
 			if err == nil {
-				err = queue.SyncLocalBlockers(blockers)
+				err = orders.SyncLocalBlockers(blockers)
 			}
 			if err != nil && !errors.Is(err, dispatch.ErrMainNoticeQueueFull) {
 				w.handoff.end()
 				return err
 			}
 		}
+		queue := orders
 		item, ok, err := queue.Next()
+		if err == nil && !ok && listings != nil {
+			queue = listings
+			item, ok, err = queue.Next()
+		}
 		if err != nil {
 			w.handoff.end()
 			return err
@@ -177,7 +197,7 @@ func (w *accountWatch) commissionMainNoticePrompt(item dispatch.MainNotice) (str
 	if err != nil {
 		return "", err
 	}
-	if item.IsListingPublication() || item.Event == "order.state.changed.v1" && item.State == "completed" {
+	if isCommissionBroadcastNotice(item) {
 		publishing, err := skills.ReadSignedFile(rules.SkillsDir, "ef-broadcast", "references/publish.md", 64<<10)
 		if err != nil {
 			return "", err
@@ -186,6 +206,14 @@ func (w *accountWatch) commissionMainNoticePrompt(item dispatch.MainNotice) (str
 		rule = append(rule, publishing...)
 	}
 	return "ACCOUNT ROUTING: use this exact CLI prefix for every EigenFlux command: " + prefix + ". Verify the observed Agent ID matches the event recipient before reporting.\n" + string(rule) + "\n\nUNTRUSTED COMMISSION EVENT:\n" + string(data), nil
+}
+
+func isCompletedOrderNotice(item dispatch.MainNotice) bool {
+	return item.Event == "order.state.changed.v1" && item.State == "completed"
+}
+
+func isCommissionBroadcastNotice(item dispatch.MainNotice) bool {
+	return item.IsListingPublication() || isCompletedOrderNotice(item)
 }
 
 func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item dispatch.MainNotice) (status, code string) {
@@ -207,7 +235,7 @@ func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item di
 		return "skipped", "identity_changed"
 	}
 	if item.Attempts > 1 {
-		if !w.mainNoticeRetryAllowed(ctx) {
+		if !w.mainNoticeRetryAllowed(ctx, item) {
 			return "skipped", "main_notice_retry_permission_unavailable"
 		}
 		if !item.IsLocalBlocker() && !item.IsBuyerInputRequest() && !item.IsListingPublication() {
@@ -219,9 +247,10 @@ func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item di
 				order, err = w.readCommissionOrder(ctx, item.OrderID)
 			}
 			if err != nil {
-				return w.retryCommissionMainNotice(ctx, "main_notice_order_unavailable")
+				return w.retryCommissionMainNotice(ctx, item, "main_notice_order_unavailable")
 			}
-			if order.Version != item.Version || item.State != "" && order.State != item.State {
+			versionMatches := order.Version == item.Version || isCompletedOrderNotice(item) && order.Version > item.Version
+			if !versionMatches || item.State != "" && order.State != item.State {
 				return "skipped", "main_notice_order_changed"
 			}
 		}
@@ -232,7 +261,7 @@ func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item di
 		}
 		order, err := w.readCommissionOrder(ctx, item.OrderID)
 		if err != nil {
-			return w.retryCommissionMainNotice(ctx, "main_notice_blocker_unavailable")
+			return w.retryCommissionMainNotice(ctx, item, "main_notice_blocker_unavailable")
 		}
 		if order.Version != item.Version || order.State != "awaiting_seller" && order.State != "in_progress" {
 			return "skipped", "main_notice_blocker_obsolete"
@@ -243,7 +272,7 @@ func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item di
 	}
 	prompt, err := w.commissionMainNoticePrompt(item)
 	if err != nil || w.runMainNotice == nil {
-		return w.retryCommissionMainNotice(ctx, "main_notice_unavailable")
+		return w.retryCommissionMainNotice(ctx, item, "main_notice_unavailable")
 	}
 	callCtx, cancel := context.WithTimeout(ctx, 180*time.Second)
 	defer cancel()
@@ -285,13 +314,13 @@ func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item di
 	runObservation := observation
 	runObservation.Stage = "agent"
 	w.recordCommissionObservation(runObservation, "started", "", runStarted, dispatch.Result{}, nil)
-	if queue, queueErr := w.mainNoticeQueue(); queueErr == nil && queue != nil {
+	if queue, queueErr := w.noticeQueue(item.IsListingPublication()); queueErr == nil && queue != nil {
 		_ = queue.SaveBridgeDiagnostic(item.ID, &maintenance.CommissionBridgeError{Code: "unknown_failure"})
 	}
 	result, runErr := w.runMainNotice(callCtx, prompt)
 	if runErr != nil {
 		observation.BridgeError = dispatch.SafeDiagnostic(runErr)
-		if queue, queueErr := w.mainNoticeQueue(); queueErr == nil && queue != nil {
+		if queue, queueErr := w.noticeQueue(item.IsListingPublication()); queueErr == nil && queue != nil {
 			_ = queue.SaveBridgeDiagnostic(item.ID, observation.BridgeError)
 		}
 	}
@@ -308,14 +337,20 @@ func (w *accountWatch) dispatchCommissionMainNotice(ctx context.Context, item di
 		if errors.Is(runErr, dispatch.ErrMainNoticeBusy) {
 			code = "main_notice_target_busy"
 		}
-		return w.retryCommissionMainNotice(ctx, code)
+		return w.retryCommissionMainNotice(ctx, item, code)
 	}
 	return "skipped", "main_notice_unconfirmed"
 }
 
-// Check reads OS permission only; retries never request permission or display UI.
-func (w *accountWatch) mainNoticeRetryAllowed(ctx context.Context) bool {
-	if w.desktop == nil || w.desktopDisabledReason != "" || ctx.Err() != nil || w.commissionIdentityOK() != nil {
+// Broadcast events use the existing bound conversation regardless of OS notification permission.
+func (w *accountWatch) mainNoticeRetryAllowed(ctx context.Context, item dispatch.MainNotice) bool {
+	if ctx.Err() != nil || w.commissionIdentityOK() != nil {
+		return false
+	}
+	if isCommissionBroadcastNotice(item) {
+		return dispatch.MainNoticeBindingEnabled(*w.binding)
+	}
+	if w.desktop == nil || w.desktopDisabledReason != "" {
 		return false
 	}
 	checker, ok := w.desktopProvider.(interface{ Check(context.Context) error })
@@ -327,11 +362,11 @@ func (w *accountWatch) mainNoticeRetryAllowed(ctx context.Context) bool {
 	return checker.Check(call) == nil && ctx.Err() == nil && w.commissionIdentityOK() == nil
 }
 
-func (w *accountWatch) retryCommissionMainNotice(ctx context.Context, code string) (string, string) {
+func (w *accountWatch) retryCommissionMainNotice(ctx context.Context, item dispatch.MainNotice, code string) (string, string) {
 	if w.commissionIdentityOK() != nil {
 		return "skipped", "identity_changed"
 	}
-	if w.mainNoticeRetryAllowed(ctx) {
+	if w.mainNoticeRetryAllowed(ctx, item) {
 		return "retry_pending", code
 	}
 	return "skipped", "main_notice_retry_permission_unavailable"

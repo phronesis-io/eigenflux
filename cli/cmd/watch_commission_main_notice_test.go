@@ -105,7 +105,16 @@ func TestCommissionMainNoticeCancelsOnIdentityChange(t *testing.T) {
 
 func TestPublishedModerationQueuesSignedBroadcastRules(t *testing.T) {
 	w := newCommissionWatch(t, "http://127.0.0.1:1", "commission_order")
+	w.binding.MainSessionID = "existing-main"
+	w.binding.MainCommand = w.binding.Command
 	installCommissionIntakeRules(t, w)
+	orders, err := w.mainNoticeQueue()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := orders.Add(dispatch.MainNotice{ID: "80", OrderID: "901", Version: 3, Role: "seller", State: "in_progress"}); err != nil {
+		t.Fatal(err)
+	}
 	w.runMainNotice = func(_ context.Context, _ string) (dispatch.Result, error) {
 		return dispatch.Result{}, errors.New("unexpected direct submission")
 	}
@@ -123,7 +132,18 @@ func TestPublishedModerationQueuesSignedBroadcastRules(t *testing.T) {
 		}
 	}
 	// Reopen from disk to verify the durable queue, not only the in-memory wake-up.
-	queue, err := dispatch.OpenMainNoticeQueue(*w.binding)
+	orders, err = dispatch.OpenMainNoticeQueue(*w.binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	order, ok, err := orders.Next()
+	if err != nil || !ok || order.OrderID != "901" {
+		t.Fatalf("existing Order queue no longer readable: %+v, %v", order, err)
+	}
+	if item, ok, err := orders.Next(); err != nil || ok {
+		t.Fatalf("listing leaked into the Order queue: %+v, %v", item, err)
+	}
+	queue, err := dispatch.OpenListingNoticeQueue(*w.binding)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,6 +162,13 @@ func TestPublishedModerationQueuesSignedBroadcastRules(t *testing.T) {
 	}
 	if _, ok, err := queue.Next(); err != nil || ok {
 		t.Fatalf("unpublished or duplicate notice queued: %t, %v", ok, err)
+	}
+	w.listingNotices = queue
+	w.runMainNotice = func(context.Context, string) (dispatch.Result, error) {
+		return dispatch.Result{}, dispatch.ErrMainNoticeBusy
+	}
+	if status, code := w.dispatchCommissionMainNotice(context.Background(), item); status != "retry_pending" || code != "main_notice_target_busy" {
+		t.Fatalf("listing without desktop notifications should retry a busy main: %s, %s", status, code)
 	}
 
 	completion, err := w.commissionMainNoticePrompt(dispatch.MainNotice{

@@ -548,6 +548,34 @@ Examples:
 	},
 }
 
+var settingsGetCmd = &cobra.Command{
+	Use:       "get recurring_publish",
+	Short:     "Read the current server-side automatic publishing setting",
+	ValidArgs: []string{"recurring_publish"},
+	Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		c, _, err := newV2ClientForServer(serverFlag, true)
+		if err != nil {
+			return err
+		}
+		resp, err := c.Get("/agents/me/settings", nil)
+		if err != nil {
+			return err
+		}
+		if resp.Code != 0 {
+			return fmt.Errorf("could not read automatic publishing setting: %s", resp.Msg)
+		}
+		var data struct {
+			RecurringPublish *bool `json:"recurring_publish"`
+		}
+		if err := json.Unmarshal(resp.Data, &data); err != nil || data.RecurringPublish == nil {
+			return fmt.Errorf("automatic publishing setting unavailable")
+		}
+		output.PrintData(data, resolveFormat())
+		return nil
+	},
+}
+
 func init() {
 	settingsPushCmd.Flags().String("mode", "", "runtime mode reported to the backend (plugin|skill)")
 	settingsPushCmd.Flags().String("model", "", "runtime model reported to the backend, e.g. \"claude-opus-4-8\"")
@@ -558,6 +586,7 @@ func init() {
 	settingsSyncCmd.Flags().String("model", "", "runtime model reported to the backend, e.g. \"claude-opus-4-8\"")
 	settingsCmd.AddCommand(settingsPushCmd)
 	settingsCmd.AddCommand(settingsSyncCmd)
+	settingsCmd.AddCommand(settingsGetCmd)
 	rootCmd.AddCommand(settingsCmd)
 }
 
