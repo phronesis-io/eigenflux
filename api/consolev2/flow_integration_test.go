@@ -251,6 +251,7 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		req.Signature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, transcript))
 		status, payload, _ := performJSON(t, h, "POST", "/api/v2/agent-identities/provision", req,
 			ut.Header{Key: "X-Client-Host", Value: "workbuddy/5.3.14"},
+			ut.Header{Key: "X-Agent-Install-Receipt", Value: "1"},
 			ut.Header{Key: "X-CLI-Ver", Value: "0.0.34"},
 			ut.Header{Key: "X-Client-Device-Name", Value: "Provision-MacBook"})
 		if status != 200 {
@@ -268,6 +269,48 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	t.Cleanup(func() { gdb.Exec(`DELETE FROM agents WHERE agent_id = ?`, agentID) })
 	if first["created"] != true {
 		t.Fatal("first provision did not create the Agent")
+	}
+	if first["install_receipt_supported"] != true {
+		t.Fatalf("provision did not acknowledge receipt support: %#v", first["install_receipt_supported"])
+	}
+	const receiptPath = "/api/v2/agents/me/install-receipt"
+	readReceipt := func() (string, *int64) {
+		t.Helper()
+		var snapshot struct {
+			RuntimeName    string
+			AcknowledgedAt *int64
+		}
+		query := gdb.Raw(`SELECT runtime_name, acknowledged_at FROM agent_install_receipts
+			WHERE agent_id = ? AND receipt_supported`, agentIDInt).Scan(&snapshot)
+		if query.Error != nil || query.RowsAffected != 1 {
+			t.Fatalf("installation snapshot rows=%d error=%v", query.RowsAffected, query.Error)
+		}
+		return snapshot.RuntimeName, snapshot.AcknowledgedAt
+	}
+	if runtime, received := readReceipt(); runtime != "workbuddy" || received != nil {
+		t.Fatalf("before acknowledgement: runtime=%q receipt=%v", runtime, received)
+	}
+	if code, _, _ := performJSON(t, h, "POST", receiptPath, nil); code != http.StatusUnauthorized {
+		t.Fatalf("anonymous install acknowledgement returned %d", code)
+	}
+	var firstAcknowledgement int64
+	for attempt := 0; attempt < 2; attempt++ {
+		code, payload, _ := performJSON(t, h, "POST", receiptPath, map[string]string{"agent_id": "123"},
+			ut.Header{Key: "Authorization", Value: "Bearer " + originalAccessToken},
+			ut.Header{Key: "X-Client-Host", Value: "codex"})
+		if code != http.StatusOK || responseData(t, payload)["recorded"] != true {
+			t.Fatalf("authenticated acknowledgement returned %d: %#v", code, payload)
+		}
+		runtime, received := readReceipt()
+		if runtime != "workbuddy" || received == nil || *received <= 0 {
+			t.Fatalf("after acknowledgement: runtime=%q receipt=%v", runtime, received)
+		}
+		if attempt == 0 {
+			firstAcknowledgement = *received
+			time.Sleep(2 * time.Millisecond)
+		} else if *received != firstAcknowledgement {
+			t.Fatal("a retry moved the original installation timestamp")
+		}
 	}
 	var provisionedCLIVersion string
 	if err := gdb.Raw(`SELECT cli_version FROM agent_settings WHERE agent_id = ?`, agentIDInt).Scan(&provisionedCLIVersion).Error; err != nil || provisionedCLIVersion != "0.0.34" {

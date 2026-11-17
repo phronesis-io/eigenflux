@@ -15,18 +15,19 @@ import (
 
 // Meta holds client environment metadata sent as HTTP headers on every request.
 type Meta struct {
-	OS            string // e.g. "darwin/arm64"
-	TZ            string // e.g. "Asia/Shanghai"
-	Lang          string // e.g. "zh-CN"
-	Host          string // e.g. "openclaw/0.0.10", "claude-code/0.0.5", "terminal"
-	HostExplicit  bool   // EIGENFLUX_HOST supplied the complete product identity
-	Mode          string // explicitly configured installation mode: plugin or skill
-	PluginVersion string // plugin package version, independent of the host product
-	DeviceName    string // user-visible computer name, e.g. "Lynn-MacBook-Pro"
-	Model         string // e.g. "claude-opus-4-8" (the model the host agent runs as)
-	Channel       string // e.g. "feishu", "cli", "telegram"
-	ClientID      string // e.g. "a1b2c3d4"
-	CLIVersion    string // e.g. "0.0.16" — enables backend to know which skills bundle the client carries
+	OS             string // e.g. "darwin/arm64"
+	TZ             string // e.g. "Asia/Shanghai"
+	Lang           string // e.g. "zh-CN"
+	Host           string // e.g. "openclaw/0.0.10", "claude-code/0.0.5", "terminal"
+	HostExplicit   bool   // EIGENFLUX_HOST supplied the complete product identity
+	Mode           string // explicitly configured installation mode: plugin or skill
+	PluginVersion  string // plugin package version, independent of the host product
+	DeviceName     string // user-visible computer name, e.g. "Lynn-MacBook-Pro"
+	Model          string // e.g. "claude-opus-4-8" (the model the host agent runs as)
+	Channel        string // e.g. "feishu", "cli", "telegram"
+	ClientID       string // e.g. "a1b2c3d4"
+	CLIVersion     string // e.g. "0.0.16" — enables backend to know which skills bundle the client carries
+	InstallReceipt bool   // declares support when requesting Agent provision
 }
 
 // SetHeaders writes all non-empty Meta fields to the given http.Header.
@@ -63,6 +64,9 @@ func (m Meta) SetHeaders(h http.Header) {
 	}
 	if m.CLIVersion != "" {
 		h.Set("X-Client-CLI-Version", m.CLIVersion)
+	}
+	if m.InstallReceipt {
+		h.Set("X-Agent-Install-Receipt", "1")
 	}
 }
 

@@ -913,7 +913,16 @@ atomically records the first copy for the ref. Browser and server `CopyCommand`
 events use `eigenflux:copy:<ref>`. The browser sends after the first-copy response,
 and the server can deliver eligible Meta traffic even if the response is lost.
 
-The install callback requires both the existing successful `/report` and a
+For Agent retention, new V2 CLI provision requests declare support with
+`X-Agent-Install-Receipt: 1`. The provision transaction captures the runtime
+product for the new Agent. When the response advertises
+`install_receipt_supported`, the CLI saves its credentials and sends an
+authenticated `POST /api/v2/agents/me/install-receipt`, including installs
+without a referral. The server records the first acknowledgement time for
+supported new identities. Replayed requests keep the original time. Older
+identities and clients are reported as uninstrumented.
+
+The Meta install callback requires both the existing successful `/report` and a
 committed signed provision of a new V2 Agent for the same ref. Either request
 can arrive first. The event uses the later timestamp and the original landing
 browser identifiers. Registration uses `action_source=other` because the
