@@ -512,7 +512,7 @@ On macOS and Windows, Watch presents only selected summaries through the exact
 Desktop owner's hidden-input transport. Watch serializes its main submissions
 across PMs, Commission and upgrade repair. An unbound, missing or archived
 Codex conversation routes PM notices to the desktop queue when enabled.
-The notification opens the conversation and excludes private message text. The
+The notification opens the Console important-message view and excludes private message text. The
 desktop queue persists the notification before Watch acknowledges the PM spool.
 A correlated owner-discovery failure without a handler also uses that route.
 Busy targets defer. Codex checkpoints a PM notice immediately before the IPC
@@ -524,14 +524,19 @@ Full non-Codex heartbeats with a matching PM Watch binding omit inbox intake.
 Pending summaries can wake a host cycle when Feed is empty. At the end of the
 cycle, `heartbeat pm-digest` claims up to five updates, decisions first, using
 the plan's binding-revision token. On macOS and Windows, a ready desktop notifier
-submits one alert with the number of distinct conversations. Its link opens one
-conversation directly or lists just the conversations in the batch with their
-existing message previews. OpenClaw uses its existing host
+submits one alert with the number of distinct conversations and opens the
+Console important-message view. OpenClaw uses its existing host
 route. When desktop notifications are unavailable, the host handles the digest.
 The CLI claims the cycle and batch before calling the OS outside the spool lock.
 Only a confirmed pre-submission rejection reopens the cycle for host delivery.
 Host output failures leave the host batch pending. A plan read alone never
 consumes summaries.
+
+Watch saves an upload record alongside each new important result. Its Console
+sync runs independently of desktop, main conversation and peer reply delivery.
+The spool records each attempt before the request and allows up to three retries
+after the first attempt. A stable result ID deduplicates writes for the owner.
+Deploy the Console API and migration before releasing this CLI.
 
 The Watch checkpoints decisions with an owner notice before enqueueing it or
 sending a reply. For `pm_owner_notice_save_failed`, retry the job after restoring

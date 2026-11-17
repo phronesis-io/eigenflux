@@ -257,7 +257,7 @@ func TestCodexPMOwnerNoticeDesktopFallback(t *testing.T) {
 			}
 			if wantDesktop {
 				entry, ok := q.Next(time.Now())
-				if !ok || strings.Contains(entry.Message.Body, notice.Summary) || !strings.HasSuffix(entry.Message.URL, "/dashboard/messages?notice_conversation=9223372036854775807") {
+				if !ok || strings.Contains(entry.Message.Body, notice.Summary) || !strings.HasSuffix(entry.Message.URL, "/dashboard/messages?important=1") {
 					t.Fatalf("incorrect notification: %+v", entry)
 				}
 			}
@@ -281,7 +281,7 @@ func TestHeartbeatPMDigestDesktopResult(t *testing.T) {
 			shows := 0
 			submitted, err := presentHeartbeatPMDigest(context.Background(), b, entries, func(_ context.Context, message desktopnotify.Message) error {
 				shows++
-				if !strings.HasSuffix(message.URL, "/dashboard/messages?notice_conversation=9223372036854775807&notice_conversation=42") {
+				if !strings.HasSuffix(message.URL, "/dashboard/messages?important=1") {
 					t.Fatalf("wrong notification target: %s", message.URL)
 				}
 				if !strings.HasPrefix(message.Body, "2 ") {

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -15,17 +14,15 @@ import (
 	"cli.eigenflux.ai/internal/dispatch"
 )
 
-func desktopPMInboxURL(endpoint string, conversations ...string) (string, error) {
+func desktopPMInboxURL(endpoint string, important bool) (string, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil {
 		return "", err
 	}
 	u.Path, u.RawPath, u.RawQuery, u.Fragment = "/dashboard/messages", "", "", ""
-	query := url.Values{}
-	for _, id := range conversations {
-		query.Add("notice_conversation", id)
+	if important {
+		u.RawQuery = "important=1"
 	}
-	u.RawQuery = query.Encode()
 	return u.String(), desktopnotify.ValidateURL(u.String())
 }
 
@@ -56,17 +53,13 @@ func (w *accountWatch) deliverPMOwnerDesktopNotice(ctx context.Context, entry di
 }
 
 func pmOwnerDesktopMessage(endpoint, scope, noticeID string, entries []dispatch.PMNoticeEntry) (desktopnotify.Message, error) {
-	var conversations []string
-	seen := make(map[string]bool, len(entries))
+	conversations := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
-		n, err := strconv.ParseInt(entry.Conversation, 10, 64)
-		if err != nil || n <= 0 || strconv.FormatInt(n, 10) != entry.Conversation || seen[entry.Conversation] {
-			continue
+		if entry.Conversation != "" {
+			conversations[entry.Conversation] = struct{}{}
 		}
-		conversations = append(conversations, entry.Conversation)
-		seen[entry.Conversation] = true
 	}
-	target, err := desktopPMInboxURL(endpoint, conversations...)
+	target, err := desktopPMInboxURL(endpoint, true)
 	if err != nil {
 		return desktopnotify.Message{}, err
 	}
@@ -95,7 +88,7 @@ func (w *accountWatch) pmDesktopBlockers() []desktopnotify.Message {
 	if w.journal == nil || w.binding == nil || !w.binding.Handles("pm_push") {
 		return nil
 	}
-	target, err := desktopPMInboxURL(w.server.Endpoint)
+	target, err := desktopPMInboxURL(w.server.Endpoint, false)
 	if err != nil {
 		return nil
 	}

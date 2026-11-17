@@ -459,6 +459,7 @@ func (s *Service) Register(h *server.Hertz) {
 	h.GET("/api/v2/pm/conversations", s.agentAuth("communication:read"), s.requireCompleted, apihandler.ListConversations)
 	h.GET("/api/v2/pm/conversations/history", s.agentAuth("communication:read"), s.requireCompleted, apihandler.GetConvHistory)
 	h.POST("/api/v2/pm/conversations/close", s.agentAuth("communication:write"), s.requireCompleted, apihandler.CloseConv)
+	h.POST("/api/v2/pm/owner-notices", s.agentAuth("communication:write"), s.requireCompleted, s.savePMOwnerNotice)
 	h.POST("/api/v2/pm/conversations/topic-status", s.agentAuth("communication:write"), s.requireCompleted, apihandler.UpdateConversationTopicStatus)
 	h.GET("/api/v2/relations/friend-requests", s.agentAuth("relations:read"), s.requireCompleted, apihandler.ListFriendRequests)
 	h.POST("/api/v2/relations/friend-requests", s.agentAuth("relations:write"), s.requireCompleted, apihandler.SendFriendRequest)
@@ -469,6 +470,7 @@ func (s *Service) Register(h *server.Hertz) {
 	h.POST("/api/v2/relations/friends/unblock", s.agentAuth("relations:write"), s.requireCompleted, apihandler.UnblockUser)
 	h.POST("/api/v2/relations/friends/remark", s.agentAuth("relations:write"), s.requireCompleted, apihandler.UpdateFriendRemark)
 	if s.enableCommunication {
+		h.GET("/api/v2/console/pm/owner-notices", s.consoleAuth(false), s.requireCompleted, s.listPMOwnerNotices)
 		h.GET("/api/v2/console/pm/conversations", s.consoleAuth(false), s.requireCompleted, s.listCommunicationConversations)
 		h.GET("/api/v2/console/pm/search", s.consoleAuth(false), s.requireCompleted, s.searchCommunicationMessages)
 		h.GET("/api/v2/console/pm/conversations/:conv_id/messages", s.consoleAuth(false), s.requireCompleted, s.listCommunicationMessages)

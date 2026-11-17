@@ -50,10 +50,11 @@ type PMNoticeEntry struct {
 }
 
 type pmNoticeState struct {
-	Pending []PMNoticeEntry `json:"pending"`
-	History []PMNoticeEntry `json:"history"`
-	Seen    []string        `json:"seen"`
-	Cycles  []string        `json:"cycles"`
+	Pending []PMNoticeEntry  `json:"pending"`
+	History []PMNoticeEntry  `json:"history"`
+	Seen    []string         `json:"seen"`
+	Cycles  []string         `json:"cycles"`
+	Sync    []PMNoticeUpload `json:"sync,omitempty"`
 	// Older builds also stored uncertain cycles separately.
 	LegacyDesktopUnconfirmed []string `json:"desktop_unconfirmed,omitempty"`
 }
@@ -165,6 +166,7 @@ func SavePMNotice(ctx context.Context, b Binding, job Job, n PMOwnerNotice) erro
 		} else {
 			state.Pending = append(state.Pending, entry)
 		}
+		queuePMNoticeUpload(state, entry, time.Now())
 		return true, nil
 	})
 }
