@@ -10,7 +10,7 @@ import (
 
 func TestHeartbeatStopBlocksMissingPublishAndAllowsCompleted(t *testing.T) {
 	s := maintenance.Scope{Home: t.TempDir(), Server: "test", AgentID: "1"}
-	c, _ := maintenance.StartCycle(s, "full", []string{"feed", "publish"}, maintenance.RuntimeObservation{})
+	c, _ := maintenance.StartCycle(s, "full", []string{"feed", "publish", "need_capture"}, maintenance.RuntimeObservation{})
 	p := filepath.Join(t.TempDir(), "transcript.jsonl")
 	row := map[string]any{"type": "event_msg", "payload": map[string]any{"type": "item_completed", "turn_id": "turn", "item": map[string]any{"type": "CommandExecution", "aggregated_output": "EIGENFLUX HEARTBEAT PLAN\nheartbeat cycle-report --cycle " + c.ID}}}
 	b, _ := json.Marshal(row)
@@ -32,7 +32,9 @@ func TestHeartbeatStopBlocksMissingPublishAndAllowsCompleted(t *testing.T) {
 	if d["decision"] != "block" {
 		t.Fatal("accepted missing final check")
 	}
-	maintenance.ReportCycle(s, c.ID, "cycle", "completed")
+	if err := maintenance.ReportCycle(s, c.ID, "cycle", "completed"); err != nil {
+		t.Fatalf("Need blocked completion: %v", err)
+	}
 	d, err = heartbeatStopDecision(s, in, "owner")
 	if err != nil || len(d) != 0 {
 		t.Fatalf("blocked completion: %v %v", d, err)

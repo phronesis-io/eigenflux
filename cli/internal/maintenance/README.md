@@ -197,3 +197,17 @@ plan receipt. A cycle-check alone cannot establish that source, even if another
 foreground cycle began after the trigger. Continuations read only the pinned
 origin attempt's bounded transcript evidence; missing origin evidence leaves
 acceptance unverified without changing normal cycle completion.
+
+`need_capture.go` retains local submission receipts for at most 64 Need plans for
+seven days in a separate account-scoped `*-need-capture.json` file, using the
+same bounded OS-lock and atomic replacement implementation. Older CLI/watch
+processes may rewrite `*-events.json` without understanding new fields; they
+cannot erase the separate capture file. These records are independent
+of runtime telemetry and never enter the upload queue. They hold selected Intent
+IDs/versions, CLI/Skills versions and fixed result/error codes, not source text.
+Confirmed submissions survive later failed retries. Missing responses remain
+unconfirmed; local receipts do not replace the server's Pending selection.
+`NeedCaptureHistory` counts consecutive recorded extraction failures by Intent
+version. It ignores selections that were not attempted. A generated review
+clears the streak. The first delivered plan is tracked separately from expiring
+receipts.

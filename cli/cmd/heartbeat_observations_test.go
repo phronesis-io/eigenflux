@@ -26,7 +26,7 @@ func TestRuntimeEnvironmentDoesNotInferModelOrHardware(t *testing.T) {
 func TestCyclePromptDoesNotChangeBusinessOrScheduler(t *testing.T) {
 	p := heartbeatPlan{CycleID: strings.Repeat("a", 32), CLIPrefix: "eigenflux --homedir /tmp/test", PlanMode: "full"}
 	text := cycleInstructions(p)
-	for _, v := range []string{"--cycle " + p.CycleID, "--stage <exact-stage-name>", "only after every listed stage completed", "must not repeat business work"} {
+	for _, v := range []string{"--cycle " + p.CycleID, "--stage <exact-stage-name>", "only after every required stage completed", "must not repeat business work"} {
 		if !strings.Contains(text, v) {
 			t.Fatal(v)
 		}

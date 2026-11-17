@@ -19,6 +19,10 @@ type Cycle struct {
 	ExecutionObserved bool              `json:"execution_observed,omitempty"`
 }
 
+func requiredCycleStage(stage string) bool {
+	return stage != ruleStage && stage != "need_capture"
+}
+
 func cycleEvent(c Cycle, stage, result string) Event {
 	e := NewEvent(c.ID, "runtime", "auto", "cycle", result)
 	key := sha256.Sum256([]byte(c.ID + "\x00" + stage + "\x00" + result))
@@ -115,8 +119,8 @@ func ReportCycleWithErrorCode(scope Scope, id, stage, result, code string) error
 		if stage == "cycle" {
 			if result == "failed" {
 				failed := false
-				for _, outcome := range c.Stages {
-					if outcome == "failed" {
+				for name, outcome := range c.Stages {
+					if requiredCycleStage(name) && outcome == "failed" {
 						failed = true
 						break
 					}
@@ -132,7 +136,7 @@ func ReportCycleWithErrorCode(scope Scope, id, stage, result, code string) error
 					}
 				}
 				for name, v := range c.Stages {
-					if name != ruleStage && v != "completed" {
+					if requiredCycleStage(name) && v != "completed" {
 						return fmt.Errorf("all planned stages must complete first")
 					}
 				}

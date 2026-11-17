@@ -221,6 +221,8 @@ func TestHeartbeatCompatibilityAuthenticationFailureStopsPlan(t *testing.T) {
 				switch r.URL.Path {
 				case "/api/v2/agent-context":
 					_, _ = w.Write([]byte(`{"data":{"context_revision":1}}`))
+				case "/api/v2/need-capture/pending":
+					writeV2RecoveryData(w, map[string]any{"intents": []any{}})
 				case "/api/v2/agent-settings/heartbeat-compatibility":
 					reports++
 					writeV2RecoveryError(w, tc.status, tc.code)
@@ -302,6 +304,10 @@ func TestHeartbeatInvalidCredentialFileRequiresLocalIdentityRecovery(t *testing.
 func TestHeartbeatMetadataServiceFailureDoesNotBlockAuthenticatedPlan(t *testing.T) {
 	settings, context := 0, 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/need-capture/pending" {
+			writeV2RecoveryData(w, map[string]any{"intents": []any{}})
+			return
+		}
 		if r.URL.Path == "/api/v2/maintenance/events:batch" {
 			writeV2RecoveryData(w, map[string]any{})
 			return
