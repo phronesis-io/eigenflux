@@ -177,7 +177,7 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 		}
 		envHome := t.TempDir()
 		var firstPointer []byte
-		for attempt, status := range []string{"restarted", "deferred"} {
+		for attempt, status := range []string{"restarted", "current", "deferred"} {
 			command := exec.Command(bin, "--homedir", home, "--server", server, "heartbeat", "plan", "--format", "json")
 			command.Env = append(os.Environ(), "EIGENFLUX_HOME="+envHome, "EIGENFLUX_UPDATE_REEXEC=0", "EIGENFLUX_CDN_URL="+srv.URL,
 				"EIGENFLUX_SKILLS_DIR="+rules, "EIGENFLUX_MODE=skill", "EIGENFLUX_HOST=codex")
@@ -200,11 +200,11 @@ func TestHeartbeatAutomaticUpgradeEndToEnd(t *testing.T) {
 			if attempt == 0 {
 				firstPointer = pointer
 			} else if !bytes.Equal(firstPointer, pointer) {
-				t.Fatal("second heartbeat repeated package activation")
+				t.Fatal("follow-up heartbeat repeated package activation")
 			}
 		}
-		if manifests.Load() != 1 || packages.Load() != 1 {
-			t.Fatalf("bootstrap repeated network checks: manifests=%d packages=%d", manifests.Load(), packages.Load())
+		if manifests.Load() != 2 || packages.Load() != 1 {
+			t.Fatalf("expected bootstrap and one follow-up check: manifests=%d packages=%d", manifests.Load(), packages.Load())
 		}
 		if entries, err := os.ReadDir(envHome); err != nil || len(entries) != 0 {
 			t.Fatalf("bootstrap changed environment Home: %v %v", entries, err)

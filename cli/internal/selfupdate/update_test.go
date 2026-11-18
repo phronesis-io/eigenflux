@@ -82,7 +82,11 @@ func TestUpdateSignedBinaryAndKeepIdentity(t *testing.T) {
 	}
 	o.Version = "0.0.48"
 	r = Check(context.Background(), o)
-	if r.Status != "deferred" || count.Load() != 2 {
+	if r.Status != "current" || count.Load() != 3 {
+		t.Fatalf("next check after installation did not run: %+v requests=%d", r, count.Load())
+	}
+	r = Check(context.Background(), o)
+	if r.Status != "deferred" || count.Load() != 3 {
 		t.Fatalf("daily check not throttled: %+v requests=%d", r, count.Load())
 	}
 }

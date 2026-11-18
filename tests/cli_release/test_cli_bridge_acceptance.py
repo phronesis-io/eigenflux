@@ -23,7 +23,8 @@ def fetch(path):
 def run(*args,**kwargs):
     calls.append(args[0])
     if scenario not in ('missing-state',):
-        Path(args[0][0]+'.update.json').write_text('{}')
+        check = len(calls) if scenario == 'third-state-changed' else min(len(calls), 2)
+        Path(args[0][0]+'.update.json').write_text(json.dumps({'check': check}))
     if scenario=='credentials-changed':
         home=Path(args[0][args[0].index('--homedir')+1])
         (home/'servers/audit/agent-v2-credentials.json').write_text('changed')
@@ -32,6 +33,7 @@ def version(*args,**kwargs):
     if scenario=='wrong-version':return '0.0.0'
     if scenario=='delayed-bridge':return '1.0.5'
     if scenario=='repeat-wrong' and len(calls)==2:return '0.0.0'
+    if scenario=='third-wrong' and len(calls)==3:return '0.0.0'
     return '1.0.7'
 class Server:
     server_port=12345
@@ -53,8 +55,10 @@ class AcceptanceGuardTest(unittest.TestCase):
                 ('wrong-version', 'first cycle ran 0.0.0', 1),
                 ('missing-state', 'no updater eligibility state', 1),
                 ('delayed-bridge', 'first cycle ran 1.0.5', 1),
-                ('repeat-wrong', 'repeat cycle ran 0.0.0', 2),
-                ('missing-receipts', 'missing automatic execution receipt', 2),
+                ('repeat-wrong', 'second cycle ran 0.0.0', 2),
+                ('third-wrong', 'third cycle ran 0.0.0', 3),
+                ('third-state-changed', 'third cycle bypassed normal update throttle', 3),
+                ('missing-receipts', 'missing automatic execution receipt', 3),
                 ('credentials-changed', 'credentials changed', 1),
             ):
                 with self.subTest(optimized=optimized, scenario=scenario), tempfile.TemporaryDirectory() as temporary:
