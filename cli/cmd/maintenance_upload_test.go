@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/maintenance"
 )
@@ -196,5 +197,37 @@ func TestPMOwnerNoticeDoesNotBlockLegacyMaintenanceUpload(t *testing.T) {
 	c := &client.Client{BaseURL: api.URL, HTTPClient: api.Client()}
 	if _, err := postMaintenanceEvents(c, []maintenance.Event{pm, legacy}); err != nil || calls.Load() != 2 {
 		t.Fatalf("legacy upload failed after %d calls: %v", calls.Load(), err)
+	}
+}
+
+func TestBackgroundMaintenanceOpensClientOnlyWhenReady(t *testing.T) {
+	scope := maintenance.Scope{Home: t.TempDir(), Server: "test", AgentID: "1"}
+	endpoint := "https://example.invalid"
+	cached := &auth.V2Credentials{AccessToken: "fixture", Scopes: []string{"onboarding:write"}}
+	openErr := errors.New("test credential refresh")
+	opens := 0
+	flush := func() error {
+		return flushBackgroundMaintenance(scope, endpoint, cached, func() (*client.Client, error) {
+			opens++
+			return nil, openErr
+		}, nil)
+	}
+	if err := flush(); err != nil || opens != 0 {
+		t.Fatalf("empty queue opened client %d times: %v", opens, err)
+	}
+	event := maintenance.NewEvent(maintenance.NewID(), "cli", "auto", "adoption", "runtime_ready")
+	event.ToVersion, event.RunningVersion = "1.0.33", "1.0.33"
+	if err := maintenance.Record(scope, event); err != nil {
+		t.Fatal(err)
+	}
+	if err := flush(); err != nil || opens != 0 {
+		t.Fatalf("onboarding pause opened client %d times: %v", opens, err)
+	}
+	cached.Scopes = []string{"settings:write"}
+	if err := flush(); !errors.Is(err, openErr) || opens != 1 {
+		t.Fatalf("ready batch opened client %d times: %v", opens, err)
+	}
+	if err := flush(); err != nil || opens != 1 {
+		t.Fatalf("retry backoff opened client %d times: %v", opens, err)
 	}
 }

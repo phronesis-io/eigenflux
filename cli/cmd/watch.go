@@ -782,15 +782,13 @@ func (w *accountWatch) maintenanceLoop(ctx context.Context) error {
 				return err
 			}
 		}
-		err := maintenance.Flush(w.maintenanceScope(), time.Now(), func(events []maintenance.Event) error {
-			c, err := w.api(ctx)
-			if err != nil {
-				return err
-			}
-			c.HTTPClient.Timeout = 5 * time.Second
-			_, err = postMaintenanceEvents(c, events)
-			return err
-		})
+		cached, _ := auth.LoadV2Credentials(w.server.Name)
+		if !w.identityOK(cached) {
+			cached = nil
+		}
+		err := flushBackgroundMaintenance(w.maintenanceScope(), w.server.Endpoint, cached, func() (*client.Client, error) {
+			return w.api(ctx)
+		}, nil)
 		if isWatchTerminal(err) {
 			return w.diagnostic("maintenance", err)
 		}

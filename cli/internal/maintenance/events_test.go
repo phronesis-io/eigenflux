@@ -257,3 +257,45 @@ func TestCLIAdoptionRetentionAndValidation(t *testing.T) {
 		t.Fatalf("expired context retained: %+v %v", state, err)
 	}
 }
+
+func TestMaintenanceUploadWaitsForOnboardingWithoutLosingEvents(t *testing.T) {
+	for _, restricted := range []bool{false, true} {
+		s := Scope{Home: t.TempDir(), Server: "test", AgentID: "42"}
+		now := time.Now()
+		event := NewEvent(NewID(), "cli", "auto", "check", "started")
+		if err := Record(s, event); err != nil {
+			t.Fatal(err)
+		}
+		calls := 0
+		reject := func([]Event) error { calls++; return ErrUploadOnboarding }
+		if err := FlushForCredential(s, now, "credential-a", restricted, reject); err != nil {
+			t.Fatal(err)
+		}
+		if err := FlushForCredential(s, now.Add(time.Minute), "credential-a", restricted, reject); err != nil {
+			t.Fatal(err)
+		}
+		expected := 1
+		if restricted {
+			expected = 0
+		}
+		if calls != expected {
+			t.Fatalf("restricted=%t: requests=%d want %d", restricted, calls, expected)
+		}
+		retryAt := now.Add(time.Minute)
+		key := "credential-b"
+		if restricted {
+			retryAt = now.Add(uploadPermissionRetry)
+			key = "credential-a"
+		}
+		sent := false
+		if err := FlushForCredential(s, retryAt, key, restricted, func(events []Event) error {
+			sent = len(events) == 1 && events[0].EventID == event.EventID
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if !sent {
+			t.Fatal("queued event did not resume after permission recheck")
+		}
+	}
+}

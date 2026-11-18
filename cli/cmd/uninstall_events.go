@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -22,6 +21,8 @@ import (
 	watchstate "cli.eigenflux.ai/internal/watch"
 	"github.com/spf13/cobra"
 )
+
+const uninstallOutcomeUploadTimeout = 5 * time.Second
 
 var regexpUninstallAttempt = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
@@ -141,13 +142,11 @@ func (o *uninstallObservation) emit(result, code string) {
 }
 
 // One five-second budget for all accounts; no refresh/login or background daemon.
-func (o *uninstallObservation) flush() {
+func (o *uninstallObservation) flush(ctx context.Context) {
 	restore := config.UseHomeDir(config.HomeDir())
 	defer restore()
-	deadline := time.Now().Add(5 * time.Second)
 	for _, scope := range o.Scopes {
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
+		if ctx.Err() != nil {
 			return
 		}
 		config.SetHomeDir(scope.Home)
@@ -163,15 +162,13 @@ func (o *uninstallObservation) flush() {
 		if err != nil {
 			continue
 		}
-		c := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", current.AccessToken, version, clientMetaForServer(server))
-		c.HTTPClient = &http.Client{Timeout: remaining}
+		c := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", current.AccessToken, version, clientMetaForServer(server)).WithContext(ctx)
 		if err := maintenance.FlushUninstall(scope, time.Now(), o.AttemptID, func(events []maintenance.Event) error {
 			credentials, err := auth.LoadV2Credentials(scope.Server)
 			if err != nil || credentials.AgentID != scope.AgentID || credentials.AccessToken != current.AccessToken {
 				return errors.New("uninstall telemetry identity changed")
 			}
-			_, err = postMaintenanceEvents(c, events)
-			return err
+			return o.postUninstallOutcomes(c, scope, server.Endpoint, events)
 		}); err != nil {
 			fmt.Fprintln(os.Stderr, "Uninstall telemetry remains local; upload failed or authentication expired.")
 		}
@@ -188,8 +185,10 @@ func (o *uninstallObservation) finish(result, code string) {
 			fmt.Fprintln(os.Stderr, "Uninstall receipt could not be saved; inspect the local audit.")
 		}
 	}
-	o.flush()
-	o.reportUnregisteredOutcome(result, code)
+	ctx, cancel := context.WithTimeout(context.Background(), uninstallOutcomeUploadTimeout)
+	defer cancel()
+	o.flush(ctx)
+	o.reportUnregisteredOutcome(ctx, result, code)
 }
 
 func (o *uninstallObservation) audit(result, code string) {

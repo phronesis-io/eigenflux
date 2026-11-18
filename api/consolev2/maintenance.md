@@ -161,6 +161,12 @@ owner. Platforms are `darwin`, `windows`, and `linux`. The category is
 `declined`, `other`, `usability`, `cost`, `performance`, `privacy`, or
 `no_longer_needed`. Legacy events can still use `not_provided`.
 
+Registered installations use `POST /api/v2/maintenance/registered-uninstall`
+with an Agent token carrying `onboarding:write` or `settings:write`. It accepts
+one uninstall event per request. Outcomes must match previously accepted
+feedback owned by the same Agent and carry no reason text. The general batch
+route keeps its `settings:write` requirement.
+
 The official CLI sends `uninstall_feedback: {"reason":"…"}` alongside exactly
 one CLI uninstall `started` event. Send an empty reason with `declined` only.
 Other categories require nonblank UTF-8 text of at most 1000 bytes. The API

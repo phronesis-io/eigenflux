@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -49,6 +50,7 @@ type Client struct {
 	// OnUnauthorized can rotate Agent V2 credentials once and return the new
 	// access token. It is intentionally unset for legacy/email clients.
 	OnUnauthorized func() (string, error)
+	ctx            context.Context
 }
 
 const maxResponseBytes = 16 << 20
@@ -63,6 +65,13 @@ func New(baseURL, token, cliVersion string, meta Meta) *Client {
 			Timeout: 30 * time.Second,
 		},
 	}
+}
+
+// WithContext returns a client copy whose requests share the caller's context.
+func (c *Client) WithContext(ctx context.Context) *Client {
+	bound := *c
+	bound.ctx = ctx
+	return &bound
 }
 
 func (c *Client) do(method, path string, body interface{}) (*APIResponse, error) {
@@ -81,12 +90,16 @@ func (c *Client) doWithHeaders(method, path string, body interface{}, headers ma
 		}
 		bodyBytes = data
 	}
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	for attempt := 0; attempt < 2; attempt++ {
 		var bodyReader io.Reader
 		if bodyBytes != nil {
 			bodyReader = bytes.NewReader(bodyBytes)
 		}
-		req, err := http.NewRequest(method, c.BaseURL+path, bodyReader)
+		req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, bodyReader)
 		if err != nil {
 			return nil, err
 		}
