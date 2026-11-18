@@ -20,6 +20,7 @@ import (
 var errExistingAccountLauncher = errors.New("existing account launcher requires repair")
 
 type notificationLaunchDefinition struct {
+	launchLogPaths
 	Label                string
 	Program              string
 	ProgramArguments     []string
@@ -99,6 +100,15 @@ func startNotificationLaunchAgent(ctx context.Context, task NotificationTask, ho
 	if regexp.MustCompile(`(?m)^\s*"` + regexp.QuoteMeta(definition.Label) + `"\s*=>\s*true\s*$`).Match(disabled) {
 		return Result{Status: "skipped_disabled", Manager: "launchd", Target: target}, nil
 	}
+	if err := validateLaunchPath(home, "Agent Home", task.Home); err != nil {
+		return Result{}, err
+	}
+	if create {
+		definition.launchLogPaths = notificationLaunchLogs(task.Home, definition.Label)
+	}
+	if err := definition.launchLogPaths.validate(home); err != nil {
+		return Result{}, err
+	}
 	raw, printErr := readLaunchAgent(ctx, target, run)
 	if printErr != nil && !errors.Is(printErr, errLaunchAgentAbsent) {
 		return Result{}, fmt.Errorf("read existing watch LaunchAgent: %w", printErr)
@@ -142,7 +152,7 @@ func startNotificationLaunchAgent(ctx context.Context, task NotificationTask, ho
 		printErr = errLaunchAgentAbsent
 	}
 	if create {
-		if err := writeNotificationLaunchAgent(selected, task, definition.Label); err != nil {
+		if err := writeNotificationLaunchAgent(selected, task, definition.Label, definition.launchLogPaths); err != nil {
 			return Result{}, err
 		}
 	}
@@ -425,7 +435,15 @@ func changeNotificationLaunchMode(ctx context.Context, file string, d notificati
 	return os.Rename(tmp.Name(), d.wrapperPath)
 }
 
-func writeNotificationLaunchAgent(file string, task NotificationTask, label string) error {
+func notificationLaunchLogs(home, label string) launchLogPaths {
+	logs := filepath.Join(home, "watch")
+	return launchLogPaths{
+		StandardOutPath:   filepath.Join(logs, label+".out.log"),
+		StandardErrorPath: filepath.Join(logs, label+".err.log"),
+	}
+}
+
+func writeNotificationLaunchAgent(file string, task NotificationTask, label string, logs launchLogPaths) error {
 	args := []string{task.CLI, "--homedir", task.Home, "--server", task.Server, "watch"}
 	if task.Dispatch {
 		args = append(args, "--dispatch")
@@ -435,8 +453,7 @@ func writeNotificationLaunchAgent(file string, task NotificationTask, label stri
 	if !notificationAccountCommand(args, task) {
 		return errors.New("watch executable is unavailable")
 	}
-	logs := filepath.Join(task.Home, "watch")
-	if err := os.MkdirAll(logs, 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(logs.StandardOutPath), 0700); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
@@ -452,7 +469,7 @@ func writeNotificationLaunchAgent(file string, task NotificationTask, label stri
 	for _, arg := range args {
 		b.WriteString("<string>" + escape(arg) + "</string>")
 	}
-	b.WriteString(`</array><key>EnvironmentVariables</key><dict><key>EIGENFLUX_WATCH_EXPECTED_AGENT</key><string>` + escape(task.AgentID) + `</string><key>EIGENFLUX_WATCH_EXPECTED_PRINCIPAL</key><string>` + escape(task.PrincipalID) + `</string></dict><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>15</integer><key>StandardOutPath</key><string>` + escape(filepath.Join(logs, label+".out.log")) + `</string><key>StandardErrorPath</key><string>` + escape(filepath.Join(logs, label+".err.log")) + `</string></dict></plist>`)
+	b.WriteString(`</array><key>EnvironmentVariables</key><dict><key>EIGENFLUX_WATCH_EXPECTED_AGENT</key><string>` + escape(task.AgentID) + `</string><key>EIGENFLUX_WATCH_EXPECTED_PRINCIPAL</key><string>` + escape(task.PrincipalID) + `</string></dict><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>15</integer><key>StandardOutPath</key><string>` + escape(logs.StandardOutPath) + `</string><key>StandardErrorPath</key><string>` + escape(logs.StandardErrorPath) + `</string></dict></plist>`)
 	f, err := os.OpenFile(file, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return err

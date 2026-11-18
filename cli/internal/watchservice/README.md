@@ -15,6 +15,10 @@ a different identity are excluded unless they occupy this account's scope-named
 launcher; unknown/current-account wrappers remain blocked.
 Foreign, ambiguous, unverifiable or old-test-binary launchers are blocked; disabled
 tasks remain disabled. No second owner is created to bypass a blocked launcher.
+Before starting or changing an enabled macOS task, check the Agent Home and
+both plist log paths, including symlink targets. Keep them outside the user's
+Desktop, Documents, Downloads and iCloud Drive. Generated logs use the
+account's `watch/` directory.
 
 Windows `start_windows.go`
 and `start_windows.ps1` install an account-scoped, non-elevated interactive task
@@ -36,7 +40,7 @@ The capability registry marks this local operation as requiring CLI 1.0.3 and
 an explicit user instruction.
 
 - macOS: `--launch-agent` selects an owned regular plist in the current user's
-  `~/Library/LaunchAgents`. Validate its executable, working directory, GUI
+  `~/Library/LaunchAgents`. Validate its executable, working directory, log paths, GUI
   session and enabled state before stopping anything. Reload an existing service
   with bootout/bootstrap; bootstrap an absent service. After bootout, wait up to
   30 seconds within the caller's timeout for the old service to disappear before

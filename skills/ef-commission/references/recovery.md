@@ -16,6 +16,7 @@ Apply authoritative lifecycle and business waits first; resolve uncertain execut
 | Verified condition | Required action |
 |---|---|
 | CLI upgrade broke watch startup or left its installed task stale | Run `eigenflux watch recover`; preserve the binding and disabled tasks. |
+| macOS rejects the Agent Home or a LaunchAgent log path | Inspect the resolved paths. Restore the same account in stable local application data and update its existing LaunchAgent before retrying recovery. |
 | An existing enabled OS watch task needs a process restart | Run `eigenflux watch restart` with its verified `--launch-agent` or `--scheduled-task` target. The task itself selects the account and environment. |
 | Matching job is `failed` or `needs_user`, and its blocker is resolved | Run `eigenflux watch retry JOB_ID` once. |
 | Seller notification intake is absent and the current Order is `awaiting_seller` or `in_progress` | Run `eigenflux watch retry --order-id ORDER_ID` once; require the existing `commission_order` subscription. |

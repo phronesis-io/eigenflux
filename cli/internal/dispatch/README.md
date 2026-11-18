@@ -29,6 +29,10 @@ Installation pending authentication is recorded in `cmd/watch_recovery_pending.g
 credential provisioning resumes only that scoped intent, and completed heartbeats
 retry it. Failed probes retain intent for retry. Notification setup failures do
 not prevent watch restoration, and another Home's LaunchAgent is not a conflict.
+Starting or restoring an enabled macOS LaunchAgent checks the pinned Home and
+both log paths, including symlink targets. When those paths land in Desktop,
+Documents, Downloads or iCloud Drive, `watch recover` reports
+`protected_launch_path` before changing the task.
 
 Linux recovery distinguishes ordinary, notification-only and dispatch watches
 from their identity-matched runtime pulse, account lock and applicable ownership

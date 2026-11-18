@@ -98,6 +98,11 @@ The plist must already exist in that user's LaunchAgents directory. An unloaded
 task is loaded; a loaded task is stopped and reloaded to apply changed arguments.
 The command preserves its wrapper, including any paired `test-source` startup.
 It does not copy a workspace plist or repair its paths automatically.
+Use absolute `StandardOutPath` and `StandardErrorPath` paths in stable local
+application data. Paths in the user's Desktop, Documents, Downloads or iCloud
+Drive, including symlink targets, are rejected before stopping the service.
+Keep the pinned Agent Home outside those folders for `watch start` and
+`watch recover`; repair the existing account's paths before retrying.
 
 On Windows, select the exact existing interactive current-user task:
 

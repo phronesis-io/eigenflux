@@ -195,8 +195,68 @@ func TestMissingAccountLaunchAgentCreatedOrPreservesDisable(t *testing.T) {
 			if result.PID != 12345 || !strings.Contains(string(raw), "<string>--notifications-only</string>") || !strings.Contains(string(raw), "<key>KeepAlive</key><true/>") || !strings.Contains(string(raw), "<key>EIGENFLUX_WATCH_EXPECTED_AGENT</key><string>agent</string>") {
 				t.Fatalf("result=%+v plist=%s", result, raw)
 			}
-			if err := writeNotificationLaunchAgent(file, task, label); err == nil {
+			if err := writeNotificationLaunchAgent(file, task, label, notificationLaunchLogs(home, label)); err == nil {
 				t.Fatal("existing launcher overwritten")
+			}
+		})
+	}
+}
+
+func TestNotificationLaunchAgentRejectsProtectedPathsBeforeChanges(t *testing.T) {
+	for _, mode := range []string{"new home", "new log symlink", "existing stderr"} {
+		t.Run(mode, func(t *testing.T) {
+			home, file, _ := launchFixture(t)
+			task := NotificationTask{CLI: filepath.Join(home, "eigenflux"), Home: filepath.Join(home, ".eigenflux"), Server: "test", Scope: strings.Repeat("a", 32), AgentID: "a", PrincipalID: "b"}
+			if err := os.WriteFile(task.CLI, nil, 0700); err != nil {
+				t.Fatal(err)
+			}
+			field := "Agent Home"
+			var raw []byte
+			switch mode {
+			case "new home":
+				task.Home = filepath.Join(home, "Desktop", ".eigenflux")
+			case "new log symlink":
+				field = "StandardOutPath"
+				desktop := filepath.Join(home, "Desktop")
+				if err := os.Mkdir(desktop, 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(task.Home, 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(desktop, filepath.Join(task.Home, "watch")); err != nil {
+					t.Fatal(err)
+				}
+			case "existing stderr":
+				field = "StandardErrorPath"
+				task.LaunchAgent = file
+				d := notificationLaunchDefinition{
+					Label:            "ai.eigenflux.fixture",
+					ProgramArguments: []string{task.CLI, "--homedir", task.Home, "--server", task.Server, "watch", "--notifications-only"},
+					launchLogPaths:   launchLogPaths{StandardErrorPath: filepath.Join(home, "Desktop", "watch.log")},
+				}
+				var err error
+				raw, err = json.Marshal(d)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			run := func(_ context.Context, program string, args ...string) ([]byte, error) {
+				if program == "/usr/bin/plutil" {
+					return raw, nil
+				}
+				if args[0] != "print-disabled" && (args[0] != "print" || strings.Count(args[1], "/") != 1) {
+					t.Fatalf("unexpected launchctl call: %v", args)
+				}
+				return nil, nil
+			}
+			_, err := startNotificationLaunchAgent(context.Background(), task, home, os.Getuid(), run)
+			if !errors.Is(err, ErrProtectedLaunchPath) || !strings.Contains(err.Error(), field) {
+				t.Fatalf("expected protected %s error, got %v", field, err)
+			}
+			generated := filepath.Join(home, "Library", "LaunchAgents", "ai.eigenflux.watch."+task.Scope+".plist")
+			if _, err := os.Lstat(generated); !os.IsNotExist(err) {
+				t.Fatalf("unexpected generated plist: %v", err)
 			}
 		})
 	}

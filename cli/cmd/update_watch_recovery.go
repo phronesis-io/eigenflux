@@ -135,6 +135,10 @@ func recoverUpdatedWatch(ctx context.Context, expected dispatch.Binding, binding
 		result, err := deps.start(ctx, watchservice.NotificationTask{CLI: cli, Home: expected.Home, Server: expected.Server, Scope: expected.Scope, AgentID: expected.AgentID, PrincipalID: expected.PrincipalID, Dispatch: binding != nil})
 		if err != nil {
 			r.Reason = "watch_start_failed"
+			if errors.Is(err, watchservice.ErrProtectedLaunchPath) {
+				r.Reason = "protected_launch_path"
+				r.Action = "Check this account's Agent Home and LaunchAgent StandardOutPath and StandardErrorPath. Use stable local application data for the same account, then retry watch recover."
+			}
 			if observation != nil {
 				observation.failureReason = watchservice.StartFailureReason(err)
 			}

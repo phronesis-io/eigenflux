@@ -242,6 +242,34 @@ func TestRestartLaunchAgentPreflightPreservesExistingTask(t *testing.T) {
 	}
 }
 
+func TestRestartLaunchAgentRejectsProtectedLogBeforeStopping(t *testing.T) {
+	for _, field := range []string{"StandardOutPath", "StandardErrorPath"} {
+		t.Run(field, func(t *testing.T) {
+			home, file, _ := launchFixture(t)
+			raw, err := json.Marshal(map[string]string{
+				"Label": "ai.eigenflux.fixture", "Program": "/bin/sh",
+				field: filepath.Join(home, "Documents", "watch.log"),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			run := func(_ context.Context, program string, args ...string) ([]byte, error) {
+				if program == "/usr/bin/plutil" {
+					return raw, nil
+				}
+				if args[0] != "print-disabled" && (args[0] != "print" || strings.Count(args[1], "/") != 1) {
+					t.Fatalf("unexpected launchctl call: %v", args)
+				}
+				return nil, nil
+			}
+			_, err = restartLaunchAgent(context.Background(), file, home, os.Getuid(), run, 0, time.Millisecond)
+			if !errors.Is(err, ErrProtectedLaunchPath) || !strings.Contains(err.Error(), field) {
+				t.Fatalf("expected protected %s error, got %v", field, err)
+			}
+		})
+	}
+}
+
 func TestRestartLaunchAgentDoesNotReportLoadedOrCrashLoopAsRunning(t *testing.T) {
 	for _, failure := range []string{"bootout", "bootstrap", "kickstart", "missing_pid", "crash_loop"} {
 		t.Run(failure, func(t *testing.T) {
