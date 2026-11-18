@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"cli.eigenflux.ai/internal/dispatch"
 )
@@ -172,5 +173,49 @@ func TestWatchPMOwnerNoticeRetriesSavedDecisionWithAutoReplyDisabled(t *testing.
 	pending, err := dispatch.HasPendingPMNotices(ctx, *w.binding)
 	if err != nil || !pending || calls != 1 || f.sends.Load() != 0 {
 		t.Fatalf("pending=%v calls=%d sends=%d err=%v", pending, calls, f.sends.Load(), err)
+	}
+}
+
+func TestWatchPMOwnerNoticeReopensCheckpointAfterOnlyReminderWasSaved(t *testing.T) {
+	ctx := context.Background()
+	f := newDispatchWatchFixture(t, "")
+	w := f.watch
+	job := dispatchTestNext(t, w)
+	notice := dispatch.PMOwnerNotice{Topic: "materials", Change: "ready", Summary: "Materials ready"}
+	decision := dispatch.Decision{Version: 1, RequestID: job.ID, Action: "no_reply", OwnerNotice: &notice}
+	if err := w.journal.SavePMDecision(job.ID, "session", decision); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch.SavePMNotice(ctx, *w.binding, job, notice); err != nil {
+		t.Fatal(err)
+	}
+	w.runAgent = func(context.Context, dispatch.Request) (dispatch.Result, error) {
+		t.Fatal("recovery reran the Agent")
+		return dispatch.Result{}, nil
+	}
+
+	journal, err := dispatch.OpenJournal(*w.binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.journal = journal
+	recovered, ok, err := journal.Next()
+	if err != nil || !ok || recovered.PMDecision == nil {
+		t.Fatalf("expected recovered PM decision: ok=%v err=%v", ok, err)
+	}
+	if err := w.dispatchJob(ctx, recovered); err != nil {
+		t.Fatal(err)
+	}
+	item, err := dispatch.ClaimPMNoticeUpload(ctx, *w.binding, time.Now())
+	if err != nil || item.Attempts != 1 || item.Summary != notice.Summary {
+		t.Fatalf("recovery did not save the missing upload: %+v %v", item, err)
+	}
+	if err := dispatch.DeliverPMDigest(ctx, *w.binding, "cycle", func(entries []dispatch.PMNoticeEntry) error {
+		if len(entries) != 1 {
+			t.Fatalf("replay duplicated the reminder: %+v", entries)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
