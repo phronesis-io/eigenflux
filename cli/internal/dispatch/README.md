@@ -537,8 +537,9 @@ consumes summaries.
 Watch writes each upload to a separate local file before completing the PM
 decision. An interrupted decision can replay both local writes using the same
 result ID. The reminder spool retains its existing format for older builds.
-The upload file records each attempt before the request and allows up to three
-retries after the first attempt. The Console also deduplicates writes by result ID.
+The upload file is scoped to the account and endpoint so Watch rebinding retains
+pending uploads. It records each attempt before the request and allows up to
+three retries after the first attempt. The Console also deduplicates writes by result ID.
 Deploy the Console API and migration before releasing this CLI.
 
 The Watch checkpoints decisions with an owner notice before enqueueing it or

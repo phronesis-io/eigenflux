@@ -24,7 +24,10 @@ type pmNoticeUploadState struct {
 	Seen    []string         `json:"seen"`
 }
 
-const pmNoticeUploadFile = "pm-notice-uploads-"
+func pmNoticeUploadFile(b Binding) string {
+	// Uploads belong to the account on this endpoint across Watch rebindings.
+	return "pm-notice-uploads-" + journalID(b.Scope, b.Endpoint) + ".json"
+}
 
 // QueuePMNoticeUpload accepts the same checkpoint on replay without resetting
 // its attempt count or re-enqueueing a recently completed upload.
@@ -33,7 +36,7 @@ func QueuePMNoticeUpload(ctx context.Context, b Binding, job Job, notice PMOwner
 	if err != nil {
 		return err
 	}
-	return withPMNoticeFile(ctx, b, pmNoticeUploadFile, func(state *pmNoticeUploadState) (bool, error) {
+	return withPMNoticeFile(ctx, b, pmNoticeUploadFile(b), func(state *pmNoticeUploadState) (bool, error) {
 		if slices.Contains(state.Seen, id) ||
 			slices.ContainsFunc(state.Pending, func(item PMNoticeUpload) bool { return item.ResultID == id }) {
 			return false, nil
@@ -54,7 +57,7 @@ func QueuePMNoticeUpload(ctx context.Context, b Binding, job Job, notice PMOwner
 // cannot exceed the retry limit after restarting.
 func ClaimPMNoticeUpload(ctx context.Context, b Binding, now time.Time) (PMNoticeUpload, error) {
 	var claimed PMNoticeUpload
-	err := withPMNoticeFile(ctx, b, pmNoticeUploadFile, func(state *pmNoticeUploadState) (bool, error) {
+	err := withPMNoticeFile(ctx, b, pmNoticeUploadFile(b), func(state *pmNoticeUploadState) (bool, error) {
 		size := len(state.Pending)
 		state.Pending = slices.DeleteFunc(state.Pending, func(item PMNoticeUpload) bool { return item.Attempts >= PMNoticeUploadLimit })
 		for i := range state.Pending {
@@ -73,7 +76,7 @@ func ClaimPMNoticeUpload(ctx context.Context, b Binding, now time.Time) (PMNotic
 }
 
 func FinishPMNoticeUpload(ctx context.Context, b Binding, item PMNoticeUpload) error {
-	return withPMNoticeFile(ctx, b, pmNoticeUploadFile, func(state *pmNoticeUploadState) (bool, error) {
+	return withPMNoticeFile(ctx, b, pmNoticeUploadFile(b), func(state *pmNoticeUploadState) (bool, error) {
 		size := len(state.Pending)
 		state.Pending = slices.DeleteFunc(state.Pending, func(current PMNoticeUpload) bool {
 			return current.ResultID == item.ResultID && current.Attempts == item.Attempts

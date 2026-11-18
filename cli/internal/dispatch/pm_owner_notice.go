@@ -61,18 +61,18 @@ type pmNoticeState struct {
 // Watch and heartbeat share this spool under a retained OS lock.
 // A claimed item never replays after an uncertain handoff.
 func withPMNotices(ctx context.Context, b Binding, change func(*pmNoticeState) (bool, error)) error {
-	return withPMNoticeFile(ctx, b, "pm-notices-", func(state *pmNoticeState) (bool, error) {
+	return withPMNoticeFile(ctx, b, "pm-notices-"+journalID(b.Scope, b.Revision)+".json", func(state *pmNoticeState) (bool, error) {
 		write, err := change(state)
 		state.LegacyDesktopUnconfirmed = nil
 		return write, err
 	})
 }
 
-func withPMNoticeFile[T any](ctx context.Context, b Binding, prefix string, change func(*T) (bool, error)) error {
+func withPMNoticeFile[T any](ctx context.Context, b Binding, filename string, change func(*T) (bool, error)) error {
 	if err := validJournalBinding(b); err != nil {
 		return err
 	}
-	path := filepath.Join(b.Home, "watch", prefix+journalID(b.Scope, b.Revision)+".json")
+	path := filepath.Join(b.Home, "watch", filename)
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}

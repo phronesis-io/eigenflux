@@ -50,9 +50,9 @@ func TestPMOwnerNoticeUploadKeepsLegacySpoolReadable(t *testing.T) {
 	}
 }
 
-func TestPMOwnerNoticeUploadBudgetSurvivesDesktopDeliveryAndRestart(t *testing.T) {
+func TestPMOwnerNoticeUploadBudgetSurvivesDesktopDeliveryAndRebind(t *testing.T) {
 	ctx := context.Background()
-	b := Binding{Home: t.TempDir(), Scope: "scope", Revision: "revision", AgentID: "owner"}
+	b := Binding{Home: t.TempDir(), Scope: "scope", Revision: "revision", AgentID: "owner", Endpoint: "https://example.test"}
 	job := Job{Kind: "pm_push", Scope: b.Scope, Revision: b.Revision, Message: &Message{Conversation: "42"}}
 	notice := PMOwnerNotice{Topic: "order", Change: "ready", Summary: "Materials are ready", NeedsAction: true}
 	if err := QueuePMNoticeUpload(ctx, b, job, notice); err != nil {
@@ -80,6 +80,17 @@ func TestPMOwnerNoticeUploadBudgetSurvivesDesktopDeliveryAndRestart(t *testing.T
 		}
 		if attempt == 1 {
 			id = item.ResultID
+			otherAccount := b
+			otherAccount.Scope = "another-account"
+			otherEndpoint := b
+			otherEndpoint.Endpoint = "https://another.example.test"
+			for _, other := range []Binding{otherAccount, otherEndpoint} {
+				if unexpected, err := ClaimPMNoticeUpload(ctx, other, now.Add(time.Minute)); err != nil || unexpected.ResultID != "" {
+					t.Fatalf("upload crossed an account or endpoint boundary: %+v %v", unexpected, err)
+				}
+			}
+			b.Revision = "rebound"
+			job.Revision = b.Revision
 		}
 		if id == "" || item.ResultID != id {
 			t.Fatal("retry changed the idempotency key")
