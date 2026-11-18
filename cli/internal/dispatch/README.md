@@ -525,7 +525,9 @@ Pending summaries can wake a host cycle when Feed is empty. At the end of the
 cycle, `heartbeat pm-digest` claims up to five updates, decisions first, using
 the plan's binding-revision token. On macOS and Windows, a ready desktop notifier
 submits one alert with the number of distinct conversations and opens the
-Console important-message view. OpenClaw uses its existing host
+Console important-message view for the notification's Agent and results.
+The Console can use the latest message from the affected conversation while
+an exact summary is waiting for sync. OpenClaw uses its existing host
 route. When desktop notifications are unavailable, the host handles the digest.
 The CLI claims the cycle and batch before calling the OS outside the spool lock.
 Only a confirmed pre-submission rejection reopens the cycle for host delivery.

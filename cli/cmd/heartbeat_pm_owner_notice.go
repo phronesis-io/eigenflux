@@ -132,7 +132,7 @@ func presentHeartbeatPMDigest(ctx context.Context, b dispatch.Binding, entries [
 	for _, item := range ids {
 		_, _ = id.Write([]byte(item))
 	}
-	message, err := pmOwnerDesktopMessage(b.Endpoint, b.Scope, hex.EncodeToString(id.Sum(nil)), entries)
+	message, err := pmOwnerDesktopMessage(b.Endpoint, b.Scope, b.AgentID, hex.EncodeToString(id.Sum(nil)), entries)
 	if err != nil {
 		return false, nil
 	}

@@ -14,15 +14,13 @@ import (
 	"cli.eigenflux.ai/internal/dispatch"
 )
 
-func desktopPMInboxURL(endpoint string, important bool) (string, error) {
+func desktopPMInboxURL(endpoint string, query url.Values) (string, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil {
 		return "", err
 	}
 	u.Path, u.RawPath, u.RawQuery, u.Fragment = "/dashboard/messages", "", "", ""
-	if important {
-		u.RawQuery = "important=1"
-	}
+	u.RawQuery = query.Encode()
 	return u.String(), desktopnotify.ValidateURL(u.String())
 }
 
@@ -36,7 +34,7 @@ func (w *accountWatch) deliverPMOwnerDesktopNotice(ctx context.Context, entry di
 	if err := w.dispatchIdentityOK(); err != nil {
 		return restore(err)
 	}
-	message, err := pmOwnerDesktopMessage(w.server.Endpoint, w.scope, entry.ID, []dispatch.PMNoticeEntry{entry})
+	message, err := pmOwnerDesktopMessage(w.server.Endpoint, w.scope, w.binding.AgentID, entry.ID, []dispatch.PMNoticeEntry{entry})
 	if err != nil {
 		return restore(err)
 	}
@@ -52,14 +50,16 @@ func (w *accountWatch) deliverPMOwnerDesktopNotice(ctx context.Context, entry di
 	return w.emit("pm_owner_notice", map[string]string{"status": "desktop_queued", "notice_id": entry.ID})
 }
 
-func pmOwnerDesktopMessage(endpoint, scope, noticeID string, entries []dispatch.PMNoticeEntry) (desktopnotify.Message, error) {
+func pmOwnerDesktopMessage(endpoint, scope, agentID, noticeID string, entries []dispatch.PMNoticeEntry) (desktopnotify.Message, error) {
 	conversations := make(map[string]struct{}, len(entries))
+	query := url.Values{"important": {"1"}, "agent_id": {agentID}}
 	for _, entry := range entries {
 		if entry.Conversation != "" {
 			conversations[entry.Conversation] = struct{}{}
+			query.Add("notice", entry.Conversation+"."+entry.ID)
 		}
 	}
-	target, err := desktopPMInboxURL(endpoint, true)
+	target, err := desktopPMInboxURL(endpoint, query)
 	if err != nil {
 		return desktopnotify.Message{}, err
 	}
@@ -88,7 +88,7 @@ func (w *accountWatch) pmDesktopBlockers() []desktopnotify.Message {
 	if w.journal == nil || w.binding == nil || !w.binding.Handles("pm_push") {
 		return nil
 	}
-	target, err := desktopPMInboxURL(w.server.Endpoint, false)
+	target, err := desktopPMInboxURL(w.server.Endpoint, nil)
 	if err != nil {
 		return nil
 	}

@@ -129,4 +129,21 @@ func TestPostgresPMOwnerNoticesRetainLatestAndIsolateOwners(t *testing.T) {
 	if len(rows) != 1 || data["next_cursor"] != "" {
 		t.Fatalf("second page=%#v", data)
 	}
+	status, payload, _ = performJSON(t, h, http.MethodGet, path+"?conversations=200,100", nil)
+	if status != http.StatusOK {
+		t.Fatalf("status=%d payload=%#v", status, payload)
+	}
+	rows = responseData(t, payload)["results"].([]interface{})
+	if len(rows) != 1 || rows[0].(map[string]interface{})["conversation_id"] != "200" ||
+		rows[0].(map[string]interface{})["result_id"] != "200" {
+		t.Fatalf("scoped results=%#v", rows)
+	}
+	status, payload, _ = performJSON(t, h, http.MethodGet, path+"?conversations=99&results="+strings.Repeat("b", 64), nil)
+	if status != http.StatusOK {
+		t.Fatalf("status=%d payload=%#v", status, payload)
+	}
+	rows = responseData(t, payload)["results"].([]interface{})
+	if len(rows) != 1 || rows[0].(map[string]interface{})["summary"] != "Older retry" {
+		t.Fatalf("notification should resolve its own result after a newer summary replaces it: %#v", rows)
+	}
 }
