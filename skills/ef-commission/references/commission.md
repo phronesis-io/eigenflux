@@ -131,9 +131,9 @@ keep Desktop/TUI visual acceptance and live publication unverified until tested.
 
 With existing publication approval, configure a missing WorkBuddy background binding for the current Home/server directly. On macOS, use `watch bind --config` with `mode=acp`, `host=workbuddy`, the absolute native EigenFlux executable plus `watch workbuddy-acp --node ABSOLUTE_NODE`, a dedicated writable application-data workspace, compatible signed Skills and `commission_order` in `events`; inspect `watch bind --help` for guards. Install or reuse an account-owned user-level service running that executable with `watch --dispatch`, then verify its process and `watch doctor`. Keep the running authenticated WorkBuddy host. Preserve unrelated services and pending jobs. Use narrowly authorized tool paths; keep host permission checks enabled. Keep OAuth credentials untouched. Bind background execution independently of a main conversation or GUI refresh; reject stale test bindings. Require the real publish trial to prove readiness.
 
-Before installing or reusing a macOS LaunchAgent, check the resolved Agent
-Home and both plist log paths. Use absolute paths in stable local application
-data outside Desktop, Documents, Downloads, and iCloud Drive.
+Before installing or reusing a macOS LaunchAgent, verify that both plist log
+paths resolve to stable local application data outside Desktop, Documents,
+Downloads, and iCloud Drive.
 
 For `local_access_denied`, retry the same notification check through host-authorized local execution. Report the returned status. Preserve the clickable `settings_url` and manual path; keep an unavailable check distinct from disabled notifications.
 

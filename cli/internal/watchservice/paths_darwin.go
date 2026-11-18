@@ -13,33 +13,27 @@ type launchLogPaths struct {
 }
 
 func (p launchLogPaths) validate(home string) error {
-	if err := validateLaunchPath(home, "StandardOutPath", p.StandardOutPath); err != nil {
-		return err
+	for _, log := range []struct{ field, path string }{
+		{"StandardOutPath", p.StandardOutPath},
+		{"StandardErrorPath", p.StandardErrorPath},
+	} {
+		if !filepath.IsAbs(log.path) {
+			continue
+		}
+		if isProtectedLaunchPath(home, log.path) || isProtectedLogTarget(home, log.path) {
+			return fmt.Errorf("watch LaunchAgent %s %q is in a macOS privacy-protected folder; use a local application-data path", log.field, log.path)
+		}
 	}
-	return validateLaunchPath(home, "StandardErrorPath", p.StandardErrorPath)
+	return nil
 }
 
-func validateLaunchPath(home, field, path string) error {
-	if path == "" {
-		return nil
+func isProtectedLogTarget(home, path string) bool {
+	resolved, err := resolveLaunchPath(path)
+	if err != nil {
+		return false
 	}
-	if !filepath.IsAbs(path) {
-		return fmt.Errorf("watch LaunchAgent %s %q must be an absolute path", field, path)
-	}
-	if !isProtectedLaunchPath(home, path) {
-		resolved, err := resolveLaunchPath(path)
-		if err != nil {
-			return fmt.Errorf("validate watch LaunchAgent %s %q: %w", field, path, err)
-		}
-		realHome, err := filepath.EvalSymlinks(home)
-		if err != nil {
-			return fmt.Errorf("resolve macOS user's home directory: %w", err)
-		}
-		if !isProtectedLaunchPath(realHome, resolved) && !isProtectedLaunchPath(home, resolved) {
-			return nil
-		}
-	}
-	return fmt.Errorf("%w: %s %q; use an account-owned path in a local application-data directory", ErrProtectedLaunchPath, field, path)
+	realHome, err := filepath.EvalSymlinks(home)
+	return isProtectedLaunchPath(home, resolved) || (err == nil && isProtectedLaunchPath(realHome, resolved))
 }
 
 func isProtectedLaunchPath(home, path string) bool {

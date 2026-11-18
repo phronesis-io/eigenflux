@@ -151,11 +151,6 @@ end with that name.
 - WorkBuddy and other bare-CLI runtimes: set a distinct stable Home whenever
   another Agent on the machine already uses the default.
 
-On macOS, keep the Agent Home and both LaunchAgent log paths as absolute paths
-in stable local application data outside Desktop, Documents, Downloads, and
-iCloud Drive.
-Check symlink targets before installing or restarting the task.
-
 The CLI binary and Skill directory may be shared. Identity, credentials,
 configuration, and caches may not.
 

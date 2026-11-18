@@ -1,12 +1,6 @@
 package watchservice
 
-import (
-	"context"
-	"errors"
-)
-
-// ErrProtectedLaunchPath identifies a macOS watch path that needs relocation.
-var ErrProtectedLaunchPath = errors.New("watch LaunchAgent path is in a macOS privacy-protected folder")
+import "context"
 
 type NotificationTask struct {
 	LaunchAgent string `json:"launch_agent,omitempty"`

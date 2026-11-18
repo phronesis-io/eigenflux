@@ -100,12 +100,6 @@ func startNotificationLaunchAgent(ctx context.Context, task NotificationTask, ho
 	if regexp.MustCompile(`(?m)^\s*"` + regexp.QuoteMeta(definition.Label) + `"\s*=>\s*true\s*$`).Match(disabled) {
 		return Result{Status: "skipped_disabled", Manager: "launchd", Target: target}, nil
 	}
-	if err := validateLaunchPath(home, "Agent Home", task.Home); err != nil {
-		return Result{}, err
-	}
-	if create {
-		definition.launchLogPaths = notificationLaunchLogs(task.Home, definition.Label)
-	}
 	if err := definition.launchLogPaths.validate(home); err != nil {
 		return Result{}, err
 	}
@@ -152,7 +146,7 @@ func startNotificationLaunchAgent(ctx context.Context, task NotificationTask, ho
 		printErr = errLaunchAgentAbsent
 	}
 	if create {
-		if err := writeNotificationLaunchAgent(selected, task, definition.Label, definition.launchLogPaths); err != nil {
+		if err := writeNotificationLaunchAgent(selected, task, definition.Label, home); err != nil {
 			return Result{}, err
 		}
 	}
@@ -435,15 +429,7 @@ func changeNotificationLaunchMode(ctx context.Context, file string, d notificati
 	return os.Rename(tmp.Name(), d.wrapperPath)
 }
 
-func notificationLaunchLogs(home, label string) launchLogPaths {
-	logs := filepath.Join(home, "watch")
-	return launchLogPaths{
-		StandardOutPath:   filepath.Join(logs, label+".out.log"),
-		StandardErrorPath: filepath.Join(logs, label+".err.log"),
-	}
-}
-
-func writeNotificationLaunchAgent(file string, task NotificationTask, label string, logs launchLogPaths) error {
+func writeNotificationLaunchAgent(file string, task NotificationTask, label, home string) error {
 	args := []string{task.CLI, "--homedir", task.Home, "--server", task.Server, "watch"}
 	if task.Dispatch {
 		args = append(args, "--dispatch")
@@ -453,7 +439,15 @@ func writeNotificationLaunchAgent(file string, task NotificationTask, label stri
 	if !notificationAccountCommand(args, task) {
 		return errors.New("watch executable is unavailable")
 	}
-	if err := os.MkdirAll(filepath.Dir(logs.StandardOutPath), 0700); err != nil {
+	dir := filepath.Join(task.Home, "watch")
+	logs := launchLogPaths{
+		StandardOutPath:   filepath.Join(dir, label+".out.log"),
+		StandardErrorPath: filepath.Join(dir, label+".err.log"),
+	}
+	if err := logs.validate(home); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {

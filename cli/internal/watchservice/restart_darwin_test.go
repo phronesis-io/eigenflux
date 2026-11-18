@@ -185,7 +185,7 @@ func TestRestartLaunchAgentReloadsOnlyExplicitTask(t *testing.T) {
 }
 
 func TestRestartLaunchAgentPreflightPreservesExistingTask(t *testing.T) {
-	for _, failure := range []string{"relative", "outside", "symlink", "writable", "wrong_owner", "root", "malformed", "invalid_label", "disabled_plist", "disabled_os", "bad_program", "bad_workdir", "no_gui"} {
+	for _, failure := range []string{"relative", "outside", "symlink", "writable", "wrong_owner", "root", "malformed", "invalid_label", "disabled_plist", "disabled_os", "bad_program", "bad_workdir", "no_gui", "StandardOutPath", "StandardErrorPath"} {
 		t.Run(failure, func(t *testing.T) {
 			home, file, definition := launchFixture(t)
 			uid := os.Getuid()
@@ -217,6 +217,11 @@ func TestRestartLaunchAgentPreflightPreservesExistingTask(t *testing.T) {
 				definition = []byte(`{"Label":"ai.eigenflux.fixture","Disabled":true}`)
 			case "bad_program":
 				definition = []byte(`{"Label":"ai.eigenflux.fixture","Program":"/missing-program"}`)
+			case "StandardOutPath", "StandardErrorPath":
+				definition, _ = json.Marshal(map[string]string{
+					"Label": "ai.eigenflux.fixture", "Program": "/bin/sh",
+					failure: filepath.Join(home, "Desktop", "watch.log"),
+				})
 			case "bad_workdir":
 				definition = []byte(`{"Label":"ai.eigenflux.fixture","Program":"/bin/sh","WorkingDirectory":"/missing-directory"}`)
 			}
@@ -237,34 +242,6 @@ func TestRestartLaunchAgentPreflightPreservesExistingTask(t *testing.T) {
 			}
 			if _, err := restartLaunchAgent(context.Background(), file, home, uid, run, 0, time.Millisecond); err == nil {
 				t.Fatal("invalid preflight accepted")
-			}
-		})
-	}
-}
-
-func TestRestartLaunchAgentRejectsProtectedLogBeforeStopping(t *testing.T) {
-	for _, field := range []string{"StandardOutPath", "StandardErrorPath"} {
-		t.Run(field, func(t *testing.T) {
-			home, file, _ := launchFixture(t)
-			raw, err := json.Marshal(map[string]string{
-				"Label": "ai.eigenflux.fixture", "Program": "/bin/sh",
-				field: filepath.Join(home, "Documents", "watch.log"),
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			run := func(_ context.Context, program string, args ...string) ([]byte, error) {
-				if program == "/usr/bin/plutil" {
-					return raw, nil
-				}
-				if args[0] != "print-disabled" && (args[0] != "print" || strings.Count(args[1], "/") != 1) {
-					t.Fatalf("unexpected launchctl call: %v", args)
-				}
-				return nil, nil
-			}
-			_, err = restartLaunchAgent(context.Background(), file, home, os.Getuid(), run, 0, time.Millisecond)
-			if !errors.Is(err, ErrProtectedLaunchPath) || !strings.Contains(err.Error(), field) {
-				t.Fatalf("expected protected %s error, got %v", field, err)
 			}
 		})
 	}

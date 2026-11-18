@@ -15,10 +15,8 @@ a different identity are excluded unless they occupy this account's scope-named
 launcher; unknown/current-account wrappers remain blocked.
 Foreign, ambiguous, unverifiable or old-test-binary launchers are blocked; disabled
 tasks remain disabled. No second owner is created to bypass a blocked launcher.
-Before starting or changing an enabled macOS task, check the Agent Home and
-both plist log paths, including symlink targets. Keep them outside the user's
-Desktop, Documents, Downloads and iCloud Drive. Generated logs use the
-account's `watch/` directory.
+Before changing an enabled macOS task, check absolute plist log paths and their
+symlink targets for Desktop, Documents, Downloads and iCloud Drive.
 
 Windows `start_windows.go`
 and `start_windows.ps1` install an account-scoped, non-elevated interactive task
