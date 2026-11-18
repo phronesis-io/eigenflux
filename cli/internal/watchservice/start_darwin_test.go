@@ -11,7 +11,7 @@ import (
 )
 
 func TestNotificationLaunchAgentPreservesExistingWrapper(t *testing.T) {
-	for _, mode := range []string{"prepare", "start", "active", "disabled", "wrong_account", "ambiguous", "disabled_os", "writable", "symlink", "old_cli", "unverifiable_wrapper", "wrong_pin"} {
+	for _, mode := range []string{"prepare", "start", "active", "disabled", "wrong_account", "ambiguous", "disabled_os", "writable", "symlink", "old_cli", "unverifiable_wrapper", "wrong_pin", "protected_log"} {
 		t.Run(mode, func(t *testing.T) {
 			home := t.TempDir()
 			dir := filepath.Join(home, "Library", "LaunchAgents")
@@ -69,6 +69,9 @@ func TestNotificationLaunchAgentPreservesExistingWrapper(t *testing.T) {
 			if mode == "wrong_pin" {
 				def.EnvironmentVariables = map[string]string{"EIGENFLUX_WATCH_EXPECTED_AGENT": "other", "EIGENFLUX_WATCH_EXPECTED_PRINCIPAL": "owner"}
 			}
+			if mode == "protected_log" {
+				def.StandardErrorPath = filepath.Join(home, "Desktop", "watch.log")
+			}
 			definition, _ := json.Marshal(def)
 			var mutations []string
 			loaded := mode != "start"
@@ -106,6 +109,12 @@ func TestNotificationLaunchAgentPreservesExistingWrapper(t *testing.T) {
 				}
 				return
 			}
+			if mode == "protected_log" {
+				if err == nil || !strings.Contains(err.Error(), "StandardErrorPath") || len(mutations) != 0 {
+					t.Fatalf("protected log result %+v %v mutations=%v", result, err, mutations)
+				}
+				return
+			}
 			if mode == "active" || mode == "wrong_account" || mode == "ambiguous" || mode == "writable" || mode == "symlink" || mode == "old_cli" || mode == "unverifiable_wrapper" || mode == "wrong_pin" {
 				if err == nil || len(mutations) != 0 {
 					t.Fatalf("unsafe result %+v %v mutations=%v", result, err, mutations)
@@ -139,21 +148,30 @@ func TestNotificationWrapperRejectsUnverifiableCommands(t *testing.T) {
 }
 
 func TestMissingAccountLaunchAgentCreatedOrPreservesDisable(t *testing.T) {
-	for _, disabled := range []bool{false, true} {
-		t.Run(map[bool]string{false: "create", true: "disabled"}[disabled], func(t *testing.T) {
+	for _, mode := range []string{"create", "disabled", "protected_log"} {
+		t.Run(mode, func(t *testing.T) {
 			home := t.TempDir()
 			cli := filepath.Join(home, "eigenflux")
 			if err := os.WriteFile(cli, []byte("fixture"), 0700); err != nil {
 				t.Fatal(err)
 			}
 			task := NotificationTask{CLI: cli, Home: home, Server: "eigenflux", Scope: strings.Repeat("a", 32), AgentID: "agent", PrincipalID: "owner", Dispatch: false}
+			if mode == "protected_log" {
+				desktop := filepath.Join(home, "Desktop")
+				if err := os.Mkdir(desktop, 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(desktop, filepath.Join(home, "watch")); err != nil {
+					t.Fatal(err)
+				}
+			}
 			label := "ai.eigenflux.watch." + task.Scope
 			file := filepath.Join(home, "Library", "LaunchAgents", label+".plist")
 			loaded := false
 			run := func(_ context.Context, program string, args ...string) ([]byte, error) {
 				switch args[0] {
 				case "print-disabled":
-					if disabled {
+					if mode == "disabled" {
 						return []byte(`"` + label + `" => true`), nil
 					}
 					return nil, nil
@@ -176,10 +194,19 @@ func TestMissingAccountLaunchAgentCreatedOrPreservesDisable(t *testing.T) {
 				}
 			}
 			result, err := startNotificationLaunchAgent(context.Background(), task, home, 501, run)
+			if mode == "protected_log" {
+				if err == nil || !strings.Contains(err.Error(), "StandardOutPath") || loaded {
+					t.Fatalf("protected log result %+v %v loaded=%v", result, err, loaded)
+				}
+				if _, err := os.Lstat(file); !os.IsNotExist(err) {
+					t.Fatalf("unexpected generated plist: %v", err)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
-			if disabled {
+			if mode == "disabled" {
 				if result.Status != "skipped_disabled" {
 					t.Fatal(result)
 				}
@@ -195,7 +222,7 @@ func TestMissingAccountLaunchAgentCreatedOrPreservesDisable(t *testing.T) {
 			if result.PID != 12345 || !strings.Contains(string(raw), "<string>--notifications-only</string>") || !strings.Contains(string(raw), "<key>KeepAlive</key><true/>") || !strings.Contains(string(raw), "<key>EIGENFLUX_WATCH_EXPECTED_AGENT</key><string>agent</string>") {
 				t.Fatalf("result=%+v plist=%s", result, raw)
 			}
-			if err := writeNotificationLaunchAgent(file, task, label); err == nil {
+			if err := writeNotificationLaunchAgent(file, task, label, home); err == nil {
 				t.Fatal("existing launcher overwritten")
 			}
 		})

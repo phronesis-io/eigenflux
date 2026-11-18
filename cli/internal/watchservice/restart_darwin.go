@@ -92,6 +92,7 @@ func restartLaunchAgent(ctx context.Context, file, home string, uid int, run lau
 		return Result{}, fmt.Errorf("invalid LaunchAgent plist: %w", err)
 	}
 	var definition struct {
+		launchLogPaths
 		Label            string
 		Program          string
 		ProgramArguments []string
@@ -131,6 +132,9 @@ func restartLaunchAgent(ctx context.Context, file, home string, uid int, run lau
 	pattern := `(?m)^\s*"` + regexp.QuoteMeta(definition.Label) + `"\s*=>\s*true\s*$`
 	if regexp.MustCompile(pattern).Match(disabled) {
 		return Result{}, errors.New("LaunchAgent is disabled in system settings; enable the intended watch task before restarting")
+	}
+	if err := definition.launchLogPaths.validate(home); err != nil {
+		return Result{}, err
 	}
 	if _, err := readLaunchAgent(ctx, target, run); err == nil {
 		if err := stopLaunchAgent(ctx, target, run, interval); err != nil {
