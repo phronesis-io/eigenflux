@@ -340,25 +340,35 @@ type profileFieldsRequest struct {
 	Bio       string `json:"bio"`
 }
 
+type identityCardValidationError struct {
+	field  string
+	reason string
+	cause  error
+}
+
+func (err *identityCardValidationError) Error() string { return err.cause.Error() }
+
+func (err *identityCardValidationError) Unwrap() error { return err.cause }
+
 func validateIdentityCardFields(name, bio string) error {
 	if strings.TrimSpace(name) == "" {
-		return errors.New("valid agent_name and bio are required")
+		return &identityCardValidationError{"agent_name", "required", errors.New("valid agent_name and bio are required")}
 	}
 	for field, value := range map[string]string{"agent_name": name, "agent_description": bio} {
 		spec, ok := agentcard.LookupField(field)
 		if !ok {
-			return errors.New("identity field registry is unavailable")
+			return &identityCardValidationError{field, "field_spec_unavailable", errors.New("identity field registry is unavailable")}
 		}
 		raw, _ := json.Marshal(value)
 		normalized, err := agentcard.ValidateValue(spec, raw)
 		if err != nil {
-			return err
+			return &identityCardValidationError{field, "field_constraints", err}
 		}
 		if err := agentcard.ValidatePublicContent(spec, normalized); err != nil {
-			return err
+			return &identityCardValidationError{field, "public_content_restricted", err}
 		}
 		if err := agentcard.ValidateConsoleV2Value(field, normalized); err != nil {
-			return err
+			return &identityCardValidationError{field, "console_limit", err}
 		}
 	}
 	return nil

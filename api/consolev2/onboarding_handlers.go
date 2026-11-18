@@ -597,6 +597,14 @@ func decodeOnboardingDraftStep(draft []byte, step int16) (draftPayload, error) {
 	return payload, nil
 }
 
+func onboardingDraftValidationLogFields(err error) []interface{} {
+	var fieldError *identityCardValidationError
+	if errors.As(err, &fieldError) {
+		return []interface{}{"field", "identity_card." + fieldError.field, "reason", fieldError.reason}
+	}
+	return nil
+}
+
 func validateDraftStep(payload draftPayload, step int16) error {
 	switch step {
 	case 2:
@@ -605,7 +613,7 @@ func validateDraftStep(payload draftPayload, step int16) error {
 			description = payload.IdentityCard.Bio
 		}
 		if err := validateIdentityCardFields(payload.IdentityCard.AgentName, description); err != nil {
-			return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)
+			return fmt.Errorf("%w: %w", errInvalidOnboardingDraft, err)
 		}
 		identityFields := map[string]interface{}{}
 		for name, value := range map[string]*string{
@@ -634,19 +642,19 @@ func validateDraftStep(payload draftPayload, step int16) error {
 		for name, value := range identityFields {
 			spec, ok := agentcard.LookupField(name)
 			if !ok {
-				return fmt.Errorf("%w: unsupported identity field %s", errInvalidOnboardingDraft, name)
+				return fmt.Errorf("%w: %w", errInvalidOnboardingDraft, &identityCardValidationError{name, "field_spec_unavailable", fmt.Errorf("unsupported identity field %s", name)})
 			}
 			raw, _ := json.Marshal(value)
 			normalized, err := agentcard.ValidateValue(spec, raw)
 			if err != nil {
-				return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)
+				return fmt.Errorf("%w: %w", errInvalidOnboardingDraft, &identityCardValidationError{name, "field_constraints", err})
 			}
 			if err := agentcard.ValidateConsoleV2Value(name, normalized); err != nil {
-				return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)
+				return fmt.Errorf("%w: %w", errInvalidOnboardingDraft, &identityCardValidationError{name, "console_limit", err})
 			}
 			if spec.Public {
 				if err := agentcard.ValidatePublicContent(spec, normalized); err != nil {
-					return fmt.Errorf("%w: %v", errInvalidOnboardingDraft, err)
+					return fmt.Errorf("%w: %w", errInvalidOnboardingDraft, &identityCardValidationError{name, "public_content_restricted", err})
 				}
 			}
 		}
@@ -913,6 +921,8 @@ func (s *Service) confirmOnboardingStep(ctx context.Context, c *app.RequestConte
 		var diagnostics []interface{}
 		if stage == "decode_draft" {
 			diagnostics = onboardingDraftDecodeLogFields(err)
+		} else if stage == "validate_draft" {
+			diagnostics = onboardingDraftValidationLogFields(err)
 		}
 		reject(http.StatusBadRequest, "CONFIRM_FAILED", err.Error(), diagnostics...)
 		return
