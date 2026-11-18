@@ -145,7 +145,7 @@ func TestRealCLIConsecutiveCompleteUpdates(t *testing.T) {
 		http.NotFound(w, r)
 	}))
 	defer server.Close()
-	options := Options{Home: home, Executable: root, Version: "9.8.7", Key: public, CDN: server.URL, CompletePackage: true, CheckNow: true}
+	options := Options{Home: home, Executable: root, Version: "9.8.7", Key: public, CDN: server.URL, CompletePackage: true}
 	first := Check(context.Background(), options)
 	if first.Status != "updated" || first.Version != "9.8.7" {
 		t.Fatalf("same-version bootstrap: %+v", first)

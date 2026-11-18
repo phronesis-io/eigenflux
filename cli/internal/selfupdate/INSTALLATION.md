@@ -7,6 +7,7 @@ Update this file whenever installation, activation, or process handoff changes.
 - A manually installed newer stable entry never forwards to an older active version; reading its version leaves the existing pointer unchanged.
 - Verify and probe the complete package before `ActivateInstallation`. Accounts share installation locks and an atomic `<entry>.current.json` pointer. Reject downgrades and corrupt existing pointers.
 - A package-capable bare CLI may bootstrap the same version once despite a legacy daily check. Persist `package_checked` so failed bootstrap attempts remain throttled.
+- Clear the last check time after successful installation. Let the next automatic check run, then resume the daily interval if the installed release is current.
 - Pointers contain canonical versions only. Verify the signature, version, directory, and CLI digest before launching; reject arbitrary paths and symlink files.
 - Accept `EIGENFLUX_INSTALL_ROOT` only for the stable entry or its exact version layout. Callers pin Home, server, and identity; updates preserve credentials.
 - `ForwardInstallation` uses exec on Mac. The generic Windows entry preserves child exit codes. The first watch adoption establishes an account-pinned launcher; drained children exit 75 to adopt a higher active version. Parent depth stays bounded.

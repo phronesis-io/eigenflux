@@ -37,7 +37,12 @@ func TestObservationDistinguishesActualCheckAndSiblingAdoption(t *testing.T) {
 	o.Version = "0.0.48"
 	progress = nil
 	r = Check(context.Background(), o)
-	if r.Attempted || r.Status != "deferred" || r.Reason != "check_interval" || r.NextCheckAt != o.Now.Add(24*time.Hour).Format(time.RFC3339) || started != 1 || len(progress) != 0 {
+	if !r.Attempted || r.Status != "current" || started != 2 || !reflect.DeepEqual(progress, []Progress{{Phase: "check"}}) {
+		t.Fatalf("first check after installation: %+v started=%d progress=%+v", r, started, progress)
+	}
+	progress = nil
+	r = Check(context.Background(), o)
+	if r.Attempted || r.Status != "deferred" || r.Reason != "check_interval" || r.NextCheckAt != o.Now.Add(24*time.Hour).Format(time.RFC3339) || started != 2 || len(progress) != 0 {
 		t.Fatalf("throttle counted as attempt: %+v progress=%+v", r, progress)
 	}
 }
