@@ -273,3 +273,32 @@ not change authentication, deduplication, event time, queue retirement or busine
 execution. Raw error messages, paths and credentials are not accepted. Missing
 metadata stays unknown. The existing optional body field remains accepted for
 compatibility with earlier diagnostic clients.
+
+### PM owner notices
+
+`pm_owner_notice` uses the existing maintenance batch and account-scoped
+deduplication. The `codex` source records `submitted` or `unconfirmed` for
+a main conversation submission. The `watch` and `heartbeat` sources report
+the OS submission result as `submitted`, `disabled`, or `failed`.
+
+Query `telemetry_events_v2` through the existing Grafana read-only data
+source. Group the six events over the same half-open window by type, source,
+and result. Desktop link arrivals measure navigation to a notification URL.
+The first rendered view result per open is counted independently.
+
+```sql
+SELECT CASE WHEN event_type = 'maintenance_attempt' THEN 'pm_notice_' ||
+              CASE WHEN properties->>'source' = 'codex' THEN 'codex_main' ELSE 'desktop_submit' END
+            ELSE event_type END AS event_type,
+       coalesce(properties->>'source', '') AS source,
+       coalesce(properties->>'result', '') AS result,
+       count(*) AS event_count
+FROM telemetry_events_v2
+WHERE event_at >= (extract(epoch FROM now() - interval '12 hours') * 1000)::bigint
+  AND event_at < (extract(epoch FROM now()) * 1000)::bigint
+  AND ((event_type = 'maintenance_attempt' AND properties->>'phase' = 'pm_owner_notice')
+    OR event_type IN ('pm_notice_desktop_landing', 'pm_notice_banner_visible',
+                      'pm_notice_banner_clicked', 'pm_notice_view_result'))
+GROUP BY 1, 2, 3
+ORDER BY 1, 2, 3;
+```

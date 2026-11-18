@@ -139,6 +139,16 @@ func validateMaintenanceEvent(e maintenanceEvent, now time.Time) error {
 	if e.Notification != nil {
 		return fmt.Errorf("notification metadata requires notification phase")
 	}
+	if e.Phase == "pm_owner_notice" {
+		main := e.Component == "watch" && e.Source == "codex" && maintenanceOneOf(e.Platform, "darwin", "windows", "linux") && maintenanceOneOf(e.Result, "submitted", "unconfirmed")
+		desktop := e.Component == "notifier" && maintenanceOneOf(e.Source, "watch", "heartbeat") && maintenanceOneOf(e.Platform, "darwin", "windows") && maintenanceOneOf(e.Result, "submitted", "disabled", "failed")
+		if (!main && !desktop) || e.Trigger != "auto" || !maintenanceValue.MatchString(e.FromVersion) ||
+			e.Host != "" || e.Mode != "" || e.ToVersion != "" || e.RunningVersion != "" ||
+			e.ErrorCode != "" || e.DurationMS != 0 || e.ReasonCategory != "" {
+			return fmt.Errorf("invalid PM owner notice observation")
+		}
+		return nil
+	}
 	if e.Phase == "uninstall" {
 		if !maintenanceOneOf(e.Component, "cli", "skills", "plugin", "scheduler", "notifier") || e.Trigger != "manual" || !maintenanceOneOf(e.Result, "started", "removed", "partial", "failed", "blocked") {
 			return fmt.Errorf("invalid uninstall category")

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -163,5 +164,35 @@ func TestNotificationObservationStableEventIDPreservesOriginalReceipt(t *testing
 				t.Fatalf("duplicate replaced original receipt or status: %s %v", after, err)
 			}
 		})
+	}
+}
+
+func TestPMDesktopObservationUploadsFromWatchAndHeartbeat(t *testing.T) {
+	scope := maintenance.Scope{Home: t.TempDir(), Server: "eigenflux", AgentID: "99"}
+	for j, source := range []string{"heartbeat", "watch"} {
+		for i := 0; i < 2; i++ {
+			e := desktopnotify.Observation{
+				At: time.Now(), Platform: "darwin", Action: "send", Result: "submitted", Visibility: "unknown",
+				PMOwnerNotice: true, NotificationIDHash: strings.Repeat(string(rune('a'+j)), 64),
+			}
+			if err := recordNotificationObservationAt(scope.Home, scope.Server, scope.AgentID, source, e); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := importNotificationObservations(scope); err != nil {
+		t.Fatal(err)
+	}
+	state, err := maintenance.Snapshot(scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Events) != 2 {
+		t.Fatalf("expected two distinct submissions, got %+v", state.Events)
+	}
+	for i, source := range []string{"heartbeat", "watch"} {
+		if e := state.Events[i]; e.Phase != "pm_owner_notice" || e.Source != source || e.Result != "submitted" || e.Notification != nil {
+			t.Fatalf("wrong maintenance event: %+v", e)
+		}
 	}
 }

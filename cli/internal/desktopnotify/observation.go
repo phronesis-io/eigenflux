@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"runtime"
+	"strings"
 	"time"
 
 	"cli.eigenflux.ai/internal/maintenance"
@@ -14,6 +15,7 @@ import (
 // Observation records submission, never banner visibility or human attention.
 // It excludes notification text, URLs, credentials and raw provider errors.
 type Observation struct {
+	PMOwnerNotice      bool                           `json:"pm_owner_notice,omitempty"`
 	Watch              *maintenance.WatchNotification `json:"watch,omitempty"`
 	DeviceID           string                         `json:"device_id,omitempty"`
 	DeviceName         string                         `json:"device_name,omitempty"`
@@ -51,6 +53,7 @@ func observeResult(action string, message Message, err error, start time.Time) O
 	e := Observation{At: time.Now().UTC(), Platform: runtime.GOOS, Action: a, Result: "ready", Visibility: "unknown", DurationMS: time.Since(start).Milliseconds()}
 	if action == "show" {
 		e.Result = "submitted"
+		e.PMOwnerNotice = strings.HasPrefix(message.ID, "pm-owner:")
 		digest := sha256.Sum256([]byte(message.ID))
 		e.NotificationIDHash = hex.EncodeToString(digest[:])
 	}
