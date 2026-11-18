@@ -2,6 +2,7 @@ package watchservice
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -22,5 +23,12 @@ func TestValidateLaunchPath(t *testing.T) {
 	}
 	if err := validateLaunchPath(home, "StandardOutPath", "watch.log"); err == nil {
 		t.Fatal("accepted relative log path")
+	}
+	dangling := filepath.Join(home, "logs")
+	if err := os.Symlink(filepath.Join(home, "missing"), dangling); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateLaunchPath(home, "StandardOutPath", filepath.Join(dangling, "watch.log")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected missing symlink target error, got %v", err)
 	}
 }

@@ -26,53 +26,45 @@ func validateLaunchPath(home, field, path string) error {
 	if !filepath.IsAbs(path) {
 		return fmt.Errorf("watch LaunchAgent %s %q must be an absolute path", field, path)
 	}
-	protected := func(root, candidate string) bool {
-		candidate = strings.ToLower(filepath.Clean(candidate))
-		for _, folder := range []string{"Desktop", "Documents", "Downloads", "Library/Mobile Documents"} {
-			dir := strings.ToLower(filepath.Join(root, folder))
-			if candidate == dir || strings.HasPrefix(candidate, dir+string(filepath.Separator)) {
-				return true
-			}
+	if !isProtectedLaunchPath(home, path) {
+		resolved, err := resolveLaunchPath(path)
+		if err != nil {
+			return fmt.Errorf("validate watch LaunchAgent %s %q: %w", field, path, err)
 		}
-		return false
+		realHome, err := filepath.EvalSymlinks(home)
+		if err != nil {
+			return fmt.Errorf("resolve macOS user's home directory: %w", err)
+		}
+		if !isProtectedLaunchPath(realHome, resolved) && !isProtectedLaunchPath(home, resolved) {
+			return nil
+		}
 	}
-	rejected := func() error {
-		return fmt.Errorf("%w: %s %q; use an account-owned path in a local application-data directory", ErrProtectedLaunchPath, field, path)
-	}
-	if protected(home, path) {
-		return rejected()
-	}
-	resolved, err := resolveLaunchPath(path)
-	if err != nil {
-		return fmt.Errorf("validate watch LaunchAgent %s %q: %w", field, path, err)
-	}
-	realHome, err := filepath.EvalSymlinks(home)
-	if err != nil {
-		return fmt.Errorf("resolve macOS user's home directory: %w", err)
-	}
-	if protected(home, resolved) || protected(realHome, resolved) {
-		return rejected()
-	}
-	return nil
+	return fmt.Errorf("%w: %s %q; use an account-owned path in a local application-data directory", ErrProtectedLaunchPath, field, path)
 }
 
-// A watch can create missing directories and log files. Resolve the existing
-// ancestors in that case, while retaining errors for dangling symlinks.
+func isProtectedLaunchPath(home, path string) bool {
+	candidate := strings.ToLower(filepath.Clean(path))
+	for _, folder := range []string{"Desktop", "Documents", "Downloads", "Library/Mobile Documents"} {
+		dir := strings.ToLower(filepath.Join(home, folder))
+		if candidate == dir || strings.HasPrefix(candidate, dir+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
+// Log files may be new. Resolve the nearest existing ancestor and append
+// the missing components. Lstat keeps dangling symlinks visible.
 func resolveLaunchPath(path string) (string, error) {
-	resolved, err := filepath.EvalSymlinks(path)
-	if !os.IsNotExist(err) {
-		return resolved, err
+	_, err := os.Lstat(path)
+	if err == nil {
+		return filepath.EvalSymlinks(path)
 	}
 	parent := filepath.Dir(path)
-	if parent == path {
+	if !os.IsNotExist(err) || parent == path {
 		return "", err
 	}
-	if _, statErr := os.Lstat(path); statErr == nil {
-		return "", err
-	} else if !os.IsNotExist(statErr) {
-		return "", statErr
-	}
-	resolved, err = resolveLaunchPath(parent)
+	resolved, err := resolveLaunchPath(parent)
 	if err != nil {
 		return "", err
 	}
