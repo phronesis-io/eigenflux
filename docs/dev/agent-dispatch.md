@@ -69,8 +69,10 @@ queue when enabled. Busy targets defer. Uncertain owner submissions do not repla
 
 For other hosts, Watch retains selected updates until a full heartbeat claims
 one digest. On macOS and Windows the digest uses desktop notifications when
-available. OpenClaw and hosts without desktop notifications use their ordinary
-host delivery. An empty digest stays quiet. This requires a PM dispatch binding
+available. A desktop alert shows a conversation count and links to Important
+messages. The same view is available from the Messages page. Watch syncs important
+results independently with at most three retries after each initial upload. OpenClaw and hosts without
+desktop notifications use their ordinary host delivery. An empty digest stays quiet. This requires a PM dispatch binding
 and a host that executes the current CLI heartbeat plan.
 
 CLI 1.0.5 binds a new native Codex PM dispatcher to a verified heartbeat target

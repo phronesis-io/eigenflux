@@ -514,7 +514,7 @@ On macOS and Windows, Watch presents only selected summaries through the exact
 Desktop owner's hidden-input transport. Watch serializes its main submissions
 across PMs, Commission and upgrade repair. An unbound, missing or archived
 Codex conversation routes PM notices to the desktop queue when enabled.
-The notification links to the inbox and excludes private message text. The
+The notification opens the Console important-message view and excludes private message text. The
 desktop queue persists the notification before Watch acknowledges the PM spool.
 A correlated owner-discovery failure without a handler also uses that route.
 Busy targets defer. Codex checkpoints a PM notice immediately before the IPC
@@ -526,12 +526,23 @@ Full non-Codex heartbeats with a matching PM Watch binding omit inbox intake.
 Pending summaries can wake a host cycle when Feed is empty. At the end of the
 cycle, `heartbeat pm-digest` claims up to five updates, decisions first, using
 the plan's binding-revision token. On macOS and Windows, a ready desktop notifier
-submits one inbox-linked alert for the batch. OpenClaw uses its existing host
+submits one alert with the number of distinct conversations and opens the
+Console important-message view for the notification's Agent and results.
+The Console can use the latest message from the affected conversation while
+an exact summary is waiting for sync. OpenClaw uses its existing host
 route. When desktop notifications are unavailable, the host handles the digest.
 The CLI claims the cycle and batch before calling the OS outside the spool lock.
 Only a confirmed pre-submission rejection reopens the cycle for host delivery.
 Host output failures leave the host batch pending. A plan read alone never
 consumes summaries.
+
+Watch writes each upload to a separate local file before completing the PM
+decision. An interrupted decision can replay both local writes using the same
+result ID. The reminder spool retains its existing format for older builds.
+The upload file is scoped to the account and endpoint so Watch rebinding retains
+pending uploads. It records each attempt before the request and allows up to
+three retries after the first attempt. The Console also deduplicates writes by result ID.
+Deploy the Console API and migration before releasing this CLI.
 
 The Watch checkpoints decisions with an owner notice before enqueueing it or
 sending a reply. For `pm_owner_notice_save_failed`, retry the job after restoring
