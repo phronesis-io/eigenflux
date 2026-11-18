@@ -28,16 +28,23 @@ func (s *streamDeliveries) snapshot() map[string]bool {
 }
 
 type streamLease struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	done   chan struct{}
-	id     string
-	state  *streamDeliveries
+	ctx      context.Context
+	cancel   context.CancelFunc
+	done     chan struct{}
+	stop     chan struct{}
+	stopOnce sync.Once
+	id       string
+	state    *streamDeliveries
+}
+
+func (l *streamLease) stopHeartbeat() {
+	l.stopOnce.Do(func() { close(l.stop) })
+	<-l.done
 }
 
 func (l *streamLease) close() {
 	l.cancel()
-	<-l.done
+	l.stopHeartbeat()
 	l.state.mu.Lock()
 	delete(l.state.active, l.id)
 	l.state.mu.Unlock()
@@ -52,7 +59,7 @@ func (c *StreamConsumer) startLease(ctx context.Context, id string, minIdle time
 	c.deliveries.active[id] = true
 	c.deliveries.mu.Unlock()
 	leaseCtx, cancel := context.WithCancel(ctx)
-	lease := &streamLease{ctx: leaseCtx, cancel: cancel, done: make(chan struct{}), id: id, state: c.deliveries}
+	lease := &streamLease{ctx: leaseCtx, cancel: cancel, done: make(chan struct{}), stop: make(chan struct{}), id: id, state: c.deliveries}
 	interval := minIdle / 3
 	if interval < time.Millisecond {
 		interval = time.Millisecond
@@ -74,12 +81,14 @@ func (c *StreamConsumer) startLease(ctx context.Context, id string, minIdle time
 		defer ticker.Stop()
 		for {
 			select {
+			case <-lease.stop:
+				return
 			case <-leaseCtx.Done():
 				return
 			case <-ticker.C:
 				owned, err := refresh()
 				if err != nil || !owned {
-					if ctx.Err() == nil {
+					if leaseCtx.Err() == nil {
 						logger.Default().Warn(c.Name+" pending ownership lost", "msgID", id, "err", err)
 					}
 					cancel()

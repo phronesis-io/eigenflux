@@ -200,3 +200,30 @@ func TestNativeRedisInterruptedWorkerIsRecoveredByNextInstance(t *testing.T) {
 	stopNext()
 	waitLeaseRunner(t, next)
 }
+
+func TestNativeRedisLeaseFinalizationStopsRefreshBeforeAck(t *testing.T) {
+	rdb, stream := nativeLeaseRedis(t)
+	ctx := context.Background()
+	c := leaseRunner(stream, nil, 30*time.Millisecond)
+	c.deliveries = &streamDeliveries{active: make(map[string]bool)}
+	id, err := rdb.XAdd(ctx, &redis.XAddArgs{Stream: stream, Values: map[string]any{"item_id": "finalize"}}).Result()
+	require.NoError(t, err)
+	_, err = rdb.XReadGroup(ctx, &redis.XReadGroupArgs{Group: c.Group, Consumer: c.ConsumerName, Streams: []string{stream, ">"}, Count: 1}).Result()
+	require.NoError(t, err)
+	lease, err := c.startLease(ctx, id, 30*time.Millisecond)
+	require.NoError(t, err)
+	require.NotNil(t, lease)
+	defer lease.close()
+	lease.stopHeartbeat()
+	require.True(t, c.deliveries.snapshot()[id], "local ownership fence must remain through finalization")
+	acked, err := mq.AckOwned(ctx, stream, c.Group, c.ConsumerName, id)
+	require.NoError(t, err)
+	require.True(t, acked)
+	// Waiting beyond a tick proves successful ACK cannot be seen as lease loss.
+	select {
+	case <-lease.ctx.Done():
+		t.Fatal("own ACK cancelled delivery context")
+	case <-time.After(60 * time.Millisecond):
+	}
+	lease.stopHeartbeat() // finalization/cleanup are idempotent
+}

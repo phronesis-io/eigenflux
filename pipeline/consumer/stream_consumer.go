@@ -185,6 +185,11 @@ func (c *StreamConsumer) Run(ctx context.Context) {
 					}
 					metrics.ConsumerMessagesTotal.WithLabelValues(c.MetricsLabel, status).Inc()
 
+					if task.lease != nil {
+						// Join refresh before removing the PEL entry. Keep the local
+						// delivery fence until owner-fenced finalization completes.
+						task.lease.stopHeartbeat()
+					}
 					if handleCtx.Err() != nil {
 						return
 					}
