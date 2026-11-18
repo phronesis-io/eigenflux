@@ -204,9 +204,19 @@ func TestCheckIntervalDependsOnPreviousOutcome(t *testing.T) {
 				t.Fatalf("did not check at deadline: %+v requests=%d", r, count.Load())
 			}
 			o.Version = "0.0.48"
+			o.Now = o.Now.Add(10 * time.Minute)
+			if r := Check(context.Background(), o); r.Status != "current" || !r.Attempted || count.Load() != 3 {
+				t.Fatalf("first check after install: %+v requests=%d", r, count.Load())
+			}
+			deadline := o.Now.Add(24 * time.Hour)
+			o.Now = deadline.Add(-time.Nanosecond)
 			r = Check(context.Background(), o)
-			if r.Status != "deferred" || r.Reason != "check_interval" || r.Error != "" || r.NextCheckAt != o.Now.Add(24*time.Hour).Format(time.RFC3339) || count.Load() != 2 {
-				t.Fatalf("successful install did not restore daily interval: %+v requests=%d", r, count.Load())
+			if r.Status != "deferred" || r.Attempted || r.Reason != "check_interval" || r.Error != "" || r.NextCheckAt != deadline.Format(time.RFC3339) || count.Load() != 3 {
+				t.Fatalf("incorrect interval after follow-up: %+v requests=%d", r, count.Load())
+			}
+			o.Now = deadline
+			if r := Check(context.Background(), o); r.Status != "current" || !r.Attempted || count.Load() != 4 {
+				t.Fatalf("did not check at follow-up deadline: %+v requests=%d", r, count.Load())
 			}
 		})
 	}
