@@ -70,6 +70,7 @@ func TestMaintenancePostgresAgentAuthIdentityAndIdempotency(t *testing.T) {
 	svc := &Service{db: tx, telemetryRates: map[string]telemetryRateState{}}
 	h := server.New()
 	h.POST("/api/v2/maintenance/events:batch", svc.agentAuth("settings:write"), svc.recordMaintenanceBatch)
+	h.POST("/api/v2/maintenance/registered-uninstall", svc.agentAuthAny("onboarding:write", "settings:write"), svc.recordRegisteredUninstall)
 	h.POST("/api/v2/maintenance/unregistered-uninstall", svc.recordUnregisteredUninstall)
 	body := map[string]interface{}{"events": []maintenanceEvent{validMaintenanceEvent()}}
 	send := func(id int64, headers ...ut.Header) int {
@@ -337,6 +338,55 @@ FROM telemetry_events_v2 WHERE properties->>'attempt_id'=? ORDER BY agent_id,eve
 		if err := tx.Raw("SELECT EXISTS (SELECT 1 FROM uninstall_feedback WHERE attempt_id=?)", event.AttemptID).Scan(&found).Error; err != nil || found {
 			t.Fatalf("orphaned feedback: %v %v", found, err)
 		}
+	})
+	t.Run("registered_uninstall_before_onboarding", func(t *testing.T) {
+		const limited = 44
+		exec(`INSERT INTO agents VALUES (44,'active')`)
+		exec(`INSERT INTO agent_principals VALUES (44,44,'limited',NULL)`)
+		exec(`INSERT INTO agent_onboarding_v2 VALUES (44,'in_progress')`)
+		exec(`INSERT INTO agent_credential_sessions VALUES (44,?,44,'agent_v2',ARRAY['onboarding:write'],NULL,?,FALSE)`,
+			hashString("efv2a_maintenance_44"), time.Now().Add(time.Hour).UnixMilli())
+		event := uninstall
+		event.EventID, event.AttemptID = fmt.Sprintf("%064x", 0x920), fmt.Sprintf("%032x", 0x921)
+		submit := func(path string, id int, events []maintenanceEvent, reason string) int {
+			headers := []ut.Header{}
+			if id != 0 {
+				headers = append(headers, ut.Header{Key: "Authorization", Value: fmt.Sprintf("Bearer efv2a_maintenance_%d", id)})
+			}
+			status, _, _ := performJSON(t, h, "POST", path, map[string]interface{}{
+				"events": events, "uninstall_feedback": uninstallFeedback{Reason: reason},
+			}, headers...)
+			return status
+		}
+		const path = "/api/v2/maintenance/registered-uninstall"
+		if status := submit(path, limited, []maintenanceEvent{event}, ""); status != 409 {
+			t.Fatalf("outcome without feedback: %d", status)
+		}
+		event.Result = "started"
+		if status := submit(path, 0, []maintenanceEvent{event}, "privacy"); status != 401 {
+			t.Fatalf("unauthenticated start: %d", status)
+		}
+		if status := submit("/api/v2/maintenance/events:batch", limited, []maintenanceEvent{event}, "privacy"); status != 409 {
+			t.Fatalf("ordinary route lost its scope requirement: %d", status)
+		}
+		if status := submit(path, limited, []maintenanceEvent{event, validMaintenanceEvent()}, "privacy"); status != 400 {
+			t.Fatalf("mixed batch accepted: %d", status)
+		}
+		if status := submit(path, limited, []maintenanceEvent{event}, "privacy"); status != 202 {
+			t.Fatalf("limited Agent start: %d", status)
+		}
+		event.Result = "removed"
+		if status := submit(path, 43, []maintenanceEvent{event}, ""); status != 409 {
+			t.Fatalf("other Agent outcome: %d", status)
+		}
+		if status := submit(path, limited, []maintenanceEvent{event}, ""); status != 202 {
+			t.Fatalf("limited Agent outcome: %d", status)
+		}
+		var count int64
+		if err := tx.Raw(`SELECT count(*) FROM telemetry_events_v2 WHERE agent_id=44 AND properties->>'attempt_id'=?`, event.AttemptID).Scan(&count).Error; err != nil || count != 2 {
+			t.Fatalf("registered lifecycle: count=%d err=%v", count, err)
+		}
+		delete(svc.telemetryRates, "maintenance:43")
 	})
 	t.Run("unregistered_uninstall", func(t *testing.T) {
 		defer func() { svc.telemetryRates = map[string]telemetryRateState{} }()

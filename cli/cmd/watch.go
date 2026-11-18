@@ -556,6 +556,10 @@ func (w *accountWatch) api(ctx context.Context) (*client.Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	return w.apiForCredential(ctx, cred), nil
+}
+
+func (w *accountWatch) apiForCredential(ctx context.Context, cred *auth.V2Credentials) *client.Client {
 	c := client.New(strings.TrimRight(w.server.Endpoint, "/")+"/api/v2", cred.AccessToken, version, clientMetaForServer(&w.server))
 	c.HTTPClient = &http.Client{Timeout: 10 * time.Second, Transport: watchTransport{ctx}}
 	c.OnUnauthorized = func() (string, error) {
@@ -565,7 +569,7 @@ func (w *accountWatch) api(ctx context.Context) (*client.Client, error) {
 		}
 		return c.AccessToken, nil
 	}
-	return c, nil
+	return c
 }
 
 func (w *accountWatch) controlLoop(ctx context.Context) error {
@@ -782,15 +786,12 @@ func (w *accountWatch) maintenanceLoop(ctx context.Context) error {
 				return err
 			}
 		}
-		err := maintenance.Flush(w.maintenanceScope(), time.Now(), func(events []maintenance.Event) error {
-			c, err := w.api(ctx)
-			if err != nil {
-				return err
-			}
+		cred, err := w.credentials(ctx, false)
+		if err == nil {
+			c := w.apiForCredential(ctx, cred)
 			c.HTTPClient.Timeout = 5 * time.Second
-			_, err = postMaintenanceEvents(c, events)
-			return err
-		})
+			err = flushBackgroundMaintenance(w.maintenanceScope(), cred, c, nil)
+		}
 		if isWatchTerminal(err) {
 			return w.diagnostic("maintenance", err)
 		}

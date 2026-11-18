@@ -58,19 +58,21 @@ type CLIAdoption struct {
 }
 
 type State struct {
-	NeedCaptureStarted bool                      `json:"need_capture_started,omitempty"`
-	NeedCaptures       map[string]NeedCaptureRun `json:"need_captures,omitempty"`
-	PendingCLIAdoption *CLIAdoption              `json:"pending_cli_adoption,omitempty"`
-	RuntimeNextFlush   int64                     `json:"runtime_next_flush,omitempty"`
-	RuntimeFailures    uint                      `json:"runtime_failures,omitempty"`
-	Cycles             map[string]Cycle          `json:"cycles,omitempty"`
-	ReadAttempts       map[string]Event          `json:"read_attempts,omitempty"`
-	Events             []Event                   `json:"events"`
-	Dropped            uint64                    `json:"dropped"`
-	LastAttempt        int64                     `json:"last_attempt"`
-	NextFlush          int64                     `json:"next_flush"`
-	Failures           int                       `json:"failures"`
-	Attempts           map[string]Event          `json:"attempts,omitempty"`
+	UploadPermissionRetryAt int64                     `json:"upload_permission_retry_at,omitempty"`
+	UploadCredential        string                    `json:"upload_credential,omitempty"`
+	NeedCaptureStarted      bool                      `json:"need_capture_started,omitempty"`
+	NeedCaptures            map[string]NeedCaptureRun `json:"need_captures,omitempty"`
+	PendingCLIAdoption      *CLIAdoption              `json:"pending_cli_adoption,omitempty"`
+	RuntimeNextFlush        int64                     `json:"runtime_next_flush,omitempty"`
+	RuntimeFailures         uint                      `json:"runtime_failures,omitempty"`
+	Cycles                  map[string]Cycle          `json:"cycles,omitempty"`
+	ReadAttempts            map[string]Event          `json:"read_attempts,omitempty"`
+	Events                  []Event                   `json:"events"`
+	Dropped                 uint64                    `json:"dropped"`
+	LastAttempt             int64                     `json:"last_attempt"`
+	NextFlush               int64                     `json:"next_flush"`
+	Failures                int                       `json:"failures"`
+	Attempts                map[string]Event          `json:"attempts,omitempty"`
 }
 
 func NewID() string {
@@ -375,7 +377,19 @@ func MarkAttempt(s Scope, now time.Time) error {
 // Flush sends at most one batch. Network work is outside the state lock; stable
 // event IDs make overlapping flushes harmless. Only acknowledged IDs are removed.
 func Flush(s Scope, now time.Time, send func([]Event) error) error {
-	return flush(s, now, "", send)
+	return flush(s, now, "", "", false, send)
+}
+
+// ErrUploadOnboarding indicates that the current credential cannot upload maintenance.
+var ErrUploadOnboarding = errors.New("maintenance upload requires onboarding")
+
+// Recheck occasionally because onboarding can grant scopes to an existing
+// token without changing the locally cached credential.
+const uploadPermissionRetry = 30 * time.Minute
+
+// FlushForCredential defers background uploads when onboarding limits access.
+func FlushForCredential(s Scope, now time.Time, credential string, restricted bool, send func([]Event) error) error {
+	return flush(s, now, "", credential, restricted, send)
 }
 
 // FlushUninstall prioritizes the current physical attempt before the CLI leaves.
@@ -384,13 +398,25 @@ func FlushUninstall(s Scope, now time.Time, attempt string, send func([]Event) e
 	if !idValue.MatchString(attempt) {
 		return errors.New("invalid uninstall flush attempt")
 	}
-	return flush(s, now, attempt, send)
+	return flush(s, now, attempt, "", false, send)
 }
 
-func flush(s Scope, now time.Time, uninstallAttempt string, send func([]Event) error) error {
+func flush(s Scope, now time.Time, uninstallAttempt, credential string, restricted bool, send func([]Event) error) error {
 	var batch []Event
 	runtimeBatch := false
 	if err := update(s, func(st *State) error {
+		if credential != "" {
+			if st.UploadCredential != credential {
+				st.UploadCredential = credential
+				st.UploadPermissionRetryAt = 0
+				if restricted {
+					st.UploadPermissionRetryAt = now.Add(uploadPermissionRetry).UnixMilli()
+				}
+			}
+			if now.UnixMilli() < st.UploadPermissionRetryAt {
+				return nil
+			}
+		}
 		if err := reconcileObservationQueue(s, st, nil); err != nil {
 			observationRecoveryDiagnostic()
 		}
@@ -431,6 +457,12 @@ func flush(s Scope, now time.Time, uninstallAttempt string, send func([]Event) e
 	}
 	sendErr := send(batch)
 	err := update(s, func(st *State) error {
+		if credential != "" && errors.Is(sendErr, ErrUploadOnboarding) {
+			if st.UploadCredential == credential {
+				st.UploadPermissionRetryAt = now.Add(uploadPermissionRetry).UnixMilli()
+			}
+			return nil
+		}
 		if sendErr != nil {
 			if runtimeBatch {
 				st.RuntimeFailures++
@@ -446,6 +478,9 @@ func flush(s Scope, now time.Time, uninstallAttempt string, send func([]Event) e
 			}
 			st.NextFlush = now.Add(time.Duration(1<<st.Failures) * time.Second).UnixMilli()
 			return nil
+		}
+		if credential != "" && st.UploadCredential == credential {
+			st.UploadPermissionRetryAt = 0
 		}
 		ids := map[string]bool{}
 		for _, e := range batch {
@@ -474,6 +509,9 @@ func flush(s Scope, now time.Time, uninstallAttempt string, send func([]Event) e
 	})
 	if err != nil {
 		return err
+	}
+	if credential != "" && errors.Is(sendErr, ErrUploadOnboarding) {
+		return nil
 	}
 	return sendErr
 }

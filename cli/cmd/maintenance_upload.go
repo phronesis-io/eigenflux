@@ -1,6 +1,14 @@
 package cmd
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"net/http"
+	"slices"
+	"strconv"
+	"time"
+
+	"cli.eigenflux.ai/internal/auth"
 	"encoding/json"
 	"errors"
 
@@ -12,6 +20,24 @@ const (
 	watchFailuresHeader   = "X-EigenFlux-Watch-Failures"
 	runtimeFailuresHeader = "X-EigenFlux-Runtime-Failures"
 )
+
+// flushBackgroundMaintenance uses the same permission gate for scheduled and
+// foreground-triggered background uploads.
+func flushBackgroundMaintenance(scope maintenance.Scope, credentials *auth.V2Credentials, c *client.Client, sent func([]maintenance.Event)) error {
+	restricted := credentials.Scopes != nil && !slices.Contains(credentials.Scopes, "settings:write")
+	sum := sha256.Sum256([]byte(c.BaseURL + "\x00" + credentials.AccessToken + "\x00" + strconv.FormatBool(restricted)))
+	return maintenance.FlushForCredential(scope, time.Now(), hex.EncodeToString(sum[:]), restricted, func(events []maintenance.Event) error {
+		_, err := postMaintenanceEvents(c, events)
+		var apiErr *client.APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusConflict && apiErr.ErrorCode == "ONBOARDING_REQUIRED" {
+			return maintenance.ErrUploadOnboarding
+		}
+		if err == nil && sent != nil {
+			sent(events)
+		}
+		return err
+	})
+}
 
 // Keep the original wire schema so an older gateway can accept the full batch.
 // Detail stays in the local journal and travels as optional request metadata.

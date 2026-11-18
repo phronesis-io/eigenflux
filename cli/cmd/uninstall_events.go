@@ -170,8 +170,7 @@ func (o *uninstallObservation) flush() {
 			if err != nil || credentials.AgentID != scope.AgentID || credentials.AccessToken != current.AccessToken {
 				return errors.New("uninstall telemetry identity changed")
 			}
-			_, err = postMaintenanceEvents(c, events)
-			return err
+			return o.postUninstallOutcomes(c, scope, server.Endpoint, events)
 		}); err != nil {
 			fmt.Fprintln(os.Stderr, "Uninstall telemetry remains local; upload failed or authentication expired.")
 		}

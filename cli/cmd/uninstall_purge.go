@@ -150,8 +150,9 @@ func (o *uninstallObservation) finishAndPurge(result, code string) error {
 	restore := config.UseHomeDir(config.HomeDir())
 	defer restore()
 	type upload struct {
-		c     *client.Client
-		scope maintenance.Scope
+		c        *client.Client
+		scope    maintenance.Scope
+		endpoint string
 	}
 	uploads := []upload{}
 	for _, scope := range o.Scopes {
@@ -169,7 +170,7 @@ func (o *uninstallObservation) finishAndPurge(result, code string) error {
 			continue
 		}
 		c := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", credentials.AccessToken, o.Version, clientMetaForServer(server))
-		uploads = append(uploads, upload{c, scope})
+		uploads = append(uploads, upload{c, scope, server.Endpoint})
 	}
 	var cleanupErr error
 	if result == "removed" || result == "partial" {
@@ -208,7 +209,7 @@ func (o *uninstallObservation) finishAndPurge(result, code string) error {
 			}
 		}
 		u.c.HTTPClient = &http.Client{Timeout: remaining}
-		if _, err := postMaintenanceEvents(u.c, []maintenance.Event{e}); err != nil {
+		if err := o.postUninstallOutcomes(u.c, u.scope, u.endpoint, []maintenance.Event{e}); err != nil {
 			fmt.Fprintln(os.Stderr, "Uninstall telemetry upload failed; local cleanup is not rolled back.")
 		}
 	}

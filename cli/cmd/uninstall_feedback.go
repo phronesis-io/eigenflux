@@ -154,16 +154,15 @@ func (o *uninstallObservation) submitFeedback(reason string) error {
 		}
 	}
 	c := o.feedbackClient(token, clientMetaForServer(server))
-	route := "/maintenance/events:batch"
-	feedback := map[string]string{"reason": reason}
+	var response *client.APIResponse
 	if id == "" {
-		route = "/maintenance/unregistered-uninstall"
-		feedback["proof"] = o.FeedbackProof
+		response, err = c.Post("/maintenance/unregistered-uninstall", map[string]interface{}{
+			"events":             []maintenance.Event{event},
+			"uninstall_feedback": map[string]string{"reason": reason, "proof": o.FeedbackProof},
+		})
+	} else {
+		response, err = postRegisteredUninstall(c, event, reason)
 	}
-	response, err := c.Post(route, map[string]interface{}{
-		"events":             []maintenance.Event{event},
-		"uninstall_feedback": feedback,
-	})
 	if err != nil {
 		var apiErr *client.APIError
 		if errors.As(err, &apiErr) {
@@ -207,4 +206,39 @@ func (o *uninstallObservation) reportUnregisteredOutcome(result, code string) {
 	if err != nil || response.HTTPStatus != http.StatusAccepted {
 		fmt.Fprintln(os.Stderr, "Uninstall outcome upload failed.")
 	}
+}
+
+func postRegisteredUninstall(c *client.Client, event maintenance.Event, reason string) (*client.APIResponse, error) {
+	body := map[string]interface{}{
+		"events":             []maintenance.Event{event},
+		"uninstall_feedback": map[string]string{"reason": reason},
+	}
+	response, err := c.Post("/maintenance/registered-uninstall", body)
+	var apiErr *client.APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
+		if event.Result == "started" {
+			return c.Post("/maintenance/events:batch", body)
+		}
+		return postMaintenanceEvents(c, []maintenance.Event{event})
+	}
+	return response, err
+}
+
+// The dedicated endpoint validates outcomes against the original feedback.
+func (o *uninstallObservation) postUninstallOutcomes(c *client.Client, scope maintenance.Scope, endpoint string, events []maintenance.Event) error {
+	if !o.FeedbackUploaded || o.FeedbackAgentID == "" || scope.AgentID != o.FeedbackAgentID ||
+		scope.Server != o.FeedbackServer || endpoint != o.FeedbackEndpoint {
+		_, err := postMaintenanceEvents(c, events)
+		return err
+	}
+	for _, event := range events {
+		response, err := postRegisteredUninstall(c, event, "")
+		if err != nil {
+			return err
+		}
+		if response.HTTPStatus != http.StatusAccepted || response.Code != 0 {
+			return errors.New("uninstall outcome was not accepted")
+		}
+	}
+	return nil
 }
