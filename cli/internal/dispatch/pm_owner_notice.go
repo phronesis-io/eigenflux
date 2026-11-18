@@ -50,11 +50,10 @@ type PMNoticeEntry struct {
 }
 
 type pmNoticeState struct {
-	Pending []PMNoticeEntry  `json:"pending"`
-	History []PMNoticeEntry  `json:"history"`
-	Seen    []string         `json:"seen"`
-	Cycles  []string         `json:"cycles"`
-	Sync    []PMNoticeUpload `json:"sync,omitempty"`
+	Pending []PMNoticeEntry `json:"pending"`
+	History []PMNoticeEntry `json:"history"`
+	Seen    []string        `json:"seen"`
+	Cycles  []string        `json:"cycles"`
 	// Older builds also stored uncertain cycles separately.
 	LegacyDesktopUnconfirmed []string `json:"desktop_unconfirmed,omitempty"`
 }
@@ -62,10 +61,18 @@ type pmNoticeState struct {
 // Watch and heartbeat share this spool under a retained OS lock.
 // A claimed item never replays after an uncertain handoff.
 func withPMNotices(ctx context.Context, b Binding, change func(*pmNoticeState) (bool, error)) error {
+	return withPMNoticeFile(ctx, b, "pm-notices-", func(state *pmNoticeState) (bool, error) {
+		write, err := change(state)
+		state.LegacyDesktopUnconfirmed = nil
+		return write, err
+	})
+}
+
+func withPMNoticeFile[T any](ctx context.Context, b Binding, prefix string, change func(*T) (bool, error)) error {
 	if err := validJournalBinding(b); err != nil {
 		return err
 	}
-	path := filepath.Join(b.Home, "watch", "pm-notices-"+journalID(b.Scope, b.Revision)+".json")
+	path := filepath.Join(b.Home, "watch", prefix+journalID(b.Scope, b.Revision)+".json")
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
@@ -91,7 +98,7 @@ func withPMNotices(ctx context.Context, b Binding, change func(*pmNoticeState) (
 		case <-timer.C:
 		}
 	}
-	var state pmNoticeState
+	var state T
 	f, err := os.Open(path)
 	if err == nil {
 		raw, readErr := io.ReadAll(io.LimitReader(f, 4<<20))
@@ -109,7 +116,6 @@ func withPMNotices(ctx context.Context, b Binding, change func(*pmNoticeState) (
 	if err != nil || !write {
 		return err
 	}
-	state.LegacyDesktopUnconfirmed = nil
 	return WriteJSON(path, &state)
 }
 
@@ -137,13 +143,20 @@ func RecentPMNotices(ctx context.Context, b Binding, conversation string) ([]PMO
 	return recent, err
 }
 
+func pmNoticeResultID(b Binding, job Job, notice PMOwnerNotice) (string, error) {
+	if job.Kind != "pm_push" || job.Message == nil || job.Scope != b.Scope || job.Revision != b.Revision || !notice.valid() {
+		return "", errors.New("invalid_pm_owner_notice")
+	}
+	return journalID(job.Message.Conversation, notice.Topic, notice.Change), nil
+}
+
 func SavePMNotice(ctx context.Context, b Binding, job Job, n PMOwnerNotice) error {
-	if job.Kind != "pm_push" || job.Message == nil || job.Scope != b.Scope || job.Revision != b.Revision || !n.valid() {
-		return errors.New("invalid_pm_owner_notice")
+	id, err := pmNoticeResultID(b, job, n)
+	if err != nil {
+		return err
 	}
 	n.Summary = strings.TrimSpace(n.Summary)
 	return withPMNotices(ctx, b, func(state *pmNoticeState) (bool, error) {
-		id := journalID(job.Message.Conversation, n.Topic, n.Change)
 		if slices.Contains(state.Seen, id) || slices.ContainsFunc(state.Pending, func(e PMNoticeEntry) bool { return e.ID == id }) {
 			return false, nil
 		}
@@ -166,7 +179,6 @@ func SavePMNotice(ctx context.Context, b Binding, job Job, n PMOwnerNotice) erro
 		} else {
 			state.Pending = append(state.Pending, entry)
 		}
-		queuePMNoticeUpload(state, entry, time.Now())
 		return true, nil
 	})
 }

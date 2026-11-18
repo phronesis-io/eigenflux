@@ -534,10 +534,11 @@ Only a confirmed pre-submission rejection reopens the cycle for host delivery.
 Host output failures leave the host batch pending. A plan read alone never
 consumes summaries.
 
-Watch saves an upload record alongside each new important result. Its Console
-sync runs independently of desktop, main conversation and peer reply delivery.
-The spool records each attempt before the request and allows up to three retries
-after the first attempt. A stable result ID deduplicates writes for the owner.
+Watch writes each upload to a separate local file before completing the PM
+decision. An interrupted decision can replay both local writes using the same
+result ID. The reminder spool retains its existing format for older builds.
+The upload file records each attempt before the request and allows up to three
+retries after the first attempt. The Console also deduplicates writes by result ID.
 Deploy the Console API and migration before releasing this CLI.
 
 The Watch checkpoints decisions with an owner notice before enqueueing it or
