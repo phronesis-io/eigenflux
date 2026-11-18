@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/maintenance"
@@ -36,7 +37,30 @@ func postMaintenanceEvents(c *client.Client, events []maintenance.Event) (*clien
 	headers := make(map[string]string)
 	setMaintenanceFailureHeader(headers, watchFailuresHeader, watchFailures)
 	setMaintenanceFailureHeader(headers, runtimeFailuresHeader, runtimeFailures)
-	return c.PostWithHeaders("/maintenance/events:batch", map[string]interface{}{"events": wire}, headers)
+	post := func(batch []maintenance.Event) (*client.APIResponse, error) {
+		return c.PostWithHeaders("/maintenance/events:batch", map[string]interface{}{"events": batch}, headers)
+	}
+	response, err := post(wire)
+	var apiErr *client.APIError
+	if !errors.As(err, &apiErr) || apiErr.ErrorCode != "INVALID_MAINTENANCE_EVENT" ||
+		apiErr.Msg != "uninstall metadata requires uninstall phase" {
+		return response, err
+	}
+	// Older gateways reject the new phase before writing any events. Keep
+	// existing maintenance uploads working if the gateway rolls back.
+	legacy := wire[:0]
+	for _, event := range wire {
+		if event.Phase != "pm_owner_notice" {
+			legacy = append(legacy, event)
+		}
+	}
+	if len(legacy) == len(events) {
+		return response, err
+	}
+	if len(legacy) == 0 {
+		return nil, nil
+	}
+	return post(legacy)
 }
 
 func setMaintenanceFailureHeader(headers map[string]string, name string, failures map[string]string) {

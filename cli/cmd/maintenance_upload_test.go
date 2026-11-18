@@ -163,3 +163,38 @@ func TestMaintenanceRuntimeFailureUploadDrainsBatchAfterLegacyRejection(t *testi
 		t.Fatalf("old gateway blocked runtime receipts: %+v, calls=%d, err=%v", state, calls.Load(), err)
 	}
 }
+
+func TestPMOwnerNoticeDoesNotBlockLegacyMaintenanceUpload(t *testing.T) {
+	pm := maintenance.NewEvent(maintenance.NewID(), "notifier", "auto", "pm_owner_notice", "submitted")
+	pm.Source, pm.Platform = "heartbeat", "darwin"
+	legacy := maintenance.NewEvent(maintenance.NewID(), "cli", "auto", "check", "started")
+	var calls atomic.Int32
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var batch struct{ Events []maintenance.Event }
+		if err := json.NewDecoder(r.Body).Decode(&batch); err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		switch calls.Add(1) {
+		case 1:
+			if len(batch.Events) != 2 {
+				t.Errorf("expected the full batch, got %+v", batch.Events)
+			}
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"code":"INVALID_MAINTENANCE_EVENT","message":"uninstall metadata requires uninstall phase"}}`))
+		case 2:
+			if len(batch.Events) != 1 || batch.Events[0].EventID != legacy.EventID {
+				t.Errorf("expected only legacy maintenance, got %+v", batch.Events)
+			}
+			_, _ = w.Write([]byte(`{"code":0}`))
+		default:
+			t.Error("unexpected extra upload")
+		}
+	}))
+	defer api.Close()
+	c := &client.Client{BaseURL: api.URL, HTTPClient: api.Client()}
+	if _, err := postMaintenanceEvents(c, []maintenance.Event{pm, legacy}); err != nil || calls.Load() != 2 {
+		t.Fatalf("legacy upload failed after %d calls: %v", calls.Load(), err)
+	}
+}

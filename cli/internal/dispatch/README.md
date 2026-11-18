@@ -536,6 +536,10 @@ Only a confirmed pre-submission rejection reopens the cycle for host delivery.
 Host output failures leave the host batch pending. A plan read alone never
 consumes summaries.
 
+The existing account-scoped maintenance queue reports Codex main submission
+confirmation and desktop OS submission results for Watch and heartbeat.
+These events carry no message content or notification URL.
+
 Watch writes each upload to a separate local file before completing the PM
 decision. An interrupted decision can replay both local writes using the same
 result ID. The reminder spool retains its existing format for older builds.

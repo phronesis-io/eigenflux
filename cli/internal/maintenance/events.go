@@ -109,6 +109,16 @@ func Validate(e Event) error {
 	if e.Notification != nil {
 		return errors.New("notification metadata requires notification phase")
 	}
+	if e.Phase == "pm_owner_notice" {
+		main := e.Component == "watch" && e.Source == "codex" && contains([]string{"darwin", "windows", "linux"}, e.Platform) && contains([]string{"submitted", "unconfirmed"}, e.Result)
+		desktop := e.Component == "notifier" && contains([]string{"watch", "heartbeat"}, e.Source) && contains([]string{"darwin", "windows"}, e.Platform) && contains([]string{"submitted", "disabled", "failed"}, e.Result)
+		if (!main && !desktop) || e.Trigger != "auto" || !safeValue.MatchString(e.FromVersion) ||
+			e.Host != "" || e.Mode != "" || e.ToVersion != "" || e.RunningVersion != "" ||
+			e.ErrorCode != "" || e.DurationMS != 0 || e.ReasonCategory != "" {
+			return errors.New("invalid PM owner notice observation")
+		}
+		return nil
+	}
 	if e.Phase == "uninstall" {
 		if !contains([]string{"cli", "skills", "plugin", "scheduler", "notifier"}, e.Component) || e.Trigger != "manual" || !contains([]string{"started", "removed", "partial", "failed", "blocked"}, e.Result) {
 			return errors.New("invalid uninstall category")

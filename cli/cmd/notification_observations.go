@@ -152,6 +152,11 @@ func importNotificationObservations(scope maintenance.Scope) error {
 }
 
 func notificationMaintenanceEvent(e desktopnotify.Observation) maintenance.Event {
+	if e.PMOwnerNotice && (e.Source == "watch" || e.Source == "heartbeat") {
+		event := maintenance.NewEvent(e.NotificationIDHash, "notifier", "auto", "pm_owner_notice", e.Result)
+		event.EventAt, event.Source, event.Platform, event.FromVersion = e.At.UnixMilli(), e.Source, e.Platform, e.CLIVersion
+		return event
+	}
 	trigger := "manual"
 	if e.Source == "watch" {
 		trigger = "auto"

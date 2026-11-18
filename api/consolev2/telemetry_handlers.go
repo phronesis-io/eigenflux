@@ -23,7 +23,9 @@ var telemetryEventTypes = map[string]bool{
 	"goal_edited": true, "intent_action_edited": true, "attention_item_opened": true,
 	"agent_command_created": true, "agent_command_completed": true,
 	"feed_item_helpful": true, "feed_item_dismissed": true,
-	"commission_order_action": true,
+	"commission_order_action":   true,
+	"pm_notice_desktop_landing": true, "pm_notice_banner_visible": true,
+	"pm_notice_banner_clicked": true, "pm_notice_view_result": true,
 }
 
 var telemetryPropertyKeys = map[string]bool{
@@ -100,6 +102,19 @@ func validateTelemetryEvent(event telemetryEventRequest, now int64) error {
 	if event.EventType == "commission_order_action" {
 		if err := validateCommissionOrderAction(event.Properties); err != nil {
 			return err
+		}
+	}
+	switch event.EventType {
+	case "pm_notice_desktop_landing", "pm_notice_banner_visible", "pm_notice_banner_clicked":
+		if len(event.Properties) != 0 {
+			return errors.New("unexpected PM notice properties")
+		}
+	case "pm_notice_view_result":
+		source, _ := event.Properties["source"].(string)
+		result, _ := event.Properties["result"].(string)
+		if len(event.Properties) != 2 || !maintenanceOneOf(source, "banner", "desktop", "direct") ||
+			!maintenanceOneOf(result, "content", "empty", "failed") {
+			return errors.New("invalid PM notice view result")
 		}
 	}
 	encoded, _ := json.Marshal(event.Properties)
