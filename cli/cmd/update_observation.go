@@ -235,17 +235,21 @@ func flushMaintenanceForIdentity(scope maintenance.Scope, principal, endpoint st
 }
 
 func flushMaintenanceBatch(scope maintenance.Scope, principal, endpoint string) ([]maintenance.Event, error) {
-	credentials, err := maintenanceIdentity(scope, principal, endpoint)
-	if err != nil {
-		return nil, err
+	cached, _ := auth.LoadV2Credentials(scope.Server)
+	if cached != nil && (cached.AgentID != scope.AgentID || cached.PrincipalID != principal) {
+		cached = nil
 	}
-	if credentials.ExpiresAt <= time.Now().UnixMilli() {
-		return nil, fmt.Errorf("maintenance upload awaits valid credentials")
-	}
-	c := client.New(strings.TrimRight(endpoint, "/")+"/api/v2", credentials.AccessToken, version, clientMetaForServerName(scope.Server))
-	c.HTTPClient.Timeout = 5 * time.Second
 	var sent []maintenance.Event
-	err = flushBackgroundMaintenance(scope, credentials, c, func(events []maintenance.Event) { sent = events })
+	err := flushBackgroundMaintenance(scope, endpoint, cached, func() (*client.Client, error) {
+		credentials, err := maintenanceIdentity(scope, principal, endpoint)
+		if err != nil {
+			return nil, err
+		}
+		if credentials.ExpiresAt <= time.Now().UnixMilli() {
+			return nil, fmt.Errorf("maintenance upload awaits valid credentials")
+		}
+		return client.New(strings.TrimRight(endpoint, "/")+"/api/v2", credentials.AccessToken, version, clientMetaForServerName(scope.Server)), nil
+	}, func(events []maintenance.Event) { sent = events })
 	if err != nil {
 		return nil, err
 	}

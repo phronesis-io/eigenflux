@@ -255,8 +255,10 @@ reassign another account's records. Only setup captured before authentication
 may bind to the first account. Installer/manual/test/watch sources remain
 distinct. Remote upload failure never changes notification delivery state.
 The watch loop and CLI use the same permission gate for background uploads.
-A limited credential or an onboarding-required response defers the queue for
-30 minutes. A changed credential rechecks permissions on the next flush.
+The gate reads cached credentials, and the watch loop checks for credential
+refresh only when a batch is ready to send. A limited credential or an
+onboarding-required response defers the queue for 30 minutes. A changed
+credential rechecks permissions on the next flush.
 An upload can resume with the same token when onboarding grants new scopes.
 `watch_notification_permission.go` independently performs a silent OS `Check`
 every minute while desktop notifications are enabled. Startup, changes and

@@ -556,10 +556,6 @@ func (w *accountWatch) api(ctx context.Context) (*client.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return w.apiForCredential(ctx, cred), nil
-}
-
-func (w *accountWatch) apiForCredential(ctx context.Context, cred *auth.V2Credentials) *client.Client {
 	c := client.New(strings.TrimRight(w.server.Endpoint, "/")+"/api/v2", cred.AccessToken, version, clientMetaForServer(&w.server))
 	c.HTTPClient = &http.Client{Timeout: 10 * time.Second, Transport: watchTransport{ctx}}
 	c.OnUnauthorized = func() (string, error) {
@@ -569,7 +565,7 @@ func (w *accountWatch) apiForCredential(ctx context.Context, cred *auth.V2Creden
 		}
 		return c.AccessToken, nil
 	}
-	return c
+	return c, nil
 }
 
 func (w *accountWatch) controlLoop(ctx context.Context) error {
@@ -786,12 +782,13 @@ func (w *accountWatch) maintenanceLoop(ctx context.Context) error {
 				return err
 			}
 		}
-		cred, err := w.credentials(ctx, false)
-		if err == nil {
-			c := w.apiForCredential(ctx, cred)
-			c.HTTPClient.Timeout = 5 * time.Second
-			err = flushBackgroundMaintenance(w.maintenanceScope(), cred, c, nil)
+		cached, _ := auth.LoadV2Credentials(w.server.Name)
+		if !w.identityOK(cached) {
+			cached = nil
 		}
+		err := flushBackgroundMaintenance(w.maintenanceScope(), w.server.Endpoint, cached, func() (*client.Client, error) {
+			return w.api(ctx)
+		}, nil)
 		if isWatchTerminal(err) {
 			return w.diagnostic("maintenance", err)
 		}

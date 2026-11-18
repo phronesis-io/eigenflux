@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -190,7 +191,7 @@ func (o *uninstallObservation) submitFeedback(reason string) error {
 
 // Unregistered installations have no Agent token. Their attempt proof is
 // narrowly scoped to reporting outcomes for the previously accepted feedback.
-func (o *uninstallObservation) reportUnregisteredOutcome(result, code string) {
+func (o *uninstallObservation) reportUnregisteredOutcome(ctx context.Context, result, code string) {
 	if !o.FeedbackUploaded || o.FeedbackProof == "" {
 		return
 	}
@@ -198,7 +199,7 @@ func (o *uninstallObservation) reportUnregisteredOutcome(result, code string) {
 	event.Source, event.Platform, event.ReasonCategory = o.Source, runtime.GOOS, o.ReasonCategory
 	event.FromVersion, event.ErrorCode = o.Version, code
 	event.DurationMS = time.Since(o.Started).Milliseconds()
-	c := o.feedbackClient("", client.Meta{})
+	c := o.feedbackClient("", client.Meta{}).WithContext(ctx)
 	response, err := c.Post("/maintenance/unregistered-uninstall", map[string]interface{}{
 		"events":             []maintenance.Event{event},
 		"uninstall_feedback": map[string]string{"proof": o.FeedbackProof},

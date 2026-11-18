@@ -3,15 +3,15 @@ package cmd
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
-	"encoding/json"
-	"errors"
-
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/maintenance"
 )
@@ -23,11 +23,21 @@ const (
 
 // flushBackgroundMaintenance uses the same permission gate for scheduled and
 // foreground-triggered background uploads.
-func flushBackgroundMaintenance(scope maintenance.Scope, credentials *auth.V2Credentials, c *client.Client, sent func([]maintenance.Event)) error {
-	restricted := credentials.Scopes != nil && !slices.Contains(credentials.Scopes, "settings:write")
-	sum := sha256.Sum256([]byte(c.BaseURL + "\x00" + credentials.AccessToken + "\x00" + strconv.FormatBool(restricted)))
-	return maintenance.FlushForCredential(scope, time.Now(), hex.EncodeToString(sum[:]), restricted, func(events []maintenance.Event) error {
-		_, err := postMaintenanceEvents(c, events)
+func flushBackgroundMaintenance(scope maintenance.Scope, endpoint string, cached *auth.V2Credentials, openClient func() (*client.Client, error), sent func([]maintenance.Event)) error {
+	var credential string
+	var restricted bool
+	if cached != nil {
+		restricted = cached.Scopes != nil && !slices.Contains(cached.Scopes, "settings:write")
+		sum := sha256.Sum256([]byte(strings.TrimRight(endpoint, "/") + "/api/v2\x00" + cached.AccessToken + "\x00" + strconv.FormatBool(restricted)))
+		credential = hex.EncodeToString(sum[:])
+	}
+	return maintenance.FlushForCredential(scope, time.Now(), credential, restricted, func(events []maintenance.Event) error {
+		c, err := openClient()
+		if err != nil {
+			return err
+		}
+		c.HTTPClient.Timeout = 5 * time.Second
+		_, err = postMaintenanceEvents(c, events)
 		var apiErr *client.APIError
 		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusConflict && apiErr.ErrorCode == "ONBOARDING_REQUIRED" {
 			return maintenance.ErrUploadOnboarding
