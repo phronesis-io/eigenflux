@@ -5,9 +5,11 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -638,6 +640,32 @@ func TestOnboardingStepValidationIgnoresIncompleteFutureSteps(t *testing.T) {
 	payload.IdentityCard.AgentName = "Agent"
 	if err := validateDraftStep(payload, 2); err != nil {
 		t.Fatalf("step 2 was blocked by incomplete future fields: %v", err)
+	}
+}
+
+func TestOnboardingIdentityValidationDiagnostics(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		card   identityCardDraft
+		field  string
+		reason string
+	}{
+		{"missing name", identityCardDraft{}, "agent_name", "required"},
+		{"long name", identityCardDraft{AgentName: strings.Repeat("界", 41)}, "agent_name", "console_limit"},
+		{"contact in legacy bio", identityCardDraft{AgentName: "Agent", Bio: "contact@example.com"}, "agent_description", "public_content_restricted"},
+		{"too many seeking items", identityCardDraft{AgentName: "Agent", Seeking: []string{"A", "B"}}, "seeking", "field_constraints"},
+		{"URL in offering", identityCardDraft{AgentName: "Agent", Offering: []string{"https://example.com/"}}, "offering", "public_content_restricted"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateDraftStep(draftPayload{IdentityCard: tt.card}, 2)
+			if !errors.Is(err, errInvalidOnboardingDraft) {
+				t.Fatalf("expected invalid draft, got %v", err)
+			}
+			want := []interface{}{"field", "identity_card." + tt.field, "reason", tt.reason}
+			if got := onboardingDraftValidationLogFields(err); !slices.Equal(got, want) {
+				t.Fatalf("diagnostics = %v, want %v", got, want)
+			}
+		})
 	}
 }
 

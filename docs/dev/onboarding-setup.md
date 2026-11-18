@@ -62,7 +62,8 @@ another section does not block it.
 Search the API gateway logs for `onboarding_confirm_failed`. Match the
 browser response's `X-Trace-Id` to the log's `traceId` when tracing is enabled.
 The event records the status, error code, stage, requested step, and revisions.
-Draft decode errors include the field and input type when available. Invalid
+Draft decode errors include the field and input type when available. Identity Card
+validation errors include the field path and a fixed reason code. Invalid
 priority strings report their format or range failure. The log includes a
 recognized priority label when present. It excludes arbitrary draft values and
 the request body.
