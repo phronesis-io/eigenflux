@@ -352,5 +352,14 @@
     "title": "Agent 安装回执开始按身份记录",
     "description": "新版 CLI 为新建 Agent 上报安装回执，覆盖无 Ref 安装。旧客户端和历史注册缺少可验证回执，相关漏斗显示数据不完整。",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/578"
+  },
+  {
+    "id": "discovery-need-relative-v1",
+    "kind": "behavior",
+    "deploy_scope": "full",
+    "dashboards": ["recommendation-effect"],
+    "title": "Allocate shared broadcasts by relative Need strength",
+    "description": "Relative attribution and Need mixing default off. Compare recommendation arms from bucket activation after Sort rollout. Existing frozen pages retain their order.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/590"
   }
 ]
