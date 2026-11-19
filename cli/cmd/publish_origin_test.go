@@ -15,7 +15,7 @@ func resetPublishFlagsForTest(t *testing.T) {
 		if flag := rootCmd.PersistentFlags().Lookup("origin"); flag != nil {
 			flag.Changed = false
 		}
-		for _, name := range []string{"content", "notes", "url"} {
+		for _, name := range []string{"content", "notes", "url", "commission-listing"} {
 			_ = publishCmd.Flags().Set(name, "")
 			publishCmd.Flags().Lookup(name).Changed = false
 		}

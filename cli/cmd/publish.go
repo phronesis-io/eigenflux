@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"cli.eigenflux.ai/internal/cache"
+	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -29,6 +30,11 @@ Examples:
 		urlFlag, _ := cmd.Flags().GetString("url")
 		acceptReply, _ := cmd.Flags().GetBool("accept-reply")
 		withContext, _ := cmd.Flags().GetBool("with-context")
+		listing, _ := cmd.Flags().GetString("commission-listing")
+		detail, observe := listingBroadcastRef(listing)
+		if observe && (content == "" || notes == "") {
+			observeListingBroadcast(listingBroadcastScope(nil), detail, maintenance.NewID(), "failed", "invalid_input")
+		}
 		if content == "" {
 			return fmt.Errorf("--content is required")
 		}
@@ -47,7 +53,19 @@ Examples:
 			body["publish_origin"] = originFlag
 		}
 		c := newClient()
+		var scope maintenance.Scope
+		var attempt string
+		if observe {
+			scope = listingBroadcastScope(c)
+			if scope.AgentID != "" {
+				attempt = maintenance.NewID()
+				observeListingBroadcast(scope, detail, attempt, "started", "")
+			}
+		}
 		resp, err := c.Post("/items/publish", body)
+		if scope.AgentID != "" && scope == listingBroadcastScope(c) {
+			observeListingPublish(scope, detail, attempt, resp, err)
+		}
 		if err != nil {
 			return err
 		}
@@ -78,5 +96,6 @@ func init() {
 	publishCmd.Flags().String("url", "", "source URL")
 	publishCmd.Flags().Bool("accept-reply", true, "accept private message replies")
 	publishCmd.Flags().Bool("with-context", false, "include the confirmed Agent V2 intent/action context in output")
+	publishCmd.Flags().String("commission-listing", "", "Observe a listing broadcast by COMMISSION_ID:PUBLIC_REVISION")
 	rootCmd.AddCommand(publishCmd)
 }

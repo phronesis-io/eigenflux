@@ -10,6 +10,7 @@ import (
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/dispatch"
+	"cli.eigenflux.ai/internal/maintenance"
 )
 
 const commissionPollPages = 32
@@ -185,6 +186,8 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 	if err != nil {
 		return err
 	}
+	var listingEvents []maintenance.Event
+	defer func() { _ = maintenance.RecordListingBroadcasts(w.maintenanceScope(), listingEvents) }()
 	return auth.WithV2CredentialsLockContext(ctx, w.server.Name, 35*time.Second, func() error {
 		if err := w.dispatchIdentityOK(); err != nil {
 			return err
@@ -218,7 +221,9 @@ func (w *accountWatch) deliverCommissionNotifications(ctx context.Context, data 
 					}
 					continue
 				}
-				saved, err := w.enqueueModerationNotification(notice)
+				saved, err := w.enqueueModerationNotification(notice, func(e maintenance.Event) {
+					listingEvents = append(listingEvents, e)
+				})
 				if err != nil {
 					var sink *moderationSinkError
 					if ctx.Err() != nil || isWatchTerminal(err) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || !errors.As(err, &sink) {

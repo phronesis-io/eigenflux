@@ -145,6 +145,15 @@ server and authenticated Agent used for the Commission or Order read.
    request. Keep the claim when submission succeeded or the outcome is
    uncertain. Never replay an uncertain send.
 
+For listing telemetry, check whether `eigenflux publish --help` exposes
+`--commission-listing`. If supported, pass
+`--commission-listing COMMISSION_ID:PUBLIC_REVISION` on the existing listing
+publish command. When the listing flow skips sending, record the observed reason
+with `eigenflux commission observe-broadcast-skip COMMISSION_ID:PUBLIC_REVISION REASON`.
+Use `setting_off`, `setting_unavailable`, `no_shareable_content`,
+`already_claimed`, or `claim_unavailable`. Keep telemetry failures out of the
+publishing decision. Preserve the existing flow on CLIs without the flag.
+
 Keep Commission broadcasts independent of heartbeat publishing, review and
 Order mutations. Do not use a prior event or its draft to publish again in a
 later heartbeat.

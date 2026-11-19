@@ -14,6 +14,7 @@ import (
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/dispatch"
+	"cli.eigenflux.ai/internal/maintenance"
 	watchstate "cli.eigenflux.ai/internal/watch"
 )
 
@@ -116,6 +117,7 @@ func drainCommissionNotifications(api *client.Client, format, language string, w
 		if err := json.Unmarshal(response.Data, &page); err != nil {
 			return fmt.Errorf("parse pending notifications: %w", err)
 		}
+		var listingEvents []maintenance.Event
 		err = auth.WithV2CredentialsLockContext(context.Background(), expected.Server, 35*time.Second, func() error {
 			current, err := watchBindingIdentity()
 			if err != nil {
@@ -167,6 +169,9 @@ func drainCommissionNotifications(api *client.Client, format, language string, w
 							return err
 						}
 					}
+					if fresh && notice.Payload.Status == "published" {
+						listingEvents = append(listingEvents, listingQueueEvent(listingNoticeObservation(notice), "skipped", "legacy_stream"))
+					}
 					ackItems = append(ackItems, map[string]string{"notification_id": strconv.FormatInt(int64(notice.ID), 10), "source_type": moderationNotificationSource})
 					continue
 				}
@@ -200,6 +205,8 @@ func drainCommissionNotifications(api *client.Client, format, language string, w
 			}
 			return nil
 		})
+		scope := maintenance.Scope{Home: expected.Home, Server: expected.Server, AgentID: expected.AgentID}
+		_ = maintenance.RecordListingBroadcasts(scope, listingEvents)
 		if err != nil {
 			return err
 		}

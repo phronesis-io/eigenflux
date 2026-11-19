@@ -16,17 +16,28 @@ func (w *accountWatch) mainNoticeQueue() (*dispatch.MainNoticeQueue, error) {
 	return w.noticeQueue(false)
 }
 
+func (w *accountWatch) noticeQueueSkipReason(listing bool) string {
+	switch {
+	case w.notificationsOnly:
+		return "notifications_only"
+	case w.binding == nil:
+		return "binding_missing"
+	case !w.binding.Handles("commission_order"):
+		return "commission_unsubscribed"
+	case listing && !dispatch.MainNoticeBindingEnabled(*w.binding):
+		return "main_binding_unavailable"
+	}
+	return ""
+}
+
 func (w *accountWatch) noticeQueue(listing bool) (*dispatch.MainNoticeQueue, error) {
-	if w.notificationsOnly || w.binding == nil || !w.binding.Handles("commission_order") {
+	if w.noticeQueueSkipReason(listing) != "" {
 		return nil, nil
 	}
 	w.mainNoticeMu.Lock()
 	defer w.mainNoticeMu.Unlock()
 	slot, open := &w.mainNotices, dispatch.OpenMainNoticeQueue
 	if listing {
-		if !dispatch.MainNoticeBindingEnabled(*w.binding) {
-			return nil, nil
-		}
 		slot, open = &w.listingNotices, dispatch.OpenListingNoticeQueue
 	}
 	if *slot == nil {
@@ -81,22 +92,42 @@ func (w *accountWatch) enqueueCommissionMainNotice(raw json.RawMessage) error {
 	}
 	return err
 }
-func (w *accountWatch) enqueueListingPublicationNotice(notice moderationNotification) error {
+func (w *accountWatch) enqueueListingPublicationNotice(notice moderationNotification, record func(maintenance.Event)) error {
 	if notice.Payload.Status != "published" {
 		return nil
 	}
+	detail := listingNoticeObservation(notice)
+	observe := func(result, reason string) {
+		if record != nil {
+			record(listingQueueEvent(detail, result, reason))
+		}
+	}
+	if reason := w.noticeQueueSkipReason(true); reason != "" {
+		observe("skipped", reason)
+		return nil
+	}
 	queue, err := w.noticeQueue(true)
-	if err != nil || queue == nil {
+	if err != nil {
+		observe("failed", "queue_open_failed")
 		return err
 	}
-	id := strconv.FormatInt(int64(notice.ID), 10)
+	if queue == nil {
+		return nil
+	}
+	id := detail.NotificationID
+	_, existed := queue.Lookup(id)
 	err = queue.Add(dispatch.MainNotice{
-		ID: id, CommissionID: strconv.FormatInt(int64(notice.Payload.CommissionID), 10),
-		DraftVersion: notice.Payload.DraftVersion, Role: "seller",
-		Event: notice.Type, State: notice.Payload.Status,
+		ID: id, CommissionID: detail.CommissionID, DraftVersion: detail.DraftVersion,
+		Role: "seller", Event: notice.Type, State: notice.Payload.Status,
 	})
 	if errors.Is(err, dispatch.ErrMainNoticeQueueFull) {
+		observe("skipped", "queue_full")
 		return w.emit("commission_main_notice_status", map[string]string{"notification_id": id, "status": "skipped", "code": "main_notice_queue_full"})
+	}
+	if err != nil {
+		observe("failed", "queue_save_failed")
+	} else if !existed {
+		observe("enqueued", "")
 	}
 	return err
 }
@@ -109,6 +140,13 @@ func (w *accountWatch) commissionMainNoticeLoop(ctx context.Context) error {
 	listings, err := w.noticeQueue(true)
 	if err != nil {
 		return err
+	}
+	if listings != nil {
+		var recovered []maintenance.Event
+		for _, item := range listings.InterruptedListings() {
+			recovered = append(recovered, listingHandoffEvent(item, item.Status, item.Code))
+		}
+		_ = maintenance.RecordListingBroadcasts(w.maintenanceScope(), recovered)
 	}
 	for ctx.Err() == nil {
 		if !w.handoff.begin() {
@@ -154,6 +192,15 @@ func (w *accountWatch) commissionMainNoticeLoop(ctx context.Context) error {
 			}
 		}
 		if err == nil {
+			if item.IsListingPublication() {
+				if code == "main_notice_unconfirmed" {
+					if persisted, ok := queue.Lookup(item.ID); ok {
+						item.BridgeError = persisted.BridgeError
+					}
+				}
+				event := listingHandoffEvent(item, status, code)
+				_ = maintenance.Record(w.maintenanceScope().ForListingBroadcast(), event)
+			}
 			err = w.emit("commission_main_notice_status", map[string]any{"notification_id": item.ID, "status": status, "code": code, "attempt": item.Attempts})
 		}
 		w.handoff.end()

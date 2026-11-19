@@ -793,4 +793,27 @@ ORDER BY agent_id,properties->'commission'->>'stage',event_id`).Scan(&detailRows
 	if status != 401 {
 		t.Fatalf("anonymous maintenance accepted: %d", status)
 	}
+
+	exec(`UPDATE agent_credential_sessions SET scopes=ARRAY['settings:write'] WHERE principal_id=42`)
+	h.POST("/api/v2/maintenance/listing-broadcasts:batch", svc.agentAuth("settings:write"), svc.recordListingBroadcastBatch)
+	svc.telemetryRates = map[string]telemetryRateState{}
+	listing := listingBroadcastTestEvent()
+	body["events"] = []maintenanceEvent{listing}
+	if status := send(42); status != 400 {
+		t.Fatalf("listing accepted in legacy batch: %d", status)
+	}
+	for range 2 {
+		status, _, _ = performJSON(t, h, "POST", "/api/v2/maintenance/listing-broadcasts:batch", body, ut.Header{Key: "Authorization", Value: "Bearer efv2a_maintenance_42"})
+		if status != 202 {
+			t.Fatalf("listing telemetry upload: %d", status)
+		}
+	}
+	var recorded int64
+	if err := tx.Raw(`SELECT count(*) FROM telemetry_events_v2
+		WHERE event_type=? AND agent_id=42 AND properties->'listing_broadcast'->>'commission_id'=?
+		AND properties->'listing_broadcast'->>'broadcast_id'=? AND properties->>'result'='submitted'`,
+		listingBroadcastPhase, listing.ListingBroadcast.CommissionID, listing.ListingBroadcast.BroadcastID).Scan(&recorded).Error; err != nil || recorded != 1 {
+		t.Fatalf("incorrect listing telemetry persistence: %d %v", recorded, err)
+	}
+
 }

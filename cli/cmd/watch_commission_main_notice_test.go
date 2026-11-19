@@ -3,6 +3,7 @@ package cmd
 import (
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/dispatch"
+	"cli.eigenflux.ai/internal/maintenance"
 	"context"
 	"errors"
 	"os"
@@ -127,7 +128,11 @@ func TestPublishedModerationQueuesSignedBroadcastRules(t *testing.T) {
 			t.Fatal(err)
 		}
 		notice.ID = event.id
-		if _, err := w.enqueueModerationNotification(notice); err != nil {
+		if _, err := w.enqueueModerationNotification(notice, func(e maintenance.Event) {
+			if err := maintenance.RecordListingBroadcasts(w.maintenanceScope(), []maintenance.Event{e}); err != nil {
+				t.Fatal(err)
+			}
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -147,9 +152,14 @@ func TestPublishedModerationQueuesSignedBroadcastRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	item, ok, err := queue.Next()
-	if err != nil || !ok || !item.IsListingPublication() || item.CommissionID != "9007199254740993" || item.DraftVersion != 3 {
-		t.Fatalf("wrong queued notice: %+v, %v", item, err)
+	item, ok := queue.Lookup("83")
+	if !ok || !item.IsListingPublication() || item.CommissionID != "9007199254740993" || item.DraftVersion != 3 {
+		t.Fatalf("wrong queued notice: %+v", item)
+	}
+	for _, id := range []string{"81", "82"} {
+		if _, ok := queue.Lookup(id); ok {
+			t.Fatalf("non-published notice %s queued for broadcast", id)
+		}
 	}
 	prompt, err := w.commissionMainNoticePrompt(context.Background(), item)
 	if err != nil {
@@ -160,15 +170,51 @@ func TestPublishedModerationQueuesSignedBroadcastRules(t *testing.T) {
 			t.Errorf("publication prompt missing %q", expected)
 		}
 	}
-	if _, ok, err := queue.Next(); err != nil || ok {
-		t.Fatalf("unpublished or duplicate notice queued: %t, %v", ok, err)
-	}
-	w.listingNotices = queue
+	w.mainNotices, w.listingNotices = orders, queue
+	scope := w.maintenanceScope().ForListingBroadcast()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	runs := 0
 	w.runMainNotice = func(context.Context, string) (dispatch.Result, error) {
+		runs++
+		state, err := maintenance.Snapshot(scope)
+		if err != nil || len(state.Events) != 1 || state.Events[0].Result != "enqueued" {
+			t.Fatalf("unexpected handoff telemetry before the runner: %+v %v", state.Events, err)
+		}
 		return dispatch.Result{}, dispatch.ErrMainNoticeBusy
 	}
-	if status, code := w.dispatchCommissionMainNotice(context.Background(), item); status != "retry_pending" || code != "main_notice_target_busy" {
-		t.Fatalf("listing without desktop notifications should retry a busy main: %s, %s", status, code)
+	w.emit = func(event string, value interface{}) error {
+		if event == "commission_main_notice_status" {
+			info := value.(map[string]any)
+			if info["notification_id"] != item.ID || info["status"] != "retry_pending" || info["code"] != "main_notice_target_busy" {
+				t.Errorf("unexpected notice result: %v", info)
+			}
+			cancel()
+		}
+		return nil
+	}
+	if err := w.commissionMainNoticeLoop(ctx); !errors.Is(err, context.Canceled) || runs != 1 {
+		t.Fatalf("notice worker did not finish one attempt: runs=%d err=%v", runs, err)
+	}
+	if receipt, ok := queue.Lookup(item.ID); !ok || receipt.Status != "pending" || receipt.NextAttemptAt <= 0 {
+		t.Fatalf("retry was not persisted: %+v", receipt)
+	}
+	if _, ok, err := queue.Next(); err != nil || ok {
+		t.Fatalf("duplicate notice became runnable: %t, %v", ok, err)
+	}
+	state, err := maintenance.Snapshot(scope)
+	if err != nil || len(state.Events) != 2 {
+		t.Fatalf("expected enqueue and handoff result only: %+v %v", state.Events, err)
+	}
+	for i, want := range []struct{ stage, result, reason string }{
+		{"queue", "enqueued", ""}, {"handoff", "retry_pending", "main_busy"},
+	} {
+		event := state.Events[i]
+		d := event.ListingBroadcast
+		if event.Result != want.result || d == nil || d.Stage != want.stage || d.Reason != want.reason ||
+			d.NotificationID != "83" || d.CommissionID != item.CommissionID || d.DraftVersion != 3 {
+			t.Fatalf("wrong observation: %+v %+v", event, d)
+		}
 	}
 
 	completion, err := w.commissionMainNoticePrompt(context.Background(), dispatch.MainNotice{
@@ -176,5 +222,118 @@ func TestPublishedModerationQueuesSignedBroadcastRules(t *testing.T) {
 	})
 	if err != nil || !strings.Contains(completion, "SIGNED BROADCAST REFERENCE") || !strings.Contains(completion, "completion-<order-id>") {
 		t.Fatalf("completion is missing the shared broadcast rules: %v", err)
+	}
+}
+
+func TestListingHandoffReportsBridgeReasonWithoutChangingOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		reason string
+		runErr error
+	}{
+		{"main_notice_transport_unverified", dispatch.ErrMainNoticeUnsupported},
+		{"main_session_mismatch", dispatch.ErrMainSessionMismatch},
+		{"main_unconfirmed", errors.New("no confirmed receipt")},
+	} {
+		t.Run(tc.reason, func(t *testing.T) {
+			w := newCommissionWatch(t, "http://127.0.0.1:1", "commission_order")
+			w.binding.MainSessionID, w.binding.MainCommand = "existing-main", w.binding.Command
+			installCommissionIntakeRules(t, w)
+			queue, err := w.noticeQueue(true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			item := dispatch.MainNotice{
+				ID: "83", CommissionID: "90", DraftVersion: 3,
+				Role: "seller", Event: "commission.moderation.changed.v1", State: "published",
+			}
+			if err := queue.Add(item); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			calls := 0
+			w.runMainNotice = func(context.Context, string) (dispatch.Result, error) {
+				calls++
+				return dispatch.Result{}, tc.runErr
+			}
+			w.emit = func(event string, _ interface{}) error {
+				if event == "commission_main_notice_status" {
+					cancel()
+				}
+				return nil
+			}
+			if err := w.commissionMainNoticeLoop(ctx); !errors.Is(err, context.Canceled) || calls != 1 {
+				t.Fatalf("notice worker ran %d times, err=%v", calls, err)
+			}
+			if receipt, ok := queue.Lookup(item.ID); !ok || receipt.Status != "skipped" || receipt.Code != "main_notice_unconfirmed" || receipt.NextAttemptAt != 0 {
+				t.Fatalf("existing handoff outcome changed: %+v", receipt)
+			}
+			state, err := maintenance.Snapshot(w.maintenanceScope().ForListingBroadcast())
+			if err != nil || len(state.Events) != 1 {
+				t.Fatalf("expected one handoff observation: %+v %v", state.Events, err)
+			}
+			event := state.Events[0]
+			if d := event.ListingBroadcast; d == nil || event.Result != "skipped" || d.Stage != "handoff" || d.Reason != tc.reason || d.NotificationID != item.ID {
+				t.Fatalf("wrong handoff observation: %+v %+v", event, d)
+			}
+		})
+	}
+}
+
+func TestListingHandoffReportsInterruptedRecoveryWithoutReplay(t *testing.T) {
+	w := newCommissionWatch(t, "http://127.0.0.1:1", "commission_order")
+	w.binding.MainSessionID, w.binding.MainCommand = "existing-main", w.binding.Command
+	queue, err := dispatch.OpenListingNoticeQueue(*w.binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := dispatch.MainNotice{
+		ID: "83", CommissionID: "90", DraftVersion: 3,
+		Role: "seller", Event: "commission.moderation.changed.v1", State: "published",
+	}
+	if err := queue.Add(item); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := queue.Next(); err != nil || !ok {
+		t.Fatalf("could not persist a running notice: %v %v", ok, err)
+	}
+	// Let startup open and recover the queue, then stop before claiming work.
+	w.handoff = newWatchHandoff()
+	w.handoff.request("test")
+	if err := w.commissionMainNoticeLoop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if receipt, ok := w.listingNotices.Lookup(item.ID); !ok || receipt.Status != "skipped" || receipt.Code != "execution_unconfirmed" || receipt.Attempts != 1 {
+		t.Fatalf("existing restart outcome changed: %+v", receipt)
+	}
+	if _, ok, err := w.listingNotices.Next(); err != nil || ok {
+		t.Fatalf("interrupted notice became runnable: %v %v", ok, err)
+	}
+	scope := w.maintenanceScope().ForListingBroadcast()
+	observed := false
+	if err := maintenance.Flush(scope, time.Now(), func(events []maintenance.Event) error {
+		if len(events) != 1 {
+			t.Fatalf("expected one recovered observation: %+v", events)
+		}
+		event := events[0]
+		if d := event.ListingBroadcast; d == nil || event.Result != "skipped" || d.Stage != "handoff" ||
+			d.Reason != "execution_unconfirmed" || d.NotificationID != item.ID || d.CommissionID != item.CommissionID || d.DraftVersion != item.DraftVersion {
+			t.Fatalf("wrong recovery observation: %+v %+v", event, d)
+		}
+		observed = true
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !observed {
+		t.Fatal("interrupted handoff observation missing")
+	}
+	w.listingNotices = nil
+	if err := w.commissionMainNoticeLoop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	state, err := maintenance.Snapshot(scope)
+	if err != nil || len(state.Events) != 0 {
+		t.Fatalf("subsequent startup repeated recovery: %+v %v", state.Events, err)
 	}
 }

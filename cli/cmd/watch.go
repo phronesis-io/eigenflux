@@ -795,6 +795,7 @@ func (w *accountWatch) maintenanceLoop(ctx context.Context) error {
 		if err != nil {
 			_ = w.emit("maintenance_telemetry_status", map[string]string{"status": "retry_pending", "code": "upload_failed"})
 		}
+		flushListingBroadcastMaintenance(w.maintenanceScope(), w.identity.PrincipalID, w.server.Endpoint, cached)
 		if !watchPause(ctx, time.Minute) {
 			break
 		}
