@@ -86,6 +86,9 @@ func TestNativeLauncherRunsWithoutLoginPath(t *testing.T) {
 }
 
 func TestPOSIXHeartbeatCommandsKeepSafeArgumentsBare(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX rendering uses POSIX absolute paths")
+	}
 	bin, home := "/Users/owner/.local/bin/eigenflux", "/Users/owner/.eigenflux"
 	prefix, err := renderHeartbeatCLIPrefix(bin, home, "eigenflux", "posix", "skill")
 	if err != nil {

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -371,7 +372,12 @@ func TestHeartbeatPlanAcceptsLegacyEnvironmentMode(t *testing.T) {
 				t.Fatal(err)
 			}
 			home, _ := config.HomeDirInfo()
-			for _, part := range []string{"--homedir " + posixWord(home), "--server " + posixWord(serverName), "--runtime-mode " + posixWord(mode)} {
+			word := posixWord
+			if runtime.GOOS == "windows" {
+				// Windows plans default to PowerShell, which keeps quoting every argument.
+				word = func(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+			}
+			for _, part := range []string{word("--homedir") + " " + word(home), word("--server") + " " + word(serverName), word("--runtime-mode") + " " + word(mode)} {
 				if !strings.Contains(plan.CLIPrefix, part) || !strings.Contains(plan.SchedulerLauncher, part) {
 					t.Fatalf("legacy identity lost %q: %+v", part, plan)
 				}
