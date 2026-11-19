@@ -24,8 +24,13 @@ var ErrBusy = errors.New("maintenance state is busy")
 var safeValue = regexp.MustCompile(`^[A-Za-z0-9_.+-]{0,128}$`)
 var idValue = regexp.MustCompile(`^[a-f0-9]{32,64}$`)
 
-type Scope struct{ Home, Server, AgentID string }
+type Scope struct {
+	Home, Server, AgentID string
+	listingBroadcast      bool
+}
 type Event struct {
+	ListingBroadcast *ListingBroadcast `json:"listing_broadcast,omitempty"`
+
 	Runtime        *RuntimeObservation   `json:"runtime,omitempty"`
 	OuterLoop      *OuterLoopObservation `json:"outer_loop,omitempty"`
 	Commission     *Commission           `json:"commission,omitempty"`
@@ -89,6 +94,12 @@ func NewEvent(attempt, component, trigger, phase, result string) Event {
 func Validate(e Event) error {
 	if !idValue.MatchString(e.EventID) || !idValue.MatchString(e.AttemptID) {
 		return errors.New("invalid maintenance identity")
+	}
+	if e.Phase == ListingBroadcastPhase {
+		return validateListingBroadcast(e)
+	}
+	if e.ListingBroadcast != nil {
+		return errors.New("listing broadcast metadata requires listing broadcast phase")
 	}
 	if e.Phase == "environment" || e.Phase == "cycle" || e.Phase == "lifecycle" {
 		return ValidateRuntime(e)
@@ -180,7 +191,11 @@ func (s Scope) path() (string, error) {
 		return "", errors.New("maintenance requires absolute Home, server and Agent identity")
 	}
 	sum := sha256.Sum256([]byte(s.Server + "\x00" + s.AgentID))
-	return filepath.Join(s.Home, "maintenance", hex.EncodeToString(sum[:16])+"-events.json"), nil
+	suffix := "-events.json"
+	if s.listingBroadcast {
+		suffix = "-listing-broadcast.json"
+	}
+	return filepath.Join(s.Home, "maintenance", hex.EncodeToString(sum[:16])+suffix), nil
 }
 func prune(st *State, now time.Time) {
 	pruneNeedCaptures(st, now)
@@ -244,11 +259,18 @@ func update(s Scope, fn func(*State) error) error {
 	if err != nil {
 		return err
 	}
+	if s.listingBroadcast {
+		return updatePathWithWait(path, 0, fn)
+	}
 	return updatePath(path, fn)
 }
 
 // updatePath shares the existing bounded OS lock and atomic replacement protocol.
 func updatePath(path string, fn func(*State) error) error {
+	return updatePathWithWait(path, 300*time.Millisecond, fn)
+}
+
+func updatePathWithWait(path string, wait time.Duration, fn func(*State) error) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
@@ -257,7 +279,7 @@ func updatePath(path string, fn func(*State) error) error {
 		return err
 	}
 	defer lock.Close()
-	deadline := time.Now().Add(300 * time.Millisecond)
+	deadline := time.Now().Add(wait)
 	for {
 		ok, e := tryLockFile(lock)
 		if e != nil {
@@ -266,7 +288,7 @@ func updatePath(path string, fn func(*State) error) error {
 		if ok {
 			break
 		}
-		if time.Now().After(deadline) {
+		if wait == 0 || time.Now().After(deadline) {
 			return ErrBusy
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -329,6 +351,9 @@ func RecordCLIAdoption(s Scope, e Event, principal, endpoint string) error {
 }
 
 func record(s Scope, e Event, adoption *CLIAdoption) error {
+	if (e.Phase == ListingBroadcastPhase) != s.listingBroadcast {
+		return errors.New("maintenance observation in wrong journal")
+	}
 	if err := Validate(e); err != nil {
 		return err
 	}
@@ -417,8 +442,10 @@ func flush(s Scope, now time.Time, uninstallAttempt, credential string, restrict
 				return nil
 			}
 		}
-		if err := reconcileObservationQueue(s, st, nil); err != nil {
-			observationRecoveryDiagnostic()
+		if !s.listingBroadcast {
+			if err := reconcileObservationQueue(s, st, nil); err != nil {
+				observationRecoveryDiagnostic()
+			}
 		}
 		// Older servers reject unknown runtime fields. Never mix them with existing
 		// maintenance events or let runtime backoff block legacy observations.

@@ -15,6 +15,7 @@ import (
 
 	"cli.eigenflux.ai/internal/desktopnotify"
 	"cli.eigenflux.ai/internal/dispatch"
+	"cli.eigenflux.ai/internal/maintenance"
 	"github.com/spf13/cobra"
 )
 
@@ -100,9 +101,9 @@ type moderationSinkError struct{ cause error }
 func (e *moderationSinkError) Error() string { return e.cause.Error() }
 func (e *moderationSinkError) Unwrap() error { return e.cause }
 
-func (w *accountWatch) enqueueModerationNotification(notice moderationNotification) (bool, error) {
+func (w *accountWatch) enqueueModerationNotification(notice moderationNotification, record func(maintenance.Event)) (bool, error) {
 	fresh, err := saveModerationNoticeWithSink(w.home, w.scope, w.identity.AgentID, notice, func() error {
-		if err := w.enqueueListingPublicationNotice(notice); err != nil {
+		if err := w.enqueueListingPublicationNotice(notice, record); err != nil {
 			return err
 		}
 		if w.desktop == nil {

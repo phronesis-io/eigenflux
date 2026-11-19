@@ -186,7 +186,8 @@ ordinary/PM-only watches emits moderation only; explicit Order owners retain
 the generic HTTP output contract. Forwarding an Order is
 separate from CLI execution/ACK ownership. Pure legacy socket batches use the
 existing local identity check without HTTP token refresh or Commission lookup.
-Neither path creates a moderation execution or main-Agent job. Installed host
+Moderation is not an Order execution job. A published notice can enter the
+separate listing main-conversation queue described below. Installed host
 adapters can ignore the informational event and users can still read the inbox.
 
 When configured, desktop delivery enqueues the same notice with a scoped ID
@@ -683,7 +684,22 @@ Home/server CLI prefix. Published moderation events enter a separate listing
 queue for a supported main binding. This preserves the Order queue for older
 CLI builds. Other moderation states retain desktop delivery. The signed notice
 verifies the active public revision and uses the same local event claim as
-interactive listing publication. Order notice context supplies the
+interactive listing publication.
+
+The CLI records listing queue skips, durable enqueue, and main-conversation
+handoff separately from Order diagnostics. The listing Skill tags the existing
+publish command with the verified public revision on CLIs that support it.
+Handoff telemetry records the persisted outcome after dispatch returns and
+reports fixed bridge diagnostics for unsupported transport or a mismatched
+session. On startup, a recovered running listing notice reports
+execution_unconfirmed. A submitted broadcast requires an item ID in the
+broadcast API response. Skill skips report fixed reason codes. Observations are
+best effort and never gate ACK or execution.
+The separate account-scoped journal and upload route keep listing failures
+out of Order and ordinary maintenance backoff. Only the watch maintenance loop
+and the heartbeat plan upload this journal.
+
+Order notice context supplies the
 account-protected Order link, transition hint, role-checked counterparty,
 current deadline and matched Wallet credit when available. Credit lookup stays
 bounded and uses the exact Order ID. The signed rule verifies current Order

@@ -24,6 +24,21 @@ const (
 // flushBackgroundMaintenance uses the same permission gate for scheduled and
 // foreground-triggered background uploads.
 func flushBackgroundMaintenance(scope maintenance.Scope, endpoint string, cached *auth.V2Credentials, openClient func() (*client.Client, error), sent func([]maintenance.Event)) error {
+	return flushMaintenanceRequest(scope, endpoint, cached, func(events []maintenance.Event) error {
+		c, err := openClient()
+		if err != nil {
+			return err
+		}
+		c.HTTPClient.Timeout = 5 * time.Second
+		_, err = postMaintenanceEvents(c, events)
+		if err == nil && sent != nil {
+			sent(events)
+		}
+		return err
+	})
+}
+
+func flushMaintenanceRequest(scope maintenance.Scope, endpoint string, cached *auth.V2Credentials, send func([]maintenance.Event) error) error {
 	var credential string
 	var restricted bool
 	if cached != nil {
@@ -32,20 +47,45 @@ func flushBackgroundMaintenance(scope maintenance.Scope, endpoint string, cached
 		credential = hex.EncodeToString(sum[:])
 	}
 	return maintenance.FlushForCredential(scope, time.Now(), credential, restricted, func(events []maintenance.Event) error {
-		c, err := openClient()
-		if err != nil {
-			return err
-		}
-		c.HTTPClient.Timeout = 5 * time.Second
-		_, err = postMaintenanceEvents(c, events)
+		err := send(events)
 		var apiErr *client.APIError
 		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusConflict && apiErr.ErrorCode == "ONBOARDING_REQUIRED" {
 			return maintenance.ErrUploadOnboarding
 		}
-		if err == nil && sent != nil {
-			sent(events)
-		}
 		return err
+	})
+}
+
+// Listing observations have their own journal, request and backoff. Use the
+// current cached token without business callbacks or credential refresh.
+func flushListingBroadcastMaintenance(scope maintenance.Scope, principal, endpoint string, cached *auth.V2Credentials) {
+	if cached == nil || cached.AgentID != scope.AgentID || cached.ExpiresAt <= time.Now().UnixMilli() ||
+		!maintenance.HasListingBroadcastJournal(scope) {
+		return
+	}
+	_ = flushMaintenanceRequest(scope.ForListingBroadcast(), endpoint, cached, func(events []maintenance.Event) error {
+		current, err := maintenanceIdentity(scope, principal, endpoint)
+		if err != nil {
+			return err
+		}
+		if current.ExpiresAt <= time.Now().UnixMilli() {
+			return errors.New("listing broadcast upload awaits valid credentials")
+		}
+		c := client.New(strings.TrimRight(endpoint, "/")+"/api/v2", current.AccessToken, version, clientMetaForServerName(scope.Server))
+		c.HTTPClient.Timeout = 5 * time.Second
+		response, err := c.Post("/maintenance/listing-broadcasts:batch", map[string][]maintenance.Event{"events": events})
+		if err != nil {
+			return err
+		}
+		var receipt struct {
+			AcceptedEvents *int `json:"accepted_events"`
+		}
+		if response.HTTPStatus != http.StatusAccepted || response.Code != 0 ||
+			json.Unmarshal(response.Data, &receipt) != nil || receipt.AcceptedEvents == nil ||
+			*receipt.AcceptedEvents < 0 || *receipt.AcceptedEvents > len(events) {
+			return errors.New("listing broadcast upload unconfirmed")
+		}
+		return nil
 	})
 }
 

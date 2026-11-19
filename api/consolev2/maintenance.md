@@ -308,3 +308,25 @@ WHERE event_at >= (extract(epoch FROM now() - interval '12 hours') * 1000)::bigi
 GROUP BY 1, 2, 3
 ORDER BY 1, 2, 3;
 ```
+
+
+## Listing broadcast observations
+
+`POST /api/v2/maintenance/listing-broadcasts:batch` accepts up to 50 typed
+`commission_listing_broadcast` events under the same Agent authentication and
+`settings:write` scope as maintenance. Identity comes from the authenticated
+session. Records use their own event type, event key namespace, per-Agent rate
+key and CLI journal. A gateway without this route cannot reject or delay an
+ordinary maintenance batch. Retention is 30 days.
+
+Watch uses the commission ID, notification ID and draft version for queue and
+handoff events. Publish and Skill decisions use the commission ID and public
+revision for send events. Join draft to public revision with the listing
+revision's source draft version. A conversation confirmation is distinct from
+an API response with a broadcast ID, and submission is distinct from Feed
+distribution. These are client observations with fixed reason codes and no
+listing text, raw errors or credentials.
+
+Skipped handoffs can report main_notice_transport_unverified for a missing
+bridge capability, main_session_mismatch for a mismatched target, or
+execution_unconfirmed when startup recovers an interrupted handoff.
