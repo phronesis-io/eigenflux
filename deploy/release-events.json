@@ -361,5 +361,14 @@
     "title": "Allocate shared broadcasts by relative Need strength",
     "description": "Relative attribution and Need mixing default off. Compare recommendation arms from bucket activation after Sort rollout. Existing frozen pages retain their order.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/590"
+  },
+  {
+    "id": "discovery-graduated-ranking-arms",
+    "kind": "instrumentation",
+    "deploy_scope": "full",
+    "dashboards": ["recommendation-effect"],
+    "title": "Graduate refill, semantic ranking and positive-rating V1",
+    "description": "After the full Sort rollout, new recommendations omit the graduated experiment labels. Existing frozen pages and historical samples retain their original labels. Pipeline retains UGC Slop enablement monitoring and retires the publisher rollout share.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/590"
   }
 ]

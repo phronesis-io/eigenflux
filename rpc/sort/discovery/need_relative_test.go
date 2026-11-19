@@ -270,11 +270,11 @@ func TestExperimentArmsRecordRunningExperimentsOnly(t *testing.T) {
 	var control int64
 	for control = 1; bucketEnabled(needRelativeSalt, control, 5000); control++ {
 	}
-	e := &Engine{NeedRelativeBPS: 5000, ProfileSemanticBPS: 10000, RatingNextBPS: 10000}
-	require.Equal(t, map[string]string{"discovery-need-relative-v1": "control", "discovery-profile-semantic-v1": "treatment"}, e.experimentArms(control),
-		"control is recorded; the rating challenger needs a running rating treatment")
-	e = &Engine{RatingLRBPS: 10000, RatingNextBPS: 10000, ConsumedRefillBPS: 10000}
-	require.Equal(t, map[string]string{"discovery-rating-lr-v1": "treatment", "discovery-rating-lr-v2": "treatment", "discovery-consumed-refill-v1": "treatment"}, e.experimentArms(control))
+	e := &Engine{NeedRelativeBPS: 5000, RatingNextBPS: 10000}
+	require.Equal(t, map[string]string{"discovery-need-relative-v1": "control", "discovery-rating-lr-v2": "treatment"}, e.experimentArms(control),
+		"running experiments record their arms independently")
+	e = &Engine{RatingNextBPS: 10000}
+	require.Equal(t, map[string]string{"discovery-rating-lr-v2": "treatment"}, e.experimentArms(control))
 }
 
 func TestRelativeAttributionUsesLocalRanks(t *testing.T) {

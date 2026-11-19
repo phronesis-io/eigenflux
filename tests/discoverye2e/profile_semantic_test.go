@@ -17,11 +17,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Real HTTP -> Feed -> Sort -> ES/forward/Redis with the profile-semantic
-// experiment on: a profile match without any keyword overlap is delivered
+// Real HTTP -> Feed -> Sort -> ES/forward/Redis with profile-semantic ranking: a profile match without any keyword overlap is delivered
 // ahead of a keyword match unrelated to the profile, which stays eligible.
 func TestDiscoveryProfileSemanticRecommendation(t *testing.T) {
-	s := startStack(t, map[string]string{"DISCOVERY_PROFILE_SEMANTIC_BPS": "10000"})
+	s := startStack(t)
 	ctx := context.Background()
 	now := time.Now()
 	query := fmt.Sprintf("semantictoken%d", s.owner)
@@ -82,7 +81,7 @@ func TestDiscoveryProfileSemanticRecommendation(t *testing.T) {
 // With a captured broadcast Need, the Need's own vector admits a match with no
 // keyword overlap and orders it ahead of a keyword match unrelated to the Need.
 func TestDiscoveryNeedSemanticRecommendation(t *testing.T) {
-	s := startStack(t, map[string]string{"DISCOVERY_PROFILE_SEMANTIC_BPS": "10000"})
+	s := startStack(t)
 	ctx := context.Background()
 	now := time.Now()
 	defer s.changeInputs(t, "DELETE FROM need_inputs WHERE agent_id=?", s.owner)

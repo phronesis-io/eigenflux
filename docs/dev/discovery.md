@@ -487,8 +487,7 @@ its trailing colon. An experiment is running when its basis-point setting is
 positive; settings of 0 omit it, and Search samples omit the field. The arm is
 the intent-to-treat hash assignment, recorded even when a runtime dependency
 such as a model leaves the request on the incumbent path.
-`discovery-rating-lr-v2` is recorded only for `discovery-rating-lr-v1`
-treatment Agents, its population. Frozen pages keep the arms of the execution
+New executions record only the Need relative and rating V2 arms when configured. Frozen pages keep the arms of the execution
 that created them. Compare arms with `agent_features->'experiments'->>'<name>'`;
 a changed salt starts a new experiment. `item_score` is the final policy
 score. The existing unique `(impression_id, position)` key makes consumption
@@ -725,7 +724,7 @@ have missing semantic evidence rather than triggering a vector read or model
 call. Broadcast uses the same dense-score evidence; no candidate vector is loaded
 after recall. Broadcast rule versions carry `:broadcast_dense_v1` to distinguish
 this evidence change. Lexical/pool-only broadcasts no longer receive locally
-computed cosine unless also present in the dense channel. The opt-in [semantic experiment](#semantic-recommendation-experiment)
+computed cosine unless also present in the dense channel. [Semantic recommendations](#semantic-recommendations)
 reads profile cosine for every broadcast candidate in ES instead.
 
 `lexical = bm25 / (bm25 + bm25_scale)` and
@@ -915,13 +914,7 @@ not the merge or deployment time; model, cosine gates and UGC boosts are unchang
 
 ### Bounded consumed-candidate refill
 
-`DISCOVERY_CONSUMED_REFILL_BPS=0` disables refill (default). Values 1–10000
-select a stable, nested hash bucket of Agent IDs; 10000 selects all Agents.
-Restart Sort to apply a changed value. Search is unaffected. Existing frozen
-Feed pages and idempotent responses retain their snapshot until refresh/expiry
-(up to 30 minutes for legacy page state).
-
-For an enabled recommendation whose current page is empty after source limits,
+For a recommendation whose current page is empty after source limits,
 Sort makes at most one extra
 lexical recall per verified broadcast Need/Profile context (80 rows each, at
 most 10 contexts, six concurrent requests). It excludes the original lexical
@@ -952,24 +945,13 @@ Truncation and optional history, recall or validation failures appear in
 additional candidates cannot bypass authority checks; existing validated
 candidates remain available. Parent cancellation still fails the request.
 `discovery_rejected_total{reason="source_version"}` separately records stale
-recall/forward mismatches. Fixing those projections is outside this switch.
+recall/forward mismatches. These counters distinguish stale projections from empty recall.
 
-### Semantic recommendation experiment
+### Semantic recommendations
 
-`DISCOVERY_PROFILE_SEMANTIC_BPS=0` disables the experiment (default). Values
-1–10000 select a stable hash bucket of Agent IDs, independent of the refill
-bucket; 10000 selects all Agents. Restart Sort to apply a changed value. Search
-is unaffected. Analyse the experiment by bucket assignment (intent to treat):
-selected Agents without a profile vector run the ordinary path for Profile
-contexts. While the value is positive, control-bucket recommendations also
-record `profile_cosine` as a shadow score feature for Profile and friend
-candidates, without changing eligibility, ordering, partial reasons or LR
-scoring.
-
-The experiment optimises for positive ratings. Similarity only adds and orders
-candidates: a candidate the rule score accepts stays eligible.
-
-For a selected broadcast recommendation, Sort:
+Similarity adds eligible candidates and orders broadcasts for profile and captured
+Need contexts. Items that pass the rule threshold remain eligible. Search keeps
+its query scoring. For broadcast recommendations, Sort:
 
 - reads the Agent's stored profile embedding (`agent_profiles.profile_embedding`,
   through the `cache:profile:emb:{agent_id}` Redis cache) and runs two shared
@@ -1015,12 +997,9 @@ separated positive from `-1` ratings far better than rule relevance: profile
 cosine within-Agent AUC 0.77 (0.68 on a holdout) versus 0.49, and Need cosine
 0.85 versus 0.66 on 2026-10-08/15 Need deliveries.
 
-### Positive-rating ranker experiment
+### Positive-rating ranker
 
-`DISCOVERY_RATING_LR_BPS=0` disables the experiment (default). Values 1–10000
-select a stable hash bucket of Agent IDs, independent of the refill and semantic
-buckets; 10000 selects all Agents. Restart Sort to apply a changed value. Sort
-then loads `DISCOVERY_RATING_LR_MODEL_PATH` (default
+Sort loads `DISCOVERY_RATING_LR_MODEL_PATH` (default
 `/data/models/eigenflux/discovery-rating-lr/current/model.json`) every
 `DISCOVERY_LR_RELOAD_INTERVAL`. Loading applies the same size, promotion,
 coefficient and self-test checks as the follow-up model and accepts only the
@@ -1030,10 +1009,9 @@ result prefix.
 
 The model predicts a positive rating (score ≥ 1 among rated broadcast
 recommendation deliveries). It scores broadcast-only recommendations (the Feed
-request) of selected Agents. Every eligible candidate is scored, including
-similarity-ranked candidates of the semantic experiment, and the follow-up
-model is not applied to that request. Search, multi-kind recommendations and
-unselected Agents are unchanged.
+request). Every eligible candidate is scored, including
+similarity-ranked candidates, and the follow-up
+model is not applied to that request. Search and multi-kind requests keep their existing ranking.
 
 For each selected request, Sort reads in parallel, under one 300 ms budget and
 without retries (a refill reads only its new candidates and authors, under its
@@ -1086,15 +1064,13 @@ inputs and probabilities were computed by the offline training code;
 similarity, PGC classification and delivered replay samples.
 
 The daily trainer does not produce this contract. Install a reviewed offline
-bundle in the model directory with an atomic `current` link. Setting
-`DISCOVERY_RATING_LR_BPS=0` and restarting Sort restores the existing ordering.
+bundle in the model directory with an atomic `current` link.
 
 #### Item rating-count challenger
 
 `DISCOVERY_RATING_LR_V2_BPS=0` disables the challenger (default). Values 1–10000
 select a stable hash bucket of Agent IDs, independent of the other buckets.
-The challenger serves only Agents that the rating ranker already selects
-(`DISCOVERY_RATING_LR_BPS`). Sort loads `DISCOVERY_RATING_LR_V2_MODEL_PATH`
+The challenger applies to broadcast-only recommendations served by the rating ranker. Sort loads `DISCOVERY_RATING_LR_V2_MODEL_PATH`
 (default `/data/models/eigenflux/discovery-rating-lr-v2/current/model.json`),
 which must use the `discovery_rating_lr_v2` contract, with the same reload
 interval and validation as the incumbent. Restart Sort to apply a changed value.

@@ -214,7 +214,6 @@ func TestProfileDenseLaneOrderIsDeterministic(t *testing.T) {
 	var want []byte
 	for i := 0; i < 20; i++ {
 		e, s := profileFixture()
-		e.ProfileSemanticBPS = 10000
 		e.frozenContexts = []Context{{ID: 1, OwnerID: 1, State: "active", Origin: "agent_context", Query: "design", Kinds: []Kind{Broadcast}}}
 		for id := int64(1); id <= 300; id++ {
 			s.docs = append(s.docs, profileDoc(id, 5, 1))

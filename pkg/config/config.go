@@ -71,7 +71,6 @@ type Config struct {
 	PMRPCPort                   int
 	NotificationRPCPort         int
 	UGCSlopEnabled              bool   // opt-in V0.2.1 processing and explicit distribution gate
-	UGCSlopRolloutBPS           int    // stable publisher cohort; 10000 is all, 0 is none
 	UGCSlopModel                string // empty uses the main extraction model
 	LLMSummaryFidelity          bool   // opt-in relationship/attribution grounding for PGC extraction only
 	UGCPublisherSummary         bool   // enable publisher-owned summaries for newly accepted UGC
@@ -239,18 +238,10 @@ type Config struct {
 	LRRankerEnabled            bool
 	LRRankerModelPath          string
 	LRRankerReloadInterval     string
-	DiscoveryConsumedRefillBPS int
 	DiscoveryNeedRelativeBPS   int
-	// DiscoveryProfileSemanticBPS is the share of Agents (basis points) whose
-	// broadcast recommendations add profile-vector recall and use profile/Need
-	// similarity for eligibility and ordering.
-	DiscoveryProfileSemanticBPS int
-	DiscoveryLREnabled          bool
-	DiscoveryLRModelPath        string
-	DiscoveryLRReloadInterval   string
-	// DiscoveryRatingLRBPS is the share of Agents (basis points) whose
-	// broadcast recommendations are ordered by the positive-rating model.
-	DiscoveryRatingLRBPS       int
+	DiscoveryLREnabled         bool
+	DiscoveryLRModelPath       string
+	DiscoveryLRReloadInterval  string
 	DiscoveryRatingLRModelPath string
 	// DiscoveryRatingLRV2BPS is the share of rating-ranked Agents (basis
 	// points) served by the discovery_rating_lr_v2 challenger.
@@ -308,7 +299,6 @@ func Load() *Config {
 		AuthRPCPort:                 getEnvInt("AUTH_RPC_PORT", 8886),
 		NotificationRPCPort:         getEnvInt("NOTIFICATION_RPC_PORT", 8887),
 		UGCSlopEnabled:              getEnvBool("UGC_SLOP_ENABLED", false),
-		UGCSlopRolloutBPS:           getEnvInt("UGC_SLOP_ROLLOUT_BPS", 10000),
 		UGCSlopModel:                getEnv("UGC_SLOP_MODEL", ""),
 		LLMSummaryFidelity:          getEnvBool("LLM_SUMMARY_FIDELITY", false),
 		UGCPublisherSummary:         getEnvBool("UGC_PUBLISHER_SUMMARY", false),
@@ -463,13 +453,10 @@ func Load() *Config {
 		LRRankerEnabled:              getEnvBool("LR_RANKER_ENABLED", false),
 		LRRankerModelPath:            getEnv("LR_RANKER_MODEL_PATH", "/data/models/eigenflux/lr-ranker/current/model.json"),
 		LRRankerReloadInterval:       getEnv("LR_RANKER_RELOAD_INTERVAL", "60s"),
-		DiscoveryConsumedRefillBPS:   getEnvInt("DISCOVERY_CONSUMED_REFILL_BPS", 0),
 		DiscoveryNeedRelativeBPS:     getEnvInt("DISCOVERY_NEED_RELATIVE_BPS", 0),
-		DiscoveryProfileSemanticBPS:  getEnvInt("DISCOVERY_PROFILE_SEMANTIC_BPS", 0),
 		DiscoveryLREnabled:           getEnvBool("DISCOVERY_LR_ENABLED", false),
 		DiscoveryLRModelPath:         getEnv("DISCOVERY_LR_MODEL_PATH", "/data/models/eigenflux/discovery-lr/current/model.json"),
 		DiscoveryLRReloadInterval:    getEnv("DISCOVERY_LR_RELOAD_INTERVAL", "60s"),
-		DiscoveryRatingLRBPS:         getEnvInt("DISCOVERY_RATING_LR_BPS", 0),
 		DiscoveryRatingLRModelPath:   getEnv("DISCOVERY_RATING_LR_MODEL_PATH", "/data/models/eigenflux/discovery-rating-lr/current/model.json"),
 		DiscoveryRatingLRV2BPS:       getEnvInt("DISCOVERY_RATING_LR_V2_BPS", 0),
 		DiscoveryRatingLRV2ModelPath: getEnv("DISCOVERY_RATING_LR_V2_MODEL_PATH", "/data/models/eigenflux/discovery-rating-lr-v2/current/model.json"),

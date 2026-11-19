@@ -60,7 +60,7 @@ func (v readVectors) Lookup(ctx context.Context, _ int64, text, processor string
 	return v.cache.Read(ctx, text)
 }
 
-type contextOnlySource struct{ *discovery.Source }
+type contextOnlySource struct{ discovery.Sources }
 
 func (s contextOnlySource) Recall(context.Context, discovery.Context, discovery.Kind, string, int) ([]discovery.Document, error) {
 	return nil, nil
@@ -377,7 +377,7 @@ func captureRefillAgent(ctx context.Context, cfg *config.Config, dir string, db 
 		s.Inventory = append(s.Inventory, storeDocs(fresh)...)
 	}
 	source := newSequentialSource(s)
-	baseline, done := engine(cfg, dir, &s.snapshot, source)
+	baseline, done := engine(cfg, dir, &s.snapshot, headOnlySource{source})
 	defer done()
 	s.Before, err = baseline.ReplayContexts(ctx, s.Owner, s.Contexts, []discovery.Kind{discovery.Broadcast}, 20, s.At)
 	return err

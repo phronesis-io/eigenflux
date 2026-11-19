@@ -14,8 +14,7 @@ import (
 
 type slopFrozenSource struct {
 	*frozenSource
-	decisions  map[int64]*llm.SlopEvaluation
-	rolloutBPS int
+	decisions map[int64]*llm.SlopEvaluation
 }
 
 func (s *slopFrozenSource) Hydrate(ctx context.Context, owner int64, mode discovery.Mode, docs []discovery.Document) ([]discovery.Document, error) {
@@ -25,7 +24,7 @@ func (s *slopFrozenSource) Hydrate(ctx context.Context, owner int64, mode discov
 	}
 	for i := range out {
 		d := &out[i]
-		if s.snap.Classes[d.Ref.ID] != "ugc" || !config.SlopAuthorInRollout(d.AuthorID, s.rolloutBPS) {
+		if s.snap.Classes[d.Ref.ID] != "ugc" || d.AuthorID <= 0 {
 			continue
 		}
 		e := s.decisions[d.Ref.ID]
@@ -78,7 +77,7 @@ func slopReplay(cfg *config.Config, dir string) {
 			if !exists {
 				panic(fmt.Sprintf("missing source evidence %d", id))
 			}
-			if !it.PotentiallyEligible || !config.SlopAuthorInRollout(it.AuthorID, cfg.UGCSlopRolloutBPS) {
+			if !it.PotentiallyEligible || it.AuthorID <= 0 {
 				continue
 			}
 			required[id] = true
@@ -87,7 +86,7 @@ func slopReplay(cfg *config.Config, dir string) {
 				panic(fmt.Sprintf("missing matching Slop evaluation %d", id))
 			}
 		}
-		source := &slopFrozenSource{frozenSource: newFrozenSource(s), decisions: decisions, rolloutBPS: cfg.UGCSlopRolloutBPS}
+		source := &slopFrozenSource{frozenSource: newFrozenSource(s), decisions: decisions}
 		e, close := engine(cfg, dir, s, source)
 		after, err := e.ReplayContexts(context.Background(), s.Owner, s.Contexts, []discovery.Kind{discovery.Broadcast}, 20, s.At)
 		close()
@@ -96,5 +95,5 @@ func slopReplay(cfg *config.Config, dir string) {
 		manifest = append(manifest, map[string]any{"agent_id": strconv.FormatInt(s.Owner, 10), "required_ugc": len(required), "pool": len(s.Inventory), "captured_delivered": len(s.Before.Candidates), "before": len(s.Before.Candidates), "after": len(after.Candidates)})
 		fmt.Printf("agent %d: before=%d after=%d UGC evaluations=%d\n", s.Owner, len(s.Before.Candidates), len(after.Candidates), len(required))
 	}
-	save(filepath.Join(dir, "counterfactual-slop-manifest.json"), map[string]any{"method": fmt.Sprintf("publisher rollout %d/10000; gate-only within frozen complete recall pools; no global model/lexical/embedding replacement; steady-state sensitivity, not a historical backfill", cfg.UGCSlopRolloutBPS), "agents": manifest})
+	save(filepath.Join(dir, "counterfactual-slop-manifest.json"), map[string]any{"method": "All UGC publishers; gate-only within frozen complete recall pools; no global model/lexical/embedding replacement; steady-state sensitivity, not a historical backfill", "agents": manifest})
 }

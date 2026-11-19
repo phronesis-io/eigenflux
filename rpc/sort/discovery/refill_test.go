@@ -57,7 +57,6 @@ func refillFixture() (*Engine, *refillFake) {
 	s.owner = OwnerContext{Clauses: []string{"software"}}
 	f := &refillFake{sourceFake: s}
 	e.Sources = f
-	e.ConsumedRefillBPS = 10000
 	return e, f
 }
 func refillDoc(id int64) Document {
@@ -71,7 +70,7 @@ func runRefill(t *testing.T, e *Engine, limit int) Execution {
 	}
 	return x
 }
-func TestConsumedRefillSequentialAndSwitch(t *testing.T) {
+func TestConsumedRefillSequential(t *testing.T) {
 	e, s := refillFixture()
 	for i := int64(1); i <= 80; i++ {
 		s.docs = append(s.docs, refillDoc(i))
@@ -81,11 +80,6 @@ func TestConsumedRefillSequentialAndSwitch(t *testing.T) {
 	for i := int64(1); i <= 115; i++ {
 		s.pool = append(s.pool, refillDoc(i))
 	}
-	e.ConsumedRefillBPS = 0
-	if x := runRefill(t, e, 20); len(x.Candidates) != 0 || x.Refill != nil || s.historyCalls != 0 {
-		t.Fatalf("off path changed: %+v", x)
-	}
-	e.ConsumedRefillBPS = 10000
 	delivered := map[int64]bool{}
 	for _, want := range []int{20, 15, 0} {
 		x := runRefill(t, e, 20)
@@ -132,17 +126,13 @@ func TestConsumedRefillPreservesCappedPageAndRecoversEmptyWithNeedPriority(t *te
 		page, _ := SelectRecommendationPage(x.Candidates, 20, x.SourceLimits)
 		return x, page
 	}
-	e.ConsumedRefillBPS = 0
+	e.Sources = s.sourceFake
 	before, page := run()
 	if len(before.Candidates) != 200 || len(page) != 10 {
 		t.Fatalf("fixture must fill snapshot but underfill capped page: %d/%d", len(before.Candidates), len(page))
 	}
-	e.ConsumedRefillBPS = 10000
+	e.Sources = s
 	after, page := run()
-	if after.Experiments["discovery-consumed-refill-v1"] != "treatment" {
-		t.Fatal("refill arm not recorded", after.Experiments)
-	}
-	after.Experiments = before.Experiments
 	if !reflect.DeepEqual(before, after) || len(page) != 10 || s.historyCalls != 0 || s.refillCalls != 0 {
 		t.Fatal("refill changed a nonempty source-capped page")
 	}
@@ -183,11 +173,11 @@ func TestConsumedRefillPreservesEveryNonemptyPage(t *testing.T) {
 					}
 					return x
 				}
-				e.ConsumedRefillBPS = 0
+				e.Sources = s.sourceFake
 				before := run()
-				e.ConsumedRefillBPS = 10000
+				e.Sources = s
 				after := run()
-				after.Experiments = before.Experiments
+
 				if !reflect.DeepEqual(before, after) || s.historyCalls != 0 || s.refillCalls != 0 {
 					t.Fatal("nonempty page changed or read optional dependencies")
 				}
@@ -225,24 +215,6 @@ func TestConsumedRefillKeepsGatesAndReportsFailure(t *testing.T) {
 		})
 	}
 }
-func TestConsumedRefillBucketStableAndNested(t *testing.T) {
-	n := 0
-	for id := int64(1); id <= 10000; id++ {
-		if consumedRefillEnabled(id, 0) || consumedRefillEnabled(id, 10001) || !consumedRefillEnabled(id, 10000) {
-			t.Fatal("invalid boundary")
-		}
-		if consumedRefillEnabled(id, 1000) {
-			n++
-			if !consumedRefillEnabled(id, 2000) {
-				t.Fatal("bucket not nested")
-			}
-		}
-	}
-	if n < 800 || n > 1200 {
-		t.Fatalf("unexpected allocation %d", n)
-	}
-}
-
 func TestConsumedRefillDoesNotClaimExhaustiveSupplyAtScanBound(t *testing.T) {
 	e, s := refillFixture()
 	for id := int64(1); id <= 80; id++ {

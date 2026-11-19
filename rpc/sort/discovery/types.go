@@ -230,7 +230,7 @@ type Candidate struct {
 	RatingFeatures []float64 `json:"rating_features,omitempty"`
 	FinalScore     float64   `json:"final_score"`
 	// SemanticRank and SemanticTier order similarity-scored candidates in the
-	// semantic experiment; Score keeps the rule contract.
+	// semantic ranking path; Score keeps the rule contract.
 	SemanticRank    *float64 `json:"semantic_rank,omitempty"`
 	SemanticTier    int      `json:"semantic_tier,omitempty"`
 	Order           int      `json:"policy_order,omitempty"`

@@ -130,7 +130,7 @@ func TestContractsAreIsolated(t *testing.T) {
 	if _, err := load(rating, "unknown"); err == nil {
 		t.Fatal("accepted an unknown contract")
 	}
-	m := NewRating(true, rating, time.Hour)
+	m := NewRating(rating, time.Hour)
 	defer m.Close()
 	if _, ok := m.ScoreBatch([][]float64{features}); ok {
 		t.Fatal("rating scorer accepted a follow-up vector")

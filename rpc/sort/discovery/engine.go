@@ -34,32 +34,24 @@ type Engine struct {
 	frozenContexts        []Context
 	replayCosineReference bool
 	Learned               LearnedRanker
-	// RatingLearned orders broadcast recommendations for Agents in the
-	// RatingLRBPS bucket; when it cannot score a request, the existing
-	// semantic, Learned or rule ordering applies.
-	RatingLearned LearnedRanker
-	RatingLRBPS   int
+	RatingLearned         LearnedRanker
+
 	// RatingNext is the challenger for the RatingNextBPS bucket of
 	// rating-ranked Agents.
 	RatingNext        LearnedRanker
 	RatingNextBPS     int
 	PGCAuthors        PGCAuthors
 	FriendFeedEnabled bool
-	ConsumedRefillBPS int
 	NeedRelativeBPS   int
 	// NeedMix reserves positions for equal-priority Needs in the relative attribution bucket; nil keeps global order.
-	NeedMix *NeedMix
-	// ProfileSemanticBPS selects Agents whose broadcast recommendations add
-	// profile-vector recall and use profile/Need similarity for eligibility
-	// and ordering.
-	ProfileSemanticBPS int
-	SourceLimits       []SourceLimit
-	Compiler           *Compiler
-	Needs              NeedReader
-	IDs                IDGenerator
-	Sources            Sources
-	Rules              Rules
-	Policies           func(context.Context, []Candidate, Mode, int) ([]Candidate, error)
+	NeedMix      *NeedMix
+	SourceLimits []SourceLimit
+	Compiler     *Compiler
+	Needs        NeedReader
+	IDs          IDGenerator
+	Sources      Sources
+	Rules        Rules
+	Policies     func(context.Context, []Candidate, Mode, int) ([]Candidate, error)
 }
 type Execution struct {
 	SourceLimits   []SourceLimit `json:"source_limits,omitempty"`
@@ -335,14 +327,13 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		x.Status = "insufficient_context"
 		return x, nil
 	}
-	// While the experiment runs, control requests also record profile cosine
-	// as a shadow feature without changing eligibility or ordering.
 	var profileVector []float32
-	treated := mode == Recommendation && profileSemanticEnabled(owner, e.ProfileSemanticBPS)
-	shadow := mode == Recommendation && e.ProfileSemanticBPS > 0 && !treated
-	if treated || shadow {
+	src, supported := e.Sources.(ProfileSemanticSources)
+	needOn := mode == Recommendation && supported
+	// Frozen sources without semantic evidence replay their captured first-wave ranking.
+	if mode == Recommendation && (supported || e.frozenContexts == nil) {
 		reason := ""
-		if src, ok := e.Sources.(ProfileSemanticSources); !ok {
+		if !supported {
 			reason = "profile_semantic:unsupported"
 		} else if v, err := src.ProfileVector(ctx, owner); err != nil {
 			reason = "profile_semantic:unavailable"
@@ -355,16 +346,11 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		for _, c := range contexts {
 			usesProfile = usesProfile || (c.CapturedNeed == nil && c.Origin != "baseline")
 		}
-		if treated && reason != "" && usesProfile {
+		if reason != "" && usesProfile {
 			x.PartialReasons = append(x.PartialReasons, reason)
 		}
 	}
-	_, supported := e.Sources.(ProfileSemanticSources)
-	// Need similarity uses the Need's own vector and does not depend on a
-	// profile vector; Profile similarity and recall do.
-	needOn := treated && supported
-	semanticOn := treated && len(profileVector) > 0
-	shadowOn := shadow && len(profileVector) > 0
+	semanticOn := len(profileVector) > 0
 	type channelResult struct {
 		ci      int
 		kind    Kind
@@ -492,7 +478,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 						shared.once.Do(func() {
 							if shareKey == profileDenseKey || shareKey == profileFreshKey {
 								// One profile kNN per lane and request; each clause applies its own filters after recall.
-								shared.docs, shared.err = e.Sources.(ProfileSemanticSources).RecallProfile(ctx, c, profileVector, since, limit)
+								shared.docs, shared.err = src.RecallProfile(ctx, c, profileVector, since, limit)
 								// Profile similarity is filled for every candidate below; a
 								// profile kNN score is not Need/query semantic evidence.
 								for i := range shared.docs {
@@ -549,7 +535,8 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	recalled := map[int64]recallsource.Source{}
 	anySuccess := false
 	below, exhausted := false, false
-	refillOn := mode == Recommendation && consumedRefillEnabled(owner, e.ConsumedRefillBPS)
+	refillSource, canRefill := e.Sources.(RefillSources)
+	refillOn := mode == Recommendation && canRefill
 	var states []refillContext
 	var seenHeadGroups map[int64]bool
 	if refillOn {
@@ -567,7 +554,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			if needOn && len(c.Vector) > 0 {
 				return fmt.Sprintf("need:%d", c.ID), c.Vector, true
 			}
-		case c.Origin != "baseline" && (semanticOn || shadowOn):
+		case c.Origin != "baseline" && semanticOn:
 			return "profile", profileVector, false
 		}
 		return "", nil, false
@@ -600,7 +587,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			return
 		}
 		readCtx, cancel := context.WithTimeout(fillCtx, cosineTimeout)
-		got, err := e.Sources.(ProfileSemanticSources).Cosine(readCtx, vector, missing)
+		got, err := src.Cosine(readCtx, vector, missing)
 		cancel()
 		semanticMu.Lock()
 		defer semanticMu.Unlock()
@@ -614,7 +601,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			}
 			if need {
 				x.PartialReasons = append(x.PartialReasons, "need_semantic:cosine_unavailable")
-			} else if semanticOn {
+			} else {
 				x.PartialReasons = append(x.PartialReasons, "profile_semantic:cosine_unavailable")
 			}
 			return
@@ -700,18 +687,12 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 			tier := 0
 			if cos, ok, need := cosineOf(c, d.Ref.ID); ok && d.Ref.Type == Broadcast {
 				var r float64
-				switch {
-				case shadowOn:
-					if !math.IsNaN(cos) {
-						score.Features["profile_cosine"] = cos
-					}
-				case math.IsNaN(cos):
+				if math.IsNaN(cos) {
 					score, r, tier = scoreUnembedded(score, need)
-					rank = &r
-				default:
+				} else {
 					score, r, tier = scoreSemantic(score, d, cos, e.Rules[d.Ref.Type][mode], now, friend, need)
-					rank = &r
 				}
+				rank = &r
 			}
 			if !score.Eligible {
 				below = true
@@ -812,7 +793,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		}
 		pending = append(pending, pendingContext{c, merged, docs})
 	}
-	if needOn || shadowOn {
+	if needOn {
 		// One similarity read per vector, all in parallel under one deadline:
 		// Profile and friend contexts share the profile vector.
 		var profileContext *Context
@@ -895,7 +876,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	// Recover an empty page only. Filling a short snapshot or partial page
 	// would let new Need/Profile matches displace already deliverable content.
 	if refillOn && pageSize() == 0 {
-		additional, report, reasons, err := e.refill(ctx, owner, states, seenHeadGroups, now, evaluate)
+		additional, report, reasons, err := refill(ctx, refillSource, owner, states, seenHeadGroups, now, evaluate)
 		if err != nil {
 			return x, err
 		}
