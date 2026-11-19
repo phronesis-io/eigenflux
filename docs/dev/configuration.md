@@ -274,22 +274,12 @@ unchanged. Restart Sort after changing the value; existing frozen Feed responses
 retain their snapshot. See [bounded refill](discovery.md#bounded-consumed-candidate-refill)
 for bounds, Redis 7 requirements and partial-result semantics.
 
-`DISCOVERY_NEED_BUDGET_BPS` defaults to `0` and accepts 0–10000. A stable
-Agent bucket enables a 300-candidate context merge cap, consumed-group exclusion
-in captured-Need dense recall, broadcast context attribution, and the `need_mix`
-soft quota from `configs/sort/rerank.yaml` across equal-priority captured Needs. Within-Need scores,
-explicit priorities, Search, and the 200-candidate global cap are unchanged. Restart
-Sort after changing the value; frozen Feed snapshots retain their original
-contents. The global Swing recall setting (`SWING_I2I_RECALL_K=80`) and the
-`swing_i2i` 1/4 page ceiling in `configs/sort/rerank.yaml` apply independently to
-all Agents. See [Need budgets and attribution](discovery.md#need-candidate-budget-and-attribution-experiment).
-
-`DISCOVERY_NEED_RECALL_BPS` defaults to `0` and accepts 0–10000. Independent
-stable Agent buckets add a seven-day, 40-candidate dense lane for vector-backed
-captured broadcast Needs and apply consumed-group exclusion to both dense lanes.
-Their context cap is 240, or 300 when Need budget is also enabled. Search and
-other contexts retain their behavior. Restart Sort after changes; frozen pages
-expire within 30 minutes. See [Need recall depth](discovery.md#need-recall-depth-experiment).
+`DISCOVERY_NEED_RELATIVE_BPS` defaults to 0 and accepts 0–10000. Selected
+Agents receive relative cross-Need broadcast attribution and configured
+`need_mix` allocation on recommendations. Restart Sort to apply changes.
+Vector-backed captured broadcast Needs always receive seven-day fresh dense
+recall and consumed-group exclusion, with a 240-candidate context cap.
+See [Need relative attribution](discovery.md#need-relative-attribution-experiment).
 
 `DISCOVERY_PROFILE_SEMANTIC_BPS` defaults to `0` and accepts 0–10000. It selects
 stable Agent buckets whose broadcast recommendations add profile-vector recall

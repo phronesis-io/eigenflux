@@ -85,6 +85,11 @@ type recordedSource struct {
 	facts     func(context.Context, []discovery.Document) error
 }
 
+// Dense recall records the already-filtered response. Frozen replay needs no
+// history read, since it returns that exact response for each lane.
+func (s *recordedSource) ConsumedGroups(ctx context.Context, owner int64) ([]int64, bool, error) {
+	return s.live.ConsumedGroups(ctx, owner)
+}
 func (s *recordedSource) Owner(ctx context.Context, id int64) (discovery.OwnerContext, error) {
 	return s.live.Owner(ctx, id)
 }

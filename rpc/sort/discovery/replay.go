@@ -52,3 +52,10 @@ func ReplayChannelQuery(c Context, channel string, limit int, groups, ids []int6
 // ReplayConsumptionReadScripts lets read-only capture clients allowlist the
 // exact production Lua bodies; arbitrary EVAL remains prohibited.
 func ReplayConsumptionReadScripts() (string, string) { return boundedGroupHistory, confirmConsumedLua }
+
+// ReplayCosineReference evaluates the historical raw-cosine allocation and its
+// 300-candidate context cap against a frozen recommendation pool.
+func (e Engine) ReplayCosineReference(ctx context.Context, owner int64, contexts []Context, kinds []Kind, limit int, now int64) (Execution, error) {
+	e.replayCosineReference = true
+	return e.ReplayContexts(ctx, owner, contexts, kinds, limit, now)
+}

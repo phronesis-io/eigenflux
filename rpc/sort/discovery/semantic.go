@@ -62,11 +62,10 @@ func bucketEnabled(salt string, owner int64, bps int) bool {
 }
 
 const (
-	needRecallSalt     = "discovery-need-recall-v1:"
 	needFreshKey       = "need_fresh"
 	needFreshLimit     = 40
 	needFreshDays      = 7
-	needBudgetSalt     = "discovery-need-budget-v1:"
+	needRelativeSalt   = "discovery-need-relative-v1:"
 	consumedRefillSalt = "discovery-consumed-refill-v1:"
 )
 
@@ -87,8 +86,7 @@ func (e *Engine) experimentArms(owner int64) map[string]string {
 		arms[strings.TrimSuffix(salt, ":")] = arm
 		return on
 	}
-	assign(needBudgetSalt, e.NeedBudgetBPS)
-	assign(needRecallSalt, e.NeedRecallBPS)
+	assign(needRelativeSalt, e.NeedRelativeBPS)
 	assign(consumedRefillSalt, e.ConsumedRefillBPS)
 	assign(profileSemanticSalt, e.ProfileSemanticBPS)
 	if assign(ratingLRSalt, e.RatingLRBPS) {

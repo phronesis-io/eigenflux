@@ -31,8 +31,9 @@ type Sources interface {
 }
 type Engine struct {
 	// frozenContexts is set only by the offline replay entry point.
-	frozenContexts []Context
-	Learned        LearnedRanker
+	frozenContexts        []Context
+	replayCosineReference bool
+	Learned               LearnedRanker
 	// RatingLearned orders broadcast recommendations for Agents in the
 	// RatingLRBPS bucket; when it cannot score a request, the existing
 	// semantic, Learned or rule ordering applies.
@@ -45,9 +46,8 @@ type Engine struct {
 	PGCAuthors        PGCAuthors
 	FriendFeedEnabled bool
 	ConsumedRefillBPS int
-	NeedBudgetBPS     int
-	NeedRecallBPS     int
-	// NeedMix reserves positions for equal-priority Needs in the Need budget bucket; nil keeps global order.
+	NeedRelativeBPS   int
+	// NeedMix reserves positions for equal-priority Needs in the relative attribution bucket; nil keeps global order.
 	NeedMix *NeedMix
 	// ProfileSemanticBPS selects Agents whose broadcast recommendations add
 	// profile-vector recall and use profile/Need similarity for eligibility
@@ -246,11 +246,11 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	if r.Cursor != "" {
 		return x, Invalid("cursor", "requires_feed_delivery")
 	}
-	needBudgetOn := mode == Recommendation && bucketEnabled(needBudgetSalt, owner, e.NeedBudgetBPS)
-	needRecallOn := mode == Recommendation && bucketEnabled(needRecallSalt, owner, e.NeedRecallBPS)
-	contextCap := 200
-	if needBudgetOn {
-		contextCap = 300
+	attribution := NeedAttributionOff
+	if e.replayCosineReference {
+		attribution = NeedAttributionCosine
+	} else if mode == Recommendation && bucketEnabled(needRelativeSalt, owner, e.NeedRelativeBPS) {
+		attribution = NeedAttributionRelative
 	}
 	resultLimit := r.Limit
 	if r.Prefetch {
@@ -390,7 +390,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	var historyOnce sync.Once
 	var needGroups []int64
 	loadNeedGroups := func() {
-		src, ok := e.Sources.(RefillSources)
+		src, ok := e.Sources.(consumedGroupReader)
 		if !ok {
 			return
 		}
@@ -445,7 +445,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				// older, more similar content.
 				lanes = append(lanes, [2]string{"dense", profileFreshKey})
 			}
-			if needRecallOn && kind == Broadcast && c.CapturedNeed != nil && len(c.Vector) > 0 {
+			if mode == Recommendation && kind == Broadcast && c.CapturedNeed != nil && len(c.Vector) > 0 {
 				lanes = append(lanes, [2]string{"dense", needFreshKey})
 			}
 			for _, lane := range lanes {
@@ -454,7 +454,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 				go func() {
 					defer wg.Done()
 					// Load shared history before taking a slot: waiting dense lanes must not starve other channels.
-					if (needBudgetOn || needRecallOn) && kind == Broadcast && channel == "dense" && c.CapturedNeed != nil && userRecalls[shareKey] == nil {
+					if mode == Recommendation && kind == Broadcast && channel == "dense" && c.CapturedNeed != nil && userRecalls[shareKey] == nil {
 						historyOnce.Do(loadNeedGroups)
 						c.excludeConsumedGroups = needGroups
 					}
@@ -737,8 +737,10 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		if c.UnverifiedNeedReason != "" {
 			continue
 		}
-		contextCap := contextCap
-		if needRecallOn && !needBudgetOn && c.CapturedNeed != nil && len(c.Vector) > 0 && hasKind(c.Kinds, Broadcast) {
+		contextCap := 200
+		if e.replayCosineReference {
+			contextCap = 300
+		} else if mode == Recommendation && c.CapturedNeed != nil && len(c.Vector) > 0 && hasKind(c.Kinds, Broadcast) {
 			contextCap += needFreshLimit
 		}
 		merged := map[string]Document{}
@@ -873,7 +875,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		if mode == Recommendation && len(x.SourceLimits) > 0 {
 			mergeLimit = MaxSnapshotCandidates
 		}
-		out := Merge(in, r.SourceKinds, mode, mergeLimit, needBudgetOn, e.NeedMix)
+		out := Merge(in, r.SourceKinds, mode, mergeLimit, attribution, e.NeedMix)
 		if mode == Recommendation && !r.Prefetch {
 			out, _ = SelectRecommendationPage(out, resultLimit, x.SourceLimits)
 		}

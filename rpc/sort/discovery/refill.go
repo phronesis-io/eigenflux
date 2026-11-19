@@ -22,10 +22,14 @@ const (
 	refillTimeout     = 750 * time.Millisecond
 )
 
+type consumedGroupReader interface {
+	ConsumedGroups(context.Context, int64) (groups []int64, complete bool, err error)
+}
+
 // RefillSources is optional so disabling the experiment retains the original
 // Sources contract. Every returned group must pass the rolling delivery dedup.
 type RefillSources interface {
-	ConsumedGroups(context.Context, int64) (groups []int64, complete bool, err error)
+	consumedGroupReader
 	RecallUnseen(context.Context, Context, []int64, []int64, int) ([]Document, error)
 }
 
