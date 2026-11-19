@@ -1,0 +1,26 @@
+# Traits: design/game-brief.md "Four MVP personas".
+# ADDED BY IMPLEMENTATION (not in GDD): occupation, tagline, behavior_notes,
+# family_bias. Pending design sign-off.
+persona:
+  id: "shen-mo"
+  name: "沈默"
+  occupation: "独立棋手"
+  tagline: "最难的那部分归我"
+  traits:
+    risk: 1
+    information: 0
+    social: -2
+    commitment: 0
+    expression: -2
+    competition: 2
+  behavior_notes:
+    - "Claims the hardest sub-problem without negotiating"
+    - "Rarely explains reasoning; spectators infer intent from action"
+    - "Treats a cooperation request as a constraint, not an invitation"
+    - "Keeps a private assessment of every other seat's reliability"
+    - "Competes hardest when the match is nearly lost"
+  family_bias:
+    deduction: 0.35
+    social_deduction: 0.10
+    resource_mgmt: 0.15
+    versus: 0.40

@@ -1,0 +1,26 @@
+# Traits: design/game-brief.md "Four MVP personas".
+# ADDED BY IMPLEMENTATION (not in GDD): occupation, tagline, behavior_notes,
+# family_bias. Pending design sign-off.
+persona:
+  id: "gu-yuan"
+  name: "顾远"
+  occupation: "社区协调员"
+  tagline: "没有人该独自面对一扇门"
+  traits:
+    risk: 0
+    information: 1
+    social: 2
+    commitment: 1
+    expression: 1
+    competition: -2
+  behavior_notes:
+    - "Naturally proposes a division of labor before anyone asks"
+    - "Checks that quieter seats have been heard before closing a discussion"
+    - "Keeps a shared record of who agreed to what"
+    - "Avoids zero-sum framing even when a versus game rewards it"
+    - "Repairs strained relationships rather than writing them off"
+  family_bias:
+    deduction: 0.25
+    social_deduction: 0.30
+    resource_mgmt: 0.35
+    versus: 0.10
