@@ -2,8 +2,6 @@ package discovery
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,21 +17,20 @@ import (
 
 func TestNeedRecallQueriesAndCaps(t *testing.T) {
 	for _, tc := range []struct {
-		name                    string
-		bps, budget, cap, reads int
-		mode                    Mode
-		fail, timeout           bool
+		name            string
+		bps, cap, reads int
+		mode            Mode
+		fail, timeout   bool
 	}{
-		{"off", 0, 0, 200, 0, Recommendation, false, false},
-		{"search", 10000, 0, 200, 0, Search, false, false},
-		{"on", 10000, 0, 240, 1, Recommendation, false, false},
-		{"both", 10000, 10000, 300, 1, Recommendation, false, false},
-		{"history_error", 10000, 0, 240, 1, Recommendation, true, false},
-		{"history_timeout", 10000, 0, 240, 1, Recommendation, false, true},
+		{"control", 0, 240, 1, Recommendation, false, false},
+		{"search", 10000, 200, 0, Search, false, false},
+		{"on", 10000, 240, 1, Recommendation, false, false},
+		{"history_error", 10000, 240, 1, Recommendation, true, false},
+		{"history_timeout", 10000, 240, 1, Recommendation, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			e, s := budgetFixture()
-			e.NeedRecallBPS, e.NeedBudgetBPS = tc.bps, tc.budget
+			e, s := needFixture()
+			e.NeedRelativeBPS = tc.bps
 			s.timeout = tc.timeout
 			if tc.fail {
 				s.historyErr = errors.New("unavailable")
@@ -76,18 +73,17 @@ func TestNeedRecallQueriesAndCaps(t *testing.T) {
 					require.NotContains(t, string(raw), `"created_at"`)
 				}
 			}
-			if on {
-				require.Equal(t, "treatment", x.Experiments["discovery-need-recall-v1"])
+			if tc.bps > 0 && tc.mode == Recommendation {
+				require.Equal(t, "treatment", x.Experiments["discovery-need-relative-v1"])
 			} else {
-				require.NotContains(t, x.Experiments, "discovery-need-recall-v1")
+				require.NotContains(t, x.Experiments, "discovery-need-relative-v1")
 			}
 		})
 	}
 }
 
 func TestNeedRecallOnlyVectorBroadcastNeeds(t *testing.T) {
-	e, s := budgetFixture()
-	e.NeedRecallBPS = 10000
+	e, s := needFixture()
 	e.frozenContexts[0].Vector = nil
 	e.frozenContexts[1].CapturedNeed = nil
 	e.frozenContexts[1].Origin = "profile"
@@ -104,39 +100,12 @@ func TestNeedRecallOnlyVectorBroadcastNeeds(t *testing.T) {
 }
 
 func TestNeedRecallHistoryCancellation(t *testing.T) {
-	e, s := budgetFixture()
-	e.NeedRecallBPS = 10000
+	e, s := needFixture()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s.cancel, s.timeout = cancel, true
 	_, err := e.Execute(ctx, 1, Request{SourceKinds: []Kind{Broadcast}}, Recommendation, 1800000000000)
 	require.ErrorIs(t, err, context.Canceled)
-}
-
-func TestNeedRecallBuckets(t *testing.T) {
-	cells := map[[2]bool]int{}
-	for i := 0; i < 10000; i++ {
-		hash := sha256.Sum256([]byte(fmt.Sprint(i)))
-		owner := int64(binary.BigEndian.Uint64(hash[:8]) & ((1 << 63) - 1))
-		on := bucketEnabled(needRecallSalt, owner, 5000)
-		require.Equal(t, on, bucketEnabled(needRecallSalt, owner, 5000))
-		require.False(t, bucketEnabled(needRecallSalt, owner, 0))
-		require.True(t, bucketEnabled(needRecallSalt, owner, 10000))
-		cells[[2]bool{on, bucketEnabled(needBudgetSalt, owner, 5000)}]++
-	}
-	for _, a := range []bool{false, true} {
-		for _, b := range []bool{false, true} {
-			require.InDelta(t, 2500, cells[[2]bool{a, b}], 400)
-		}
-	}
-	e := Engine{NeedRecallBPS: 5000}
-	for owner := int64(1); owner <= 20; owner++ {
-		arm := "control"
-		if bucketEnabled(needRecallSalt, owner, 5000) {
-			arm = "treatment"
-		}
-		require.Equal(t, map[string]string{"discovery-need-recall-v1": arm}, e.experimentArms(owner))
-	}
 }
 
 func TestNeedRecallHistogram(t *testing.T) {
@@ -147,8 +116,7 @@ func TestNeedRecallHistogram(t *testing.T) {
 		return m.Histogram.GetSampleCount()
 	}
 	for _, fail := range []bool{false, true} {
-		e, s := budgetFixture()
-		e.NeedRecallBPS = 10000
+		e, s := needFixture()
 		exclusion := "on"
 		if fail {
 			s.historyErr = errors.New("unavailable")
@@ -163,10 +131,10 @@ func TestNeedRecallHistogram(t *testing.T) {
 }
 
 // Distinct lanes force the merge cap to choose among competing candidates.
-type distinctNeedLanes struct{ *needBudgetSource }
+type distinctNeedLanes struct{ *needRecallSource }
 
 func (s distinctNeedLanes) Recall(ctx context.Context, c Context, k Kind, ch string, n int) ([]Document, error) {
-	if _, err := s.needBudgetSource.Recall(ctx, c, k, ch, n); err != nil {
+	if _, err := s.needRecallSource.Recall(ctx, c, k, ch, n); err != nil {
 		return nil, err
 	}
 	offset := int64(channelOrder(ch) * 1000)
@@ -182,8 +150,7 @@ func (s distinctNeedLanes) Recall(ctx context.Context, c Context, k Kind, ch str
 func TestNeedRecallDeterministicAtCap(t *testing.T) {
 	var want []byte
 	for i := 0; i < 20; i++ {
-		e, s := budgetFixture()
-		e.NeedRecallBPS = 10000
+		e, s := needFixture()
 		e.Sources = distinctNeedLanes{s}
 		x, err := e.Execute(context.Background(), 1, Request{SourceKinds: []Kind{Broadcast}, Prefetch: true}, Recommendation, 1800000000000)
 		require.NoError(t, err)
@@ -199,8 +166,7 @@ func TestNeedRecallDeterministicAtCap(t *testing.T) {
 }
 
 func TestNeedRecallCapRemainsLocalToEligibleContext(t *testing.T) {
-	e, s := budgetFixture()
-	e.NeedRecallBPS = 10000
+	e, s := needFixture()
 	e.frozenContexts[1].Vector = nil
 	e.frozenContexts[2].CapturedNeed = nil
 	_, err := e.Execute(context.Background(), 1, Request{SourceKinds: []Kind{Broadcast}}, Recommendation, 1800000000000)
@@ -213,8 +179,7 @@ func TestNeedRecallCapRemainsLocalToEligibleContext(t *testing.T) {
 }
 
 func TestNeedRecallNonBroadcastDoesNotAddLane(t *testing.T) {
-	e, s := budgetFixture()
-	e.NeedRecallBPS = 10000
+	e, s := needFixture()
 	for i := range e.frozenContexts {
 		e.frozenContexts[i].Kinds = []Kind{Agent}
 	}
@@ -239,11 +204,10 @@ func (s distinctProfileLanes) RecallProfile(_ context.Context, _ Context, _ []fl
 	}
 	return docs, nil
 }
-func TestProfileDenseLaneOrderIsDeterministicWithNeedRecallOff(t *testing.T) {
+func TestProfileDenseLaneOrderIsDeterministic(t *testing.T) {
 	var want []byte
 	for i := 0; i < 20; i++ {
 		e, s := profileFixture()
-		e.ProfileSemanticBPS = 10000
 		e.frozenContexts = []Context{{ID: 1, OwnerID: 1, State: "active", Origin: "agent_context", Query: "design", Kinds: []Kind{Broadcast}}}
 		for id := int64(1); id <= 300; id++ {
 			s.docs = append(s.docs, profileDoc(id, 5, 1))
@@ -265,7 +229,7 @@ func TestProfileDenseLaneOrderIsDeterministicWithNeedRecallOff(t *testing.T) {
 // the shared history read is in progress; a caller holding a slot caps this at
 // five. Shared lanes (Swing) are not held, since their waiters also take slots.
 type slotProbe struct {
-	*needBudgetSource
+	*needRecallSource
 	mu       sync.Mutex
 	inFlight int
 	released chan struct{}
@@ -279,7 +243,7 @@ func (p *slotProbe) ConsumedGroups(ctx context.Context, owner int64) ([]int64, b
 		n := p.inFlight
 		p.mu.Unlock()
 		if n >= 6 {
-			return p.needBudgetSource.ConsumedGroups(ctx, owner)
+			return p.needRecallSource.ConsumedGroups(ctx, owner)
 		}
 		select {
 		case <-ctx.Done():
@@ -302,12 +266,11 @@ func (p *slotProbe) Recall(ctx context.Context, c Context, k Kind, ch string, n 
 		p.inFlight--
 		p.mu.Unlock()
 	}
-	return p.needBudgetSource.Recall(ctx, c, k, ch, n)
+	return p.needRecallSource.Recall(ctx, c, k, ch, n)
 }
 func TestNeedRecallHistoryDoesNotHoldRecallSlots(t *testing.T) {
-	e, s := budgetFixture()
-	e.NeedRecallBPS = 10000
-	p := &slotProbe{needBudgetSource: s, released: make(chan struct{})}
+	e, s := needFixture()
+	p := &slotProbe{needRecallSource: s, released: make(chan struct{})}
 	e.Sources = p
 	_, err := e.Execute(context.Background(), 1, Request{SourceKinds: []Kind{Broadcast}}, Recommendation, 1800000000000)
 	require.NoError(t, err)
@@ -331,45 +294,20 @@ func (s *laneCounter) Hydrate(ctx context.Context, owner int64, m Mode, docs []D
 	return s.distinctNeedLanes.Hydrate(ctx, owner, m, docs)
 }
 func TestNeedRecallFreshLaneIsAdditiveAtCap(t *testing.T) {
-	lane := func(id int64) string {
-		switch {
-		case id >= 1501 && id < 2000:
-			return "need_fresh"
-		case id >= 1000 && id < 1500:
-			return "dense"
-		}
-		for _, ch := range []string{"lexical", "dense", "hot_recall", "new_recall", "new_ugc_recall", "friend", "swing_i2i"} {
-			if int64(channelOrder(ch)) == id/1000 {
-				return ch
+	e, s := needFixture()
+	lc := &laneCounter{distinctNeedLanes: distinctNeedLanes{s}}
+	e.Sources = lc
+	_, err := e.Execute(context.Background(), 1, Request{SourceKinds: []Kind{Broadcast}, Prefetch: true}, Recommendation, 1800000000000)
+	require.NoError(t, err)
+	require.Len(t, lc.inputs, 3)
+	for _, ids := range lc.inputs {
+		fresh := 0
+		for _, id := range ids {
+			if id >= 1501 && id < 2000 {
+				fresh++
 			}
 		}
-		return "?"
-	}
-	counts := func(bps int) []map[string]int {
-		e, s := budgetFixture()
-		e.NeedRecallBPS = bps
-		lc := &laneCounter{distinctNeedLanes: distinctNeedLanes{s}}
-		e.Sources = lc
-		_, err := e.Execute(context.Background(), 1, Request{SourceKinds: []Kind{Broadcast}, Prefetch: true}, Recommendation, 1800000000000)
-		require.NoError(t, err)
-		out := []map[string]int{}
-		for _, ids := range lc.inputs {
-			m := map[string]int{}
-			for _, id := range ids {
-				m[lane(id)]++
-			}
-			out = append(out, m)
-		}
-		return out
-	}
-	off, on := counts(0), counts(10000)
-	require.Len(t, off, 3)
-	require.Len(t, on, 3)
-	for i := range on {
-		require.Equal(t, needFreshLimit, on[i]["need_fresh"])
-		require.Zero(t, off[i]["need_fresh"])
-		for ch, n := range off[i] {
-			require.GreaterOrEqual(t, on[i][ch], n, "context %d lane %s lost positions to the fresh lane", i+1, ch)
-		}
+		require.Len(t, ids, 240)
+		require.Equal(t, needFreshLimit, fresh)
 	}
 }

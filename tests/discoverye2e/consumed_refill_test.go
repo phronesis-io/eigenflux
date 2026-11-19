@@ -20,7 +20,7 @@ import (
 // Real HTTP -> Feed -> Sort -> ES/forward/Redis: a consumed lexical head must
 // not starve later matching documents. Both delivery ledgers advance normally.
 func TestDiscoveryConsumedHeadRefill(t *testing.T) {
-	s := startStack(t, map[string]string{"DISCOVERY_CONSUMED_REFILL_BPS": "10000"})
+	s := startStack(t)
 	ctx := context.Background()
 	now := time.Now()
 	ids := []int64{}
@@ -78,7 +78,7 @@ func TestDiscoveryConsumedHeadRefill(t *testing.T) {
 	arms := decode[struct {
 		Experiments map[string]string `json:"experiments"`
 	}](t, []byte(sample)).Experiments
-	require.Equal(t, "treatment", arms["discovery-consumed-refill-v1"], "delivered samples record the experiment arm")
+	require.NotContains(t, arms, "discovery-consumed-refill-v1")
 	require.Eventually(t, func() bool {
 		return mq.RDB.SIsMember(ctx, fmt.Sprintf(impr.KeyItemIDs, s.owner), first.Items[0].Ref.ID).Val()
 	}, 5*time.Second, 25*time.Millisecond)

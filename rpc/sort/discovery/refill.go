@@ -22,10 +22,13 @@ const (
 	refillTimeout     = 750 * time.Millisecond
 )
 
-// RefillSources is optional so disabling the experiment retains the original
-// Sources contract. Every returned group must pass the rolling delivery dedup.
-type RefillSources interface {
+type consumedGroupReader interface {
 	ConsumedGroups(context.Context, int64) (groups []int64, complete bool, err error)
+}
+
+// RefillSources provides the history and unseen recall used to recover empty pages.
+type RefillSources interface {
+	consumedGroupReader
 	RecallUnseen(context.Context, Context, []int64, []int64, int) ([]Document, error)
 }
 
@@ -42,10 +45,6 @@ type refillContext struct {
 	context    Context
 	documents  map[string]Document
 	lexicalIDs []int64
-}
-
-func consumedRefillEnabled(owner int64, bps int) bool {
-	return bucketEnabled(consumedRefillSalt, owner, bps)
 }
 
 // Atomic bound check prevents a concurrent impression writer from growing the
@@ -155,12 +154,8 @@ func (s *Source) RecallUnseen(ctx context.Context, c Context, groups, ids []int6
 	return s.search(ctx, c, Broadcast, "lexical", limit)
 }
 
-func (e *Engine) refill(ctx context.Context, owner int64, states []refillContext, seenHead map[int64]bool, now int64,
+func refill(ctx context.Context, source RefillSources, owner int64, states []refillContext, seenHead map[int64]bool, now int64,
 	evaluate func(context.Context, Context, map[string]Document, []Document) ([]Candidate, error)) ([]Candidate, *RefillReport, []string, error) {
-	source, ok := e.Sources.(RefillSources)
-	if !ok {
-		return nil, nil, []string{"consumed_refill:unsupported"}, nil
-	}
 	report := &RefillReport{}
 	reasons := []string{}
 	type result struct {

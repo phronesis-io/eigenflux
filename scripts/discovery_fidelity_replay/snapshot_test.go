@@ -86,7 +86,7 @@ func TestChannelKeySeparatesNeedDenseLanesAndRetainsLegacyKeys(t *testing.T) {
 		}
 	}
 	ids := localIDs(100)
-	e := discovery.Engine{Sources: s, IDs: &ids, Rules: rules, NeedRecallBPS: 10000}
+	e := discovery.Engine{Sources: s, IDs: &ids, Rules: rules}
 	_, err := e.ReplayContexts(context.Background(), 1, []discovery.Context{c}, c.Kinds, 20, now)
 	require.NoError(t, err)
 	freshKey := fmt.Sprintf("1:broadcast:dense:since=%d", now-7*24*60*60*1000)

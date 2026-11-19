@@ -22,9 +22,9 @@ Policies are pure transforms with no I/O. Request-specific predicates and source
 `SortItems` reads `configs/sort/rerank.yaml` once at startup. Missing or invalid configuration logs a warning and disables configured item policies for that process. Freshness runs before typed ranking, boost runs after ranking, injection runs before Bloom deduplication, and source limits run after Bloom deduplication but before final truncation.
 
 `need_mix` (at most one) applies only to discovery recommendations in the
-`DISCOVERY_NEED_BUDGET_BPS` bucket; the legacy Feed pipeline ignores it.
+`DISCOVERY_NEED_RELATIVE_BPS` bucket; the legacy Feed pipeline ignores it.
 `reserved_fraction` is `n/d` with `0 < n ≤ d`, and `min_need_cosine` is required
-in `[-1, 1]`. See [Need budgets and attribution](discovery.md#need-candidate-budget-and-attribution-experiment).
+in `[-1, 1]`. See [Need relative attribution](discovery.md#need-relative-attribution-experiment).
 Like every policy, an invalid `need_mix` disables all configured policies for
 the process.
 
@@ -36,5 +36,5 @@ Run `go test ./rpc/sort/rank/... ./rpc/sort/rerank/...` and build the Sort servi
 
 The default policy also caps `swing_i2i` at one quarter of each recommendation
 page (five on a 20-item page). This is a global source ceiling, independent of
-`DISCOVERY_NEED_BUDGET_BPS`; unioned cross-Need source attribution counts toward
+`DISCOVERY_NEED_RELATIVE_BPS`; unioned cross-Need source attribution counts toward
 the cap even when another context owns the delivered item.
