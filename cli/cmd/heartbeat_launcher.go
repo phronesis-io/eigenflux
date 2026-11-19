@@ -69,6 +69,23 @@ func heartbeatLauncherArgs(bin, home, server, mode, shellName string) ([]string,
 	return args, nil
 }
 
+// posixWord leaves shell-safe arguments bare so the rendered command text keeps
+// the same tokens as the owner's Codex prefix rule; other values are quoted.
+func posixWord(value string) string {
+	if value == "" {
+		return shellQuote(value)
+	}
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case strings.ContainsRune("/._-:@=+,%", r):
+		default:
+			return shellQuote(value)
+		}
+	}
+	return value
+}
+
 func renderHeartbeatCLIPrefix(bin, home, server, shellName string, mode ...string) (string, error) {
 	shellName = heartbeatShellName(shellName)
 	args, err := heartbeatCLIPrefixArgs(bin, home, server, mode...)
@@ -78,7 +95,7 @@ func renderHeartbeatCLIPrefix(bin, home, server, shellName string, mode ...strin
 	switch shellName {
 	case "posix":
 		for i := range args {
-			args[i] = shellQuote(args[i])
+			args[i] = posixWord(args[i])
 		}
 		return strings.Join(args, " "), nil
 	case "powershell":
@@ -108,7 +125,7 @@ func renderHeartbeatLauncher(bin, home, server, mode, shellName string) (string,
 	switch shellName {
 	case "posix":
 		for i := range args {
-			args[i] = shellQuote(args[i])
+			args[i] = posixWord(args[i])
 		}
 		return strings.Join(args, " "), nil
 	case "powershell":

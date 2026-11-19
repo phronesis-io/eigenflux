@@ -327,7 +327,8 @@ func TestHeartbeatNativeDeclineArgvAndScopeFence(t *testing.T) {
 		{"direct target override", append(append([]string{}, direct...), "--homedir", "/other"), false},
 		{"compound command", []string{"/bin/zsh", "-lc", posix + " && echo ok"}, false},
 		{"unknown wrapper", []string{"python3", "-c", posix}, false},
-		{"different target", []string{"/bin/zsh", "-lc", strings.Replace(posix, shellQuote(scope.Server), shellQuote("other"), 1)}, false},
+		{"different target", []string{"/bin/zsh", "-lc", strings.Replace(posix, "--server "+posixWord(scope.Server)+" ", "--server other ", 1)}, false},
+		{"longer Home sharing the prefix", []string{"/bin/zsh", "-lc", strings.Replace(posix, posixWord(scope.Home)+" ", posixWord(scope.Home)+"2 ", 1)}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			raw, _ := json.Marshal(tc.command)

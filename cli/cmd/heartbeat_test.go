@@ -177,7 +177,7 @@ func TestHeartbeatPlanJSONCarriesCurrentPromptAndAccessDecision(t *testing.T) {
 			if strings.Contains(plan.SchedulerLauncher, "EIGENFLUX_MODEL") {
 				t.Fatal("scheduler must not freeze the current model")
 			}
-			if plan.SkillsTarget != rulesDir || (!strings.Contains(plan.CLIPrefix, "--server") || !strings.Contains(plan.CLIPrefix, shellQuote(serverName))) {
+			if plan.SkillsTarget != rulesDir || (!strings.Contains(plan.CLIPrefix, "--server") || !strings.Contains(plan.CLIPrefix, posixWord(serverName))) {
 				t.Fatalf("host target/server lost: %+v", plan)
 			}
 		})
@@ -371,7 +371,7 @@ func TestHeartbeatPlanAcceptsLegacyEnvironmentMode(t *testing.T) {
 				t.Fatal(err)
 			}
 			home, _ := config.HomeDirInfo()
-			for _, part := range []string{shellQuote("--homedir") + " " + shellQuote(home), shellQuote("--server") + " " + shellQuote(serverName), shellQuote("--runtime-mode") + " " + shellQuote(mode)} {
+			for _, part := range []string{"--homedir " + posixWord(home), "--server " + posixWord(serverName), "--runtime-mode " + posixWord(mode)} {
 				if !strings.Contains(plan.CLIPrefix, part) || !strings.Contains(plan.SchedulerLauncher, part) {
 					t.Fatalf("legacy identity lost %q: %+v", part, plan)
 				}

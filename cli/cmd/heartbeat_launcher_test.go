@@ -47,8 +47,11 @@ func TestNativeLauncherPreservesSelectedShell(t *testing.T) {
 			t.Fatal(err)
 		}
 		quote := "'"
-		if shell == "cmd" {
+		switch shell {
+		case "cmd":
 			quote = "\""
+		case "posix":
+			quote = ""
 		}
 		if !strings.Contains(launcher, quote+"--shell"+quote+" "+quote+shell+quote) {
 			t.Fatalf("shell lost in launcher: %s", launcher)
@@ -79,6 +82,32 @@ func TestNativeLauncherRunsWithoutLoginPath(t *testing.T) {
 	want := "--homedir\n" + home + "\n--server\nselected-server\n--runtime-mode\nskill\nheartbeat\nplan\n--shell\nposix\n--format\nagent\n"
 	if string(got) != want {
 		t.Fatalf("unattended launcher changed account or command: %q", got)
+	}
+}
+
+func TestPOSIXHeartbeatCommandsKeepSafeArgumentsBare(t *testing.T) {
+	bin, home := "/Users/owner/.local/bin/eigenflux", "/Users/owner/.eigenflux"
+	prefix, err := renderHeartbeatCLIPrefix(bin, home, "eigenflux", "posix", "skill")
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, _ := heartbeatCLIPrefixArgs(bin, home, "eigenflux", "skill")
+	if want := strings.Join(args, " "); prefix != want {
+		t.Fatalf("safe prefix was quoted: got %q want %q", prefix, want)
+	}
+	// The command text must begin with the exact tokens of the onboarding prefix rule.
+	rule := strings.Join([]string{bin, "--homedir", home, "--server", "eigenflux"}, " ") + " "
+	if !strings.HasPrefix(prefix+" ", rule) {
+		t.Fatalf("prefix %q does not start with rule tokens %q", prefix, rule)
+	}
+	launcher, err := renderHeartbeatLauncher(bin, home, "eigenflux", "skill", "posix")
+	if err != nil || !strings.HasPrefix(launcher, rule) || strings.Contains(launcher, "'") {
+		t.Fatalf("launcher %q %v", launcher, err)
+	}
+	for value, want := range map[string]string{"": "''", "my home": "'my home'", "o'brien": `'o'"'"'brien'`, "$HOME": "'$HOME'", "a*b": "'a*b'", "~x": "'~x'"} {
+		if got := posixWord(value); got != want {
+			t.Errorf("posixWord(%q) = %q, want %q", value, got, want)
+		}
 	}
 }
 
