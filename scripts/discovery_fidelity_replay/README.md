@@ -197,8 +197,10 @@ Run `-mode need-relative -dir <dir>` offline. Each baseline page must reproduce
 the captured execution exactly. The relative treatment uses the serving
 200/240 caps. The diagnostic reference uses raw cosine attribution, mixing and
 the historical 300 cap. The 20-item page report in `need-relative.json` contains
-per-context counts, absent Needs, top share, below-0.4 share and missing cosine
-counts. Shares use all Need-attributed page items as denominator and are zero
-for an empty Need page. Cohort means weight Agents equally. The command exits
+per-context counts, absent Needs, top share, below-floor share (the frozen
+`need_mix` `min_need_cosine`) and missing cosine counts. Shares use all
+Need-attributed page items as denominator and are zero for an empty Need page.
+Share means weight equally the Agents whose page has Need-attributed items
+(`PagesWithNeedItems`); absent-Need and item-count means cover all Agents. The command exits
 with an error if mean concentration does not decrease, any Agent loses all
 Need-attributed items, or the mean below-floor share rises by more than 5 pp.

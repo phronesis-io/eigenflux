@@ -205,7 +205,7 @@ func Merge(in []Candidate, kinds []Kind, mode Mode, limit int, attribution NeedA
 	if mode == Recommendation && attribution != NeedAttributionOff {
 		strength := AttributionCosine
 		if attribution == NeedAttributionRelative {
-			strength = localStrength(in)
+			strength = localStrength(in, mix)
 		}
 		winners := map[string]int{}
 		for i, c := range in {
@@ -364,7 +364,8 @@ func mixNeeds(tier []Candidate, mix NeedMix, room int, add func(Candidate) bool)
 }
 
 // localStrength uses competition ranks so tied cosines share the same rank.
-func localStrength(in []Candidate) func(Candidate) (float64, bool) {
+// With mix, a copy at the reserved-position floor outranks every copy below it.
+func localStrength(in []Candidate, mix *NeedMix) func(Candidate) (float64, bool) {
 	populations := make(map[int64][]float64)
 	for _, c := range in {
 		if c.Document.Ref.Type == Broadcast && c.Score.Eligible {
@@ -382,11 +383,16 @@ func localStrength(in []Candidate) func(Candidate) (float64, bool) {
 			return 0, false
 		}
 		values := populations[c.Context.ID]
-		if len(values) == 1 {
-			return 1, true
+		rank := 1.0
+		if len(values) > 1 {
+			end := sort.Search(len(values), func(i int) bool { return values[i] > v })
+			rank = float64(end-1) / float64(len(values)-1)
 		}
-		end := sort.Search(len(values), func(i int) bool { return values[i] > v })
-		return float64(end-1) / float64(len(values)-1), true
+		// Ranks lie in [0,1], so +1 places every qualifying copy above every non-qualifying one.
+		if mix != nil && v >= mix.MinNeedCosine {
+			rank++
+		}
+		return rank, true
 	}
 }
 

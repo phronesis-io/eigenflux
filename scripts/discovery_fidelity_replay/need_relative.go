@@ -17,7 +17,7 @@ type needPage struct {
 	TopShare, BelowFloorShare                         float64
 }
 
-func summarizeNeedPage(contexts []discovery.Context, candidates []discovery.Candidate) needPage {
+func summarizeNeedPage(contexts []discovery.Context, candidates []discovery.Candidate, floor float64) needPage {
 	page := needPage{Counts: map[int64]int{}}
 	for _, c := range contexts {
 		if c.CapturedNeed != nil {
@@ -34,7 +34,7 @@ func summarizeNeedPage(contexts []discovery.Context, candidates []discovery.Cand
 		top = max(top, page.Counts[c.Context.ID])
 		if v, ok := discovery.AttributionCosine(c); !ok {
 			page.MissingCosine++
-		} else if v < .4 {
+		} else if v < floor {
 			page.BelowFloor++
 		}
 	}
@@ -70,7 +70,11 @@ func (s referenceSource) Hydrate(_ context.Context, _ int64, _ discovery.Mode, d
 func evaluateNeedRelative(cfg *config.Config, dir string) {
 	snapshots := loadSnapshots(dir)
 	pages := map[int64]map[string]needPage{}
-	type mean struct{ TopShare, BelowFloorShare, AbsentNeeds, NeedItems float64 }
+	// Page shares average over pages with Need items; an empty page has no allocation to measure.
+	type mean struct {
+		TopShare, BelowFloorShare, AbsentNeeds, NeedItems float64
+		PagesWithNeedItems                                int
+	}
 	means := map[string]mean{}
 	lost := []int64{}
 	for _, s := range snapshots {
@@ -109,14 +113,17 @@ func evaluateNeedRelative(cfg *config.Config, dir string) {
 					panic(fmt.Sprintf("baseline mismatch for Agent %d", s.Owner))
 				}
 			}
-			row := summarizeNeedPage(s.Contexts, got.Candidates)
+			row := summarizeNeedPage(s.Contexts, got.Candidates, e.NeedMix.MinNeedCosine)
 			if len(row.Counts) < 2 {
 				panic(fmt.Sprintf("Agent %d requires two captured Needs", s.Owner))
 			}
 			rows[arm] = row
 			m := means[arm]
-			m.TopShare += row.TopShare
-			m.BelowFloorShare += row.BelowFloorShare
+			if row.NeedItems > 0 {
+				m.TopShare += row.TopShare
+				m.BelowFloorShare += row.BelowFloorShare
+				m.PagesWithNeedItems++
+			}
 			m.AbsentNeeds += float64(row.AbsentNeeds)
 			m.NeedItems += float64(row.NeedItems)
 			means[arm] = m
@@ -128,7 +135,8 @@ func evaluateNeedRelative(cfg *config.Config, dir string) {
 	}
 	n := float64(len(snapshots))
 	for arm, sum := range means {
-		means[arm] = mean{sum.TopShare / n, sum.BelowFloorShare / n, sum.AbsentNeeds / n, sum.NeedItems / n}
+		withItems := float64(max(sum.PagesWithNeedItems, 1))
+		means[arm] = mean{sum.TopShare / withItems, sum.BelowFloorShare / withItems, sum.AbsentNeeds / n, sum.NeedItems / n, sum.PagesWithNeedItems}
 	}
 	base, treatment := means["baseline"], means["relative"]
 	passed := treatment.TopShare < base.TopShare && treatment.BelowFloorShare <= base.BelowFloorShare+.05 && len(lost) == 0

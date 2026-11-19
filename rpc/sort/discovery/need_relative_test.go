@@ -314,7 +314,7 @@ func TestRelativeAttributionUsesLocalRanks(t *testing.T) {
 	ignored := makeCopy(1, 99, 1)
 	ignored.Score.Eligible = false
 	in = []Candidate{a, b, ignored, makeCopy(2, 15, .9), makeCopy(2, 16, .4)}
-	strength := localStrength(in)
+	strength := localStrength(in, nil)
 	for _, c := range []Candidate{a, b, in[3]} {
 		v, ok := strength(c)
 		require.True(t, ok)
@@ -326,6 +326,33 @@ func TestRelativeAttributionUsesLocalRanks(t *testing.T) {
 	}
 	in[0].Score.Features = nil
 	require.EqualValues(t, 2, winner(in, NeedAttributionRelative))
+}
+
+func TestRelativeAttributionPrefersReservedFloorBeforeRank(t *testing.T) {
+	makeCopy := func(ctx, id int64, cosine float64) Candidate {
+		c := attributionCandidate(ctx, cosine, .5, "dense")
+		c.Document.Ref.ID = id
+		return c
+	}
+	// Context 1 ranks the shared copy last; context 2 ranks it first, below the floor.
+	in := []Candidate{makeCopy(1, 11, .80), makeCopy(1, 12, .78), makeCopy(1, 10, .74), makeCopy(2, 10, .60), makeCopy(2, 14, .50)}
+	winner := func(mix *NeedMix) int64 {
+		t.Helper()
+		for _, c := range Merge(in, []Kind{Broadcast}, Recommendation, 20, NeedAttributionRelative, mix) {
+			if c.Document.Ref.ID == 10 {
+				return c.Context.ID
+			}
+		}
+		t.Fatal("missing shared broadcast")
+		return 0
+	}
+	for i := 0; i < 2; i++ {
+		require.EqualValues(t, 2, winner(nil), "without need_mix the local rank decides")
+		require.EqualValues(t, 2, winner(&NeedMix{Numerator: 3, Denominator: 4, MinNeedCosine: .55}), "both qualify, so rank decides")
+		require.EqualValues(t, 1, winner(&NeedMix{Numerator: 3, Denominator: 4, MinNeedCosine: .65}), "only the qualifying copy can take a reserved position")
+		require.EqualValues(t, 2, winner(&NeedMix{Numerator: 3, Denominator: 4, MinNeedCosine: .9}), "neither qualifies, so rank decides")
+		slices.Reverse(in)
+	}
 }
 
 func TestRelativeBucketEnablesMixInRecommendations(t *testing.T) {

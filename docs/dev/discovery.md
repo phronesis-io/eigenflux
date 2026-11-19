@@ -867,7 +867,11 @@ eligible context before global ordering and enables the configured Need mix.
 
 An injected copy wins first, followed by a copy recalled by the context's own
 lexical or dense lane. Among equally preferred copies, a copy with cosine
-evidence wins over one without. Each context ranks all its eligible broadcast
+evidence wins over one without. When `need_mix` is configured, a copy whose
+current-Need cosine reaches `min_need_cosine` then wins over one below it, so a
+shared broadcast keeps its reserved-position eligibility whenever any copy has
+it; strength decides only between copies on the same side of the floor. Each
+context ranks all its eligible broadcast
 copies with cosine evidence, including injected and pooled copies.
 Strength is `1 - count(strictly higher cosine) / (population - 1)`, or 1 for
 a singleton. Equal strengths fall through to the existing ordering. The winner

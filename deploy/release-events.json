@@ -359,7 +359,7 @@
     "deploy_scope": "full",
     "dashboards": ["recommendation-effect"],
     "title": "Allocate shared broadcasts by relative Need strength",
-    "description": "Relative attribution and Need mixing default off. Compare recommendation arms from bucket activation after Sort rollout. Existing frozen pages retain their order.",
+    "description": "Relative attribution and Need mixing default off. Compare recommendation arms from bucket activation after Sort rollout. New recommendations stop recording the Need recall and budget labels; existing frozen pages retain their order and labels.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/590"
   },
   {

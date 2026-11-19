@@ -84,7 +84,6 @@ func TestNeedRecallQueriesAndCaps(t *testing.T) {
 
 func TestNeedRecallOnlyVectorBroadcastNeeds(t *testing.T) {
 	e, s := needFixture()
-
 	e.frozenContexts[0].Vector = nil
 	e.frozenContexts[1].CapturedNeed = nil
 	e.frozenContexts[1].Origin = "profile"
@@ -102,7 +101,6 @@ func TestNeedRecallOnlyVectorBroadcastNeeds(t *testing.T) {
 
 func TestNeedRecallHistoryCancellation(t *testing.T) {
 	e, s := needFixture()
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s.cancel, s.timeout = cancel, true
@@ -119,7 +117,6 @@ func TestNeedRecallHistogram(t *testing.T) {
 	}
 	for _, fail := range []bool{false, true} {
 		e, s := needFixture()
-
 		exclusion := "on"
 		if fail {
 			s.historyErr = errors.New("unavailable")
@@ -154,7 +151,6 @@ func TestNeedRecallDeterministicAtCap(t *testing.T) {
 	var want []byte
 	for i := 0; i < 20; i++ {
 		e, s := needFixture()
-
 		e.Sources = distinctNeedLanes{s}
 		x, err := e.Execute(context.Background(), 1, Request{SourceKinds: []Kind{Broadcast}, Prefetch: true}, Recommendation, 1800000000000)
 		require.NoError(t, err)
@@ -171,7 +167,6 @@ func TestNeedRecallDeterministicAtCap(t *testing.T) {
 
 func TestNeedRecallCapRemainsLocalToEligibleContext(t *testing.T) {
 	e, s := needFixture()
-
 	e.frozenContexts[1].Vector = nil
 	e.frozenContexts[2].CapturedNeed = nil
 	_, err := e.Execute(context.Background(), 1, Request{SourceKinds: []Kind{Broadcast}}, Recommendation, 1800000000000)
@@ -185,7 +180,6 @@ func TestNeedRecallCapRemainsLocalToEligibleContext(t *testing.T) {
 
 func TestNeedRecallNonBroadcastDoesNotAddLane(t *testing.T) {
 	e, s := needFixture()
-
 	for i := range e.frozenContexts {
 		e.frozenContexts[i].Kinds = []Kind{Agent}
 	}
@@ -276,7 +270,6 @@ func (p *slotProbe) Recall(ctx context.Context, c Context, k Kind, ch string, n 
 }
 func TestNeedRecallHistoryDoesNotHoldRecallSlots(t *testing.T) {
 	e, s := needFixture()
-
 	p := &slotProbe{needRecallSource: s, released: make(chan struct{})}
 	e.Sources = p
 	_, err := e.Execute(context.Background(), 1, Request{SourceKinds: []Kind{Broadcast}}, Recommendation, 1800000000000)
@@ -301,7 +294,6 @@ func (s *laneCounter) Hydrate(ctx context.Context, owner int64, m Mode, docs []D
 	return s.distinctNeedLanes.Hydrate(ctx, owner, m, docs)
 }
 func TestNeedRecallFreshLaneIsAdditiveAtCap(t *testing.T) {
-
 	e, s := needFixture()
 	lc := &laneCounter{distinctNeedLanes: distinctNeedLanes{s}}
 	e.Sources = lc
