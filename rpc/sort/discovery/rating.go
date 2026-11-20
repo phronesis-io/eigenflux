@@ -16,7 +16,6 @@ import (
 )
 
 const (
-	ratingLRSalt = "discovery-rating-lr-v1:"
 	// ratingNextSalt selects, among rating-ranked Agents, those served by the
 	// challenger model.
 	ratingNextSalt = "discovery-rating-lr-v2:"
@@ -93,8 +92,6 @@ type ratingRequest struct {
 	heat       map[int64]RatingCounts
 	heatFailed bool
 }
-
-func ratingEnabled(owner int64, bps int) bool { return bucketEnabled(ratingLRSalt, owner, bps) }
 
 func ratingRanked(c Candidate) bool {
 	return c.LR != nil && discoverylr.IsRating(c.LR.Contract)
@@ -309,12 +306,12 @@ func (s *ratingRequest) similarity(c Candidate) ratingSimilarity {
 
 // rankRating scores every eligible candidate of a broadcast-only
 // recommendation (the Feed request the model was trained on) with the
-// positive-rating model for Agents in its bucket. It returns false, leaving
+// positive-rating model. It returns false, leaving
 // candidates untouched, when the Agent is not selected or any evidence, input
 // or score is unavailable, so one request never mixes rating probabilities
 // with another scorer.
 func (e *Engine) rankRating(ctx context.Context, owner int64, kinds []Kind, contexts []Context, candidates []Candidate, mode Mode, profile []float32, state *ratingRequest) bool {
-	if mode != Recommendation || len(kinds) != 1 || kinds[0] != Broadcast || e.RatingLearned == nil || e.PGCAuthors == nil || state.failed || !ratingEnabled(owner, e.RatingLRBPS) {
+	if mode != Recommendation || len(kinds) != 1 || kinds[0] != Broadcast || e.RatingLearned == nil || e.PGCAuthors == nil || state.failed {
 		return false
 	}
 	src, ok := e.Sources.(ProfileSemanticSources)

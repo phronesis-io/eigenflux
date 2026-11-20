@@ -29,7 +29,7 @@ func TestPublisherSummaryPublicationJourney(t *testing.T) {
 	if os.Getenv("SUMMARY_LIVE_MODEL_E2E") != "1" {
 		t.Skip("SUMMARY_LIVE_MODEL_E2E=1 and test model access required")
 	}
-	s := startStack(t, map[string]string{"UGC_PUBLISHER_SUMMARY": "true", "UGC_SLOP_ENABLED": "true", "UGC_SLOP_ROLLOUT_BPS": "10000"})
+	s := startStack(t, map[string]string{"UGC_PUBLISHER_SUMMARY": "true", "UGC_SLOP_ENABLED": "true"})
 	token := s.seedSession(t, s.author, "{broadcast:write,feed:read,profile:read}")
 	var initial int64
 	require.NoError(t, s.db.Table("raw_items").Where("author_agent_id=?", s.author).Count(&initial).Error)

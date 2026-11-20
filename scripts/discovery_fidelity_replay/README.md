@@ -184,3 +184,23 @@ captured before metadata and are rejected after. Run the neighbor reader with
 `--arm baseline` as well. Report this alongside captured-before comparisons to
 expose historical model/date drift; stochastic paired runs cannot establish
 causality. This mode cannot replace the unchanged-corpus A/A gate.
+
+### Relative Need attribution
+
+Use a fresh private snapshot directory with the frozen serving assets. Capture
+with `DISCOVERY_NEED_RELATIVE_BPS=0` and `-mode need-relative-capture` to select
+Agents with at least two captured broadcast Needs. The capture includes both
+Need dense lanes and resolves the full recall union for the reference arm.
+Existing cohort files take precedence over selection.
+
+Run `-mode need-relative -dir <dir>` offline. Each baseline page must reproduce
+the captured execution exactly. The relative treatment uses the serving
+200/240 caps. The diagnostic reference uses raw cosine attribution, mixing and
+the historical 300 cap. The 20-item page report in `need-relative.json` contains
+per-context counts, absent Needs, top share, below-floor share (the frozen
+`need_mix` `min_need_cosine`) and missing cosine counts. Shares use all
+Need-attributed page items as denominator and are zero for an empty Need page.
+Share means weight equally the Agents whose page has Need-attributed items
+(`PagesWithNeedItems`); absent-Need and item-count means cover all Agents. The command exits
+with an error if mean concentration does not decrease, any Agent loses all
+Need-attributed items, or the mean below-floor share rises by more than 5 pp.

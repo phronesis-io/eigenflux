@@ -108,7 +108,7 @@ func engine(cfg *config.Config, dir string, s *snapshot, source discovery.Source
 	must(rules.Validate())
 	m := discoverylr.New(cfg.DiscoveryLREnabled, filepath.Join(dir, "model.json"), 24*time.Hour)
 	policy := legacy.NewDiscoveryReplayPolicies(cfg, filepath.Join(dir, "rerank.yaml"), time.UnixMilli(s.At), s.Classes, s.Claims)
-	return &discovery.Engine{Sources: source, Rules: rules, Learned: m, Policies: policy.DiscoveryPolicies, SourceLimits: policy.DiscoverySourceLimits(), NeedMix: policy.DiscoveryNeedMix()}, m.Close
+	return &discovery.Engine{Sources: source, Rules: rules, Learned: m, Policies: policy.DiscoveryPolicies, SourceLimits: policy.DiscoverySourceLimits(), NeedMix: policy.DiscoveryNeedMix(), NeedRelativeBPS: cfg.DiscoveryNeedRelativeBPS}, m.Close
 }
 func main() {
 	mode := flag.String("mode", "capture", "capture or replay")
@@ -120,6 +120,13 @@ func main() {
 	}
 	must(os.MkdirAll(*dir, 0700))
 	cfg := config.Load()
+	if *mode == "need-relative" {
+		evaluateNeedRelative(cfg, *dir)
+		return
+	}
+	if *mode == "need-relative-capture" && cfg.DiscoveryNeedRelativeBPS != 0 {
+		panic("capture the need-relative baseline with DISCOVERY_NEED_RELATIVE_BPS=0")
+	}
 	if *mode == "ownership-evaluate" {
 		evaluateOwnership(cfg, *dir)
 		return
@@ -140,7 +147,7 @@ func main() {
 		replayAll(cfg, *dir)
 		return
 	}
-	if *mode != "capture" && *mode != "evidence" && *mode != "history" && *mode != "observed" && *mode != "refill-capture" {
+	if *mode != "need-relative-capture" && *mode != "capture" && *mode != "evidence" && *mode != "history" && *mode != "observed" && *mode != "refill-capture" {
 		panic("invalid mode")
 	}
 	// Require server-enforced read-only PG sessions, not a caller promise.
@@ -218,13 +225,18 @@ func main() {
 	if b, e := os.ReadFile(cohortPath); e == nil {
 		must(json.Unmarshal(b, &rows))
 	} else {
+		filter := ""
+		if *mode == "need-relative-capture" {
+			filter = ` WHERE (SELECT count(*) FROM jsonb_array_elements(agent_features->'search_context'->'contexts') c
+				WHERE c->'captured_need' IS NOT NULL AND c->'source_kinds' @> '["broadcast"]'::jsonb) >= 2`
+		}
 		must(db.Raw(`WITH recent AS (
  SELECT agent_id,served_at,agent_features FROM replay_logs
  WHERE pipeline_version='need_search_v1' AND request_mode='recommendation'
  AND source_kind='broadcast' AND served_at>extract(epoch from now()-interval '24 hours')*1000
  ORDER BY served_at DESC LIMIT 20000), last AS (
  SELECT DISTINCT ON(agent_id) agent_id,served_at,agent_features FROM recent ORDER BY agent_id,served_at DESC)
- SELECT agent_id,(agent_features->'search_context'->'contexts')::text AS contexts FROM last ORDER BY served_at DESC LIMIT ?`, *limit).Scan(&rows).Error)
+ SELECT agent_id,(agent_features->'search_context'->'contexts')::text AS contexts FROM last`+filter+` ORDER BY served_at DESC, agent_id LIMIT ?`, *limit).Scan(&rows).Error)
 		save(cohortPath, rows)
 	}
 

@@ -6,10 +6,8 @@ existing PGC suffix policy. PGC retains its existing template and summary path.
 `UGC_SLOP_MODEL` overrides the UGC extraction model; empty uses `LLM_MODEL`.
 The release target for this UGC path is `qwen3.8-flash`. The owner authorized
 Slop first; global main/safety/translation/PGC model changes are deferred.
-`UGC_SLOP_ROLLOUT_BPS` defaults to 10000 but the first activation is 1000 (10%
-of stable publisher hash space). Zero or out-of-range shares admit no publishers.
-Every worker and retry uses the same publisher cohort; traffic share need not be
-exactly 10%. The enable switch still defaults to false.
+When enabled, every valid UGC publisher uses this path. The emergency switch
+`UGC_SLOP_ENABLED` defaults to false and takes effect on Pipeline restart.
 
 The UGC template combines the unchanged current extraction rules with the exact
 V0.2.1 classification module. It does not overwrite the current template with the
@@ -86,15 +84,10 @@ loopback database whose name contains `slop_validation`. Run
 `go test -race ./migrations ./rpc/item/dal -run '^TestSlop'` with that variable.
 The ordinary service `PG_DSN` does not opt into these isolated tests.
 
-## First activation
+## Worker verification
 
-After required PR approval and a clean main deployment, set only
-`UGC_SLOP_ENABLED=true`, `UGC_SLOP_MODEL=qwen3.8-flash` and
-`UGC_SLOP_ROLLOUT_BPS=1000` in the root-managed runtime configuration and use the
-approved deployer. Keep other model settings unchanged. Verify all Pipeline
-workers report enablement 1 and rollout share 0.1, confirm aggregate views and
-Grafana queries, and inspect organic new decisions without publishing synthetic
-production content. Do not automatically expand the cohort.
+Check `eigenflux_ugc_slop_enabled` for each Pipeline worker and inspect organic
+decisions in the aggregate views. UGC publisher coverage is fixed while enabled.
 
 Rollback is `UGC_SLOP_ENABLED=false` followed by the same managed rollout. Model
 contract failures, incomplete cleanup or a confirmed valuable-content false

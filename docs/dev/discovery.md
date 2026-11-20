@@ -482,13 +482,12 @@ contains frozen contexts and provenance; `item_features.search` contains the
 candidate, rule evidence and policy result. Recommendation samples carry
 `agent_features.experiments`, mapping each running Agent-bucket experiment to
 the Agent's arm (`treatment` or `control`), for example
-`{"discovery-need-budget-v1": "treatment"}`. The key is the bucket salt without
+`{"discovery-need-relative-v1": "treatment"}`. The key is the bucket salt without
 its trailing colon. An experiment is running when its basis-point setting is
 positive; settings of 0 omit it, and Search samples omit the field. The arm is
 the intent-to-treat hash assignment, recorded even when a runtime dependency
 such as a model leaves the request on the incumbent path.
-`discovery-rating-lr-v2` is recorded only for `discovery-rating-lr-v1`
-treatment Agents, its population. Frozen pages keep the arms of the execution
+New executions record only the Need relative and rating V2 arms when configured. Frozen pages keep the arms of the execution
 that created them. Compare arms with `agent_features->'experiments'->>'<name>'`;
 a changed salt starts a new experiment. `item_score` is the final policy
 score. The existing unique `(impression_id, position)` key makes consumption
@@ -725,7 +724,7 @@ have missing semantic evidence rather than triggering a vector read or model
 call. Broadcast uses the same dense-score evidence; no candidate vector is loaded
 after recall. Broadcast rule versions carry `:broadcast_dense_v1` to distinguish
 this evidence change. Lexical/pool-only broadcasts no longer receive locally
-computed cosine unless also present in the dense channel. The opt-in [semantic experiment](#semantic-recommendation-experiment)
+computed cosine unless also present in the dense channel. [Semantic recommendations](#semantic-recommendations)
 reads profile cosine for every broadcast candidate in ES instead.
 
 `lexical = bm25 / (bm25 + bm25_scale)` and
@@ -842,74 +841,42 @@ scripts/cloud/install_lr_model.sh --rollback` as the installer user (on one
 shell line). Disabling `DISCOVERY_LR_ENABLED` and restarting Sort restores rule
 ordering. Keep the legacy model directory intact for a pipeline rollback.
 
-### Need recall depth experiment
+### Captured-Need dense recall
 
-`DISCOVERY_NEED_RECALL_BPS` defaults to `0`, accepts 0–10000, and selects stable
-Agent buckets using `discovery-need-recall-v1`, independently of Need budget.
-Search never enables this treatment. Restart Sort after changing the value.
+Every recommendation for a captured broadcast Need with a vector runs two dense
+lanes. The main lane retrieves up to 80 candidates across all ages. The fresh
+lane retrieves up to 40 from the previous seven days. Both use the same 300 ms
+request-local read of up to 8,192 verified consumed groups. A successful
+truncated read excludes its verified subset. A failed read leaves both lanes
+unfiltered. Downstream seen checks still apply.
 
-For each captured broadcast Need with a vector, treatment adds a dense lane
-with k=40 and `created_at >= execution time - 7 days`, alongside the main k=80
-lane. Both use the shared consumed-group exclusion described in the Need budget
-section below. One history attempt serves all Needs and both lanes; failed or
-timed-out reads leave recall unfiltered by consumption. Successful bounded
-history remains useful even when truncated. Lexical and downstream seen checks retain their existing behavior.
-
-The affected context's candidate cap rises from 200 to 240. When Need budget is
-also enabled its 300 cap takes precedence; the caps do not add. Other contexts
-keep their existing cap. The global snapshot stays at 200. Both lanes retain the
-`dense` channel, LR features and source ceilings; duplicate candidates keep the
-higher dense score under the existing version checks. Equal channels are merged
-in deterministic lane-key order, including the two existing Profile lanes.
-
+These contexts merge up to 240 candidates. The default context cap and global
+snapshot cap are 200. Both lanes use the dense channel and duplicates keep the
+higher compatible dense score. The histogram
 `discovery_need_dense_duration_seconds{lane="main|fresh",exclusion="on|off"}`
-records individual Need dense recall calls, including failures, after history
-loading. Exclusion is `on` only when nonempty group terms were applied. Main
-control calls are also measured. Sample experiment arms are recorded in
-`replay_logs.agent_features.experiments` while the experiment is configured;
-content age uses `fresh_at`, without adding lane provenance to ranking samples.
+times recall after the history read. Frozen replay keys distinguish the fresh
+lane by its execution-time cutoff.
 
-Offline recall keys append `:since=<milliseconds>` for positive cutoffs, keeping
-unbounded legacy keys unchanged and separating the new lane. Old snapshots lack
-fresh-lane evidence and require recapture for treatment replay. Before activation,
-compare 3/7/14-day windows with read-only production kNN, confirm baseline A/A,
-and measure 20 sequential calls including near-8,192-group history (p95 <=100 ms).
-The deterministic Profile tie-break can resolve previously unstable baseline
-outputs and must be checked separately in A/A.
+### Need relative attribution experiment
 
-Roll out with Need budget at 0 and Need recall at 1000 only after offline gates
-pass and runtime activation is approved. Observe latency for 24 hours before
-5000; the 14-day analysis window starts at that ramp. Rollback sets Need recall
-to 0 and restarts Sort; frozen pages retain their content for up to 30 minutes.
+`DISCOVERY_NEED_RELATIVE_BPS` defaults to 0 and accepts 0–10000. Restart Sort to
+change the stable Agent bucket. Only recommendation executions record
+`discovery-need-relative-v1` in the experiment arms while the bucket is active.
+Control uses global ordering. Treatment assigns each shared broadcast to one
+eligible context before global ordering and enables the configured Need mix.
 
-### Need candidate budget and attribution experiment
-
-`DISCOVERY_NEED_BUDGET_BPS=0` preserves the existing recommendation behavior
-(default). Values 1–10000 select a stable Agent-ID bucket independently of the
-consumed-refill, semantic and rating experiments. Sort rejects values outside
-that range. Search never uses this experiment.
-
-Selected recommendations merge up to 300 unique candidates per context and up
-to 300 broadcasts (other kinds retain their 100-candidate limit), instead of
-200. Need dense k remains 80 and the global Feed snapshot remains 200.
-
-When either the Need budget or Need recall experiment is enabled, before
-captured-Need broadcast dense retrieval, one request-local history read
-supplies every Need with at most 8,192 verified consumed groups. The same
-`ConsumedGroups` authority used by refill checks rolling delivery history.
-The kNN filter excludes these groups before top-k selection. Failed or timed-out
-history reads use no exclusion; all Needs share the same 300 ms attempt, without
-retries. Lexical recall, profile recall and downstream authoritative seen checks
-retain their existing behavior. A truncated history is still useful but does
-not exclude every consumed group.
-
-Before global recommendation ordering, each broadcast chooses one eligible
-context copy: an injected copy first, then a copy recalled by that context's
-lexical/dense channel, then the highest available current-Need cosine, then the
-existing ordering for ties or missing evidence. Evidence is read before channels
-are combined across contexts. Only the winning copy enters global ordering;
-its LR score, boosts and provenance stay intact. The merged channel attribution
-still includes losing copies so source ceilings cannot be bypassed.
+An injected copy wins first, followed by a copy recalled by the context's own
+lexical or dense lane. Among equally preferred copies, a copy with cosine
+evidence wins over one without. When `need_mix` is configured, a copy whose
+current-Need cosine reaches `min_need_cosine` then wins over one below it, so a
+shared broadcast keeps its reserved-position eligibility whenever any copy has
+it; strength decides only between copies on the same side of the floor. Each
+context ranks all its eligible broadcast
+copies with cosine evidence, including injected and pooled copies.
+Strength is `1 - count(strictly higher cosine) / (population - 1)`, or 1 for
+a singleton. Equal strengths fall through to the existing ordering. The winner
+retains its scores and boosts. Page source limits use the union of channels
+across copies.
 
 After attribution, the `need_mix` policy in `configs/sort/rerank.yaml`
 (`reserved_fraction: 3/4`, `min_need_cosine: 0.4`) mixes each tier of
@@ -951,13 +918,7 @@ not the merge or deployment time; model, cosine gates and UGC boosts are unchang
 
 ### Bounded consumed-candidate refill
 
-`DISCOVERY_CONSUMED_REFILL_BPS=0` disables refill (default). Values 1–10000
-select a stable, nested hash bucket of Agent IDs; 10000 selects all Agents.
-Restart Sort to apply a changed value. Search is unaffected. Existing frozen
-Feed pages and idempotent responses retain their snapshot until refresh/expiry
-(up to 30 minutes for legacy page state).
-
-For an enabled recommendation whose current page is empty after source limits,
+For a recommendation whose current page is empty after source limits,
 Sort makes at most one extra
 lexical recall per verified broadcast Need/Profile context (80 rows each, at
 most 10 contexts, six concurrent requests). It excludes the original lexical
@@ -988,24 +949,13 @@ Truncation and optional history, recall or validation failures appear in
 additional candidates cannot bypass authority checks; existing validated
 candidates remain available. Parent cancellation still fails the request.
 `discovery_rejected_total{reason="source_version"}` separately records stale
-recall/forward mismatches. Fixing those projections is outside this switch.
+recall/forward mismatches. These counters distinguish stale projections from empty recall.
 
-### Semantic recommendation experiment
+### Semantic recommendations
 
-`DISCOVERY_PROFILE_SEMANTIC_BPS=0` disables the experiment (default). Values
-1–10000 select a stable hash bucket of Agent IDs, independent of the refill
-bucket; 10000 selects all Agents. Restart Sort to apply a changed value. Search
-is unaffected. Analyse the experiment by bucket assignment (intent to treat):
-selected Agents without a profile vector run the ordinary path for Profile
-contexts. While the value is positive, control-bucket recommendations also
-record `profile_cosine` as a shadow score feature for Profile and friend
-candidates, without changing eligibility, ordering, partial reasons or LR
-scoring.
-
-The experiment optimises for positive ratings. Similarity only adds and orders
-candidates: a candidate the rule score accepts stays eligible.
-
-For a selected broadcast recommendation, Sort:
+Similarity adds eligible candidates and orders broadcasts for profile and captured
+Need contexts. Items that pass the rule threshold remain eligible. Search keeps
+its query scoring. For broadcast recommendations, Sort:
 
 - reads the Agent's stored profile embedding (`agent_profiles.profile_embedding`,
   through the `cache:profile:emb:{agent_id}` Redis cache) and runs two shared
@@ -1051,12 +1001,9 @@ separated positive from `-1` ratings far better than rule relevance: profile
 cosine within-Agent AUC 0.77 (0.68 on a holdout) versus 0.49, and Need cosine
 0.85 versus 0.66 on 2026-10-08/15 Need deliveries.
 
-### Positive-rating ranker experiment
+### Positive-rating ranker
 
-`DISCOVERY_RATING_LR_BPS=0` disables the experiment (default). Values 1–10000
-select a stable hash bucket of Agent IDs, independent of the refill and semantic
-buckets; 10000 selects all Agents. Restart Sort to apply a changed value. Sort
-then loads `DISCOVERY_RATING_LR_MODEL_PATH` (default
+Sort loads `DISCOVERY_RATING_LR_MODEL_PATH` (default
 `/data/models/eigenflux/discovery-rating-lr/current/model.json`) every
 `DISCOVERY_LR_RELOAD_INTERVAL`. Loading applies the same size, promotion,
 coefficient and self-test checks as the follow-up model and accepts only the
@@ -1066,10 +1013,9 @@ result prefix.
 
 The model predicts a positive rating (score ≥ 1 among rated broadcast
 recommendation deliveries). It scores broadcast-only recommendations (the Feed
-request) of selected Agents. Every eligible candidate is scored, including
-similarity-ranked candidates of the semantic experiment, and the follow-up
-model is not applied to that request. Search, multi-kind recommendations and
-unselected Agents are unchanged.
+request). Every eligible candidate is scored, including
+similarity-ranked candidates, and the follow-up
+model is not applied to that request. Search and multi-kind requests keep their existing ranking.
 
 For each selected request, Sort reads in parallel, under one 300 ms budget and
 without retries (a refill reads only its new candidates and authors, under its
@@ -1122,15 +1068,13 @@ inputs and probabilities were computed by the offline training code;
 similarity, PGC classification and delivered replay samples.
 
 The daily trainer does not produce this contract. Install a reviewed offline
-bundle in the model directory with an atomic `current` link. Setting
-`DISCOVERY_RATING_LR_BPS=0` and restarting Sort restores the existing ordering.
+bundle in the model directory with an atomic `current` link.
 
 #### Item rating-count challenger
 
 `DISCOVERY_RATING_LR_V2_BPS=0` disables the challenger (default). Values 1–10000
 select a stable hash bucket of Agent IDs, independent of the other buckets.
-The challenger serves only Agents that the rating ranker already selects
-(`DISCOVERY_RATING_LR_BPS`). Sort loads `DISCOVERY_RATING_LR_V2_MODEL_PATH`
+The challenger applies to broadcast-only recommendations served by the rating ranker. Sort loads `DISCOVERY_RATING_LR_V2_MODEL_PATH`
 (default `/data/models/eigenflux/discovery-rating-lr-v2/current/model.json`),
 which must use the `discovery_rating_lr_v2` contract, with the same reload
 interval and validation as the incumbent. Restart Sort to apply a changed value.

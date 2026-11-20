@@ -16,6 +16,9 @@ import (
 	"eigenflux_server/rpc/sort/discovery"
 )
 
+// headOnlySource replays the captured first wave for the historical comparison.
+type headOnlySource struct{ discovery.Sources }
+
 type sequentialSource struct {
 	snap           *refillSnapshot
 	inventory      map[string]discovery.Document
@@ -227,7 +230,7 @@ func replayRefill(cfg *config.Config, dir string) {
 		for i := range s.Contexts {
 			s.Contexts[i].Vector = s.Vectors[s.Contexts[i].ID]
 		}
-		baseline, close := engine(cfg, dir, &s.snapshot, newSequentialSource(&s))
+		baseline, close := engine(cfg, dir, &s.snapshot, headOnlySource{newSequentialSource(&s)})
 		got, err := baseline.ReplayContexts(context.Background(), s.Owner, s.Contexts, []discovery.Kind{discovery.Broadcast}, 20, s.At)
 		close()
 		must(err)
@@ -256,8 +259,8 @@ func replayRefill(cfg *config.Config, dir string) {
 			copy.Claims = claims
 			source := newSequentialSource(s)
 			e, close := engine(cfg, dir, &copy, source)
-			if enabled {
-				e.ConsumedRefillBPS = 10000
+			if !enabled {
+				e.Sources = headOnlySource{source}
 			}
 			sources = append(sources, source)
 			engines = append(engines, e)

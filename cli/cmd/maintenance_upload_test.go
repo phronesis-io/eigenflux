@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/maintenance"
 )
@@ -161,5 +162,72 @@ func TestMaintenanceRuntimeFailureUploadDrainsBatchAfterLegacyRejection(t *testi
 	state, err := maintenance.Snapshot(scope)
 	if err != nil || len(state.Events) != 0 || state.RuntimeFailures != 0 || state.RuntimeNextFlush != 0 || calls.Load() != 2 {
 		t.Fatalf("old gateway blocked runtime receipts: %+v, calls=%d, err=%v", state, calls.Load(), err)
+	}
+}
+
+func TestPMOwnerNoticeDoesNotBlockLegacyMaintenanceUpload(t *testing.T) {
+	pm := maintenance.NewEvent(maintenance.NewID(), "notifier", "auto", "pm_owner_notice", "submitted")
+	pm.Source, pm.Platform = "heartbeat", "darwin"
+	legacy := maintenance.NewEvent(maintenance.NewID(), "cli", "auto", "check", "started")
+	var calls atomic.Int32
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var batch struct{ Events []maintenance.Event }
+		if err := json.NewDecoder(r.Body).Decode(&batch); err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		switch calls.Add(1) {
+		case 1:
+			if len(batch.Events) != 2 {
+				t.Errorf("expected the full batch, got %+v", batch.Events)
+			}
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"code":"INVALID_MAINTENANCE_EVENT","message":"uninstall metadata requires uninstall phase"}}`))
+		case 2:
+			if len(batch.Events) != 1 || batch.Events[0].EventID != legacy.EventID {
+				t.Errorf("expected only legacy maintenance, got %+v", batch.Events)
+			}
+			_, _ = w.Write([]byte(`{"code":0}`))
+		default:
+			t.Error("unexpected extra upload")
+		}
+	}))
+	defer api.Close()
+	c := &client.Client{BaseURL: api.URL, HTTPClient: api.Client()}
+	if _, err := postMaintenanceEvents(c, []maintenance.Event{pm, legacy}); err != nil || calls.Load() != 2 {
+		t.Fatalf("legacy upload failed after %d calls: %v", calls.Load(), err)
+	}
+}
+
+func TestBackgroundMaintenanceOpensClientOnlyWhenReady(t *testing.T) {
+	scope := maintenance.Scope{Home: t.TempDir(), Server: "test", AgentID: "1"}
+	endpoint := "https://example.invalid"
+	cached := &auth.V2Credentials{AccessToken: "fixture", Scopes: []string{"onboarding:write"}}
+	openErr := errors.New("test credential refresh")
+	opens := 0
+	flush := func() error {
+		return flushBackgroundMaintenance(scope, endpoint, cached, func() (*client.Client, error) {
+			opens++
+			return nil, openErr
+		}, nil)
+	}
+	if err := flush(); err != nil || opens != 0 {
+		t.Fatalf("empty queue opened client %d times: %v", opens, err)
+	}
+	event := maintenance.NewEvent(maintenance.NewID(), "cli", "auto", "adoption", "runtime_ready")
+	event.ToVersion, event.RunningVersion = "1.0.33", "1.0.33"
+	if err := maintenance.Record(scope, event); err != nil {
+		t.Fatal(err)
+	}
+	if err := flush(); err != nil || opens != 0 {
+		t.Fatalf("onboarding pause opened client %d times: %v", opens, err)
+	}
+	cached.Scopes = []string{"settings:write"}
+	if err := flush(); !errors.Is(err, openErr) || opens != 1 {
+		t.Fatalf("ready batch opened client %d times: %v", opens, err)
+	}
+	if err := flush(); err != nil || opens != 1 {
+		t.Fatalf("retry backoff opened client %d times: %v", opens, err)
 	}
 }

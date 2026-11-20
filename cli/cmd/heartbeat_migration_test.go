@@ -83,8 +83,22 @@ func TestMigrationPreservesFullExecutionPromptAfterLegacyLauncher(t *testing.T) 
 		t.Fatal(err)
 	}
 	want := heartbeatSchedulerPrompt(launcher + " --watch-managed")
-	for _, prompt := range []string{launcher + " --watch-managed", want} {
-		in := heartbeatmigration.Inventory{Complete: true, Tasks: []heartbeatmigration.Task{{ID: "owned", Owner: "eigenflux", Purpose: "heartbeat", Home: config.HomeDir(), Server: f.watch.server.Name, Prompt: prompt, Schedule: "2h", Status: "ACTIVE", ThreadID: "owner-thread"}}}
+	type promptCase struct{ prompt, status, after string }
+	cases := []promptCase{
+		{launcher + " --watch-managed", "update", want},
+		{want, "current", want},
+	}
+	if heartbeatShellName("auto") == "posix" {
+		cli, err := stableInstalledExecutable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		managed := legacyPOSIXTestPrompt(cli, config.HomeDir(), f.watch.server.Name, " --watch-managed")
+		unmanaged := legacyPOSIXTestPrompt(cli, config.HomeDir(), f.watch.server.Name, "")
+		cases = append(cases, promptCase{managed, "current", managed}, promptCase{unmanaged, "update", want})
+	}
+	for _, tc := range cases {
+		in := heartbeatmigration.Inventory{Complete: true, Tasks: []heartbeatmigration.Task{{ID: "owned", Owner: "eigenflux", Purpose: "heartbeat", Home: config.HomeDir(), Server: f.watch.server.Name, Prompt: tc.prompt, Schedule: "2h", Status: "ACTIVE", ThreadID: "owner-thread"}}}
 		raw, _ := json.Marshal(in)
 		command.SetIn(bytes.NewReader(raw))
 		out, err := captureHeartbeatStdout(t, func() error { return command.RunE(command, nil) })
@@ -95,11 +109,7 @@ func TestMigrationPreservesFullExecutionPromptAfterLegacyLauncher(t *testing.T) 
 		if err := json.Unmarshal([]byte(out), &record); err != nil {
 			t.Fatal(err)
 		}
-		status := "update"
-		if prompt == want {
-			status = "current"
-		}
-		if record.Plan.Status != status || record.Plan.After.Tasks[0].Prompt != want {
+		if record.Plan.Status != tc.status || record.Plan.After.Tasks[0].Prompt != tc.after {
 			t.Fatalf("migration removed execution instructions: %+v", record.Plan)
 		}
 		got := record.Plan.After.Tasks[0]
@@ -152,6 +162,18 @@ func TestMigrationPendingAndRetry(t *testing.T) {
 	currentInput.Tasks[0].Prompt = heartbeatSchedulerPrompt(launcher)
 	if current, err := call("plan", currentInput); err != nil || current.Plan.Status != "current" {
 		t.Fatalf("fresh current: %+v %v", current, err)
+	}
+	if heartbeatShellName("auto") == "posix" {
+		cli, err := stableInstalledExecutable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		legacy := legacyPOSIXTestPrompt(cli, config.HomeDir(), server, "")
+		currentInput.Tasks[0].Prompt = legacy
+		current, err := call("plan", currentInput)
+		if err != nil || current.Plan.Status != "current" || current.Plan.After.Tasks[0].Prompt != legacy {
+			t.Fatalf("legacy unmanaged prompt changed: %+v %v", current.Plan, err)
+		}
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("current created a plan snapshot")

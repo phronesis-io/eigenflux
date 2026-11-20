@@ -99,22 +99,19 @@ func codexGuardPromptHash(cli, home, server, supplied string) (string, error) {
 	if prompt == "" {
 		prompt = strings.TrimSpace(canonical)
 	}
-	matched := false
 	for _, shell := range []string{"posix", "powershell", "cmd"} {
-		candidate, err := renderHeartbeatLauncher(cli, home, server, "skill", shell)
+		launchers, err := heartbeatSchedulerLaunchers(cli, home, server, shell)
 		if err != nil {
 			continue
 		}
-		if prompt == strings.TrimSpace(heartbeatSchedulerPrompt(candidate)) || prompt == strings.TrimSpace(heartbeatSchedulerPrompt(candidate+" --watch-managed")) {
-			matched = true
-			break
+		for _, launcher := range launchers {
+			if prompt == heartbeatSchedulerPrompt(launcher) || prompt == heartbeatSchedulerPrompt(launcher+" --watch-managed") {
+				sum := sha256.Sum256([]byte(prompt))
+				return hex.EncodeToString(sum[:]), nil
+			}
 		}
 	}
-	if !matched {
-		return "", fmt.Errorf("scheduler prompt must exactly match this installation's canonical prompt")
-	}
-	sum := sha256.Sum256([]byte(prompt))
-	return hex.EncodeToString(sum[:]), nil
+	return "", fmt.Errorf("scheduler prompt must exactly match this installation's canonical prompt")
 }
 
 // installCodexGuard only appends exact account/thread-scoped handlers. Hook

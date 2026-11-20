@@ -24,8 +24,13 @@ var ErrBusy = errors.New("maintenance state is busy")
 var safeValue = regexp.MustCompile(`^[A-Za-z0-9_.+-]{0,128}$`)
 var idValue = regexp.MustCompile(`^[a-f0-9]{32,64}$`)
 
-type Scope struct{ Home, Server, AgentID string }
+type Scope struct {
+	Home, Server, AgentID string
+	listingBroadcast      bool
+}
 type Event struct {
+	ListingBroadcast *ListingBroadcast `json:"listing_broadcast,omitempty"`
+
 	Runtime        *RuntimeObservation   `json:"runtime,omitempty"`
 	OuterLoop      *OuterLoopObservation `json:"outer_loop,omitempty"`
 	Commission     *Commission           `json:"commission,omitempty"`
@@ -58,19 +63,21 @@ type CLIAdoption struct {
 }
 
 type State struct {
-	NeedCaptureStarted bool                      `json:"need_capture_started,omitempty"`
-	NeedCaptures       map[string]NeedCaptureRun `json:"need_captures,omitempty"`
-	PendingCLIAdoption *CLIAdoption              `json:"pending_cli_adoption,omitempty"`
-	RuntimeNextFlush   int64                     `json:"runtime_next_flush,omitempty"`
-	RuntimeFailures    uint                      `json:"runtime_failures,omitempty"`
-	Cycles             map[string]Cycle          `json:"cycles,omitempty"`
-	ReadAttempts       map[string]Event          `json:"read_attempts,omitempty"`
-	Events             []Event                   `json:"events"`
-	Dropped            uint64                    `json:"dropped"`
-	LastAttempt        int64                     `json:"last_attempt"`
-	NextFlush          int64                     `json:"next_flush"`
-	Failures           int                       `json:"failures"`
-	Attempts           map[string]Event          `json:"attempts,omitempty"`
+	UploadPermissionRetryAt int64                     `json:"upload_permission_retry_at,omitempty"`
+	UploadCredential        string                    `json:"upload_credential,omitempty"`
+	NeedCaptureStarted      bool                      `json:"need_capture_started,omitempty"`
+	NeedCaptures            map[string]NeedCaptureRun `json:"need_captures,omitempty"`
+	PendingCLIAdoption      *CLIAdoption              `json:"pending_cli_adoption,omitempty"`
+	RuntimeNextFlush        int64                     `json:"runtime_next_flush,omitempty"`
+	RuntimeFailures         uint                      `json:"runtime_failures,omitempty"`
+	Cycles                  map[string]Cycle          `json:"cycles,omitempty"`
+	ReadAttempts            map[string]Event          `json:"read_attempts,omitempty"`
+	Events                  []Event                   `json:"events"`
+	Dropped                 uint64                    `json:"dropped"`
+	LastAttempt             int64                     `json:"last_attempt"`
+	NextFlush               int64                     `json:"next_flush"`
+	Failures                int                       `json:"failures"`
+	Attempts                map[string]Event          `json:"attempts,omitempty"`
 }
 
 func NewID() string {
@@ -87,6 +94,12 @@ func NewEvent(attempt, component, trigger, phase, result string) Event {
 func Validate(e Event) error {
 	if !idValue.MatchString(e.EventID) || !idValue.MatchString(e.AttemptID) {
 		return errors.New("invalid maintenance identity")
+	}
+	if e.Phase == ListingBroadcastPhase {
+		return validateListingBroadcast(e)
+	}
+	if e.ListingBroadcast != nil {
+		return errors.New("listing broadcast metadata requires listing broadcast phase")
 	}
 	if e.Phase == "environment" || e.Phase == "cycle" || e.Phase == "lifecycle" {
 		return ValidateRuntime(e)
@@ -108,6 +121,16 @@ func Validate(e Event) error {
 	}
 	if e.Notification != nil {
 		return errors.New("notification metadata requires notification phase")
+	}
+	if e.Phase == "pm_owner_notice" {
+		main := e.Component == "watch" && e.Source == "codex" && contains([]string{"darwin", "windows", "linux"}, e.Platform) && contains([]string{"submitted", "unconfirmed"}, e.Result)
+		desktop := e.Component == "notifier" && contains([]string{"watch", "heartbeat"}, e.Source) && contains([]string{"darwin", "windows"}, e.Platform) && contains([]string{"submitted", "disabled", "failed"}, e.Result)
+		if (!main && !desktop) || e.Trigger != "auto" || !safeValue.MatchString(e.FromVersion) ||
+			e.Host != "" || e.Mode != "" || e.ToVersion != "" || e.RunningVersion != "" ||
+			e.ErrorCode != "" || e.DurationMS != 0 || e.ReasonCategory != "" {
+			return errors.New("invalid PM owner notice observation")
+		}
+		return nil
 	}
 	if e.Phase == "uninstall" {
 		if !contains([]string{"cli", "skills", "plugin", "scheduler", "notifier"}, e.Component) || e.Trigger != "manual" || !contains([]string{"started", "removed", "partial", "failed", "blocked"}, e.Result) {
@@ -168,7 +191,11 @@ func (s Scope) path() (string, error) {
 		return "", errors.New("maintenance requires absolute Home, server and Agent identity")
 	}
 	sum := sha256.Sum256([]byte(s.Server + "\x00" + s.AgentID))
-	return filepath.Join(s.Home, "maintenance", hex.EncodeToString(sum[:16])+"-events.json"), nil
+	suffix := "-events.json"
+	if s.listingBroadcast {
+		suffix = "-listing-broadcast.json"
+	}
+	return filepath.Join(s.Home, "maintenance", hex.EncodeToString(sum[:16])+suffix), nil
 }
 func prune(st *State, now time.Time) {
 	pruneNeedCaptures(st, now)
@@ -232,11 +259,18 @@ func update(s Scope, fn func(*State) error) error {
 	if err != nil {
 		return err
 	}
+	if s.listingBroadcast {
+		return updatePathWithWait(path, 0, fn)
+	}
 	return updatePath(path, fn)
 }
 
 // updatePath shares the existing bounded OS lock and atomic replacement protocol.
 func updatePath(path string, fn func(*State) error) error {
+	return updatePathWithWait(path, 300*time.Millisecond, fn)
+}
+
+func updatePathWithWait(path string, wait time.Duration, fn func(*State) error) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
@@ -245,7 +279,7 @@ func updatePath(path string, fn func(*State) error) error {
 		return err
 	}
 	defer lock.Close()
-	deadline := time.Now().Add(300 * time.Millisecond)
+	deadline := time.Now().Add(wait)
 	for {
 		ok, e := tryLockFile(lock)
 		if e != nil {
@@ -254,7 +288,7 @@ func updatePath(path string, fn func(*State) error) error {
 		if ok {
 			break
 		}
-		if time.Now().After(deadline) {
+		if wait == 0 || time.Now().After(deadline) {
 			return ErrBusy
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -317,6 +351,9 @@ func RecordCLIAdoption(s Scope, e Event, principal, endpoint string) error {
 }
 
 func record(s Scope, e Event, adoption *CLIAdoption) error {
+	if (e.Phase == ListingBroadcastPhase) != s.listingBroadcast {
+		return errors.New("maintenance observation in wrong journal")
+	}
 	if err := Validate(e); err != nil {
 		return err
 	}
@@ -365,7 +402,19 @@ func MarkAttempt(s Scope, now time.Time) error {
 // Flush sends at most one batch. Network work is outside the state lock; stable
 // event IDs make overlapping flushes harmless. Only acknowledged IDs are removed.
 func Flush(s Scope, now time.Time, send func([]Event) error) error {
-	return flush(s, now, "", send)
+	return flush(s, now, "", "", false, send)
+}
+
+// ErrUploadOnboarding indicates that the current credential cannot upload maintenance.
+var ErrUploadOnboarding = errors.New("maintenance upload requires onboarding")
+
+// Recheck occasionally because onboarding can grant scopes to an existing
+// token without changing the locally cached credential.
+const uploadPermissionRetry = 30 * time.Minute
+
+// FlushForCredential defers background uploads when onboarding limits access.
+func FlushForCredential(s Scope, now time.Time, credential string, restricted bool, send func([]Event) error) error {
+	return flush(s, now, "", credential, restricted, send)
 }
 
 // FlushUninstall prioritizes the current physical attempt before the CLI leaves.
@@ -374,15 +423,29 @@ func FlushUninstall(s Scope, now time.Time, attempt string, send func([]Event) e
 	if !idValue.MatchString(attempt) {
 		return errors.New("invalid uninstall flush attempt")
 	}
-	return flush(s, now, attempt, send)
+	return flush(s, now, attempt, "", false, send)
 }
 
-func flush(s Scope, now time.Time, uninstallAttempt string, send func([]Event) error) error {
+func flush(s Scope, now time.Time, uninstallAttempt, credential string, restricted bool, send func([]Event) error) error {
 	var batch []Event
 	runtimeBatch := false
 	if err := update(s, func(st *State) error {
-		if err := reconcileObservationQueue(s, st, nil); err != nil {
-			observationRecoveryDiagnostic()
+		if credential != "" {
+			if st.UploadCredential != credential {
+				st.UploadCredential = credential
+				st.UploadPermissionRetryAt = 0
+				if restricted {
+					st.UploadPermissionRetryAt = now.Add(uploadPermissionRetry).UnixMilli()
+				}
+			}
+			if now.UnixMilli() < st.UploadPermissionRetryAt {
+				return nil
+			}
+		}
+		if !s.listingBroadcast {
+			if err := reconcileObservationQueue(s, st, nil); err != nil {
+				observationRecoveryDiagnostic()
+			}
 		}
 		// Older servers reject unknown runtime fields. Never mix them with existing
 		// maintenance events or let runtime backoff block legacy observations.
@@ -421,6 +484,12 @@ func flush(s Scope, now time.Time, uninstallAttempt string, send func([]Event) e
 	}
 	sendErr := send(batch)
 	err := update(s, func(st *State) error {
+		if credential != "" && errors.Is(sendErr, ErrUploadOnboarding) {
+			if st.UploadCredential == credential {
+				st.UploadPermissionRetryAt = now.Add(uploadPermissionRetry).UnixMilli()
+			}
+			return nil
+		}
 		if sendErr != nil {
 			if runtimeBatch {
 				st.RuntimeFailures++
@@ -436,6 +505,9 @@ func flush(s Scope, now time.Time, uninstallAttempt string, send func([]Event) e
 			}
 			st.NextFlush = now.Add(time.Duration(1<<st.Failures) * time.Second).UnixMilli()
 			return nil
+		}
+		if credential != "" && st.UploadCredential == credential {
+			st.UploadPermissionRetryAt = 0
 		}
 		ids := map[string]bool{}
 		for _, e := range batch {
@@ -464,6 +536,9 @@ func flush(s Scope, now time.Time, uninstallAttempt string, send func([]Event) e
 	})
 	if err != nil {
 		return err
+	}
+	if credential != "" && errors.Is(sendErr, ErrUploadOnboarding) {
+		return nil
 	}
 	return sendErr
 }

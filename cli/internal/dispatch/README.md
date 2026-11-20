@@ -29,6 +29,8 @@ Installation pending authentication is recorded in `cmd/watch_recovery_pending.g
 credential provisioning resumes only that scoped intent, and completed heartbeats
 retry it. Failed probes retain intent for retry. Notification setup failures do
 not prevent watch restoration, and another Home's LaunchAgent is not a conflict.
+macOS watch setup validates configured absolute LaunchAgent log paths before
+changing the task, including symlinks into the user's privacy-protected folders.
 
 Linux recovery distinguishes ordinary, notification-only and dispatch watches
 from their identity-matched runtime pulse, account lock and applicable ownership
@@ -184,7 +186,8 @@ ordinary/PM-only watches emits moderation only; explicit Order owners retain
 the generic HTTP output contract. Forwarding an Order is
 separate from CLI execution/ACK ownership. Pure legacy socket batches use the
 existing local identity check without HTTP token refresh or Commission lookup.
-Neither path creates a moderation execution or main-Agent job. Installed host
+Moderation is not an Order execution job. A published notice can enter the
+separate listing main-conversation queue described below. Installed host
 adapters can ignore the informational event and users can still read the inbox.
 
 When configured, desktop delivery enqueues the same notice with a scoped ID
@@ -251,7 +254,13 @@ Notification observations bind to the account at creation and enter the existing
 maintenance upload lane. Import pending local events before each flush; never
 reassign another account's records. Only setup captured before authentication
 may bind to the first account. Installer/manual/test/watch sources remain
-distinct; remote upload failure never changes notification delivery state.
+distinct. Remote upload failure never changes notification delivery state.
+The watch loop and CLI use the same permission gate for background uploads.
+The gate reads cached credentials, and the watch loop checks for credential
+refresh only when a batch is ready to send. A limited credential or an
+onboarding-required response defers the queue for 30 minutes. A changed
+credential rechecks permissions on the next flush.
+An upload can resume with the same token when onboarding grants new scopes.
 `watch_notification_permission.go` independently performs a silent OS `Check`
 every minute while desktop notifications are enabled. Startup, changes and
 five-minute renewals add an installation-scoped `device_id` and sanitized
@@ -512,7 +521,7 @@ On macOS and Windows, Watch presents only selected summaries through the exact
 Desktop owner's hidden-input transport. Watch serializes its main submissions
 across PMs, Commission and upgrade repair. An unbound, missing or archived
 Codex conversation routes PM notices to the desktop queue when enabled.
-The notification links to the inbox and excludes private message text. The
+The notification opens the Console important-message view and excludes private message text. The
 desktop queue persists the notification before Watch acknowledges the PM spool.
 A correlated owner-discovery failure without a handler also uses that route.
 Busy targets defer. Codex checkpoints a PM notice immediately before the IPC
@@ -524,12 +533,27 @@ Full non-Codex heartbeats with a matching PM Watch binding omit inbox intake.
 Pending summaries can wake a host cycle when Feed is empty. At the end of the
 cycle, `heartbeat pm-digest` claims up to five updates, decisions first, using
 the plan's binding-revision token. On macOS and Windows, a ready desktop notifier
-submits one inbox-linked alert for the batch. OpenClaw uses its existing host
+submits one alert with the number of distinct conversations and opens the
+Console important-message view for the notification's Agent and results.
+The Console can use the latest message from the affected conversation while
+an exact summary is waiting for sync. OpenClaw uses its existing host
 route. When desktop notifications are unavailable, the host handles the digest.
 The CLI claims the cycle and batch before calling the OS outside the spool lock.
 Only a confirmed pre-submission rejection reopens the cycle for host delivery.
 Host output failures leave the host batch pending. A plan read alone never
 consumes summaries.
+
+The existing account-scoped maintenance queue reports Codex main submission
+confirmation and desktop OS submission results for Watch and heartbeat.
+These events carry no message content or notification URL.
+
+Watch writes each upload to a separate local file before completing the PM
+decision. An interrupted decision can replay both local writes using the same
+result ID. The reminder spool retains its existing format for older builds.
+The upload file is scoped to the account and endpoint so Watch rebinding retains
+pending uploads. It records each attempt before the request and allows up to
+three retries after the first attempt. The Console also deduplicates writes by result ID.
+Deploy the Console API and migration before releasing this CLI.
 
 The Watch checkpoints decisions with an owner notice before enqueueing it or
 sending a reply. For `pm_owner_notice_save_failed`, retry the job after restoring
@@ -660,7 +684,22 @@ Home/server CLI prefix. Published moderation events enter a separate listing
 queue for a supported main binding. This preserves the Order queue for older
 CLI builds. Other moderation states retain desktop delivery. The signed notice
 verifies the active public revision and uses the same local event claim as
-interactive listing publication. Order notice context supplies the
+interactive listing publication.
+
+The CLI records listing queue skips, durable enqueue, and main-conversation
+handoff separately from Order diagnostics. The listing Skill tags the existing
+publish command with the verified public revision on CLIs that support it.
+Handoff telemetry records the persisted outcome after dispatch returns and
+reports fixed bridge diagnostics for unsupported transport or a mismatched
+session. On startup, a recovered running listing notice reports
+execution_unconfirmed. A submitted broadcast requires an item ID in the
+broadcast API response. Skill skips report fixed reason codes. Observations are
+best effort and never gate ACK or execution.
+The separate account-scoped journal and upload route keep listing failures
+out of Order and ordinary maintenance backoff. Only the watch maintenance loop
+and the heartbeat plan upload this journal.
+
+Order notice context supplies the
 account-protected Order link, transition hint, role-checked counterparty,
 current deadline and matched Wallet credit when available. Credit lookup stays
 bounded and uses the exact Order ID. The signed rule verifies current Order

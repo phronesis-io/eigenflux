@@ -1,19 +1,20 @@
 package cmd
 
 import (
-	"cli.eigenflux.ai/internal/auth"
-	"cli.eigenflux.ai/internal/client"
-	"cli.eigenflux.ai/internal/config"
-	"cli.eigenflux.ai/internal/maintenance"
+	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
 	"time"
+
+	"cli.eigenflux.ai/internal/auth"
+	"cli.eigenflux.ai/internal/client"
+	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/maintenance"
 )
 
 func validateUninstallHome(home string) error {
@@ -150,8 +151,9 @@ func (o *uninstallObservation) finishAndPurge(result, code string) error {
 	restore := config.UseHomeDir(config.HomeDir())
 	defer restore()
 	type upload struct {
-		c     *client.Client
-		scope maintenance.Scope
+		c        *client.Client
+		scope    maintenance.Scope
+		endpoint string
 	}
 	uploads := []upload{}
 	for _, scope := range o.Scopes {
@@ -169,7 +171,7 @@ func (o *uninstallObservation) finishAndPurge(result, code string) error {
 			continue
 		}
 		c := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", credentials.AccessToken, o.Version, clientMetaForServer(server))
-		uploads = append(uploads, upload{c, scope})
+		uploads = append(uploads, upload{c, scope, server.Endpoint})
 	}
 	var cleanupErr error
 	if result == "removed" || result == "partial" {
@@ -191,10 +193,10 @@ func (o *uninstallObservation) finishAndPurge(result, code string) error {
 			_ = saveMaintenance(path, o)
 		}
 	}
-	deadline := time.Now().Add(5 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), uninstallOutcomeUploadTimeout)
+	defer cancel()
 	for _, u := range uploads {
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
+		if ctx.Err() != nil {
 			break
 		}
 		e := maintenance.NewEvent(o.AttemptID, "cli", "manual", "uninstall", result)
@@ -207,12 +209,11 @@ func (o *uninstallObservation) finishAndPurge(result, code string) error {
 				break
 			}
 		}
-		u.c.HTTPClient = &http.Client{Timeout: remaining}
-		if _, err := postMaintenanceEvents(u.c, []maintenance.Event{e}); err != nil {
+		if err := o.postUninstallOutcomes(u.c.WithContext(ctx), u.scope, u.endpoint, []maintenance.Event{e}); err != nil {
 			fmt.Fprintln(os.Stderr, "Uninstall telemetry upload failed; local cleanup is not rolled back.")
 		}
 	}
 
-	o.reportUnregisteredOutcome(result, code)
+	o.reportUnregisteredOutcome(ctx, result, code)
 	return cleanupErr
 }

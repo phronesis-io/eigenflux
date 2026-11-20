@@ -111,7 +111,7 @@ func (s *Service) DiscoverySourceLimits() []discovery.SourceLimit {
 	return out
 }
 
-// DiscoveryNeedMix is applied by Merge to equal-priority Needs in the Need budget bucket.
+// DiscoveryNeedMix is applied by Merge to equal-priority Needs in the relative attribution bucket.
 func (s *Service) DiscoveryNeedMix() *discovery.NeedMix {
 	m := s.itemRerankPolicies.NeedMix()
 	if m == nil {

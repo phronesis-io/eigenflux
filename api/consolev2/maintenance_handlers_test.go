@@ -99,3 +99,36 @@ func TestCLIUpdateDiagnosticCodesUseExistingMaintenanceContract(t *testing.T) {
 		}
 	}
 }
+
+func TestPMOwnerNoticeTelemetryContract(t *testing.T) {
+	now := time.Now()
+	for _, test := range []struct{ component, source, result string }{
+		{"watch", "codex", "submitted"}, {"watch", "codex", "unconfirmed"},
+		{"notifier", "watch", "submitted"}, {"notifier", "heartbeat", "failed"},
+	} {
+		e := validMaintenanceEvent()
+		e.Phase, e.Component, e.Source, e.Result = "pm_owner_notice", test.component, test.source, test.result
+		e.Platform, e.FromVersion, e.ToVersion, e.RunningVersion = "darwin", "1.0.42", "", ""
+		if err := validateMaintenanceEvent(e, now); err != nil {
+			t.Fatalf("%+v: %v", e, err)
+		}
+		e.Result = "visible"
+		if validateMaintenanceEvent(e, now) == nil {
+			t.Fatalf("unsupported OS visibility claim accepted: %+v", e)
+		}
+	}
+
+	for _, name := range []string{"pm_notice_desktop_landing", "pm_notice_banner_visible", "pm_notice_banner_clicked", "pm_notice_view_result"} {
+		event := telemetryEventRequest{EventID: "pm_notice_test", EventAt: now.UnixMilli(), EventType: name, Properties: map[string]interface{}{}}
+		if name == "pm_notice_view_result" {
+			event.Properties["source"], event.Properties["result"] = "banner", "empty"
+		}
+		if err := validateTelemetryEvent(event, now.UnixMilli()); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		event.Properties["entity_id"] = "private-message-id"
+		if validateTelemetryEvent(event, now.UnixMilli()) == nil {
+			t.Fatalf("extra PM notice property accepted: %+v", event)
+		}
+	}
+}

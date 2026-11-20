@@ -46,10 +46,16 @@ type mainNoticeQueueState struct {
 	Entries  []MainNotice `json:"entries"`
 }
 type MainNoticeQueue struct {
-	listing bool
-	mu      sync.Mutex
-	path    string
-	state   mainNoticeQueueState
+	listing             bool
+	mu                  sync.Mutex
+	path                string
+	state               mainNoticeQueueState
+	interruptedListings []MainNotice
+}
+
+// InterruptedListings reports listing handoffs recovered on this open.
+func (q *MainNoticeQueue) InterruptedListings() []MainNotice {
+	return append([]MainNotice(nil), q.interruptedListings...)
 }
 
 // Lookup returns the persisted receipt after Finish, including its retry time.
@@ -107,6 +113,11 @@ func openMainNoticeQueue(binding Binding, suffix string, listing bool) (*MainNot
 		seen[item.ID] = true
 		if item.Status == "running" {
 			item.Status, item.Code = "skipped", "execution_unconfirmed"
+			if listing {
+				recovered := *item
+				recovered.BridgeError = nil
+				q.interruptedListings = append(q.interruptedListings, recovered)
+			}
 			changed = true
 		}
 	}

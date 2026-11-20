@@ -177,6 +177,10 @@ func Check(ctx context.Context, o Options) (result Result) {
 	}
 	defer func() {
 		s.Error = result.Error
+		if result.Status == "updated" {
+			// Let the newly installed CLI check once on its next maintenance run.
+			s.Attempt = time.Time{}
+		}
 		if err := saveState(path, s); err != nil {
 			result.Error = strings.TrimSpace(result.Error + "; save update state: " + err.Error())
 		}

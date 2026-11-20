@@ -109,7 +109,9 @@ var heartbeatPlanCmd = &cobra.Command{
 			}
 			defer func() {
 				if flushMaintenance && !restarted && !isV2CredentialError(resultErr) && !v2CredentialNeedsLogin(resultErr) && !isAgentAuthUnavailable(resultErr) {
-					_ = flushMaintenanceEvents(activeServerName())
+					server := activeServerName()
+					_ = flushMaintenanceEvents(server)
+					flushHeartbeatListingBroadcastMaintenance(server)
 				}
 			}()
 			cliUpdate, restarted, updateErr = updateHeartbeatCLI(cmd, cfg, "")

@@ -161,6 +161,12 @@ owner. Platforms are `darwin`, `windows`, and `linux`. The category is
 `declined`, `other`, `usability`, `cost`, `performance`, `privacy`, or
 `no_longer_needed`. Legacy events can still use `not_provided`.
 
+Registered installations use `POST /api/v2/maintenance/registered-uninstall`
+with an Agent token carrying `onboarding:write` or `settings:write`. It accepts
+one uninstall event per request. Outcomes must match previously accepted
+feedback owned by the same Agent and carry no reason text. The general batch
+route keeps its `settings:write` requirement.
+
 The official CLI sends `uninstall_feedback: {"reason":"…"}` alongside exactly
 one CLI uninstall `started` event. Send an empty reason with `declined` only.
 Other categories require nonblank UTF-8 text of at most 1000 bytes. The API
@@ -273,3 +279,54 @@ not change authentication, deduplication, event time, queue retirement or busine
 execution. Raw error messages, paths and credentials are not accepted. Missing
 metadata stays unknown. The existing optional body field remains accepted for
 compatibility with earlier diagnostic clients.
+
+### PM owner notices
+
+`pm_owner_notice` uses the existing maintenance batch and account-scoped
+deduplication. The `codex` source records `submitted` or `unconfirmed` for
+a main conversation submission. The `watch` and `heartbeat` sources report
+the OS submission result as `submitted`, `disabled`, or `failed`.
+
+Query `telemetry_events_v2` through the existing Grafana read-only data
+source. Group the six events over the same half-open window by type, source,
+and result. Desktop link arrivals measure navigation to a notification URL.
+The first rendered view result per open is counted independently.
+
+```sql
+SELECT CASE WHEN event_type = 'maintenance_attempt' THEN 'pm_notice_' ||
+              CASE WHEN properties->>'source' = 'codex' THEN 'codex_main' ELSE 'desktop_submit' END
+            ELSE event_type END AS event_type,
+       coalesce(properties->>'source', '') AS source,
+       coalesce(properties->>'result', '') AS result,
+       count(*) AS event_count
+FROM telemetry_events_v2
+WHERE event_at >= (extract(epoch FROM now() - interval '12 hours') * 1000)::bigint
+  AND event_at < (extract(epoch FROM now()) * 1000)::bigint
+  AND ((event_type = 'maintenance_attempt' AND properties->>'phase' = 'pm_owner_notice')
+    OR event_type IN ('pm_notice_desktop_landing', 'pm_notice_banner_visible',
+                      'pm_notice_banner_clicked', 'pm_notice_view_result'))
+GROUP BY 1, 2, 3
+ORDER BY 1, 2, 3;
+```
+
+
+## Listing broadcast observations
+
+`POST /api/v2/maintenance/listing-broadcasts:batch` accepts up to 50 typed
+`commission_listing_broadcast` events under the same Agent authentication and
+`settings:write` scope as maintenance. Identity comes from the authenticated
+session. Records use their own event type, event key namespace, per-Agent rate
+key and CLI journal. A gateway without this route cannot reject or delay an
+ordinary maintenance batch. Retention is 30 days.
+
+Watch uses the commission ID, notification ID and draft version for queue and
+handoff events. Publish and Skill decisions use the commission ID and public
+revision for send events. Join draft to public revision with the listing
+revision's source draft version. A conversation confirmation is distinct from
+an API response with a broadcast ID, and submission is distinct from Feed
+distribution. These are client observations with fixed reason codes and no
+listing text, raw errors or credentials.
+
+Skipped handoffs can report main_notice_transport_unverified for a missing
+bridge capability, main_session_mismatch for a mismatched target, or
+execution_unconfirmed when startup recovers an interrupted handoff.

@@ -67,9 +67,8 @@ func (f *pgcFake) classify(_ context.Context, ids []int64) (map[int64]bool, erro
 
 func ratingFixture() (*Engine, *profileFake, *memStore, *ratingFake, *learnedFake, *pgcFake) {
 	e, s, store := profileFixtureWithStore()
-	e.ProfileSemanticBPS = 0
 	rating, learned, pgc := &ratingFake{}, &learnedFake{}, &pgcFake{}
-	e.RatingLearned, e.Learned, e.PGCAuthors, e.RatingLRBPS = rating, learned, pgc.classify, 10000
+	e.RatingLearned, e.Learned, e.PGCAuthors = rating, learned, pgc.classify
 	return e, s, store, rating, learned, pgc
 }
 
@@ -99,7 +98,7 @@ func TestRatingVectorMatchesPythonFixture(t *testing.T) {
 	if err = os.WriteFile(path, data.Model, 0600); err != nil {
 		t.Fatal(err)
 	}
-	model := discoverylr.NewRating(true, path, time.Hour)
+	model := discoverylr.NewRating(path, time.Hour)
 	defer model.Close()
 	if len(data.Cases) < 40 {
 		t.Fatalf("fixture too small: %d", len(data.Cases))
@@ -139,7 +138,7 @@ func TestRatingRanksNeedCandidatesWithCrossContextSimilarity(t *testing.T) {
 	if got := fmt.Sprint(ids(x)); got != "[3 2 1 4]" {
 		t.Fatalf("got %s", got)
 	}
-	if rating.calls != 1 || learned.calls != 0 || pgc.calls != 1 || s.vectorCalls != 1 || s.cosineCalls != 2 {
+	if rating.calls != 1 || learned.calls != 0 || pgc.calls != 1 || s.vectorCalls != 1 || s.cosineCalls != 3 {
 		t.Fatalf("rating=%d learned=%d pgc=%d vector=%d cosine=%d", rating.calls, learned.calls, pgc.calls, s.vectorCalls, s.cosineCalls)
 	}
 	for _, c := range x.Candidates {
@@ -180,8 +179,8 @@ func TestRatingRanksProfileClausesWithoutNeeds(t *testing.T) {
 			t.Fatalf("unexpected Need evidence: %v", c.RatingFeatures)
 		}
 	}
-	if s.cosineCalls != 1 || len(s.cosineIDs[0]) != 4 {
-		t.Fatalf("one profile similarity read for all candidates: %v", s.cosineIDs)
+	if s.cosineCalls != 2 || len(s.cosineIDs[0]) != 4 || len(s.cosineIDs[1]) != 4 {
+		t.Fatalf("one semantic read and one rating read for all candidates: %v", s.cosineIDs)
 	}
 }
 
@@ -199,30 +198,26 @@ func TestRatingFallsBackToExistingRanking(t *testing.T) {
 			s.cosine[1], s.cosine[2] = .2, .6
 			mutate(e, s, rating, pgc)
 			x := runProfile(t, e)
-			if len(x.Candidates) != 2 || learned.calls == 0 {
+			semanticUnavailable := name == "cosine error" || name == "vector error"
+			if len(x.Candidates) != 2 || (learned.calls > 0) != semanticUnavailable {
 				t.Fatalf("existing ranking must apply: %+v", x.Candidates)
 			}
 			for _, c := range x.Candidates {
-				if ratingRanked(c) || c.RatingFeatures != nil || c.LR == nil || c.LR.Contract != discoverylr.Contract {
+				if ratingRanked(c) || c.RatingFeatures != nil || (c.SemanticRank == nil) != semanticUnavailable ||
+					(semanticUnavailable && (c.LR == nil || c.LR.Contract != discoverylr.Contract)) {
 					t.Fatalf("mixed scorers: %+v", c)
 				}
 			}
-			if len(x.PartialReasons) != 0 {
-				t.Fatalf("ranking fallback is not a partial result: %v", x.PartialReasons)
+			if (len(x.PartialReasons) > 0) != semanticUnavailable {
+				t.Fatalf("only a semantic evidence failure reports a partial result: %v", x.PartialReasons)
 			}
 		})
 	}
 }
 
-func TestRatingOffAndOutOfScopeRequestsAreUntouched(t *testing.T) {
-	e, s, _, rating, learned, pgc := ratingFixture()
+func TestRatingSkipsOutOfScopeRequests(t *testing.T) {
+	e, s, _, rating, _, _ := ratingFixture()
 	s.docs = []Document{profileDoc(1, 5, 1)}
-	e.RatingLRBPS = 0
-	runProfile(t, e)
-	if rating.calls != 0 || pgc.calls != 0 || s.vectorCalls != 0 || s.cosineCalls != 0 || learned.calls == 0 {
-		t.Fatalf("off path read rating evidence: rating=%d pgc=%d vector=%d cosine=%d", rating.calls, pgc.calls, s.vectorCalls, s.cosineCalls)
-	}
-	e.RatingLRBPS = 10000
 	if _, err := e.Execute(context.Background(), 1, Request{SourceKinds: []Kind{Broadcast, Commission}, Limit: 20}, Recommendation, testNow); err != nil {
 		t.Fatal(err)
 	}
@@ -275,26 +270,6 @@ func TestRatingRefillReadsOnlyNewEvidence(t *testing.T) {
 	}
 }
 
-func TestRatingBucketIsIndependent(t *testing.T) {
-	agreeSemantic, agreeRefill, n := 0, 0, 2000
-	for owner := int64(1); owner <= int64(n); owner++ {
-		if ratingEnabled(owner, 5000) == profileSemanticEnabled(owner, 5000) {
-			agreeSemantic++
-		}
-		if ratingEnabled(owner, 5000) == consumedRefillEnabled(owner, 5000) {
-			agreeRefill++
-		}
-	}
-	for _, agree := range []int{agreeSemantic, agreeRefill} {
-		if agree < n*4/10 || agree > n*6/10 {
-			t.Fatalf("buckets correlated: %d/%d agree", agree, n)
-		}
-	}
-	if ratingEnabled(1, 0) || !ratingEnabled(1, 10000) {
-		t.Fatal("bounds")
-	}
-}
-
 func TestMergeOrdersRatingAcrossContextsAndKeepsInjectedFront(t *testing.T) {
 	rated := func(id, ctx int64, order int, score float64, reasons ...string) Candidate {
 		c := Candidate{Context: Context{ID: ctx, Origin: "agent_context"}, Document: Document{Ref: SourceRef{Broadcast, id}},
@@ -309,16 +284,16 @@ func TestMergeOrdersRatingAcrossContextsAndKeepsInjectedFront(t *testing.T) {
 		rated(4, 2, 1, .9), rated(5, 2, 2, .3),
 		needCandidate,
 	}
-	if got := fmt.Sprint(ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 10, false, nil)})); got != "[9 4 1 2 5 3]" {
+	if got := fmt.Sprint(ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 10, NeedAttributionOff, nil)})); got != "[9 4 1 2 5 3]" {
 		t.Fatalf("got %s", got)
 	}
 	slices.Reverse(in)
-	if got := fmt.Sprint(ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 10, false, nil)})); got != "[9 4 1 2 5 3]" {
+	if got := fmt.Sprint(ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 10, NeedAttributionOff, nil)})); got != "[9 4 1 2 5 3]" {
 		t.Fatalf("order depends on input order: %s", got)
 	}
 	in[0].Context.Priority = 1
 	in[0].Context.CapturedNeed = nil
-	if got := fmt.Sprint(ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 10, false, nil)})); got != "[9 4 1 2 5 3]" {
+	if got := fmt.Sprint(ids(Execution{Candidates: Merge(in, []Kind{Broadcast}, Recommendation, 10, NeedAttributionOff, nil)})); got != "[9 4 1 2 5 3]" {
 		t.Fatalf("priority: %s", got)
 	}
 }
@@ -340,7 +315,6 @@ func TestRatingVectorBoundsSimilarity(t *testing.T) {
 
 func TestRatingReplacesSemanticOrderingWhenBothRun(t *testing.T) {
 	e, s, _, rating, learned, _ := ratingFixture()
-	e.ProfileSemanticBPS = 10000
 	rating.by = "is_pgc"
 	s.docs = []Document{profileDoc(1, 5, 1), profileDoc(2, 5, 1)}
 	s.docs[1].AuthorID = 77
@@ -357,9 +331,9 @@ func TestRatingReplacesSemanticOrderingWhenBothRun(t *testing.T) {
 	if s.vectorCalls != 1 {
 		t.Fatalf("the semantic profile vector must be reused: %d reads", s.vectorCalls)
 	}
-	e.RatingLRBPS = 0
+	e.RatingLearned = nil
 	if x = runProfile(t, e); fmt.Sprint(ids(x)) != "[1 2]" || ratingRanked(x.Candidates[0]) {
-		t.Fatalf("control keeps semantic ordering: %v", ids(x))
+		t.Fatalf("missing rating model keeps semantic ordering: %v", ids(x))
 	}
 }
 
@@ -508,12 +482,7 @@ func TestRatingChallengerScope(t *testing.T) {
 	if next.calls != 0 || rating.calls != 1 || len(s.reads) != 0 {
 		t.Fatalf("challenger off: next=%d incumbent=%d reads=%d", next.calls, rating.calls, len(s.reads))
 	}
-	e.RatingNextBPS, e.RatingLRBPS = 10000, 0
-	runProfile(t, e)
-	if next.calls != 0 || len(s.reads) != 0 {
-		t.Fatal("the challenger only serves rating-ranked Agents")
-	}
-	e.RatingLRBPS = 10000
+	e.RatingNextBPS = 10000
 	e.Sources = s.profileFake
 	runProfile(t, e)
 	if next.calls != 0 || rating.calls != 2 {
@@ -524,7 +493,7 @@ func TestRatingChallengerScope(t *testing.T) {
 func TestRatingNextBucketIsIndependent(t *testing.T) {
 	agree, n := 0, 2000
 	for owner := int64(1); owner <= int64(n); owner++ {
-		if bucketEnabled(ratingNextSalt, owner, 5000) == ratingEnabled(owner, 5000) {
+		if bucketEnabled(ratingNextSalt, owner, 5000) == bucketEnabled(needRelativeSalt, owner, 5000) {
 			agree++
 		}
 	}

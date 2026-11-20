@@ -92,7 +92,6 @@ func profileFixtureWithStore() (*Engine, *profileFake, *memStore) {
 	s.owner = OwnerContext{Clauses: []string{"battery", "solid state"}}
 	f := &profileFake{sourceFake: s, vector: []float32{1, 0}, cosine: map[int64]float64{}, needCosine: map[int64]float64{}}
 	e.Sources = f
-	e.ProfileSemanticBPS = 10000
 	return e, f, store
 }
 
@@ -124,35 +123,6 @@ func TestProfileMinCosineTightensWithAge(t *testing.T) {
 	}
 	if got := profileMinCosine(0, testNow); got != .50 {
 		t.Fatalf("unknown age must use the strictest floor: %v", got)
-	}
-}
-
-func TestProfileSemanticBucketIsIndependentOfRefill(t *testing.T) {
-	same, n := 0, 2000
-	for owner := int64(1); owner <= int64(n); owner++ {
-		if profileSemanticEnabled(owner, 5000) == consumedRefillEnabled(owner, 5000) {
-			same++
-		}
-	}
-	if same < n*4/10 || same > n*6/10 {
-		t.Fatalf("buckets correlated: %d/%d agree", same, n)
-	}
-	if profileSemanticEnabled(1, 0) || !profileSemanticEnabled(1, 10000) {
-		t.Fatal("bounds")
-	}
-}
-
-func TestProfileSemanticOffKeepsRuleScoring(t *testing.T) {
-	e, s := profileFixture()
-	e.ProfileSemanticBPS = 0
-	s.docs = []Document{profileDoc(1, 5, 1)}
-	s.cosine[1] = .1
-	x := runProfile(t, e)
-	if s.vectorCalls != 0 || s.cosineCalls != 0 || s.recallCalls != 0 {
-		t.Fatalf("off path read profile evidence: %+v", s)
-	}
-	if len(x.Candidates) != 1 || x.Candidates[0].Score.Kind != "rule_score" {
-		t.Fatalf("off path changed: %+v", x.Candidates)
 	}
 }
 
@@ -230,10 +200,6 @@ func TestProfileSemanticSkipsLearnedRanker(t *testing.T) {
 	if x := runProfile(t, e); len(x.Candidates) != 1 || x.Candidates[0].LR != nil || lr.calls != 0 {
 		t.Fatalf("%+v", x.Candidates)
 	}
-	e.ProfileSemanticBPS = 0
-	if runProfile(t, e); lr.calls == 0 {
-		t.Fatal("control must keep the learned ranker")
-	}
 }
 
 func TestProfileSemanticDegradesToRules(t *testing.T) {
@@ -270,7 +236,6 @@ func TestProfileSemanticUnsupportedSources(t *testing.T) {
 	e, s, _ := engineFixture()
 	s.owner = OwnerContext{Clauses: []string{"battery"}}
 	s.docs = []Document{profileDoc(1, 5, 1)}
-	e.ProfileSemanticBPS = 10000
 	x := runProfile(t, e)
 	if len(x.Candidates) != 1 || fmt.Sprint(x.PartialReasons) != "[profile_semantic:unsupported]" {
 		t.Fatalf("%+v", x)
@@ -344,10 +309,6 @@ func TestNeedSemanticAdmitsAndOrdersByNeedVector(t *testing.T) {
 	if s.recallCalls != 0 || s.cosineCalls != 1 || lr.calls != 0 {
 		t.Fatalf("one Need similarity read, no profile recall or LR: recall=%d cosine=%d lr=%d", s.recallCalls, s.cosineCalls, lr.calls)
 	}
-	e.ProfileSemanticBPS = 0
-	if x = runProfile(t, e); fmt.Sprint(ids(x)) != "[12 14]" || lr.calls == 0 {
-		t.Fatalf("control must keep rule eligibility and LR: %v", ids(x))
-	}
 }
 
 func TestNeedSemanticDoesNotNeedProfileVector(t *testing.T) {
@@ -376,36 +337,6 @@ func TestNeedSemanticCosineFailureKeepsRules(t *testing.T) {
 	x := runProfile(t, e)
 	if fmt.Sprint(ids(x)) != "[12]" || x.Candidates[0].SemanticRank != nil || !strings.Contains(fmt.Sprint(x.PartialReasons), "need_semantic:cosine_unavailable") || s.cosineCalls != 1 {
 		t.Fatalf("expected rule fallback: %v %+v", x.PartialReasons, x.Candidates)
-	}
-}
-
-func TestProfileSemanticControlRecordsShadowCosine(t *testing.T) {
-	e, s := profileFixture()
-	bps := 10000
-	for bps > 0 && profileSemanticEnabled(1, bps) {
-		bps--
-	}
-	if bps == 0 {
-		t.Skip("owner 1 hashes to bucket 0")
-	}
-	e.ProfileSemanticBPS = bps
-	lr := &learnedFake{}
-	e.Learned = lr
-	s.docs = []Document{profileDoc(1, 5, 1)}
-	s.cosine[1] = .1 // Below every treatment floor; control must still deliver it.
-	x := runProfile(t, e)
-	if len(x.Candidates) != 1 || x.Candidates[0].SemanticRank != nil || strings.Contains(x.Candidates[0].Score.Version, "profile") {
-		t.Fatalf("control behaviour changed: %+v", x.Candidates)
-	}
-	if x.Candidates[0].Score.Features["profile_cosine"] != .1 || lr.calls == 0 {
-		t.Fatalf("shadow feature or LR missing: %+v", x.Candidates[0])
-	}
-	if s.recallCalls != 0 || len(x.PartialReasons) != 0 {
-		t.Fatalf("control must not run profile recall or report reasons: %d %v", s.recallCalls, x.PartialReasons)
-	}
-	s.vector = nil
-	if x = runProfile(t, e); len(x.Candidates) != 1 || len(x.PartialReasons) != 0 {
-		t.Fatalf("control without a vector must stay silent: %+v", x)
 	}
 }
 
@@ -491,26 +422,6 @@ func TestNeedSemanticFailureLeavesProfileScoring(t *testing.T) {
 	}
 }
 
-func TestNeedSemanticControlReadsNoNeedVector(t *testing.T) {
-	e, s, store := profileFixtureWithStore()
-	bps := 10000
-	for bps > 0 && profileSemanticEnabled(1, bps) {
-		bps--
-	}
-	if bps == 0 {
-		t.Skip("owner 1 hashes to bucket 0")
-	}
-	e.ProfileSemanticBPS = bps
-	store.active = []need.Snapshot{capturedFixture(9, Broadcast)}
-	e.Compiler.NeedVectors = needVectorsByInput(map[int64][]float32{9: testNeedVector})
-	s.docs = []Document{profileDoc(51, 5, 1)}
-	s.needCosine[51] = .9
-	x := runProfile(t, e)
-	if len(x.Candidates) != 1 || x.Candidates[0].SemanticRank != nil || s.cosineCalls != 0 || len(x.PartialReasons) != 0 {
-		t.Fatalf("control Need contexts must stay unchanged: calls=%d %+v %v", s.cosineCalls, x.Candidates, x.PartialReasons)
-	}
-}
-
 type refillSemanticFake struct {
 	*refillFake
 	profile *profileFake
@@ -530,7 +441,6 @@ func TestSemanticScoresRefillCandidates(t *testing.T) {
 	e, rf := refillFixture()
 	pf := &profileFake{sourceFake: rf.sourceFake, vector: []float32{1, 0}, cosine: map[int64]float64{}, needCosine: map[int64]float64{}}
 	e.Sources = refillSemanticFake{rf, pf}
-	e.ProfileSemanticBPS = 10000
 	for i := int64(1); i <= 3; i++ {
 		rf.docs = append(rf.docs, refillDoc(i))
 		rf.seen[fmt.Sprintf("broadcast:%d", i)] = true

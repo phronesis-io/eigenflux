@@ -96,6 +96,25 @@ func flushMaintenanceEventsAtScope(scope maintenance.Scope) error {
 	return flushMaintenanceForIdentity(scope, credentials.PrincipalID, server.Endpoint)
 }
 
+// Keep listing uploads at the heartbeat entry point. Other callers of the
+// general maintenance uploader include CLI updates and notification tools.
+func flushHeartbeatListingBroadcastMaintenance(serverName string) {
+	cfg, err := config.Load()
+	if err != nil {
+		return
+	}
+	server, err := cfg.GetActive(serverName)
+	if err != nil {
+		return
+	}
+	credentials, err := auth.LoadV2Credentials(server.Name)
+	if err != nil {
+		return
+	}
+	scope := maintenance.Scope{Home: config.HomeDir(), Server: server.Name, AgentID: credentials.AgentID}
+	flushListingBroadcastMaintenance(scope, credentials.PrincipalID, server.Endpoint, credentials)
+}
+
 func maintenanceEvent(component, phase, result string) maintenance.Event {
 	return maintenance.NewEvent(maintenance.NewID(), component, "auto", phase, result)
 }

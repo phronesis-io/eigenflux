@@ -527,7 +527,9 @@ var uninstallCmd = &cobra.Command{Use: "uninstall", Short: "Preview or remove a 
 			if err := saveMaintenance(path, observation); err != nil {
 				return err
 			}
-			observation.flush()
+			ctx, cancel := context.WithTimeout(cmd.Context(), uninstallOutcomeUploadTimeout)
+			observation.flush(ctx)
+			cancel()
 		}
 	}
 	notificationCleanup := "preserved_shared"

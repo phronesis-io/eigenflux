@@ -185,7 +185,7 @@ func TestRestartLaunchAgentReloadsOnlyExplicitTask(t *testing.T) {
 }
 
 func TestRestartLaunchAgentPreflightPreservesExistingTask(t *testing.T) {
-	for _, failure := range []string{"relative", "outside", "symlink", "writable", "wrong_owner", "root", "malformed", "invalid_label", "disabled_plist", "disabled_os", "bad_program", "bad_workdir", "no_gui"} {
+	for _, failure := range []string{"relative", "outside", "symlink", "writable", "wrong_owner", "root", "malformed", "invalid_label", "disabled_plist", "disabled_os", "bad_program", "bad_workdir", "no_gui", "StandardOutPath", "StandardErrorPath"} {
 		t.Run(failure, func(t *testing.T) {
 			home, file, definition := launchFixture(t)
 			uid := os.Getuid()
@@ -217,6 +217,11 @@ func TestRestartLaunchAgentPreflightPreservesExistingTask(t *testing.T) {
 				definition = []byte(`{"Label":"ai.eigenflux.fixture","Disabled":true}`)
 			case "bad_program":
 				definition = []byte(`{"Label":"ai.eigenflux.fixture","Program":"/missing-program"}`)
+			case "StandardOutPath", "StandardErrorPath":
+				definition, _ = json.Marshal(map[string]string{
+					"Label": "ai.eigenflux.fixture", "Program": "/bin/sh",
+					failure: filepath.Join(home, "Desktop", "watch.log"),
+				})
 			case "bad_workdir":
 				definition = []byte(`{"Label":"ai.eigenflux.fixture","Program":"/bin/sh","WorkingDirectory":"/missing-directory"}`)
 			}

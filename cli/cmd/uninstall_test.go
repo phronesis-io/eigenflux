@@ -737,13 +737,14 @@ func uninstallFeedbackTestServer(t *testing.T, check func(http.ResponseWriter, m
 			} `json:"uninstall_feedback"`
 		}
 		anonymous := r.URL.Path == "/api/v2/maintenance/unregistered-uninstall"
-		if (!anonymous && r.URL.Path != "/api/v2/maintenance/events:batch") || json.NewDecoder(r.Body).Decode(&req) != nil || len(req.Events) == 0 ||
+		registered := r.URL.Path == "/api/v2/maintenance/registered-uninstall"
+		if (!anonymous && !registered && r.URL.Path != "/api/v2/maintenance/events:batch") || json.NewDecoder(r.Body).Decode(&req) != nil || len(req.Events) == 0 ||
 			(anonymous && (req.Feedback == nil || len(req.Feedback.Proof) != 32 || r.Header.Get("Authorization") != "")) {
 			t.Error("invalid uninstall maintenance request")
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		if req.Feedback != nil && check != nil && !check(w, req.Events[0], req.Feedback.Reason) {
+		if req.Feedback != nil && check != nil && (!registered || req.Events[0].Result == "started") && !check(w, req.Events[0], req.Feedback.Reason) {
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)

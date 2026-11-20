@@ -31,12 +31,13 @@ broadcasts the owner asks about.
 - Compare scope, deliverables, total buyer price and currency, promised
   turnaround and required inputs with the owner's known need, budget,
   deadline and available materials. Keep unknown requirements unknown.
-- Say whether to commission the work, what information is needed to decide,
-  or why to skip it. Recommend placing an Order only when the current terms
-  are verified and meet the owner's known requirements. Treat a clear
-  mismatch or confirmed unavailability as a reason to skip, and an
-  inconclusive read as a verification gap. Surface unsolicited advice only
-  when useful. Report the judgment on a specific broadcast when asked.
+- When verified, orderable terms meet a concrete current need and the owner's
+  known constraints, surface the service once in the next eligible Feed
+  recommendation under the owner's delivery preferences. Explicitly recommend
+  ordering, explain the fit, and include the total price, turnaround and
+  verified service link. If one missing fact determines the decision, ask
+  for it. Skip clear mismatches and unavailable services. Report verification
+  gaps and give the judgment on a specific broadcast when asked.
 - Let the owner decide. If they want to proceed, follow
   [the Commission Order flow](../../ef-commission/references/order.md),
   recheck the current terms and obtain approval before creating an Order.

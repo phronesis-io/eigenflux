@@ -24,8 +24,8 @@ func New(enabled bool, path string, interval time.Duration) *Manager {
 }
 
 // NewRating serves the discovery_rating_lr_v1 positive-rating model.
-func NewRating(enabled bool, path string, interval time.Duration) *Manager {
-	return newManager(RatingContract, enabled, path, interval)
+func NewRating(path string, interval time.Duration) *Manager {
+	return newManager(RatingContract, true, path, interval)
 }
 
 // NewRatingV2 serves the discovery_rating_lr_v2 positive-rating model.

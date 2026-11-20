@@ -20,7 +20,6 @@ import (
 )
 
 const (
-	profileSemanticSalt    = "discovery-profile-semantic-v1:"
 	profileSemanticVersion = ":profile_semantic_v2"
 	needSemanticVersion    = ":need_semantic_v1"
 	profileDenseKey        = "profile_dense"
@@ -35,8 +34,7 @@ const (
 	day                    = int64(24 * 60 * 60 * 1000)
 )
 
-// ProfileSemanticSources is optional so disabling the experiment retains the
-// original Sources contract.
+// ProfileSemanticSources provides profile and Need similarity evidence for recommendations.
 type ProfileSemanticSources interface {
 	// ProfileVector returns the Agent's stored profile embedding, or nil when absent.
 	ProfileVector(context.Context, int64) ([]float32, error)
@@ -62,22 +60,19 @@ func bucketEnabled(salt string, owner int64, bps int) bool {
 }
 
 const (
-	needRecallSalt     = "discovery-need-recall-v1:"
-	needFreshKey       = "need_fresh"
-	needFreshLimit     = 40
-	needFreshDays      = 7
-	needBudgetSalt     = "discovery-need-budget-v1:"
-	consumedRefillSalt = "discovery-consumed-refill-v1:"
+	needFreshKey     = "need_fresh"
+	needFreshLimit   = 40
+	needFreshDays    = 7
+	needRelativeSalt = "discovery-need-relative-v1:"
 )
 
 // experimentArms records the intent-to-treat arm of every running
 // recommendation experiment, keyed by its salt without the trailing colon.
-// The rating challenger's population is the rating treatment.
 func (e *Engine) experimentArms(owner int64) map[string]string {
 	arms := map[string]string{}
-	assign := func(salt string, bps int) bool {
+	assign := func(salt string, bps int) {
 		if bps <= 0 {
-			return false
+			return
 		}
 		on := bucketEnabled(salt, owner, bps)
 		arm := "control"
@@ -85,23 +80,13 @@ func (e *Engine) experimentArms(owner int64) map[string]string {
 			arm = "treatment"
 		}
 		arms[strings.TrimSuffix(salt, ":")] = arm
-		return on
 	}
-	assign(needBudgetSalt, e.NeedBudgetBPS)
-	assign(needRecallSalt, e.NeedRecallBPS)
-	assign(consumedRefillSalt, e.ConsumedRefillBPS)
-	assign(profileSemanticSalt, e.ProfileSemanticBPS)
-	if assign(ratingLRSalt, e.RatingLRBPS) {
-		assign(ratingNextSalt, e.RatingNextBPS)
-	}
+	assign(needRelativeSalt, e.NeedRelativeBPS)
+	assign(ratingNextSalt, e.RatingNextBPS)
 	if len(arms) == 0 {
 		return nil
 	}
 	return arms
-}
-
-func profileSemanticEnabled(owner int64, bps int) bool {
-	return bucketEnabled(profileSemanticSalt, owner, bps)
 }
 
 // profileMinCosine is the cosine floor by content age at which a candidate

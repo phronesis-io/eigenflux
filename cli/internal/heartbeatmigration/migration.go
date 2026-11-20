@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 )
 
@@ -38,7 +39,7 @@ type Plan struct {
 	After   Inventory `json:"after"`
 }
 
-func Build(in Inventory, home, server, launcher string) (Plan, error) {
+func Build(in Inventory, home, server, launcher string, compatiblePrompts ...string) (Plan, error) {
 	p := Plan{Version: Version, Status: "missing"}
 	if err := validate(in); err != nil {
 		return p, err
@@ -72,7 +73,8 @@ func Build(in Inventory, home, server, launcher string) (Plan, error) {
 	p.TaskID = t.ID
 	p.Before = Inventory{Complete: true, Tasks: []Task{t}}
 	p.After = Inventory{Complete: true, Tasks: []Task{t}}
-	if strings.TrimSpace(t.Prompt) == launcher {
+	storedPrompt := strings.TrimSpace(t.Prompt)
+	if storedPrompt == launcher || slices.Contains(compatiblePrompts, storedPrompt) {
 		p.Status = "current"
 		return p, nil
 	}

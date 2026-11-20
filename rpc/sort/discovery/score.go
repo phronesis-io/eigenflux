@@ -118,10 +118,18 @@ func ScoreRules(c Context, d Document, rule Rule, now int64) Score {
 	return s
 }
 
+type NeedAttribution uint8
+
+const (
+	NeedAttributionOff NeedAttribution = iota
+	NeedAttributionCosine
+	NeedAttributionRelative
+)
+
 // Merge selects search hits round-robin in requested kind order, with exact
 // hits first within each kind. Automatic selection uses context priority.
 // The engine groups each selected page by kind before freezing or delivering it.
-func Merge(in []Candidate, kinds []Kind, mode Mode, limit int, needBudget bool, mix *NeedMix) []Candidate {
+func Merge(in []Candidate, kinds []Kind, mode Mode, limit int, attribution NeedAttribution, mix *NeedMix) []Candidate {
 	if limit <= 0 {
 		return []Candidate{}
 	}
@@ -194,7 +202,11 @@ func Merge(in []Candidate, kinds []Kind, mode Mode, limit int, needBudget bool, 
 		}
 		return a.Document.Ref.ID < b.Document.Ref.ID
 	}
-	if mode == Recommendation && needBudget {
+	if mode == Recommendation && attribution != NeedAttributionOff {
+		strength := AttributionCosine
+		if attribution == NeedAttributionRelative {
+			strength = localStrength(in, mix)
+		}
 		winners := map[string]int{}
 		for i, c := range in {
 			if c.Document.Ref.Type != Broadcast || !c.Score.Eligible {
@@ -202,7 +214,7 @@ func Merge(in []Candidate, kinds []Kind, mode Mode, limit int, needBudget bool, 
 			}
 			key := c.Document.Ref.Key()
 			prior, ok := winners[key]
-			if !ok || preferBroadcastContext(c, in[prior], less) {
+			if !ok || preferBroadcastContext(c, in[prior], strength, less) {
 				winners[key] = i
 			}
 		}
@@ -236,7 +248,7 @@ func Merge(in []Candidate, kinds []Kind, mode Mode, limit int, needBudget bool, 
 	}
 	if mode == Recommendation {
 		for len(in) > 0 && len(out) < limit {
-			if !needBudget || mix == nil || in[0].Context.CapturedNeed == nil {
+			if attribution == NeedAttributionOff || mix == nil || in[0].Context.CapturedNeed == nil {
 				add(in[0])
 				in = in[1:]
 				continue
@@ -305,7 +317,7 @@ func mixNeeds(tier []Candidate, mix NeedMix, room int, add func(Candidate) bool)
 	var queues [][]Candidate
 	at := map[int64]int{}
 	for _, c := range tier {
-		if v, ok := attributionCosine(c); !injected(c) && (!ok || v < mix.MinNeedCosine) {
+		if v, ok := AttributionCosine(c); !injected(c) && (!ok || v < mix.MinNeedCosine) {
 			continue
 		}
 		i, ok := at[c.Context.ID]
@@ -351,8 +363,41 @@ func mixNeeds(tier []Candidate, mix NeedMix, room int, add func(Candidate) bool)
 	}
 }
 
+// localStrength uses competition ranks so tied cosines share the same rank.
+// With mix, a copy at the reserved-position floor outranks every copy below it.
+func localStrength(in []Candidate, mix *NeedMix) func(Candidate) (float64, bool) {
+	populations := make(map[int64][]float64)
+	for _, c := range in {
+		if c.Document.Ref.Type == Broadcast && c.Score.Eligible {
+			if v, ok := AttributionCosine(c); ok {
+				populations[c.Context.ID] = append(populations[c.Context.ID], v)
+			}
+		}
+	}
+	for _, values := range populations {
+		sort.Float64s(values)
+	}
+	return func(c Candidate) (float64, bool) {
+		v, ok := AttributionCosine(c)
+		if !ok {
+			return 0, false
+		}
+		values := populations[c.Context.ID]
+		rank := 1.0
+		if len(values) > 1 {
+			end := sort.Search(len(values), func(i int) bool { return values[i] > v })
+			rank = float64(end-1) / float64(len(values)-1)
+		}
+		// Ranks lie in [0,1], so +1 places every qualifying copy above every non-qualifying one.
+		if mix != nil && v >= mix.MinNeedCosine {
+			rank++
+		}
+		return rank, true
+	}
+}
+
 // preferBroadcastContext uses context-local recall before channel union and LR ordering.
-func preferBroadcastContext(a, b Candidate, less func(Candidate, Candidate) bool) bool {
+func preferBroadcastContext(a, b Candidate, strength func(Candidate) (float64, bool), less func(Candidate, Candidate) bool) bool {
 	if injected(a) != injected(b) {
 		// shortcut: one injected item per page may retain the wrong Need; revisit with Need-aware injection.
 		return injected(a)
@@ -363,8 +408,8 @@ func preferBroadcastContext(a, b Candidate, less func(Candidate, Candidate) bool
 	if own(a) != own(b) {
 		return own(a)
 	}
-	ac, aok := attributionCosine(a)
-	bc, bok := attributionCosine(b)
+	ac, aok := strength(a)
+	bc, bok := strength(b)
 	if aok != bok {
 		return aok
 	}
@@ -376,7 +421,8 @@ func preferBroadcastContext(a, b Candidate, less func(Candidate, Candidate) bool
 
 var needCosCtx0 = slices.Index(discoverylr.RatingFeatureNames, "need_cos_ctx0")
 
-func attributionCosine(c Candidate) (float64, bool) {
+// AttributionCosine returns the raw current-Need evidence used for allocation and replay.
+func AttributionCosine(c Candidate) (float64, bool) {
 	if c.Context.CapturedNeed == nil {
 		return 0, false
 	}

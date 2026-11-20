@@ -47,8 +47,11 @@ func TestNativeLauncherPreservesSelectedShell(t *testing.T) {
 			t.Fatal(err)
 		}
 		quote := "'"
-		if shell == "cmd" {
+		switch shell {
+		case "cmd":
 			quote = "\""
+		case "posix":
+			quote = ""
 		}
 		if !strings.Contains(launcher, quote+"--shell"+quote+" "+quote+shell+quote) {
 			t.Fatalf("shell lost in launcher: %s", launcher)
@@ -79,6 +82,65 @@ func TestNativeLauncherRunsWithoutLoginPath(t *testing.T) {
 	want := "--homedir\n" + home + "\n--server\nselected-server\n--runtime-mode\nskill\nheartbeat\nplan\n--shell\nposix\n--format\nagent\n"
 	if string(got) != want {
 		t.Fatalf("unattended launcher changed account or command: %q", got)
+	}
+}
+
+func TestPOSIXHeartbeatCommandsKeepSafeArgumentsBare(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX rendering uses POSIX absolute paths")
+	}
+	bin, home := "/Users/owner/.local/bin/eigenflux", "/Users/owner/.eigenflux"
+	prefix, err := renderHeartbeatCLIPrefix(bin, home, "eigenflux", "posix", "skill")
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, _ := heartbeatCLIPrefixArgs(bin, home, "eigenflux", "skill")
+	if want := strings.Join(args, " "); prefix != want {
+		t.Fatalf("safe prefix was quoted: got %q want %q", prefix, want)
+	}
+	// The command text must begin with the exact tokens of the onboarding prefix rule.
+	rule := strings.Join([]string{bin, "--homedir", home, "--server", "eigenflux"}, " ") + " "
+	if !strings.HasPrefix(prefix+" ", rule) {
+		t.Fatalf("prefix %q does not start with rule tokens %q", prefix, rule)
+	}
+	launcher, err := renderHeartbeatLauncher(bin, home, "eigenflux", "skill", "posix")
+	if err != nil || !strings.HasPrefix(launcher, rule) || strings.Contains(launcher, "'") {
+		t.Fatalf("launcher %q %v", launcher, err)
+	}
+	for value, want := range map[string]string{"": "''", "my home": "'my home'", "o'brien": `'o'"'"'brien'`, "$HOME": "'$HOME'", "a*b": "'a*b'", "~x": "'~x'", "=sh": "'=sh'", "env=staging": "env=staging"} {
+		if got := posixWord(value); got != want {
+			t.Errorf("posixWord(%q) = %q, want %q", value, got, want)
+		}
+	}
+}
+
+func TestPOSIXHeartbeatCommandsPreserveLeadingEqualsInZsh(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shell")
+	}
+	zsh, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skip("zsh is unavailable")
+	}
+	home := t.TempDir()
+	bin := filepath.Join(home, "print-server")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s' \"$4\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	const server = "=sh"
+	launcher, err := renderHeartbeatLauncher(bin, home, server, "skill", "posix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix, err := renderHeartbeatCLIPrefix(bin, home, server, "posix", "skill")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{launcher, prefix + " feed poll"} {
+		got, err := exec.Command(zsh, "-fc", command).CombinedOutput()
+		if err != nil || string(got) != server {
+			t.Errorf("zsh -fc %q returned %q, want %q (err %v)", command, got, server, err)
+		}
 	}
 }
 

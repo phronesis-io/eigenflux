@@ -333,6 +333,11 @@ func (w *accountWatch) finishPMDecision(ctx context.Context, job dispatch.Job, d
 		if err := dispatch.SavePMNotice(ctx, *w.binding, job, *decision.OwnerNotice); err != nil {
 			return w.finishDispatch(job, "failed", "pm_owner_notice_save_failed", sessionID, "")
 		}
+		// Retain the checkpoint until both local writes have succeeded. Replay
+		// can fill in a missing upload without repeating either handoff.
+		if err := dispatch.QueuePMNoticeUpload(ctx, *w.binding, job, *decision.OwnerNotice); err != nil {
+			return w.finishDispatch(job, "failed", "pm_owner_notice_save_failed", sessionID, "")
+		}
 	}
 	if decision.Action != "reply" {
 		return w.finishDispatch(job, decision.Action, "agent_decision", sessionID, "")

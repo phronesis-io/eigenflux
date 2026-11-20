@@ -40,7 +40,7 @@ func TestDiscoveryRatingRecommendation(t *testing.T) {
 	require.NoError(t, json.Unmarshal(fixture.Model, &model))
 	path := filepath.Join(t.TempDir(), "rating.json")
 	require.NoError(t, os.WriteFile(path, fixture.Model, 0600))
-	s := startStack(t, map[string]string{"DISCOVERY_RATING_LR_BPS": "10000", "DISCOVERY_RATING_LR_MODEL_PATH": path})
+	s := startStack(t, map[string]string{"DISCOVERY_RATING_LR_MODEL_PATH": path})
 	ctx := context.Background()
 	now := time.Now()
 	query := fmt.Sprintf("ratingtoken%d", s.owner)
@@ -151,7 +151,7 @@ func TestDiscoveryRatingV2Recommendation(t *testing.T) {
 		paths[name] = filepath.Join(t.TempDir(), name+".json")
 		require.NoError(t, os.WriteFile(paths[name], fixture.Model, 0600))
 	}
-	s := startStack(t, map[string]string{"DISCOVERY_RATING_LR_BPS": "10000", "DISCOVERY_RATING_LR_MODEL_PATH": paths["discovery_rating_lr_v1"],
+	s := startStack(t, map[string]string{"DISCOVERY_RATING_LR_MODEL_PATH": paths["discovery_rating_lr_v1"],
 		"DISCOVERY_RATING_LR_V2_BPS": "10000", "DISCOVERY_RATING_LR_V2_MODEL_PATH": paths["discovery_rating_lr_v2"]})
 	ctx := context.Background()
 	now := time.Now()

@@ -110,13 +110,17 @@ def main():
 
             first = run_check('first automatic cycle')
             require(first == target, f'first cycle ran {first}, expected latest {target}')
-            states = list(root.glob('eigenflux*.update.json'))
-            require(bool(states), 'no updater eligibility state')
-            original_states = {state: state.read_bytes() for state in states}
+            def update_states():
+                return {state: state.read_bytes() for state in root.glob('eigenflux*.update.json')}
+
+            require(bool(update_states()), 'no updater eligibility state')
             immediate = run_check('immediate second automatic cycle')
-            require(immediate == target, f'repeat cycle ran {immediate}, expected {target}')
-            require(all(state.read_bytes() == data for state, data in original_states.items()),
-                    'repeat cycle bypassed normal update throttle')
+            require(immediate == target, f'second cycle ran {immediate}, expected {target}')
+            settled = update_states()
+            require(bool(settled), 'no updater eligibility state after second cycle')
+            repeat = run_check('immediate third automatic cycle')
+            require(repeat == target, f'third cycle ran {repeat}, expected {target}')
+            require(update_states() == settled, 'third cycle bypassed normal update throttle')
             report['immediate_reaches_target'] = True
             report['repeat_preserved_update_state'] = True
             for before, after in ((args.from_version, legacy), (legacy, target)):

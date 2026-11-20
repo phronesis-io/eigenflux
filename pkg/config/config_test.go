@@ -538,46 +538,13 @@ func TestDiscoveryEmbeddingRevisionConfiguration(t *testing.T) {
 	}
 }
 
-func TestConsumedRefillDefaultsOffAndLoadsBucket(t *testing.T) {
-	t.Setenv("DISCOVERY_CONSUMED_REFILL_BPS", "")
-	if Load().DiscoveryConsumedRefillBPS != 0 {
-		t.Fatal("refill must default off")
+func TestNeedRelativeDefaultsOffAndLoadsBucket(t *testing.T) {
+	t.Setenv("DISCOVERY_NEED_RELATIVE_BPS", "")
+	if Load().DiscoveryNeedRelativeBPS != 0 {
+		t.Fatal("Need relative attribution must default off")
 	}
-	t.Setenv("DISCOVERY_CONSUMED_REFILL_BPS", "500")
-	if Load().DiscoveryConsumedRefillBPS != 500 {
-		t.Fatal("refill bucket not loaded")
-	}
-}
-
-func TestProfileSemanticDefaultsOffAndLoadsBucket(t *testing.T) {
-	t.Setenv("DISCOVERY_PROFILE_SEMANTIC_BPS", "")
-	if Load().DiscoveryProfileSemanticBPS != 0 {
-		t.Fatal("profile semantic must default off")
-	}
-	t.Setenv("DISCOVERY_PROFILE_SEMANTIC_BPS", "5000")
-	if Load().DiscoveryProfileSemanticBPS != 5000 {
-		t.Fatal("profile semantic bucket not loaded")
-	}
-}
-
-func TestNeedBudgetDefaultsOffAndLoadsBucket(t *testing.T) {
-	t.Setenv("DISCOVERY_NEED_BUDGET_BPS", "")
-	if Load().DiscoveryNeedBudgetBPS != 0 {
-		t.Fatal("Need budget must default off")
-	}
-	t.Setenv("DISCOVERY_NEED_BUDGET_BPS", "500")
-	if Load().DiscoveryNeedBudgetBPS != 500 {
-		t.Fatal("Need budget bucket not loaded")
-	}
-}
-
-func TestNeedRecallDefaultsOffAndLoadsBucket(t *testing.T) {
-	t.Setenv("DISCOVERY_NEED_RECALL_BPS", "")
-	if Load().DiscoveryNeedRecallBPS != 0 {
-		t.Fatal("Need budget must default off")
-	}
-	t.Setenv("DISCOVERY_NEED_RECALL_BPS", "500")
-	if Load().DiscoveryNeedRecallBPS != 500 {
-		t.Fatal("Need budget bucket not loaded")
+	t.Setenv("DISCOVERY_NEED_RELATIVE_BPS", "500")
+	if Load().DiscoveryNeedRelativeBPS != 500 {
+		t.Fatal("Need relative attribution bucket not loaded")
 	}
 }

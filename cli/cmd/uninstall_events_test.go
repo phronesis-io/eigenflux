@@ -1,16 +1,21 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"cli.eigenflux.ai/internal/auth"
+	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/uninstallscript"
@@ -84,7 +89,9 @@ func TestUninstallTelemetryAccountIsolationPrivacyAndReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	o.emit("failed", "uninstall_failed")
-	o.flush()
+	ctx, cancel := context.WithTimeout(context.Background(), uninstallOutcomeUploadTimeout)
+	defer cancel()
+	o.flush(ctx)
 	if len(received) != before+1 {
 		t.Fatal("account switched queue was uploaded or old identity reused")
 	}
@@ -150,4 +157,43 @@ func TestUninstallOriginalRevalidationAndLocks(t *testing.T) {
 			t.Fatal("removed before validating all paths")
 		}
 	})
+}
+
+func TestUninstallOutcomeFallbackSharesDeadline(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch requests.Add(1) {
+		case 1:
+			if r.URL.Path != "/maintenance/registered-uninstall" {
+				t.Errorf("unexpected initial route %s", r.URL.Path)
+			}
+			http.NotFound(w, r)
+		case 2:
+			if r.URL.Path != "/maintenance/events:batch" {
+				t.Errorf("unexpected fallback route %s", r.URL.Path)
+			}
+			_, _ = io.Copy(io.Discard, r.Body)
+			<-r.Context().Done()
+		default:
+			t.Errorf("unexpected additional request to %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	o := newUninstallObservation("", "manual", "not_provided")
+	o.FeedbackUploaded, o.FeedbackAgentID, o.FeedbackServer, o.FeedbackEndpoint = true, "1", "test", server.URL
+	scope := maintenance.Scope{Server: o.FeedbackServer, AgentID: o.FeedbackAgentID}
+	events := []maintenance.Event{
+		maintenance.NewEvent(o.AttemptID, "cli", "manual", "uninstall", "partial"),
+		maintenance.NewEvent(o.AttemptID, "cli", "manual", "uninstall", "removed"),
+	}
+	deadlineErr := errors.New("uninstall upload deadline")
+	ctx, cancel := context.WithTimeoutCause(context.Background(), 500*time.Millisecond, deadlineErr)
+	defer cancel()
+	c := client.New(server.URL, "", "", client.Meta{}).WithContext(ctx)
+	c.HTTPClient.Timeout = 2 * time.Second
+	err := o.postUninstallOutcomes(c, scope, server.URL, events)
+	if !errors.Is(err, deadlineErr) || requests.Load() != 2 {
+		t.Fatalf("fallback did not exhaust the shared deadline: requests=%d, context=%v, error=%v", requests.Load(), ctx.Err(), err)
+	}
 }

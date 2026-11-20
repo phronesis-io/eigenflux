@@ -93,7 +93,11 @@ func init() {
 			return err
 		}
 		shellName, _ := cmd.Flags().GetString("shell")
-		launcher, err := nativeHeartbeatLauncher(home, server, "skill", shellName)
+		bin, err := stableInstalledExecutable()
+		if err != nil {
+			return err
+		}
+		launchers, err := heartbeatSchedulerLaunchers(bin, home, server, shellName)
 		if err != nil {
 			return err
 		}
@@ -101,10 +105,15 @@ func init() {
 		if err := applyDispatchOwnership(&ownership); err != nil {
 			return err
 		}
+		suffix := ""
 		if len(ownership.DispatchOwned) > 0 {
-			launcher += " --watch-managed"
+			suffix = " --watch-managed"
 		}
-		p, err := heartbeatmigration.Build(in, home, server, heartbeatSchedulerPrompt(launcher))
+		prompts := make([]string, len(launchers))
+		for i, launcher := range launchers {
+			prompts[i] = heartbeatSchedulerPrompt(launcher + suffix)
+		}
+		p, err := heartbeatmigration.Build(in, home, server, prompts[0], prompts[1:]...)
 		if err != nil {
 			return err
 		}

@@ -312,8 +312,8 @@ func TestSampleRecordsExperimentArms(t *testing.T) {
 	if _, ok := read()["experiments"]; ok {
 		t.Fatal("no running experiment must omit the field")
 	}
-	e.x.Experiments = map[string]string{"discovery-need-budget-v1": "control"}
-	if got := read()["experiments"]; !reflect.DeepEqual(got, map[string]any{"discovery-need-budget-v1": "control"}) {
+	e.x.Experiments = map[string]string{"discovery-need-relative-v1": "control"}
+	if got := read()["experiments"]; !reflect.DeepEqual(got, map[string]any{"discovery-need-relative-v1": "control"}) {
 		t.Fatal("experiment arms not recorded", got)
 	}
 }

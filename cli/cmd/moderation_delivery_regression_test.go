@@ -186,7 +186,7 @@ func TestModerationInboxFailureAfterDesktopEnqueueDeduplicatesRetry(t *testing.T
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := watch.enqueueModerationNotification(notice); err != nil {
+	if _, err := watch.enqueueModerationNotification(notice, nil); err != nil {
 		t.Fatal(err)
 	}
 	if pending, _ := watch.desktop.Counts(); pending != 1 {

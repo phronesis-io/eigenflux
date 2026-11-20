@@ -23,6 +23,8 @@ import (
 )
 
 type maintenanceEvent struct {
+	ListingBroadcast *listingBroadcastObservation `json:"listing_broadcast,omitempty"`
+
 	Runtime        *runtimeObservation          `json:"runtime,omitempty"`
 	OuterLoop      *outerLoopObservation        `json:"outer_loop,omitempty"`
 	Commission     *commissionMaintenanceData   `json:"commission,omitempty"`
@@ -118,6 +120,12 @@ func validateMaintenanceEvent(e maintenanceEvent, now time.Time) error {
 	if e.EventAt < now.Add(-7*24*time.Hour).UnixMilli() || e.EventAt > now.Add(5*time.Minute).UnixMilli() {
 		return fmt.Errorf("maintenance event outside retention window")
 	}
+	if e.Phase == listingBroadcastPhase {
+		return validateListingBroadcast(e)
+	}
+	if e.ListingBroadcast != nil {
+		return fmt.Errorf("listing broadcast metadata requires listing broadcast phase")
+	}
 	if e.Phase == "environment" || e.Phase == "cycle" || e.Phase == "lifecycle" {
 		return validateRuntimeObservation(e)
 	}
@@ -138,6 +146,16 @@ func validateMaintenanceEvent(e maintenanceEvent, now time.Time) error {
 	}
 	if e.Notification != nil {
 		return fmt.Errorf("notification metadata requires notification phase")
+	}
+	if e.Phase == "pm_owner_notice" {
+		main := e.Component == "watch" && e.Source == "codex" && maintenanceOneOf(e.Platform, "darwin", "windows", "linux") && maintenanceOneOf(e.Result, "submitted", "unconfirmed")
+		desktop := e.Component == "notifier" && maintenanceOneOf(e.Source, "watch", "heartbeat") && maintenanceOneOf(e.Platform, "darwin", "windows") && maintenanceOneOf(e.Result, "submitted", "disabled", "failed")
+		if (!main && !desktop) || e.Trigger != "auto" || !maintenanceValue.MatchString(e.FromVersion) ||
+			e.Host != "" || e.Mode != "" || e.ToVersion != "" || e.RunningVersion != "" ||
+			e.ErrorCode != "" || e.DurationMS != 0 || e.ReasonCategory != "" {
+			return fmt.Errorf("invalid PM owner notice observation")
+		}
+		return nil
 	}
 	if e.Phase == "uninstall" {
 		if !maintenanceOneOf(e.Component, "cli", "skills", "plugin", "scheduler", "notifier") || e.Trigger != "manual" || !maintenanceOneOf(e.Result, "started", "removed", "partial", "failed", "blocked") {
@@ -194,30 +212,57 @@ func parseMaintenanceFailureMetadata(raw string) map[string]string {
 	return reasons
 }
 
-// recordMaintenanceBatch is intentionally separate from Console telemetry. Agent
-// identity is provided by agentAuth(settings:write), never by request properties.
+type maintenanceRoute int
+
+const (
+	maintenanceBatch maintenanceRoute = iota
+	listingBroadcastBatch
+	registeredUninstall
+	unregisteredUninstall
+)
+
+// recordMaintenanceBatch takes Agent identity from the authenticated session.
 func (s *Service) recordMaintenanceBatch(ctx context.Context, c *app.RequestContext) {
+	s.recordAuthenticatedMaintenance(ctx, c, maintenanceBatch)
+}
+
+func (s *Service) recordListingBroadcastBatch(ctx context.Context, c *app.RequestContext) {
+	s.recordAuthenticatedMaintenance(ctx, c, listingBroadcastBatch)
+}
+
+func (s *Service) recordRegisteredUninstall(ctx context.Context, c *app.RequestContext) {
+	s.recordAuthenticatedMaintenance(ctx, c, registeredUninstall)
+}
+
+func (s *Service) recordAuthenticatedMaintenance(ctx context.Context, c *app.RequestContext, route maintenanceRoute) {
 	id, ok := agentID(c)
 	if !ok || id <= 0 {
 		fail(c, http.StatusUnauthorized, "AGENT_REQUIRED", "Agent authentication is required", nil)
 		return
 	}
-	s.persistMaintenanceBatch(ctx, c, id, "maintenance:"+strconv.FormatInt(id, 10), false)
+	ratePrefix := "maintenance:"
+	if route == listingBroadcastBatch {
+		ratePrefix = "listing-broadcast:"
+	}
+	s.persistMaintenanceBatch(ctx, c, id, ratePrefix+strconv.FormatInt(id, 10), route)
 }
 
 func (s *Service) recordUnregisteredUninstall(ctx context.Context, c *app.RequestContext) {
-	s.persistMaintenanceBatch(ctx, c, nil, "unregistered-uninstall:"+s.clientIPHash(c), true)
+	s.persistMaintenanceBatch(ctx, c, nil, "unregistered-uninstall:"+s.clientIPHash(c), unregisteredUninstall)
 }
 
-func (s *Service) persistMaintenanceBatch(ctx context.Context, c *app.RequestContext, id any, rateKey string, unregistered bool) {
+func (s *Service) persistMaintenanceBatch(ctx context.Context, c *app.RequestContext, id any, rateKey string, route maintenanceRoute) {
 	now := time.Now()
 	if !s.allowTelemetryRequest(rateKey, now) {
 		fail(c, http.StatusTooManyRequests, "MAINTENANCE_RATE_LIMITED", "maintenance request rate exceeded", nil)
 		return
 	}
 	limit := 128 << 10
-	if unregistered {
+	if route == registeredUninstall || route == unregisteredUninstall {
 		limit = 8 << 10
+	}
+	if route == listingBroadcastBatch {
+		limit = 32 << 10
 	}
 	if len(c.Request.Body()) > limit || !utf8.Valid(c.Request.Body()) {
 		fail(c, http.StatusBadRequest, "INVALID_MAINTENANCE_BATCH", "maintenance batch too large", nil)
@@ -237,21 +282,28 @@ func (s *Service) persistMaintenanceBatch(ctx context.Context, c *app.RequestCon
 		fail(c, http.StatusBadRequest, "INVALID_MAINTENANCE_BATCH", "unexpected trailing JSON", nil)
 		return
 	}
-	if unregistered {
-		if len(req.Events) != 1 || req.UninstallFeedback == nil || !uninstallFeedbackAttemptID.MatchString(req.UninstallFeedback.Proof) {
-			fail(c, http.StatusBadRequest, "INVALID_UNINSTALL_FEEDBACK", "expected one uninstall event and installation proof", nil)
+	if route == registeredUninstall || route == unregisteredUninstall {
+		if len(req.Events) != 1 || req.UninstallFeedback == nil {
+			fail(c, http.StatusBadRequest, "INVALID_UNINSTALL_FEEDBACK", "expected one uninstall event", nil)
 			return
 		}
+		proof := req.UninstallFeedback.Proof
 		event := req.Events[0]
-		if event.Phase != "uninstall" || event.Component != "cli" || event.ReasonCategory == "not_provided" ||
+		if (route == unregisteredUninstall && !uninstallFeedbackAttemptID.MatchString(proof)) ||
+			(route == registeredUninstall && proof != "") ||
+			event.Phase != "uninstall" || event.Component != "cli" || event.ReasonCategory == "not_provided" ||
 			!uninstallFeedbackAttemptID.MatchString(event.AttemptID) ||
 			(event.Result != "started" && req.UninstallFeedback.Reason != "") {
-			fail(c, http.StatusBadRequest, "INVALID_UNINSTALL_FEEDBACK", "invalid unregistered uninstall event", nil)
+			fail(c, http.StatusBadRequest, "INVALID_UNINSTALL_FEEDBACK", "invalid uninstall event", nil)
 			return
 		}
 	}
-	if req.UninstallFeedback != nil && ((!unregistered && req.UninstallFeedback.Proof != "") ||
-		((!unregistered || req.Events[0].Result == "started") && !validUninstallFeedback(req.Events, req.UninstallFeedback))) {
+	if route == listingBroadcastBatch && req.UninstallFeedback != nil {
+		fail(c, http.StatusBadRequest, "INVALID_MAINTENANCE_BATCH", "unexpected uninstall feedback", nil)
+		return
+	}
+	if req.UninstallFeedback != nil && ((route == maintenanceBatch && req.UninstallFeedback.Proof != "") ||
+		((route == maintenanceBatch || req.Events[0].Result == "started") && !validUninstallFeedback(req.Events, req.UninstallFeedback))) {
 		fail(c, http.StatusBadRequest, "INVALID_UNINSTALL_FEEDBACK", "expected one uninstall start with a reason or explicit decline", nil)
 		return
 	}
@@ -259,6 +311,10 @@ func (s *Service) persistMaintenanceBatch(ctx context.Context, c *app.RequestCon
 	runtimeFailures := parseMaintenanceFailureMetadata(string(c.Request.Header.Peek(runtimeFailuresHeader)))
 	rows := make([]telemetryEventRequest, 0, len(req.Events))
 	for _, event := range req.Events {
+		if (event.Phase == listingBroadcastPhase) != (route == listingBroadcastBatch) {
+			fail(c, http.StatusBadRequest, "INVALID_MAINTENANCE_EVENT", "listing broadcast observation requires its own batch", nil)
+			return
+		}
 		if err := validateMaintenanceEvent(event, now); err != nil {
 			fail(c, http.StatusBadRequest, "INVALID_MAINTENANCE_EVENT", err.Error(), nil)
 			return
@@ -281,7 +337,12 @@ func (s *Service) persistMaintenanceBatch(ctx context.Context, c *app.RequestCon
 			prefix = "uninstall-feedback:"
 			key = sha256.Sum256([]byte(event.AttemptID + "\x00" + event.Result))
 		}
-		rows = append(rows, telemetryEventRequest{EventID: prefix + hex.EncodeToString(key[:]), EventType: "maintenance_attempt", EventAt: event.EventAt, Properties: properties})
+		eventType := "maintenance_attempt"
+		if route == listingBroadcastBatch {
+			prefix = "listing-broadcast:"
+			eventType = listingBroadcastPhase
+		}
+		rows = append(rows, telemetryEventRequest{EventID: prefix + hex.EncodeToString(key[:]), EventType: eventType, EventAt: event.EventAt, Properties: properties})
 	}
 	encoded, _ := json.Marshal(rows)
 	var accepted int64
