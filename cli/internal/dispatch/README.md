@@ -829,6 +829,11 @@ claim that clicking the settings link enabled notifications.
 
 The compatibility order pending-confirmations command reads buyer orders awaiting platform acceptance. Desktop notices show the after-sales deadline and direct the buyer to the Order page. Normal Feed and heartbeat cycles do not query receipt confirmations.
 
+Ordinary CLI notification output describes refund requests, complaints and
+platform decisions by command even when the order state stays the same.
+Workflow result events take priority. The notification is acknowledged only
+after the result has been written successfully.
+
 
 ## WorkBuddy publication preflight
 

@@ -331,6 +331,18 @@ func localizedOrderNotificationText(language, notificationType string, payload o
 			return role, "The after-sales period ends soon"
 		}
 	}
+	afterSales := map[string]struct{ zh, en string }{
+		"refund_requested":     {"退款申请待平台处理", "Refund request pending platform review"},
+		"complaint_filed":      {"投诉待平台处理", "Complaint pending platform review"},
+		"after_sales_declined": {"售后申请已驳回", "After-sales request declined"},
+		"after_sales_resolved": {"售后事项已处理", "After-sales request resolved"},
+	}[payload.CommandKind]
+	if afterSales.zh != "" {
+		if language == "zh" {
+			return role, afterSales.zh
+		}
+		return role, afterSales.en
+	}
 	if payload.CommandKind == "reject_order" && payload.ToState == "cancelled" {
 		if language == "zh" {
 			return role, "商家已拒单"
