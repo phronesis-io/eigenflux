@@ -14,6 +14,33 @@ import (
 
 const guardTestThread = "11111111-2222-3333-4444-555555555555"
 
+// Previous POSIX launchers quoted every word except the appended watch flag.
+func legacyPOSIXTestPrompt(cli, home, server, suffix string) string {
+	launcher := shellQuote(cli) + " '--homedir' " + shellQuote(home) + " '--server' " + shellQuote(server) +
+		" '--runtime-mode' 'skill' 'heartbeat' 'plan' '--shell' 'posix' '--format' 'agent'"
+	return heartbeatSchedulerPrompt(launcher + suffix)
+}
+
+func TestCodexGuardPreservesLegacyPOSIXPromptHash(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "owner's home")
+	cli := filepath.Join(home, "bin", "eigenflux")
+	for _, suffix := range []string{"", " --watch-managed"} {
+		prompt := legacyPOSIXTestPrompt(cli, home, "server", suffix)
+		want := heartbeatTestPromptHash(prompt)
+		if hash, err := codexGuardPromptHash(cli, home, "server", prompt); err != nil || hash != want {
+			t.Fatalf("legacy prompt suffix %q: hash %q, want %q, err %v", suffix, hash, want, err)
+		}
+	}
+	for _, invalid := range []string{
+		legacyPOSIXTestPrompt(cli, home, "other-server", ""),
+		legacyPOSIXTestPrompt(cli, home, "server", " --watch-managed extra"),
+	} {
+		if _, err := codexGuardPromptHash(cli, home, "server", invalid); err == nil {
+			t.Fatalf("accepted incorrect legacy prompt: %s", invalid)
+		}
+	}
+}
+
 func TestCodexGuardPreservesExistingHooksAndTrustBoundary(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "hooks.json")

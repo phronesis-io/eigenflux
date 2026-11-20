@@ -96,7 +96,7 @@ func TestStableEntryIsUsedByPersistedCommands(t *testing.T) {
 			t.Fatalf("entry/resource distinction lost: %v", result)
 		}
 		for _, key := range []string{"launcher", "prefix"} {
-			if !strings.Contains(result[key], shellQuote(stable)) || strings.Contains(result[key], ".versions") {
+			if !strings.Contains(result[key], posixWord(stable)) || strings.Contains(result[key], ".versions") {
 				t.Fatalf("%s pinned a release directory: %v", key, result)
 			}
 		}

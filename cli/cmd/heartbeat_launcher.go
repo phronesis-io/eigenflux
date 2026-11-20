@@ -69,6 +69,24 @@ func heartbeatLauncherArgs(bin, home, server, mode, shellName string) ([]string,
 	return args, nil
 }
 
+// posixWord leaves shell-safe arguments bare so the rendered command text keeps
+// the same tokens as the owner's Codex prefix rule; other values are quoted.
+func posixWord(value string) string {
+	// zsh expands a leading "=name" to the path of that command.
+	if value == "" || strings.HasPrefix(value, "=") {
+		return shellQuote(value)
+	}
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case strings.ContainsRune("/._-:@=+,%", r):
+		default:
+			return shellQuote(value)
+		}
+	}
+	return value
+}
+
 func renderHeartbeatCLIPrefix(bin, home, server, shellName string, mode ...string) (string, error) {
 	shellName = heartbeatShellName(shellName)
 	args, err := heartbeatCLIPrefixArgs(bin, home, server, mode...)
@@ -78,7 +96,7 @@ func renderHeartbeatCLIPrefix(bin, home, server, shellName string, mode ...strin
 	switch shellName {
 	case "posix":
 		for i := range args {
-			args[i] = shellQuote(args[i])
+			args[i] = posixWord(args[i])
 		}
 		return strings.Join(args, " "), nil
 	case "powershell":
@@ -108,7 +126,7 @@ func renderHeartbeatLauncher(bin, home, server, mode, shellName string) (string,
 	switch shellName {
 	case "posix":
 		for i := range args {
-			args[i] = shellQuote(args[i])
+			args[i] = posixWord(args[i])
 		}
 		return strings.Join(args, " "), nil
 	case "powershell":
@@ -125,6 +143,26 @@ func renderHeartbeatLauncher(bin, home, server, mode, shellName string) (string,
 	default:
 		return "", fmt.Errorf("unsupported scheduler shell %q", shellName)
 	}
+}
+
+// The first launcher is used for new tasks. Readback also accepts the exact
+// fully quoted POSIX launcher persisted by earlier CLI versions.
+func heartbeatSchedulerLaunchers(bin, home, server, shellName string) ([]string, error) {
+	current, err := renderHeartbeatLauncher(bin, home, server, "skill", shellName)
+	if err != nil {
+		return nil, err
+	}
+	if heartbeatShellName(shellName) != "posix" {
+		return []string{current}, nil
+	}
+	args, err := heartbeatLauncherArgs(bin, home, server, "skill", "posix")
+	if err != nil {
+		return nil, err
+	}
+	for i, arg := range args {
+		args[i] = shellQuote(arg)
+	}
+	return []string{current, strings.Join(args, " ")}, nil
 }
 
 // Legacy launchers may omit --server. Resolve only a uniquely configured and
