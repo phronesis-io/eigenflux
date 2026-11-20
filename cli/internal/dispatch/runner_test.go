@@ -103,6 +103,20 @@ func TestArguments(t *testing.T) {
 		})
 	}
 }
+func TestCodexSellerOrderArguments(t *testing.T) {
+	r := Runner{Binding: Binding{Mode: "native", Host: "codex", Args: []string{"--sandbox", "workspace-write"}}}
+	want := []string{"--sandbox", "workspace-write", "exec", "--json", "--skip-git-repo-check", "-"}
+	for _, kind := range []string{"commission_order", "commission_fulfillment"} {
+		t.Run(kind, func(t *testing.T) {
+			req := Request{Kind: kind, Prompt: "order input"}
+			args, stdin, err := r.arguments(req)
+			if err != nil || !reflect.DeepEqual(args, want) || stdin != req.Prompt {
+				t.Fatalf("args %q stdin %q error %v", args, stdin, err)
+			}
+		})
+	}
+}
+
 func TestNativeResults(t *testing.T) {
 	cases := []struct {
 		host, data, text, session string
