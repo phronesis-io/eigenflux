@@ -370,5 +370,14 @@
     "title": "Graduate refill, semantic ranking and positive-rating V1",
     "description": "After the full Sort rollout, new recommendations omit the graduated experiment labels. Existing frozen pages and historical samples retain their original labels. Pipeline retains UGC Slop enablement monitoring and retires the publisher rollout share.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/590"
+  },
+  {
+    "id": "broadcast-feedback-final-periods-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "full",
+    "dashboards": ["feedback-compliance"],
+    "title": "Finalize broadcast feedback after Shanghai midnight",
+    "description": "The newly mature delivery day is checked every minute. Seven final delivery days publish together; the exact-score attribution and 48-hour window are unchanged.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/594"
   }
 ]
