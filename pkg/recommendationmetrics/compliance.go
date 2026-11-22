@@ -45,6 +45,17 @@ func CompliancePendingDays(ctx context.Context, conn *sql.DB, cutoff time.Time) 
 // RefreshComplianceDay replaces a day's complete cohort set atomically. The
 // transaction lock also serializes manual backfills against the cron writer.
 func RefreshComplianceDay(ctx context.Context, conn *sql.DB, day string, cutoff time.Time) error {
+	return refreshComplianceDay(ctx, conn, day, cutoff, false)
+}
+
+// FinalizeMatureComplianceDay uses the existing per-day lock for racing workers.
+// Recheck maturity under the lock so normal polling never recomputes a final day.
+func FinalizeMatureComplianceDay(ctx context.Context, conn *sql.DB, cutoff time.Time) error {
+	day := cutoff.In(time.FixedZone("UTC+8", 8*3600)).AddDate(0, 0, -3).Format("2006-01-02")
+	return refreshComplianceDay(ctx, conn, day, cutoff, true)
+}
+
+func refreshComplianceDay(ctx context.Context, conn *sql.DB, day string, cutoff time.Time, onlyMissing bool) error {
 	if _, err := time.Parse("2006-01-02", day); err != nil {
 		return fmt.Errorf("invalid feedback compliance day: %w", err)
 	}
@@ -64,6 +75,17 @@ func RefreshComplianceDay(ctx context.Context, conn *sql.DB, day string, cutoff 
 	}
 	if !acquired {
 		return fmt.Errorf("feedback compliance day %s is already refreshing", day)
+	}
+	if onlyMissing {
+		var final bool
+		if err = tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT FROM feedback_compliance_daily
+    WHERE day=$1::date AND dimension='all' AND value='all'
+    AND snapshot_at >= (day+3)::timestamp AT TIME ZONE 'Asia/Shanghai')`, day).Scan(&final); err != nil {
+			return err
+		}
+		if final {
+			return tx.Commit()
+		}
 	}
 	var newer bool
 	if err = tx.QueryRowContext(ctx, `SELECT COALESCE(max(snapshot_at)>to_timestamp($2::bigint/1000.0),false)

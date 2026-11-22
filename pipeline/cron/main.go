@@ -133,6 +133,7 @@ func main() {
 	go StartPGCFeedbackSnapshot(ctx, mq.RDB)
 	go StartPGCDemandSnapshot(ctx, mq.RDB)
 	go StartRecommendationEffect(ctx, mq.RDB)
+	go StartFeedbackFinalization(ctx)
 	profileCleanupDone := make(chan struct{})
 	go func() {
 		defer close(profileCleanupDone)

@@ -35,6 +35,33 @@ func StartRecommendationEffect(ctx context.Context, rdb *redis.Client) {
 	}
 }
 
+// StartFeedbackFinalization gives the newly mature delivery day its own budget.
+func StartFeedbackFinalization(ctx context.Context) {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		cutoff := time.Now()
+		if err := finalizeFeedback(ctx, cutoff); err != nil {
+			logger.Default().Warn("broadcast feedback finalization delayed", "cutoff", cutoff, "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func finalizeFeedback(ctx context.Context, cutoff time.Time) error {
+	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
+	conn, err := db.DB.DB()
+	if err != nil {
+		return err
+	}
+	return recommendationmetrics.FinalizeMatureComplianceDay(ctx, conn, cutoff)
+}
+
 func refreshRecommendationEffect(ctx context.Context) error {
 	conn, err := db.DB.DB()
 	if err != nil {
