@@ -39,10 +39,18 @@ func StartRecommendationEffect(ctx context.Context, rdb *redis.Client) {
 func StartFeedbackFinalization(ctx context.Context) {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
+	var lastAlertDay string
 	for {
 		cutoff := time.Now()
 		if err := finalizeFeedback(ctx, cutoff); err != nil {
-			logger.Default().Warn("broadcast feedback finalization delayed", "cutoff", cutoff, "err", err)
+			local := cutoff.In(time.FixedZone("UTC+8", 8*3600))
+			day := local.Format("2006-01-02")
+			if (local.Hour() > 0 || local.Minute() >= 10) && lastAlertDay != day {
+				logger.Default().Error("broadcast feedback publication overdue", "observation_ended", day, "err", err)
+				lastAlertDay = day
+			} else {
+				logger.Default().Warn("broadcast feedback finalization delayed", "cutoff", cutoff, "err", err)
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -59,7 +67,19 @@ func finalizeFeedback(ctx context.Context, cutoff time.Time) error {
 	if err != nil {
 		return err
 	}
-	return recommendationmetrics.FinalizeMatureComplianceDay(ctx, conn, cutoff)
+	if err := recommendationmetrics.FinalizeMatureComplianceDay(ctx, conn, cutoff); err != nil {
+		return err
+	}
+	var published bool
+	err = conn.QueryRowContext(ctx, `SELECT EXISTS (SELECT FROM grafana_broadcast_feedback_periods
+          WHERE period_start=timezone('Asia/Shanghai',$1::timestamptz)::date-7)`, cutoff).Scan(&published)
+	if err != nil {
+		return err
+	}
+	if !published {
+		return fmt.Errorf("seven-day period not yet published")
+	}
+	return nil
 }
 
 func refreshRecommendationEffect(ctx context.Context) error {
