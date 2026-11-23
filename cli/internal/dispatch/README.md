@@ -518,7 +518,9 @@ The spool retains up to 1,024 consumed event IDs and 256 recent summaries.
 
 Native Codex PM decisions use `exec --json --ephemeral` with supplied history.
 On macOS and Windows, Watch presents only selected summaries through the exact
-Desktop owner's hidden-input transport. Watch serializes its main submissions
+Desktop owner's hidden-input transport. The reply prompt supplies one validated
+link to the configured Console's important-message list as application context.
+Peer links remain excluded. Watch serializes its main submissions
 across PMs, Commission and upgrade repair. An unbound, missing or archived
 Codex conversation routes PM notices to the desktop queue when enabled.
 The notification opens the Console important-message view and excludes private message text. The

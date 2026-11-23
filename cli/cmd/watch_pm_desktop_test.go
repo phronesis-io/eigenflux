@@ -220,7 +220,14 @@ func TestCodexPMOwnerNoticeDesktopFallback(t *testing.T) {
 			if scenario != "desktop-disabled" {
 				w.desktop = q
 			}
-			w.runPMMainNotice = func(_ context.Context, _ string, commit func() error) (dispatch.Result, error) {
+			w.runPMMainNotice = func(_ context.Context, prompt string, commit func() error) (dispatch.Result, error) {
+				rules, summary, ok := strings.Cut(prompt, dispatch.PMOwnerNoticeMarker)
+				wantURL := w.binding.Endpoint + "/dashboard/messages?important=1"
+				if !ok || !strings.HasSuffix(rules, wantURL) || !strings.Contains(rules, "exactly one Markdown link") ||
+					strings.Contains(rules, "peer.example") || !strings.Contains(summary, "https://peer.example/link") ||
+					strings.Contains(summary, wantURL) {
+					t.Fatalf("configured Console link and peer data are not isolated: %q", prompt)
+				}
 				switch scenario {
 				case "archived":
 					return dispatch.Result{}, dispatch.ErrMainSessionUnavailable
@@ -241,7 +248,7 @@ func TestCodexPMOwnerNoticeDesktopFallback(t *testing.T) {
 			}
 			job := dispatchTestNext(t, w)
 			job.Message.Conversation = "9223372036854775807"
-			notice := dispatch.PMOwnerNotice{Topic: "topic", Change: "first", Summary: "private message text"}
+			notice := dispatch.PMOwnerNotice{Topic: "topic", Change: "first", Summary: "private message text https://peer.example/link"}
 			if err := dispatch.SavePMNotice(ctx, *w.binding, job, notice); err != nil {
 				t.Fatal(err)
 			}
@@ -353,5 +360,13 @@ func TestCodexPMDesktopQueueReceiptSurvivesInterruptedHandoff(t *testing.T) {
 	queued, _ := w.desktop.Counts()
 	if err != nil || pending || queued != 1 {
 		t.Fatalf("PM pending=%v desktop queued=%d err=%v", pending, queued, err)
+	}
+}
+
+func TestCodexPMNoticeApplicationOmitsInvalidConsoleURL(t *testing.T) {
+	for _, endpoint := range []string{"https://user:pass@example.com", "http://example.com", "javascript:alert(1)"} {
+		if got := codexPMNoticeApplication(endpoint); got != codexPMOwnerNoticeRules {
+			t.Errorf("unexpected link instructions for invalid endpoint %q", endpoint)
+		}
 	}
 }
