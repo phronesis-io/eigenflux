@@ -435,7 +435,7 @@ func TestCommissionLegacyReadyWithoutFingerprintBlocksWithoutRechecking(t *testi
 }
 
 func TestCommissionFulfillmentResumesCancelledSessionOnce(t *testing.T) {
-	for _, scenario := range []string{"ready", "interrupted_again", "wrong_session", "order_closed", "expired", "no_session"} {
+	for _, scenario := range []string{"ready", "interrupted_again", "wrong_session", "order_closed", "expired", "no_session", "preflight_offline", "command_too_long"} {
 		t.Run(scenario, func(t *testing.T) {
 			var interrupted atomic.Bool
 			order := paidCommissionTestOrder()
@@ -466,6 +466,9 @@ func TestCommissionFulfillmentResumesCancelledSessionOnce(t *testing.T) {
 					}
 					directory = output
 					interrupted.Store(true)
+					if scenario == "preflight_offline" {
+						server.Close()
+					}
 					if scenario == "no_session" {
 						return dispatch.Result{}, context.Canceled
 					}
@@ -473,6 +476,9 @@ func TestCommissionFulfillmentResumesCancelledSessionOnce(t *testing.T) {
 				}
 				if calls != 2 || req.SessionID != "original-session" || output != directory {
 					t.Fatal("did not continue the original session and directory exactly once")
+				}
+				if scenario == "command_too_long" {
+					return dispatch.Result{}, errors.Join(dispatch.ErrNeedsUser, dispatch.ErrCommandLineTooLong)
 				}
 				if scenario == "wrong_session" {
 					return dispatch.Result{SessionID: "different-session"}, nil
@@ -491,8 +497,16 @@ func TestCommissionFulfillmentResumesCancelledSessionOnce(t *testing.T) {
 				t.Fatal(err)
 			}
 			got := w.commissionDeliveryJob(job)
+			if wantCode := map[string]string{"preflight_offline": "commission_order_unavailable", "command_too_long": "windows_command_line_too_long"}[scenario]; wantCode != "" {
+				if got.Code != wantCode || got.SessionID != "original-session" || got.Status != "unknown" {
+					t.Fatalf("resume failure: status=%s code=%s session=%q", got.Status, got.Code, got.SessionID)
+				}
+				if err := w.journal.Retry(job.ID); err == nil {
+					t.Fatal("unconfirmed fulfillment accepted a fresh retry")
+				}
+			}
 			wantCalls := 1
-			if scenario == "ready" || scenario == "interrupted_again" || scenario == "wrong_session" {
+			if scenario == "ready" || scenario == "interrupted_again" || scenario == "wrong_session" || scenario == "command_too_long" {
 				wantCalls = 2
 			}
 			if calls != wantCalls || (got.Code == "commission_delivery_confirmed") != (scenario == "ready") {
