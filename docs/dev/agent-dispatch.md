@@ -160,6 +160,8 @@ resume under the same keys. Identity/configuration/input/output changes, conflic
 remote outputs, denied permissions and cancelled/refunded Orders stop retries.
 Expired upload grants never cause a fresh-key upload.
 
+Tracked local Codex generation stores the attempt, order snapshot and output directory before execution, then records the managed process and its session. After interruption or restart, the fulfillment worker rechecks the seller, paid order, deadline, inputs and previous process. A live process or temporary read failure schedules another check without occupying the worker. A seller Skill can declare `generation_recovery: local_only` in its top-level frontmatter when it can fulfill entirely from local materials. An explicitly workspace-write native Codex binding runs that generation in an isolated working directory with write access to its order output directory. Its interrupted empty directory permits at most two additional generation attempts. Other Skills retain their configured capabilities and require operator review before repeating work with uncertain external effects. Existing files undergo a separate read-only contract check and byte comparison before entering the normal delivery checkpoint. An interrupted verifier, unconfirmed process, or conflicting evidence requires operator review. A previously submitted order closes the local job without submitting again. This records the order outcome independently of whether an older host process has exited.
+
 Stop watch before explicit recovery after exhaustion. Pre-upload checkpoints can
 reuse verified files on explicit job retry. Legacy uncertain work without delivery
 retry metadata requires operator reconciliation; loose files do not establish a

@@ -24,7 +24,7 @@ Use this invocation's return contract as the sole result protocol. Apply the bou
    the frozen contract. Derive required artifacts, fixed logical paths, formats,
    and acceptance conditions from these terms without assuming a shared schema
    shape. Return `needs_user` if the terms cannot establish these requirements.
-5. Create new regular files only inside `output_directory`. Use safe relative
+5. In CLI verification-only mode, inspect the existing files in the supplied directory against every frozen acceptance condition. Preserve their bytes. Return the matching artifact paths and actual inspection evidence. For generation, create new regular files only inside `output_directory`. Use safe relative
    paths without absolute paths, drive prefixes, backslashes, empty segments,
    `.` or `..` segments, or symlink traversal. Preserve existing files. Keep each
    artifact's logical path equal to its frozen contractual path.
@@ -53,7 +53,7 @@ Markdown, prose, or trailing output.
 | `self_check` | Actual verification evidence, at most 2000 UTF-8 bytes; nonempty for `artifacts_ready` |
 | `artifacts` | At most 128 distinct objects containing only `logical_path` and `relative_path`; nonempty for `artifacts_ready`, `[]` when none were produced |
 
-List only real artifacts generated and inspected in this invocation. Resolve
+List artifacts inspected and verified in this invocation. Resolve
 each `relative_path` within `output_directory`. Keep secrets, file contents, and
 private absolute paths out of `summary` and `self_check`. Never fabricate checks
 or substitute an unrequested artifact for a missing deliverable.

@@ -241,12 +241,14 @@ func (j *Journal) SaveCommissionCheckpoint(id string, result CommissionFulfillme
 		if job.ID != id {
 			continue
 		}
-		if job.Kind != "commission_fulfillment" || job.Status != "running" || job.Code != "commission_fulfillment_prepared" || job.CommissionFulfillment != nil || job.CommissionCheckpoint != nil || result.Decision.Outcome != "artifacts_ready" {
+		if job.Kind != "commission_fulfillment" || job.Status != "running" || !commissionGenerationPrepared(*job) || job.CommissionFulfillment != nil || job.CommissionCheckpoint != nil || result.Decision.Outcome != "artifacts_ready" {
 			return errors.New("commission_checkpoint_requires_verified_prepared_job")
 		}
 		if err := validateCommissionFulfillmentResult(*job, result); err != nil {
 			return err
 		}
+		job.CommissionGeneration = nil
+		job.Code = "commission_fulfillment_prepared"
 		job.CommissionCheckpoint = &result
 		job.SessionID = sessionID
 		if len(delivery) > 1 {
@@ -282,7 +284,7 @@ func (j *Journal) saveCommissionFulfillment(id string, result CommissionFulfillm
 			continue
 		}
 		resuming := sending && job.CommissionDelivery != nil && validCommissionDelivery(*job) && job.Code == "commission_delivery_retry_pending"
-		if job.Kind != "commission_fulfillment" || job.Status != "running" || (job.Code != "commission_fulfillment_prepared" && !(sending && job.Code == "operator_retry" && job.CommissionCheckpoint != nil) && !resuming) {
+		if job.Kind != "commission_fulfillment" || job.Status != "running" || (!commissionGenerationPrepared(*job) && !(sending && job.Code == "operator_retry" && job.CommissionCheckpoint != nil) && !resuming) {
 			return errors.New("commission_fulfillment_requires_prepared_job")
 		}
 		if err := validateCommissionFulfillmentResult(*job, result); err != nil {
@@ -294,6 +296,7 @@ func (j *Journal) saveCommissionFulfillment(id string, result CommissionFulfillm
 		if sending && job.CommissionCheckpoint != nil && !reflect.DeepEqual(*job.CommissionCheckpoint, result) {
 			return errors.New("commission_checkpoint_changed")
 		}
+		job.CommissionGeneration = nil
 		job.CommissionFulfillment = &result
 		job.CommissionCheckpoint = nil
 		job.Status = commissionFulfillmentStatus(result.Decision.Outcome)

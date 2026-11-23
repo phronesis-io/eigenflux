@@ -64,6 +64,7 @@ type Job struct {
 	CommissionFulfillment *CommissionFulfillmentResult `json:"commission_fulfillment,omitempty"`
 	CommissionCheckpoint  *CommissionFulfillmentResult `json:"commission_checkpoint,omitempty"`
 	CommissionDelivery    *CommissionDeliveryRetry     `json:"commission_delivery,omitempty"`
+	CommissionGeneration  *CommissionGeneration        `json:"commission_generation,omitempty"`
 	CommissionDirectory   string                       `json:"commission_directory,omitempty"`
 	CommissionExecution   *CommissionExecutionContext  `json:"commission_execution,omitempty"`
 	CommissionDiagnostic  *CommissionDiagnostic        `json:"commission_diagnostic,omitempty"`
@@ -215,6 +216,10 @@ type Request struct {
 	// ReadOnlySkillDirs comes from the CLI's resolved frozen contract, never
 	// from prompt text or a model result. Only the built-in WorkBuddy bridge uses it.
 	ReadOnlySkillDirs []string
+	// GenerationVerifyOnly inspects retained files in a fresh, read-only Codex invocation.
+	GenerationVerifyOnly bool
+	// GenerationLocalDirectory is the private output directory for a seller-declared local-only skill.
+	GenerationLocalDirectory string
 }
 
 type Result struct {

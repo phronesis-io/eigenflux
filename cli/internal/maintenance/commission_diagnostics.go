@@ -83,7 +83,23 @@ type CommissionBridgeError struct {
 	RPCCode   *int   `json:"rpc_code,omitempty"`
 }
 
+// The service already accepts these diagnostic categories. Keep precise
+// generation reasons in the local journal and desktop notification.
 func CommissionLocalCode(code string) string {
+	switch code {
+	case "commission_generation_checking", "commission_generation_probe_pending":
+		return "commission_fulfillment_prepared"
+	case "commission_generation_deadline_reached", "commission_generation_order_closed", "commission_generation_delivery_observed":
+		return "commission_order_not_actionable"
+	case "commission_generation_tracking_unavailable", "commission_generation_retry_exhausted":
+		return "commission_fulfillment_needs_user"
+	case "commission_generation_remote_output_exists", "commission_generation_process_unconfirmed", "commission_generation_effects_unconfirmed", "commission_generation_verification_interrupted":
+		return "commission_fulfillment_unconfirmed"
+	case "commission_generation_manifest_unavailable":
+		return "commission_order_unavailable"
+	case "commission_generation_verification_incomplete":
+		return "commission_fulfillment_artifacts_invalid"
+	}
 	if watchOneOf(code, strings.Fields(CommissionLocalCodes)...) {
 		return code
 	}

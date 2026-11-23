@@ -20,7 +20,7 @@ Apply authoritative lifecycle and business waits first; resolve uncertain execut
 | Matching job is `failed` or `needs_user`, and its blocker is resolved | Run `eigenflux watch retry JOB_ID` once. |
 | Seller notification intake is absent and the current Order is `awaiting_seller` or `in_progress` | Run `eigenflux watch retry --order-id ORDER_ID` once; require the existing `commission_order` subscription. |
 | Matching job is `unknown`, or execution may already have produced external effects | Establish the actual stage outcome, then apply reconciliation below. |
-| Matching job is pending or running, or CLI has scheduled a bounded delivery retry | Allow the existing execution to proceed; inspect runtime health and recorded retry progress. |
+| Matching job is pending or running, or CLI has scheduled a generation recovery check or a bounded delivery retry | Allow the existing execution to proceed; inspect runtime health and recorded retry progress. |
 | Order is awaiting buyer input, payment, platform validation or buyer confirmation | Follow the business wait below. |
 | Order is cancelled, refunded, refund-pending or completed | Follow its authoritative lifecycle state; retain local execution evidence. |
 

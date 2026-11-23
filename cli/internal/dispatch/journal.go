@@ -101,6 +101,9 @@ func readJournal(b Binding) (journalState, bool, error) {
 				return journalState{}, false, errors.New("invalid_journal_pm_decision")
 			}
 		}
+		if !validCommissionGeneration(job, b.AgentID) {
+			return journalState{}, false, errors.New("invalid_journal_commission_generation")
+		}
 		if !validCommissionDelivery(job) {
 			return journalState{}, false, errors.New("invalid_journal_commission_delivery")
 		}
@@ -184,6 +187,12 @@ func OpenJournal(b Binding) (*Journal, error) {
 	changed := !exists
 	for i := range s.Jobs {
 		if recoverCommissionDelivery(&s.Jobs[i], time.Now()) {
+			changed = true
+			continue
+		}
+		if s.Jobs[i].Status == "running" && s.Jobs[i].CommissionGeneration != nil {
+			// Queue an evidence check; it cannot start another process by itself.
+			s.Jobs[i].Status, s.Jobs[i].Code = "pending", "commission_generation_probe_pending"
 			changed = true
 			continue
 		}
@@ -449,6 +458,9 @@ func (j *Journal) next(kind string) (Job, bool, error) {
 		if job.Status == "running" || job.Status == "sending" {
 			return Job{}, false, nil
 		}
+		if job.CommissionGeneration != nil && job.CommissionGeneration.NextProbeAt > time.Now().UnixMilli() {
+			continue
+		}
 		if job.CommissionDelivery != nil && job.CommissionDelivery.NextAttemptAt > time.Now().UnixMilli() {
 			continue
 		}
@@ -461,6 +473,10 @@ func (j *Journal) next(kind string) (Job, bool, error) {
 	}
 	next := cloneJournal(j.state)
 	next.Jobs[index].Status = "running"
+	if generation := next.Jobs[index].CommissionGeneration; generation != nil {
+		generation.NextProbeAt = 0
+		next.Jobs[index].Code = "commission_generation_checking"
+	}
 	if retry := next.Jobs[index].CommissionDelivery; retry != nil && retry.NextAttemptAt > 0 {
 		retry.Attempts++
 		retry.NextAttemptAt = 0
@@ -507,6 +523,9 @@ func (j *Journal) Update(id, status, code, sessionID, replyID string) error {
 		}
 		job.Status = status
 		job.Code = code
+		if completedStatus(status) {
+			job.CommissionGeneration = nil
+		}
 		if code != "pm_owner_notice_save_failed" {
 			job.PMDecision = nil
 		}
@@ -706,6 +725,14 @@ func cloneJob(job Job) Job {
 		value.Result.InspectedFiles = append([]string{}, value.Result.InspectedFiles...)
 		job.CommissionReadiness = &value
 	}
+	if job.CommissionGeneration != nil {
+		value := *job.CommissionGeneration
+		if value.Evidence.Result != nil {
+			result := *value.Evidence.Result
+			value.Evidence.Result = &result
+		}
+		job.CommissionGeneration = &value
+	}
 	if job.CommissionDelivery != nil {
 		value := *job.CommissionDelivery
 		job.CommissionDelivery = &value
@@ -751,6 +778,9 @@ func redactedJobs(jobs []Job) []Job {
 		job = cloneJob(job)
 		job.Data = nil
 		job.PMDecision = nil
+		if job.CommissionGeneration != nil {
+			job.CommissionGeneration.Evidence.Result = nil
+		}
 		if job.Message != nil {
 			job.Message.Content = ""
 		}
@@ -820,7 +850,15 @@ func (j *Journal) Retry(id string) error {
 			return nil
 		}
 		job.Status = "pending"
+		if job.CommissionGeneration != nil && job.Code == "operator_verified" {
+			// Only an explicitly reconciled incomplete run starts a fresh generation budget.
+			job.CommissionGeneration = nil
+			job.SessionID = ""
+		}
 		job.Code = "operator_retry"
+		if job.CommissionGeneration != nil {
+			job.Code = "commission_generation_probe_pending"
+		}
 		if job.Kind == "commission_order" {
 			job.CommissionResult = nil
 			job.CommissionReadiness = nil
@@ -858,6 +896,9 @@ func (j *Journal) Reconcile(id, action, replyID string) error {
 			return errors.New("reconciliation_outcome_does_not_match_job_kind")
 		}
 		job.Status = action
+		if action == "completed" {
+			job.CommissionGeneration = nil
+		}
 		job.Code = "operator_verified"
 		job.ReplyID = replyID
 		if completedStatus(action) {

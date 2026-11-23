@@ -17,7 +17,12 @@ func TestCommissionDiagnosticLocalCodesCoverActualSetters(t *testing.T) {
 		t.Fatal(err)
 	}
 	check := func(value string) {
-		if maintenance.CommissionLocalCode(value) != value {
+		wire := maintenance.CommissionLocalCode(value)
+		// Generation reasons remain precise locally and translate to the existing wire vocabulary.
+		if strings.HasPrefix(value, "commission_generation_") && wire != "unknown_failure" && maintenance.CommissionLocalCode(wire) == wire {
+			return
+		}
+		if wire != value {
 			t.Errorf("fixed local Job.Code is missing from wire allowlist: %s", value)
 		}
 	}
