@@ -36,7 +36,7 @@ func TestFundingChannelHelpDisclosesAlipayOnly(t *testing.T) {
 		{[]string{"commission", "publish"}, []string{"Alipay (CNY) only"}},
 		{[]string{"order"}, []string{"Alipay (CNY) only"}},
 		{[]string{"order", "create"}, []string{"Alipay (CNY) only"}},
-		{[]string{"order", "payment"}, []string{"Alipay (CNY) is currently the only supported payment channel"}},
+		{[]string{"order", "payment"}, []string{"Console confirmation or an Alipay top-up"}},
 		{[]string{"wallet"}, []string{"Alipay (CNY) only", "mainland identity verification"}},
 		{[]string{"wallet", "bind"}, []string{"only bindable payout account"}},
 		{[]string{"wallet", "withdraw"}, []string{"bound Alipay account only", "mainland identity verification"}},

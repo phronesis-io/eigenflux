@@ -1,0 +1,91 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>钱包 · EigenFlux</title>
+<style>body{font:1rem/1.6 system-ui,sans-serif;max-width:54rem;margin:auto;padding:1.5rem;color:#222}h2{margin-top:2rem}form{margin:1rem 0}button,input,select{font:inherit;margin:.25rem;padding:.25rem .5rem}label{display:inline-block}output{display:block}table{border-collapse:collapse}td,th{text-align:left;padding:.35rem .65rem;border-bottom:1px solid #ddd}code{overflow-wrap:anywhere}section{overflow-x:auto}</style>
+<main id="wallet" data-csrf="{{.}}"><h1>钱包</h1><p id="balance"></p>
+<form id="topup"><label>支付宝充值金额（分） <input name="amount" type="number" min="1" step="1" required></label><button>生成充值链接</button> <a id="pay" hidden rel="noreferrer">前往支付宝充值</a></form>
+<form id="limit"><label>每笔自动支付上限（分） <input name="amount" type="number" min="0" step="1" required></label><button>保存上限</button></form>
+<section><h2>储值账单</h2><output id="pending"></output><table><thead><tr><th>时间</th><th>类型</th><th>金额</th><th>订单或调用</th></tr></thead><tbody id="statement"></tbody></table><button id="older" hidden>更早的记录</button>
+<div id="usage" role="region" aria-label="调用明细"></div></section>
+<section><h2>网关密钥</h2><ul id="keys"></ul>
+<form id="create"><label>名称 <input name="label" required maxlength="128"></label>
+<label>Ed25519 公钥（Base64URL） <input name="public_key" required pattern="[A-Za-z0-9_-]{43}"></label>
+<label>有效天数 <input name="days" type="number" min="1" max="365" value="30" required></label><br>
+<label>每秒请求数 <input name="qps" type="number" min="1" max="1000" value="5" required></label>
+<label>突发请求数 <input name="burst" type="number" min="1" max="1000" value="10" required></label>
+<label>每日支出上限（分） <input name="cap" type="number" min="0"></label>
+<label>产品 ID（逗号分隔，留空表示全部） <input name="products" pattern="[0-9]+(,[0-9]+)*"></label>
+<label>允许的 CIDR（逗号分隔） <input name="cidrs"></label>
+<label><input type="checkbox" name="read">允许读取调用明文</label> <button>注册公钥</button></form></section>
+<p id="status" role="status"></p></main>
+<script>
+const el = id => document.getElementById(id);
+const url = '/api/v2/console/bff/';
+const money = fen => (fen / 100).toLocaleString('zh-CN',{style:'currency',currency:'CNY'});
+const date = ms => new Date(ms).toLocaleString('zh-CN');
+async function request(path, method='GET', body, key) {
+  const opts = {method,headers:{}};
+  if (body !== undefined) {
+    opts.body = typeof body==='string' ? body : JSON.stringify(body);
+    opts.headers={'Content-Type':'application/json','X-CSRF-Token':el('wallet').dataset.csrf,'Idempotency-Key':key};
+  }
+  const response=await fetch(url+path,opts);
+  if (!response.ok) throw new Error(await response.text().then(text=>{try{const e=JSON.parse(text);return e.message || e.msg || response.statusText}catch{return response.statusText}}));
+  return (await response.json()).data;
+}
+function button(label, fn) {
+  const b=document.createElement('button');b.textContent=label;
+  b.onclick=()=>run(b,fn);return b;
+}
+async function run(control, fn) {
+  control.disabled=true;el('status').textContent='';
+  try {await fn()} catch(e){el('status').textContent=e.message || '请求失败，请重试。'} finally{control.disabled=false}
+}
+async function balance() {
+  const data=await request('wallet/balance');
+  el('balance').textContent='储值余额 '+money(data.stored_value.balance_fen)+' · 每笔自动支付上限 '+money(data.stored_value.auto_pay_limit_fen);
+  el('limit').elements.amount.value=data.stored_value.auto_pay_limit_fen;
+}
+async function usage(period,before='0') {
+  const data=await request('wallet/usage?period_start='+period+'&before='+before);
+  const region=el('usage');if(before==='0'){region.replaceChildren();const h=document.createElement('h3');h.textContent=date(period)+' 调用明细';region.append(h)}
+  const list=document.createElement('ul');
+  for(const row of data.calls||[]){const li=document.createElement('li');li.textContent=row.call_id+' · '+row.state+' · '+money(row.charged_fen);list.append(li)}
+  region.append(list);
+  if(data.calls?.length===100){const more=button('更多调用',async()=>{await usage(period,data.calls.at(-1).call_id);more.remove()});region.append(more)}
+}
+let cursor=0;
+async function statement(append=false) {
+  const data=await request('wallet/statement?limit=20&before='+(append?cursor:0));
+  if(!append)el('statement').replaceChildren();
+  el('pending').textContent='本小时待结账 '+money(data.pending.charged_fen);
+  for(const row of data.entries||[]){
+    const tr=el('statement').insertRow();for(const value of [date(row.created_at),({topup:'充值',order_payment:'订单付款',order_refund:'订单退款',api_usage:'API 调用'})[row.kind],money(row.amount_fen)])tr.insertCell().textContent=value;
+    const detail=tr.insertCell();if(row.period_start)detail.append(button('查看调用',()=>usage(row.period_start)));else detail.textContent=[row.order_id,row.frozen_title].filter(Boolean).join(' ');
+    cursor=row.entry_id;
+  }
+  el('older').hidden=data.entries?.length!==20;
+}
+async function keys() {
+  const data=await request('gateway-keys');const list=el('keys');list.replaceChildren();
+  for(const row of data.keys||[]){
+    const li=document.createElement('li');li.textContent=row.label+' · '+row.status+' · '+date(row.expires_at)+' ';
+    if(row.status!=='revoked')for(const [label,status] of [[row.status==='active'?'暂停':'恢复',row.status==='active'?'suspended':'active'],['撤销','revoked']]){
+      li.append(button(label,async()=>{if(status==='revoked'&&!window.confirm('永久撤销此公钥？'))return;await request('gateway-keys/status','PUT',{fingerprint:row.fingerprint,status},crypto.randomUUID());await keys()}))
+    }list.append(li);
+  }
+}
+function submit(id, fn) {
+  const form=el(id);let key=crypto.randomUUID();
+  form.oninput=()=>{key=crypto.randomUUID();if(id==='topup')el('pay').hidden=true};
+  form.onsubmit=e=>{e.preventDefault();run(form.querySelector('button'),async()=>{await fn(new FormData(form),key);key=crypto.randomUUID()})};
+}
+submit('limit',async(f,key)=>{await request('wallet/auto-pay-limit','PUT',{auto_pay_limit_fen:Number(f.get('amount'))},key);await balance()});
+submit('topup',async(f,key)=>{const data=await request('wallet/topups','POST',{amount_fen:Number(f.get('amount'))},key);if(data.payment_action){const link=new URL(data.payment_action.url);if(link.protocol!=='https:')throw new Error('无效的付款链接');el('pay').href=link;el('pay').hidden=false}else{await balance();await statement()}});
+submit('create',async(f,key)=>{
+  const ids=f.get('products').trim();if(ids&&!/^[1-9][0-9]*(,[1-9][0-9]*)*$/.test(ids))throw new Error('产品 ID 无效');
+  const policy={label:f.get('label'),public_key:f.get('public_key'),qps:Number(f.get('qps')),burst:Number(f.get('burst')),scopes:f.has('read')?['call','calls:read']:['call'],daily_spend_cap_fen:f.get('cap')===''?null:Number(f.get('cap')),cidr_allowlist:f.get('cidrs').trim()?f.get('cidrs').split(',').map(x=>x.trim()):null,expires_at:Date.now()+Number(f.get('days'))*86400000};
+  const body=JSON.stringify(policy).slice(0,-1)+',"product_allowlist":'+(ids?'['+ids+']':'null')+'}';
+  await request('gateway-keys','POST',body,key);el('create').reset();await keys();
+});
+el('older').onclick=()=>run(el('older'),()=>statement(true));
+Promise.all([balance(),statement(),keys()]).catch(e=>el('status').textContent=e.message);
+</script></html>

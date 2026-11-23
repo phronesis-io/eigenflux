@@ -44,7 +44,17 @@ var walletStatementCmd = &cobra.Command{
 		if before < 0 || limit < 1 || limit > 100 {
 			return fmt.Errorf("use a non-negative entry cursor and a limit between 1 and 100")
 		}
-		resp, err := newCommissionClient().Get("/wallet/statement", map[string]string{"before": strconv.FormatInt(before, 10), "limit": strconv.Itoa(limit)})
+		path := "/wallet/statement"
+		query := map[string]string{"before": strconv.FormatInt(before, 10), "limit": strconv.Itoa(limit)}
+		if cmd.Flags().Changed("period-start") {
+			period, _ := cmd.Flags().GetInt64("period-start")
+			if period <= 0 || period%3600000 != 0 {
+				return fmt.Errorf("--period-start must identify a UTC hour in Unix milliseconds")
+			}
+			path = "/wallet/usage"
+			query["period_start"] = strconv.FormatInt(period, 10)
+		}
+		resp, err := newCommissionClient().Get(path, query)
 		if err != nil {
 			return err
 		}
@@ -156,6 +166,7 @@ func init() {
 	walletTopupCmd.Flags().Int64("amount-fen", 0, "top-up amount in CNY fen")
 	addIdempotencyFlag(walletTopupCmd)
 	walletStatementCmd.Flags().Int64("before", 0, "return entries older than this entry ID")
+	walletStatementCmd.Flags().Int64("period-start", 0, "list calls in this billing hour (Unix milliseconds)")
 	walletStatementCmd.Flags().Int("limit", 20, "maximum entries (1–100)")
 	walletCmd.AddCommand(walletTopupCmd, walletStatementCmd)
 	walletBindCmd.Flags().String("authorization", "", "provider authorization payload")

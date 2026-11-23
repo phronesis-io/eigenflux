@@ -84,12 +84,12 @@ var fundingDisclosures = map[string][2]string{
 		"Create a Commission draft; earnings are paid to a bound Alipay account in CNY only",
 	},
 	"commission.publish": {
-		"发布任务委托；买家目前仅能通过支付宝（人民币）付款，卖家收款也仅支持支付宝",
-		"Publish a Commission; buyers pay through Alipay in CNY only and sellers are paid to a bound Alipay account",
+		"发布任务委托；买家储值充值仅支持支付宝（人民币），卖家收款也仅支持支付宝",
+		"Publish a Commission; balance top-ups support Alipay in CNY only and sellers are paid to a bound Alipay account",
 	},
 	"order.create": {
-		"创建订单；订单目前仅支持支付宝（人民币）付款",
-		"Create an Order; Orders are payable through Alipay in CNY only",
+		"创建订单；储值订单从余额扣款，充值仅支持支付宝（人民币）",
+		"Create an Order; wallet-funded Orders use balance and top-ups support Alipay in CNY only",
 	},
 	"wallet.binding.update": {
 		"绑定付款授权；目前仅支持绑定支付宝账户",
@@ -167,7 +167,7 @@ func capabilitySeeds() []capabilitySeed {
 		capability("order.list", "eigenflux order list", "order", "read", "查看订单列表", "List Orders"),
 		capability("order.read", "eigenflux order get", "order", "read", "查看订单详情", "View an Order"),
 		capability("order.pending_confirmations", "eigenflux order pending-confirmations", "order", "read", "读取待确认交付订单并生成提醒", "Read delivered Orders awaiting buyer confirmation"),
-		capability("order.payment", "eigenflux order payment", "order", "write", "获取订单支付宝付款链接", "Get an Order's Alipay payment link"),
+		capability("order.payment", "eigenflux order payment", "order", "write", "获取订单付款操作", "Get the buyer payment action for an Order"),
 		capability("order.materials.submit", "eigenflux order submit-materials", "order", "write", "提交订单材料", "Submit Order materials"),
 		capability("order.cancel", "eigenflux order cancel", "order", "write", "取消订单", "Cancel an Order"),
 		capability("order.inputs.withdraw", "eigenflux order withdraw-input-request", "order", "write", "卖方撤回澄清并触发材料复检", "Withdraw seller clarification and wake input reinspection"),
@@ -372,6 +372,8 @@ func capabilitySeeds() []capabilitySeed {
 			seed.zh.Description, seed.en.Description = disclosure[0], disclosure[1]
 		}
 		switch seed.id {
+		case "wallet.topup.create", "wallet.statement.read", "api.products.list", "api.call":
+			seed.minCLI = "1.0.47"
 		case "settings.recurring_publish.read":
 			seed.minCLI, seed.identityRoute = "1.0.35", "current_identity"
 		case "wallet.kyc.read", "wallet.kyc.start", "wallet.kyc.complete", "wallet.kyc.authorize":
@@ -388,8 +390,8 @@ func capabilitySeeds() []capabilitySeed {
 			}
 		case "order.payment":
 			seed.minCLI = "0.0.103"
-			seed.zh.Description = "获取待付款订单的支付宝链接，由买方打开并确认支付；支付宝是目前唯一支持的付款渠道，此命令不会自动扣款"
-			seed.en.Description = "Get an Alipay link for a pending-payment Order; the buyer opens it and confirms payment. Alipay is currently the only supported payment channel, and this command does not charge automatically"
+			seed.zh.Description = "读取订单付款操作。储值订单可能需要买方在 Console 确认或通过支付宝充值。"
+			seed.en.Description = "Read the Order payment action. Wallet-funded Orders can require buyer confirmation or an Alipay top-up."
 		case "identity.provision":
 			seed.identityRoute, seed.requiresConsoleHandoff = "provision", true
 			seed.zh.Description = "仅用于创建或明确认领 Agent，不用于修改 Agent Card 或切换账号"

@@ -116,3 +116,42 @@ func TestTradeOrderPaymentRejectsUntrustedInputBeforeCommission(t *testing.T) {
 		})
 	}
 }
+
+func TestStoredValueConfirmationPageAndSignedAmount(t *testing.T) {
+	const body = `{"order_id":"44","amount_fen":399}`
+	var mutated bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			io.WriteString(w, `{"code":0,"data":{"order_id":"44","role":"buyer","state":"pending_payment","contract":{"gross_amount_fen":399,"currency":"CNY","title":"<unsafe>"}}}`)
+			return
+		}
+		actual, _ := io.ReadAll(r.Body)
+		if string(actual) != body || r.URL.Path != "/api/v1/orders/44/payment/confirm" {
+			t.Errorf("invalid confirmation %s %s", r.URL.Path, actual)
+		}
+		claims := tokenClaims(t, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+		if claims.Subject != "42" || claims.Scope != "orders:pay" || claims.Operation != "order.payment.confirm" || claims.BodySHA256 != delegationDigest(actual) {
+			t.Errorf("wrong delegation %#v", claims)
+		}
+		mutated = true
+		io.WriteString(w, `{"code":0,"data":{"state":"succeeded"}}`)
+	}))
+	defer upstream.Close()
+	s := configuredService(t, upstream.URL)
+	c := paymentContext("44", "", "", true)
+	s.OrderPaymentPage(context.Background(), c)
+	html := string(c.Response.Body())
+	if c.Response.StatusCode() != 200 || !strings.Contains(html, "¥3.99") || !strings.Contains(html, "&lt;unsafe&gt;") || mutated {
+		t.Fatalf("invalid read-only page %s", html)
+	}
+	c = paymentContext("45", body, "confirm-44", true)
+	s.ConfirmOrderPayment(context.Background(), c)
+	if c.Response.StatusCode() != 400 || mutated {
+		t.Fatal("accepted a different order")
+	}
+	c = paymentContext("44", body, "confirm-44", true)
+	s.ConfirmOrderPayment(context.Background(), c)
+	if c.Response.StatusCode() != 200 || !mutated {
+		t.Fatalf("confirmation failed: %s", c.Response.Body())
+	}
+}

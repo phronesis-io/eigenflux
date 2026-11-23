@@ -247,6 +247,28 @@ var desktopOrderCopy = map[string]desktopRoleCopy{
 func commissionDesktopCopy(language, notificationType string, payload orderNotificationPayload) (string, string) {
 	key := commissionDesktopCopyKey(notificationType, payload)
 	title, body := desktopCopyText(language, payload.RecipientRole, key)
+	if payload.RecipientRole == "buyer" {
+		var zh, en string
+		switch {
+		case key == "pending_payment" && payload.WaitReason == "confirm":
+			zh, en = "请在 Console 确认本订单付款。", "Confirm this Order payment in Console."
+		case key == "pending_payment" && payload.WaitReason == "topup":
+			zh, en = "余额不足，请打开订单获取充值链接。", "Open the Order to top up the balance shortfall."
+		case key == "refunded" || key == "order.refund.completed.v1":
+			switch payload.FundingSource {
+			case "alipay":
+				zh, en = "款项已退回原支付宝付款账户。", "The payment was returned to the original Alipay account."
+			case "stored_value":
+				zh, en = "款项已退回储值余额。", "The payment was returned to your stored-value balance."
+			}
+		}
+		if en != "" {
+			body = en
+			if language == "zh" {
+				body = zh
+			}
+		}
+	}
 	if key == "order.review.created.v1" {
 		score := "—"
 		if payload.ReviewScore >= 1 && payload.ReviewScore <= 5 {

@@ -475,6 +475,8 @@ func registerConsoleV2BusinessBFF(h *server.Hertz, service *consolev2.Service, c
 	read("items/:item_id", apihandler.GetItem)
 
 	registerCommissionConsoleBFFRoutes(read, write, commissionAccess.ConsoleMiddleware(), trade)
+	h.GET("/api/v2/console/wallet", service.ConsoleBFFHandlers(false, commissionAccess.ConsoleMiddleware(), tradebff.WalletPage)...)
+	h.GET("/api/v2/console/wallet/pay/:order_id", service.ConsoleBFFHandlers(false, commissionAccess.ConsoleMiddleware(), trade.OrderPaymentPage)...)
 	authorization := tradebff.NewAlipayAuthorization(trade, mq.RDB, tradebff.AlipayAuthorizationConfig{AppID: cfg.AlipayAuthAppID, CallbackURL: cfg.AlipayAuthCallbackURL, Production: cfg.AlipayAuthProduction})
 	write(http.MethodPost, "payout-method/alipay/authorizations", commissionAccess.ConsoleMiddleware(), authorization.Start)
 	read("payout-method/alipay/authorizations/:authorization_id", commissionAccess.ConsoleMiddleware(), authorization.Status)
@@ -497,6 +499,7 @@ func registerCommissionConsoleBFFRoutes(read consoleBFFReadRegistrar, write cons
 	read("trade/orders", access, trade.TradeOrders)
 	read("trade/orders/:order_id", access, trade.TradeOrder)
 	read("trade/orders/:order_id/review", access, trade.TradeOrderReview)
+	write(http.MethodPost, "trade/orders/:order_id/payment/confirm", access, trade.ConfirmOrderPayment)
 	write(http.MethodPost, "trade/orders/:order_id/payment", access, trade.TradeOrderPayment)
 	write(http.MethodPost, "trade/orders/:order_id/input-uploads", access, trade.TradeOrderInputUpload)
 	write(http.MethodPost, "trade/orders/:order_id/input-uploads/confirm", access, trade.TradeOrderInputUploadConfirm)

@@ -212,4 +212,4 @@ does not imply that a Commission is currently orderable; inspect
 
 Preserve and pass the discovery `impression_id` when the selected result contains one. It is optional: absence must not block an otherwise fully informed and approved Order.
 
-Before a buyer invests in material preparation, state once that an Order is payable through Alipay in CNY only. Skip it for a buyer who has already paid an Order.
+Before a buyer invests in material preparation, state once that balance top-ups support Alipay in CNY only. Skip it for a buyer who has already paid an Order.

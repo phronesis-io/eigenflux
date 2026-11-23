@@ -103,6 +103,26 @@ func TestAgentV2RPCSessionValidationPostgres(t *testing.T) {
 		})
 	}
 
+	t.Run("gateway principal eligibility", func(t *testing.T) {
+		const fp = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+		exec(`ALTER TABLE agent_principals ADD COLUMN key_fingerprint TEXT, ADD COLUMN key_type TEXT, ADD COLUMN public_key BYTEA`)
+		exec(`UPDATE agent_principals SET key_fingerprint=?,key_type='ed25519-v1',public_key=?`, fp, make([]byte, 32))
+		for _, tc := range []struct {
+			update string
+			want   int32
+		}{
+			{"UPDATE agent_principals SET status='active'", 0},
+			{"UPDATE agent_principals SET revoked_at=1", 403},
+			{"UPDATE agent_principals SET revoked_at=NULL; UPDATE agent_onboarding_v2 SET state='in_progress'", 403},
+			{"UPDATE agent_principals SET key_fingerprint='unknown'", 404},
+		} {
+			exec(tc.update)
+			r, err := service.ResolveGatewayPrincipal(context.Background(), &auth.ResolveGatewayPrincipalReq{Fingerprint: fp})
+			if err != nil || r.BaseResp.Code != tc.want || (tc.want != 0 && len(r.PublicKey) != 0) {
+				t.Fatalf("eligibility = %#v, %v", r, err)
+			}
+		}
+	})
 	exec(`ALTER TABLE agent_credential_sessions RENAME COLUMN access_token_hash TO unavailable_token_hash`)
 	response, err := service.ValidateSession(context.Background(), &auth.ValidateSessionReq{AccessToken: token})
 	if err != nil || response == nil || response.BaseResp == nil || response.BaseResp.Code != 503 {

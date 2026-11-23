@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>确认订单付款 · EigenFlux</title>
+<main><h1>确认订单付款</h1><p>{{.Title}}</p><p>订单 {{.Order}}</p><p>从储值余额支付 <strong>¥{{.Price}}</strong></p>
+<button id="confirm" data-order="{{.Order}}" data-amount="{{.Amount}}" data-csrf="{{.CSRF}}">确认支付 ¥{{.Price}}</button>
+<p role="status" id="status"></p></main>
+<script>
+const button = document.getElementById('confirm');
+const statusText = document.getElementById('status');
+button.addEventListener('click', async () => {
+  button.disabled = true;
+  const {order, amount, csrf} = button.dataset;
+  try {
+    const response = await fetch('/api/v2/console/bff/trade/orders/' + order + '/payment/confirm', {
+      method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':csrf,'Idempotency-Key':'confirm-' + order},
+      body:'{"order_id":' + JSON.stringify(order) + ',"amount_fen":' + amount + '}'
+    });
+    const result = await response.json();
+    if (!response.ok || !result.data) throw new Error();
+    if (result.data.state === 'succeeded') statusText.textContent = '已付款。';
+    else if (result.data.action === 'topup') statusText.textContent = '已确认。余额不足，请通过订单付款入口获取支付宝充值链接。';
+    else statusText.textContent = '请返回订单查看当前付款状态。';
+  } catch {
+    statusText.textContent = '未能确认付款。请检查当前账号和订单状态后重试。';
+    button.disabled = false;
+  }
+});
+</script></html>

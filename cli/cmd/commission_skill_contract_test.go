@@ -20,7 +20,7 @@ func TestCommissionSkillContract(t *testing.T) {
 	skill := string(skillBody)
 	for _, required := range []string{
 		"## Funding Channel",
-		"Payments and payouts currently support Alipay in CNY only",
+		"Balance top-ups support Alipay in CNY only",
 		"never as a separate qualification to raise up front",
 		"read `eigenflux wallet get --format json` before the interview",
 		"Do not repeat it for later Orders, or for a buyer who has already paid one",
@@ -91,7 +91,7 @@ func TestCommissionSkillContract(t *testing.T) {
 		"Current CLI and service validation are authoritative",
 		"eigenflux stream --once",
 		"availability fact",
-		"Orders are payable through Alipay in CNY only",
+		"Wallet-funded Orders use balance and top-ups support Alipay in CNY only",
 		"Do not restate the limit for later Orders or for a buyer who has already paid one",
 		"unless this conversation already established it",
 	} {

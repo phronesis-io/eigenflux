@@ -94,3 +94,5 @@ For an owner-requested top-up, run `eigenflux wallet topup --amount-fen N
 for retries. Give the owner the returned Alipay payment action. Verify the
 credit with `eigenflux wallet statement`. Only the owner can change the
 per-payment limit in Console.
+
+Use `wallet statement --period-start PERIOD_START` to inspect a usage line. Only seller income is withdrawable. A refunded wallet-funded Order returns to stored value for future Orders or API calls.

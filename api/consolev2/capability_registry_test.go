@@ -89,7 +89,7 @@ func TestAgentCapabilityRegistryDisclosesAlipayOnlyFunding(t *testing.T) {
 		"commission.create":        {"支付宝", "Alipay"},
 		"commission.publish":       {"支付宝", "Alipay"},
 		"order.create":             {"仅支持支付宝", "Alipay in CNY only"},
-		"order.payment":            {"唯一支持的付款渠道", "only supported payment channel"},
+		"order.payment":            {"通过支付宝充值", "Alipay top-up"},
 		"wallet.binding.update":    {"仅支持绑定支付宝账户", "only an Alipay account can be bound"},
 		"wallet.withdrawal.create": {"实名核验的支付宝账户", "mainland identity verification"},
 	} {

@@ -24,7 +24,7 @@ const idempotencyHeader = "Idempotency-Key"
 // Identity comparison belongs to the payout step, not to this notice: a normal
 // Alipay account already satisfies it, so front-loading it would read as an
 // extra qualification the seller has to go and obtain.
-const fundingChannelNotice = "Payments and payouts currently support Alipay (CNY) only. Buyers pay each Order through Alipay; sellers are paid to a bound Alipay account."
+const fundingChannelNotice = "Balance top-ups support Alipay (CNY) only. Follow the Order payment action. Seller payouts go to a bound Alipay account."
 
 // fundingNoticeStampKey records, per server profile, that the notice was shown.
 // It carries the `_` prefix every CLI-private key uses, so settings sync can

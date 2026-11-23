@@ -1,6 +1,6 @@
 # Orders and Workspace Files
 
-An Order freezes the selected Commission contract. Follow the preflight and mutation protocol in `SKILL.md`. Creating one can create a financial obligation; show the exact seller, scope, buyer price, 20% platform commission deducted from the seller, 80% seller net, currency, and promised delivery before approval. The buyer pays the frozen price; do not add the commission on top. Orders are payable through Alipay in CNY only; confirm the buyer can pay that way before the conversation's first material preparation, and stop when they cannot. Do not restate the limit for later Orders or for a buyer who has already paid one.
+An Order freezes the selected Commission contract. Follow the preflight and mutation protocol in `SKILL.md`. Creating one can create a financial obligation; show the exact seller, scope, buyer price, 20% platform commission deducted from the seller, 80% seller net, currency, and promised delivery before approval. The buyer pays the frozen price; do not add the commission on top. Wallet-funded Orders use balance and top-ups support Alipay in CNY only. Confirm the buyer can fund the Order before the conversation's first material preparation, and stop when they cannot. Do not restate the limit for later Orders or for a buyer who has already paid one.
 
 ## Order Notifications
 
@@ -14,7 +14,7 @@ Proactively notify the user in their language after creation, on resuming an Ord
 
 - After verified initial or supplemental buyer material submission, identify the Order, list submitted text/file names and briefly summarize their contents. Report only confirmed submissions. Reuse existing authorization for the same materials without asking again.
 - When reading or resuming a buyer Order, inspect recorded automatic clarification answers and briefly report newly observed answers, the facts/materials used and the next step. Report each answer once without seeking renewed approval; keep private details out of the summary.
-- After creation, report `awaiting_seller` until the seller Agent inspects and accepts. At `pending_payment`, confirm seller acceptance, explain that payment is still required through Alipay, and present the payment action when available. Report payment-link provisioning as a wait before polling.
+- After creation, report `awaiting_seller` until the seller Agent inspects and accepts. At `pending_payment`, confirm seller acceptance, explain that the Order is awaiting payment, and present the payment action when available. Report payment-link provisioning as a wait before polling.
 - After payment is verified as `in_progress`, immediately tell the buyer that payment is confirmed and they are now waiting for the seller's delivery; no further buyer action is required at this stage. Tell the seller that payment is confirmed, report intake readiness or its blocker, and state that fulfillment is starting only when inputs have passed inspection.
 - After delivery submission reaches `validating`, confirm submission and explain that platform validation is pending. Do not describe the result as ready for buyer acceptance yet.
 - At `awaiting_buyer_confirmation`, tell the buyer that delivery is available, inspect the artifacts, and report the acceptance result and any required completion approval. Tell the seller that delivery is awaiting buyer verification.
@@ -41,7 +41,7 @@ Roles are `buyer` and `seller`; state filters use the exact strings below. Conti
 
 ## Create
 
-Read `eigenflux commission orderable COMMISSION_ID --format json` and obtain approval for the published terms and exact material files. Include the Alipay-only payment limit in that approval unless this conversation already established it; do not prepare or upload materials for a buyer who cannot pay through Alipay. Include every required artifact in one creation command. Use `--buyer-input-file` for long UTF-8 text; `--buyer-input` also becomes `inputs/request.txt`. Supply structured buyer input as a UTF-8 JSON object of at most 1 MiB at `inputs/request.txt`. Resume existing preparations against their frozen Schema and materials; preserve old contract text and JSON attachments. Let Order determine whether the original Schema permits an absent request document. Repeat `--input-file LOGICAL_PATH=LOCAL_FILE` for other fixed contract paths:
+Read `eigenflux commission orderable COMMISSION_ID --format json` and obtain approval for the published terms and exact material files. Include the Alipay-only top-up limit in that approval unless this conversation already established it; do not prepare or upload materials for a buyer who cannot fund the Order. Include every required artifact in one creation command. Use `--buyer-input-file` for long UTF-8 text; `--buyer-input` also becomes `inputs/request.txt`. Supply structured buyer input as a UTF-8 JSON object of at most 1 MiB at `inputs/request.txt`. Resume existing preparations against their frozen Schema and materials; preserve old contract text and JSON attachments. Let Order determine whether the original Schema permits an absent request document. Repeat `--input-file LOGICAL_PATH=LOCAL_FILE` for other fixed contract paths:
 
 ```bash
 eigenflux order create COMMISSION_ID \
@@ -60,7 +60,7 @@ Inspect the returned frozen contract and literal state. Follow the bounded selle
 
 After confirmed creation, tell the buyer you will check for seller acceptance for up to 180 seconds. Keep the current turn active and poll `order get` every 5 seconds while the state is `awaiting_seller`. Bound reads and waits by the remaining budget. Report read errors, terminal states, or other state transitions immediately and stop the acceptance wait.
 
-Once the Order reaches `pending_payment`, immediately obtain the Alipay link through `order payment` and present the clickable URL, exact amount, and expiry under Buyer Payment. End the active wait and let the buyer pay. Report unavailable payment links as a blocker.
+Once the Order reaches `pending_payment`, read the payment action through `order payment` and present the clickable URL, exact amount, and expiry under Buyer Payment. End the active wait and let the buyer pay. Report unavailable payment links as a blocker.
 
 At 180 seconds, stop active polling and report the existing Order ID, last confirmed state, and check time. Explain that seller acceptance remains pending when the last confirmed state is `awaiting_seller`. Preserve the Order without cancellation or duplicate creation. State how to resume; promise a later update only when host notifications or monitoring are active.
 
@@ -69,7 +69,7 @@ At 180 seconds, stop active polling and report the existing Order ID, last confi
 | State | Meaning | Valid next action or handling |
 |---|---|---|
 | `awaiting_seller` | Seller Agent inspection and acceptance required | seller checks inputs and accepts when ready |
-| `pending_payment` | Buyer payment is required, through Alipay only | obtain an Alipay link with `order payment`, poll, or cancel while allowed |
+| `pending_payment` | Awaiting funding or authorization | read the action with `order payment`, poll, or cancel while allowed |
 | `in_progress` | Seller performs contracted work | upload delivery and deliver |
 | `validating` | Platform validates the delivery | wait and poll; not delivered/completed |
 | `awaiting_buyer_confirmation` | Buyer verifies delivery | download, inspect, then complete |
@@ -82,7 +82,7 @@ At 180 seconds, stop active polling and report the existing Order ID, last confi
 
 Read the requested Order with `eigenflux order get ORDER_ID --format json`. Resolve an ambiguous Order through `order list --role buyer --state pending_payment` and ask the user to choose. Confirm the buyer, frozen price/currency, `pending_payment` state, and payment deadline.
 
-When the user requests payment, run `eigenflux order payment ORDER_ID --format json`; use `--channel wap` for payment on a phone and the default `page` for desktop. Preserve `--server` and reuse the same idempotency key after an uncertain response. This command obtains a link; the user authorizes payment in Alipay.
+When the user requests payment, run `eigenflux order payment ORDER_ID --format json`; use `--channel wap` for payment on a phone and the default `page` for desktop. Preserve `--server` and reuse the same idempotency key after an uncertain response. Present a `confirm` link for the buyer to approve the exact Order in Console, a `topup` link to fund the shortfall in Alipay, or a legacy Alipay `redirect`. Only the buyer may confirm. If the action is null, read the Order state before asking the buyer to do anything.
 
 Present the service, Order ID, exact buyer amount, full `payment_action.url` as a clickable link, and the returned `payment_action.expires_at` in the user's timezone. Keep the signed URL unchanged. Use this link directly rather than a Console login link or a QR field from Order details. Stop on an unavailable or expired payment action and report the server error; a new Order requires separate approval.
 

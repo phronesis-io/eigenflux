@@ -11,8 +11,8 @@ func newOrderPaymentCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:     "payment <order-id>",
 		Aliases: []string{"pay"},
-		Short:   "Get an Alipay payment link for the buyer to open and confirm",
-		Long:    "Get a payment link for an existing pending-payment order. Alipay (CNY) is currently the only supported payment channel. This command does not charge the buyer, open a browser, or confirm payment. The buyer completes payment in Alipay; use order get to check the resulting order state.",
+		Short:   "Read the payment action for this Order",
+		Long:    "Read the action for the frozen Order. Wallet-funded Orders use balance and can require Console confirmation or an Alipay top-up. Existing Alipay Orders return their original payment link. The buyer opens the link. Use order get to check payment.",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := numericArgument(args, "order ID")
