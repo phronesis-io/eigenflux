@@ -388,7 +388,7 @@ func TestProvisionLiteralDraftValidation(t *testing.T) {
 }
 
 func TestProvisionDraftPriorityValidation(t *testing.T) {
-	for _, priority := range []string{`10`, `"10"`, `" HIGH "`, `"medium"`, `"normal"`, `null`} {
+	for _, priority := range []string{`10`, `"10"`, `" HIGH "`, `"medium"`, `"normal"`, `" LOW "`, `null`} {
 		draft := `{"intent_actions":[{"priority":` + priority + `}]}`
 		got, _, err := parseProvisionDraft([]byte(draft))
 		if err != nil || string(got) != draft {
@@ -400,6 +400,15 @@ func TestProvisionDraftPriorityValidation(t *testing.T) {
 		_, _, err := parseProvisionDraft([]byte(draft))
 		if err == nil || !strings.Contains(err.Error(), "intent_actions[1].priority") {
 			t.Fatalf("priority %s returned %v, want indexed field error", priority, err)
+		}
+	}
+	for draft, field := range map[string]string{
+		`{"Intent_Actions":[{},{"Priority":"invalid"}]}`: "intent_actions[1].priority",
+		`{"intent_actions":[{},null]}`:                   "intent_actions[1]",
+		`{"intent_actions":{}}`:                          "intent_actions must be a JSON array",
+	} {
+		if _, _, err := parseProvisionDraft([]byte(draft)); err == nil || !strings.Contains(err.Error(), field) {
+			t.Fatalf("draft %s returned %v, want %s", draft, err, field)
 		}
 	}
 }

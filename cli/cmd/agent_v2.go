@@ -135,48 +135,57 @@ func parseProvisionDraft(data []byte) (json.RawMessage, map[string]string, error
 	if err != nil {
 		return nil, nil, err
 	}
-	normalized, err := json.Marshal(object)
-	if err != nil {
+	if err := validateProvisionDraftPriorities(object); err != nil {
 		return nil, nil, err
 	}
-	if err := validateProvisionDraftPriorities(normalized); err != nil {
+	normalized, err := json.Marshal(object)
+	if err != nil {
 		return nil, nil, err
 	}
 	return normalized, provenance, nil
 }
 
-func validateProvisionDraftPriorities(draft json.RawMessage) error {
-	var fields struct {
-		IntentActions []struct {
-			Priority json.RawMessage `json:"priority"`
-		} `json:"intent_actions"`
-	}
-	if err := json.Unmarshal(draft, &fields); err != nil {
-		return fmt.Errorf("onboarding draft intent_actions must contain objects")
-	}
-	for index, intent := range fields.IntentActions {
-		if len(intent.Priority) == 0 {
+func validateProvisionDraftPriorities(draft map[string]interface{}) error {
+	for section, raw := range draft {
+		if !strings.EqualFold(section, "intent_actions") || raw == nil {
 			continue
 		}
-		var priority int16
-		if json.Unmarshal(intent.Priority, &priority) == nil {
-			continue
+		items, ok := raw.([]interface{})
+		if !ok {
+			return fmt.Errorf("intent_actions must be a JSON array")
 		}
-		var value string
-		if json.Unmarshal(intent.Priority, &value) == nil {
-			value = strings.TrimSpace(value)
-			// Keep accepting the legacy strings understood by Console confirmation.
-			switch strings.ToLower(value) {
-			case "high", "medium", "normal":
-				continue
+		for index, item := range items {
+			intent, ok := item.(map[string]interface{})
+			if !ok {
+				return fmt.Errorf("intent_actions[%d] must be a JSON object", index)
 			}
-			if _, err := strconv.ParseInt(value, 10, 16); err == nil {
-				continue
+			for field, value := range intent {
+				if strings.EqualFold(field, "priority") && !validProvisionDraftPriority(value) {
+					return fmt.Errorf("intent_actions[%d].priority must be a JSON integer from -32768 to 32767", index)
+				}
 			}
 		}
-		return fmt.Errorf("onboarding draft intent_actions[%d].priority must be a JSON integer from -32768 to 32767", index)
 	}
 	return nil
+}
+
+func validProvisionDraftPriority(value interface{}) bool {
+	switch value := value.(type) {
+	case nil:
+		return true
+	case float64:
+		return value >= -32768 && value <= 32767 && value == float64(int16(value))
+	case string:
+		value = strings.TrimSpace(value)
+		switch strings.ToLower(value) {
+		case "high", "medium", "normal", "low":
+			return true
+		}
+		_, err := strconv.ParseInt(value, 10, 16)
+		return err == nil
+	default:
+		return false
+	}
 }
 
 // Resolve draft input before local identity writes or registration requests.

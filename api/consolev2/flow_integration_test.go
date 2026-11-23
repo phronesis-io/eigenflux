@@ -237,9 +237,8 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		data := responseData(t, payload)
 		return data["bootstrap_grant"].(string), data["nonce"].(string)
 	}
-	provision := func(entitlement string) map[string]interface{} {
+	sendProvision := func(entitlement string, draftJSON json.RawMessage) (int, map[string]interface{}) {
 		grant, nonce := issue(entitlement)
-		draftJSON, _ := json.Marshal(draft)
 		req := provisionRequest{
 			BootstrapGrant: grant, IdempotencyKey: "provision-" + hashString(grant), Nonce: nonce, PublicKey: publicKeyEncoded,
 			IssuedAt: time.Now().UnixMilli(), AgentName: "Integration Agent", Draft: draftJSON,
@@ -254,6 +253,14 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 			ut.Header{Key: "X-Agent-Install-Receipt", Value: "1"},
 			ut.Header{Key: "X-CLI-Ver", Value: "0.0.34"},
 			ut.Header{Key: "X-Client-Device-Name", Value: "Provision-MacBook"})
+		return status, payload
+	}
+	provision := func(entitlement string) map[string]interface{} {
+		draftJSON, err := json.Marshal(draft)
+		if err != nil {
+			t.Fatal(err)
+		}
+		status, payload := sendProvision(entitlement, draftJSON)
 		if status != 200 {
 			t.Fatalf("provision status=%d payload=%#v", status, payload)
 		}
@@ -261,6 +268,11 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	}
 
 	firstEntitlement := "integration-" + time.Now().Format("150405.000000000")
+	invalidStatus, invalidProvision := sendProvision(firstEntitlement+"-invalid", json.RawMessage(`{"intent_actions":[{},{"Priority":true}]}`))
+	if invalidStatus != http.StatusBadRequest || responseErrorCode(t, invalidProvision) != "INVALID_DRAFT" ||
+		!strings.Contains(invalidProvision["error"].(map[string]interface{})["message"].(string), "intent_actions[1].priority") {
+		t.Fatalf("invalid provision priority: status=%d payload=%#v", invalidStatus, invalidProvision)
+	}
 	first := provision(firstEntitlement)
 	agentID := first["agent_id"].(string)
 	agentIDInt := mustParseInt64(t, agentID)
@@ -551,6 +563,51 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		t.Fatalf("email-verified onboarding confirmation status=%d payload=%#v", status, boundConfirmPayload)
 	}
 
+	agentAuth := []ut.Header{{Key: "Authorization", Value: "Bearer " + accessToken}}
+	consoleAuth := []ut.Header{{Key: "Cookie", Value: cookieHeader}, {Key: "X-CSRF-Token", Value: csrf}}
+	for _, route := range []struct {
+		path    string
+		headers []ut.Header
+	}{
+		{"/api/v2/agents/me/onboarding-draft", agentAuth},
+		{"/api/v2/console/onboarding-draft", consoleAuth},
+	} {
+		status, payload, _ := performJSON(t, h, "PUT", route.path, putDraftRequest{
+			ExpectedRevision: 3, IdempotencyKey: "invalid-priority-" + agentID,
+			Draft: json.RawMessage(`{"intent_actions":[{},{"priority":"urgent"}]}`),
+		}, route.headers...)
+		if status != 400 || responseErrorCode(t, payload) != "INVALID_DRAFT" ||
+			!strings.Contains(payload["error"].(map[string]interface{})["message"].(string), "intent_actions[1].priority") {
+			t.Fatalf("invalid priority on %s: status=%d payload=%#v", route.path, status, payload)
+		}
+	}
+
+	draft["intent_actions"].([]map[string]interface{})[0]["priority"] = "low"
+	editedDraft, err := json.Marshal(draft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, saved, _ := performJSON(t, h, "PUT", "/api/v2/console/onboarding-draft", putDraftRequest{
+		ExpectedRevision: 3, IdempotencyKey: "valid-priority-" + agentID,
+		Draft: editedDraft,
+	}, consoleAuth...)
+	if status != 200 {
+		t.Fatalf("save low priority: status=%d payload=%#v", status, saved)
+	}
+	savedRevision := int64(responseData(t, saved)["revision"].(float64))
+	var savedPriority string
+	if err := gdb.Raw(`SELECT (draft_data #> '{intent_actions,0,priority}')::text
+		FROM agent_onboarding_drafts WHERE agent_id = ? AND revision = ?`, agentIDInt, savedRevision).Scan(&savedPriority).Error; err != nil || savedPriority != "0" {
+		t.Fatalf("saved priority = %q, err = %v, want JSON number 0", savedPriority, err)
+	}
+
+	// Recreate a draft persisted before priority normalization.
+	if err := gdb.Exec(`UPDATE agent_onboarding_drafts
+		SET draft_data = jsonb_set(draft_data, '{intent_actions,0,priority}', '"low"'::jsonb)
+		WHERE agent_id = ? AND revision = ?`, agentIDInt, savedRevision).Error; err != nil {
+		t.Fatal(err)
+	}
+
 	inputCache := &cache.DiscoveryCache{Redis: svc.redisClient}
 	cacheLoads := 0
 	readInput := func() {
@@ -564,7 +621,7 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		}
 	}
 	readInput()
-	revision := int64(3)
+	revision := savedRevision
 	for step := int16(3); step <= 5; step++ {
 		status, payload, _ := performJSON(t, h, "POST", "/api/v2/agents/me/onboarding-draft/confirm", confirmStepRequest{
 			Step: step, ExpectedOnboardingRevision: revision, IdempotencyKey: "confirm-" + agentID + fmt.Sprint(step),
@@ -580,9 +637,9 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		revision++
 	}
 
-	var priority int16
-	if err := gdb.Raw(`SELECT priority FROM agent_intent_actions WHERE agent_id = ? AND status = 'active'`, agentIDInt).Scan(&priority).Error; err != nil || priority != 10 {
-		t.Fatalf("confirmed intent priority=%d err=%v, want 10", priority, err)
+	var priorities []int16
+	if err := gdb.Raw(`SELECT priority FROM agent_intent_actions WHERE agent_id = ? AND status = 'active'`, agentIDInt).Scan(&priorities).Error; err != nil || len(priorities) != 1 || priorities[0] != 0 {
+		t.Fatalf("confirmed legacy intent priorities=%v err=%v, want [0]", priorities, err)
 	}
 
 	status, sessionPayload, _ := performJSON(t, h, "GET", "/api/v2/console/session", map[string]interface{}{},
