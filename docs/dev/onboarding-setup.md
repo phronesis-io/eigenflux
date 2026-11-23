@@ -51,10 +51,12 @@ compaction merely because their output is absent from the summary.
 ## Draft intent priority
 
 Write `intent_actions[].priority` as a JSON integer in the signed 16-bit range.
-The CLI and draft write endpoints accept base-10 integer strings in that range
-and the case-insensitive labels `high` (10), `medium` (5), `normal` (5), and
-`low` (0). Invalid priorities are rejected with the zero-based item index.
-The server stores accepted priorities as integers. Step 4 can also confirm
+The server accepts base-10 integer strings in that range and the case-insensitive
+labels `high` (10), `medium` (5), `normal` (5), and `low` (0) for older drafts.
+It rejects invalid priorities with the zero-based item index and stores accepted
+priorities as integers. Run `eigenflux agent provision --help` for Agent prefill
+instructions. The CLI forwards draft priorities to the server and reports the
+server's validation error. Step 4 can also confirm
 older drafts that still contain those labels or integer strings.
 Each confirmation decodes the typed fields for that step, so a type error in
 another section does not block it.
