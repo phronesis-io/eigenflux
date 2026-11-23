@@ -482,7 +482,7 @@ func TestConsoleV2FixedOTPPathDoesNotRequireEmailDelivery(t *testing.T) {
 	svc := &Service{}
 	h := server.New(server.WithHostPorts("127.0.0.1:0"))
 	h.POST("/challenge", func(_ context.Context, c *app.RequestContext) {
-		svc.queueEmailChallenge(c, emailJob{
+		svc.queueEmailChallenge(context.Background(), c, emailJob{
 			challengeID:  "efec_test",
 			skipDelivery: true,
 		}, 123456)

@@ -72,6 +72,18 @@ priority strings report their format or range failure. The log includes a
 recognized priority label when present. It excludes arbitrary draft values and
 the request body.
 
+Draft writes and initial provisioning record `onboarding_draft_rejected` for
+`INVALID_DRAFT`. The stage identifies Agent saves, Console saves, or
+provisioning. Intent validation includes the indexed field and a fixed reason
+such as an invalid item type, fractional priority, or out-of-range integer.
+For normalization failures without a safe field, the event records the stage
+and reason alone. Rejected field values and error strings are excluded.
+
+Email challenge acceptance indicates queueing. A delivery worker reports
+`onboarding_email_delivery_failed` when its send fails. Filter
+`purpose=bind` for onboarding, and match the Trace ID to the original
+challenge request. The event contains no email address, OTP, or provider error.
+
 ## Manual first-check contract
 
 The foreground Skill calls the existing `heartbeat plan --format json` and

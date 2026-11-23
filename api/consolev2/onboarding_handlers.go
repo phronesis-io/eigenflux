@@ -280,7 +280,7 @@ type putDraftResponse struct {
 	BlockedPaths    []string                   `json:"blocked_paths"`
 }
 
-func (s *Service) putOnboardingDraft(_ context.Context, c *app.RequestContext) {
+func (s *Service) putOnboardingDraft(ctx context.Context, c *app.RequestContext) {
 	id, ok := agentID(c)
 	if !ok {
 		fail(c, http.StatusUnauthorized, "AGENT_AUTH_REQUIRED", "Agent V2 authentication is required", nil)
@@ -295,22 +295,23 @@ func (s *Service) putOnboardingDraft(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "expected_revision and idempotency_key are required", nil)
 		return
 	}
+	actorType, stage := provenanceAgent, "agent_save"
+	if _, console := c.Get("console_session_id"); console {
+		actorType, stage = provenanceHuman, "console_save"
+	}
 	if len(req.Draft) == 0 || len(req.Draft) > 64<<10 {
-		fail(c, http.StatusBadRequest, "INVALID_DRAFT", "draft must be a JSON object no larger than 64KB", nil)
+		rejectOnboardingDraft(ctx, c, stage, draftSizeRejection(len(req.Draft)),
+			errors.New("draft must be a JSON object no larger than 64KB"))
 		return
 	}
 	normalizedDraft, draftObject, normalizeErr := normalizeOnboardingDraftJSON(req.Draft)
 	if normalizeErr != nil {
-		fail(c, http.StatusBadRequest, "INVALID_DRAFT", normalizeErr.Error(), nil)
+		rejectOnboardingDraft(ctx, c, stage, "draft_normalization_failed", normalizeErr)
 		return
 	}
 	if err := normalizeDraftIntentPriorities(draftObject); err != nil {
-		fail(c, http.StatusBadRequest, "INVALID_DRAFT", err.Error(), nil)
+		rejectOnboardingDraft(ctx, c, stage, "draft_validation_failed", err)
 		return
-	}
-	actorType := "agent_prefill"
-	if _, console := c.Get("console_session_id"); console {
-		actorType = "human_edit"
 	}
 	if actorType == provenanceAgent {
 		if err := validateRequestedAgentProvenance(req.FieldProvenance); err != nil {
@@ -455,6 +456,32 @@ type identityCardDraft struct {
 	InterestsNegative []string `json:"interests_negative"`
 }
 
+type onboardingDraftWriteError struct {
+	field   string
+	reason  string
+	message string
+}
+
+func (e *onboardingDraftWriteError) Error() string { return e.message }
+
+func draftSizeRejection(size int) string {
+	if size == 0 {
+		return "draft_missing"
+	}
+	return "draft_too_large"
+}
+
+func rejectOnboardingDraft(ctx context.Context, c *app.RequestContext, stage, reason string, err error) {
+	fields := []interface{}{"status", http.StatusBadRequest, "code", "INVALID_DRAFT", "stage", stage}
+	var validation *onboardingDraftWriteError
+	if errors.As(err, &validation) {
+		reason = validation.reason
+		fields = append(fields, "field", validation.field)
+	}
+	logger.Ctx(ctx).Warn("onboarding_draft_rejected", append(fields, "reason", reason)...)
+	fail(c, http.StatusBadRequest, "INVALID_DRAFT", err.Error(), nil)
+}
+
 // Normalize submitted values before they are merged into saved drafts. Older
 // draft revisions are decoded separately when the user confirms step 4.
 func normalizeDraftIntentPriorities(draft map[string]interface{}) error {
@@ -464,21 +491,36 @@ func normalizeDraftIntentPriorities(draft map[string]interface{}) error {
 		}
 		items, ok := raw.([]interface{})
 		if !ok {
-			return errors.New("intent_actions must be a JSON array")
+			return &onboardingDraftWriteError{"intent_actions", "invalid_list_type", "intent_actions must be a JSON array"}
 		}
 		for index, item := range items {
 			intent, ok := item.(map[string]interface{})
 			if !ok {
-				return fmt.Errorf("intent_actions[%d] must be a JSON object", index)
+				path := fmt.Sprintf("intent_actions[%d]", index)
+				return &onboardingDraftWriteError{path, "invalid_item_type", path + " must be a JSON object"}
 			}
 			for field, value := range intent {
 				if !strings.EqualFold(field, "priority") {
 					continue
 				}
 				encoded, err := json.Marshal(value)
+				if err != nil {
+					return err
+				}
 				var priority onboardingIntentPriority
-				if err != nil || json.Unmarshal(encoded, &priority) != nil {
-					return fmt.Errorf("intent_actions[%d].priority must be a JSON integer from -32768 to 32767", index)
+				if err := json.Unmarshal(encoded, &priority); err != nil {
+					reason := "type_mismatch"
+					var stringError *onboardingIntentPriorityError
+					if errors.As(err, &stringError) {
+						reason = stringError.reason
+					} else if number, ok := value.(float64); ok {
+						reason = "fractional_number"
+						if number < -32768 || number > 32767 {
+							reason = "integer_out_of_range"
+						}
+					}
+					path := fmt.Sprintf("intent_actions[%d].priority", index)
+					return &onboardingDraftWriteError{path, reason, path + " must be a JSON integer from -32768 to 32767"}
 				}
 				intent[field] = float64(priority)
 			}
