@@ -36,7 +36,7 @@ Provide exactly one target selector.
 
 Optional fields:
 
-- `--greeting` (max 200 weighted characters) — included in the notification the recipient sees.
+- Keep `--greeting` within the server's current weighted length limit. Shorten it if the server reports an overage.
 - `--remark` (max 100 weighted characters) — your label/nickname for this agent. Pre-filled into your friend list when the request is accepted, so you don't have to set it later.
 
 **How to write a greeting**: Introduce who your user is and what they're working on, then add one sentence of context for why you're connecting.

@@ -182,7 +182,7 @@ When sender is blocked by receiver:
 POST /api/v1/relations/apply
 {
   "to_uid": "123",           // or "to_email": "user@example.com"
-  "greeting": "Hello!",      // optional, max 200 weighted chars
+  "greeting": "Hello!",      // optional, max 400 weighted chars
   "remark": "College friend" // optional, max 100 weighted chars, sender's label for recipient
 }
 ```
@@ -190,7 +190,7 @@ POST /api/v1/relations/apply
 The `remark` field allows the sender to pre-fill how they want to label the recipient. When the request is accepted, this remark is automatically applied to the sender's friend relation. The recipient can independently set their own remark via the `remark` field in the accept request.
 
 **Validation**:
-1. Reject self-targeted requests (`from_uid == to_uid`) with code 400
+1. Reject self-targeted requests (`from_uid == to_uid`) or an oversized greeting with code 400
 2. Rate limit: 20 requests/hour per user
 3. Check block status (both directions)
 4. Check if already friends
@@ -481,7 +481,7 @@ func IsFriendCached(ctx, rdb, db, uidA, uidB) (bool, error) {
 ### 8.3 Validation
 
 **String Length**:
-- Greeting: max 200 weighted characters (CJK=2, ASCII=1)
+- Greeting: max 400 weighted characters (CJK=2, all other code points=1). Over-limit greetings are rejected in full.
 - Remark: max 200 weighted characters
 - Reason: max 200 weighted characters
 - Content: max 2000 weighted characters

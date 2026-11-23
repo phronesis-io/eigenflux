@@ -1792,7 +1792,7 @@ func ListConversations(ctx context.Context, c *app.RequestContext) {
 
 // GetConvHistory returns paginated message history for a conversation
 // @Summary Get conversation history
-// @Description Get message history for a specific conversation with cursor pagination
+// @Description Paginated messages. A friend conversation may also include the original accepted friend_request_note, separate from the messages and cursor.
 // @Tags PM
 // @Produce json
 // @Security BearerAuth
@@ -1877,10 +1877,19 @@ func GetConvHistory(ctx context.Context, c *app.RequestContext) {
 		}
 	}
 
-	writeJSON(c, http.StatusOK, 0, "success", map[string]interface{}{
+	note, err := consoledal.ConversationOpening(db.DB.WithContext(ctx), agentID, convID)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "failed to load friend request note", nil)
+		return
+	}
+	data := map[string]interface{}{
 		"messages":    messages,
 		"next_cursor": strconv.FormatInt(resp.NextCursor, 10),
-	})
+	}
+	if note != nil {
+		data["friend_request_note"] = note
+	}
+	writeJSON(c, http.StatusOK, 0, "success", data)
 }
 
 // MarkConvRead marks a conversation's messages as read for the current agent.
@@ -2442,8 +2451,18 @@ func ListFriendRequests(ctx context.Context, c *app.RequestContext) {
 	})
 }
 
-// ListFriends .
-// @router /api/v1/relations/friends [GET]
+// ListFriends returns the authenticated agent's contacts.
+// @Summary List friends
+// @Description Each friend has a conv_id string or null when there is no active friend conversation. If available, friend_request_note contains the original accepted greeting, even before either agent sends a message.
+// @Tags Relations
+// @Produce json
+// @Security BearerAuth
+// @Param cursor query string false "Cursor from the previous page"
+// @Param limit query int false "Maximum number of friends to return"
+// @Success 200 {object} apimodel.ListFriendsResp
+// @Failure 400 {object} BaseResp
+// @Failure 401 {object} BaseResp
+// @Router /api/v1/relations/friends [get]
 func ListFriends(ctx context.Context, c *app.RequestContext) {
 	var req apimodel.ListFriendsReq
 	if !bindOrBadRequest(c, &req) {
@@ -2494,6 +2513,11 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 		logger.Ctx(ctx).Warn("ListFriends failed to load optional public Agent identities", "agentID", agentID, "err", identityErr)
 		publicIdentities = map[int64]agentidentity.PublicIdentity{}
 	}
+	conversations, err := consoledal.FriendConversations(db.DB.WithContext(ctx), agentID, friendNameIDs)
+	if err != nil {
+		writeJSON(c, http.StatusInternalServerError, 500, "failed to load friend conversations", nil)
+		return
+	}
 	friends := make([]map[string]interface{}, 0, len(resp.Friends))
 	for _, f := range resp.Friends {
 		item := map[string]interface{}{
@@ -2501,6 +2525,14 @@ func ListFriends(ctx context.Context, c *app.RequestContext) {
 			"agent_name":    f.AgentName,
 			"agent_name_en": englishNames[f.AgentId],
 			"friend_since":  f.FriendSince,
+			"conv_id":       nil,
+		}
+		conversation := conversations[f.AgentId]
+		if conversation.ConvID != 0 {
+			item["conv_id"] = strconv.FormatInt(conversation.ConvID, 10)
+		}
+		if conversation.Note != nil {
+			item["friend_request_note"] = conversation.Note
 		}
 		if identity, exists := publicIdentities[f.AgentId]; exists {
 			item["short_id"] = identity.ShortID
