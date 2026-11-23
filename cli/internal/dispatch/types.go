@@ -218,7 +218,7 @@ type Request struct {
 	ReadOnlySkillDirs []string
 	// GenerationVerifyOnly inspects retained files in a fresh, read-only Codex invocation.
 	GenerationVerifyOnly bool
-	// GenerationLocalDirectory is the private output directory for a seller-declared local-only skill.
+	// GenerationLocalDirectory is the only order output directory writable during a recovery generation.
 	GenerationLocalDirectory string
 }
 

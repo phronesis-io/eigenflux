@@ -141,33 +141,39 @@ func TestCommissionGenerationVerificationCannotRestartGeneration(t *testing.T) {
 	}
 }
 
-func TestCommissionGenerationCannotReplayRunsWithExternalEffects(t *testing.T) {
+func TestCommissionGenerationReleasedPromptCanOnlyRetryLocally(t *testing.T) {
 	j, job, result := preparedFulfillment(t)
-	identity := CommissionGeneration{BuyerID: "41", SellerID: j.binding.AgentID, SnapshotID: "99", LocalOnly: false}
+	identity := CommissionGeneration{BuyerID: "41", SellerID: j.binding.AgentID, SnapshotID: "99"}
 	if err := j.BeginCommissionGeneration(job.ID, result.OutputDirectory, "generate", identity); err != nil {
 		t.Fatal(err)
 	}
-	j = mustJournal(t, j.binding)
-	claimFulfillment(t, j)
-	for _, localOnly := range []bool{false, true} {
-		identity.LocalOnly = localOnly
-		if err := j.BeginCommissionGeneration(job.ID, result.OutputDirectory, "generate", identity); err == nil {
-			t.Fatalf("unrestricted original execution was replayed with local_only=%t", localOnly)
-		}
-	}
-	if err := j.BeginCommissionGeneration(job.ID, result.OutputDirectory, "verify", identity); err != nil {
+	if err := j.ObserveCommissionGeneration(job.ID, 1, "generate", GenerationRunEvidence{PID: 1234}); err != nil {
 		t.Fatal(err)
 	}
-	if deliveryJob(t, j, job.ID).CommissionGeneration.LocalOnly {
-		t.Fatal("the verifier upgraded an unrestricted original execution")
-	}
-
-	j, job, result, identity = beginTestGeneration(t)
 	j = mustJournal(t, j.binding)
 	claimFulfillment(t, j)
-	identity.LocalOnly = false
+	fresh := result.OutputDirectory + "-second"
+	if err := j.BeginCommissionGeneration(job.ID, fresh, "generate", identity); err == nil {
+		t.Fatal("replayed with the original external capabilities")
+	}
+	identity.LocalOnly = true
 	if err := j.BeginCommissionGeneration(job.ID, result.OutputDirectory, "generate", identity); err == nil {
-		t.Fatal("admitted an unrestricted retry of a local-only generation")
+		t.Fatal("reused the interrupted output directory")
+	}
+	if err := j.BeginCommissionGeneration(job.ID, fresh, "generate", identity); err != nil {
+		t.Fatal(err)
+	}
+
+	// The watch stops before the second prompt is released. Restart must
+	// retain the restriction from the already issued first prompt.
+	j = mustJournal(t, j.binding)
+	second := claimFulfillment(t, j).CommissionGeneration
+	if !second.LocalOnly || second.Attempts != 2 || second.Evidence.PID != 0 {
+		t.Fatalf("lost the recovery boundary: %+v", second)
+	}
+	identity.LocalOnly = false
+	if err := j.BeginCommissionGeneration(job.ID, fresh+"-third", "generate", identity); err == nil {
+		t.Fatal("restored external capabilities during recovery")
 	}
 }
 

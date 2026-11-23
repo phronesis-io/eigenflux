@@ -22,7 +22,7 @@ func TestCommissionGenerationRecoveryEndToEnd(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("managed POSIX process groups")
 	}
-	for _, scenario := range []string{"empty", "existing", "incomplete", "remote_advanced", "cancelled", "disconnected", "remote_output", "expired", "exhausted", "external_effects", "materials_cancelled"} {
+	for _, scenario := range []string{"empty", "existing", "incomplete", "remote_advanced", "cancelled", "disconnected", "remote_output", "expired", "exhausted", "read_only_binding", "external_evidence", "materials_cancelled"} {
 		t.Run(scenario, func(t *testing.T) {
 			fixture, api := newDeliveryRetryFixture(t, "healthy")
 			defer api.Close()
@@ -56,9 +56,13 @@ func TestCommissionGenerationRecoveryEndToEnd(t *testing.T) {
 				t.Fatal(err)
 			}
 			w.binding.Host, w.binding.Mode, w.binding.Command = "codex", "native", []string{codex}
-			w.binding.Args = []string{"--sandbox", "workspace-write", "--ask-for-approval", "never"}
-			realVerifier := os.Getenv("EIGENFLUX_COMMISSION_NATIVE_SMOKE") == "1" && scenario == "existing"
-			if realVerifier {
+			sandbox := "workspace-write"
+			if scenario == "read_only_binding" {
+				sandbox = "read-only"
+			}
+			w.binding.Args = []string{"--sandbox", sandbox, "--ask-for-approval", "never"}
+			realRecovery := os.Getenv("EIGENFLUX_COMMISSION_NATIVE_SMOKE") == "1" && (scenario == "existing" || scenario == "empty")
+			if realRecovery {
 				binary, err := exec.LookPath("codex")
 				if err != nil {
 					t.Fatal(err)
@@ -66,22 +70,16 @@ func TestCommissionGenerationRecoveryEndToEnd(t *testing.T) {
 				w.binding.Command, w.binding.TimeoutSeconds = []string{binary}, 180
 			}
 			installCommissionIntakeRules(t, w)
-			if scenario != "external_effects" {
-				skill := filepath.Join(w.binding.SkillsDir, "input-review", "SKILL.md")
-				if err := os.WriteFile(skill, []byte("---\nname: input-review\ngeneration_recovery: local_only\n---\nInspect local files.\n"), 0600); err != nil {
-					t.Fatal(err)
-				}
-			}
 			job := claimPaidCommission(t, w)
 			var firstDirectory string
 			if scenario == "expired" {
 				fixture.order.DeliveryDueAt = time.Now().Add(2 * time.Second).UnixMilli()
 			}
-			generateCalls, verifyCalls := 0, 0
+			generateCalls, verifyCalls, externalActions := 0, 0, 0
 			w.runAgent = func(ctx context.Context, req dispatch.Request) (dispatch.Result, error) {
 				data := fulfillmentTestPayload(t, req)
 				path := filepath.Join(data.OutputDirectory, "report.txt")
-				if realVerifier {
+				if realRecovery && scenario == "existing" {
 					path = filepath.Join(data.OutputDirectory, "outputs", "report.txt")
 					if !req.GenerationVerifyOnly {
 						if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
@@ -91,7 +89,13 @@ func TestCommissionGenerationRecoveryEndToEnd(t *testing.T) {
 				}
 				if firstDirectory == "" {
 					firstDirectory = data.OutputDirectory
+					if req.GenerationVerifyOnly || req.GenerationLocalDirectory != "" {
+						t.Fatal("first fulfillment changed the bound execution capabilities")
+					}
 				} else if !req.GenerationVerifyOnly {
+					if req.GenerationLocalDirectory != data.OutputDirectory {
+						t.Fatal("generation resumed without isolating the new attempt")
+					}
 					if firstDirectory == data.OutputDirectory {
 						t.Fatal("new generation reused the interrupted directory")
 					}
@@ -104,6 +108,9 @@ func TestCommissionGenerationRecoveryEndToEnd(t *testing.T) {
 				} else {
 					generateCalls++
 				}
+				if scenario == "external_evidence" && req.GenerationLocalDirectory == "" {
+					externalActions++
+				}
 				if generateCalls == 1 && verifyCalls == 0 || scenario == "exhausted" {
 					if scenario == "existing" || scenario == "incomplete" {
 						if err := os.WriteFile(path, []byte("Inspection complete. The provided order instructions were reviewed and the requested report is ready."), 0600); err != nil {
@@ -114,17 +121,14 @@ func TestCommissionGenerationRecoveryEndToEnd(t *testing.T) {
 					interrupted.Command = []string{codex}
 					return (dispatch.Runner{Binding: interrupted}).Run(ctx, req)
 				}
-				if realVerifier {
-					if !req.GenerationVerifyOnly {
-						t.Fatal("expected read-only Codex")
-					}
+				if realRecovery {
 					res, err := (dispatch.Runner{Binding: *w.binding}).Run(ctx, req)
 					if err != nil {
-						t.Logf("native verifier: %v", err)
+						t.Logf("native recovery: %v", err)
 					} else {
 						decision, parseErr := dispatch.ParseCommissionFulfillmentDecision(res.Text, req.ID, "901", 3)
 						if parseErr == nil {
-							t.Logf("native verification %s: %s", decision.Outcome, decision.Summary)
+							t.Logf("native recovery %s: %s", decision.Outcome, decision.Summary)
 						}
 					}
 					return res, err
@@ -137,6 +141,9 @@ func TestCommissionGenerationRecoveryEndToEnd(t *testing.T) {
 					if scenario == "incomplete" {
 						decision.Outcome, decision.Artifacts = "needs_user", []dispatch.CommissionArtifact{}
 					}
+				} else if scenario == "external_evidence" {
+					decision.Outcome, decision.Artifacts = "needs_user", []dispatch.CommissionArtifact{}
+					decision.Summary = "The result of the earlier external action is unavailable."
 				} else if err := os.WriteFile(path, []byte("Recovered report"), 0600); err != nil {
 					t.Fatal(err)
 				}
@@ -188,8 +195,12 @@ func TestCommissionGenerationRecoveryEndToEnd(t *testing.T) {
 				if got.Code != "commission_delivery_confirmed" || fixture.deliverCalls != 1 || verifyCalls != wantVerify || generateCalls != 2-wantVerify {
 					t.Fatalf("completion %s, deliveries %d, generate %d, verify %d", got.Code, fixture.deliverCalls, generateCalls, verifyCalls)
 				}
+			case "external_evidence":
+				if got.Status != "needs_user" || externalActions != 1 || generateCalls != 2 || fixture.deliverCalls != 0 {
+					t.Fatalf("status %s, external actions %d, generation calls %d, deliveries %d", got.Status, externalActions, generateCalls, fixture.deliverCalls)
+				}
 			default:
-				want := map[string]string{"incomplete": "commission_generation_verification_incomplete", "remote_advanced": "commission_generation_delivery_observed", "cancelled": "commission_generation_order_closed", "disconnected": "commission_generation_probe_pending", "remote_output": "commission_generation_remote_output_exists", "expired": "commission_generation_deadline_reached", "exhausted": "commission_generation_retry_exhausted", "external_effects": "commission_generation_effects_unconfirmed", "materials_cancelled": "commission_generation_probe_pending"}[scenario]
+				want := map[string]string{"incomplete": "commission_generation_verification_incomplete", "remote_advanced": "commission_generation_delivery_observed", "cancelled": "commission_generation_order_closed", "disconnected": "commission_generation_probe_pending", "remote_output": "commission_generation_remote_output_exists", "expired": "commission_generation_deadline_reached", "exhausted": "commission_generation_retry_exhausted", "read_only_binding": "commission_generation_effects_unconfirmed", "materials_cancelled": "commission_generation_probe_pending"}[scenario]
 				if got.Code != want || fixture.deliverCalls != 0 || (scenario != "exhausted" && generateCalls != 1) || (scenario == "exhausted" && generateCalls != 3) {
 					t.Fatalf("want %s, got %s; deliveries %d, generate %d", want, got.Code, fixture.deliverCalls, generateCalls)
 				}

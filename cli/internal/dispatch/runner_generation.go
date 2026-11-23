@@ -73,7 +73,7 @@ func AllowsLocalGeneration(b Binding) bool {
 			sandbox = b.Args[i+1]
 		}
 	}
-	return sandbox == "workspace-write"
+	return sandbox == "workspace-write" || sandbox == "danger-full-access"
 }
 
 func validLocalGenerationDirectory(b Binding, dir string) bool {

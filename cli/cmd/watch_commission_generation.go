@@ -119,7 +119,7 @@ func (w *accountWatch) inspectPriorGeneration(job dispatch.Job, order commission
 	if len(files) > 0 {
 		return &commissionGenerationPlan{directory: directory, files: files}, nil
 	}
-	if !g.LocalOnly && g.Evidence.PID != 0 {
+	if g.RequiresIsolatedRetry() && !dispatch.AllowsLocalGeneration(*w.binding) {
 		return nil, w.finishDispatch(job, "unknown", "commission_generation_effects_unconfirmed", job.SessionID, "")
 	}
 	if g.Attempts >= dispatch.CommissionGenerationMaxAttempts {
@@ -138,16 +138,15 @@ func (w *accountWatch) runPaidGeneration(ctx context.Context, job dispatch.Job, 
 	if plan.receipt != nil {
 		return plan.receipt, nil
 	}
-	localOnly := req.GenerationLocalDirectory != ""
 	mode, attempt := "generate", 1
 	if g != nil {
 		attempt = g.Attempts + 1
 		if len(plan.files) > 0 {
 			mode, attempt = "verify", g.Attempts
-			req.GenerationLocalDirectory = ""
 			req = commissionGenerationVerificationPrompt(req)
-		} else if localOnly != g.LocalOnly {
-			return nil, w.finishDispatch(job, "needs_user", "commission_generation_tracking_unavailable", job.SessionID, "")
+		} else if g.RequiresIsolatedRetry() {
+			req.GenerationLocalDirectory = plan.directory
+			req.Prompt = "EIGENFLUX CLI LOCAL RECOVERY. Complete the file deliverables from the frozen order and verified materials. The previous run may already have performed external actions. Do not repeat those actions or claim their results without verifiable evidence. Return needs_user if the contract requires external access or evidence unavailable in this attempt.\n\n" + req.Prompt
 		}
 	}
 	tracked := dispatch.SupportsGenerationTracking(ctx, *w.binding)
@@ -161,11 +160,8 @@ func (w *accountWatch) runPaidGeneration(ctx context.Context, job dispatch.Job, 
 		if commissionGenerationExpired(order) {
 			return nil, w.finishDispatch(job, "needs_user", "commission_generation_deadline_reached", job.SessionID, "")
 		}
-		if g != nil {
-			localOnly = g.LocalOnly
-		}
 		identity := dispatch.CommissionGeneration{
-			LocalOnly: localOnly,
+			LocalOnly: req.GenerationLocalDirectory != "",
 			BuyerID:   strconv.FormatInt(int64(order.BuyerID), 10), SellerID: strconv.FormatInt(int64(order.SellerID), 10),
 			SnapshotID: strconv.FormatInt(int64(order.SnapshotID), 10), DeliveryDueAt: order.DeliveryDueAt,
 		}
@@ -175,8 +171,6 @@ func (w *accountWatch) runPaidGeneration(ctx context.Context, job dispatch.Job, 
 		ctx = dispatch.WithGenerationObserver(ctx, func(e dispatch.GenerationRunEvidence) error {
 			return w.journal.ObserveCommissionGeneration(job.ID, attempt, mode, e)
 		})
-	} else {
-		req.GenerationLocalDirectory = ""
 	}
 	result, runErr := w.runCommissionAgent(ctx, job, req)
 	if runErr == nil {

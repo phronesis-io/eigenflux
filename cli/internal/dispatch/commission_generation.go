@@ -26,6 +26,12 @@ type CommissionGeneration struct {
 	NextProbeAt   int64                 `json:"next_probe_at,omitempty"`
 }
 
+// RequiresIsolatedRetry protects every attempt following a released prompt.
+// An isolated retry whose new prompt was never released still inherits this boundary.
+func (g CommissionGeneration) RequiresIsolatedRetry() bool {
+	return g.LocalOnly || g.Evidence.PID != 0
+}
+
 func commissionGenerationPrepared(job Job) bool {
 	return job.Code == "commission_fulfillment_prepared" || (job.Code == "commission_generation_checking" && job.CommissionGeneration != nil)
 }
@@ -127,9 +133,11 @@ func (j *Journal) BeginCommissionGeneration(id, directory, mode string, identity
 				return errors.New("commission_generation_attempt_changed")
 			}
 			g.Attempts = previous.Attempts
-			g.LocalOnly = previous.LocalOnly
+			if mode == "verify" {
+				g.LocalOnly = previous.LocalOnly
+			}
 			if mode == "generate" {
-				if (previous.Evidence.PID != 0 && !previous.LocalOnly) || previous.LocalOnly != identity.LocalOnly || directory == job.CommissionDirectory || filepath.Dir(directory) != filepath.Dir(job.CommissionDirectory) {
+				if (previous.RequiresIsolatedRetry() && !identity.LocalOnly) || directory == job.CommissionDirectory || filepath.Dir(directory) != filepath.Dir(job.CommissionDirectory) {
 					return errors.New("commission_generation_external_effects_unconfirmed")
 				}
 				if g.Attempts >= CommissionGenerationMaxAttempts {

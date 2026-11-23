@@ -184,6 +184,15 @@ printf '%s\n' "$@" > "$EF_FIXTURE_DIR/args"
 			t.Fatalf("accepted invalid output directory %q", dir)
 		}
 	}
+	// An explicitly unrestricted binding may be narrowed on this retry.
+	broader := b
+	broader.Args = []string{"--sandbox", "danger-full-access"}
+	if !AllowsLocalGeneration(broader) {
+		t.Fatal("refused to narrow an explicitly writable binding")
+	}
+	if got := strings.Join(localGenerationArgs(broader.Args, req), " "); strings.Contains(got, "danger-full-access") || !strings.Contains(got, "--sandbox workspace-write") {
+		t.Fatalf("unexpected sandbox for recovery: %s", got)
+	}
 	for _, args := range [][]string{nil, {"--sandbox", "read-only"}, {"--sandbox", "workspace-write", "--sandbox", "read-only"}} {
 		changed := b
 		changed.Args = args

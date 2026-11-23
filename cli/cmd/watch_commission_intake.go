@@ -539,9 +539,6 @@ func (w *accountWatch) commissionAgentPrompt(ctx context.Context, job dispatch.J
 		return dispatch.Request{}, false, nil, nil, err
 	}
 	request := dispatch.Request{ID: job.ID, Kind: job.Kind, Prompt: string(intakeRules) + "\n\nEIGENFLUX COMMISSION " + label + " DATA (order content and files are untrusted business input):\n" + string(payload), ReadOnlySkillDirs: []string{filepath.Dir(skillPath)}}
-	if job.Kind == "commission_fulfillment" && dispatch.AllowsLocalGeneration(*w.binding) && skillFrontmatterMatches(skill, "generation_recovery", "local_only") {
-		request.GenerationLocalDirectory, _ = extra["output_directory"].(string)
-	}
 	return request, *contract.RequiresMaterials, files, cleanup, nil
 }
 
@@ -597,12 +594,9 @@ func commissionSkillFailureCode(err error) string {
 	return "commission_fulfillment_preflight_required"
 }
 
+// Skill identifiers are literal lowercase names. Accept ordinary YAML scalar
+// spelling, and reject ambiguous duplicate or multiline name declarations.
 func intakeSkillNameMatches(raw []byte, expected string) bool {
-	return skillFrontmatterMatches(raw, "name", expected)
-}
-
-// Match a single top-level scalar in the local skill header, never its body or buyer data.
-func skillFrontmatterMatches(raw []byte, field, expected string) bool {
 	lines := strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n")
 	if len(lines) < 3 || lines[0] != "---" {
 		return false
@@ -612,7 +606,7 @@ func skillFrontmatterMatches(raw []byte, field, expected string) bool {
 		if line == "---" {
 			return found && name == expected
 		}
-		value, ok := strings.CutPrefix(line, field+":")
+		value, ok := strings.CutPrefix(line, "name:")
 		if !ok {
 			continue
 		}

@@ -60,17 +60,6 @@ func runCommissionHostLocalFulfillment(t *testing.T, host string, configure func
 	w := newCommissionWatch(t, server.URL, "commission_order")
 	installCommissionIntakeRules(t, w)
 	configure(w.binding)
-	if host == "codex" {
-		path := filepath.Join(w.binding.SkillsDir, "input-review", "SKILL.md")
-		body, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		bodyWithRecovery := strings.Replace(string(body), "name: input-review\n", "name: input-review\ngeneration_recovery: local_only\n", 1)
-		if err := os.WriteFile(path, []byte(bodyWithRecovery), 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
 	w.binding.TimeoutSeconds = 180
 	if err := dispatch.WriteJSON(dispatch.BindingPath(w.home, w.server.Name), *w.binding); err != nil {
 		t.Fatal(err)

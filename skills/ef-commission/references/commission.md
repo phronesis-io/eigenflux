@@ -43,7 +43,7 @@ Do not present a large form. Resolve ambiguity with the next single question unt
 
 ## Bind a Reusable Fulfillment Skill
 
-Before creating the Commission, create or identify one dedicated local skill with a stable lowercase kebab-case name accepted by the current CLI and service. Keep buyer-specific inputs and secrets in the Order and its workspace. Set top-level frontmatter `generation_recovery: local_only` for Skills that can fulfill entirely from local materials in an isolated output directory. Omit this field for Skills requiring external capabilities.
+Before creating the Commission, create or identify one dedicated local skill with a stable lowercase kebab-case name accepted by the current CLI and service. Keep buyer-specific inputs and secrets in the Order and its workspace, never in this reusable skill.
 
 Limit the dedicated skill to business execution and artifact checks. Use the CLI-supplied `ef-commission` contract for each invocation's result protocol.
 
