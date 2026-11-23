@@ -376,7 +376,7 @@ func (e *Engine) rankRating(ctx context.Context, owner int64, kinds []Kind, cont
 		for j, i := range indices {
 			next[j] = append(append([]float64(nil), vectors[j]...), heat[candidates[i].Document.Ref.ID]...)
 		}
-		if got, ok := e.RatingNext.ScoreBatch(next); ok && validRatingScores(got, len(indices), discoverylr.RatingV2Contract) {
+		if got, ok := e.RatingNext.ScoreBatch(next); ok && validBatchScores(got, len(indices), discoverylr.RatingV2Contract) {
 			scores, vectors = got, next
 			metrics.DiscoveryLRScoring.WithLabelValues("rating_v2_scored").Inc()
 		} else {
@@ -390,7 +390,7 @@ func (e *Engine) rankRating(ctx context.Context, owner int64, kinds []Kind, cont
 		if !ok || len(got) != len(indices) {
 			return fallback("unavailable")
 		}
-		if !validRatingScores(got, len(indices), discoverylr.RatingContract) {
+		if !validBatchScores(got, len(indices), discoverylr.RatingContract) {
 			return fallback("invalid_scores")
 		}
 		scores = got
@@ -405,9 +405,9 @@ func (e *Engine) rankRating(ctx context.Context, owner int64, kinds []Kind, cont
 	return true
 }
 
-// validRatingScores requires one finite probability per candidate from a
+// validBatchScores requires one finite probability per candidate from a
 // single model version of the expected contract.
-func validRatingScores(scores []discoverylr.Result, n int, contract string) bool {
+func validBatchScores(scores []discoverylr.Result, n int, contract string) bool {
 	if len(scores) != n {
 		return false
 	}

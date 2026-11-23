@@ -79,7 +79,14 @@ class InstallerFailures(unittest.TestCase):
         self.assertIn("no sample_date=", output)
 
     def test_successful_listing_download_verification_and_activation(self):
-        version = "lr_20261002_0700_2434cdb"
+        self.check_latest("lr_20261002_0700_2434cdb")
+
+    def test_discovery_gbdt_activation(self):
+        self.env["OSS_MODEL_PREFIX"] = "rec/model/discovery_gbdt"
+        self.check_latest("gbdt_20261002_0700_2434cdb")
+
+    def check_latest(self, version):
+        self.env["FIXTURE_VERSION"] = version
         bundle = self.root / "bundle"
         bundle.mkdir()
         model = json.dumps({"model_version": version}).encode()
@@ -91,7 +98,7 @@ class InstallerFailures(unittest.TestCase):
 case "$3" in
 ls)
   if [[ "$4" == *sample_date=* ]]; then
-    echo "oss://eigenflux/rec/model/lr/sample_date=2026-10-01/lr_20261002_0700_2434cdb/"
+    echo "${4}${FIXTURE_VERSION}/"
   else
     echo "oss://eigenflux/rec/model/lr/sample_date=2026-09-30/"
     echo "oss://eigenflux/rec/model/lr/sample_date=2026-10-01/"

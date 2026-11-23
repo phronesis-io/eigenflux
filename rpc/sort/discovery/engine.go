@@ -6,6 +6,7 @@ import (
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/need"
 	"eigenflux_server/pkg/recallsource"
+	"eigenflux_server/rpc/sort/discoverylr"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,6 +36,8 @@ type Engine struct {
 	replayCosineReference bool
 	Learned               LearnedRanker
 	RatingLearned         LearnedRanker
+	GBDT                  *discoverylr.Manager
+	GBDTBPS               int
 
 	// RatingNext is the challenger for the RatingNextBPS bucket of
 	// rating-ranked Agents.
@@ -225,7 +228,6 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	x = Execution{Mode: mode, Candidates: []Candidate{}}
 	if mode == Recommendation {
 		x.SourceLimits = e.SourceLimits
-		x.Experiments = e.experimentArms(owner)
 	}
 	if owner <= 0 {
 		return x, Failure(401, "unauthorized")
@@ -234,6 +236,9 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	r, err = NormalizeRequest(r, mode, now)
 	if err != nil {
 		return x, err
+	}
+	if mode == Recommendation {
+		x.Experiments = e.experimentArms(owner, r.SourceKinds)
 	}
 	if r.Cursor != "" {
 		return x, Invalid("cursor", "requires_feed_delivery")
@@ -836,14 +841,24 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	if !anySuccess && len(results) > 0 {
 		return x, Failure(503, "retrieval_unavailable")
 	}
+	var snapshot LearnedRanker
+	if mode == Recommendation && len(r.SourceKinds) == 1 && r.SourceKinds[0] == Broadcast && bucketEnabled(gbdtSalt, owner, e.GBDTBPS) && e.GBDT != nil {
+		snapshot = e.GBDT.Pin()
+		if snapshot == nil {
+			metrics.DiscoveryLRScoring.WithLabelValues("gbdt_fallback").Inc()
+		}
+	}
 	rating := &ratingRequest{}
 	selectCandidates := func(in []Candidate) ([]Candidate, error) {
 		if len(in) == 0 {
 			return []Candidate{}, nil
 		}
 		in = append([]Candidate(nil), in...)
-		if !e.rankRating(ctx, owner, r.SourceKinds, contexts, in, mode, profileVector, rating) {
-			e.rankLearned(in, mode)
+		if snapshot == nil || !rankSnapshot(snapshot, in) {
+			snapshot = nil
+			if !e.rankRating(ctx, owner, r.SourceKinds, contexts, in, mode, profileVector, rating) {
+				e.rankLearned(in, mode)
+			}
 		}
 		if e.Policies != nil {
 			var err error
