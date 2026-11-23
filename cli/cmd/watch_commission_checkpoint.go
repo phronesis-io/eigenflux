@@ -52,12 +52,6 @@ func commissionLocalCheckCode(err error) string {
 
 func (w *accountWatch) failCommissionLocalCheck(job dispatch.Job, err error, session string) error {
 	if !isWatchTerminal(err) && !errors.Is(err, os.ErrPermission) && commissionLocalCheckCode(err) != "commission_local_check_unavailable" {
-		if job.CommissionGeneration != nil {
-			current := w.commissionDeliveryJob(job)
-			if current.CommissionGeneration != nil {
-				return w.deferCommissionGeneration(current)
-			}
-		}
 		if scheduled, saveErr := w.scheduleCommissionDelivery(job, commissionLocalCheckCode(err), session); scheduled || saveErr != nil {
 			return saveErr
 		}

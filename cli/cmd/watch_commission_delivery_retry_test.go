@@ -22,11 +22,6 @@ import (
 
 func dueCommissionDelivery(t *testing.T, w *accountWatch, jobID string) dispatch.Job {
 	t.Helper()
-	return dueCommissionRetry(t, w, jobID)
-}
-
-func dueCommissionRetry(t *testing.T, w *accountWatch, jobID string) dispatch.Job {
-	t.Helper()
 	paths, err := filepath.Glob(filepath.Join(w.home, "watch", "dispatch-*.json"))
 	if err != nil || len(paths) != 1 {
 		t.Fatalf("fixture journal path: %v %v", paths, err)
@@ -51,18 +46,10 @@ func dueCommissionRetry(t *testing.T, w *accountWatch, jobID string) dispatch.Jo
 	for i := range state.Jobs {
 		job := &state.Jobs[i]
 		if job.ID == jobID {
-			if job.Status != "pending" {
+			if job.Status != "pending" || job.CommissionDelivery == nil {
 				t.Fatalf("not scheduled: %+v", job)
 			}
-			due := time.Now().Add(-time.Second).UnixMilli()
-			switch {
-			case job.CommissionDelivery != nil:
-				job.CommissionDelivery.NextAttemptAt = due
-			case job.CommissionGeneration != nil:
-				job.CommissionGeneration.NextProbeAt = due
-			default:
-				t.Fatal("missing retry evidence")
-			}
+			job.CommissionDelivery.NextAttemptAt = time.Now().Add(-time.Second).UnixMilli()
 			found = true
 		}
 	}
@@ -257,7 +244,7 @@ func TestCommissionDeliveryRetriesSameKeysAndBytesWithoutAgent(t *testing.T) {
 			if _, ok, err := w.journal.NextKind("commission_fulfillment"); ok || err != nil {
 				t.Fatal("waiting job claimed early", err)
 			}
-			job = dueCommissionRetry(t, w, job.ID)
+			job = dueCommissionDelivery(t, w, job.ID)
 			if err := w.dispatchCommissionFulfillment(context.Background(), job); err != nil {
 				t.Fatal(err)
 			}
@@ -291,7 +278,7 @@ func TestCommissionDeliveryRetryStopsAtFiveAcrossRestarts(t *testing.T) {
 			t.Fatalf("attempt counter reset: %+v", stopped)
 		}
 		if attempt < dispatch.CommissionDeliveryMaxAttempts {
-			job = dueCommissionRetry(t, w, job.ID)
+			job = dueCommissionDelivery(t, w, job.ID)
 		}
 	}
 	stopped := w.commissionDeliveryJob(job)
@@ -334,7 +321,7 @@ func TestCommissionDeliveryRetryPermanentChangesStop(t *testing.T) {
 				t.Fatal(err)
 			}
 			if scenario != "permission" && scenario != "expired_grant" {
-				job = dueCommissionRetry(t, w, job.ID)
+				job = dueCommissionDelivery(t, w, job.ID)
 				f.mu.Lock()
 				switch scenario {
 				case "cancelled", "refunded":

@@ -57,14 +57,6 @@ func commissionDeliveryRetryable(err error) bool {
 
 func (w *accountWatch) failCommissionDelivery(job dispatch.Job, err error, code, session string) error {
 	if commissionDeliveryRetryable(err) {
-		if job.CommissionGeneration != nil && job.CommissionDelivery == nil {
-			// The generation marker can have been replaced by a delivery checkpoint
-			// since this job was claimed. That checkpoint owns all further retries.
-			job = w.commissionDeliveryJob(job)
-			if job.CommissionGeneration != nil {
-				return w.deferCommissionGeneration(job)
-			}
-		}
 		if scheduled, saveErr := w.scheduleCommissionDelivery(job, code, session); scheduled || saveErr != nil {
 			return saveErr
 		}

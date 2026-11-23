@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -23,6 +24,8 @@ import (
 
 const maxRunnerOutput = 1 << 20
 
+var codexThreadID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
 var ErrNeedsUser = errors.New("needs_user")
 var ErrCommandLineTooLong = errors.New("windows_command_line_too_long")
 var errOutputLimit = errors.New("runner_output_too_large")
@@ -31,7 +34,6 @@ type Runner struct {
 	Binding          Binding
 	cliEnvironment   bool
 	hermesStreamJSON bool
-	generation       *generationProcess
 }
 
 func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
@@ -56,26 +58,6 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
-	if (req.GenerationVerifyOnly || req.GenerationLocalDirectory != "") && (!localCodexGeneration(r.Binding) || req.Kind != "commission_fulfillment" || req.SessionID != "") {
-		return Result{}, errors.New("unsupported_generation_verifier")
-	}
-	if observe, ok := ctx.Value(generationObserverKey{}).(func(GenerationRunEvidence) error); ok && observe != nil && localCodexGeneration(r.Binding) && req.Kind == "commission_fulfillment" && req.SessionID == "" {
-		r.generation = newGenerationProcess(observe)
-	}
-	if req.GenerationLocalDirectory != "" && (r.generation == nil || !AllowsLocalGeneration(r.Binding) || !validLocalGenerationDirectory(r.Binding, req.GenerationLocalDirectory)) {
-		return Result{}, errors.New("unsupported_local_generation")
-	}
-	if req.GenerationVerifyOnly || req.GenerationLocalDirectory != "" {
-		// Use an empty cwd so project configuration and hooks from the binding's
-		// workspace cannot re-enable tools. The prompt already contains absolute
-		// input, skill, and output paths. The only extra writable root is the output.
-		dir, err := os.MkdirTemp("", "eigenflux-local-generation-")
-		if err != nil {
-			return Result{}, err
-		}
-		defer os.RemoveAll(dir)
-		r.Binding.WorkDir = dir
-	}
 	if r.Binding.Mode == "acp" {
 		var err error
 		r, err = r.withReadOnlySkillAccess(req)
@@ -108,6 +90,17 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	}
 	out, stderr, err := r.runProcess(ctx, args, stdin)
 	if err != nil {
+		if r.Binding.Host == "codex" && r.Binding.Mode == "native" && req.Kind == "commission_fulfillment" && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+			// Only the native stream header identifies the interrupted session.
+			line, _, complete := bytes.Cut(out, []byte{'\n'})
+			var header struct {
+				Type     string `json:"type"`
+				ThreadID string `json:"thread_id"`
+			}
+			if complete && json.Unmarshal(line, &header) == nil && header.Type == "thread.started" && codexThreadID.MatchString(header.ThreadID) {
+				return Result{SessionID: header.ThreadID}, err
+			}
+		}
 		return Result{}, err
 	}
 	if r.Binding.Mode == "command" {
@@ -122,9 +115,6 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	result, err := parseNative(r.Binding.Host, out, stderr)
 	if err == nil && strings.TrimSpace(result.Text) == "" {
 		err = errors.New("empty_agent_result")
-	}
-	if err == nil && r.generation != nil {
-		err = r.generation.completed(result)
 	}
 	return result, err
 }
@@ -165,35 +155,16 @@ func (r Runner) runProcess(ctx context.Context, args []string, stdin string) ([]
 	out := &boundedOutput{limit: make(chan struct{}, 1)}
 	stderr := &boundedOutput{discardOverflow: true}
 	cmd.Stdout = out
-	if g := r.generation; g != nil {
-		g.out = out
-		g.prompt = strings.NewReader(stdin)
-		cmd.Stdin = g
-		cmd.Stdout = g
-	}
 	cmd.Stderr = stderr
 	guard, err := startManaged(cmd)
 	if err != nil {
 		return nil, nil, &DiagnosticError{Cause: errors.New("runner_start_failed"), Code: "runner_start_failed"}
 	}
 	defer guard.close()
-	var trackingFailed <-chan error
-	if g := r.generation; g != nil {
-		if err := g.started(cmd.Process.Pid); err != nil {
-			guard.kill()
-			_ = cmd.Wait()
-			return nil, nil, err
-		}
-		trackingFailed = g.failed
-	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	select {
 	case err = <-done:
-	case saveErr := <-trackingFailed:
-		guard.kill()
-		<-done
-		return nil, nil, saveErr
 	case <-out.limit:
 		guard.kill()
 		<-done
@@ -201,14 +172,7 @@ func (r Runner) runProcess(ctx context.Context, args []string, stdin string) ([]
 	case <-ctx.Done():
 		guard.kill()
 		<-done
-		return nil, nil, ctx.Err()
-	}
-	if trackingFailed != nil {
-		select {
-		case err := <-trackingFailed:
-			return nil, nil, err
-		default:
-		}
+		return out.data, nil, ctx.Err()
 	}
 	if out.exceeded {
 		return nil, nil, errOutputLimit
@@ -230,12 +194,6 @@ func (r Runner) arguments(req Request) ([]string, string, error) {
 	}
 	switch r.Binding.Host {
 	case "codex":
-		if req.GenerationVerifyOnly || req.GenerationLocalDirectory != "" {
-			return localGenerationArgs(r.Binding.Args, req), req.Prompt, nil
-		}
-		if r.generation != nil {
-			args = append(args, "--no-daemon")
-		}
 		args = append(args, "exec", "--json")
 		if req.Kind == "pm_push" {
 			args = append(args, "--ephemeral", "--skip-git-repo-check", "--sandbox", "read-only")

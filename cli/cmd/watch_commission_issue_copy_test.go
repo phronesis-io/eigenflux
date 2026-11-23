@@ -13,8 +13,6 @@ func TestCommissionUnconfirmedCopyIdentifiesStageAndSafeNextStep(t *testing.T) {
 		{"commission_fulfillment_unconfirmed", "交付执行结果待核对", "Fulfillment result needs checking", "调用后台 Agent 执行交付时出错", "background Agent call for fulfillment returned an error", "核对已有产出", "Check existing outputs"},
 		{"commission_accept_unconfirmed", "接单结果待核对", "Order acceptance needs checking", "接单请求未取得确认", "acceptance request was not confirmed", "避免重复接单", "before attempting to accept it again"},
 		{"commission_delivery_unconfirmed", "交付提交结果待核对", "Delivery submission needs checking", "交付提交未取得确认", "delivery submission was not confirmed", "避免重复提交", "before submitting again"},
-		{"commission_generation_effects_unconfirmed", "上次履约操作待核对", "Prior fulfillment actions need checking", "调用外部服务", "could use external services", "核对外部操作", "Check those actions"},
-		{"commission_generation_retry_exhausted", "已用完履约重试次数", "Generation attempts exhausted", "三次生成", "Three generation attempts", "核对原执行记录", "Check the execution records"},
 		{"interrupted_execution", "处理被中断", "Processing interrupted", "本地处理被中断", "Local processing was interrupted", "避免重复执行", "before repeating any work"},
 	} {
 		t.Run(tt.code, func(t *testing.T) {

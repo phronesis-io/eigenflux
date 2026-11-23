@@ -433,3 +433,71 @@ func TestCommissionLegacyReadyWithoutFingerprintBlocksWithoutRechecking(t *testi
 		}
 	}
 }
+
+func TestCommissionFulfillmentResumesCancelledSessionOnce(t *testing.T) {
+	for _, scenario := range []string{"ready", "interrupted_again", "wrong_session", "order_closed", "expired", "no_session"} {
+		t.Run(scenario, func(t *testing.T) {
+			var interrupted atomic.Bool
+			order := paidCommissionTestOrder()
+			server := commissionFulfillmentServer(t, func() commissionIntakeOrder {
+				current := order
+				if interrupted.Load() {
+					switch scenario {
+					case "order_closed":
+						current.State = "cancelled"
+					case "expired":
+						current.DeliveryDueAt = time.Now().Add(-time.Second).UnixMilli()
+					}
+				}
+				return current
+			}, scenario == "ready")
+			defer server.Close()
+			w := newCommissionWatch(t, server.URL, "commission_order")
+			w.binding.Host, w.binding.Mode = "codex", "native"
+			installCommissionIntakeRules(t, w)
+			job := claimPaidCommission(t, w)
+			calls, directory := 0, ""
+			w.runAgent = func(ctx context.Context, req dispatch.Request) (dispatch.Result, error) {
+				calls++
+				output := fulfillmentTestPayload(t, req).OutputDirectory
+				if calls == 1 {
+					if req.SessionID != "" {
+						t.Fatal("unexpected initial session")
+					}
+					directory = output
+					interrupted.Store(true)
+					if scenario == "no_session" {
+						return dispatch.Result{}, context.Canceled
+					}
+					return dispatch.Result{SessionID: "original-session"}, context.Canceled
+				}
+				if calls != 2 || req.SessionID != "original-session" || output != directory {
+					t.Fatal("did not continue the original session and directory exactly once")
+				}
+				if scenario == "wrong_session" {
+					return dispatch.Result{SessionID: "different-session"}, nil
+				}
+				if scenario == "interrupted_again" {
+					return dispatch.Result{SessionID: req.SessionID}, context.DeadlineExceeded
+				}
+				if err := os.WriteFile(filepath.Join(output, "report.txt"), []byte("completed report"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				decision := dispatch.CommissionFulfillmentDecision{Version: 1, RequestID: job.ID, OrderID: "901", OrderVersion: 3, Outcome: "artifacts_ready", Summary: "Report ready", SelfCheck: "Read report", Artifacts: []dispatch.CommissionArtifact{{LogicalPath: "outputs/report.txt", RelativePath: "report.txt"}}}
+				raw, _ := json.Marshal(decision)
+				return dispatch.Result{SessionID: req.SessionID, Text: string(raw)}, nil
+			}
+			if err := w.dispatchCommissionFulfillment(context.Background(), job); err != nil {
+				t.Fatal(err)
+			}
+			got := w.commissionDeliveryJob(job)
+			wantCalls := 1
+			if scenario == "ready" || scenario == "interrupted_again" || scenario == "wrong_session" {
+				wantCalls = 2
+			}
+			if calls != wantCalls || (got.Code == "commission_delivery_confirmed") != (scenario == "ready") {
+				t.Fatalf("calls %d, code %s", calls, got.Code)
+			}
+		})
+	}
+}

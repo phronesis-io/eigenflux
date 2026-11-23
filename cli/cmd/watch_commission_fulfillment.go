@@ -45,6 +45,10 @@ func (w *accountWatch) commissionFulfillmentLoop(ctx context.Context) error {
 
 func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job dispatch.Job) error {
 	defer w.observeCommissionJob(job)()
+	return w.runCommissionFulfillment(parent, job, "")
+}
+
+func (w *accountWatch) runCommissionFulfillment(parent context.Context, job dispatch.Job, resumeSession string) error {
 	if err := w.commissionFulfillmentIdentityOK(parent); err != nil {
 		return w.failCommissionLocalCheck(job, err, "")
 	}
@@ -65,12 +69,6 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 	if err != nil {
 		return w.failCommissionDelivery(job, err, "commission_order_unavailable", job.SessionID)
 	}
-	if job.CommissionGeneration != nil {
-		handled, err := w.checkCommissionGenerationOrder(ctx, job, order, queued.OrderVersion)
-		if handled {
-			return err
-		}
-	}
 	if job.CommissionDelivery != nil && commissionDeliveryAdvanced(order, queued.OrderVersion) {
 		retained := job.CommissionFulfillment
 		if retained == nil {
@@ -80,6 +78,15 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 			return w.finishDispatch(job, "failed", "commission_fulfillment_job_invalid", job.SessionID, "")
 		}
 		return w.deliverCommissionArtifacts(ctx, job, order, *retained, job.SessionID)
+	}
+	if resumeSession != "" && order.DeliveryDueAt > 0 {
+		deadline := time.UnixMilli(order.DeliveryDueAt)
+		if !time.Now().Before(deadline) {
+			return w.finishDispatch(job, "needs_user", "commission_fulfillment_order_changed", resumeSession, "")
+		}
+		var stop context.CancelFunc
+		ctx, stop = context.WithDeadline(ctx, deadline)
+		defer stop()
 	}
 	if order.State != "in_progress" || order.Version != queued.OrderVersion {
 		return w.finishDispatch(job, "needs_user", "commission_fulfillment_order_changed", "", "")
@@ -94,7 +101,7 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 	go w.guardCommissionFulfillment(guardCtx, cancel, order, guardDone)
 	defer func() { guardCancel(); <-guardDone }()
 	directory := job.CommissionDirectory
-	if job.CommissionCheckpoint == nil && job.CommissionDelivery == nil && job.CommissionGeneration == nil {
+	if resumeSession == "" && job.CommissionCheckpoint == nil && job.CommissionDelivery == nil {
 		directory, err = os.MkdirTemp(w.binding.WorkDir, ".eigenflux-fulfillment-"+queued.OrderID+"-")
 		if err != nil {
 			return w.finishDispatch(job, "needs_user", "commission_output_directory_unavailable", "", "")
@@ -104,34 +111,8 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 			return err
 		}
 	}
-	plan := commissionGenerationPlan{directory: directory}
-	if job.CommissionGeneration != nil {
-		recovered, err := w.inspectPriorGeneration(job, order)
-		if recovered == nil {
-			return err
-		}
-		plan, directory = *recovered, recovered.directory
-		if directory != job.CommissionDirectory {
-			defer func() {
-				if w.commissionDeliveryJob(job).CommissionDirectory != directory {
-					_ = os.Remove(directory) // Unclaimed, empty preparation directory.
-				}
-			}()
-		}
-	}
-	extra := map[string]any{"output_directory": directory, "intake_result": queued.IntakeResult}
-	if len(plan.files) > 0 {
-		candidates := make([]string, 0, len(plan.files))
-		for _, file := range plan.files {
-			candidates = append(candidates, file.RelativePath)
-		}
-		extra["existing_relative_paths"] = candidates
-	}
-	prompt, required, files, cleanup, err := w.commissionAgentPrompt(ctx, job, order, extra)
+	prompt, required, files, cleanup, err := w.commissionAgentPrompt(ctx, job, order, map[string]any{"output_directory": directory, "intake_result": queued.IntakeResult})
 	if err != nil {
-		if job.CommissionGeneration != nil && (ctx.Err() != nil || errors.Is(err, auth.ErrV2CredentialsLockTimeout)) {
-			return w.deferCommissionGeneration(job)
-		}
 		if errors.Is(err, auth.ErrV2CredentialsLockTimeout) {
 			return w.failCommissionLocalCheck(job, err, job.SessionID)
 		}
@@ -162,9 +143,6 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 		return w.failCommissionDelivery(job, err, "commission_order_unavailable", job.SessionID)
 	}
 	if !sameCommissionIntakeOrder(order, before) || ctx.Err() != nil {
-		if job.CommissionGeneration != nil && ctx.Err() != nil {
-			return w.deferCommissionGeneration(job)
-		}
 		return w.finishDispatch(job, "failed", "commission_fulfillment_cancelled_before_execution", "", "")
 	}
 	if err := w.commissionFulfillmentIdentityOK(ctx); err != nil {
@@ -183,9 +161,27 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 		}
 		return w.deliverCommissionArtifacts(ctx, job, order, *retained, job.SessionID)
 	}
-	result, err := w.runPaidGeneration(ctx, job, prompt, order, plan)
-	if result == nil {
-		return err
+	if resumeSession != "" {
+		prompt.SessionID = resumeSession
+		prompt.Prompt = "Continue the interrupted fulfillment in this session. Check prior actions and existing files first. Use the refreshed material paths below. Do not repeat completed actions. Return needs_user if a previous external action has an uncertain outcome.\n\n" + prompt.Prompt
+	}
+	result, runErr := w.runCommissionAgent(ctx, job, prompt)
+	if resumeSession != "" && result.SessionID != resumeSession {
+		return w.finishDispatch(job, "unknown", "commission_fulfillment_unconfirmed", resumeSession, "")
+	}
+	if runErr != nil {
+		interrupted := errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded)
+		if resumeSession == "" && result.SessionID != "" && w.binding.Host == "codex" && w.binding.Mode == "native" && parent.Err() == nil && interrupted {
+			guardCancel()
+			<-guardDone
+			job.CommissionDirectory = directory
+			return w.runCommissionFulfillment(parent, job, result.SessionID)
+		}
+		status, code := "unknown", "commission_fulfillment_unconfirmed"
+		if errors.Is(runErr, dispatch.ErrNeedsUser) || errors.Is(runErr, dispatch.ErrCommandLineTooLong) {
+			status, code = "needs_user", "commission_fulfillment_permission_required"
+		}
+		return w.finishDispatch(job, status, code, result.SessionID, "")
 	}
 	decision, err := dispatch.ParseCommissionFulfillmentDecision(result.Text, job.ID, queued.OrderID, order.Version)
 	if err != nil {
@@ -194,21 +190,13 @@ func (w *accountWatch) dispatchCommissionFulfillment(parent context.Context, job
 	artifactStarted := time.Now()
 	observation := commissionJobObservation(job)
 	observation.Stage = "artifact"
-	var artifacts []dispatch.CommissionVerifiedArtifact
-	if plan.files != nil && decision.Outcome != "artifacts_ready" {
-		return w.finishDispatch(job, "needs_user", "commission_generation_verification_incomplete", result.SessionID, "")
-	}
-	if plan.files != nil {
-		artifacts, err = validateRecoveredCommissionArtifacts(directory, decision, plan.files)
-	} else {
-		artifacts, err = validateCommissionArtifacts(directory, decision)
-	}
+	artifacts, err := validateCommissionArtifacts(directory, decision)
 	if err != nil {
-		w.recordCommissionObservation(observation, "failed", "output_invalid", artifactStarted, *result, nil)
+		w.recordCommissionObservation(observation, "failed", "output_invalid", artifactStarted, result, nil)
 		return w.finishDispatch(job, "failed", "commission_fulfillment_artifacts_invalid", result.SessionID, "")
 	}
 	if decision.Outcome == "artifacts_ready" {
-		w.recordCommissionObservation(observation, "succeeded", "", artifactStarted, *result, nil)
+		w.recordCommissionObservation(observation, "succeeded", "", artifactStarted, result, nil)
 	}
 	saved := dispatch.CommissionFulfillmentResult{Decision: decision, OutputDirectory: directory, Artifacts: artifacts}
 	if decision.Outcome == "artifacts_ready" {

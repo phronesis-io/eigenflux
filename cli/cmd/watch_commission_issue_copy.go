@@ -4,38 +4,6 @@ import "cli.eigenflux.ai/internal/dispatch"
 
 func desktopCommissionBlockerText(language, status, code string) (string, string) {
 	uncertain := map[string]struct{ zhTitle, zhBody, enTitle, enBody string }{
-		"commission_generation_retry_exhausted": {
-			"已用完履约重试次数", "已尝试三次生成。请核对原执行记录和产物，再决定是否继续。",
-			"Generation attempts exhausted", "Three generation attempts were issued. Check the execution records and retained files before continuing.",
-		},
-		"commission_generation_effects_unconfirmed": {
-			"上次履约操作待核对", "上次执行可能已调用外部服务。请核对外部操作记录和订单文件。",
-			"Prior fulfillment actions need checking", "The previous execution could use external services. Check those actions and the order files.",
-		},
-		"commission_generation_verification_incomplete": {
-			"已有产物未通过验收", "请按订单的交付要求核对已有文件，再决定需要补做的部分。",
-			"Existing files need review", "Check the retained files against the delivery contract to identify the remaining work.",
-		},
-		"commission_generation_verification_interrupted": {
-			"产物验收中断", "已有文件的只读验收中断。请核对文件和验收记录。",
-			"Artifact verification interrupted", "The read-only check was interrupted. Inspect the retained files and verification record.",
-		},
-		"commission_generation_deadline_reached": {
-			"已到交付截止时间", "自动恢复已停止。请查看订单页的当前状态与可用操作。",
-			"Delivery deadline reached", "Automatic recovery has stopped. Check the current state and available actions on the order page.",
-		},
-		"commission_generation_remote_output_exists": {
-			"订单已有交付文件", "请核对订单工作区里的文件及交付记录。",
-			"Order already has output files", "Check the files in the order workspace and its delivery history.",
-		},
-		"commission_generation_tracking_unavailable": {
-			"后台执行环境需要核对", "请核对本机 Codex、订单绑定及技能的执行权限。",
-			"Generation environment needs checking", "Check the local Codex, order binding, and skill execution permissions.",
-		},
-		"commission_generation_process_unconfirmed": {
-			"原履约进程状态待核对", "请确认原任务是否仍在运行，并核对已有产物。",
-			"Prior worker state unconfirmed", "Check whether the original worker is still running and inspect its output files.",
-		},
 		"commission_intake_evidence_missing": {
 			"缺少下单材料确认记录", "本机没有可核验的下单材料确认记录，尚未启动履约。请由 Agent 核对原接单记录；系统不会自动重复审材料或执行交付。",
 			"Order-entry inspection evidence unavailable", "This computer has no verifiable order-entry inspection record. Fulfillment has not started. The Agent must check the original acceptance record; input inspection and delivery are not automatically repeated.",
