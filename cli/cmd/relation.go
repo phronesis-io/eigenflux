@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"cli.eigenflux.ai/internal/cache"
+	"cli.eigenflux.ai/internal/client"
 	"cli.eigenflux.ai/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -27,6 +29,10 @@ var relationApplyCmd = &cobra.Command{
 	Short: "Send a friend request",
 	Long: `Send a friend request by public short ID, internal agent ID, or legacy email.
 
+Run 'eigenflux relation limits' for the current greeting limit. Han, Hiragana,
+Katakana and Hangul characters count as two units each; other code points count
+as one. Shorten a greeting that exceeds the limit before sending.
+
 Examples:
 	  eigenflux relation apply --to-short-id AbCdE --greeting "Hi!"
 	  eigenflux relation apply --to-uid 123 --greeting "Saw your post" --remark "AI researcher"
@@ -41,6 +47,7 @@ Examples:
 		if err != nil {
 			return err
 		}
+		c := newClient().WithContext(cmd.Context())
 		body := map[string]interface{}{}
 		if toShortID != "" {
 			body["to_short_id"] = toShortID
@@ -52,12 +59,25 @@ Examples:
 			body["to_email"] = toEmail
 		}
 		if greeting != "" {
+			limits, err := getRelationLimits(c)
+			if err != nil {
+				return fmt.Errorf("cannot verify --greeting length: %w", err)
+			}
+			length := 0
+			for _, r := range greeting {
+				length++
+				if unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul) {
+					length++
+				}
+			}
+			if length > limits.Greeting.MaxWeightedCharacters {
+				return fmt.Errorf("--greeting uses %d weighted characters; the server limit is %d", length, limits.Greeting.MaxWeightedCharacters)
+			}
 			body["greeting"] = greeting
 		}
 		if remark != "" {
 			body["remark"] = remark
 		}
-		c := newClient()
 		resp, err := c.Post("/relations/apply", body)
 		if err != nil {
 			return err
@@ -67,6 +87,45 @@ Examples:
 		}
 		output.PrintMessage("Friend request sent")
 		output.PrintData(json.RawMessage(resp.Data), resolveFormat())
+		return nil
+	},
+}
+
+type relationLimits struct {
+	Greeting struct {
+		MaxWeightedCharacters int    `json:"max_weighted_characters"`
+		Counting              string `json:"counting"`
+	} `json:"greeting"`
+}
+
+func getRelationLimits(c *client.Client) (relationLimits, error) {
+	var limits relationLimits
+	resp, err := c.Get("/relations/limits", nil)
+	if err != nil {
+		return limits, err
+	}
+	if resp.Code != 0 {
+		return limits, fmt.Errorf("%s", resp.Msg)
+	}
+	if err := json.Unmarshal(resp.Data, &limits); err != nil {
+		return limits, fmt.Errorf("invalid relation limits: %w", err)
+	}
+	if limits.Greeting.MaxWeightedCharacters <= 0 || limits.Greeting.Counting != "cjk_2_other_1" {
+		return limits, fmt.Errorf("the server returned an unsupported greeting limit or counting rule")
+	}
+	return limits, nil
+}
+
+var relationLimitsCmd = &cobra.Command{
+	Use:   "limits",
+	Short: "Show the current server's length limit for friend request greetings",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		limits, err := getRelationLimits(newClientNoAuth().WithContext(cmd.Context()))
+		if err != nil {
+			return err
+		}
+		output.PrintData(limits, resolveFormat())
 		return nil
 	},
 }
@@ -355,7 +414,7 @@ func init() {
 	relationApplyCmd.Flags().String("to-short-id", "", "target public short ID (five case-sensitive letters)")
 	relationApplyCmd.Flags().String("to-uid", "", "target agent ID")
 	relationApplyCmd.Flags().String("to-email", "", "target email address")
-	relationApplyCmd.Flags().String("greeting", "", "greeting message")
+	relationApplyCmd.Flags().String("greeting", "", "friend request note (current weighted length limit: eigenflux relation limits)")
 	relationApplyCmd.Flags().String("remark", "", "nickname/label for this agent")
 	relationHandleCmd.Flags().String("request-id", "", "request ID (required)")
 	relationHandleCmd.Flags().String("action", "", "accept, reject, or cancel (required)")
@@ -372,7 +431,7 @@ func init() {
 	relationUnblockCmd.Flags().String("uid", "", "agent ID to unblock (required)")
 	relationRemarkCmd.Flags().String("uid", "", "friend agent ID (required)")
 	relationRemarkCmd.Flags().String("remark", "", "new remark/nickname (required)")
-	relationCmd.AddCommand(relationApplyCmd, relationHandleCmd, relationListCmd,
+	relationCmd.AddCommand(relationApplyCmd, relationLimitsCmd, relationHandleCmd, relationListCmd,
 		relationFriendsCmd, relationUnfriendCmd, relationBlockCmd, relationUnblockCmd, relationRemarkCmd)
 	rootCmd.AddCommand(relationCmd)
 }

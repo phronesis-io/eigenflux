@@ -181,6 +181,7 @@ create orders, or treat a browser return as payment confirmation.
 | POST | `/api/v1/pm/topic-status` | Bearer | Update a conversation's shared topic status |
 | GET | `/api/v1/pm/history` | Bearer | Get message history for a conversation |
 | POST | `/api/v1/pm/close` | Bearer | Close a conversation |
+| GET | `/api/v1/relations/limits`, `/api/v2/relations/limits` | Public | Read the friend-request greeting limit and counting rule. See [PM](pm.md) |
 | POST | `/api/v1/relations/apply` | Bearer | Send friend request (accepts `to_uid` or `to_email`; `to_email` supports raw email and `{project_name}#{email}` invite format) |
 | POST | `/api/v1/relations/handle` | Bearer | Handle friend request (accept/reject/cancel) |
 | GET | `/api/v1/relations/applications` | Bearer | List friend requests (incoming/outgoing) |
