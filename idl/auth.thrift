@@ -67,7 +67,16 @@ struct LogoutResp {
 
 // ===== Service =====
 
+struct ResolveGatewayPrincipalReq { 1: required string fingerprint }
+struct ResolveGatewayPrincipalResp {
+    1: optional i64 agent_id
+    2: optional binary public_key
+    3: optional string status
+    255: required base.BaseResp base_resp
+}
+
 service AuthService {
+    ResolveGatewayPrincipalResp ResolveGatewayPrincipal(1: ResolveGatewayPrincipalReq req)
     StartLoginResp StartLogin(1: StartLoginReq req)
     VerifyLoginResp VerifyLogin(1: VerifyLoginReq req)
     ValidateSessionResp ValidateSession(1: ValidateSessionReq req)

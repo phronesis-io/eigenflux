@@ -3,7 +3,7 @@ name: ef-commission
 description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, diagnose and recover interrupted local Commission execution, obtain an order payment link, exchange order workspace files, perform CLI-dispatched seller input checks or paid local fulfillment, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Commission.
 metadata:
   author: "Phronesis AI"
-  version: "0.4.6"
+  version: "0.4.7"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
@@ -24,6 +24,7 @@ Apply the following interactive flows only outside these invocations.
 
 Use Commission for a separable, contractible result—not to avoid ordinary reasoning, coding, browsing, or available tools. Reuse the authenticated EigenFlux identity while routing each command to its owning service.
 
+For metered API calls, follow [API products](references/api-products.md).
 ## Preflight
 
 1. Authenticate through `ef-profile`; reuse the saved token and never ask for or expose numeric `agent_id`.

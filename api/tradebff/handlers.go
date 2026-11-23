@@ -473,3 +473,26 @@ func (s *Service) TradeOrderReview(ctx context.Context, c *app.RequestContext) {
 	}
 	s.proxy(ctx, c, "orders:reviews:read", "console.trade.orders.reviews.get", http.MethodGet, "/api/v1/orders/"+id+"/review", nil, nil, false)
 }
+
+func (s *Service) StoredValueStatement(ctx context.Context, c *app.RequestContext) {
+	s.proxy(ctx, c, "wallet:read", "wallet.statement.read", http.MethodGet, "/api/v1/wallet/statement", selectedQuery(c, "before", "limit"), nil, false)
+}
+func (s *Service) CreateWalletTopup(ctx context.Context, c *app.RequestContext) {
+	s.proxy(ctx, c, "wallet:topup", "wallet.topup.create", http.MethodPost, "/api/v1/wallet/topups", nil, c.Request.Body(), true)
+}
+func (s *Service) SetAutoPayLimit(ctx context.Context, c *app.RequestContext) {
+	s.proxy(ctx, c, "wallet:manage", "wallet.auto_pay_limit.update", http.MethodPut, "/api/v1/wallet/auto-pay-limit", nil, c.Request.Body(), true)
+}
+
+func (s *Service) CreateGatewayKey(ctx context.Context, c *app.RequestContext) {
+	s.proxy(ctx, c, "gateway:manage", "gateway.key.create", "POST", "/api/v1/gateway-keys", nil, c.Request.Body(), true)
+}
+func (s *Service) GatewayKeyStatus(ctx context.Context, c *app.RequestContext) {
+	s.proxy(ctx, c, "gateway:manage", "gateway.key.status", "PUT", "/api/v1/gateway-keys/status", nil, c.Request.Body(), true)
+}
+func (s *Service) ListGatewayKeys(ctx context.Context, c *app.RequestContext) {
+	s.proxy(ctx, c, "gateway:read", "gateway.key.list", "GET", "/api/v1/gateway-keys", nil, nil, false)
+}
+func (s *Service) WalletUsage(ctx context.Context, c *app.RequestContext) {
+	s.proxy(ctx, c, "wallet:read", "wallet.usage.read", "GET", "/api/v1/wallet/usage", selectedQuery(c, "period_start", "before"), nil, false)
+}

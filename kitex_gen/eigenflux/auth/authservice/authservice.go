@@ -13,6 +13,13 @@ import (
 var errInvalidMessageType = errors.New("invalid message type for service method handler")
 
 var serviceMethods = map[string]kitex.MethodInfo{
+	"ResolveGatewayPrincipal": kitex.NewMethodInfo(
+		resolveGatewayPrincipalHandler,
+		newAuthServiceResolveGatewayPrincipalArgs,
+		newAuthServiceResolveGatewayPrincipalResult,
+		false,
+		kitex.WithStreamingMode(kitex.StreamingNone),
+	),
 	"StartLogin": kitex.NewMethodInfo(
 		startLoginHandler,
 		newAuthServiceStartLoginArgs,
@@ -107,6 +114,24 @@ func newServiceInfo(hasStreaming bool, keepStreamingMethods bool, keepNonStreami
 	return svcInfo
 }
 
+func resolveGatewayPrincipalHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
+	realArg := arg.(*auth.AuthServiceResolveGatewayPrincipalArgs)
+	realResult := result.(*auth.AuthServiceResolveGatewayPrincipalResult)
+	success, err := handler.(auth.AuthService).ResolveGatewayPrincipal(ctx, realArg.Req)
+	if err != nil {
+		return err
+	}
+	realResult.Success = success
+	return nil
+}
+func newAuthServiceResolveGatewayPrincipalArgs() interface{} {
+	return auth.NewAuthServiceResolveGatewayPrincipalArgs()
+}
+
+func newAuthServiceResolveGatewayPrincipalResult() interface{} {
+	return auth.NewAuthServiceResolveGatewayPrincipalResult()
+}
+
 func startLoginHandler(ctx context.Context, handler interface{}, arg, result interface{}) error {
 	realArg := arg.(*auth.AuthServiceStartLoginArgs)
 	realResult := result.(*auth.AuthServiceStartLoginResult)
@@ -187,6 +212,16 @@ func newServiceClient(c client.Client) *kClient {
 	return &kClient{
 		c: c,
 	}
+}
+
+func (p *kClient) ResolveGatewayPrincipal(ctx context.Context, req *auth.ResolveGatewayPrincipalReq) (r *auth.ResolveGatewayPrincipalResp, err error) {
+	var _args auth.AuthServiceResolveGatewayPrincipalArgs
+	_args.Req = req
+	var _result auth.AuthServiceResolveGatewayPrincipalResult
+	if err = p.c.Call(ctx, "ResolveGatewayPrincipal", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
 }
 
 func (p *kClient) StartLogin(ctx context.Context, req *auth.StartLoginReq) (r *auth.StartLoginResp, err error) {

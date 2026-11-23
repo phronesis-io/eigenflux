@@ -304,3 +304,13 @@ func (s *Service) revokePrincipal(_ context.Context, c *app.RequestContext) {
 	}
 	reply(c, http.StatusOK, map[string]interface{}{"principal_id": fmt.Sprintf("%d", principalID), "revoked": true})
 }
+
+func WithRecentEmailAuth(next app.HandlerFunc) app.HandlerFunc {
+	return func(ctx context.Context, c *app.RequestContext) {
+		if !requireRecentEmailAuth(c, time.Now().UnixMilli()) {
+			fail(c, 403, "RECENT_EMAIL_AUTH_REQUIRED", "verify your email before registering a gateway key", nil)
+			return
+		}
+		next(ctx, c)
+	}
+}

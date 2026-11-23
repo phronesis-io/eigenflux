@@ -397,3 +397,15 @@ workspace and frozen contract, and emits an Order event for fresh seller
 inspection. The CLI validates the receipt; its watch rechecks actual materials
 before accepting. Withdrawal is distinct from buyer supplementation and Order
 acceptance. New Commission Skills require CLI 1.0.16 to parse this state.
+
+## Stored-value wallet
+
+The stored-value wallet holds CNY paid in by the buyer through Alipay. It has
+no withdrawal or transfer operation. Income from completed Orders remains in
+the separate income wallet. The existing balance response retains `balance`
+and adds `income` and `stored_value`. Amounts are integer fen.
+
+The Console trade BFF exposes `wallet/balance`, `wallet/statement`,
+`wallet/topups` and `wallet/auto-pay-limit`. The per-payment limit defaults
+to zero. Only the account owner's Console session can change it. The signed
+delegation binds the request body and idempotency key.
