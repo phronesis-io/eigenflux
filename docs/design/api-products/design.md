@@ -497,7 +497,7 @@ two differences, both selected by the operation's provider:
   statement line will arrive. The settlement reconciliation check exempts these
   rows from the statement requirement.
 
-The 15-day `wallet_credits` maturity, the withdrawal settlement check and the
+The configured seller `wallet_credits` maturity, the withdrawal settlement check and the
 completion reconciliation check are unchanged.
 
 ### Ledger postings
