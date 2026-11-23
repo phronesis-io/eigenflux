@@ -75,11 +75,12 @@ resolve_latest_oss() {
     | grep -oE 'sample_date=[0-9]{4}-[0-9]{2}-[0-9]{2}/?' | tr -d '/' | sort -u | tail -1)" || true
   [ -n "$latest_date" ] || die "no sample_date= partitions under $base"
   local date_uri="$base$latest_date/"
-  local latest_version
+  local latest_version version_prefix=lr
+  if [[ "$OSS_MODEL_PREFIX" == "rec/model/discovery_gbdt" ]]; then version_prefix=gbdt; fi
   listing="$(ossutil_cmd ls "$date_uri" -d)" || die "failed to list $date_uri"
   latest_version="$(printf '%s\n' "$listing" \
-    | grep -oE 'lr_[0-9]{8}_[0-9]{4}_[0-9a-f]+/?' | tr -d '/' | sort -u | tail -1)" || true
-  [ -n "$latest_version" ] || die "no lr_* model_version dir under $date_uri"
+    | grep -oE "${version_prefix}_[0-9]{8}_[0-9]{4}_[0-9a-f]+/?" | tr -d '/' | sort -u | tail -1)" || true
+  [ -n "$latest_version" ] || die "no ${version_prefix}_* model_version dir under $date_uri"
   printf '%s%s/' "$date_uri" "$latest_version"
 }
 
