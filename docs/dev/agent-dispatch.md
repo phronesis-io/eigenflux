@@ -35,7 +35,7 @@ Write a binding JSON file using these fields:
 | `args` | Additional argument array, before native adapter arguments |
 | `main_session_id` | Exact existing main-owner session ID; Codex requires its UUID and pinned `CODEX_HOME` |
 | `main_command` | Optional complete ACP bridge argv for main notices only; retain the ordinary execution `command`/`mode` for PM decisions, input checks and fulfillment |
-| `workdir` | Existing absolute workspace path |
+| `workdir` | Existing absolute workspace path. Native Codex seller input checks and paid fulfillment also support directories outside Git repositories. |
 | `skills_dir` | Signed compatible Skills directory containing the dispatch rule |
 | `env` | Host environment; `EIGENFLUX_*` keys forbidden; Windows keys ignore case and must be unique |
 | `host_agent` | Required OpenClaw Agent selector |

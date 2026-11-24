@@ -195,8 +195,11 @@ func (r Runner) arguments(req Request) ([]string, string, error) {
 	switch r.Binding.Host {
 	case "codex":
 		args = append(args, "exec", "--json")
-		if req.Kind == "pm_push" {
+		switch req.Kind {
+		case "pm_push":
 			args = append(args, "--ephemeral", "--skip-git-repo-check", "--sandbox", "read-only")
+		case "commission_order", "commission_fulfillment":
+			args = append(args, "--skip-git-repo-check")
 		}
 		if req.SessionID != "" {
 			args = append(args, "resume", req.SessionID)
