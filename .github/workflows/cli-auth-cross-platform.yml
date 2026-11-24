@@ -189,6 +189,8 @@ jobs:
   release-artifact-handoff:
     needs: scope
     if: needs.scope.outputs.full == 'true'
+    permissions:
+      actions: read
     runs-on: ubuntu-latest
     steps:
       - name: Prepare an executable without release credentials
@@ -198,7 +200,8 @@ jobs:
           chmod 755 "$RUNNER_TEMP/release-handoff-source/releasecheck"
           printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/release-handoff-source/source-sha.txt"
           tar -C "$RUNNER_TEMP/release-handoff-source" -cf "$RUNNER_TEMP/release-handoff.tar" .
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release-handoff-${{ github.sha }}
           path: ${{ runner.temp }}/release-handoff.tar
@@ -206,10 +209,20 @@ jobs:
           retention-days: 1
           overwrite: true
           if-no-files-found: error
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: release-handoff-${{ github.sha }}
-          path: ${{ runner.temp }}/release-handoff-download
+      - name: Fetch the uploaded artifact by its immutable ID
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/release-handoff.zip"
+          for delay in 1 2 4 8 16; do
+            if gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$archive"; then
+              break
+            fi
+            sleep "$delay"
+          done
+          unzip -q "$archive" -d "$RUNNER_TEMP/release-handoff-download"
       - name: Verify the downloaded artifact source and executable permissions
         run: |
           mkdir -p "$RUNNER_TEMP/release-handoff-restored"
