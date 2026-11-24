@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/dispatch"
 	"cli.eigenflux.ai/internal/heartbeatmigration"
+	"cli.eigenflux.ai/internal/maintenance"
 )
 
 func TestMigrationPreservesBoundWatchOwnership(t *testing.T) {
@@ -116,6 +119,103 @@ func TestMigrationPreservesFullExecutionPromptAfterLegacyLauncher(t *testing.T) 
 		if got.ThreadID != "owner-thread" || got.Status != "ACTIVE" || got.Schedule != "2h" {
 			t.Fatal("migration changed scheduling ownership")
 		}
+	}
+}
+
+func TestCodexUpgradeRepairsStaleFullSchedulerPromptInPlace(t *testing.T) {
+	_, server := runtimeTestConfig(t, "http://127.0.0.1:1", true)
+	oldFormat := formatFlag
+	formatFlag = "json"
+	t.Cleanup(func() { formatFlag = oldFormat })
+	planCommand, _, err := rootCmd.Find([]string{"heartbeat", "migrate", "plan"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := planCommand.Flags().Set("stdin", "true"); err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range []string{"ACTIVE", "PAUSED"} {
+		t.Run(status, func(t *testing.T) {
+			task := heartbeatmigration.Task{
+				ID: "existing-heartbeat", Name: "EigenFlux", Owner: "eigenflux", Purpose: "heartbeat",
+				Home: config.HomeDir(), Server: server, Schedule: "2h", Status: status, ThreadID: guardTestThread,
+				Prompt: "Run one EigenFlux heartbeat cycle. Execute directly: eigenflux --homedir " +
+					shellQuote(config.HomeDir()) + " --server " + shellQuote(server) +
+					" --runtime-mode skill heartbeat plan --format agent. Freshly read its installed rule sources and follow its plan in this run.",
+				Metadata: map[string]interface{}{"notify": false},
+			}
+			in := heartbeatmigration.Inventory{Complete: true, Tasks: []heartbeatmigration.Task{task}}
+			raw, _ := json.Marshal(in)
+			planCommand.SetIn(bytes.NewReader(raw))
+			out, err := captureHeartbeatStdout(t, func() error { return planCommand.RunE(planCommand, nil) })
+			if err != nil {
+				t.Fatal(err)
+			}
+			var record migrationRecord
+			if err := json.Unmarshal([]byte(out), &record); err != nil {
+				t.Fatal(err)
+			}
+			if record.Plan.Status != "update" || record.Plan.TaskID != task.ID || len(record.Plan.After.Tasks) != 1 {
+				t.Fatalf("expected in-place update: %+v", record.Plan)
+			}
+			readback := record.Plan.After.Tasks[0]
+			want := task
+			want.Prompt = readback.Prompt
+			if readback.Prompt == task.Prompt || !reflect.DeepEqual(readback, want) {
+				t.Fatalf("expected prompt-only change: %+v", readback)
+			}
+			if err := heartbeatmigration.Verify(record.Plan, heartbeatmigration.Inventory{Complete: true, Tasks: []heartbeatmigration.Task{readback}}); err != nil {
+				t.Fatal(err)
+			}
+
+			codexHome := t.TempDir()
+			hooksPath := filepath.Join(codexHome, "hooks.json")
+			promptFile := filepath.Join(codexHome, "scheduler-prompt")
+			guard := newHeartbeatGuardSetupCommand()
+			guard.SetOut(&bytes.Buffer{})
+			guard.SetErr(&bytes.Buffer{})
+			runGuard := func(args ...string) error {
+				guard.SetArgs(append([]string{"--codex-home", codexHome, "--thread", guardTestThread}, args...))
+				return guard.Execute()
+			}
+			if err := runGuard(); err == nil || !strings.Contains(err.Error(), "--scheduler-prompt-file") {
+				t.Fatalf("guard setup without scheduler readback: %v", err)
+			}
+			if err := os.WriteFile(promptFile, []byte(task.Prompt), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := runGuard("--scheduler-prompt-file", promptFile); err == nil || !strings.Contains(err.Error(), "canonical prompt") {
+				t.Fatalf("guard setup accepted the stale prompt: %v", err)
+			}
+			if _, err := os.Stat(hooksPath); !os.IsNotExist(err) {
+				t.Fatalf("invalid readback changed hooks: %v", err)
+			}
+			if err := os.WriteFile(promptFile, []byte(readback.Prompt), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := runGuard("--scheduler-prompt-file", promptFile); err != nil {
+				t.Fatal(err)
+			}
+			hooks, err := os.ReadFile(hooksPath)
+			hash := heartbeatTestPromptHash(readback.Prompt)
+			if err != nil || !bytes.Contains(hooks, []byte(hash)) {
+				t.Fatalf("installed hooks did not pin the verified scheduler prompt: %v", err)
+			}
+			scope, err := maintenanceScope(server)
+			if err != nil {
+				t.Fatal(err)
+			}
+			inHook := heartbeatHostInput{heartbeatStopInput: heartbeatStopInput{
+				SessionID: guardTestThread, TurnID: "scheduled-" + status, Event: "UserPromptSubmit",
+			}, Prompt: readback.Prompt, ExpectedPromptHash: hash}
+			if err := observeHeartbeatHost(scope, inHook, guardTestThread); err != nil {
+				t.Fatal(err)
+			}
+			attempt := heartbeatHostAttempt(guardTestThread, inHook.TurnID)
+			if at, err := maintenance.LifecycleObservedAt(scope, attempt, "trigger", "observed"); err != nil || at == 0 {
+				t.Fatalf("migrated prompt did not receive a trigger receipt: %d %v", at, err)
+			}
+		})
 	}
 }
 

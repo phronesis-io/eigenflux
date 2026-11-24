@@ -1057,6 +1057,12 @@ remain available to `watch status` and explicit operator retry; restarting watch
 does not replay them. Modified managed Skills stay protected and require repair
 without overwriting owner changes.
 
+A waiting Codex upgrade repair with a legacy guard can recheck the scheduler once
+under the same repair ID. Watch checks signed rules and Codex readiness before
+claiming the recheck at the hidden-input write boundary. Restart can resume
+preflight; uncertain writes are never replayed. Transient Skills failures keep
+the existing acknowledgement for unchanged owner actions.
+
 Codex upgrade repair uses the desktop queue only for recorded owner actions
 that can be resumed in the verified bound thread. Background transport errors
 remain in the repair receipt. The desktop queue deduplicates by repair request,

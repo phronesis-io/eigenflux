@@ -1,5 +1,7 @@
 # Existing Codex upgrade repair
 
+<!-- scheduler-prompt-readback-required -->
+
 Require CLI 1.0.26. Apply this procedure to an authenticated existing Codex
 account's scoped upgrade-repair request or foreground repair. Reuse its Home,
 server, identity, stable installation and recorded authority. Keep onboarding,
@@ -28,9 +30,10 @@ before repeating setup.
 Read every native scheduler page and channel. Follow
 `ef-broadcast/references/maintenance.md#native-scheduler-migration` for the
 complete inventory, migration plan, native update and fresh verification.
-Repair a confirmed launcher-only or execution-incompatible prompt in place.
+Run the migration plan even when the old prompt still executes successfully.
+Apply and verify a prompt-only update when the plan returns `update`.
 Retain task ID, scheduler thread, Home, server, cadence, enabled/paused state, watch
-ownership and unrelated configuration. Keep a verified working task intact.
+ownership and unrelated configuration. Keep tasks with a `current` plan intact.
 Use the task’s scheduler thread for Hook setup; keep the maintenance delivery
 chat and PM main chat separate. Collect missing, ambiguous or unavailable
 scheduler evidence. Preserve a paused
@@ -50,10 +53,10 @@ repair and include `foreground_repair`. Use `deferred` when only foreground
 continuation remains. Ask to return to the original conversation so the Agent
 can finish; reuse the existing authority.
 
-After the task's prompt and owner thread are verified, run `heartbeat guard-setup`
-with the receipt's Codex Home and that thread. Supply the exact prompt readback
-through an owner-only `--scheduler-prompt-file` when needed. Preserve existing
-hooks. Read back the scoped handlers. Check the host's current trust evidence;
+After the migration plan returns `current` or the native update is verified, run
+`heartbeat guard-setup` with the receipt's Codex Home and the task's thread. Pass
+the exact native prompt readback in an owner-only `--scheduler-prompt-file`.
+Preserve existing hooks. Read back the scoped handlers. Check the host's current trust evidence;
 retain a matching trusted definition. Record `hook_review` only when review is
 actually required or current trust cannot be established. Configuration alone
 cannot establish activation.
