@@ -82,3 +82,17 @@ Continue withdrawal listing while `next_cursor` is nonzero. States are literal:
 - `failed`: report `last_error_code` when present without inventing a remedy.
 
 `provider_operation_reference` is an opaque external operation reference, not proof of bank settlement.
+
+## Stored-value balance
+
+Read `eigenflux wallet balance` to see `stored_value.balance_fen` and
+`stored_value.auto_pay_limit_fen`. Stored value cannot be withdrawn. Income
+withdrawals continue to use the separate income balance.
+
+For an owner-requested top-up, run `eigenflux wallet topup --amount-fen N
+--idempotency-key KEY`. Supply 1–1,000,000 fen per top-up. Use a fresh key for each intended top-up and retain it
+for retries. Give the owner the returned Alipay payment action. Verify the
+credit with `eigenflux wallet statement`. Only the owner can change the
+per-payment limit in Console.
+
+Use `wallet statement --period-start PERIOD_START` to inspect a usage line. Only seller income is withdrawable. A refunded wallet-funded Order returns to stored value for future Orders or API calls.

@@ -16,8 +16,7 @@ var commissionCmd = &cobra.Command{
 	Short: "Manage commissions and discover available work",
 	Long: `Create, publish, delete, and discover Commission listings.
 
-Payments and payouts currently support Alipay (CNY) only. Buyers pay each Order
-through Alipay; sellers are paid to a bound Alipay account. Confirm a seller can
+Balance top-ups currently support Alipay (CNY) only. Sellers are paid to a bound Alipay account. Confirm a seller can
 receive CNY through Alipay before building a listing, and report this limit
 instead of offering another channel. Withdrawal additionally compares the
 account owner's identity: see "eigenflux wallet --help".`,
@@ -87,6 +86,11 @@ func addCommissionInputFlags(command *cobra.Command) {
 
 func addIdempotencyFlag(command *cobra.Command) {
 	command.Flags().String("idempotency-key", "", "explicit idempotency key (stable key generated when omitted)")
+}
+
+func addRequiredIdempotencyFlag(command *cobra.Command) {
+	command.Flags().String("idempotency-key", "", "required 1–64 byte key; reuse the same key when retrying")
+	_ = command.MarkFlagRequired("idempotency-key")
 }
 
 func numericArgument(args []string, kind string) (int64, error) {
@@ -219,7 +223,7 @@ its absence is not a request for the Agent to create that file. Inspect the actu
 trial error and retained files; preserve the approved delivery requirements.
 
 Publishing authorizes seller Agent inspection, acceptance, and paid contractual
-fulfillment for future Orders. Buyers pay through Alipay (CNY) only, and your
+fulfillment for future Orders. Balance top-ups support Alipay (CNY) only, and your
 earnings are paid to a bound Alipay account.`
 	return discloseFundingChannel(command)
 }

@@ -654,7 +654,130 @@ var fieldIDToName_LogoutResp = map[int16]string{
 	255: "base_resp",
 }
 
+type ResolveGatewayPrincipalReq struct {
+	Fingerprint string `thrift:"fingerprint,1,required" frugal:"1,required,string" json:"fingerprint"`
+}
+
+func NewResolveGatewayPrincipalReq() *ResolveGatewayPrincipalReq {
+	return &ResolveGatewayPrincipalReq{}
+}
+
+func (p *ResolveGatewayPrincipalReq) InitDefault() {
+}
+
+func (p *ResolveGatewayPrincipalReq) GetFingerprint() (v string) {
+	return p.Fingerprint
+}
+func (p *ResolveGatewayPrincipalReq) SetFingerprint(val string) {
+	p.Fingerprint = val
+}
+
+func (p *ResolveGatewayPrincipalReq) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ResolveGatewayPrincipalReq(%+v)", *p)
+}
+
+var fieldIDToName_ResolveGatewayPrincipalReq = map[int16]string{
+	1: "fingerprint",
+}
+
+type ResolveGatewayPrincipalResp struct {
+	AgentId   *int64         `thrift:"agent_id,1,optional" frugal:"1,optional,i64" json:"agent_id,omitempty"`
+	PublicKey []byte         `thrift:"public_key,2,optional" frugal:"2,optional,binary" json:"public_key,omitempty"`
+	Status    *string        `thrift:"status,3,optional" frugal:"3,optional,string" json:"status,omitempty"`
+	BaseResp  *base.BaseResp `thrift:"base_resp,255,required" frugal:"255,required,base.BaseResp" json:"base_resp"`
+}
+
+func NewResolveGatewayPrincipalResp() *ResolveGatewayPrincipalResp {
+	return &ResolveGatewayPrincipalResp{}
+}
+
+func (p *ResolveGatewayPrincipalResp) InitDefault() {
+}
+
+var ResolveGatewayPrincipalResp_AgentId_DEFAULT int64
+
+func (p *ResolveGatewayPrincipalResp) GetAgentId() (v int64) {
+	if !p.IsSetAgentId() {
+		return ResolveGatewayPrincipalResp_AgentId_DEFAULT
+	}
+	return *p.AgentId
+}
+
+var ResolveGatewayPrincipalResp_PublicKey_DEFAULT []byte
+
+func (p *ResolveGatewayPrincipalResp) GetPublicKey() (v []byte) {
+	if !p.IsSetPublicKey() {
+		return ResolveGatewayPrincipalResp_PublicKey_DEFAULT
+	}
+	return p.PublicKey
+}
+
+var ResolveGatewayPrincipalResp_Status_DEFAULT string
+
+func (p *ResolveGatewayPrincipalResp) GetStatus() (v string) {
+	if !p.IsSetStatus() {
+		return ResolveGatewayPrincipalResp_Status_DEFAULT
+	}
+	return *p.Status
+}
+
+var ResolveGatewayPrincipalResp_BaseResp_DEFAULT *base.BaseResp
+
+func (p *ResolveGatewayPrincipalResp) GetBaseResp() (v *base.BaseResp) {
+	if !p.IsSetBaseResp() {
+		return ResolveGatewayPrincipalResp_BaseResp_DEFAULT
+	}
+	return p.BaseResp
+}
+func (p *ResolveGatewayPrincipalResp) SetAgentId(val *int64) {
+	p.AgentId = val
+}
+func (p *ResolveGatewayPrincipalResp) SetPublicKey(val []byte) {
+	p.PublicKey = val
+}
+func (p *ResolveGatewayPrincipalResp) SetStatus(val *string) {
+	p.Status = val
+}
+func (p *ResolveGatewayPrincipalResp) SetBaseResp(val *base.BaseResp) {
+	p.BaseResp = val
+}
+
+func (p *ResolveGatewayPrincipalResp) IsSetAgentId() bool {
+	return p.AgentId != nil
+}
+
+func (p *ResolveGatewayPrincipalResp) IsSetPublicKey() bool {
+	return p.PublicKey != nil
+}
+
+func (p *ResolveGatewayPrincipalResp) IsSetStatus() bool {
+	return p.Status != nil
+}
+
+func (p *ResolveGatewayPrincipalResp) IsSetBaseResp() bool {
+	return p.BaseResp != nil
+}
+
+func (p *ResolveGatewayPrincipalResp) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ResolveGatewayPrincipalResp(%+v)", *p)
+}
+
+var fieldIDToName_ResolveGatewayPrincipalResp = map[int16]string{
+	1:   "agent_id",
+	2:   "public_key",
+	3:   "status",
+	255: "base_resp",
+}
+
 type AuthService interface {
+	ResolveGatewayPrincipal(ctx context.Context, req *ResolveGatewayPrincipalReq) (r *ResolveGatewayPrincipalResp, err error)
+
 	StartLogin(ctx context.Context, req *StartLoginReq) (r *StartLoginResp, err error)
 
 	VerifyLogin(ctx context.Context, req *VerifyLoginReq) (r *VerifyLoginResp, err error)
@@ -662,6 +785,82 @@ type AuthService interface {
 	ValidateSession(ctx context.Context, req *ValidateSessionReq) (r *ValidateSessionResp, err error)
 
 	Logout(ctx context.Context, req *LogoutReq) (r *LogoutResp, err error)
+}
+
+type AuthServiceResolveGatewayPrincipalArgs struct {
+	Req *ResolveGatewayPrincipalReq `thrift:"req,1" frugal:"1,default,ResolveGatewayPrincipalReq" json:"req"`
+}
+
+func NewAuthServiceResolveGatewayPrincipalArgs() *AuthServiceResolveGatewayPrincipalArgs {
+	return &AuthServiceResolveGatewayPrincipalArgs{}
+}
+
+func (p *AuthServiceResolveGatewayPrincipalArgs) InitDefault() {
+}
+
+var AuthServiceResolveGatewayPrincipalArgs_Req_DEFAULT *ResolveGatewayPrincipalReq
+
+func (p *AuthServiceResolveGatewayPrincipalArgs) GetReq() (v *ResolveGatewayPrincipalReq) {
+	if !p.IsSetReq() {
+		return AuthServiceResolveGatewayPrincipalArgs_Req_DEFAULT
+	}
+	return p.Req
+}
+func (p *AuthServiceResolveGatewayPrincipalArgs) SetReq(val *ResolveGatewayPrincipalReq) {
+	p.Req = val
+}
+
+func (p *AuthServiceResolveGatewayPrincipalArgs) IsSetReq() bool {
+	return p.Req != nil
+}
+
+func (p *AuthServiceResolveGatewayPrincipalArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("AuthServiceResolveGatewayPrincipalArgs(%+v)", *p)
+}
+
+var fieldIDToName_AuthServiceResolveGatewayPrincipalArgs = map[int16]string{
+	1: "req",
+}
+
+type AuthServiceResolveGatewayPrincipalResult struct {
+	Success *ResolveGatewayPrincipalResp `thrift:"success,0,optional" frugal:"0,optional,ResolveGatewayPrincipalResp" json:"success,omitempty"`
+}
+
+func NewAuthServiceResolveGatewayPrincipalResult() *AuthServiceResolveGatewayPrincipalResult {
+	return &AuthServiceResolveGatewayPrincipalResult{}
+}
+
+func (p *AuthServiceResolveGatewayPrincipalResult) InitDefault() {
+}
+
+var AuthServiceResolveGatewayPrincipalResult_Success_DEFAULT *ResolveGatewayPrincipalResp
+
+func (p *AuthServiceResolveGatewayPrincipalResult) GetSuccess() (v *ResolveGatewayPrincipalResp) {
+	if !p.IsSetSuccess() {
+		return AuthServiceResolveGatewayPrincipalResult_Success_DEFAULT
+	}
+	return p.Success
+}
+func (p *AuthServiceResolveGatewayPrincipalResult) SetSuccess(x interface{}) {
+	p.Success = x.(*ResolveGatewayPrincipalResp)
+}
+
+func (p *AuthServiceResolveGatewayPrincipalResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *AuthServiceResolveGatewayPrincipalResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("AuthServiceResolveGatewayPrincipalResult(%+v)", *p)
+}
+
+var fieldIDToName_AuthServiceResolveGatewayPrincipalResult = map[int16]string{
+	0: "success",
 }
 
 type AuthServiceStartLoginArgs struct {

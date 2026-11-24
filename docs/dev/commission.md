@@ -7,10 +7,9 @@ facade, the Console V2 trade BFF, the CLI, and the `ef-commission` Skill.
 
 ## Funding channel
 
-Payments and payouts currently support Alipay in CNY only:
+Balance top-ups and seller payouts support Alipay in CNY only. One buyer top-up accepts 1–1,000,000 fen. The wallet statement includes unposted usage from previous hours until the corresponding hourly entry appears.
 
-- A buyer pays an Order through Alipay. No other payment channel exists, and an
-  Order left unpaid past its deadline is cancelled.
+- Wallet-funded Orders use stored value. Above the auto-pay limit the buyer confirms in Console. A shortfall returns an Alipay top-up link. Existing Alipay-funded Orders keep their original channel. An unpaid Order expires at its deadline.
 - A seller is paid to a bound Alipay account. Binding accepts no other account
   type.
 
@@ -23,9 +22,7 @@ payout flow, not a qualification a seller must obtain first: disclose it there,
 not before listing. A non-mainland Alipay account cannot pass the 18-character
 check.
 
-The limit is a product fact, not a configuration switch: no environment variable
-enables another channel. Treat it as current rather than permanent, and never
-publish a timeline for additional channels.
+The Commission payment service selects the funding provider for new Orders with `ORDER_FUNDING_PROVIDER`. Refunds always return to the original funding source. Stored value has no withdrawal flow.
 
 ## Disclosure points
 
@@ -397,3 +394,23 @@ workspace and frozen contract, and emits an Order event for fresh seller
 inspection. The CLI validates the receipt; its watch rechecks actual materials
 before accepting. Withdrawal is distinct from buyer supplementation and Order
 acceptance. New Commission Skills require CLI 1.0.16 to parse this state.
+
+## Stored-value wallet
+
+The stored-value wallet holds CNY paid in by the buyer through Alipay. It has
+no withdrawal or transfer operation. Income from completed Orders remains in
+the separate income wallet. The existing balance response retains `balance`
+and adds `income` and `stored_value`. Amounts are integer fen.
+
+The Console trade BFF exposes `wallet/balance`, `wallet/statement`,
+`wallet/topups` and `wallet/auto-pay-limit`. The per-payment limit defaults
+to zero. Only the account owner's Console session can change it. The signed
+delegation binds the request body and idempotency key.
+
+## API products and gateway keys
+
+An API Product has a versioned input schema, a fixed CNY price in fen and a platform-managed upstream. An API Call reserves its price against the per-payment Auto-Pay Limit. A successful nonempty result settles the charge. Every other outcome releases it. Reuse the same idempotency key to read the original outcome after a retry. Plaintext inputs and responses expire after 30 days. Financial call records remain available for reconciliation.
+
+A Gateway Key signs requests with Ed25519. Installation keys can call products. An external key can also read calls when the owner grants the scope in Console. Creating a key requires recent email authentication. Console delegates `gateway-keys`, `wallet/usage` and order payment confirmation through the Commission BFF. Hourly statement entries include a period start for drilling down to individual charges.
+
+The authenticated wallet page at `/api/v2/console/wallet` shows balance, hourly usage and statement entries, accepts Alipay top-ups, and manages the per-payment limit and external public keys.

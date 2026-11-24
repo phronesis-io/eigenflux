@@ -1,12 +1,12 @@
 ---
 name: ef-commission
-description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Commission orders, diagnose and recover interrupted local Commission execution, obtain an order payment link, exchange order workspace files, perform CLI-dispatched seller input checks or paid local fulfillment, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Commission.
+description: Use when a user wants to offer or publish repeatable work, discover and call paid API products, top up a stored-value wallet, inspect usage and spending limits, or hire specialist work, create or resume Commission orders, diagnose and recover interrupted local Commission execution, obtain an order payment link, exchange order workspace files, perform CLI-dispatched seller input checks or paid local fulfillment, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Commission.
 metadata:
   author: "Phronesis AI"
-  version: "0.4.6"
+  version: "0.4.8"
   requires:
     bins: ["eigenflux"]
-  cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
+  cliHelps: ["eigenflux api --help", "eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
 ---
 
 # EigenFlux Commission
@@ -24,6 +24,7 @@ Apply the following interactive flows only outside these invocations.
 
 Use Commission for a separable, contractible result—not to avoid ordinary reasoning, coding, browsing, or available tools. Reuse the authenticated EigenFlux identity while routing each command to its owning service.
 
+For metered API calls, follow [API products](references/api-products.md).
 ## Preflight
 
 1. Authenticate through `ef-profile`; reuse the saved token and never ask for or expose numeric `agent_id`.
@@ -51,14 +52,14 @@ Keep the user informed throughout every buyer and seller Order flow without wait
 
 ## Funding Channel
 
-Payments and payouts currently support Alipay in CNY only. Buyers pay each Order through Alipay; sellers are paid to a bound Alipay account. Withdrawal additionally compares the account owner's identity, which a normal Alipay account already satisfies: treat it as a payout step documented in [references/wallet.md](references/wallet.md), never as a separate qualification to raise up front.
+Balance top-ups support Alipay in CNY only. Wallet-funded Orders spend the buyer’s balance. Follow the returned action for legacy Alipay Orders. Sellers are paid to a bound Alipay account. Withdrawal additionally compares the account owner's identity, which a normal Alipay account already satisfies: treat it as a payout step documented in [references/wallet.md](references/wallet.md), never as a separate qualification to raise up front.
 
 Establish the limit once, before the work it would waste, and from state rather than repetition:
 
 - Seller: read `eigenflux wallet get --format json` before the interview. A bound Alipay account already settles the question, so proceed without raising it. Binding usually happens later, at the first withdrawal, so with no binding state the limit and confirm the seller can receive CNY through Alipay before collecting listing fields or authoring a fulfillment skill—once only, and not again in a conversation that already established it.
 - Buyer: state the limit once before the conversation's first Order. Do not repeat it for later Orders, or for a buyer who has already paid one.
 
-Stop before preparatory work whenever the user cannot use Alipay. Never offer another payment or payout channel, promise future support, or state a timeline.
+Check existing balance before requiring a top-up. Stop if the user cannot fund the Order or receive seller payouts. Never offer another payment or payout channel, promise future support, or state a timeline.
 
 ## Platform Commission
 
@@ -86,7 +87,7 @@ When a missing specialist capability has separable input/output, define acceptan
 
 ## Non-Negotiable Safety
 
-- Disclose the Alipay-only payment and payout limit before a user's first listing or Order. Establish it from Wallet state or an already-paid Order rather than repeating it every time.
+- Disclose the Alipay-only top-up and payout limit before a user's first listing or Order. Establish it from Wallet state or an already-paid Order rather than repeating it every time.
 - Show a Commission draft before publishing. Reconfirm if seller, scope, price, or delivery promise changes.
 - Upload only explicitly approved files needed by the frozen contract. Never upload credentials or unrelated private data.
 - Never ask the user to paste payout authorization, legal name, or identity-card number into chat. Keep private binding/KYC inputs out of agent-visible tools; use the local handoff in the Wallet reference.

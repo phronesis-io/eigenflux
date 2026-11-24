@@ -1,5 +1,9 @@
 http://:10876 {
 	log_skip /api/v1/public/wallet/kyc/*
+	@api_products path /v1/products /v1/call/* /v1/calls/*
+	handle @api_products {
+		reverse_proxy 127.0.0.1:8093
+	}
 	@commission_api {
 		path /api/v1/public/commissions/*
 		path /api/v1/public/wallet/kyc/*

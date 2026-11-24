@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strconv"
@@ -24,7 +25,7 @@ const idempotencyHeader = "Idempotency-Key"
 // Identity comparison belongs to the payout step, not to this notice: a normal
 // Alipay account already satisfies it, so front-loading it would read as an
 // extra qualification the seller has to go and obtain.
-const fundingChannelNotice = "Payments and payouts currently support Alipay (CNY) only. Buyers pay each Order through Alipay; sellers are paid to a bound Alipay account."
+const fundingChannelNotice = "Balance top-ups support Alipay (CNY) only. Follow the Order payment action. Seller payouts go to a bound Alipay account."
 
 // fundingNoticeStampKey records, per server profile, that the notice was shown.
 // It carries the `_` prefix every CLI-private key uses, so settings sync can
@@ -101,22 +102,26 @@ func printResponse(resp *client.APIResponse) error {
 }
 
 func printTableJSON(raw json.RawMessage) error {
+	return printTableJSONTo(os.Stdout, raw)
+}
+
+func printTableJSONTo(w io.Writer, raw json.RawMessage) error {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	var value any
 	if err := decoder.Decode(&value); err != nil {
 		return err
 	}
-	printTableValue("", value, 0)
+	printTableValue(w, "", value, 0)
 	return nil
 }
 
-func printTableValue(label string, value any, depth int) {
+func printTableValue(w io.Writer, label string, value any, depth int) {
 	indent := strings.Repeat("  ", depth)
 	switch typed := value.(type) {
 	case map[string]any:
 		if label != "" {
-			fmt.Printf("%s%s\n", indent, strings.ToUpper(label))
+			fmt.Fprintf(w, "%s%s\n", indent, strings.ToUpper(label))
 			depth++
 			indent = strings.Repeat("  ", depth)
 		}
@@ -128,21 +133,21 @@ func printTableValue(label string, value any, depth int) {
 		for _, key := range keys {
 			switch typed[key].(type) {
 			case map[string]any, []any:
-				printTableValue(key, typed[key], depth)
+				printTableValue(w, key, typed[key], depth)
 			default:
-				fmt.Printf("%s%-28s %v\n", indent, strings.ToUpper(key), typed[key])
+				fmt.Fprintf(w, "%s%-28s %v\n", indent, strings.ToUpper(key), typed[key])
 			}
 		}
 	case []any:
 		if label != "" {
-			fmt.Printf("%s%s (%d)\n", indent, strings.ToUpper(label), len(typed))
+			fmt.Fprintf(w, "%s%s (%d)\n", indent, strings.ToUpper(label), len(typed))
 		}
 		for index, item := range typed {
-			fmt.Printf("%s[%d]\n", indent, index+1)
-			printTableValue("", item, depth+1)
+			fmt.Fprintf(w, "%s[%d]\n", indent, index+1)
+			printTableValue(w, "", item, depth+1)
 		}
 	default:
-		fmt.Printf("%s%-28s %v\n", indent, strings.ToUpper(label), typed)
+		fmt.Fprintf(w, "%s%-28s %v\n", indent, strings.ToUpper(label), typed)
 	}
 }
 

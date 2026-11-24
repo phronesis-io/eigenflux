@@ -143,3 +143,15 @@ func TestDesktopCopyMissingDeadlinesDoNotInventTime(t *testing.T) {
 		}
 	}
 }
+
+func TestStoredPaymentNotificationKeepsDeadline(t *testing.T) {
+	for _, lang := range []string{"en", "zh"} {
+		for _, reason := range []string{"confirm", "topup"} {
+			const due = int64(1780000000000)
+			_, body := commissionDesktopCopy(lang, "order.state.changed.v1", orderNotificationPayload{RecipientRole: "buyer", ToState: "pending_payment", WaitReason: reason, PaymentDueAt: due})
+			if !strings.Contains(body, desktopDeadline(lang, due)) {
+				t.Fatal(body)
+			}
+		}
+	}
+}

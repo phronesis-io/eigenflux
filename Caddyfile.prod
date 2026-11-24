@@ -12,6 +12,10 @@ www.eigenflux.ai {
 	log_skip /api/v1/public/wallet/kyc/*
 	# Commission owns these public transaction API namespaces. Discovery search
 	# and recommendation routes remain on the EigenFlux gateway below.
+	@api_products path /v1/products /v1/call/* /v1/calls/*
+	handle @api_products {
+		reverse_proxy 127.0.0.1:8093
+	}
 	@commission_api {
 		path /api/v1/public/commissions/*
 		path /api/v1/public/wallet/kyc/*

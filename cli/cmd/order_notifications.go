@@ -27,6 +27,8 @@ type orderNotification struct {
 }
 
 type orderNotificationPayload struct {
+	FundingSource    string         `json:"funding_source"`
+	WaitReason       string         `json:"wait_reason"`
 	ReviewID         notificationID `json:"review_id"`
 	ReviewScore      int32          `json:"review_score"`
 	OrderID          notificationID `json:"order_id"`

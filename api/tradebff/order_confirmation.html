@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="{{.Lang}}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{.T "确认订单付款" "Confirm order payment"}} · EigenFlux</title>
+<main><h1>{{.T "确认订单付款" "Confirm order payment"}}</h1><p>{{.Title}}</p><p>{{.T "订单 " "Order "}}{{.Order}}</p><p>{{.T "从储值余额支付" "Pay from stored value"}} <strong>¥{{.Price}}</strong></p>
+<button id="confirm" data-order="{{.Order}}" data-amount="{{.Amount}}" data-csrf="{{.CSRF}}">{{.T "确认支付" "Confirm payment of"}} ¥{{.Price}}</button>
+<p role="status" id="status"></p></main>
+<script>
+const button = document.getElementById('confirm');
+const statusText = document.getElementById('status');
+button.addEventListener('click', async () => {
+  button.disabled = true;
+  const {order, amount, csrf} = button.dataset;
+  try {
+    const response = await fetch('/api/v2/console/bff/trade/orders/' + order + '/payment/confirm', {
+      method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':csrf,'Idempotency-Key':'confirm-' + order},
+      body:'{"order_id":' + JSON.stringify(order) + ',"amount_fen":' + amount + '}'
+    });
+    const result = await response.json();
+    if (!response.ok || !result.data) throw new Error();
+    if (result.data.state === 'succeeded') statusText.textContent = '{{.T "已付款。" "Paid."}}';
+    else if (result.data.action === 'topup') statusText.textContent = '{{.T "已确认。余额不足，请通过订单付款入口获取支付宝充值链接。" "Confirmed. Open the order payment action to top up the shortfall through Alipay."}}';
+    else statusText.textContent = '{{.T "请返回订单查看当前付款状态。" "Return to the order to check its payment status."}}';
+  } catch {
+    statusText.textContent = '{{.T "未能确认付款。请检查当前账号和订单状态后重试。" "Payment confirmation failed. Check the active account and order, then retry."}}';
+    button.disabled = false;
+  }
+});
+</script></html>

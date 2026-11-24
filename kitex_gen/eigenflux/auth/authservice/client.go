@@ -11,6 +11,7 @@ import (
 
 // Client is designed to provide IDL-compatible methods with call-option parameter for kitex framework.
 type Client interface {
+	ResolveGatewayPrincipal(ctx context.Context, req *auth.ResolveGatewayPrincipalReq, callOptions ...callopt.Option) (r *auth.ResolveGatewayPrincipalResp, err error)
 	StartLogin(ctx context.Context, req *auth.StartLoginReq, callOptions ...callopt.Option) (r *auth.StartLoginResp, err error)
 	VerifyLogin(ctx context.Context, req *auth.VerifyLoginReq, callOptions ...callopt.Option) (r *auth.VerifyLoginResp, err error)
 	ValidateSession(ctx context.Context, req *auth.ValidateSessionReq, callOptions ...callopt.Option) (r *auth.ValidateSessionResp, err error)
@@ -44,6 +45,11 @@ func MustNewClient(destService string, opts ...client.Option) Client {
 
 type kAuthServiceClient struct {
 	*kClient
+}
+
+func (p *kAuthServiceClient) ResolveGatewayPrincipal(ctx context.Context, req *auth.ResolveGatewayPrincipalReq, callOptions ...callopt.Option) (r *auth.ResolveGatewayPrincipalResp, err error) {
+	ctx = client.NewCtxWithCallOptions(ctx, callOptions)
+	return p.kClient.ResolveGatewayPrincipal(ctx, req)
 }
 
 func (p *kAuthServiceClient) StartLogin(ctx context.Context, req *auth.StartLoginReq, callOptions ...callopt.Option) (r *auth.StartLoginResp, err error) {

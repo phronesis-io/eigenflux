@@ -19,9 +19,8 @@ var orderCmd = &cobra.Command{
 	Short: "Manage commission orders and workspace files",
 	Long: `Create, resume, and fulfill Commission orders and exchange workspace files.
 
-An Order is payable through Alipay (CNY) only. Confirm the buyer can pay that way
-before preparing or uploading materials; an Order left unpaid past its payment
-deadline is cancelled. Seller earnings are paid to a bound Alipay account.`,
+Wallet-funded Orders are paid from balance. Top-ups support Alipay (CNY) only.
+Read order payment for the action required before the payment deadline. Seller earnings are paid to a bound Alipay account.`,
 }
 
 var orderCreateCmd = discloseFundingChannel(&cobra.Command{
@@ -29,9 +28,8 @@ var orderCreateCmd = discloseFundingChannel(&cobra.Command{
 	Short: "Create an order from a published commission",
 	Long: `Create an order from a published commission and transfer its required materials.
 
-Creation freezes the contract and creates a payment obligation payable through
-Alipay (CNY) only. Confirm the buyer can pay through Alipay before preparing or
-uploading materials.`,
+Creation freezes the contract and creates a payment obligation. Wallet-funded Orders
+use balance and top-ups support Alipay (CNY) only. Check funding before uploading materials.`,
 	Args: cobra.ExactArgs(1),
 	RunE: createOrderWithMaterials,
 })

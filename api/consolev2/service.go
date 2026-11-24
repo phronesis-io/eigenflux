@@ -718,7 +718,15 @@ type consoleSession struct {
 	RecentAuthAt       *int64         `gorm:"column:recent_auth_at"`
 }
 
+func (s *Service) ConsolePageHandlers(handlers ...app.HandlerFunc) []app.HandlerFunc {
+	return append([]app.HandlerFunc{s.consoleSessionAuth(false, true), s.requireCompleted}, handlers...)
+}
+
 func (s *Service) consoleAuth(requireCSRF bool) app.HandlerFunc {
+	return s.consoleSessionAuth(requireCSRF, false)
+}
+
+func (s *Service) consoleSessionAuth(requireCSRF, page bool) app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
 		if requireCSRF && !validConsoleSameOrigin(string(c.GetHeader("Origin")), string(c.Host()), s.publicURL, s.allowedOrigins...) {
 			fail(c, http.StatusForbidden, "ORIGIN_INVALID", "Console V2 request origin is invalid", nil)
@@ -733,6 +741,9 @@ func (s *Service) consoleAuth(requireCSRF bool) app.HandlerFunc {
 				failure := authenticationFailure{ctx: ctx, stage: "console", agentID: session.AgentID, principalID: session.PrincipalID, consoleSessionID: session.SessionID}
 				failure.log(http.StatusServiceUnavailable, "CONSOLE_AUTH_UNAVAILABLE", storageError.reason, storageError.cause)
 				fail(c, http.StatusServiceUnavailable, "CONSOLE_AUTH_UNAVAILABLE", "Console V2 authentication is temporarily unavailable", nil)
+			} else if page {
+				c.Header("Cache-Control", "private, no-store")
+				c.Redirect(http.StatusSeeOther, []byte("/dashboard/login"))
 			} else if errors.Is(err, errConsoleSessionInvalid) {
 				fail(c, http.StatusUnauthorized, "CONSOLE_SESSION_INVALID", "Console V2 session is invalid or expired", nil)
 			} else {
