@@ -301,3 +301,11 @@ existing `DISCOVERY_LR_RELOAD_INTERVAL`. See [snapshot GBDT](discovery.md#snapsh
 ## macOS CLI certificate bundle
 
 Set `SSL_CERT_FILE` to a readable PEM CA bundle in sandboxed tasks that cannot reach macOS trust services. The CLI verifies outbound EigenFlux HTTPS and WebSocket connections against that bundle. Leave it unset to use macOS system trust. Set it in the scheduled task environment as well when running periodic checks.
+
+For recurring macOS sandbox tasks, run `eigenflux --homedir "<agent-home>" config set --key macos_system_ca --value true` once. Subsequent CLI processes using that Home use `/etc/ssl/cert.pem` for HTTPS and WebSocket TLS. An explicit `SSL_CERT_FILE` takes precedence. Clear the setting with an empty value to restore platform trust.
+
+### macOS sandbox with native desktop notifications
+
+Use the stable CLI entry and the same absolute Agent Home in both environments. Perform the initial complete package installation and `notify setup` from the user's ordinary macOS GUI session. After Agent authentication, run `watch start` on that host and verify `watch status` reports a ready runtime for the account. An existing dispatch watch can own maintenance too. Enable the handoff with `eigenflux --homedir "<agent-home>" config set --key macos_host_maintenance --value true`. This also selects the system PEM bundle for that Home.
+
+The sandbox scheduler runs the regular heartbeat. The host watch handles automatic complete-package updates under the server's update policy and performs native helper setup. Heartbeat reports the watch state without repairing the GUI task from the sandbox. If the watch is unavailable, run `watch status` and recover it on the host. Run explicit `update`, `notify setup`, and `notify test` on the host. Use `--homedir "<agent-home>"` for each command. A ready watch does not prove a user saw a notification.

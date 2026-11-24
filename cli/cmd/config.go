@@ -53,6 +53,14 @@ Examples:
 		if key == "" {
 			return fmt.Errorf("--key is required")
 		}
+		if key == "macos_system_ca" || key == macOSHostMaintenanceKey {
+			if serverFlag != "" {
+				return fmt.Errorf("%s applies to the Agent Home; omit --server", key)
+			}
+			if value != "true" && value != "false" && value != "" {
+				return fmt.Errorf("%s must be true, false, or empty", key)
+			}
+		}
 		if key == "auto_cli_update" {
 			return fmt.Errorf("auto_cli_update is controlled by the server and is not configurable locally")
 		}

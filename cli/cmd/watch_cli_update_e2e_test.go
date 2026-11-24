@@ -106,6 +106,9 @@ func TestWatchAutomaticallyUpdatesWithoutHeartbeatOrAgent(t *testing.T) {
 	}))
 	defer srv.Close()
 	cfg, server := runtimeTestConfig(t, srv.URL, true)
+	if err := cfg.SetKV(macOSHostMaintenanceKey, "true"); err != nil {
+		t.Fatal(err)
+	}
 	if err := cfg.UpdateServer(server, srv.URL, strings.Replace(srv.URL, "http:", "ws:", 1)); err != nil {
 		t.Fatal(err)
 	}

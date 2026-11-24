@@ -39,6 +39,32 @@ type updateWatchRecovery struct {
 	MainSession          *dispatch.MainNoticeProbe  `json:"main_session,omitempty"`
 }
 
+// Inspect the host-owned watch without starting a service or opening the desktop helper.
+func macOSHostWatchStatus() updateWatchRecovery {
+	result := updateWatchRecovery{Status: "unavailable", Reason: "macos_host_watch", Action: "check watch status from the macOS host"}
+	expected, err := watchBindingIdentity()
+	if err != nil {
+		return result
+	}
+	binding, err := dispatch.ReadBinding(expected.Home, expected.Server)
+	notificationsOnly := os.IsNotExist(err)
+	if notificationsOnly {
+		binding, err = readNotificationWatch(expected.Home, expected.Server)
+	}
+	if err != nil || !sameBindingIdentity(binding, expected) {
+		return result
+	}
+	live := readWatchLiveStatus(binding, notificationsOnly, time.Now())
+	result.DesktopStatus = live.DesktopStatus
+	result.RunningCommit = live.Commit
+	result.RuntimeReady = live.Ready
+	if live.Ready {
+		result.Status = "ready"
+		result.Action = ""
+	}
+	return result
+}
+
 type updateRecoveryDeps struct {
 	ordinaryWatch bool
 	idle          func() error

@@ -281,6 +281,9 @@ func heartbeatUpdateSkipReason(mode string, cfg *config.Config) string {
 	if cfg == nil {
 		return "configuration_unavailable"
 	}
+	if macOSHostMaintenance(cfg) {
+		return "macos_host_watch"
+	}
 	if mode != "skill" && mode != "plugin" {
 		return "unknown_integration_mode"
 	}
