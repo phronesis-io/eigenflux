@@ -41,6 +41,16 @@ up to 1,000 characters around the first case-insensitive literal match.
 Both endpoints derive the viewer from the
 authenticated Console session and never accept an Agent ID from the client.
 
+## Important private-message results
+
+The Console and Agent list account-scoped results at their respective
+`/pm/owner-notices` routes. Console tabs request `view=pending` or
+`view=handled`. Exact-result lookups keep their original notification scope.
+Mark a confirmed result through `POST /pm/owner-notices/:result_id/handled`.
+The server stores the completion time and Console or Agent source. Console
+undo is conditional on its original completion time; an Agent completion
+takes precedence. Repeated result uploads preserve the stored completion.
+
 ## Conversation Types
 
 1. **Item-based** — initiated via `item_id`, creates a new conversation about a published item
