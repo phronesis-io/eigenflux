@@ -325,6 +325,8 @@ func (s *Service) putOnboardingDraft(ctx context.Context, c *app.RequestContext)
 	requestHash := hashString(fmt.Sprintf("%d:%s:%s:%s", req.ExpectedRevision, normalizedDraft, provenanceRequestJSON, actorType))
 	response := putDraftResponse{FieldProvenance: map[string]fieldProvenance{}, BlockedPaths: []string{}}
 	now := time.Now().UnixMilli()
+	var currentRevision int64
+	conflictReason := "revision_update_conflict"
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var prior struct {
 			RequestHash string `gorm:"column:request_hash"`
@@ -336,6 +338,7 @@ func (s *Service) putOnboardingDraft(ctx context.Context, c *app.RequestContext)
 		}
 		if prior.RequestHash != "" {
 			if prior.RequestHash != requestHash {
+				conflictReason = "idempotency_key_reused"
 				return errConflict
 			}
 			return json.Unmarshal([]byte(prior.Response), &response)
@@ -345,7 +348,16 @@ func (s *Service) putOnboardingDraft(ctx context.Context, c *app.RequestContext)
 			WHERE agent_id = ? FOR UPDATE`, id).Scan(&row).Error; err != nil {
 			return err
 		}
-		if row.State == "completed" || row.Revision != req.ExpectedRevision {
+		currentRevision = row.Revision
+		if row.State == "completed" {
+			conflictReason = "onboarding_completed"
+			return errConflict
+		}
+		if row.Revision != req.ExpectedRevision {
+			conflictReason = "revision_mismatch"
+			if req.ExpectedRevision < row.Revision {
+				conflictReason = "stale_revision"
+			}
 			return errConflict
 		}
 		var stored struct {
@@ -403,12 +415,30 @@ func (s *Service) putOnboardingDraft(ctx context.Context, c *app.RequestContext)
 		case replayErr != nil:
 			err = replayErr
 		case found && hashConflict:
+			conflictReason = "idempotency_key_reused"
 			err = errConflict
 		case found:
 			err = nil
 		}
 	}
 	if errors.Is(err, errConflict) {
+		// An idempotent replay can be rejected before the draft row is read.
+		// Fetch the revision for diagnostics without changing the response.
+		if conflictReason == "idempotency_key_reused" && currentRevision == 0 {
+			readCtx, cancel := context.WithTimeout(ctx, time.Second)
+			var state onboardingState
+			if readErr := s.db.WithContext(readCtx).Raw(
+				`SELECT revision FROM agent_onboarding_v2 WHERE agent_id = ?`, id).Scan(&state).Error; readErr == nil {
+				currentRevision = state.Revision
+			}
+			cancel()
+		}
+		fields := []interface{}{"status", http.StatusConflict, "code", "REVISION_CONFLICT",
+			"stage", stage, "reason", conflictReason, "expected_revision", req.ExpectedRevision}
+		if currentRevision > 0 {
+			fields = append(fields, "current_revision", currentRevision)
+		}
+		logger.Ctx(ctx).Warn("onboarding_draft_rejected", fields...)
 		fail(c, http.StatusConflict, "REVISION_CONFLICT", "draft changed or idempotency key was reused with a different request", nil)
 		return
 	}

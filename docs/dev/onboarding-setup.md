@@ -77,7 +77,11 @@ Draft writes and initial provisioning record `onboarding_draft_rejected` for
 provisioning. Intent validation includes the indexed field and a fixed reason
 such as an invalid item type, fractional priority, or out-of-range integer.
 For normalization failures without a safe field, the event records the stage
-and reason alone. Rejected field values and error strings are excluded.
+and reason alone. Draft save conflicts use the same event with
+`REVISION_CONFLICT`, a reason distinguishing a stale revision, an idempotency
+key reused with different content, or completed onboarding, plus
+`expected_revision` and `current_revision` when available. Rejected field
+values, idempotency keys, and raw error strings are excluded.
 
 Email challenge acceptance indicates queueing. A delivery worker reports
 `onboarding_email_delivery_failed` when its send fails. Filter
