@@ -17,6 +17,7 @@ type RuntimeState struct {
 	ReportedSnapshot         string `json:"reported_snapshot,omitempty"`
 	ReportedClient           string `json:"reported_client,omitempty"`
 	ReportedAtMillis         int64  `json:"reported_at_millis,omitempty"`
+	HostSkillsSequence       uint64 `json:"host_skills_sequence,omitempty"`
 	HostMinimumUntil         int64  `json:"host_minimum_until,omitempty"`
 	HostMinimumCLI           string `json:"host_minimum_cli,omitempty"`
 	CLIAutoUpdate            *bool  `json:"cli_auto_update,omitempty"`

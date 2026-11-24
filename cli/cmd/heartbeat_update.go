@@ -116,19 +116,27 @@ func updateHeartbeatCLI(cmd *cobra.Command, cfg *config.Config, minimum string) 
 	return result, restarted, err
 }
 
-func recordHostMinimumCLI(server, minimum string) error {
-	if !selfupdate.ValidVersion(minimum) {
+func recordHostMinimumCLI(server string, sequence uint64, minimum string) error {
+	if sequence == 0 {
+		return fmt.Errorf("missing signed Skills sequence")
+	}
+	if minimum != "" && !selfupdate.ValidVersion(minimum) {
 		return fmt.Errorf("invalid required CLI version %q", minimum)
 	}
 	_, err := profilestate.UpdateRuntime(config.HomeDir(), server, func(state *profilestate.RuntimeState) (bool, error) {
 		now := time.Now()
-		// An obsolete Skills requirement must not pin host updates indefinitely.
-		if state.HostMinimumUntil > now.Unix() && selfupdate.ValidVersion(state.HostMinimumCLI) && selfupdate.Compare(state.HostMinimumCLI, minimum) > 0 {
+		if sequence < state.HostSkillsSequence {
 			return false, nil
 		}
-		if state.HostMinimumCLI == minimum && state.HostMinimumUntil > now.Add(12*time.Hour).Unix() {
-			return false, nil
+		if sequence == state.HostSkillsSequence {
+			if minimum != state.HostMinimumCLI {
+				return false, fmt.Errorf("conflicting minimum CLI for Skills release %d", sequence)
+			}
+			if minimum == "" || state.HostMinimumUntil > now.Add(12*time.Hour).Unix() {
+				return false, nil
+			}
 		}
+		state.HostSkillsSequence = sequence
 		state.HostMinimumUntil = now.Add(24 * time.Hour).Unix()
 		state.HostMinimumCLI = minimum
 		return true, nil
@@ -159,11 +167,7 @@ func runObservedCLIUpdate(cmd *cobra.Command, cfg *config.Config, minimum string
 	recorder := newMaintenanceRecorder(server, "cli", trigger, "", cmd.ErrOrStderr())
 	if !manual {
 		if reason := heartbeatUpdateSkipReason(clientMetaForServerName(server).Mode, cfg); reason != "" {
-			if reason == "macos_host_watch" && minimum != "" {
-				if err := recordHostMinimumCLI(server, minimum); err != nil {
-					return selfupdate.Result{}, false, recorder, fmt.Errorf("record host CLI requirement: %w", err)
-				}
-			}
+
 			return selfupdate.Result{Status: "skipped", Version: version, Reason: reason}, false, recorder, nil
 		}
 	}

@@ -60,6 +60,26 @@ func macOSHostWatchStatus(cmd *cobra.Command, cfg *config.Config) (result update
 	result.RunningCommit = live.Commit
 	result.RuntimeReady = live.Ready
 	if live.Ready {
+		switch live.DesktopStatus {
+		case "ready", "registered":
+		case "permission_or_setup_required", "unavailable":
+			result.Status = "blocked"
+			result.Reason = live.DesktopCode
+			result.Action = live.DesktopAction
+			if result.Reason == "" {
+				result.Reason = "desktop_unavailable"
+			}
+			if result.Action == "" {
+				result.Action = "check desktop notifications on the macOS host"
+			}
+			return result
+		default:
+			// No desktop observation yet; leave any acknowledged outage active.
+			result.Status = "pending"
+			result.Reason = "desktop_status_pending"
+			result.Action = ""
+			return result
+		}
 		result.Status = "ready"
 		result.Action = ""
 	}

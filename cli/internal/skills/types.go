@@ -106,6 +106,10 @@ type SyncOptions struct {
 	ForceManaged bool         // replace edited managed skills; local development installs only
 	Allowlist    []string     // explicit local/test allowlist; remote sync trusts the verified manifest
 	HTTPClient   *http.Client // injectable for tests
+
+	// Observe the signed requirement after the rollback check, even when the
+	// current CLI cannot install this release or the bundle download fails.
+	OnReleaseRequirement func(sequence uint64, minimum string) error
 }
 
 func (o SyncOptions) allowlist() []string { return o.Allowlist }

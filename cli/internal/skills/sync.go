@@ -68,8 +68,15 @@ func Sync(opts SyncOptions) (result *SyncResult, err error) {
 		}
 		return nil, ferr
 	}
-	if result, err := syncDecision(opts, real, local, remote); result != nil || err != nil {
-		return result, err
+	decision, decisionErr := syncDecision(opts, real, local, remote)
+	accepted := decision == nil && decisionErr == nil || decision != nil && (decision.VerifiedManifest || decision.RequiredCLIVersion != "")
+	if accepted && opts.OnReleaseRequirement != nil {
+		if err := opts.OnReleaseRequirement(remote.Sequence, remote.MinCLIVersion); err != nil {
+			return nil, fmt.Errorf("record signed Skills requirement: %w", err)
+		}
+	}
+	if decision != nil || decisionErr != nil {
+		return decision, decisionErr
 	}
 	if !local.intact || local.stale || local.manifest.Revision != remote.Revision {
 		if err := checkReplacementReadAccess(real, local.manifest, remote); err != nil {

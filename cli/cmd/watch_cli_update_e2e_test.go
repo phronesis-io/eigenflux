@@ -27,7 +27,6 @@ import (
 	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/selfupdate"
 	"github.com/gorilla/websocket"
-	"github.com/spf13/cobra"
 )
 
 func TestWatchAutomaticallyUpdatesWithoutHeartbeatOrAgent(t *testing.T) {
@@ -134,7 +133,13 @@ func TestWatchAutomaticallyUpdatesWithoutHeartbeatOrAgent(t *testing.T) {
 		if err := os.WriteFile(stable+".update.json", stamp, 0600); err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err := updateHeartbeatCLI(&cobra.Command{}, cfg, "0.0.48"); err != nil {
+		if err := recordHostMinimumCLI(server, 1, "0.0.49"); err != nil {
+			t.Fatal(err)
+		}
+		if err := recordHostMinimumCLI(server, 2, "0.0.48"); err != nil {
+			t.Fatal(err)
+		}
+		if err := recordHostMinimumCLI(server, 1, "0.0.49"); err != nil {
 			t.Fatal(err)
 		}
 	}

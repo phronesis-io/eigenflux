@@ -151,10 +151,18 @@ var heartbeatPlanCmd = &cobra.Command{
 		if controlOnly || !automaticMaintenanceEnabled(cfg, autoSkillSyncKey) {
 			res, err = localHeartbeatSkills(meta.Host)
 		} else {
-			res, err = skills.Sync(skills.SyncOptions{
+			syncOptions := skills.SyncOptions{
 				Host: meta.Host, IfStale: true, Quiet: true, CLIVersion: version, CDNBase: cdnBase(),
 				HTTPClient: &http.Client{Timeout: autoSkillSyncTimeout},
-			})
+			}
+			if macOSHostMaintenance(cfg) {
+				target, err := cfg.GetActive(serverFlag)
+				if err != nil {
+					return err
+				}
+				syncOptions.OnReleaseRequirement = func(seq uint64, min string) error { return recordHostMinimumCLI(target.Name, seq, min) }
+			}
+			res, err = skills.Sync(syncOptions)
 		}
 		if !controlOnly && res != nil && res.RequiredCLIVersion != "" {
 			cliUpdate, restarted, updateErr = updateHeartbeatCLI(cmd, cfg, res.RequiredCLIVersion)
@@ -525,7 +533,7 @@ func renderHeartbeatPlanForAgent(plan heartbeatPlan) string {
 		case "recovered":
 			receiptText += "Notify the owner once that the recovery state has cleared; preserve the reported runtime and delivery verification boundaries.\n"
 		default:
-			if plan.OuterLoop.Status != "ready" {
+			if plan.OuterLoop.Status != "ready" && plan.OuterLoop.Reason != "desktop_status_pending" {
 				receiptText += "Report unresolved recovery separately.\n"
 			}
 		}

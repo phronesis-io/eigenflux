@@ -21,6 +21,8 @@ type watchLiveStatus struct {
 	Running           bool      `json:"running"`
 	Ready             bool      `json:"ready"`
 	AgentCallVerified bool      `json:"agent_call_verified"`
+	DesktopCode       string    `json:"desktop_code,omitempty"`
+	DesktopAction     string    `json:"desktop_action,omitempty"`
 	DesktopStatus     string    `json:"desktop_status,omitempty"`
 	PID               int       `json:"pid,omitempty"`
 	Commit            string    `json:"cli_commit,omitempty"`
@@ -73,6 +75,19 @@ func (r *watchLiveRecorder) event(kind string, data interface{}) {
 	case "desktop_notification_status":
 		if str("notification_id") == "" {
 			r.status.DesktopStatus = str("status")
+			r.status.DesktopCode = str("code")
+			r.status.DesktopAction = str("action")
+		}
+	case "desktop_permission_status":
+		// A permission probe can supersede setup permission results. It cannot
+		// establish installation readiness or clear a separate helper failure.
+		if r.status.DesktopStatus == "ready" || r.status.DesktopStatus == "registered" ||
+			r.status.DesktopCode == "permission_required" || r.status.DesktopCode == "permission_denied" {
+			if str("status") == "ready" || str("code") == "permission_denied" || str("code") == "permission_required" {
+				r.status.DesktopStatus = str("status")
+				r.status.DesktopCode = str("code")
+				r.status.DesktopAction = str("action")
+			}
 		}
 	case "dispatch_decision":
 		if str("job_id") != "" && str("session_id") != "" && (str("decision") == "reply" || str("decision") == "no_reply" || str("decision") == "needs_user") {
