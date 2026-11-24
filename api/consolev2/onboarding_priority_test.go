@@ -1,9 +1,19 @@
 package consolev2
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
 	"slices"
+	"strings"
 	"testing"
+
+	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/app/server"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func TestOnboardingDraftIntentPriority(t *testing.T) {
@@ -83,5 +93,77 @@ func TestOnboardingDraftDecodeLogFields(t *testing.T) {
 				t.Fatalf("log fields = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestOnboardingDraftWriteRejectionLogsOnlySafeMetadata(t *testing.T) {
+	for _, tt := range []struct {
+		intents string
+		field   string
+		reason  string
+	}{
+		{`{}`, "intent_actions", "invalid_list_type"},
+		{`[{}, "draft-private-value"]`, "intent_actions[1]", "invalid_item_type"},
+		{`[{}, {"priority":1.5}]`, "intent_actions[1].priority", "fractional_number"},
+		{`[{}, {"priority":"32768"}]`, "intent_actions[1].priority", "integer_out_of_range"},
+		{`[{}, {"priority":-32769}]`, "intent_actions[1].priority", "integer_out_of_range"},
+		{`[{}, {"priority":"draft-private-value"}]`, "intent_actions[1].priority", "invalid_integer_string"},
+		{`[{}, {"priority":true}]`, "intent_actions[1].priority", "type_mismatch"},
+	} {
+		t.Run(tt.reason, func(t *testing.T) {
+			raw := json.RawMessage(`{"intent_actions":` + tt.intents + `}`)
+			_, draft, err := normalizeOnboardingDraftJSON(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var validation *onboardingDraftWriteError
+			if err := normalizeDraftIntentPriorities(draft); !errors.As(err, &validation) ||
+				validation.field != tt.field || validation.reason != tt.reason {
+				t.Fatalf("unexpected validation result: %#v", validation)
+			}
+		})
+	}
+
+	const traceID = "0123456789abcdef0123456789abcdef"
+	tid, err := trace.TraceIDFromHex(traceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	original := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
+	t.Cleanup(func() { slog.SetDefault(original) })
+	h := server.New(server.WithHostPorts("127.0.0.1:0"))
+	h.PUT("/draft", func(ctx context.Context, c *app.RequestContext) {
+		ctx = trace.ContextWithSpanContext(ctx, trace.NewSpanContext(trace.SpanContextConfig{
+			TraceID: tid, SpanID: trace.SpanID{1},
+		}))
+		c.Set("agent_id", int64(1))
+		c.Set("console_session_id", "secret-test-session")
+		(&Service{}).putOnboardingDraft(ctx, c)
+	})
+	status, payload, _ := performJSON(t, h, "PUT", "/draft", putDraftRequest{
+		ExpectedRevision: 1,
+		IdempotencyKey:   "test-key",
+		Draft:            json.RawMessage(`{"intent_actions":[{},{"priority":"draft-private-value"}]}`),
+	})
+	if status != http.StatusBadRequest || responseErrorCode(t, payload) != "INVALID_DRAFT" {
+		t.Fatalf("unexpected response status=%d payload=%v", status, payload)
+	}
+	logLine := output.String()
+	if strings.Contains(logLine, "draft-private-value") || strings.Contains(logLine, "secret-test-session") {
+		t.Fatal("draft or session data leaked into logs")
+	}
+	var event map[string]interface{}
+	if err := json.NewDecoder(&output).Decode(&event); err != nil {
+		t.Fatal(err)
+	}
+	for field, want := range map[string]interface{}{
+		"msg": "onboarding_draft_rejected", "status": float64(400), "code": "INVALID_DRAFT",
+		"stage": "console_save", "field": "intent_actions[1].priority", "reason": "invalid_integer_string", "traceId": traceID,
+	} {
+		if event[field] != want {
+			t.Errorf("%s=%v, want %v", field, event[field], want)
+		}
 	}
 }

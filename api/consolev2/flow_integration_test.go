@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -587,14 +588,58 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	status, saved, _ := performJSON(t, h, "PUT", "/api/v2/console/onboarding-draft", putDraftRequest{
+	const saveDraftPath = "/api/v2/console/onboarding-draft"
+	savedRequest := putDraftRequest{
 		ExpectedRevision: 3, IdempotencyKey: "valid-priority-" + agentID,
 		Draft: editedDraft,
-	}, consoleAuth...)
+	}
+	assertDraftConflict := func(request putDraftRequest, reason string, currentRevision int64) {
+		t.Helper()
+		var logs bytes.Buffer
+		previousLogger := slog.Default()
+		slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+		defer slog.SetDefault(previousLogger)
+		status, payload, _ := performJSON(t, h, "PUT", saveDraftPath, request, consoleAuth...)
+		if status != http.StatusConflict || responseErrorCode(t, payload) != "REVISION_CONFLICT" {
+			t.Fatalf("save draft: status=%d payload=%v", status, payload)
+		}
+		var event map[string]interface{}
+		decoder := json.NewDecoder(&logs)
+		for {
+			if err := decoder.Decode(&event); err != nil {
+				t.Fatalf("missing draft conflict log: %v", err)
+			}
+			if event["msg"] == "onboarding_draft_rejected" {
+				break
+			}
+			event = nil
+		}
+		if event["stage"] != "console_save" || event["code"] != "REVISION_CONFLICT" ||
+			event["reason"] != reason || event["expected_revision"] != float64(request.ExpectedRevision) ||
+			event["current_revision"] != float64(currentRevision) {
+			t.Fatalf("unexpected conflict log: %v", event)
+		}
+		encoded, err := json.Marshal(event)
+		if err != nil || bytes.Contains(encoded, []byte(request.IdempotencyKey)) ||
+			bytes.Contains(encoded, []byte("draft-conflict-private-marker")) {
+			t.Fatal("conflict log contains request data")
+		}
+	}
+	status, saved, _ := performJSON(t, h, "PUT", saveDraftPath, savedRequest, consoleAuth...)
 	if status != 200 {
 		t.Fatalf("save low priority: status=%d payload=%#v", status, saved)
 	}
 	savedRevision := int64(responseData(t, saved)["revision"].(float64))
+	staleRequest := savedRequest
+	staleRequest.IdempotencyKey = "stale-draft-" + agentID
+	assertDraftConflict(staleRequest, "stale_revision", savedRevision)
+	reusedRequest := savedRequest
+	reusedRequest.Draft = json.RawMessage(`{"network_goal":"draft-conflict-private-marker"}`)
+	assertDraftConflict(reusedRequest, "idempotency_key_reused", savedRevision)
+	replayStatus, replay, _ := performJSON(t, h, "PUT", saveDraftPath, savedRequest, consoleAuth...)
+	if replayStatus != http.StatusOK || responseData(t, replay)["revision"] != float64(savedRevision) {
+		t.Fatalf("idempotent replay lost saved revision: status=%d payload=%v", replayStatus, replay)
+	}
 	var savedPriority string
 	if err := gdb.Raw(`SELECT (draft_data #> '{intent_actions,0,priority}')::text
 		FROM agent_onboarding_drafts WHERE agent_id = ? AND revision = ?`, agentIDInt, savedRevision).Scan(&savedPriority).Error; err != nil || savedPriority != "0" {
@@ -636,6 +681,11 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		}
 		revision++
 	}
+
+	completedRequest := savedRequest
+	completedRequest.ExpectedRevision = revision
+	completedRequest.IdempotencyKey = "completed-draft-" + agentID
+	assertDraftConflict(completedRequest, "onboarding_completed", revision)
 
 	var priorities []int16
 	if err := gdb.Raw(`SELECT priority FROM agent_intent_actions WHERE agent_id = ? AND status = 'active'`, agentIDInt).Scan(&priorities).Error; err != nil || len(priorities) != 1 || priorities[0] != 0 {

@@ -18,6 +18,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/lib/pq"
 	redis "github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel/trace"
 	"gorm.io/gorm"
 
 	"eigenflux_server/pkg/logger"
@@ -32,6 +33,8 @@ var (
 )
 
 type emailJob struct {
+	spanContext  trace.SpanContext
+	purpose      string
 	challengeID  string
 	to           string
 	otp          string
@@ -55,6 +58,8 @@ func (s *Service) startEmailWorkers(workerCount, queueSize int) {
 				err := s.emailSender.SendLoginVerifyMail(sendContext, job.to, job.otp)
 				cancel()
 				if err != nil {
+					logContext := trace.ContextWithSpanContext(context.Background(), job.spanContext)
+					logger.Ctx(logContext).Warn("onboarding_email_delivery_failed", "purpose", job.purpose, "reason", "send_failed")
 					_ = s.db.Exec(`UPDATE v2_email_challenges SET status = 'revoked'
 						WHERE challenge_id = ? AND status = 'pending'`, job.challengeID).Error
 				}
@@ -238,10 +243,10 @@ func (s *Service) insertEmailChallenge(tx *gorm.DB, normalizedEmail, purpose str
 		clientIPHash, now).Error; err != nil {
 		return emailJob{}, 0, err
 	}
-	return emailJob{challengeID: challengeID, to: normalizedEmail, otp: otp, skipDelivery: skipDelivery}, expiresAt, nil
+	return emailJob{purpose: purpose, challengeID: challengeID, to: normalizedEmail, otp: otp, skipDelivery: skipDelivery}, expiresAt, nil
 }
 
-func (s *Service) queueEmailChallenge(c *app.RequestContext, job emailJob, expiresAt int64) {
+func (s *Service) queueEmailChallenge(ctx context.Context, c *app.RequestContext, job emailJob, expiresAt int64) {
 	if job.skipDelivery {
 		reply(c, http.StatusAccepted, map[string]interface{}{
 			"accepted": true, "challenge_id": job.challengeID, "expires_at": expiresAt,
@@ -254,6 +259,7 @@ func (s *Service) queueEmailChallenge(c *app.RequestContext, job emailJob, expir
 		fail(c, http.StatusServiceUnavailable, "EMAIL_DELIVERY_UNAVAILABLE", "email verification is temporarily unavailable", nil)
 		return
 	}
+	job.spanContext = trace.SpanContextFromContext(ctx)
 	select {
 	case s.emailQueue <- job:
 		reply(c, http.StatusAccepted, map[string]interface{}{
@@ -313,7 +319,7 @@ func (s *Service) createEmailBindingChallenge(ctx context.Context, c *app.Reques
 		fail(c, http.StatusInternalServerError, "EMAIL_CHALLENGE_FAILED", "could not create email verification challenge", nil)
 		return
 	}
-	s.queueEmailChallenge(c, job, expiresAt)
+	s.queueEmailChallenge(ctx, c, job, expiresAt)
 }
 
 func (s *Service) createEmailLoginChallenge(ctx context.Context, c *app.RequestContext) {
@@ -424,7 +430,7 @@ func (s *Service) createEmailLoginChallenge(ctx context.Context, c *app.RequestC
 		fail(c, http.StatusConflict, "EMAIL_NOT_BOUND", "email is not bound to an account; claim your Agent and bind this email before signing in", nil)
 		return
 	}
-	s.queueEmailChallenge(c, job, expiresAt)
+	s.queueEmailChallenge(ctx, c, job, expiresAt)
 }
 
 type verifyEmailRequest struct {

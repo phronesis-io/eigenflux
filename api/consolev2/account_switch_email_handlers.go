@@ -74,7 +74,7 @@ func (s *Service) createCLIAccountSwitchChallenge(ctx context.Context, c *app.Re
 		s.emailSwitchFailure(ctx, c, err)
 		return
 	}
-	s.queueEmailChallenge(c, job, expiresAt)
+	s.queueEmailChallenge(ctx, c, job, expiresAt)
 }
 
 func (s *Service) emailSwitchFailure(ctx context.Context, c *app.RequestContext, err error) {
