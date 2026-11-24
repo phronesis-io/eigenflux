@@ -19,6 +19,8 @@ import (
 	"cli.eigenflux.ai/internal/skills"
 )
 
+const schedulerPromptReadbackContract = "<!-- scheduler-prompt-readback-required -->"
+
 func codexUpgradeRepairEnabled() bool {
 	m := clientMetaForServerName(activeServerName())
 	return os.Getenv("EIGENFLUX_SKIP_AGENT_SETUP") != "1" && runtimeProduct(m.Host) == "codex" && m.Mode == "skill"
@@ -149,10 +151,8 @@ func (w *accountWatch) tryUpgradeRepair(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if r.Status == "verified" || r.Status == "awaiting_run" {
-		return nil
-	}
-	if r.Status != "pending" {
+	recheck := r.needsSchedulerPromptRecheck()
+	if !recheck && r.Status != "pending" {
 		return w.enqueueUpgradeRepairDesktop(r)
 	}
 	if r.NextAttempt > time.Now().UnixMilli() {
@@ -166,14 +166,19 @@ func (w *accountWatch) tryUpgradeRepair(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := syncUpgradeWatchRules(cfg, b, false); err != nil {
+	recordSkillsFailure := func(err error) error {
+		if recheck {
+			return err
+		}
 		_, receiptErr := recordUpgradeSkillsFailure(r.ID, err)
 		return receiptErr
 	}
+	if err := syncUpgradeWatchRules(cfg, b, false); err != nil {
+		return recordSkillsFailure(err)
+	}
 	application, err := readUpgradeRepairRules(b.SkillsDir, automaticMaintenanceEnabled(cfg, autoSkillSyncKey))
 	if err != nil {
-		_, receiptErr := recordUpgradeSkillsFailure(r.ID, err)
-		return receiptErr
+		return recordSkillsFailure(err)
 	}
 	cli, err := stableInstalledExecutable()
 	if err != nil {
@@ -194,25 +199,24 @@ func (w *accountWatch) tryUpgradeRepair(ctx context.Context) error {
 	if err != nil || !reflect.DeepEqual(currentBinding, b) || !codexUpgradeRepairEnabled() {
 		return errWatchConfiguration
 	}
-	r, err = mutateUpgradeRepair(false, func(current *upgradeRepair) error {
-		if current.ID != r.ID || current.Status != "pending" || current.NextAttempt > time.Now().UnixMilli() {
-			return errors.New("repair claim changed")
-		}
-		current.Status, current.Binding, current.DispatchThread = "submitted", b.Revision, b.MainSessionID
-		current.Blockers = nil
-		current.Attempts++
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	runner := dispatch.MainNoticeRunner{Target: dispatch.MainNoticeTarget{Host: b.Host, SessionID: b.MainSessionID, HiddenInputEnabled: dispatch.MainNoticeBindingEnabled(b), Binding: b}}
 	boundCtx, cancel := w.upgradeRepairContext(ctx, b)
 	defer cancel()
-	runErr := dispatch.ErrMainNoticeBusy
-	if w.mainNoticeRunMu.TryLock() {
-		_, runErr = runner.RunMaintenance(boundCtx, string(application), string(data))
-		w.mainNoticeRunMu.Unlock()
+	if !w.mainNoticeRunMu.TryLock() {
+		return nil
+	}
+	var claimed *upgradeRepair
+	var claimErr error
+	runner := dispatch.MainNoticeRunner{
+		Target: dispatch.MainNoticeTarget{Host: b.Host, SessionID: b.MainSessionID, HiddenInputEnabled: dispatch.MainNoticeBindingEnabled(b), Binding: b},
+		BeforeSubmit: func() error {
+			claimed, claimErr = claimUpgradeRepairForWatch(r, b)
+			return claimErr
+		},
+	}
+	_, runErr := runner.RunMaintenance(boundCtx, string(application), string(data))
+	w.mainNoticeRunMu.Unlock()
+	if claimErr != nil {
+		return claimErr
 	}
 	if err := w.verifyHandoffIdentity(); err != nil {
 		return err
@@ -221,7 +225,13 @@ func (w *accountWatch) tryUpgradeRepair(ctx context.Context) error {
 	if err != nil || !reflect.DeepEqual(currentBinding, b) {
 		return errWatchConfiguration
 	}
-	latest, err := finishUpgradeRepairDispatch(r.ID, runErr)
+	if claimed == nil {
+		if boundCtx.Err() != nil {
+			return nil
+		}
+		return finishUpgradeRepairPreflight(r, runErr)
+	}
+	latest, err := finishUpgradeRepairDispatch(claimed.ID, runErr)
 	if err != nil {
 		return err
 	}
@@ -231,11 +241,61 @@ func (w *accountWatch) tryUpgradeRepair(ctx context.Context) error {
 	return w.enqueueUpgradeRepairDesktop(latest)
 }
 
+// Preflight runs before Codex can receive a maintenance request. Preserve the
+// previous repair status and acknowledgement while waiting for a safe retry.
+func finishUpgradeRepairPreflight(observed *upgradeRepair, runErr error) error {
+	_, err := mutateUpgradeRepairScoped(observed.Scope, false, func(current *upgradeRepair) error {
+		if !sameUpgradeRepairAttempt(current, observed) {
+			return nil
+		}
+		if dispatch.MainNoticeCanRetry(runErr) {
+			delayUpgradeRepairRetry(current)
+		} else {
+			setRepairOutcome(current, "blocked", []string{"host_unavailable"})
+		}
+		return nil
+	})
+	return err
+}
+
+func sameUpgradeRepairAttempt(current, observed *upgradeRepair) bool {
+	return current.ID == observed.ID && current.Status == observed.Status &&
+		current.Generation == observed.Generation && current.Attempts == observed.Attempts &&
+		current.SchedulerPromptRecheckStarted == observed.SchedulerPromptRecheckStarted
+}
+
+func claimUpgradeRepairForWatch(observed *upgradeRepair, b dispatch.Binding) (*upgradeRepair, error) {
+	return mutateUpgradeRepairScoped(observed.Scope, false, func(current *upgradeRepair) error {
+		if !sameUpgradeRepairAttempt(current, observed) || current.NextAttempt > time.Now().UnixMilli() ||
+			(current.Status != "pending" && !current.needsSchedulerPromptRecheck()) {
+			return errors.New("repair claim changed")
+		}
+		current.Status, current.Binding, current.DispatchThread = "submitted", b.Revision, b.MainSessionID
+		current.SchedulerPromptRecheckStarted = true
+		current.Attempts++
+		return nil
+	})
+}
+
 // CLI publication precedes its companion Skills publication. An intact signed
 // pre-repair Skill is a release gap, not corruption. Authenticate the whole
 // installed bundle before making that distinction; never execute an unsigned
 // fallback or reinterpret missing files in a release claiming this contract.
 func readUpgradeRepairRules(dir string, autoSync bool) ([]byte, error) {
+	data, err := readSignedUpgradeRepairRules(dir, autoSync)
+	if err != nil {
+		return nil, err
+	}
+	if strings.Contains(string(data), schedulerPromptReadbackContract) {
+		return data, nil
+	}
+	if !autoSync {
+		return nil, &upgradeSkillsError{Reason: "skills_sync_disabled"}
+	}
+	return nil, &upgradeSkillsError{Reason: "skills_release_pending"}
+}
+
+func readSignedUpgradeRepairRules(dir string, autoSync bool) ([]byte, error) {
 	data, err := skills.ReadSignedFile(dir, "ef-onboarding", "references/upgrade-repair.md", 64<<10)
 	if err == nil {
 		return data, nil
@@ -318,7 +378,9 @@ func recordUpgradeSkillsFailure(id string, cause error) (*upgradeRepair, error) 
 		if r.ID != id || r.Status != "pending" {
 			return errors.New("repair request changed")
 		}
-		setRepairOutcome(r, status, []string{"skills_unavailable"})
+		if status != "pending" || !r.SchedulerPromptRecheckStarted || len(r.Blockers) == 0 {
+			setRepairOutcome(r, status, []string{"skills_unavailable"})
+		}
 		if status == "pending" {
 			r.NextAttempt = time.Now().Add(5 * time.Minute).UnixMilli()
 		}
@@ -343,11 +405,7 @@ func finishUpgradeRepairDispatch(id string, runErr error) (*upgradeRepair, error
 				r.UnavailableAttempts++
 			}
 			r.Status = "pending"
-			delay := time.Minute
-			if r.Attempts >= 5 {
-				delay = 5 * time.Minute
-			}
-			r.NextAttempt = time.Now().Add(delay).UnixMilli()
+			delayUpgradeRepairRetry(r)
 			return nil
 		}
 		// Submission/completion without a report is uncertain, not permission to
@@ -355,4 +413,12 @@ func finishUpgradeRepairDispatch(id string, runErr error) (*upgradeRepair, error
 		setRepairOutcome(r, "blocked", []string{"host_unavailable"})
 		return nil
 	})
+}
+
+func delayUpgradeRepairRetry(r *upgradeRepair) {
+	delay := time.Minute
+	if r.Attempts >= 5 {
+		delay = 5 * time.Minute
+	}
+	r.NextAttempt = time.Now().Add(delay).UnixMilli()
 }

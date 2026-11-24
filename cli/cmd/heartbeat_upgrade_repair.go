@@ -37,6 +37,8 @@ type upgradeRepair struct {
 	Generation          int      `json:"generation,omitempty"`
 	Notification        string   `json:"notification,omitempty"`
 	NoticeID            string   `json:"notice_id,omitempty"`
+
+	SchedulerPromptRecheckStarted bool `json:"scheduler_prompt_recheck_started,omitempty"`
 }
 
 const upgradeRepairInstruction = "Read the signed ef-onboarding/references/upgrade-repair.md and finish this existing account's upgrade acceptance. Do all authorized repairs automatically; collect genuinely required owner actions into one prompt. Never ask the owner to run CLI commands. Preserve identity, task IDs, cadence, paused state and existing permissions."
@@ -178,6 +180,11 @@ func acknowledgeUpgradeRepair(id, notice string) error {
 	return err
 }
 
+func (r upgradeRepair) needsSchedulerPromptRecheck() bool {
+	return !r.SchedulerPromptRecheckStarted && r.GuardDefinition != "" &&
+		(r.Status == "awaiting_run" || r.Status == "user_action")
+}
+
 func currentUpgradeRepair(create bool) (*upgradeRepair, error) {
 	return mutateUpgradeRepair(create, nil)
 }
@@ -203,6 +210,9 @@ func bindUpgradeRepairScheduler(scope maintenance.Scope, thread string, definiti
 		home, homeErr := watchstate.CanonicalHome(scope.Home)
 		if err != nil || homeErr != nil || identity.AgentID != scope.AgentID || identity.Home != home || identity.Server != scope.Server {
 			return errWatchIdentity
+		}
+		if definition != "" {
+			r.SchedulerPromptRecheckStarted = true
 		}
 		if r.SchedulerThread != thread || r.GuardDefinition != definition {
 			r.Generation++

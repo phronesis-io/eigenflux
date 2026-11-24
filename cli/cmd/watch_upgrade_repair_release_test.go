@@ -37,7 +37,11 @@ func upgradeRepairReleaseFixture(t *testing.T) (string, func(string, bool)) {
 		}
 		path := filepath.Join(root, "references", "upgrade-repair.md")
 		if includeRepair {
-			if err := os.WriteFile(path, []byte("Perform scoped repair under existing authority.\n"), 0600); err != nil {
+			rules := "Perform scoped repair under existing authority.\n"
+			if displayVersion == "0.3.44" {
+				rules += schedulerPromptReadbackContract + "\n"
+			}
+			if err := os.WriteFile(path, []byte(rules), 0600); err != nil {
 				t.Fatal(err)
 			}
 		} else if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -80,7 +84,14 @@ func TestUpgradeRepairWaitsQuietlyForCompanionSkillsRelease(t *testing.T) {
 	if err != nil || state.Status != "pending" || state.NextAttempt == 0 || state.Notification != "" {
 		t.Fatalf("release window forced owner action: %+v %v", state, err)
 	}
-	write("0.3.40", true)
+	write("0.3.43", true)
+	if _, err := readUpgradeRepairRules(dir, true); !errors.As(err, &gap) || gap.Reason != "skills_release_pending" {
+		t.Fatalf("old rules accepted without the scheduler readback contract: %v", err)
+	}
+	if _, err := readUpgradeRepairRules(dir, false); !errors.As(err, &gap) || gap.Reason != "skills_sync_disabled" {
+		t.Fatalf("disabled automatic sync was not respected: %v", err)
+	}
+	write("0.3.44", true)
 	data, err := readUpgradeRepairRules(dir, true)
 	if err != nil || !strings.Contains(string(data), "scoped repair") {
 		t.Fatalf("companion release could not resume automatically: %q %v", data, err)
