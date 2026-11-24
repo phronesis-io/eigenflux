@@ -36,13 +36,20 @@ func TestSandboxCertificateBundle(t *testing.T) {
 	if err := os.WriteFile(bundle, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0600); err != nil {
 		t.Fatal(err)
 	}
+	t.Run("offline help with missing bundle", func(t *testing.T) {
+		c := exec.Command(binary, "--help")
+		c.Env = append(os.Environ(), "HOME="+t.TempDir(), "EIGENFLUX_HOME="+t.TempDir(), "SSL_CERT_FILE="+filepath.Join(dir, "missing.pem"))
+		if out, err := c.CombinedOutput(); err != nil || !strings.Contains(string(out), "Usage:") {
+			t.Fatalf("help: %v: %s", err, out)
+		}
+	})
 	profile := `(version 1)(allow default)(deny mach-lookup (global-name "com.apple.trustd") (global-name "com.apple.trustd.agent"))`
 	for _, tc := range []struct {
 		name, path, wantError string
 		reachesServer         bool
 		args                  []string
 	}{
-		{"default", "", "x509:", false, []string{"update"}},
+		{"default", "", "OSStatus -26276", false, []string{"update"}},
 		{"trusted", bundle, "", true, []string{"update"}},
 		{"skills", bundle, "", true, []string{"skills", "sync", "--into", filepath.Join(dir, "skills")}},
 		{"untrusted", "/etc/ssl/cert.pem", "unknown authority", false, []string{"update"}},
