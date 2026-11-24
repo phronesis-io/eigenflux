@@ -1013,10 +1013,48 @@ Public items report `scorer_type=gbdt`.
 
 Sort pins one bundle for the request, including refill. A missing model,
 invalid candidate or failed prediction returns the pool to its existing
-rating/LR path. Failed reloads retain the last valid bundle. The optional
-`eigenflux-discovery-gbdt-model-pull.service` installs from
-`rec/model/discovery_gbdt` into the dedicated model root. Setting BPS to zero
+rating/LR path. Failed reloads retain the last valid bundle. Setting BPS to zero
 and restarting Sort disables the experiment and the model watcher.
+
+#### GBDT model delivery
+
+On the host running the production GBDT publisher and Sort, install the pull
+unit and the publisher drop-in from the deployed release. The pull unit uses
+the same ECS OSS profile as discovery LR. Its model root, state and lock are
+dedicated to GBDT.
+
+```sh
+units=/var/lib/eigenflux-deployer/current/source/cloud/systemd
+pull=eigenflux-discovery-gbdt-model-pull.service
+train=eigenflux-discovery-gbdt-train.service
+sudo install -d -o ecs-user -g ecs-user -m 0750 /data/models/eigenflux/discovery-gbdt
+sudo install -m 0644 "$units/$pull" "/etc/systemd/system/$pull"
+sudo install -D -m 0644 "$units/$train.d/model-pull.conf" "/etc/systemd/system/$train.d/model-pull.conf"
+sudo systemctl daemon-reload
+systemctl show "$train" -p OnSuccess
+sudo systemctl start "$pull"
+journalctl -u "$pull" -n 20
+```
+
+A successful training and OSS publication triggers the pull through
+`OnSuccess`. The installer selects the newest `gbdt_*` directory in the
+latest `sample_date` under `rec/model/discovery_gbdt`. It checks the version
+against the OSS directory and verifies the SHA-256 entries for `model.json`
+and `report.json` before atomically replacing `current`. Pulling the active
+version again preserves `previous`. A failed publication or verification
+leaves the active model in place.
+
+After two distinct versions have been installed, roll back using the same lock
+as the pull service and verify the restored files.
+
+```sh
+root=/data/models/eigenflux/discovery-gbdt
+installer=/var/lib/eigenflux-deployer/current/source/scripts/cloud/install_lr_model.sh
+sudo -u ecs-user env MODEL_ROOT="$root" flock -w 30 \
+  /var/lib/eigenflux-discovery-gbdt-model/pull.lock "$installer" --rollback
+readlink -f "$root/current"
+(cd "$root/current" && sha256sum -c checksums.sha256)
+```
 
 ### Positive-rating ranker
 
