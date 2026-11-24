@@ -1,0 +1,332 @@
+{
+  "model": {
+    "schema_version": 1,
+    "model_type": "gbdt",
+    "model_version": "gbdt_fixture",
+    "feature_contract_version": "discovery_snapshot_v1",
+    "promotion_passed": true,
+    "feature_names": [
+      "lexical",
+      "semantic",
+      "freshness",
+      "quality",
+      "relevance",
+      "rule_score",
+      "semantic_missing",
+      "query_present",
+      "query_length",
+      "age_hours",
+      "ttl_hours",
+      "has_expiry",
+      "language_match",
+      "language_constrained",
+      "origin_query",
+      "origin_need_input",
+      "origin_agent_context",
+      "origin_baseline",
+      "origin_friend",
+      "origin_unknown",
+      "content_type_info",
+      "content_type_alert",
+      "content_type_supply",
+      "content_type_demand",
+      "content_type_unknown",
+      "source_type_original",
+      "source_type_curated",
+      "source_type_forwarded",
+      "source_type_unknown"
+    ],
+    "baseline": 0,
+    "trees": [
+      {
+        "feature": [
+          7,
+          -1,
+          -1
+        ],
+        "threshold": [
+          0,
+          0,
+          0
+        ],
+        "left": [
+          1,
+          -1,
+          -1
+        ],
+        "right": [
+          2,
+          -1,
+          -1
+        ],
+        "value": [
+          0,
+          -0.75,
+          0.5
+        ]
+      }
+    ],
+    "self_test_cases": [
+      {
+        "features": [
+          0.2,
+          0,
+          0,
+          0.5,
+          0.2,
+          0.2,
+          1,
+          1,
+          0.23571433143015905,
+          0.09027321168402119,
+          0.14307965533883654,
+          1,
+          1,
+          1,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "probability": 0.6224593312018546
+      },
+      {
+        "features": [
+          0.2,
+          0,
+          0,
+          0.5,
+          0.2,
+          0.2,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          1
+        ],
+        "probability": 0.320821300824607
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "unicode_and_threshold_equality",
+      "candidate": {
+        "document": {
+          "source_ref": {
+            "type": "broadcast",
+            "id": "1"
+          },
+          "channels": [
+            "lexical",
+            "new_recall"
+          ],
+          "fresh_at": 3600000,
+          "expires_at": 14400000,
+          "slots": {
+            "lang": [
+              "ja"
+            ]
+          },
+          "content_type": "info",
+          "source_type": "curated"
+        },
+        "context": {
+          "input_origin": "agent_context",
+          "context_id": "88",
+          "query": "  猫\u001c🐈　猫  ",
+          "effective_filters": {
+            "lang": [
+              "ja"
+            ]
+          }
+        },
+        "score": {
+          "features": {
+            "lexical": 0.2,
+            "semantic": 0.0,
+            "freshness": 0.0,
+            "quality": 0.5
+          },
+          "value": 0.2,
+          "relevance": 0.2,
+          "missing": [
+            "semantic"
+          ],
+          "request_time": 7200000
+        }
+      },
+      "features": [
+        0.2,
+        0,
+        0,
+        0.5,
+        0.2,
+        0.2,
+        1,
+        1,
+        0.23571433143015905,
+        0.09027321168402119,
+        0.14307965533883654,
+        1,
+        1,
+        1,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0
+      ],
+      "probability": 0.6224593312018546
+    },
+    {
+      "name": "empty_query_no_expiry_unknown",
+      "candidate": {
+        "document": {
+          "source_ref": {
+            "type": "broadcast",
+            "id": "1"
+          },
+          "fresh_at": 7200000
+        },
+        "context": {
+          "context_id": "88",
+          "input_origin": "new"
+        },
+        "score": {
+          "features": {
+            "lexical": 0.2,
+            "semantic": 0.0,
+            "freshness": 0.0,
+            "quality": 0.5
+          },
+          "value": 0.2,
+          "relevance": 0.2,
+          "missing": [
+            "semantic"
+          ],
+          "request_time": 7200000
+        }
+      },
+      "features": [
+        0.2,
+        0,
+        0,
+        0.5,
+        0.2,
+        0.2,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1
+      ],
+      "probability": 0.320821300824607
+    },
+    {
+      "name": "missing_fresh_at",
+      "candidate": {
+        "document": {
+          "source_ref": {
+            "type": "broadcast",
+            "id": "1"
+          },
+          "channels": [
+            "lexical",
+            "new_recall"
+          ],
+          "expires_at": 14400000,
+          "slots": {
+            "lang": [
+              "ja"
+            ]
+          },
+          "content_type": "info",
+          "source_type": "curated"
+        },
+        "context": {
+          "input_origin": "agent_context",
+          "context_id": "88",
+          "query": "  猫\u001c🐈　猫  ",
+          "effective_filters": {
+            "lang": [
+              "ja"
+            ]
+          }
+        },
+        "score": {
+          "features": {
+            "lexical": 0.2,
+            "semantic": 0.0,
+            "freshness": 0.0,
+            "quality": 0.5
+          },
+          "value": 0.2,
+          "relevance": 0.2,
+          "missing": [
+            "semantic"
+          ],
+          "request_time": 7200000
+        }
+      },
+      "error": "invalid snapshot timestamp"
+    }
+  ]
+}

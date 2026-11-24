@@ -338,6 +338,10 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 		fail(c, http.StatusBadRequest, "INVALID_DRAFT", err.Error(), nil)
 		return
 	}
+	if err := normalizeDraftIntentPriorities(draftObject); err != nil {
+		fail(c, http.StatusBadRequest, "INVALID_DRAFT", err.Error(), nil)
+		return
+	}
 	if err := validateRequestedAgentProvenance(req.FieldProvenance); err != nil {
 		fail(c, http.StatusBadRequest, "INVALID_FIELD_PROVENANCE", err.Error(), nil)
 		return
@@ -358,6 +362,12 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 	requestHash, receiptHashErr := provisionReceiptHash(req)
 	if receiptHashErr != nil {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "could not canonicalize provision receipt", nil)
+		return
+	}
+	// Preserve receipt hashes for retries of previously accepted requests.
+	req.Draft, err = json.Marshal(draftObject)
+	if err != nil {
+		fail(c, http.StatusBadRequest, "INVALID_DRAFT", "could not encode onboarding draft", nil)
 		return
 	}
 	receiptSeed := fingerprint(publicKey) + "\x00" + req.IdempotencyKey + "\x00" + requestHash

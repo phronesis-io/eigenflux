@@ -463,6 +463,7 @@ func (s *Service) Register(h *server.Hertz) {
 	h.POST("/api/v2/pm/conversations/close", s.agentAuth("communication:write"), s.requireCompleted, apihandler.CloseConv)
 	h.POST("/api/v2/pm/owner-notices", s.agentAuth("communication:write"), s.requireCompleted, s.savePMOwnerNotice)
 	h.POST("/api/v2/pm/conversations/topic-status", s.agentAuth("communication:write"), s.requireCompleted, apihandler.UpdateConversationTopicStatus)
+	h.GET("/api/v2/relations/limits", apihandler.RelationLimits)
 	h.GET("/api/v2/relations/friend-requests", s.agentAuth("relations:read"), s.requireCompleted, apihandler.ListFriendRequests)
 	h.POST("/api/v2/relations/friend-requests", s.agentAuth("relations:write"), s.requireCompleted, apihandler.SendFriendRequest)
 	h.POST("/api/v2/relations/friend-requests/handle", s.agentAuth("relations:write"), s.requireCompleted, apihandler.HandleFriendRequest)

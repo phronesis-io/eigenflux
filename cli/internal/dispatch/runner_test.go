@@ -60,6 +60,10 @@ func TestRunnerFixture(t *testing.T) {
 		time.Sleep(600 * time.Millisecond)
 		_ = os.WriteFile(os.Getenv("EF_TREE_MARKER"), []byte("escaped"), 0600)
 		os.Exit(0)
+	case "interrupted-codex":
+		fmt.Println(`{"type":"thread.started","thread_id":"01a20262-51cf-72b3-91c1-000000000001"}`)
+		time.Sleep(20 * time.Second)
+		os.Exit(0)
 	case "timeout":
 		time.Sleep(20 * time.Second)
 		os.Exit(0)
@@ -329,5 +333,14 @@ func TestNativeBoundHostOverridesAmbientIdentity(t *testing.T) {
 				t.Fatalf("expected one bound host, got %d", found)
 			}
 		})
+	}
+}
+
+func TestInterruptedCodexFulfillmentReturnsSessionOnly(t *testing.T) {
+	b := fixtureBinding(t, "native", "interrupted-codex")
+	b.Host, b.TimeoutSeconds = "codex", 2
+	result, err := (Runner{Binding: b}).Run(context.Background(), Request{Kind: "commission_fulfillment", Prompt: "order"})
+	if !errors.Is(err, context.DeadlineExceeded) || result.SessionID != "01a20262-51cf-72b3-91c1-000000000001" || result.Text != "" {
+		t.Fatalf("result %+v, err %v", result, err)
 	}
 }
