@@ -127,6 +127,9 @@ jobs:
       - name: Test all CLI commands on Linux
         if: runner.os == 'Linux'
         run: python3 ../scripts/ci/cmd_tests.py all
+      - name: Test CLI certificate bundles with trustd blocked
+        if: runner.os == 'macOS'
+        run: go test -count=1 -run TestSandboxCertificateBundle .
       - name: Test platform CLI commands on macOS
         if: runner.os == 'macOS'
         run: python3 ../scripts/ci/cmd_tests.py platform

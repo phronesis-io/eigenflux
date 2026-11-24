@@ -420,7 +420,9 @@ func (w *accountWatch) pmLoop(ctx context.Context) error {
 				head.Set("Authorization", "Bearer "+credentials.AccessToken)
 				head.Set("X-CLI-Ver", version)
 				clientMetaForServer(&w.server).SetHeaders(head)
-				dialer := contextWatchDialer{ctx, websocket.Dialer{HandshakeTimeout: 10 * time.Second, Proxy: http.ProxyFromEnvironment}}
+				wsDialer := *websocket.DefaultDialer
+				wsDialer.HandshakeTimeout = 10 * time.Second
+				dialer := contextWatchDialer{ctx, wsDialer}
 				var conn *websocket.Conn
 				conn, _, _, err = dialStreamWithCredentialRefresh(dialer, u.String(), head, w.identity.AgentID, func() (*auth.V2Credentials, error) { return w.credentials(ctx, true) })
 				if err == nil {
