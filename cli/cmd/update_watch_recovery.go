@@ -40,8 +40,9 @@ type updateWatchRecovery struct {
 }
 
 // Inspect the host-owned watch without starting a service or opening the desktop helper.
-func macOSHostWatchStatus() updateWatchRecovery {
-	result := updateWatchRecovery{Status: "unavailable", Reason: "macos_host_watch", Action: "check watch status from the macOS host"}
+func macOSHostWatchStatus(cmd *cobra.Command, cfg *config.Config) (result updateWatchRecovery) {
+	defer func() { annotateWatchRecoveryNotice(cmd, cfg, &result) }()
+	result = updateWatchRecovery{Status: "unavailable", Reason: "macos_host_watch", Action: "check watch status from the macOS host"}
 	expected, err := watchBindingIdentity()
 	if err != nil {
 		return result

@@ -208,14 +208,15 @@ func Check(ctx context.Context, o Options) (result Result) {
 		return fail(fmt.Errorf("CLI release rollback rejected"))
 	}
 	s.Highest = m.Version
+	if o.Minimum != "" && (!ValidVersion(o.Minimum) || (Compare(o.Version, o.Minimum) < 0 && Compare(m.Version, o.Minimum) < 0)) {
+		return fail(fmt.Errorf("published CLI does not satisfy Skills minimum %s", o.Minimum))
+	}
 	comparison := Compare(m.Version, o.Version)
 	if comparison < 0 || (comparison == 0 && (!o.CompletePackage || hasCurrentPackage)) {
 		result.Status = "current"
 		return
 	}
-	if o.Minimum != "" && (!ValidVersion(o.Minimum) || Compare(m.Version, o.Minimum) < 0) {
-		return fail(fmt.Errorf("published CLI does not satisfy Skills minimum %s", o.Minimum))
-	}
+
 	if o.CompletePackage {
 		packageOptions := o
 		packageOptions.OnProgress = func(p Progress) { startPhase(p.Phase) }

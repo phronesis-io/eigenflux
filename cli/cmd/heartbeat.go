@@ -358,7 +358,7 @@ var heartbeatPlanCmd = &cobra.Command{
 		}
 
 		if !controlOnly && access.OnboardingState == "completed" && macOSHostMaintenance(cfg) {
-			recovery := macOSHostWatchStatus()
+			recovery := macOSHostWatchStatus(cmd, cfg)
 			plan.OuterLoop = &recovery
 		} else if !controlOnly && access.OnboardingState == "completed" {
 			notifications := upgradeNotifications(cmd, false)

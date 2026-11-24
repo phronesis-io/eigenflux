@@ -27,6 +27,7 @@ import (
 	"cli.eigenflux.ai/internal/maintenance"
 	"cli.eigenflux.ai/internal/selfupdate"
 	"github.com/gorilla/websocket"
+	"github.com/spf13/cobra"
 )
 
 func TestWatchAutomaticallyUpdatesWithoutHeartbeatOrAgent(t *testing.T) {
@@ -123,6 +124,19 @@ func TestWatchAutomaticallyUpdatesWithoutHeartbeatOrAgent(t *testing.T) {
 	stable := filepath.Join(directory, "eigenflux")
 	if err := os.WriteFile(stable, oldBytes, 0755); err != nil {
 		t.Fatal(err)
+	}
+	if runtime.GOOS == "darwin" {
+		// Model a successful host check moments before Gemini sees newer signed Skills.
+		stamp, err := json.Marshal(map[string]any{"attempt": time.Now(), "package_checked": true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(stable+".update.json", stamp, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := updateHeartbeatCLI(&cobra.Command{}, cfg, "0.0.48"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()

@@ -50,7 +50,9 @@ func TestSandboxCertificateBundle(t *testing.T) {
 		args                  []string
 	}{
 		{"default", "", "OSStatus -26276", false, []string{"update"}},
-		{"host", "", "unknown authority", false, []string{"update"}},
+		{"host", "", "OSStatus -26276", false, []string{"update"}},
+		{"host-explicit", bundle, "", true, []string{"update"}},
+		{"sandbox-home", "", "unknown authority", false, []string{"skills", "sync", "--into", filepath.Join(dir, "sandbox-skills")}},
 		{"persisted", "", "unknown authority", false, []string{"update"}},
 		{"trusted", bundle, "", true, []string{"update"}},
 		{"skills", bundle, "", true, []string{"skills", "sync", "--into", filepath.Join(dir, "skills")}},
@@ -62,9 +64,9 @@ func TestSandboxCertificateBundle(t *testing.T) {
 			c := exec.Command("/usr/bin/sandbox-exec", append([]string{"-p", profile, binary}, tc.args...)...)
 			home := t.TempDir()
 			c.Env = append(os.Environ(), "HOME="+home, "EIGENFLUX_HOME="+home, "EIGENFLUX_CDN_URL="+server.URL, "SSL_CERT_FILE="+tc.path)
-			if tc.name == "persisted" || tc.name == "host" {
+			if tc.name == "persisted" || tc.name == "host" || tc.name == "host-explicit" || tc.name == "sandbox-home" {
 				key := "macos_system_ca"
-				if tc.name == "host" {
+				if tc.name != "persisted" {
 					key = "macos_host_maintenance"
 				}
 				setup := exec.Command(binary, "config", "set", "--key", key, "--value", "true")

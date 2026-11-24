@@ -12,6 +12,7 @@ import (
 
 	"cli.eigenflux.ai/internal/config"
 	"github.com/gorilla/websocket"
+	"github.com/spf13/cobra"
 )
 
 const macOSHostMaintenanceKey = "macos_host_maintenance"
@@ -22,7 +23,7 @@ func macOSHostMaintenance(cfg *config.Config) bool {
 
 // Resolve the selected Agent Home after Cobra applies --homedir. Offline commands
 // must not create a configuration file just to look up the TLS preference.
-func configureMacOSTrust() {
+func configureMacOSTrust(command *cobra.Command) {
 	if runtime.GOOS != "darwin" {
 		return
 	}
@@ -34,6 +35,12 @@ func configureMacOSTrust() {
 		cfg, err := config.Load()
 		if err != nil || (cfg.GetKV("macos_system_ca") != "true" && !macOSHostMaintenance(cfg)) {
 			return
+		}
+		if macOSHostMaintenance(cfg) {
+			switch command.CommandPath() {
+			case "eigenflux watch", "eigenflux update":
+				return
+			}
 		}
 		path = "/etc/ssl/cert.pem"
 	}
