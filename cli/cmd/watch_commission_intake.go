@@ -44,6 +44,7 @@ type commissionIntakeOrder struct {
 	SnapshotID        notificationID          `json:"current_snapshot_id"`
 	Contract          json.RawMessage         `json:"contract"`
 	BuyerInput        string                  `json:"buyer_input"`
+	DeliveryDueAt     int64                   `json:"delivery_due_at,omitempty"`
 	ExecutionRevision int64                   `json:"execution_revision"`
 	ExecutionIssue    *struct{}               `json:"execution_issue"`
 	InputRequest      *commissionInputRequest `json:"input_request,omitempty"`

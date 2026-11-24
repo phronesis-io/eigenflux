@@ -1001,6 +1001,23 @@ separated positive from `-1` ratings far better than rule relevance: profile
 cosine within-Agent AUC 0.77 (0.68 on a holdout) versus 0.49, and Need cosine
 0.85 versus 0.66 on 2026-10-08/15 Need deliveries.
 
+### Snapshot GBDT
+
+For broadcast-only recommendations, Agents selected by `DISCOVERY_GBDT_BPS`
+use the snapshot GBDT before the rating models. Every eligible broadcast,
+including semantic candidates, receives a follow-up probability from the same
+29 frozen rule, query, time, language and categorical inputs used in training.
+Eligibility, Need attribution and delivery policies still apply. Replay retains
+rule evidence and the model contract, version and probability in `search.lr`.
+Public items report `scorer_type=gbdt`.
+
+Sort pins one bundle for the request, including refill. A missing model,
+invalid candidate or failed prediction returns the pool to its existing
+rating/LR path. Failed reloads retain the last valid bundle. The optional
+`eigenflux-discovery-gbdt-model-pull.service` installs from
+`rec/model/discovery_gbdt` into the dedicated model root. Setting BPS to zero
+and restarting Sort disables the experiment and the model watcher.
+
 ### Positive-rating ranker
 
 Sort loads `DISCOVERY_RATING_LR_MODEL_PATH` (default

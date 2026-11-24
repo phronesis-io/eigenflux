@@ -23,6 +23,11 @@ func New(enabled bool, path string, interval time.Duration) *Manager {
 	return newManager(Contract, enabled, path, interval)
 }
 
+// NewSnapshot watches the exported discovery snapshot GBDT bundle.
+func NewSnapshot(enabled bool, path string, interval time.Duration) *Manager {
+	return newManager(SnapshotContract, enabled, path, interval)
+}
+
 // NewRating serves the discovery_rating_lr_v1 positive-rating model.
 func NewRating(path string, interval time.Duration) *Manager {
 	return newManager(RatingContract, true, path, interval)
@@ -62,6 +67,8 @@ func newManager(contract string, enabled bool, path string, interval time.Durati
 // outcome keeps the original follow-up labels and prefixes rating outcomes by contract.
 func (m *Manager) outcome(result string) string {
 	switch m.contract {
+	case SnapshotContract:
+		return "gbdt_" + result
 	case RatingContract:
 		return "rating_" + result
 	case RatingV2Contract:
@@ -89,7 +96,23 @@ func (m *Manager) Close() { m.once.Do(func() { close(m.stop) }); <-m.done }
 // ScoreBatch is all-or-nothing so malformed evidence never mixes probabilities
 // and rule scores inside the same request's broadcast ranking pool.
 func (m *Manager) ScoreBatch(vectors [][]float64) ([]Result, bool) {
+	return m.current.Load().ScoreBatch(vectors)
+}
+
+type BatchScorer interface {
+	ScoreBatch([][]float64) ([]Result, bool)
+}
+
+// Pin captures the current bundle across both selection passes of a request.
+func (m *Manager) Pin() BatchScorer {
 	current := m.current.Load()
+	if current == nil {
+		return nil
+	}
+	return current
+}
+
+func (current *model) ScoreBatch(vectors [][]float64) ([]Result, bool) {
 	if current == nil {
 		return nil, false
 	}

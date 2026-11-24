@@ -68,7 +68,7 @@ const (
 
 // experimentArms records the intent-to-treat arm of every running
 // recommendation experiment, keyed by its salt without the trailing colon.
-func (e *Engine) experimentArms(owner int64) map[string]string {
+func (e *Engine) experimentArms(owner int64, kinds []Kind) map[string]string {
 	arms := map[string]string{}
 	assign := func(salt string, bps int) {
 		if bps <= 0 {
@@ -83,6 +83,9 @@ func (e *Engine) experimentArms(owner int64) map[string]string {
 	}
 	assign(needRelativeSalt, e.NeedRelativeBPS)
 	assign(ratingNextSalt, e.RatingNextBPS)
+	if len(kinds) == 1 && kinds[0] == Broadcast {
+		assign(gbdtSalt, e.GBDTBPS)
+	}
 	if len(arms) == 0 {
 		return nil
 	}

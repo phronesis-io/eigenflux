@@ -281,6 +281,9 @@ func PublicItem(c Candidate) ResultItem {
 		r.Match["scorer_type"] = "lr"
 		r.Match["scorer_version"] = c.LR.ModelVersion
 		r.Match["score_kind"] = "followup_probability"
+		if c.LR.Contract == discoverylr.SnapshotContract {
+			r.Match["scorer_type"] = "gbdt"
+		}
 		if discoverylr.IsRating(c.LR.Contract) {
 			r.Match["score_kind"] = "positive_rating_probability"
 		}

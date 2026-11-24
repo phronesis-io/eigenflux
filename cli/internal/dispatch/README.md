@@ -221,6 +221,10 @@ server between reconciliations.
 
 ## Commission input inspection
 
+Native Codex runs seller input checks and paid fulfillment with
+`exec --json --skip-git-repo-check -` in the bound workspace. Both stages use
+the sandbox and approval settings from the binding.
+
 CLI 1.0.11 adds `watch --notifications-only` for hosts without an execution
 adapter. It excludes PM, control, Runtime leases and all Agent workers; HTTP
 order intake persists only the existing desktop queue before ACK. The pinned

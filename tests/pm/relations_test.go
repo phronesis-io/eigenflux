@@ -12,6 +12,7 @@ import (
 
 	"eigenflux_server/pkg/config"
 	"eigenflux_server/tests/testutil"
+	"github.com/stretchr/testify/require"
 )
 
 func cleanRelationsData(t *testing.T, agentIDs ...int64) {
@@ -653,11 +654,24 @@ func TestListFriendRequests_Success(t *testing.T) {
 	uidB, _ := strconv.ParseInt(agentB["agent_id"].(string), 10, 64)
 	defer cleanRelationsData(t, uidA, uidB)
 
-	// A sends request to B with greeting
-	testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
-		"to_uid":   agentB["agent_id"].(string),
-		"greeting": "Hello from Agent A!",
-	}, agentA["token"].(string))
+	limits := testutil.DoGet(t, "/api/v1/relations/limits", "")
+	greetingLimit := limits["data"].(map[string]interface{})["greeting"].(map[string]interface{})
+	if greetingLimit["max_weighted_characters"] != float64(400) || greetingLimit["counting"] != "cjk_2_other_1" {
+		t.Fatalf("unexpected greeting limit: %+v", greetingLimit)
+	}
+	greeting := strings.Repeat("猫", 199) + "a🐈"
+	apply := func(text string) map[string]interface{} {
+		return testutil.DoPost(t, "/api/v1/relations/apply", map[string]interface{}{
+			"to_uid":   agentB["agent_id"].(string),
+			"greeting": text,
+		}, agentA["token"].(string))
+	}
+	if resp := apply(greeting + "!"); resp["code"] != float64(400) {
+		t.Fatalf("expected rejection for oversized greeting, got %+v", resp)
+	}
+	if resp := apply(greeting); resp["code"] != float64(0) {
+		t.Fatalf("expected success at the advertised limit, got %+v", resp)
+	}
 
 	// B lists incoming requests
 	resp := testutil.DoGet(t, "/api/v1/relations/applications?direction=incoming", agentB["token"].(string))
@@ -673,10 +687,49 @@ func TestListFriendRequests_Success(t *testing.T) {
 	}
 
 	reqData := requests[0].(map[string]interface{})
-	if reqData["greeting"] != "Hello from Agent A!" {
-		t.Fatalf("expected greeting='Hello from Agent A!', got %v", reqData["greeting"])
+	if reqData["greeting"] != greeting {
+		t.Fatalf("greeting did not round trip at the limit: %v", reqData["greeting"])
 	}
-	t.Logf("List friend requests with greeting successful")
+	defer cleanPMData(t, uidA, uidB)
+	defer testutil.TestDB.Exec("DELETE FROM friend_conversation_openings WHERE request_id = $1", reqData["request_id"])
+	accepted := testutil.DoPost(t, "/api/v1/relations/handle", map[string]interface{}{
+		"request_id": reqData["request_id"], "action": 1,
+	}, agentB["token"].(string))
+	require.Equal(t, float64(0), accepted["code"], "%v", accepted)
+	expectedNote := map[string]interface{}{
+		"request_id": reqData["request_id"], "created_at": reqData["created_at"],
+		"sender_agent_id": agentA["agent_id"], "greeting": greeting,
+	}
+	for _, pair := range [][2]map[string]interface{}{{agentA, agentB}, {agentB, agentA}} {
+		friends := testutil.DoGet(t, "/api/v1/relations/friends", pair[0]["token"].(string))
+		require.Equal(t, float64(0), friends["code"], "%v", friends)
+		var peer map[string]interface{}
+		for _, raw := range friends["data"].(map[string]interface{})["friends"].([]interface{}) {
+			row := raw.(map[string]interface{})
+			if row["agent_id"] == pair[1]["agent_id"] {
+				peer = row
+				break
+			}
+		}
+		require.NotNil(t, peer)
+		require.Nil(t, peer["conv_id"])
+		require.Equal(t, expectedNote, peer["friend_request_note"])
+	}
+	const message = "First direct message after accepting"
+	sent := testutil.DoPost(t, "/api/v1/pm/send", map[string]interface{}{
+		"receiver_id": agentA["agent_id"], "content": message,
+	}, agentB["token"].(string))
+	require.Equal(t, float64(0), sent["code"], "%v", sent)
+	convID := sent["data"].(map[string]interface{})["conv_id"].(string)
+	for _, participant := range []map[string]interface{}{agentA, agentB} {
+		history := testutil.DoGet(t, "/api/v1/pm/history?conv_id="+convID, participant["token"].(string))
+		require.Equal(t, float64(0), history["code"], "%v", history)
+		data := history["data"].(map[string]interface{})
+		require.Equal(t, expectedNote, data["friend_request_note"])
+		messages := data["messages"].([]interface{})
+		require.Len(t, messages, 1)
+		require.Equal(t, message, messages[0].(map[string]interface{})["content"])
+	}
 }
 
 // Test 15: List friends with remark
@@ -1725,6 +1778,12 @@ func TestSendFriendRequest_MutualWithRemarks(t *testing.T) {
 		t.Fatalf("expected 1 friend for B after mutual requests, got %d", len(friendsB))
 	}
 	friendMapB := friendsB[0].(map[string]interface{})
+	for _, friend := range []map[string]interface{}{friendMapA, friendMapB} {
+		note, ok := friend["friend_request_note"].(map[string]interface{})
+		if !ok || note["sender_agent_id"] != agentA["agent_id"] || note["greeting"] != "Hi from A" {
+			t.Fatalf("mutual acceptance must keep the original pending greeting: %#v", note)
+		}
+	}
 	remarkB, _ := friendMapB["remark"].(string)
 	if remarkB != "B's label for A" {
 		t.Fatalf("expected B's remark for A to be 'B's label for A', got '%s'", remarkB)

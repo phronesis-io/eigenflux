@@ -304,7 +304,10 @@ func (s *Service) putOnboardingDraft(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusBadRequest, "INVALID_DRAFT", normalizeErr.Error(), nil)
 		return
 	}
-	req.Draft = normalizedDraft
+	if err := normalizeDraftIntentPriorities(draftObject); err != nil {
+		fail(c, http.StatusBadRequest, "INVALID_DRAFT", err.Error(), nil)
+		return
+	}
 	actorType := "agent_prefill"
 	if _, console := c.Get("console_session_id"); console {
 		actorType = "human_edit"
@@ -318,7 +321,7 @@ func (s *Service) putOnboardingDraft(_ context.Context, c *app.RequestContext) {
 		req.FieldProvenance = nil
 	}
 	provenanceRequestJSON, _ := json.Marshal(req.FieldProvenance)
-	requestHash := hashString(fmt.Sprintf("%d:%s:%s:%s", req.ExpectedRevision, req.Draft, provenanceRequestJSON, actorType))
+	requestHash := hashString(fmt.Sprintf("%d:%s:%s:%s", req.ExpectedRevision, normalizedDraft, provenanceRequestJSON, actorType))
 	response := putDraftResponse{FieldProvenance: map[string]fieldProvenance{}, BlockedPaths: []string{}}
 	now := time.Now().UnixMilli()
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -452,6 +455,38 @@ type identityCardDraft struct {
 	InterestsNegative []string `json:"interests_negative"`
 }
 
+// Normalize submitted values before they are merged into saved drafts. Older
+// draft revisions are decoded separately when the user confirms step 4.
+func normalizeDraftIntentPriorities(draft map[string]interface{}) error {
+	for section, raw := range draft {
+		if !strings.EqualFold(section, "intent_actions") || raw == nil {
+			continue
+		}
+		items, ok := raw.([]interface{})
+		if !ok {
+			return errors.New("intent_actions must be a JSON array")
+		}
+		for index, item := range items {
+			intent, ok := item.(map[string]interface{})
+			if !ok {
+				return fmt.Errorf("intent_actions[%d] must be a JSON object", index)
+			}
+			for field, value := range intent {
+				if !strings.EqualFold(field, "priority") {
+					continue
+				}
+				encoded, err := json.Marshal(value)
+				var priority onboardingIntentPriority
+				if err != nil || json.Unmarshal(encoded, &priority) != nil {
+					return fmt.Errorf("intent_actions[%d].priority must be a JSON integer from -32768 to 32767", index)
+				}
+				intent[field] = float64(priority)
+			}
+		}
+	}
+	return nil
+}
+
 // onboardingIntentPriority accepts integer strings and legacy labels in drafts.
 type onboardingIntentPriority int16
 
@@ -473,6 +508,9 @@ func (p *onboardingIntentPriority) UnmarshalJSON(data []byte) error {
 	case "medium", "normal":
 		*p = 5
 		return nil
+	case "low":
+		*p = 0
+		return nil
 	}
 	priority, err := strconv.ParseInt(value, 10, 16)
 	if err != nil {
@@ -481,7 +519,7 @@ func (p *onboardingIntentPriority) UnmarshalJSON(data []byte) error {
 			failure.reason = "integer_out_of_range"
 		}
 		switch label {
-		case "low", "高", "中", "低":
+		case "高", "中", "低":
 			failure.label = label
 		}
 		return failure

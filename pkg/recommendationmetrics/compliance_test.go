@@ -886,3 +886,103 @@ func TestPostgresCoverageBasisSnapshotAndIngestion(t *testing.T) {
 		t.Fatal(unknown)
 	}
 }
+
+func TestPostgresBroadcastPublication(t *testing.T) {
+	c := complianceDB(t)
+	b, err := os.ReadFile("../../migrations/000141_broadcast_feedback_periods.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	up, down, _ := strings.Cut(string(b), "-- +goose Down")
+	ctx := context.Background()
+	first := instant("2026-11-17T00:00:00+08:00")
+	for i := 0; i < 6; i++ {
+		if err := FinalizeMatureComplianceDay(ctx, c, first.AddDate(0, 0, i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	complianceExec(t, c, up)
+	count := func(want int) {
+		t.Helper()
+		var n int
+		if err := c.QueryRow("SELECT count(*) FROM broadcast_feedback_periods").Scan(&n); err != nil || n != want {
+			t.Fatalf("publications %d, want %d: %v", n, want, err)
+		}
+	}
+	count(0)
+	cutoff := first.AddDate(0, 0, 6)
+	if err := FinalizeMatureComplianceDay(ctx, c, cutoff); err != nil {
+		t.Fatal(err)
+	}
+	count(1)
+	if err := FinalizeMatureComplianceDay(ctx, c, cutoff.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	count(1)
+	complianceExec(t, c, "UPDATE feedback_compliance_daily SET snapshot_at=snapshot_at WHERE day='2026-11-20'")
+	count(1)
+	tx, err := c.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec("UPDATE feedback_compliance_daily SET snapshot_at=snapshot_at+interval '1 minute' WHERE day='2026-11-20'"); err != nil {
+		t.Fatal(err)
+	}
+	count(1)
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	count(1)
+	complianceExec(t, c, "UPDATE feedback_compliance_daily SET snapshot_at=snapshot_at+interval '1 minute' WHERE day='2026-11-20'")
+	count(2)
+	var week string
+	if err := c.QueryRow("SELECT period_start::text FROM grafana_broadcast_feedback_periods").Scan(&week); err != nil || week != "2026-11-16" {
+		t.Fatalf("period %s: %v", week, err)
+	}
+	complianceExec(t, c, down)
+	complianceExec(t, c, up)
+	count(1)
+}
+
+// Transactions writing adjacent days must see each other's commits before
+// deciding whether the shared seven-day window is ready.
+func TestPostgresConcurrentBroadcastPublication(t *testing.T) {
+	c := complianceDB(t)
+	b, err := os.ReadFile("../../migrations/000141_broadcast_feedback_periods.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	up, _, _ := strings.Cut(string(b), "-- +goose Down")
+	complianceExec(t, c, up)
+	first := instant("2026-11-17T00:00:00+08:00")
+	ctx := context.Background()
+	for i := 0; i < 7; i++ {
+		if err := FinalizeMatureComplianceDay(ctx, c, first.AddDate(0, 0, i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	firstWriter, err := c.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer firstWriter.Rollback()
+	update := `UPDATE feedback_compliance_daily SET snapshot_at=snapshot_at+interval '1 minute'
+ WHERE day=$1::date AND dimension='all' AND value='all'`
+	if _, err := firstWriter.Exec(update, "2026-11-19"); err != nil {
+		t.Fatal(err)
+	}
+	secondDone := make(chan error, 1)
+	go func() { _, err := c.Exec(update, "2026-11-20"); secondDone <- err }()
+	if err := firstWriter.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatal(err)
+	}
+	var consistent bool
+	err = c.QueryRow(`SELECT inputs=(SELECT array_agg(snapshot_at ORDER BY day) FROM feedback_compliance_daily WHERE dimension='all' AND value='all')
+ FROM broadcast_feedback_periods WHERE period_start='2026-11-16' ORDER BY version DESC LIMIT 1`).Scan(&consistent)
+	if err != nil || !consistent {
+		t.Fatalf("stale publication after concurrent corrections: %v", err)
+	}
+}

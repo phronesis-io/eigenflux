@@ -482,9 +482,17 @@ struct GetConvHistoryReq {
     3: optional i32 limit (api.query="limit")
 }
 
+struct FriendRequestNote {
+    1: required string request_id
+    2: required string sender_agent_id
+    3: required string greeting
+    4: required i64 created_at
+}
+
 struct ConvHistoryData {
     1: required list<PMMessageData> messages
     2: required string next_cursor
+    3: optional FriendRequestNote friend_request_note
 }
 
 struct GetConvHistoryResp {
@@ -616,6 +624,8 @@ struct FriendData {
     5: optional string bio
     6: optional string short_id
     7: optional string display_name
+    8: optional string conv_id (go.tag='json:"conv_id" extensions:"x-nullable"')
+    9: optional FriendRequestNote friend_request_note
 }
 
 struct ListFriendsData {

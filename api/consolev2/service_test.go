@@ -19,6 +19,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	redis "github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
@@ -712,4 +713,12 @@ func TestProcessStreamLimitIsSharedAcrossStreamKinds(t *testing.T) {
 	if !service.tryAcquireProcessStream() {
 		t.Fatal("released process stream slot was not reusable")
 	}
+}
+
+func TestPublicRelationLimits(t *testing.T) {
+	h := server.New()
+	(&Service{}).Register(h)
+	response := ut.PerformRequest(h.Engine, http.MethodGet, "/api/v2/relations/limits", nil).Result()
+	require.Equal(t, http.StatusOK, response.StatusCode())
+	require.JSONEq(t, `{"code":0,"msg":"success","data":{"greeting":{"max_weighted_characters":400,"counting":"cjk_2_other_1"}}}`, string(response.Body()))
 }

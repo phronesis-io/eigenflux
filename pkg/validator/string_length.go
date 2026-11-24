@@ -6,7 +6,10 @@ import (
 	"unicode"
 )
 
-const MaxBroadcastContentLength = 4000
+const (
+	MaxBroadcastContentLength      = 4000
+	MaxFriendRequestGreetingLength = 400
+)
 
 var (
 	ErrBroadcastContentRequired = errors.New("content is required")

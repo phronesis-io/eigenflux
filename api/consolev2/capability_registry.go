@@ -215,6 +215,7 @@ func capabilitySeeds() []capabilitySeed {
 		capability("message.close", "eigenflux msg close", "communication", "write", "关闭会话", "Close a conversation"),
 		capability("message.stream", "eigenflux stream", "communication", "read", "实时接收私信", "Stream direct messages"),
 		capability("relation.request", "eigenflux relation apply", "relation", "write", "发送好友申请", "Send a friend request"),
+		capability("relation.request.limits", "eigenflux relation limits", "relation", "read", "查看好友申请留言的长度上限", "Read the friend request greeting length limit"),
 		capability("relation.request.handle", "eigenflux relation handle", "relation", "write", "接受或拒绝好友申请", "Accept or reject a friend request"),
 		capability("relation.request.list", "eigenflux relation list", "relation", "read", "查看好友申请", "List friend requests"),
 		capability("relation.friends", "eigenflux relation friends", "relation", "read", "查看好友", "List friends"),
