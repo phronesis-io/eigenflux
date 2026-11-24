@@ -40,7 +40,7 @@ $$;
 CREATE FUNCTION publish_final_feedback_day() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     -- Adjacent delivery days may complete on separate connections but share periods.
-    PERFORM pg_advisory_xact_lock(140, 1);
+    PERFORM pg_advisory_xact_lock(141, 1);
     PERFORM publish_broadcast_feedback(NEW.day-4, NEW.day+2, 'final delivery day ' || NEW.day);
     RETURN NULL;
 END

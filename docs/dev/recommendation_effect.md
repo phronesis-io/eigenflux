@@ -444,7 +444,7 @@ batch supply effects and legacy-contract model behavior require separate analysi
 
 Every minute pipeline-cron checks the delivery day that has just passed its
 Shanghai day+3 boundary. The existing per-day transaction also publishes each
-complete overlapping seven-day observation period through migration 000140.
+complete overlapping seven-day observation period through migration 000141.
 Manual backfills use the same trigger. Each revision stores its seven source
 cutoffs, counts, cause and publication timestamp. Grafana reads only the latest
 revision per period through `grafana_broadcast_feedback_periods`. A seven-day

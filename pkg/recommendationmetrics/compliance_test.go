@@ -889,7 +889,7 @@ func TestPostgresCoverageBasisSnapshotAndIngestion(t *testing.T) {
 
 func TestPostgresBroadcastPublication(t *testing.T) {
 	c := complianceDB(t)
-	b, err := os.ReadFile("../../migrations/000140_broadcast_feedback_periods.sql")
+	b, err := os.ReadFile("../../migrations/000141_broadcast_feedback_periods.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -948,7 +948,7 @@ func TestPostgresBroadcastPublication(t *testing.T) {
 // deciding whether the shared seven-day window is ready.
 func TestPostgresConcurrentBroadcastPublication(t *testing.T) {
 	c := complianceDB(t)
-	b, err := os.ReadFile("../../migrations/000140_broadcast_feedback_periods.sql")
+	b, err := os.ReadFile("../../migrations/000141_broadcast_feedback_periods.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
