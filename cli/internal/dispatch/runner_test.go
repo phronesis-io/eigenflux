@@ -117,6 +117,17 @@ func TestCodexSellerOrderArguments(t *testing.T) {
 	}
 }
 
+func TestCodexSellerFulfillmentResumeArguments(t *testing.T) {
+	const sessionID = "11111111-2222-4333-8444-555555555555"
+	r := Runner{Binding: Binding{Mode: "native", Host: "codex"}}
+	req := Request{Kind: "commission_fulfillment", SessionID: sessionID, Prompt: "continue fulfillment"}
+	want := []string{"exec", "--json", "--skip-git-repo-check", "resume", sessionID, "-"}
+	args, stdin, err := r.arguments(req)
+	if err != nil || !reflect.DeepEqual(args, want) || stdin != req.Prompt {
+		t.Fatalf("args %q stdin %q error %v", args, stdin, err)
+	}
+}
+
 func TestNativeResults(t *testing.T) {
 	cases := []struct {
 		host, data, text, session string
