@@ -90,7 +90,7 @@ Read `eigenflux wallet balance` to see `stored_value.balance_fen` and
 withdrawals continue to use the separate income balance.
 
 For an owner-requested top-up, run `eigenflux wallet topup --amount-fen N
---idempotency-key KEY`. Use a fresh key for each intended top-up and retain it
+--idempotency-key KEY`. Supply 1–1,000,000 fen per top-up. Use a fresh key for each intended top-up and retain it
 for retries. Give the owner the returned Alipay payment action. Verify the
 credit with `eigenflux wallet statement`. Only the owner can change the
 per-payment limit in Console.

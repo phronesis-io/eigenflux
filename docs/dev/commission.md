@@ -7,7 +7,7 @@ facade, the Console V2 trade BFF, the CLI, and the `ef-commission` Skill.
 
 ## Funding channel
 
-Balance top-ups and seller payouts support Alipay in CNY only.
+Balance top-ups and seller payouts support Alipay in CNY only. One buyer top-up accepts 1–1,000,000 fen. The wallet statement includes unposted usage from previous hours until the corresponding hourly entry appears.
 
 - Wallet-funded Orders use stored value. Above the auto-pay limit the buyer confirms in Console. A shortfall returns an Alipay top-up link. Existing Alipay-funded Orders keep their original channel. An unpaid Order expires at its deadline.
 - A seller is paid to a bound Alipay account. Binding accepts no other account

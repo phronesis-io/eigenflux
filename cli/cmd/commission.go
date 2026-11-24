@@ -88,6 +88,11 @@ func addIdempotencyFlag(command *cobra.Command) {
 	command.Flags().String("idempotency-key", "", "explicit idempotency key (stable key generated when omitted)")
 }
 
+func addRequiredIdempotencyFlag(command *cobra.Command) {
+	command.Flags().String("idempotency-key", "", "required 1–64 byte key; reuse the same key when retrying")
+	_ = command.MarkFlagRequired("idempotency-key")
+}
+
 func numericArgument(args []string, kind string) (int64, error) {
 	id, err := strconv.ParseInt(args[0], 10, 64)
 	if err != nil || id <= 0 {

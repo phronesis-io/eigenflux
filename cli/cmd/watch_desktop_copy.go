@@ -251,9 +251,9 @@ func commissionDesktopCopy(language, notificationType string, payload orderNotif
 		var zh, en string
 		switch {
 		case key == "pending_payment" && payload.WaitReason == "confirm":
-			zh, en = "请在 Console 确认本订单付款。", "Confirm this Order payment in Console."
+			zh, en = "请在 {payment_due} 前到 Console 确认本订单付款。", "Confirm this Order payment in Console by {payment_due}."
 		case key == "pending_payment" && payload.WaitReason == "topup":
-			zh, en = "余额不足，请打开订单获取充值链接。", "Open the Order to top up the balance shortfall."
+			zh, en = "余额不足，请在 {payment_due} 前打开订单并充值。", "Open the Order and top up the balance shortfall by {payment_due}."
 		case key == "refunded" || key == "order.refund.completed.v1":
 			switch payload.FundingSource {
 			case "alipay":

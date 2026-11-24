@@ -101,6 +101,11 @@ func TestConsoleAuthInvalidSessionsRemainUnauthorized(t *testing.T) {
 			}
 			h := server.New()
 			h.GET("/read", f.service.consoleAuth(false), func(_ context.Context, c *app.RequestContext) { t.Error("invalid session reached handler") })
+			h.GET("/wallet/pay/:id", f.service.ConsolePageHandlers(func(_ context.Context, c *app.RequestContext) { t.Fatal("anonymous user reached page") })...)
+			page := ut.PerformRequest(h.Engine, "GET", "/wallet/pay/11", nil, ut.Header{Key: "Cookie", Value: tc.cookie}).Result()
+			if page.StatusCode() != 303 || string(page.Header.Peek("Location")) != "/dashboard/login" {
+				t.Fatalf("login redirect: %d %s", page.StatusCode(), page.Header.Peek("Location"))
+			}
 			status, payload, _ := performJSON(t, h, http.MethodGet, "/read", nil, ut.Header{Key: "Cookie", Value: tc.cookie})
 			if status != 401 || responseErrorCode(t, payload) != tc.code {
 				t.Fatalf("invalid session=%d %#v", status, payload)

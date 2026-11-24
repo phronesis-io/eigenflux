@@ -476,8 +476,8 @@ func registerConsoleV2BusinessBFF(h *server.Hertz, service *consolev2.Service, c
 	read("items/:item_id", apihandler.GetItem)
 
 	registerCommissionConsoleBFFRoutes(read, write, commissionAccess.ConsoleMiddleware(), trade)
-	h.GET("/api/v2/console/wallet", service.ConsoleBFFHandlers(false, commissionAccess.ConsoleMiddleware(), tradebff.WalletPage)...)
-	h.GET("/api/v2/console/wallet/pay/:order_id", service.ConsoleBFFHandlers(false, commissionAccess.ConsoleMiddleware(), trade.OrderPaymentPage)...)
+	h.GET("/api/v2/console/wallet", service.ConsolePageHandlers(commissionAccess.ConsoleMiddleware(), tradebff.WalletPage)...)
+	h.GET("/api/v2/console/wallet/pay/:order_id", service.ConsolePageHandlers(commissionAccess.ConsoleMiddleware(), trade.OrderPaymentPage)...)
 	authorization := tradebff.NewAlipayAuthorization(trade, mq.RDB, tradebff.AlipayAuthorizationConfig{AppID: cfg.AlipayAuthAppID, CallbackURL: cfg.AlipayAuthCallbackURL, Production: cfg.AlipayAuthProduction})
 	write(http.MethodPost, "payout-method/alipay/authorizations", commissionAccess.ConsoleMiddleware(), authorization.Start)
 	read("payout-method/alipay/authorizations/:authorization_id", commissionAccess.ConsoleMiddleware(), authorization.Status)

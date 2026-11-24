@@ -144,6 +144,20 @@ func TestStoredValueConfirmationPageAndSignedAmount(t *testing.T) {
 	if c.Response.StatusCode() != 200 || !strings.Contains(html, "¥3.99") || !strings.Contains(html, "&lt;unsafe&gt;") || mutated {
 		t.Fatalf("invalid read-only page %s", html)
 	}
+	for _, lang := range []string{"en", "zh-CN"} {
+		c = paymentContext("44", "", "", true)
+		c.Request.Header.Set("Accept-Language", lang)
+		s.OrderPaymentPage(context.Background(), c)
+		if got := string(c.Response.Body()); !strings.Contains(got, `lang="`+lang+`"`) || (lang == "en") != strings.Contains(got, "Confirm order payment") {
+			t.Fatal(got)
+		}
+		c = paymentContext("44", "", "", true)
+		c.Request.Header.Set("Accept-Language", lang)
+		WalletPage(context.Background(), c)
+		if got := string(c.Response.Body()); c.Response.StatusCode() != 200 || !strings.Contains(got, `lang="`+lang+`"`) || (lang == "en") != strings.Contains(got, "Pending usage") {
+			t.Fatal(got)
+		}
+	}
 	c = paymentContext("45", body, "confirm-44", true)
 	s.ConfirmOrderPayment(context.Background(), c)
 	if c.Response.StatusCode() != 400 || mutated {

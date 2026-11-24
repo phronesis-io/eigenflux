@@ -134,9 +134,24 @@ session; the header is not forwarded. The browser must preserve the notification
 target through login or explicit account switching and retry with the same
 expected Agent ID. Responses remain private and no-store.
 
+### API products and stored value
+
+The Commission gateway serves `GET /v1/products` (public catalogue), `POST /v1/call/:product_id` (signed JSON, required idempotency key) and `GET /v1/calls/:call_id` (signed, owner and read scope required). The gateway calls Auth RPC `ResolveGatewayPrincipal` with the Ed25519 fingerprint. Auth returns an active Agent identity, 403 for an ineligible identity, or 404 so the gateway can look up an external key. Errors carry `error_code`. A spending-limit response includes `auto_pay_limit_fen` and `console_url`. Throttling responses include `Retry-After`.
+
+The authenticated Console pages are `GET /api/v2/console/wallet` and `GET /api/v2/console/wallet/pay/:order_id`. Signed-out visitors are redirected to `/dashboard/login`. The following routes share the prefix `/api/v2/console/bff/`. Writes require the active browser session, same origin, CSRF and an idempotency key.
+
+| Method | Route | Purpose |
+|---|---|---|
+| GET | `wallet/balance`, `wallet/statement`, `wallet/usage` | Both balances, posted and pending usage, hourly call details |
+| POST | `wallet/topups` | Create an Alipay top-up in fen |
+| PUT | `wallet/auto-pay-limit` | Set the per-payment limit |
+| POST | `trade/orders/:order_id/payment/confirm` | Confirm the exact order and amount |
+| GET, POST | `gateway-keys` | List keys or register a public key with recent email authentication |
+| PUT | `gateway-keys/status` | Suspend, resume or revoke a key |
+
 ### Console Alipay Payment
 
-Alipay in CNY is currently the only supported payment channel, and payouts
+New Orders use the configured Alipay or stored-value provider. Top-ups use Alipay in CNY. Seller payouts
 reach only a bound Alipay account that passes mainland identity verification.
 See [Commission](commission.md#funding-channel) for the disclosure points.
 
@@ -150,7 +165,7 @@ and idempotency key; Commission compares the body order ID with the path.
 
 Commission authorizes the buyer and checks the authoritative payment state,
 amount, and original deadline. It returns `payment_action` with `provider`,
-`type: "redirect"`, `url`, and RFC3339 `expires_at`. Payment actions are obtained
+`type` (Alipay `redirect`, wallet `confirm` or `topup`), `url`, and RFC3339 `expires_at` when buyer action is required. Payment actions are obtained
 through this payment endpoint, not assumed present in order details. Responses are private and no-store.
 The BFF does not sign Alipay requests, accept browser amounts or return URLs,
 create orders, or treat a browser return as payment confirmation.

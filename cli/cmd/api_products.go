@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"cli.eigenflux.ai/internal/output"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
@@ -43,7 +44,7 @@ func newAPIProductsCmd() *cobra.Command {
 		}
 		return gatewayRequest(cmd, http.MethodPost, "/v1/call/"+strconv.FormatInt(id, 10), key, body)
 	}}
-	addIdempotencyFlag(call)
+	addRequiredIdempotencyFlag(call)
 	group.PersistentFlags().String("gateway", "", "override the API product gateway origin")
 	group.AddCommand(products, call)
 	return group
@@ -105,13 +106,32 @@ func gatewayRequest(cmd *cobra.Command, method, path, key string, body []byte) e
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var result struct {
-			ErrorCode string `json:"error_code"`
+			ErrorCode  string `json:"error_code"`
+			Limit      *int64 `json:"auto_pay_limit_fen"`
+			ConsoleURL string `json:"console_url"`
 		}
 		_ = json.NewDecoder(io.LimitReader(resp.Body, 8192)).Decode(&result)
-		return fmt.Errorf("gateway HTTP %d %s", resp.StatusCode, result.ErrorCode)
+		message := fmt.Sprintf("gateway HTTP %d %s", resp.StatusCode, result.ErrorCode)
+		if result.Limit != nil {
+			message += fmt.Sprintf(" auto_pay_limit_fen=%d", *result.Limit)
+		}
+		if result.ConsoleURL != "" {
+			message += fmt.Sprintf(" console_url=%q", result.ConsoleURL)
+		}
+		if after := resp.Header.Get("Retry-After"); after != "" {
+			message += fmt.Sprintf(" Retry-After=%q", after)
+		}
+		return fmt.Errorf("%s", message)
 	}
-	_, err = io.Copy(cmd.OutOrStdout(), resp.Body)
-	return err
+	var raw json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return err
+	}
+	if resolveFormat() == "table" {
+		return printTableJSONTo(cmd.OutOrStdout(), raw)
+	}
+	output.PrintDataTo(cmd.OutOrStdout(), raw, resolveFormat())
+	return nil
 }
 
 func init() { rootCmd.AddCommand(newAPIProductsCmd()) }

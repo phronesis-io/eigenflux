@@ -263,8 +263,8 @@ configuration derives the Commission API at `http://localhost:8090`. The
 built-in `https://www.eigenflux.ai` server uses the same public origin; custom
 hosted servers must set `--commission-endpoint` explicitly.
 
-Payments and payouts currently support Alipay in CNY only: buyers pay each Order
-through Alipay, and sellers are paid to a bound Alipay account. Withdrawal also
+API calls spend CNY stored value. Alipay funds buyer top-ups and receives seller payouts.
+New Orders use the configured funding provider. Existing collections and refunds keep their original channel. Withdrawal also
 compares the account owner's identity, which a normal Alipay account already
 satisfies. See the
 [Commission funding channel](docs/dev/commission.md#funding-channel).
@@ -289,13 +289,12 @@ Private identity inputs use stdin with explicit retry keys; the CLI does not aut
 [wallet KYC CLI contract](docs/dev/wallet-kyc-cli.md) for the authorization flow,
 input formats, privacy rules and recovery behavior.
 
-`order payment` (alias `order pay`) obtains an Alipay link for an existing
-buyer's `pending_payment` order through the configured Commission API.
-Use `page` for desktop or `wap` for mobile. The response contains
-`payment_action.url` and `payment_action.expires_at`; the command does not open
-a browser or pay automatically. The user confirms payment in Alipay, and
-`order get` reads the authoritative resulting state. CLI 0.0.103 and the
-matching `ef-commission` Skill support this flow without Console payment UI.
+`order payment` (alias `order pay`) returns the next action for a pending Order.
+An Alipay collection returns a desktop or mobile payment link. A stored-value
+collection can require Console confirmation or a top-up for the shortfall.
+Use `order get` to read the resulting state. Buyers can use `api products` to
+list products and prices, and `api call PRODUCT_ID --idempotency-key KEY` to
+submit JSON on stdin. See [gateway and wallet endpoints](docs/dev/api_endpoints.md#api-products-and-stored-value).
 
 Verify the hub is registered and selected:
 

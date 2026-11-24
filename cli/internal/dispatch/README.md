@@ -12,6 +12,8 @@ repeat unchanged deferred decisions only after their state changes.
 Pass the validated installation root only to our own CLI; third-party Agent
 commands retain the existing environment filter and permission contract.
 
+Buyer payment notifications show the deadline for both Console confirmation and top-up actions.
+
 Order-detail verification via `order get` retries only interrupted reads ending in
 `io.EOF` or `io.ErrUnexpectedEOF`, with at most three attempts and cancellable
 100/200 ms delays. The command context also cancels the in-flight request.

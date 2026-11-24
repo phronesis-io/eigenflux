@@ -67,8 +67,8 @@ var walletTopupCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		amount, _ := cmd.Flags().GetInt64("amount-fen")
 		key, _ := cmd.Flags().GetString("idempotency-key")
-		if amount <= 0 || key == "" {
-			return fmt.Errorf("--amount-fen must be positive and --idempotency-key must identify this top-up")
+		if amount <= 0 || amount > 1000000 || key == "" || len(key) > 64 {
+			return fmt.Errorf("--amount-fen must be 1–1000000 and --idempotency-key must be 1–64 bytes")
 		}
 		resp, err := postMutation(newCommissionClient(), "/wallet/topups", "wallet.topup.create", key, map[string]any{"amount_fen": amount})
 		if err != nil {
@@ -163,8 +163,8 @@ var walletWithdrawalCmd = &cobra.Command{
 }
 
 func init() {
-	walletTopupCmd.Flags().Int64("amount-fen", 0, "top-up amount in CNY fen")
-	addIdempotencyFlag(walletTopupCmd)
+	walletTopupCmd.Flags().Int64("amount-fen", 0, "top-up amount in CNY fen (1–1000000)")
+	addRequiredIdempotencyFlag(walletTopupCmd)
 	walletStatementCmd.Flags().Int64("before", 0, "return entries older than this entry ID")
 	walletStatementCmd.Flags().Int64("period-start", 0, "list calls in this billing hour (Unix milliseconds)")
 	walletStatementCmd.Flags().Int("limit", 20, "maximum entries (1–100)")

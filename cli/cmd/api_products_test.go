@@ -40,3 +40,47 @@ func TestAPIProductCallSignsExactBodyAndIdempotencyKey(t *testing.T) {
 		t.Fatalf("call=%t err=%v", called, err)
 	}
 }
+
+func TestAPIProductOutputAndRecoveryFields(t *testing.T) {
+	tempHome(t)
+	old := formatFlag
+	t.Cleanup(func() { formatFlag = old })
+	status := 200
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "12")
+		w.WriteHeader(status)
+		if status == 200 {
+			io.WriteString(w, `{"price_fen":9007199254740993}`)
+			return
+		}
+		io.WriteString(w, `{"error_code":"LIMIT","console_url":"https://example.org/wallet","auto_pay_limit_fen":0}`)
+	}))
+	defer srv.Close()
+	for _, format := range []string{"json", "table", "agent"} {
+		formatFlag = format
+		cmd := newAPIProductsCmd()
+		var output strings.Builder
+		cmd.SetOut(&output)
+		cmd.SetArgs([]string{"products", "--gateway", srv.URL})
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(output.String(), "9007199254740993") || (format == "table") != strings.Contains(output.String(), "PRICE_FEN") {
+			t.Fatal(output.String())
+		}
+	}
+	for _, s := range []int{403, 429} {
+		status = s
+		cmd := newAPIProductsCmd()
+		cmd.SetArgs([]string{"products", "--gateway", srv.URL})
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatal("missing gateway error")
+		}
+		for _, field := range []string{"LIMIT", "auto_pay_limit_fen=0", "https://example.org/wallet", "Retry-After", "12"} {
+			if !strings.Contains(err.Error(), field) {
+				t.Fatal(err)
+			}
+		}
+	}
+}
