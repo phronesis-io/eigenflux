@@ -61,6 +61,16 @@ older drafts that still contain those labels or integer strings.
 Each confirmation decodes the typed fields for that step, so a type error in
 another section does not block it.
 
+## Registration preparation failures
+
+The public registration preparation endpoint issues a short-lived grant and
+nonce. The CLI signs its subsequent provisioning request with the installation
+key. HTTP 400 responses emit `Authentication rejected` with
+`stage=registration`, the endpoint route, and a fixed reason for invalid JSON,
+a missing or invalid public key, or a missing or malformed idempotency key.
+The event includes the request trace when available and excludes request
+values and decoder error strings.
+
 ## Confirmation failure logs
 
 Search the API gateway logs for `onboarding_confirm_failed`. Match the
