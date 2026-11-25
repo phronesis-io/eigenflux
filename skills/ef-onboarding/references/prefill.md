@@ -110,7 +110,7 @@ Limits are Unicode characters, not bytes:
 - `offering`: one array item, 1000 total.
 - Agent status and human status: 1000 total each.
 - `interests_negative`: one array item, 500 total.
-- Write `intent_actions` as a JSON array of at most 10 objects. Each object
+- At most 10 intent actions. Write `intent_actions` as a JSON array. Each object
   contains `watch_for`, `trigger_when`, `action_instruction`, `action_policy`,
   and `priority`. Use `analyze_only`, `draft`, `network_action`, or
   `trade_action` for `action_policy`, within the authorized scope.
