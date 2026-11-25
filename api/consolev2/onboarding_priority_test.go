@@ -139,7 +139,7 @@ func TestOnboardingDraftWriteRejectionLogsOnlySafeMetadata(t *testing.T) {
 			TraceID: tid, SpanID: trace.SpanID{1},
 		}))
 		c.Set("agent_id", int64(1))
-		c.Set("console_session_id", "secret-test-session")
+		c.Request.Header.Set("Cookie", "secret-test-session")
 		(&Service{}).putOnboardingDraft(ctx, c)
 	})
 	status, payload, _ := performJSON(t, h, "PUT", "/draft", putDraftRequest{
@@ -160,7 +160,7 @@ func TestOnboardingDraftWriteRejectionLogsOnlySafeMetadata(t *testing.T) {
 	}
 	for field, want := range map[string]interface{}{
 		"msg": "onboarding_draft_rejected", "status": float64(400), "code": "INVALID_DRAFT",
-		"stage": "console_save", "field": "intent_actions[1].priority", "reason": "invalid_integer_string", "traceId": traceID,
+		"stage": "agent_save", "field": "intent_actions[1].priority", "reason": "invalid_integer_string", "traceId": traceID,
 	} {
 		if event[field] != want {
 			t.Errorf("%s=%v, want %v", field, event[field], want)
