@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -309,8 +310,9 @@ func (s *Service) putOnboardingDraft(ctx context.Context, c *app.RequestContext)
 		rejectOnboardingDraft(ctx, c, stage, "draft_normalization_failed", normalizeErr)
 		return
 	}
-	if err := normalizeDraftIntentPriorities(draftObject); err != nil {
-		rejectOnboardingDraft(ctx, c, stage, "draft_validation_failed", err)
+	validationErr := normalizeDraftIntentPriorities(draftObject)
+	if validationErr != nil && actorType == provenanceAgent {
+		rejectOnboardingDraft(ctx, c, stage, "draft_validation_failed", validationErr)
 		return
 	}
 	if actorType == provenanceAgent {
@@ -376,6 +378,18 @@ func (s *Service) putOnboardingDraft(ctx context.Context, c *app.RequestContext)
 			return err
 		}
 		incoming := draftObject
+		if validationErr != nil {
+			// The Console sends a complete draft even when it saves an earlier
+			// step. Preserve a legacy intent section only when it is unchanged.
+			// The original normalized JSON predates any priority conversions.
+			incoming, err = decodeJSONObject(normalizedDraft)
+			if err != nil {
+				return err
+			}
+			if !sameOnboardingDraftIntents(previous, incoming) {
+				return validationErr
+			}
+		}
 		provenance := decodeProvenance(json.RawMessage(stored.FieldProvenance))
 		if len(provenance) == 0 && validProvenance(stored.ActorType) {
 			provenance = deriveInitialProvenance(previous, stored.ActorType, nil, now)
@@ -420,6 +434,10 @@ func (s *Service) putOnboardingDraft(ctx context.Context, c *app.RequestContext)
 		case found:
 			err = nil
 		}
+	}
+	if validationErr != nil && errors.Is(err, validationErr) {
+		rejectOnboardingDraft(ctx, c, stage, "draft_validation_failed", validationErr)
+		return
 	}
 	if errors.Is(err, errConflict) {
 		// An idempotent replay can be rejected before the draft row is read.
@@ -510,6 +528,26 @@ func rejectOnboardingDraft(ctx context.Context, c *app.RequestContext, stage, re
 	}
 	logger.Ctx(ctx).Warn("onboarding_draft_rejected", append(fields, "reason", reason)...)
 	fail(c, http.StatusBadRequest, "INVALID_DRAFT", err.Error(), nil)
+}
+
+func sameOnboardingDraftIntents(previous, incoming map[string]interface{}) bool {
+	for key, value := range incoming {
+		if !strings.EqualFold(key, "intent_actions") {
+			continue
+		}
+		old, exists := previous[key]
+		if !exists || !reflect.DeepEqual(value, old) {
+			return false
+		}
+	}
+	for key := range previous {
+		if strings.EqualFold(key, "intent_actions") {
+			if _, exists := incoming[key]; !exists {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // Normalize submitted values before they are merged into saved drafts. Older

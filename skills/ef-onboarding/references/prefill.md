@@ -110,10 +110,11 @@ Limits are Unicode characters, not bytes:
 - `offering`: one array item, 1000 total.
 - Agent status and human status: 1000 total each.
 - `interests_negative`: one array item, 500 total.
-- At most 10 intent actions. Each action contains `watch_for`, `trigger_when`,
-  `action_instruction`, `action_policy`, and `priority`. Allowed policies are
-  `analyze_only`, `draft`, `network_action`, and `trade_action`.
-- Set `intent_actions[].priority` to a JSON integer from -32768 to 32767.
+- At most 10 intent actions. Write `intent_actions` as a JSON array. Each object
+  contains `watch_for`, `trigger_when`, `action_instruction`, `action_policy`,
+  and `priority`. Use `analyze_only`, `draft`, `network_action`, or
+  `trade_action` for `action_policy`, within the authorized scope.
+- Write each `priority` as an unquoted JSON integer from -32768 to 32767.
   Use 0 when the user has no priority preference.
 
 Review every supported draft field against the approved context before submission.
@@ -144,5 +145,9 @@ employer information; never include names, emails, credentials, internal URLs,
 private contacts, or conversation excerpts. Before submission,
 remove identifying combinations and confidential specifics while preserving the
 useful problem, capability, or goal. Omit a detail when safe generalization is
-not possible. Check field types, limits, language, and provenance, then pass this exact draft
-to the Console handoff flow.
+not possible. Before provisioning, parse the exact JSON to be submitted.
+Check every intent is an object with non-empty `watch_for`, a permitted
+`action_policy`, and an integer `priority` in range. Correct only supported
+values. Omit an intent that cannot be represented from the authorized context.
+Recheck field types, limits, language, and provenance after edits, then pass
+the checked draft to the Console handoff flow.

@@ -557,15 +557,55 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		t.Fatalf("email binding verify status=%d payload=%#v", status, bindPayload)
 	}
 
-	status, boundConfirmPayload, _ := performJSON(t, h, "POST", "/api/v2/agents/me/onboarding-draft/confirm", confirmStepRequest{
-		Step: 2, ExpectedOnboardingRevision: 2, IdempotencyKey: "confirm-bound-" + agentID,
-	}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})
-	if status != http.StatusOK {
-		t.Fatalf("email-verified onboarding confirmation status=%d payload=%#v", status, boundConfirmPayload)
-	}
-
+	const saveDraftPath = "/api/v2/console/onboarding-draft"
 	agentAuth := []ut.Header{{Key: "Authorization", Value: "Bearer " + accessToken}}
 	consoleAuth := []ut.Header{{Key: "Cookie", Value: cookieHeader}, {Key: "X-CSRF-Token", Value: csrf}}
+	legacyIntents := json.RawMessage(`[{"watch_for":"One","action_policy":"analyze_only","priority":"high"},{"watch_for":"Two","action_policy":"analyze_only","priority":1.5},"Legacy intent"]`)
+	if err := gdb.Exec(`UPDATE agent_onboarding_drafts
+		SET draft_data = jsonb_set(draft_data, '{intent_actions}', ?::jsonb)
+		WHERE agent_id = ? AND revision = 2`, string(legacyIntents), agentIDInt).Error; err != nil {
+		t.Fatal(err)
+	}
+	legacyDraft := map[string]interface{}{}
+	for k, v := range draft {
+		legacyDraft[k] = v
+	}
+	legacyDraft["intent_actions"] = legacyIntents
+	draftRevision := int64(2)
+	for _, step := range []int16{2, 3} {
+		legacyDraft["network_goal"] = fmt.Sprintf("Legacy onboarding goal at step %d", step)
+		encoded, err := json.Marshal(legacyDraft)
+		if err != nil {
+			t.Fatal(err)
+		}
+		status, savedLegacy, _ := performJSON(t, h, "PUT", saveDraftPath, putDraftRequest{
+			ExpectedRevision: draftRevision, IdempotencyKey: fmt.Sprintf("legacy-save-%d-%s", step, agentID),
+			Draft: encoded,
+		}, consoleAuth...)
+		if status != 200 {
+			t.Fatalf("legacy draft save at step %d: status=%d payload=%v", step, status, savedLegacy)
+		}
+		draftRevision = int64(responseData(t, savedLegacy)["revision"].(float64))
+		var unchanged bool
+		if err := gdb.Raw(`SELECT draft_data->'intent_actions' = ?::jsonb FROM agent_onboarding_drafts
+			WHERE agent_id = ? AND revision = ?`, string(legacyIntents), agentIDInt, draftRevision).Scan(&unchanged).Error; err != nil || !unchanged {
+			t.Fatalf("legacy intents changed at step %d: %v", step, err)
+		}
+		status, confirmed, _ := performJSON(t, h, "POST", "/api/v2/agents/me/onboarding-draft/confirm", confirmStepRequest{
+			Step: step, ExpectedOnboardingRevision: draftRevision, IdempotencyKey: fmt.Sprintf("legacy-confirm-%d-%s", step, agentID),
+		}, consoleAuth...)
+		if status != 200 || responseData(t, confirmed)["current_step"] != float64(step+1) {
+			t.Fatalf("legacy draft confirm at step %d: status=%d payload=%v", step, status, confirmed)
+		}
+		draftRevision = int64(responseData(t, confirmed)["revision"].(float64))
+	}
+	status, blockedLegacy, _ := performJSON(t, h, "POST", "/api/v2/agents/me/onboarding-draft/confirm", confirmStepRequest{
+		Step: 4, ExpectedOnboardingRevision: draftRevision, IdempotencyKey: "legacy-blocked-" + agentID,
+	}, consoleAuth...)
+	if status != 400 || responseErrorCode(t, blockedLegacy) != "CONFIRM_FAILED" {
+		t.Fatalf("invalid legacy intents confirmed: status=%d payload=%v", status, blockedLegacy)
+	}
+
 	for _, route := range []struct {
 		path    string
 		headers []ut.Header
@@ -574,7 +614,7 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 		{"/api/v2/console/onboarding-draft", consoleAuth},
 	} {
 		status, payload, _ := performJSON(t, h, "PUT", route.path, putDraftRequest{
-			ExpectedRevision: 3, IdempotencyKey: "invalid-priority-" + agentID,
+			ExpectedRevision: draftRevision, IdempotencyKey: "invalid-priority-" + agentID,
 			Draft: json.RawMessage(`{"intent_actions":[{},{"priority":"urgent"}]}`),
 		}, route.headers...)
 		if status != 400 || responseErrorCode(t, payload) != "INVALID_DRAFT" ||
@@ -588,9 +628,8 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const saveDraftPath = "/api/v2/console/onboarding-draft"
 	savedRequest := putDraftRequest{
-		ExpectedRevision: 3, IdempotencyKey: "valid-priority-" + agentID,
+		ExpectedRevision: draftRevision, IdempotencyKey: "valid-priority-" + agentID,
 		Draft: editedDraft,
 	}
 	assertDraftConflict := func(request putDraftRequest, reason string, currentRevision int64) {
@@ -667,7 +706,7 @@ func TestConsoleV2ProvisionHandoffAndOnboardingFlow(t *testing.T) {
 	}
 	readInput()
 	revision := savedRevision
-	for step := int16(3); step <= 5; step++ {
+	for step := int16(4); step <= 5; step++ {
 		status, payload, _ := performJSON(t, h, "POST", "/api/v2/agents/me/onboarding-draft/confirm", confirmStepRequest{
 			Step: step, ExpectedOnboardingRevision: revision, IdempotencyKey: "confirm-" + agentID + fmt.Sprint(step),
 		}, ut.Header{Key: "Cookie", Value: cookieHeader}, ut.Header{Key: "X-CSRF-Token", Value: csrf})

@@ -59,7 +59,20 @@ instructions. The CLI forwards draft priorities to the server and reports the
 server's validation error. Step 4 can also confirm
 older drafts that still contain those labels or integer strings.
 Each confirmation decodes the typed fields for that step, so a type error in
-another section does not block it.
+another section does not block it. Console saves can carry forward an
+unchanged legacy intent section, even when it contains invalid data.
+Changed intent sections and Agent writes still require valid values.
+Step 4 requires the user to repair or remove invalid intents before confirmation.
+
+## Registration preparation failures
+
+The public registration preparation endpoint issues a short-lived grant and
+nonce. The CLI signs its subsequent provisioning request with the installation
+key. HTTP 400 responses emit `Authentication rejected` with
+`stage=registration`, the endpoint route, and a fixed reason for invalid JSON,
+a missing or invalid public key, or a missing or malformed idempotency key.
+The event includes the request trace when available and excludes request
+values and decoder error strings.
 
 ## Confirmation failure logs
 

@@ -468,4 +468,13 @@ func TestProvisionLiteralDraftReachesSignedRequest(t *testing.T) {
 		t.Fatalf("expected server to receive the draft unchanged; calls=%d draft=%s", calls, received.Draft)
 	}
 
+	publicKey := received.PublicKey
+	const correctedDraft = `{"intent_actions":[{},{"priority":0}]}`
+	_ = cmd.Flags().Set("draft-json", correctedDraft)
+	if err := agentV2ProvisionCmd.RunE(cmd, nil); err != nil {
+		t.Fatalf("corrected draft failed in the same home: %v", err)
+	}
+	if calls != 6 || string(received.Draft) != correctedDraft || received.PublicKey != publicKey || received.ExpectedAgentID != "agent-1" {
+		t.Fatalf("corrected draft lost the original identity: calls=%d expected agent=%s", calls, received.ExpectedAgentID)
+	}
 }
