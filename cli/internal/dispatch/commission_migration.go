@@ -11,6 +11,9 @@ func (j *Journal) HasRecordedCommissionOrder(orderID string) bool {
 }
 
 func (j *Journal) hasRecordedCommissionOrderLocked(orderID string) bool {
+	if _, ok := j.state.ActiveCommissionReadiness[orderID]; ok {
+		return true
+	}
 	for _, job := range j.state.Jobs {
 		if job.CommissionResult != nil && job.CommissionResult.OrderID == orderID {
 			return true

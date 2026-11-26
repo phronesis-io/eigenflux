@@ -10,7 +10,7 @@ facade, the Console V2 trade BFF, the CLI, and the `ef-commission` Skill.
 Order detail and notification payloads project optional `delivery_review` with
 `submission_number`, `status`, `reason`, `snapshot_id` and `rework_due_at`.
 Statuses are `reviewing`, `changes_requested`, `manual_review`, `passed` and
-`failed`. Console list/detail BFF routes preserve the Commission JSON payload
+`failed`; `closed` records platform closure for a refund. Console list/detail BFF routes preserve the Commission JSON payload
 and integer precision without a field whitelist. CLI 1.0.54 preserves the same
 projection in seller execution and owner notices.
 

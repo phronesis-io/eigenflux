@@ -64,7 +64,12 @@ func (w *accountWatch) deliverCommissionArtifacts(ctx context.Context, job dispa
 			return w.failCommissionDelivery(job, errCommissionDeliveryRejected, "commission_fulfillment_order_changed", session)
 		}
 		uploaded := map[string]bool{}
-		if job.CommissionDelivery.Attempts > 1 || job.CommissionFulfillment != nil {
+		// Before rework submission, current_snapshot_id is the preceding sealed
+		// delivery, never the new mutable upload set. Replay this job's exact
+		// grants/confirms instead: the server pins seller/order/key/size/hash and
+		// returns admitted objects idempotently. Verify the new sealed bytes only
+		// after the matching formal submission advances the Order.
+		if before.DeliveryReview == nil && (job.CommissionDelivery.Attempts > 1 || job.CommissionFulfillment != nil) {
 			uploaded, err = w.verifyCommissionRemoteArtifacts(ctx, api, before, result, true)
 			if err != nil {
 				return w.failCommissionDelivery(job, err, "commission_delivery_verification_unavailable", session)

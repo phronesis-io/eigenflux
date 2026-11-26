@@ -12,7 +12,7 @@ import (
 )
 
 func TestTradeDeliveryReviewPassThroughPreservesFieldsAndSnapshotPrecision(t *testing.T) {
-	for _, status := range []string{"reviewing", "changes_requested", "manual_review", "passed", "failed"} {
+	for _, status := range []string{"reviewing", "changes_requested", "manual_review", "passed", "failed", "closed"} {
 		for _, list := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/list=%v", status, list), func(t *testing.T) {
 				review := fmt.Sprintf(`{"submission_number":1,"status":%q,"reason":"Revise the contracted conclusion","snapshot_id":9007199254740993,"rework_due_at":1795600000000}`, status)

@@ -23,6 +23,10 @@ func validCommissionReadiness(value CommissionReadiness) bool {
 func (j *Journal) CommissionReworkReadiness(orderID string, version int64) (string, *CommissionReadiness) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
+	if readiness, ok := j.state.ActiveCommissionReadiness[orderID]; ok && readiness.Result.OrderVersion < version {
+		readiness.Result.InspectedFiles = append([]string{}, readiness.Result.InspectedFiles...)
+		return readiness.Result.RequestID, &readiness
+	}
 	for _, job := range j.state.Jobs {
 		if job.Kind != "commission_fulfillment" {
 			continue
@@ -41,10 +45,12 @@ func (j *Journal) CommissionReworkReadiness(orderID string, version int64) (stri
 	return "", nil
 }
 
-// Readiness is active business evidence until fulfillment owns a durable copy,
-// not an ordinary completed-job deduplication receipt.
+// Active-order evidence has a separate bound from ordinary completed receipts.
 func commissionReadinessCount(state journalState, completedOnly bool) int {
 	count := 0
+	if !completedOnly {
+		count = len(state.ActiveCommissionReadiness)
+	}
 	for _, job := range state.Jobs {
 		if job.CommissionReadiness != nil && (!completedOnly || completedStatus(job.Status)) {
 			count++
@@ -55,6 +61,10 @@ func commissionReadinessCount(state journalState, completedOnly bool) int {
 
 func clearCommissionReadiness(state *journalState, orderID string) bool {
 	changed := false
+	if _, ok := state.ActiveCommissionReadiness[orderID]; ok {
+		delete(state.ActiveCommissionReadiness, orderID)
+		changed = true
+	}
 	for i := range state.Jobs {
 		if value := state.Jobs[i].CommissionReadiness; value != nil && value.Result.OrderID == orderID {
 			state.Jobs[i].CommissionReadiness = nil
@@ -125,7 +135,13 @@ func (j *Journal) QueueCommissionFromReadiness(id, sourceID, orderID string, ord
 	defer j.mu.Unlock()
 	next := cloneJournal(j.state)
 	var readiness *CommissionReadiness
+	if active, ok := next.ActiveCommissionReadiness[orderID]; ok && active.Result.RequestID == sourceID {
+		readiness = &active
+	}
 	for _, job := range next.Jobs {
+		if readiness != nil {
+			break
+		}
 		if job.ID == sourceID && job.Kind == "commission_order" {
 			readiness = job.CommissionReadiness
 			break
@@ -153,6 +169,7 @@ func (j *Journal) QueueCommissionFromReadiness(id, sourceID, orderID string, ord
 			return errors.New("commission_fulfillment_requires_paid_seller")
 		}
 		payload.IntakeResult, payload.InputFingerprint = readiness.Result, readiness.InputFingerprint
+		payload.IntakeRequestID = readiness.Result.RequestID
 		fulfillmentID := commissionFulfillmentID(j.binding, orderID, payload)
 		found := false
 		for _, existing := range next.Jobs {
@@ -175,9 +192,13 @@ func (j *Journal) QueueCommissionFromReadiness(id, sourceID, orderID string, ord
 			}
 			next.Jobs = append(next.Jobs, j.newHint(fulfillmentID, "commission_fulfillment", data))
 		}
-		// The fulfillment payload now owns the exact evidence. Release all
-		// source protection atomically with its durable queue admission.
+		// Move the exact ready evidence out of the ordinary receipt window.
+		// Terminal Order observation releases this independent bounded record.
 		clearCommissionReadiness(&next, orderID)
+		if next.ActiveCommissionReadiness == nil {
+			next.ActiveCommissionReadiness = map[string]CommissionReadiness{}
+		}
+		next.ActiveCommissionReadiness[orderID] = *readiness
 		job = &next.Jobs[i]
 		if job.CommissionDiagnostic == nil {
 			job.CommissionDiagnostic = &CommissionDiagnostic{}

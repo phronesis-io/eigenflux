@@ -106,3 +106,41 @@ func TestCommissionReworkRecoveryPermitsNewVersionAndRejectsInvalidReview(t *tes
 		}
 	}
 }
+
+func TestCommissionReworkReadinessSurvivesCompletedFulfillmentCompaction(t *testing.T) {
+	j, first := queueInitialCheckedFulfillment(t)
+	if err := j.Update(first.ID, "completed", "commission_delivery_confirmed", "first-session", ""); err != nil {
+		t.Fatal(err)
+	}
+	addCompletedReadinessNoise(t, j, "platform-review-pm-traffic")
+	j = mustJournal(t, j.binding)
+	if j.HasCommissionFulfillment("901") {
+		t.Fatal("fixture did not actually trim the completed fulfillment")
+	}
+	sourceID, readiness := j.CommissionReworkReadiness("901", 5)
+	if sourceID == "" || readiness == nil || readiness.InputFingerprint != strings.Repeat("a", 64) || readiness.Result.OrderVersion != 1 || commissionReadinessCount(j.state, false) != 1 {
+		t.Fatal("in-flight Order lost its independent evidence")
+	}
+	readiness.Result.Summary = "reader mutation"
+	_, retained := j.CommissionReworkReadiness("901", 5)
+	if retained.Result.Summary == "reader mutation" {
+		t.Fatal("reader changed retained evidence")
+	}
+	mustAddCommission(t, j, commissionNotification(901, 5, "seller", false))
+	intake, _, _ := j.NextKind("commission_order")
+	if err := j.QueueCommissionFromReadiness(intake.ID, sourceID, "901", 5, CommissionFulfillmentExecution{Revision: 8, Review: reworkReview()}); err != nil {
+		t.Fatal(err)
+	}
+	rework := claimFulfillment(t, j)
+	var payload CommissionFulfillmentJob
+	if json.Unmarshal(rework.Data, &payload) != nil || payload.IntakeRequestID != sourceID || payload.IntakeResult.OrderVersion != 1 {
+		t.Fatal("rework did not reuse the original evidence")
+	}
+	if err := j.RetireCommissionReadiness("901"); err != nil {
+		t.Fatal(err)
+	}
+	j = mustJournal(t, j.binding)
+	if len(j.state.ActiveCommissionReadiness) != 0 || commissionReadinessCount(j.state, false) != 0 {
+		t.Fatal("terminal Order did not release independent evidence")
+	}
+}

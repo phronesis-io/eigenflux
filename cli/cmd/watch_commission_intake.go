@@ -215,8 +215,11 @@ func (w *accountWatch) dispatchCommissionIntakeWithAcceptance(parent context.Con
 	switch order.State {
 	case "awaiting_seller", "pending_payment", "in_progress":
 	default:
-		if err := w.journal.RetireCommissionReadiness(id); err != nil {
-			return err
+		switch order.State {
+		case "completed", "cancelled", "rejected", "refunded", "expired":
+			if err := w.journal.RetireCommissionReadiness(id); err != nil {
+				return err
+			}
 		}
 		return w.finishDispatch(job, "completed", "commission_order_not_actionable", "", "")
 	}
@@ -421,7 +424,7 @@ func commissionFulfillmentWritable(order commissionIntakeOrder, now time.Time) b
 	if order.State != "in_progress" {
 		return false
 	}
-	if review := order.DeliveryReview; review != nil && (!review.AllowsRework() || order.ExecutionRevision <= 0) {
+	if review := order.DeliveryReview; review != nil && (!review.AllowsRework() || order.ExecutionRevision <= 0 || string(review.SnapshotID) != strconv.FormatInt(int64(order.SnapshotID), 10)) {
 		return false
 	}
 	due := commissionFulfillmentDeadline(order)

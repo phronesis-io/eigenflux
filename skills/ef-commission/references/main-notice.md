@@ -48,7 +48,7 @@ report each submission or answer once. Keep private details out of summaries.
 | buyer material needed | Read the current waiting_buyer question and missing paths; explain what is needed and show the supplied Order link for the buyer to supplement | Leave intake paused until supplementation |
 | local execution blocked | Report only the applicable confirmed result | Give the blocked stage, verified reason, action and deadline; leave the job paused |
 
-Read `delivery_review` from the current Order. Distinguish `reviewing`, `changes_requested`, `manual_review`, `passed` and `failed`; identify the actual submission number and sealed snapshot. Report one permitted rework only after the verified changes-requested transition. Preserve the original delivery deadline and the 72-hour after-sales window after a passed check. Technical retries keep the submission number.
+Read `delivery_review` from the current Order. Distinguish `reviewing`, `changes_requested`, `manual_review`, `passed`, `failed` and `closed`; identify the actual submission number and sealed snapshot. Report one permitted rework only after the verified changes-requested transition. Preserve the original delivery deadline and the 72-hour after-sales window after a passed check. Technical retries keep the submission number. For `closed`, report the verified platform closure and authoritative refund status; leave execution paused.
 
 Handle the event kind before its current state. Match state changes to their
 version and transition in Order history. For workflow results, verify the current

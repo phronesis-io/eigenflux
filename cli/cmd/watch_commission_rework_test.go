@@ -17,6 +17,7 @@ import (
 func testReworkOrder() commissionIntakeOrder {
 	order := paidCommissionTestOrder()
 	order.Version = 5
+	order.SnapshotID = 9007199254740993
 	order.ExecutionRevision = 8
 	order.DeliveryDueAt = time.Now().Add(time.Hour).UnixMilli()
 	order.DeliveryReview = &dispatch.CommissionDeliveryReview{SubmissionNumber: 1, Status: "changes_requested", Reason: "The contracted conclusion is missing.", SnapshotID: json.Number("9007199254740993"), ReworkDueAt: order.DeliveryDueAt}
@@ -154,7 +155,7 @@ func TestCommissionReworkRegeneratesUploadsAndSubmitsSecondDelivery(t *testing.T
 }
 
 func TestCommissionReworkStopsAtReviewLimitAndDeadline(t *testing.T) {
-	for _, scenario := range []string{"expired", "original_deadline", "second_submission", "manual_review", "reviewing", "failed", "passed", "validating", "refund_pending"} {
+	for _, scenario := range []string{"expired", "original_deadline", "second_submission", "manual_review", "reviewing", "failed", "passed", "closed", "wrong_snapshot", "validating", "refund_pending"} {
 		t.Run(scenario, func(t *testing.T) {
 			order := testReworkOrder()
 			switch scenario {
@@ -164,6 +165,8 @@ func TestCommissionReworkStopsAtReviewLimitAndDeadline(t *testing.T) {
 				order.DeliveryDueAt = time.Now().Add(-time.Second).UnixMilli()
 			case "second_submission":
 				order.DeliveryReview.SubmissionNumber = 2
+			case "wrong_snapshot":
+				order.DeliveryReview.SnapshotID = "9007199254740994"
 			case "validating", "refund_pending":
 				order.State = scenario
 			default:
@@ -314,5 +317,50 @@ func TestCommissionReworkMainNoticeIncludesVerifiedReview(t *testing.T) {
 	}
 	if !ok || json.Unmarshal([]byte(raw), &payload) != nil || payload.Review == nil || payload.Review.Reason != order.DeliveryReview.Reason || payload.Review.SnapshotID != order.DeliveryReview.SnapshotID || payload.Deadline != desktopDeadline("en", order.DeliveryReview.ReworkDueAt) {
 		t.Fatalf("missing verified rework notice: %s", raw)
+	}
+}
+
+func TestCommissionReworkReadinessRetiresOnlyAfterTerminalOrder(t *testing.T) {
+	for _, terminal := range []string{"completed", "cancelled", "refunded", "rejected", "expired"} {
+		t.Run(terminal, func(t *testing.T) {
+			order := paidCommissionTestOrder()
+			server := commissionFulfillmentServer(t, func() commissionIntakeOrder { return order })
+			defer server.Close()
+			w := newCommissionWatch(t, server.URL, "commission_order")
+			installCommissionIntakeRules(t, w)
+			first := claimPaidCommission(t, w)
+			if err := w.journal.Update(first.ID, "completed", "commission_delivery_confirmed", "first-session", ""); err != nil {
+				t.Fatal(err)
+			}
+			for _, state := range []string{"validating", "awaiting_buyer_confirmation", "refund_pending", terminal} {
+				order.Version++
+				order.State = state
+				intake := claimCommissionIntakeVersion(t, w, order.Version)
+				if err := w.dispatchCommissionIntake(context.Background(), intake); err != nil {
+					t.Fatal(err)
+				}
+				paths, err := filepath.Glob(filepath.Join(w.home, "watch", "dispatch-*.json"))
+				if err != nil || len(paths) != 1 {
+					t.Fatal("missing fixture journal", err)
+				}
+				raw, err := os.ReadFile(paths[0])
+				if err != nil {
+					t.Fatal(err)
+				}
+				var journal struct {
+					Active map[string]dispatch.CommissionReadiness `json:"active_commission_readiness"`
+				}
+				if err := json.Unmarshal(raw, &journal); err != nil {
+					t.Fatal(err)
+				}
+				want := 1
+				if state == terminal {
+					want = 0
+				}
+				if len(journal.Active) != want {
+					t.Fatalf("%s retained %d active Orders, want %d", state, len(journal.Active), want)
+				}
+			}
+		})
 	}
 }

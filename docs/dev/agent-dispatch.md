@@ -169,11 +169,11 @@ CLI 1.0.54 processes one platform-requested rework through the existing frozen
 fulfillment Skill. Require current `in_progress`, `delivery_review.status` of
 `changes_requested`, submission 1 and an unexpired original delivery deadline.
 Use a fresh job, session and output directory for the new Order version and
-execution revision. Reuse the verified original input check retained by the
-first job. Regenerate and self-check all contractual paths before upload and
+execution revision. Retain the verified original input check independently of completed-job
+compaction until observing the terminal Order. Keep its existing 256-Order bound. Regenerate and self-check all contractual paths before upload and
 the second submission. Preserve prior artifacts and snapshots. Duplicate events
 and issue-report revision updates do not repeat this execution. A technical
-delivery retry retains its own keys and submission number. Platform validation,
+delivery retry retains its own keys and submission number. Before rework submission, replay the original scoped upload/confirmation keys against staging; the current snapshot still contains the previous sealed delivery. Verify the new sealed bytes after the matching submission succeeds. Platform validation,
 manual review, expiry, submission 2 and refund processing pause seller writes.
 
 WorkBuddy Commission runs through the current CLI-managed ACP bridge grant
