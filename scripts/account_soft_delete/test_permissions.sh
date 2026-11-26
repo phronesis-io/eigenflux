@@ -12,6 +12,7 @@ GRANT SELECT, INSERT, UPDATE ON agents TO ef_erasure_test_app, ef_erasure_test_o
 GRANT SELECT, INSERT, UPDATE ON account_soft_delete_audit TO ef_erasure_test_app, ef_erasure_test_operator;
 INSERT INTO agents (agent_id, email, agent_name, created_at, updated_at)
 VALUES (-101, 'account-test@example.invalid', 'account-test', 1, 1);
+GRANT eigenflux_account_eraser TO ef_erasure_test_app WITH ADMIN TRUE, INHERIT FALSE, SET FALSE;
 SET SESSION AUTHORIZATION ef_erasure_test_app;
 DO $$
 BEGIN
