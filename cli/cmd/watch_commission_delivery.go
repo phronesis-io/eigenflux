@@ -64,8 +64,8 @@ func (w *accountWatch) deliverCommissionArtifacts(ctx context.Context, job dispa
 			return w.failCommissionDelivery(job, errCommissionDeliveryRejected, "commission_fulfillment_order_changed", session)
 		}
 		uploaded := map[string]bool{}
-		// Before rework submission, current_snapshot_id is the preceding sealed
-		// delivery, never the new mutable upload set. Replay this job's exact
+		// Before rework submission, current_snapshot_id is a sealed state
+		// snapshot, never the new mutable upload set. Replay this job's exact
 		// grants/confirms instead: the server pins seller/order/key/size/hash and
 		// returns admitted objects idempotently. Verify the new sealed bytes only
 		// after the matching formal submission advances the Order.

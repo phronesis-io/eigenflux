@@ -173,7 +173,7 @@ execution revision. Retain the verified original input check independently of co
 compaction until observing the terminal Order. Keep its existing 256-Order bound. Regenerate and self-check all contractual paths before upload and
 the second submission. Preserve prior artifacts and snapshots. Duplicate events
 and issue-report revision updates do not repeat this execution. A technical
-delivery retry retains its own keys and submission number. Before rework submission, replay the original scoped upload/confirmation keys against staging; the current snapshot still contains the previous sealed delivery. Verify the new sealed bytes after the matching submission succeeds. Platform validation,
+delivery retry retains its own keys and submission number. Before rework submission, replay the original scoped upload/confirmation keys against staging; the latest sealed Order-state snapshot can contain the previous delivery files and has a different ID from the reviewed delivery snapshot. Verify the new sealed bytes after the matching submission succeeds. Platform validation,
 manual review, expiry, submission 2 and refund processing pause seller writes.
 
 WorkBuddy Commission runs through the current CLI-managed ACP bridge grant

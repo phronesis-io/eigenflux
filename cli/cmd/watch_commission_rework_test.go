@@ -17,7 +17,7 @@ import (
 func testReworkOrder() commissionIntakeOrder {
 	order := paidCommissionTestOrder()
 	order.Version = 5
-	order.SnapshotID = 9007199254740993
+	order.SnapshotID = 9007199254740995
 	order.ExecutionRevision = 8
 	order.DeliveryDueAt = time.Now().Add(time.Hour).UnixMilli()
 	order.DeliveryReview = &dispatch.CommissionDeliveryReview{SubmissionNumber: 1, Status: "changes_requested", Reason: "The contracted conclusion is missing.", SnapshotID: json.Number("9007199254740993"), ReworkDueAt: order.DeliveryDueAt}
@@ -155,7 +155,7 @@ func TestCommissionReworkRegeneratesUploadsAndSubmitsSecondDelivery(t *testing.T
 }
 
 func TestCommissionReworkStopsAtReviewLimitAndDeadline(t *testing.T) {
-	for _, scenario := range []string{"expired", "original_deadline", "second_submission", "manual_review", "reviewing", "failed", "passed", "closed", "wrong_snapshot", "validating", "refund_pending"} {
+	for _, scenario := range []string{"expired", "original_deadline", "second_submission", "manual_review", "reviewing", "failed", "passed", "closed", "missing_review_snapshot", "validating", "refund_pending"} {
 		t.Run(scenario, func(t *testing.T) {
 			order := testReworkOrder()
 			switch scenario {
@@ -165,8 +165,8 @@ func TestCommissionReworkStopsAtReviewLimitAndDeadline(t *testing.T) {
 				order.DeliveryDueAt = time.Now().Add(-time.Second).UnixMilli()
 			case "second_submission":
 				order.DeliveryReview.SubmissionNumber = 2
-			case "wrong_snapshot":
-				order.DeliveryReview.SnapshotID = "9007199254740994"
+			case "missing_review_snapshot":
+				order.DeliveryReview.SnapshotID = "0"
 			case "validating", "refund_pending":
 				order.State = scenario
 			default:

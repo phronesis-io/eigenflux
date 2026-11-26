@@ -46,7 +46,8 @@ func newReworkRetryFixture(t *testing.T, mode string) (*reworkRetryFixture, *htt
 	server := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		oldID := strconv.FormatInt(int64(f.order.SnapshotID), 10)
+		currentID := strconv.FormatInt(int64(f.order.SnapshotID), 10)
+		reviewID := string(f.order.DeliveryReview.SnapshotID)
 		newID := strconv.FormatInt(int64(f.order.SnapshotID)+1, 10)
 		if r.Method == http.MethodPost {
 			raw, _ := io.ReadAll(r.Body)
@@ -228,7 +229,7 @@ func newReworkRetryFixture(t *testing.T, mode string) (*reworkRetryFixture, *htt
 			}
 			if strings.HasPrefix(r.URL.Path, "/api/v1/orders/901/snapshots/") && strings.HasSuffix(r.URL.Path, "/download") {
 				snapshot := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v1/orders/901/snapshots/"), "/download")
-				if snapshot != oldID && (snapshot != newID || !f.delivered) {
+				if snapshot != currentID && snapshot != reviewID && (snapshot != newID || !f.delivered) {
 					http.NotFound(out, r)
 					return
 				}
@@ -284,6 +285,9 @@ func TestCommissionReworkRetriesStagingWithoutReadingPreviousSealedBytes(t *test
 		t.Run(mode, func(t *testing.T) {
 			f, server := newReworkRetryFixture(t, mode)
 			defer server.Close()
+			if string(f.order.DeliveryReview.SnapshotID) == strconv.FormatInt(int64(f.order.SnapshotID), 10) {
+				t.Fatal("fixture must seal a new Order-state snapshot after reviewing the first delivery")
+			}
 			w := newCommissionWatch(t, server.URL, "commission_order")
 			installCommissionIntakeRules(t, w)
 			job := claimReworkWithContract(t, w, f.order)

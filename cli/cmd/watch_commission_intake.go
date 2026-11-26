@@ -424,7 +424,7 @@ func commissionFulfillmentWritable(order commissionIntakeOrder, now time.Time) b
 	if order.State != "in_progress" {
 		return false
 	}
-	if review := order.DeliveryReview; review != nil && (!review.AllowsRework() || order.ExecutionRevision <= 0 || string(review.SnapshotID) != strconv.FormatInt(int64(order.SnapshotID), 10)) {
+	if review := order.DeliveryReview; review != nil && (!review.AllowsRework() || order.ExecutionRevision <= 0) {
 		return false
 	}
 	due := commissionFulfillmentDeadline(order)
