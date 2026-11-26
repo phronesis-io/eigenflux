@@ -344,6 +344,16 @@ reprovision to test completion. Reuse the established Home and selected server.
 If they are unavailable, resolve the installed account before proceeding;
 never guess from cwd or create another Home.
 
+Load [observations.md](observations.md#optional-foreground-first-check), including
+its shared reporting boundaries, before the access check below. This direct
+return route still records the explicitly requested first check. Reuse this
+request's existing `attempt_id` after interruption; otherwise retain the ID
+returned by `first_check_requested` for execution and owner-visible delivery.
+Do not rerun `onboarding-start`, create a new installation session, or replay
+setup to recover missing observations. If the session or request receipt is
+unavailable, continue the business check with missing diagnostic evidence.
+Keep the same attempt ID with the plan and completion receipts below.
+
 Invoke the existing command directly, preserving the server and current runtime
 metadata in the prefix:
 

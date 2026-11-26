@@ -23,7 +23,10 @@ $Endpoint = $Endpoint.TrimEnd('/')
 
 function Info($msg)  { Write-Host $msg -ForegroundColor Cyan }
 function Ok($msg)    { Write-Host $msg -ForegroundColor Green }
-function Err($msg)   { Write-Host $msg -ForegroundColor Red; exit 1 }
+function Err($msg)   {
+    if ($script:observationComponent) { Write-InstallObservation component_install failed $script:observationComponent unknown_failure }
+    Write-Host $msg -ForegroundColor Red; exit 1
+}
 
 function Get-InvokingHost {
     if ($env:INVOKING_HOST) { return $env:INVOKING_HOST }
@@ -40,6 +43,98 @@ function Resolve-EigenfluxHome {
         "codex" { return (Join-Path $env:USERPROFILE ".eigenflux-codex\.eigenflux") }
         "openclaw" { return (Join-Path $env:USERPROFILE ".openclaw\.eigenflux") }
         default { return (Join-Path $env:USERPROFILE ".eigenflux") }
+    }
+}
+
+# Same pre-CLI queue as internal/installflow; observations never alter an install.
+# Proof stays in a private file and in-memory HTTP headers, never external argv.
+function Protect-ObservationDirectory([string]$Path) {
+    if (Test-Path -LiteralPath $Path) {
+        if ((Get-Item -LiteralPath $Path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Linked observation state' }
+    } else { [IO.Directory]::CreateDirectory($Path) | Out-Null }
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    $acl = New-Object Security.AccessControl.DirectorySecurity
+    $acl.SetAccessRuleProtection($true, $false)
+    $rule = New-Object Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+    $acl.AddAccessRule($rule)
+    Set-Acl -LiteralPath $Path -AclObject $acl
+}
+
+function New-ObservationHex([int]$Bytes) {
+    $buffer = New-Object byte[] $Bytes
+    $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($buffer) } finally { $rng.Dispose() }
+    return ([BitConverter]::ToString($buffer)).Replace('-', '').ToLowerInvariant()
+}
+
+function Write-InstallObservation([string]$Type, [string]$Result, [string]$Component = '', [string]$Reason = '') {
+    $temporary = $null
+    try {
+        if ($env:EIGENFLUX_INSTALL_OBSERVATIONS -eq '0') { return }
+        if (@('install_started:started::', 'host_detected:succeeded::', 'component_install:started:cli:', 'component_install:succeeded:cli:', 'component_install:failed:cli:unknown_failure', 'component_install:started:skills:', 'component_install:succeeded:skills:', 'component_install:failed:skills:unknown_failure') -cnotcontains "${Type}:${Result}:${Component}:${Reason}") { return }
+        $runtime = (Get-InvokingHost).ToLowerInvariant()
+        $homeDir = Resolve-EigenfluxHome -ExplicitHome $ExplicitEigenfluxHome -InvokingHost $runtime
+        if (-not [IO.Path]::IsPathRooted($homeDir)) { return }
+        foreach ($name in @('credentials.json', 'agent-v2-credentials.json')) {
+            if (Test-Path -LiteralPath (Join-Path $homeDir $name)) { return }
+        }
+        $servers = Join-Path $homeDir 'servers'
+        if (Test-Path -LiteralPath $servers) {
+            if ((Get-Item -LiteralPath $servers -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { return }
+            foreach ($server in @(Get-ChildItem -LiteralPath $servers -Directory -Force)) {
+                # Do not read credentials, including credentials belonging to another host.
+                if ($server.Attributes -band [IO.FileAttributes]::ReparsePoint) { return }
+                foreach ($name in @('credentials.json', 'agent-v2-credentials.json')) {
+                    if (Test-Path -LiteralPath (Join-Path $server.FullName $name)) { return }
+                }
+            }
+        }
+        $origin = $Endpoint.TrimEnd('/')
+        if ($origin -cnotmatch '^https?://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._~/-]+)?$') { return }
+        $utf8 = New-Object Text.UTF8Encoding($false)
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try { $digest = ([BitConverter]::ToString($sha.ComputeHash($utf8.GetBytes($origin)))).Replace('-', '').ToLowerInvariant() } finally { $sha.Dispose() }
+        $base = Join-Path $homeDir 'install-observations'
+        $directory = Join-Path $base $digest
+        Protect-ObservationDirectory $base
+        Protect-ObservationDirectory $directory
+        $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+        $path = Join-Path $directory 'session.json'
+        if (-not (Test-Path -LiteralPath $path)) {
+            if ($Type -cne 'install_started') { return }
+            $newSession = [ordered]@{ install_session_id = (New-ObservationHex 16); proof = (New-ObservationHex 32); endpoint = $origin; created_at = $now }
+            $temporary = Join-Path $directory ('.installer-' + (New-ObservationHex 16))
+            [IO.File]::WriteAllText($temporary, ($newSession | ConvertTo-Json -Compress), $utf8)
+            try { [IO.File]::Move($temporary, $path) } catch { if (-not (Test-Path -LiteralPath $path)) { throw } }
+            Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+            $temporary = $null
+        }
+        $info = Get-Item -LiteralPath $path -Force
+        if ($info.PSIsContainer -or ($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $info.Length -gt 4096) { return }
+        $raw = [IO.File]::ReadAllText($path)
+        $session = $raw | ConvertFrom-Json
+        $keys = @($session.PSObject.Properties.Name)
+        if ($keys.Count -ne 4 -or @($keys | Where-Object { @('install_session_id','proof','endpoint','created_at') -cnotcontains $_ }).Count -ne 0) { return }
+        if ($session.install_session_id -cnotmatch '^[a-f0-9]{32}$' -or $session.proof -cnotmatch '^[a-f0-9]{64}$' -or $session.endpoint -cne $origin -or $session.created_at -lt ($now - 604800000) -or $session.created_at -gt ($now + 60000)) { return }
+        $queue = Join-Path $directory $session.install_session_id
+        Protect-ObservationDirectory $queue
+        if (@(Get-ChildItem -LiteralPath $queue -Force).Count -ge 128) { return }
+        if (@('codex','openclaw','workbuddy','hermes','deepseek','deepseek-harness','dsh','claude-code','claude','cursor','opencode','gemini-cli','gemini','qoder','trae','kilo','roo','cline','windsurf','antigravity','kimi','kiro','jarvis') -cnotcontains $runtime) { $runtime = 'unknown' }
+        if ($Type -eq 'host_detected' -and $runtime -eq 'unknown') { $Result = 'pending' }
+        $event = [ordered]@{ event_id = (New-ObservationHex 16); event_at = $now; event_type = $Type; result = $Result; component = $Component; runtime_name = $runtime; reason = $Reason }
+        $temporary = Join-Path $queue ('.installer-' + (New-ObservationHex 16))
+        [IO.File]::WriteAllText($temporary, ($event | ConvertTo-Json -Compress), $utf8)
+        if ([IO.File]::ReadAllText($path) -cne $raw) { return }
+        [IO.File]::Move($temporary, (Join-Path $queue ($event.event_id + '.json')))
+        $temporary = $null
+        $payload = @{ install_session_id = $session.install_session_id; events = @($event) } | ConvertTo-Json -Compress -Depth 4
+        # No redirects, credential output or acknowledgement-based deletion. The
+        # CLI will verify the batch receipt and drain these immutable retries.
+        Invoke-WebRequest -Uri ($origin + '/api/v2/install-telemetry/events:batch') -Method Post -ContentType 'application/json' -Body $payload -Headers @{ 'X-Install-Session-Proof' = $session.proof } -MaximumRedirection 0 -TimeoutSec 2 -UseBasicParsing | Out-Null
+    } catch {
+        # Missing evidence must not change installation exit codes or diagnostics.
+    } finally {
+        if ($temporary) { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
     }
 }
 
@@ -401,11 +496,27 @@ function Setup-Notifications {
 
 # ── Main ──────────────────────────────────────────────────────
 
-Install-Cli
+Write-InstallObservation install_started started
+Write-InstallObservation host_detected succeeded
+$script:observationComponent = 'cli'
+Write-InstallObservation component_install started cli
+try { Install-Cli } catch {
+    Write-InstallObservation component_install failed cli unknown_failure
+    throw
+}
+Write-InstallObservation component_install succeeded cli
+$script:observationComponent = ''
 Migrate-Config
 Save-InstallReferral
 Report-InstallAttribution
-Install-Skills
+$script:observationComponent = 'skills'
+Write-InstallObservation component_install started skills
+try { Install-Skills } catch {
+    Write-InstallObservation component_install failed skills unknown_failure
+    throw
+}
+Write-InstallObservation component_install succeeded skills
+$script:observationComponent = ''
 Setup-Agents
 $recordBin = $script:installedCliPath
 $recordHost = Get-InvokingHost

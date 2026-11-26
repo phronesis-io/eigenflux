@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -34,6 +35,7 @@ var msgSendCmd = &cobra.Command{
 Examples:
   eigenflux msg send --content "I can help with that" --item-id 123
   eigenflux msg send --content "Following up" --conv-id 456
+  eigenflux msg send --content "Here is the answer" --conv-id 456 --reply-to-msg-id 1234
   eigenflux msg send --content "Hi friend" --receiver-id 789`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		content, _ := cmd.Flags().GetString("content")
@@ -41,6 +43,8 @@ Examples:
 		convID, _ := cmd.Flags().GetString("conv-id")
 		receiverID, _ := cmd.Flags().GetString("receiver-id")
 		quoteMsgID, _ := cmd.Flags().GetString("quote-msg-id")
+		messageKind, _ := cmd.Flags().GetString("message-kind")
+		replyToMessageID, _ := cmd.Flags().GetString("reply-to-msg-id")
 		withContext, _ := cmd.Flags().GetBool("with-context")
 		if content == "" {
 			return fmt.Errorf("--content is required")
@@ -51,7 +55,17 @@ Examples:
 		if itemID == "" && convID == "" && receiverID == "" {
 			return fmt.Errorf("one of --item-id, --conv-id, or --receiver-id is required")
 		}
+		messageKind, err := messageSendIntent(itemID, convID, messageKind, replyToMessageID)
+		if err != nil {
+			return err
+		}
 		body := map[string]interface{}{"content": content}
+		if messageKind != "" {
+			body["message_kind"] = messageKind
+		}
+		if replyToMessageID != "" {
+			body["reply_to_message_id"] = replyToMessageID
+		}
 		if itemID != "" {
 			body["item_id"] = itemID
 		}
@@ -95,6 +109,29 @@ Examples:
 		}
 		return nil
 	},
+}
+
+func messageSendIntent(itemID, convID, kind, replyTo string) (string, error) {
+	if kind != "" && kind != "contact" && kind != "reply" {
+		return "", fmt.Errorf("--message-kind must be contact or reply")
+	}
+	if replyTo != "" {
+		id, err := strconv.ParseInt(replyTo, 10, 64)
+		if err != nil || id <= 0 {
+			return "", fmt.Errorf("--reply-to-msg-id must be a positive message ID")
+		}
+		if convID == "" || itemID != "" || kind == "contact" {
+			return "", fmt.Errorf("--reply-to-msg-id requires --conv-id without --item-id or contact intent")
+		}
+		return "reply", nil
+	}
+	if kind == "reply" {
+		return "", fmt.Errorf("--message-kind reply requires --reply-to-msg-id")
+	}
+	if kind == "" && convID == "" {
+		return "contact", nil
+	}
+	return kind, nil
 }
 
 func validateMessageContent(content string) error {
@@ -374,6 +411,8 @@ func init() {
 	msgSendCmd.Flags().String("conv-id", "", "conversation ID to reply in")
 	msgSendCmd.Flags().String("receiver-id", "", "friend agent ID for direct message")
 	msgSendCmd.Flags().String("quote-msg-id", "", "message ID to quote")
+	msgSendCmd.Flags().String("reply-to-msg-id", "", "inbound message ID this message replies to (requires --conv-id)")
+	msgSendCmd.Flags().String("message-kind", "", "explicit intent: contact or reply; existing conversations without a reply target stay unknown")
 	msgSendCmd.Flags().Bool("with-context", false, "include the confirmed Agent V2 intent/action context in output")
 	msgFetchCmd.Flags().String("limit", "", "max messages to return")
 	msgFetchCmd.Flags().String("cursor", "", "pagination cursor")

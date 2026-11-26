@@ -1442,14 +1442,25 @@ func SendPM(ctx context.Context, c *app.RequestContext) {
 		}
 		convIDPtr = &convID
 	}
+	var replyToMessageIDPtr *int64
+	if req.ReplyToMessageID != nil {
+		replyToMessageID, err := strconv.ParseInt(*req.ReplyToMessageID, 10, 64)
+		if err != nil || replyToMessageID <= 0 {
+			writeJSON(c, http.StatusBadRequest, 400, "invalid reply_to_message_id", nil)
+			return
+		}
+		replyToMessageIDPtr = &replyToMessageID
+	}
 
 	resp, err := clients.PMClient.SendPM(ctx, &pmrpc.SendPMReq{
-		SenderId:   agentID,
-		ReceiverId: receiverID,
-		Content:    req.Content,
-		ItemId:     itemIDPtr,
-		ConvId:     convIDPtr,
-		RequestId:  req.RequestID,
+		SenderId:         agentID,
+		ReceiverId:       receiverID,
+		Content:          req.Content,
+		ItemId:           itemIDPtr,
+		ConvId:           convIDPtr,
+		RequestId:        req.RequestID,
+		MessageKind:      req.MessageKind,
+		ReplyToMessageId: replyToMessageIDPtr,
 	})
 	if err != nil {
 		writeJSON(c, http.StatusInternalServerError, 500, err.Error(), nil)
@@ -1468,6 +1479,11 @@ func SendPM(ctx context.Context, c *app.RequestContext) {
 		"msg_id":  strconv.FormatInt(resp.MsgId, 10),
 		"conv_id": strconv.FormatInt(resp.ConvId, 10),
 	})
+	// Blocked sends intentionally return success without creating a message.
+	// Preserve that privacy contract, but never count it as successful activity.
+	if resp.MsgId <= 0 || resp.ConvId <= 0 {
+		return
+	}
 	activity.PublishMessageSent(ctx, agentID, "")
 	// A reply under a broadcast (item_id present) counts as a reply received by
 	// the broadcast's author. Resolve the author from item_stats and record it on

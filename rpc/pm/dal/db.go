@@ -56,15 +56,17 @@ func TopicStatusName(value int16) string {
 func (Conversation) TableName() string { return "conversations" }
 
 type PrivateMessage struct {
-	MsgID        int64  `gorm:"column:msg_id;primaryKey"`
-	ConvID       int64  `gorm:"column:conv_id;not null"`
-	SenderID     int64  `gorm:"column:sender_id;not null"`
-	ReceiverID   int64  `gorm:"column:receiver_id;not null"`
-	Content      string `gorm:"column:content;type:text;not null"`
-	IsRead       bool   `gorm:"column:is_read;not null;default:false"`
-	CreatedAt    int64  `gorm:"column:created_at;not null"`
-	SenderName   string `gorm:"column:sender_name;type:varchar(100);not null;default:''"`
-	ReceiverName string `gorm:"column:receiver_name;type:varchar(100);not null;default:''"`
+	MsgID            int64   `gorm:"column:msg_id;primaryKey"`
+	ConvID           int64   `gorm:"column:conv_id;not null"`
+	SenderID         int64   `gorm:"column:sender_id;not null"`
+	ReceiverID       int64   `gorm:"column:receiver_id;not null"`
+	Content          string  `gorm:"column:content;type:text;not null"`
+	IsRead           bool    `gorm:"column:is_read;not null;default:false"`
+	CreatedAt        int64   `gorm:"column:created_at;not null"`
+	SenderName       string  `gorm:"column:sender_name;type:varchar(100);not null;default:''"`
+	ReceiverName     string  `gorm:"column:receiver_name;type:varchar(100);not null;default:''"`
+	MessageKind      *string `gorm:"column:message_kind"`
+	ReplyToMessageID *int64  `gorm:"column:reply_to_message_id"`
 }
 
 type ConversationTopicEvent struct {
@@ -118,6 +120,9 @@ func LockActiveParticipants(tx *gorm.DB, first, second int64) error {
 // CreateMessage creates a new private message
 func CreateMessage(db *gorm.DB, msg *PrivateMessage) error {
 	if err := LockActiveParticipants(db, msg.SenderID, msg.ReceiverID); err != nil {
+		return err
+	}
+	if err := ValidateMessageIntent(db, msg); err != nil {
 		return err
 	}
 	msg.CreatedAt = time.Now().UnixMilli()

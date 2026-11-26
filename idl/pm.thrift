@@ -10,6 +10,8 @@ struct SendPMReq {
     4: optional i64 item_id       // required for new conversation
     5: optional i64 conv_id       // required for reply
     6: optional string request_id // stable client send identity
+    7: optional string message_kind // contact or reply; absent remains unknown
+    8: optional i64 reply_to_message_id // required for explicit reply; same conversation inbound message
 }
 
 struct SendPMResp {

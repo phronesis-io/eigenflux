@@ -308,7 +308,7 @@ func TestWatchDispatchPMRepliesOnceAcrossPushAndPoll(t *testing.T) {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if len(f.sent) != 3 || f.sent["conv_id"] != "fixed-conversation" || f.sent["request_id"] != "pm-reply:incoming-1" || f.sent["content"] != "A safe response" {
+	if len(f.sent) != 5 || f.sent["conv_id"] != "fixed-conversation" || f.sent["request_id"] != "pm-reply:incoming-1" || f.sent["content"] != "A safe response" || f.sent["message_kind"] != "reply" || f.sent["reply_to_message_id"] != "incoming-1" {
 		t.Fatalf("reply routing not pinned: %#v", f.sent)
 	}
 }

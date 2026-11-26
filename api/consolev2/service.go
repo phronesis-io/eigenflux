@@ -363,12 +363,12 @@ func (s *Service) Register(h *server.Hertz) {
 	if s.enablePublicRegistration {
 		h.POST("/api/v2/agent-identities/registration-challenges", s.issuePublicRegistrationChallenge)
 	}
-	h.POST("/api/v2/agent-identities/provision", s.provision)
-	h.POST("/api/v2/agents/me/install-receipt", s.agentAuth("console:handoff:create"), s.acknowledgeInstallReceipt)
+	h.POST("/api/v2/agent-identities/provision", s.observeInstallOperation("server_registration"), s.provision)
+	h.POST("/api/v2/agents/me/install-receipt", s.observeInstallOperation("server_install_receipt"), s.agentAuth("console:handoff:create"), s.acknowledgeInstallReceipt)
 	h.POST("/api/v2/agent-sessions/refresh-challenges", s.createRefreshChallenge)
 	h.POST("/api/v2/agent-sessions/refresh", s.refreshAgentSession)
 	h.POST("/api/v2/account-email-bindings/challenges", s.consoleAuth(true), s.createEmailBindingChallenge)
-	h.POST("/api/v2/account-email-bindings/verify", s.consoleAuth(true), s.verifyEmailBinding)
+	h.POST("/api/v2/account-email-bindings/verify", s.observeInstallOperation("server_email_verify"), s.consoleAuth(true), s.verifyEmailBinding)
 	h.POST("/api/v2/account-recoveries/:recovery_id/confirm", s.consoleAuth(true), s.confirmAccountRecovery)
 	h.POST("/api/v2/auth/email/challenges", s.requireSameOrigin(), s.createEmailLoginChallenge)
 	h.POST("/api/v2/auth/email/verify", s.requireSameOrigin(), s.verifyEmailLogin)
@@ -376,10 +376,10 @@ func (s *Service) Register(h *server.Hertz) {
 	h.POST("/api/v2/agents/me/principals", s.consoleAuth(true), s.addPrincipal)
 	h.GET("/api/v2/agents/me/principals", s.consoleAuth(false), s.listPrincipals)
 	h.DELETE("/api/v2/agents/me/principals/:principal_id", s.consoleAuth(true), s.revokePrincipal)
-	h.POST("/api/v2/console/handoffs", s.agentAuth("console:handoff:create"), s.createHandoff)
+	h.POST("/api/v2/console/handoffs", s.observeInstallOperation("server_handoff"), s.agentAuth("console:handoff:create"), s.createHandoff)
 	h.PUT("/api/v2/agent-settings/heartbeat-compatibility", middleware.ClientInfoMiddleware(), s.agentAuth("commands:claim"), s.requireCompleted, s.reportHeartbeatCompatibility)
 	h.POST("/api/v2/console/handoffs/status", s.requireSameOrigin(), s.handoffStatus)
-	h.POST("/api/v2/console/handoffs/exchange", s.requireSameOrigin(), s.exchangeHandoff)
+	h.POST("/api/v2/console/handoffs/exchange", s.observeInstallOperation("server_handoff_exchange"), s.requireSameOrigin(), s.exchangeHandoff)
 	h.GET("/api/v2/console/session", s.consoleAuth(false), s.getConsoleSession)
 	h.GET("/api/v2/console/notification-devices", s.consoleAuth(false), s.requireCompleted, s.listNotificationDevices)
 	h.DELETE("/api/v2/console/session", s.consoleAuth(true), s.deleteConsoleSession)
@@ -391,13 +391,13 @@ func (s *Service) Register(h *server.Hertz) {
 	h.POST("/api/v2/console/account-switch/challenges", s.consoleAuth(true), s.createCLIAccountSwitchChallenge)
 	h.POST("/api/v2/console/account-switch/verify", s.consoleAuth(true), s.verifyCLIAccountSwitchEmail)
 	h.DELETE("/api/v2/console/account-switch", s.consoleAuth(true), s.cancelCLIAccountSwitch)
-	h.PUT("/api/v2/agents/me/onboarding-draft", s.agentAuth("onboarding:write"), s.putOnboardingDraft)
-	h.PUT("/api/v2/console/onboarding-draft", s.consoleAuth(true), s.putOnboardingDraft)
+	h.PUT("/api/v2/agents/me/onboarding-draft", s.observeInstallOperation("server_profile_draft"), s.agentAuth("onboarding:write"), s.putOnboardingDraft)
+	h.PUT("/api/v2/console/onboarding-draft", s.observeInstallOperation("server_profile_draft"), s.consoleAuth(true), s.putOnboardingDraft)
 	h.GET("/api/v2/agents/me/onboarding-draft", s.consoleAuth(false), s.getOnboardingDraft)
-	h.POST("/api/v2/agents/me/onboarding-draft/confirm", s.consoleAuth(true), s.confirmOnboardingStep)
+	h.POST("/api/v2/agents/me/onboarding-draft/confirm", s.observeInstallOperation("server_onboarding_step"), s.consoleAuth(true), s.confirmOnboardingStep)
 	h.GET("/api/v2/agents/me/control-context", s.consoleAuth(false), s.requireCompleted, s.getControlContext)
 	s.registerNeeds(h)
-	h.GET("/api/v2/agent-context", s.agentAuth("context:read"), s.requireCompleted, s.getControlContext)
+	h.GET("/api/v2/agent-context", s.observeInstallOperation("server_context"), s.agentAuth("context:read"), s.requireCompleted, s.getControlContext)
 	h.GET("/api/v2/agent-capabilities", s.agentAuth("context:read"), s.getAgentCapabilities)
 	// context:write is delegated owner authority. These routes persist
 	// owner-confirmed control state; CLI confirmation flags are conversational
@@ -423,6 +423,8 @@ func (s *Service) Register(h *server.Hertz) {
 	h.GET("/api/v2/console/home/activity", s.consoleAuth(false), s.requireCompleted, s.getHomeActivity)
 	h.GET("/api/v2/console/home/worth-watching", s.consoleAuth(false), s.requireCompleted, s.getHomeWorthWatching)
 	h.POST("/api/v2/telemetry/events:batch", s.consoleAuth(true), s.recordTelemetryBatch)
+	h.POST("/api/v2/install-telemetry/events:batch", s.recordAnonymousInstallLifecycle)
+	h.POST("/api/v2/agents/me/install-telemetry/events:batch", s.agentAuthAny("onboarding:write", "settings:write"), s.recordAuthenticatedInstallLifecycle)
 	h.POST("/api/v2/maintenance/events:batch", s.agentAuth("settings:write"), s.recordMaintenanceBatch)
 	h.POST("/api/v2/maintenance/listing-broadcasts:batch", s.agentAuth("settings:write"), s.recordListingBroadcastBatch)
 	h.POST("/api/v2/maintenance/registered-uninstall", s.agentAuthAny("onboarding:write", "settings:write"), s.recordRegisteredUninstall)
@@ -444,7 +446,7 @@ func (s *Service) Register(h *server.Hertz) {
 		h.GET("/api/v2/runtime/control/stream", s.agentAuth("commands:claim"), s.streamRuntimeControl)
 	}
 	if s.enableAttentionV1 {
-		h.POST("/api/v2/agent-attention-items/prefill", s.agentAuth("attention:prefill"), s.requireIncomplete, s.prefillAttentionItems)
+		h.POST("/api/v2/agent-attention-items/prefill", s.observeInstallOperation("server_attention_prefill"), s.agentAuth("attention:prefill"), s.requireIncomplete, s.prefillAttentionItems)
 		h.POST("/api/v2/agent-attention-items:publish", s.agentAuth("attention:write"), s.requireCompleted, s.publishAttentionItems)
 		h.GET("/api/v2/console/attention-items", s.consoleAuth(false), s.requireCompleted, s.listAttentionItems)
 		h.GET("/api/v2/console/attention-items/:attention_id", s.consoleAuth(false), s.requireCompleted, s.getAttentionItem)
@@ -697,7 +699,9 @@ func (s *Service) agentAuthAny(requiredScopes ...string) app.HandlerFunc {
 		c.Set("principal_id", principal.PrincipalID)
 		c.Set("agent_credential_session_id", principal.SessionID)
 		c.Set("agent_scopes", principal.Scopes)
-		go agentcard.TouchLastActive(context.Background(), s.redisClient, principal.AgentID)
+		if c.FullPath() != "/api/v2/agents/me/install-telemetry/events:batch" {
+			go agentcard.TouchLastActive(context.Background(), s.redisClient, principal.AgentID)
+		}
 		c.Next(ctx)
 		middleware.ObserveSuccessfulAgentRequest(ctx, c, s.db, principal.AgentID, requestStartedAt, false)
 	}

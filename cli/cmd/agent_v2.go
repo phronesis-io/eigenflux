@@ -175,8 +175,10 @@ var agentV2InitCmd = &cobra.Command{
 		}
 		publicKey, _, created, err := auth.LoadOrCreateIdentity(server.Name)
 		if err != nil {
+			observeInstall(*server, installEvent("identity_local", "failed"))
 			return err
 		}
+		observeInstall(*server, installEvent("identity_local", "succeeded"))
 		homeDir, homeSource := config.HomeDirInfo()
 		output.PrintData(map[string]interface{}{
 			"server": server.Name, "created": created,
@@ -515,7 +517,7 @@ rerun the command with the same Agent Home and server.`,
 			FieldProvenance: fieldProvenance,
 			Ref:             ref,
 		}
-		provisioned, err := requestV2Provision(v2, request, privateKey)
+		provisioned, err := requestV2Provision(installationPoster{client: v2, server: *server}, request, privateKey)
 		if err != nil {
 			return err
 		}
@@ -530,6 +532,7 @@ rerun the command with the same Agent Home and server.`,
 			AgentID: provisioned.AgentID, PrincipalID: provisioned.PrincipalID,
 			ExpiresAt: provisioned.ExpiresAt, Scopes: provisioned.Scopes,
 		}); err != nil {
+			observeInstallAuthenticated(*server, provisioned.AgentID, provisioned.AccessToken, installEvent("credentials_saved", "failed"))
 			// The server has already provisioned the identity. Local credential
 			// persistence must not hide that this CLI installation completed.
 			if ref != "" {
@@ -537,6 +540,7 @@ rerun the command with the same Agent Home and server.`,
 			}
 			return err
 		}
+		observeInstallAuthenticated(*server, provisioned.AgentID, provisioned.AccessToken, installEvent("credentials_saved", "succeeded"))
 		result := map[string]interface{}{
 			"agent_id": provisioned.AgentID, "created": provisioned.Created,
 			"next_step":    provisioned.NextStep,

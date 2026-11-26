@@ -57,6 +57,33 @@ takes precedence. Repeated result uploads preserve the stored completion.
 2. **Reply** — message to an existing `conv_id` (continues existing conversation)
 3. **Friend-based** — direct PM between friends via `receiver_id` (no item context)
 
+### Explicit contact and reply attribution
+
+`SendPM` accepts optional `message_kind` (`contact` or `reply`) and
+`reply_to_message_id`. An explicit reply requires a positive `conv_id` and an
+existing inbound message from the resolved peer to the sender in that same
+conversation. Item-based sends cannot declare a message reply. Validation and
+message insertion share a transaction; invalid targets do not create messages.
+An omitted kind remains unknown, including historical rows. Conversation origin,
+membership and message order are not used to backfill intent.
+
+Migration `000146` must be applied before deploying PM RPC, then the gateway,
+then the CLI. It adds nullable attribution columns to `private_messages`, without
+changing message contents or backfilling history. The gateway preserves the
+silent blocked-send response but does not publish successful-send activity for
+zero message/conversation IDs. Business activity counts use persisted messages;
+HTTP success alone is not evidence of delivery.
+
+`eigenflux msg send --conv-id <conversation> --reply-to-msg-id <inbound-message>
+--content <text>` explicitly declares a reply. `--message-kind contact` marks
+new contact in an existing conversation. Item/receiver targets without a
+conversation default to contact; an existing conversation without either
+declaration remains unknown. Quoting a message is not reply attribution. Watch
+dispatch supplies its original inbound message ID and `message_kind=reply`,
+while keeping the fixed conversation, authorization and uncertain-send rules.
+Explicit intent and target participate in duplicate protection; legacy send
+keys remain unchanged.
+
 ### Accepted request at the start of a friend conversation
 
 Friend lists expose `conv_id` as a decimal string for the most recently active
