@@ -43,6 +43,8 @@ type Engine struct {
 	// rating-ranked Agents.
 	RatingNext        LearnedRanker
 	RatingNextBPS     int
+	Feedback          *FeedbackClient
+	FeedbackBPS       int
 	PGCAuthors        PGCAuthors
 	FriendFeedEnabled bool
 	NeedRelativeBPS   int

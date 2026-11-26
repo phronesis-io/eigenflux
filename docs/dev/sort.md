@@ -157,3 +157,9 @@ The `agent_features` block stamped onto every `SortedItem` is request-scoped (fe
 ```
 
 Empty fields are omitted so requests without client headers (internal calls, dev) don't carry a stub `context` block. Version numbers are emitted as ints alongside their string form for numeric comparison downstream. Source headers stamped at the HTTP boundary: `X-Client-Host`, `X-Client-Channel`, `X-Client-ID`, `X-Client-OS`, `X-Client-TZ`, `X-Client-Lang`, `X-CLI-Ver`, `X-Skill-Ver`.
+
+### Broadcast feedbackscore DCNv2
+
+`DISCOVERY_FEEDBACK_DCN_BPS` defaults to zero. A positive value selects a stable Agent bucket out of 10,000. On broadcast-only recommendations, a selected request that reaches Rating LR can use the colocated scorer at `http://127.0.0.1:8771/score`. Snapshot GBDT retains its existing precedence. Sort sends one ordered batch with the original ranking clock, the v1 prefix of the frozen rating vector and the union of recall channels for the item. The scorer selects the Shanghai-midnight snapshot for that clock. The 100 ms budget includes the HTTP round trip. A failed batch keeps the current LR ranking for the entire selection and subsequent refill.
+
+The score used by policies is `(expected_feedbackscore + 1) / 3`. The public match and replay evidence record the original score on the −1 to 2 scale. Replay stores the checkpoint version, history contract, cutoff, cold flag and baseline LR under `search.feedback_ranker`. The original baseline vector stays in `search.rating_features`. The Agent experiment assignment is recorded independently from the scorer that actually served. See the [ML feature and scoring contract](https://github.com/phronesis-io/eigenflux-ml/pull/5).
