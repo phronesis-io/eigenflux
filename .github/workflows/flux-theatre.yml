@@ -1,0 +1,141 @@
+name: Flux Theatre Hub
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'hub/**'
+      - 'fluxspace/**'
+      - 'fluxspace_client/**'
+      - 'production/**'
+      - 'docs/**'
+      - '.github/workflows/flux-theatre.yml'
+  pull_request:
+    paths:
+      - 'hub/**'
+      - 'fluxspace/**'
+      - 'fluxspace_client/**'
+      - 'production/**'
+      - 'docs/**'
+      - '.github/workflows/flux-theatre.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hub:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go (version from hub/go.mod)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: hub/go.mod
+          # hub/ has no go.sum yet (stdlib-only module), so the explicit
+          # cache-dependency-path is omitted; setup-go falls back to **/go.sum.
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: gofmt check (no unformatted files)
+        working-directory: hub
+        run: test -z "$(gofmt -l .)"
+
+      - name: go build ./...
+        working-directory: hub
+        run: go build ./...
+
+      - name: go vet ./...
+        working-directory: hub
+        run: go vet ./...
+
+      - name: go test -count=1 ./...
+        working-directory: hub
+        run: go test -count=1 ./...
+
+      - name: Export golden fixture and verify it is unchanged
+        run: |
+          node hub/testdata/export_golden.js
+          git diff --exit-code -- hub/testdata/golden.json
+
+      # fluxspace/*.js and hub/scripts/check_balance.py were checked: pure
+      # Node + Python stdlib, no Windows-only deps, so no step is skipped.
+      - name: Balance regression gate (ADR-0003 10% baseline, 3-sigma floor)
+        run: python hub/scripts/check_balance.py
+
+  client:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: 'stable'
+
+      - name: flutter pub get
+        working-directory: fluxspace_client
+        run: flutter pub get
+
+      - name: flutter analyze
+        working-directory: fluxspace_client
+        run: flutter analyze
+
+      - name: flutter test
+        working-directory: fluxspace_client
+        run: flutter test
+
+  # G10 live-stack enabler (optional integration job).
+  #
+  # Reproduces the closest available stand-in for the live EigenFlux stack: the
+  # Hub's real GatewayPort HTTP client (TestS1FullLoopLive) talks to the
+  # gatewaystandin running in a SEPARATE Docker container (real network hops).
+  # This is NOT the real eigenflux_server (which needs Postgres/Redis/etcd + 9
+  # kitex services not in this repo), but it exercises the full S1 slice through
+  # the production code path. GitHub-hosted runners ship Docker, so it runs on
+  # every push/PR; the test itself is gated inside on HUB_GATEWAY_URL.
+  hub-live-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Start gateway stand-in in Docker
+        run: |
+          docker run -d --name gatewaystandin -p 18080:8080 \
+            -v "${{ github.workspace }}/hub:/hub" \
+            golang:1.27 sh -c "cd /hub && go run ./tools/gatewaystandin"
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:18080/api/v1/pm/fetch >/dev/null; then
+              echo "gatewaystandin is up"; break
+            fi
+            sleep 2
+          done
+
+      - name: Set up Go (version from hub/go.mod)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: hub/go.mod
+
+      - name: Run live cross-network S1 e2e (TestS1FullLoopLive)
+        working-directory: hub
+        env:
+          HUB_GATEWAY_URL: http://localhost:18080
+        run: go test ./api -run TestS1FullLoopLive -count=1 -v
+
+      - name: Stop gateway stand-in
+        if: always()
+        run: docker rm -f gatewaystandin || true

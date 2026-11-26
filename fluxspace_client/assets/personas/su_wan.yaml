@@ -1,0 +1,26 @@
+# Traits: design/game-brief.md "Four MVP personas".
+# ADDED BY IMPLEMENTATION (not in GDD): occupation, tagline, behavior_notes,
+# family_bias. Pending design sign-off.
+persona:
+  id: "su-wan"
+  name: "苏晚"
+  occupation: "现场记者"
+  tagline: "先到现场，再想清楚"
+  traits:
+    risk: 2
+    information: -2
+    social: 0
+    commitment: -1
+    expression: 2
+    competition: 0
+  behavior_notes:
+    - "Acts on the first plausible lead and revises in public"
+    - "Treats a missing clue as a reason to move, not to wait"
+    - "Emotional shifts are immediately visible to spectators"
+    - "Will re-interpret a prior commitment when the situation changes"
+    - "Enjoys the moment of the reveal more than the accounting behind it"
+  family_bias:
+    deduction: 0.20
+    social_deduction: 0.35
+    resource_mgmt: 0.15
+    versus: 0.30
