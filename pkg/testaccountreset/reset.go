@@ -122,6 +122,7 @@ var Steps = []Step{
 // Blocking tables are never deleted, and any row in them refuses the reset:
 // orders and listings involve a counterparty and payment receipts.
 var Blocking = []Step{
+	{Table: "account_soft_delete_audit", Where: "agent_id = $1"},
 	{Table: "trading_services", Where: "seller_agent_id = $1"},
 	{Table: "trade_orders", Where: "buyer_agent_id = $1 OR seller_agent_id = $1"},
 	{Table: "trade_order_events", Where: "actor_agent_id = $1"},
