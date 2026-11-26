@@ -26,12 +26,15 @@ func TestMatchAgentsByNameLiteralAndBound(t *testing.T) {
 	}
 	t.Cleanup(func() { tx.Rollback() })
 	for _, sql := range []string{
-		`CREATE TEMP TABLE agents(agent_id BIGINT,short_id TEXT,agent_name TEXT,agent_name_en TEXT)`,
+		`CREATE TEMP TABLE agents(agent_id BIGINT,short_id TEXT,agent_name TEXT,agent_name_en TEXT, identity_state TEXT NOT NULL DEFAULT 'active')`,
 		`INSERT INTO agents VALUES(1,'AbCdE','合同_%!','English NAME'),(2,'Other','合同x','')`,
 	} {
 		if err := tx.Exec(sql).Error; err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := tx.Exec(`INSERT INTO agents VALUES (0,'Gone1','合同_%!','English NAME','deleted')`).Error; err != nil {
+		t.Fatal(err)
 	}
 	for _, tc := range []struct {
 		query string

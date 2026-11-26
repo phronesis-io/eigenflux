@@ -80,6 +80,11 @@ else
   GO_CMD=(go)
 fi
 
+# Full deployments retain this executable in current/source/build. It has no service unit.
+if [[ $# -eq 0 ]]; then
+  "${GO_CMD[@]}" build -o "$BUILD_DIR/account_soft_delete" ./scripts/account_soft_delete
+fi
+
 failed=0
 for name in "${targets[@]}"; do
   src=$(get_source "$name") || {

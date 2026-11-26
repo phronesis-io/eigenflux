@@ -191,6 +191,7 @@ func updateAgentCardsWithLock(ctx context.Context, rdb *redis.Client, fullReconc
 			       SUM(content_revision)::BIGINT AS content_revision
 			FROM agent_influence_rollups GROUP BY agent_id
 		) r ON r.agent_id = a.agent_id
+		WHERE a.identity_state = 'active'
 		ORDER BY score ASC`).Scan(&rows).Error
 	if err != nil {
 		logger.Default().Error("agent card updater: influence ranking query failed", "err", err)
@@ -472,8 +473,8 @@ func listSchemaUpgradeCandidates(ctx context.Context, rdb *redis.Client, now tim
 		var page []outdatedAgentCardRow
 		err := db.DB.WithContext(ctx).Raw(`
 			SELECT agent_id, schema_version
-			FROM agent_cards
-			WHERE schema_version < ?
+			FROM agent_cards JOIN agents USING (agent_id)
+			WHERE identity_state = 'active' AND schema_version < ?
 			  AND (schema_version, agent_id) > (?, ?)
 			ORDER BY schema_version ASC, agent_id ASC
 			LIMIT ?`, agentcard.SchemaVersion, cursor.SchemaVersion, cursor.AgentID, agentCardSchemaScanPageSize).Scan(&page).Error

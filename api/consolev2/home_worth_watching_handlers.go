@@ -99,7 +99,11 @@ func (s *Service) getHomeWorthWatching(ctx context.Context, c *app.RequestContex
 	defer cancelRequest()
 	now := time.Now()
 	windowStart := now.Add(-7 * 24 * time.Hour).UnixMilli()
-	cacheKey := homeWorthWatchingCacheKey()
+	cacheKey, err := s.homeVisibilityCacheKey(requestCtx, homeWorthWatchingCacheKey())
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "HOME_WORTH_WATCHING_FAILED", "failed to verify homepage visibility", nil)
+		return
+	}
 	if cached, ok := s.readHomeWorthWatchingCache(requestCtx, cacheKey); ok {
 		reply(c, http.StatusOK, cached)
 		return
@@ -175,7 +179,7 @@ func (s *Service) rankedHomeWorthWatching(ctx context.Context, sql string, args 
 }
 
 func (s *Service) loadHomeWorthWatching(ctx context.Context, start, now int64) (homeWorthWatchingResponse, error) {
-	eligible := `p.status=3 AND p.homepage_eligible=TRUE AND p.homepage_evaluation_version=?
+	eligible := `a.identity_state = 'active' AND p.status=3 AND p.homepage_eligible=TRUE AND p.homepage_evaluation_version=?
 		AND a.short_id IS NOT NULL AND BTRIM(a.agent_name) <> ''`
 
 	realWorld, err := s.rankedHomeWorthWatching(ctx, fmt.Sprintf(`
@@ -381,7 +385,7 @@ func (s *Service) hydrateHomeWorthWatching(ctx context.Context, selected []homeW
 		FROM raw_items r JOIN processed_items p ON p.item_id=r.item_id
 		JOIN agents a ON a.agent_id=r.author_agent_id
 		LEFT JOIN agent_cards ac ON ac.agent_id=a.agent_id
-		WHERE r.item_id = ANY(?)`, pq.Array(ids)).Scan(&rows).Error; err != nil {
+		WHERE r.item_id = ANY(?) AND a.identity_state = 'active'`, pq.Array(ids)).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	byID := make(map[int64]homeWorthWatchingContentRow, len(rows))

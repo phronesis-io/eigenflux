@@ -1,17 +1,33 @@
 package hub
 
 import (
+	"errors"
 	"sync"
+	"time"
 
 	"github.com/hertz-contrib/websocket"
 )
 
 type Connection struct {
-	AgentID  int64
-	Conn     *websocket.Conn
-	PMCursor int64         // written only by the push goroutine (push.Run); no external lock
-	Done     chan struct{} // closed when this connection should shut down
-	WriteMu  sync.Mutex    // protects concurrent writes to Conn
+	SessionActive func() bool
+	AgentID       int64
+	Conn          *websocket.Conn
+	PMCursor      int64         // written only by the push goroutine (push.Run); no external lock
+	Done          chan struct{} // closed when this connection should shut down
+	WriteMu       sync.Mutex    // protects concurrent writes to Conn
+}
+
+// WriteAuthenticated rechecks long-lived connections before every outgoing
+// payload or heartbeat. Closing the socket also unblocks the reader.
+func (c *Connection) WriteAuthenticated(kind int, payload []byte) error {
+	c.WriteMu.Lock()
+	defer c.WriteMu.Unlock()
+	if !c.SessionActive() {
+		_ = c.Conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(4001, "session unavailable"), time.Now().Add(time.Second))
+		_ = c.Conn.Close()
+		return errors.New("websocket session unavailable")
+	}
+	return c.Conn.WriteMessage(kind, payload)
 }
 
 type Hub struct {

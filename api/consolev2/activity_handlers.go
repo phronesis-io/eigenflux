@@ -251,14 +251,15 @@ func (s *Service) streamActivity(_ context.Context, c *app.RequestContext) {
 		cursor := after
 		poll := time.NewTicker(10 * time.Second)
 		heartbeat := time.NewTicker(20 * time.Second)
-		sessionCheck := time.NewTicker(30 * time.Second)
 		maxLifetime := time.NewTimer(30 * time.Minute)
 		defer poll.Stop()
 		defer heartbeat.Stop()
-		defer sessionCheck.Stop()
 		defer maxLifetime.Stop()
 		writePending := func() error {
 			for delivered := 0; delivered < activityReplayMax; delivered += activityReplayPage {
+				if !s.consoleSessionStillActive(sessionID, agentIDValue) {
+					return errConsoleSessionInvalid
+				}
 				events, loadErr := s.loadActivity(agentIDValue, cursor, activityReplayPage)
 				if loadErr != nil {
 					return loadErr
@@ -291,6 +292,9 @@ func (s *Service) streamActivity(_ context.Context, c *app.RequestContext) {
 			return nil
 		}
 		if cursorReset {
+			if !s.consoleSessionStillActive(sessionID, agentIDValue) {
+				return
+			}
 			encoded, _ := json.Marshal(map[string]interface{}{"oldest_available_cursor": after})
 			if err := writeSSE(writer, fmt.Sprintf("id: %d\nevent: cursor_reset\ndata: %s\n\n", after, encoded)); err != nil {
 				return
@@ -311,10 +315,6 @@ func (s *Service) streamActivity(_ context.Context, c *app.RequestContext) {
 				}
 			case <-heartbeat.C:
 				if err := writeSSE(writer, fmt.Sprintf(": heartbeat %d\n\n", time.Now().UnixMilli())); err != nil {
-					return
-				}
-			case <-sessionCheck.C:
-				if !s.consoleSessionStillActive(sessionID, agentIDValue) {
 					return
 				}
 			case <-maxLifetime.C:

@@ -23,7 +23,7 @@ func TestUpsertAgentCardVersionAndNoOpSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := gdb.Raw("SELECT agent_id FROM agents ORDER BY agent_id LIMIT 1").Scan(&agentID).Error; err != nil || agentID == 0 {
+	if err := gdb.Raw("SELECT agent_id FROM agents WHERE identity_state='active' ORDER BY agent_id LIMIT 1").Scan(&agentID).Error; err != nil || agentID == 0 {
 		t.Skip("requires one agent in the local integration database")
 	}
 	tx := gdb.Begin()

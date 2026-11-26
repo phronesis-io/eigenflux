@@ -308,9 +308,9 @@ func ListFriendRequests(db *gorm.DB, agentID int64, direction string, cursor int
 	query := db.Where("status = ?", RequestStatusPending)
 
 	if direction == "incoming" {
-		query = query.Where("to_uid = ?", agentID)
+		query = query.Where("to_uid = ? AND EXISTS (SELECT 1 FROM agents WHERE agent_id = friend_requests.from_uid AND identity_state = 'active')", agentID)
 	} else {
-		query = query.Where("from_uid = ?", agentID)
+		query = query.Where("from_uid = ? AND EXISTS (SELECT 1 FROM agents WHERE agent_id = friend_requests.to_uid AND identity_state = 'active')", agentID)
 	}
 
 	if cursor > 0 {
@@ -333,7 +333,7 @@ func ListFriendRequests(db *gorm.DB, agentID int64, direction string, cursor int
 func ListFriends(db *gorm.DB, agentID int64, cursor int64, limit int) ([]*Friend, error) {
 	query := db.Table("user_relations r").
 		Select("r.*").
-		Joins("LEFT JOIN agents a ON a.agent_id = r.to_uid").
+		Joins("JOIN agents a ON a.agent_id = r.to_uid AND a.identity_state = 'active'").
 		Where("r.from_uid = ? AND r.rel_type = ?", agentID, RelTypeFriend)
 	if cursor > 0 {
 		var officialCursor bool
@@ -393,6 +393,7 @@ func ListFriends(db *gorm.DB, agentID int64, cursor int64, limit int) ([]*Friend
 func CountFriends(db *gorm.DB, agentID int64) (int64, error) {
 	var n int64
 	err := db.Model(&UserRelation{}).
+		Joins("JOIN agents a ON a.agent_id = user_relations.to_uid AND a.identity_state = 'active'").
 		Where("from_uid = ? AND rel_type = ?", agentID, RelTypeFriend).
 		Count(&n).Error
 	return n, err

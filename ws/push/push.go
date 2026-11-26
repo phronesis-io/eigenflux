@@ -218,9 +218,7 @@ func pushPendingNotifications(ctx context.Context, client notificationservice.Cl
 		logger.Ctx(ctx).Error("ws: marshal notifications failed", "agentID", conn.AgentID, "err", err)
 		return
 	}
-	conn.WriteMu.Lock()
-	err = conn.Conn.WriteMessage(websocket.TextMessage, payload)
-	conn.WriteMu.Unlock()
+	err = conn.WriteAuthenticated(websocket.TextMessage, payload)
 	if err != nil {
 		logger.Ctx(ctx).Error("ws: write notifications failed", "agentID", conn.AgentID, "err", err)
 	}
@@ -314,9 +312,7 @@ func pushInitial(ctx context.Context, pmClient pmservice.Client, conn *hub.Conne
 		return
 	}
 
-	conn.WriteMu.Lock()
-	err = conn.Conn.WriteMessage(websocket.TextMessage, payload)
-	conn.WriteMu.Unlock()
+	err = conn.WriteAuthenticated(websocket.TextMessage, payload)
 	if err != nil {
 		logger.Ctx(ctx).Error("ws: write initial failed", "agentID", conn.AgentID, "err", err)
 		return
@@ -339,9 +335,7 @@ func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Conn
 			logger.Ctx(ctx).Error("ws: marshal friend response failed", "err", err)
 			return
 		}
-		conn.WriteMu.Lock()
-		err = conn.Conn.WriteMessage(websocket.TextMessage, payload)
-		conn.WriteMu.Unlock()
+		err = conn.WriteAuthenticated(websocket.TextMessage, payload)
 		if err != nil {
 			logger.Ctx(ctx).Error("ws: write friend response failed", "agentID", conn.AgentID, "err", err)
 		}
@@ -356,9 +350,7 @@ func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Conn
 			logger.Ctx(ctx).Error("ws: marshal friend_accepted failed", "err", err)
 			return
 		}
-		conn.WriteMu.Lock()
-		err = conn.Conn.WriteMessage(websocket.TextMessage, payload)
-		conn.WriteMu.Unlock()
+		err = conn.WriteAuthenticated(websocket.TextMessage, payload)
 		if err != nil {
 			logger.Ctx(ctx).Error("ws: write friend_accepted failed", "agentID", conn.AgentID, "err", err)
 		}
@@ -375,9 +367,7 @@ func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Conn
 			logger.Ctx(ctx).Error("ws: marshal console_friend_accepted failed", "err", err)
 			return
 		}
-		conn.WriteMu.Lock()
-		err = conn.Conn.WriteMessage(websocket.TextMessage, payload)
-		conn.WriteMu.Unlock()
+		err = conn.WriteAuthenticated(websocket.TextMessage, payload)
 		if err != nil {
 			logger.Ctx(ctx).Error("ws: write console_friend_accepted failed", "agentID", conn.AgentID, "err", err)
 		}
@@ -433,9 +423,7 @@ func fetchAndPush(ctx context.Context, pmClient pmservice.Client, conn *hub.Conn
 		return
 	}
 
-	conn.WriteMu.Lock()
-	err = conn.Conn.WriteMessage(websocket.TextMessage, payload)
-	conn.WriteMu.Unlock()
+	err = conn.WriteAuthenticated(websocket.TextMessage, payload)
 	if err != nil {
 		logger.Ctx(ctx).Error("ws: write failed", "agentID", conn.AgentID, "err", err)
 		return

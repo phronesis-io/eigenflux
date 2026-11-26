@@ -17,7 +17,7 @@ func loadAgentEnglishNames(db *gorm.DB, agentIDs []int64) (map[int64]string, err
 	var rows []agentEnglishNameRow
 	if err := db.Table("agents").
 		Select("agent_id, agent_name_en").
-		Where("agent_id IN ?", agentIDs).
+		Where("agent_id IN ? AND identity_state = 'active'", agentIDs).
 		Find(&rows).Error; err != nil {
 		return nil, err
 	}

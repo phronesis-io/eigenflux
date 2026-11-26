@@ -119,7 +119,7 @@ func updateAgentCountWithLock(ctx context.Context, rdb *redis.Client) {
 	var count int64
 	if err := db.DB.Model(&struct {
 		AgentID int64 `gorm:"column:agent_id"`
-	}{}).Table("agents").Count(&count).Error; err != nil {
+	}{}).Table("agents").Where("identity_state = 'active'").Count(&count).Error; err != nil {
 		logger.Default().Error("failed to count agents", "err", err)
 		return
 	}
@@ -134,6 +134,7 @@ func updateAgentCountWithLock(ctx context.Context, rdb *redis.Client) {
 	if err := db.DB.Model(&struct {
 		Country string `gorm:"column:country"`
 	}{}).Table("agent_profiles").
+		Joins("JOIN agents a ON a.agent_id = agent_profiles.agent_id AND a.identity_state = 'active'").
 		Where("country != ''").
 		Distinct("country").
 		Pluck("country", &countries).Error; err != nil {

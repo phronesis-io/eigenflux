@@ -223,7 +223,7 @@ func hasOTPRetryV2SessionCookie(cookies [][]byte) bool {
 }
 
 func TestAuthRetryV2OTPBoundaries(t *testing.T) {
-	for _, name := range []string{"resend_preserves_live_challenges", "expired_old_challenge", "wrong_email", "wrong_purpose", "attempt_limit_then_fresh_challenge", "single_consumption", "concurrent_verify", "concurrent_wrong_codes", "request_limit", "unknown_email_does_not_create_identity", "ambiguous_email_does_not_claim_unbound", "cleanup_refuses_stale_owner"} {
+	for _, name := range []string{"resend_preserves_live_challenges", "expired_old_challenge", "wrong_email", "wrong_purpose", "attempt_limit_then_fresh_challenge", "single_consumption", "concurrent_verify", "concurrent_wrong_codes", "request_limit", "unknown_email_does_not_create_identity", "ambiguous_email_does_not_claim_unbound", "cleanup_refuses_stale_owner", "deleted_identity"} {
 		t.Run(name, func(t *testing.T) {
 			f := newOTPRetryV2Fixture(t)
 			id := f.challenge(t, f.email)
@@ -231,6 +231,17 @@ func TestAuthRetryV2OTPBoundaries(t *testing.T) {
 				t.Fatalf("initial challenge facts=%#v", row)
 			}
 			switch name {
+			case "deleted_identity":
+				if err := f.db.Exec("UPDATE agents SET identity_state='deleted' WHERE agent_id=101").Error; err != nil {
+					t.Fatal(err)
+				}
+				status, payload, cookies := f.verify(t, id, f.email, "123456", "login")
+				assertOTPRetryV2Rejected(t, status, payload, cookies)
+				status, payload, _ = performJSON(t, f.http, http.MethodPost, "/api/v2/auth/email/challenges", createEmailChallengeRequest{Email: f.email})
+				if status != http.StatusConflict || responseErrorCode(t, payload) != "EMAIL_NOT_BOUND" {
+					t.Fatalf("inactive email issued a new challenge: status=%d payload=%#v", status, payload)
+				}
+				f.sessions(t, 0)
 			case "cleanup_refuses_stale_owner":
 				ctx := context.Background()
 				rdb := f.svc.redisClient

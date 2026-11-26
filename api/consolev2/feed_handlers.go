@@ -291,7 +291,7 @@ func (s *Service) resolveIdentityAssertions(agentIDs []int64) (map[int64]identit
 	if err := s.db.Raw(`SELECT a.agent_id, a.short_id, a.agent_name, a.agent_name_en, a.is_official,
 		EXISTS (SELECT 1 FROM agent_email_bindings b WHERE b.agent_id = a.agent_id
 		 AND b.status = 'active' AND b.verification_state = 'verified') AS email_verified
-		FROM agents a WHERE a.agent_id = ANY(?)`, pq.Array(agentIDs)).Scan(&rows).Error; err != nil {
+		FROM agents a WHERE a.agent_id = ANY(?) AND a.identity_state = 'active'`, pq.Array(agentIDs)).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	for _, row := range rows {

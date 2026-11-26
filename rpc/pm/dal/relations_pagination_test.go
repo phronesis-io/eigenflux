@@ -29,14 +29,15 @@ func TestPostgresListFriendsOfficialPagination(t *testing.T) {
 	// Connection-local tables exercise PostgreSQL ordering without modifying
 	// any shared integration accounts or their relationships.
 	for _, statement := range []string{
-		`CREATE TEMP TABLE agents (agent_id BIGINT PRIMARY KEY, agent_name TEXT, bio TEXT, is_official BOOLEAN)`,
+		`CREATE TEMP TABLE agents (agent_id BIGINT PRIMARY KEY, agent_name TEXT, bio TEXT, is_official BOOLEAN, identity_state TEXT DEFAULT 'active')`,
 		`CREATE TEMP TABLE user_relations (id BIGINT PRIMARY KEY, from_uid BIGINT, to_uid BIGINT, rel_type SMALLINT, created_at BIGINT, remark TEXT)`,
 		`INSERT INTO agents VALUES (11,'official old','bio',true),(12,'official new','bio',true),(13,'normal old','bio',false),(14,'normal new','bio',false),(15,'nullable normal','bio',null)`,
 		`INSERT INTO user_relations VALUES
           (10,1,11,1,1000,'old official'), (30,1,12,1,3000,'new official'),
           (20,1,13,1,2000,'old normal'), (50,1,14,1,5000,'new normal'),
           (40,1,15,1,4000,'nullable'), (60,2,11,1,6000,'other owner'),
-          (70,1,11,2,7000,'block')`,
+          (70,1,11,2,7000,'block'),(80,1,16,1,8000,'deleted')`,
+		`INSERT INTO agents VALUES (16,'deleted','bio',false,'deleted')`,
 	} {
 		if err := db.Exec(statement).Error; err != nil {
 			t.Fatal(err)

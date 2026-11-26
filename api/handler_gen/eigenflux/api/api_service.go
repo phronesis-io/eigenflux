@@ -2,8 +2,6 @@ package api
 
 import (
 	"context"
-	"eigenflux_server/pkg/cache"
-	"eigenflux_server/pkg/cache/keys"
 	"eigenflux_server/pkg/summary"
 	"errors"
 	"fmt"
@@ -2095,47 +2093,13 @@ func resolveToUID(ctx context.Context, req *apimodel.SendFriendRequestReq) (int6
 	return 0, 400, "to_short_id, to_uid, or to_email is required"
 }
 
-const emailToUIDCacheTTL = 24 * time.Hour
-
-func emailToUIDCacheKey(email string) string {
-	return keys.EmailToUID + email
-}
-
-// lookupAgentIDByEmail resolves email to agent_id with Redis cache.
+// Resolve against the current binding on each request: an old email can be
+// detached and assigned to another identity.
 func lookupAgentIDByEmail(ctx context.Context, email string) (int64, error) {
-	key := emailToUIDCacheKey(email)
-
-	// Try cache first
-	if mq.RDB != nil {
-		val, err := cache.Redis(mq.RDB).Read(ctx, key).Result()
-		if err == nil {
-			if id, parseErr := strconv.ParseInt(val, 10, 64); parseErr == nil {
-				return id, nil
-			}
-		} else if err != redis.Nil {
-			logger.Default().Warn("email2uid cache read error", "err", err)
-		}
-	}
-
-	// Cache miss — query DB
-	var targetID int64
-	if err := db.DB.Table("agents").Select("agent_id").Where("email = ?", email).Scan(&targetID).Error; err != nil {
-		return 0, err
-	}
-	if targetID == 0 {
-		return 0, nil
-	}
-
-	// Write back to cache (fire-and-forget)
-	if mq.RDB != nil {
-		go func() {
-			if err := cache.Redis(mq.RDB).Write(context.Background(), key, strconv.FormatInt(targetID, 10), emailToUIDCacheTTL).Err(); err != nil {
-				logger.Default().Warn("email2uid cache write error", "err", err)
-			}
-		}()
-	}
-
-	return targetID, nil
+	var id int64
+	err := db.DB.WithContext(ctx).Table("agents").Select("agent_id").
+		Where("email = ? AND identity_state = 'active'", email).Scan(&id).Error
+	return id, err
 }
 
 // SendFriendRequest .

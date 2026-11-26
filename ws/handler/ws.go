@@ -117,6 +117,12 @@ func (h *Handler) serveToken(ctx context.Context, c *app.RequestContext, token s
 		defer cancel()
 
 		conn := &hub.Connection{
+			SessionActive: func() bool {
+				ctx, stop := context.WithTimeout(connCtx, 5*time.Second)
+				defer stop()
+				result, err := h.AuthClient.ValidateSession(ctx, &auth.ValidateSessionReq{AccessToken: token})
+				return err == nil && result != nil && result.BaseResp != nil && result.BaseResp.Code == 0 && result.AgentId == agentID
+			},
 			AgentID:  agentID,
 			Conn:     ws,
 			PMCursor: cursor,
@@ -160,9 +166,7 @@ func (h *Handler) serveToken(ctx context.Context, c *app.RequestContext, token s
 				case <-conn.Done:
 					return
 				case <-ticker.C:
-					conn.WriteMu.Lock()
-					err := ws.WriteMessage(websocket.PingMessage, nil)
-					conn.WriteMu.Unlock()
+					err := conn.WriteAuthenticated(websocket.PingMessage, nil)
 					if err != nil {
 						cancel()
 						return

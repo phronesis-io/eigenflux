@@ -293,6 +293,9 @@ func (s *PMServiceImpl) handleNewConversation(ctx context.Context, req *pm.SendP
 	})
 
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 404, Msg: "agent not found"}}, nil
+		}
 		return &pm.SendPMResp{
 			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create conversation: " + err.Error()},
 		}, nil
@@ -412,6 +415,9 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq, skip
 
 	if err != nil {
 		_ = s.iceBreaker.RollbackIceBreak(ctx, convID, iceStatus)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 404, Msg: "agent not found"}}, nil
+		}
 		return &pm.SendPMResp{
 			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to send message: " + err.Error()},
 		}, nil
@@ -478,6 +484,9 @@ func (s *PMServiceImpl) handleFriendPM(ctx context.Context, req *pm.SendPMReq) (
 		return dal.CreateMessage(tx, msg)
 	})
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 404, Msg: "agent not found"}}, nil
+		}
 		return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create"}}, nil
 	}
 	_ = s.validator.CacheConvMapping(ctx, participantA, participantB, 0, convID)
@@ -655,13 +664,11 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 	if remErr != nil {
 		remarks = map[int64]string{} // non-fatal: names just fall back to peer_name
 	}
-	// Live peer names: the participant_*_name columns are snapshots taken at
-	// conversation creation and go stale when an agent renames itself. Resolve
-	// the current agent_name for the page's peers and prefer it over the
-	// snapshot (snapshot remains the fallback when a name lookup misses).
+	// Read current names for active peers. Historical conversation names
+	// must not re-expose a deleted identity when live hydration fails.
 	liveNames, nameErr := dal.BatchGetAgentNames(db.DB, peerIDs)
 	if nameErr != nil {
-		liveNames = map[int64]string{} // non-fatal: fall back to the snapshot name
+		liveNames = map[int64]string{} // keep the history readable without disclosing stale names
 	}
 	// Current friendship for the page's peers, in one query. Drives the
 	// broadcast_comment / non_friend split (looked up by peerID in the loop).
@@ -698,13 +705,13 @@ func (s *PMServiceImpl) ListConversations(ctx context.Context, req *pm.ListConve
 		peerID := conv.ParticipantA
 		if conv.ParticipantA == req.AgentId {
 			peerID = conv.ParticipantB
-			info.PeerName = &conv.ParticipantBName
-		} else {
-			info.PeerName = &conv.ParticipantAName
 		}
-		if ln, ok := liveNames[peerID]; ok && ln != "" {
-			name := ln // new addressable var per iteration
-			info.PeerName = &name
+		name := liveNames[peerID]
+		info.PeerName = &name
+		if conv.ParticipantA == peerID {
+			info.ParticipantAName = &name
+		} else {
+			info.ParticipantBName = &name
 		}
 		if r, ok := remarks[peerID]; ok {
 			info.Remark = &r
@@ -926,6 +933,9 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 	var deletions []pendingNotificationDeletion
 
 	err = db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := dal.LockActiveParticipants(tx, req.FromUid, req.ToUid); err != nil {
+			return err
+		}
 		if err := dal.LockRelationPair(tx, req.FromUid, req.ToUid); err != nil {
 			return err
 		}
@@ -987,6 +997,8 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 	})
 	if err != nil {
 		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 404, Msg: "agent not found"}}, nil
 		case errors.Is(err, errFriendRequestAlreadyPending):
 			return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 400, Msg: err.Error()}}, nil
 		default:
@@ -1071,6 +1083,9 @@ func (s *PMServiceImpl) HandleFriendRequest(ctx context.Context, req *pm.HandleF
 		case pm.FriendRequestAction_ACCEPT:
 			if friendReq.ToUID != req.AgentId {
 				return fmt.Errorf("not recipient")
+			}
+			if err := dal.LockActiveParticipants(tx, friendReq.FromUID, friendReq.ToUID); err != nil {
+				return err
 			}
 			blockedBySender, err := dal.IsBlocked(tx, friendReq.FromUID, friendReq.ToUID)
 			if err != nil {

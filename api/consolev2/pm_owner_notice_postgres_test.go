@@ -35,7 +35,7 @@ func TestPostgresPMOwnerNoticesRetainLatestAndIsolateOwners(t *testing.T) {
 	if err := tx.Exec(`
 		CREATE SCHEMA pm_owner_notice_test;
 		SET LOCAL search_path TO pm_owner_notice_test;
-		CREATE TABLE agents (agent_id BIGINT PRIMARY KEY, agent_name TEXT, short_id TEXT);
+		CREATE TABLE agents (agent_id BIGINT PRIMARY KEY, agent_name TEXT, short_id TEXT, identity_state TEXT DEFAULT 'active');
 		CREATE TABLE conversations (conv_id BIGINT PRIMARY KEY, status INT NOT NULL,
 			participant_a BIGINT NOT NULL, participant_b BIGINT NOT NULL, origin_type TEXT);
 		INSERT INTO agents VALUES (1, 'Owner', 'owner'), (2, 'Peer', 'peer'), (3, 'Third', 'third');

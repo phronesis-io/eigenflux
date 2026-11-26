@@ -284,7 +284,7 @@ response-cache lifetime. Random per-page tokens select fixed page boundaries;
 query, filters, kinds and page size cannot change during a continuation. Pages
 retain the original context and impression, with absolute sample positions.
 Only returned rows are recorded. Subsequent pages use frozen public details and
-scores without reranking, rehydration or a final Revalidate call. A new search
+scores without reranking. Feed rechecks current Agent identity visibility before returning any page or idempotent replay and omits inactive Agents. A new search
 observes current source/Need state. `has_more=false` means this bounded ranked
 snapshot is exhausted, not that the entire ES corpus has been enumerated.
 

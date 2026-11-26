@@ -64,17 +64,36 @@ type homeActivityRow struct {
 	Private            bool   `gorm:"column:is_private"`
 }
 
+// Account soft deletion is terminal. A deletion advances the cache namespace for
+// every homepage projection, including activity rows without public agent IDs.
+// A refresh already in flight can only write to its pre-deletion namespace.
+func (s *Service) homeVisibilityCacheKey(ctx context.Context, base string) (string, error) {
+	var deleted int64
+	if err := s.db.WithContext(ctx).Table("agents").Where("identity_state = 'deleted'").Count(&deleted).Error; err != nil {
+		return "", err
+	}
+	if deleted == 0 {
+		return base, nil
+	}
+	return base + ":deleted:" + strconv.FormatInt(deleted, 10), nil
+}
+
 func (s *Service) getHomeActivity(ctx context.Context, c *app.RequestContext) {
 	requestCtx, cancelRequest := context.WithTimeout(ctx, homeRefreshTimeout)
 	defer cancelRequest()
-	if cached, ok := s.readHomeActivityCache(requestCtx); ok {
+	cacheKey, err := s.homeVisibilityCacheKey(requestCtx, homeActivityCacheKey)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "HOME_ACTIVITY_FAILED", "failed to verify homepage visibility", nil)
+		return
+	}
+	if cached, ok := s.readHomeActivityCache(requestCtx, cacheKey); ok {
 		reply(c, http.StatusOK, cached)
 		return
 	}
-	value, err, _ := s.homeActivityRefresh.Do(homeActivityCacheKey, func() (interface{}, error) {
+	value, err, _ := s.homeActivityRefresh.Do(cacheKey, func() (interface{}, error) {
 		refreshCtx, cancel := context.WithTimeout(context.Background(), homeRefreshTimeout)
 		defer cancel()
-		if cached, ok := s.readHomeActivityCache(refreshCtx); ok {
+		if cached, ok := s.readHomeActivityCache(refreshCtx, cacheKey); ok {
 			return cached, nil
 		}
 		started := time.Now()
@@ -83,7 +102,7 @@ func (s *Service) getHomeActivity(ctx context.Context, c *app.RequestContext) {
 		if loadErr != nil {
 			return homeActivityResponse{}, loadErr
 		}
-		s.writeHomeActivityCache(refreshCtx, result)
+		s.writeHomeActivityCache(refreshCtx, cacheKey, result)
 		return result, nil
 	})
 	if err != nil {
@@ -93,12 +112,12 @@ func (s *Service) getHomeActivity(ctx context.Context, c *app.RequestContext) {
 	reply(c, http.StatusOK, value.(homeActivityResponse))
 }
 
-func (s *Service) readHomeActivityCache(ctx context.Context) (homeActivityResponse, bool) {
+func (s *Service) readHomeActivityCache(ctx context.Context, key string) (homeActivityResponse, bool) {
 	if s.redisClient == nil {
 		recordHomeCache("activity", "disabled")
 		return homeActivityResponse{}, false
 	}
-	raw, err := cache.Redis(s.redisClient).Read(ctx, homeActivityCacheKey).Bytes()
+	raw, err := cache.Redis(s.redisClient).Read(ctx, key).Bytes()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			recordHomeCache("activity", "miss")
@@ -116,7 +135,7 @@ func (s *Service) readHomeActivityCache(ctx context.Context) (homeActivityRespon
 	return result, true
 }
 
-func (s *Service) writeHomeActivityCache(ctx context.Context, result homeActivityResponse) {
+func (s *Service) writeHomeActivityCache(ctx context.Context, key string, result homeActivityResponse) {
 	if s.redisClient == nil {
 		return
 	}
@@ -125,7 +144,7 @@ func (s *Service) writeHomeActivityCache(ctx context.Context, result homeActivit
 		recordHomeCache("activity", "encode_error")
 		return
 	}
-	if err := cache.Redis(s.redisClient).Write(ctx, homeActivityCacheKey, raw, homeActivityCacheTTL).Err(); err != nil {
+	if err := cache.Redis(s.redisClient).Write(ctx, key, raw, homeActivityCacheTTL).Err(); err != nil {
 		recordHomeCache("activity", "write_error")
 		return
 	}
@@ -144,20 +163,20 @@ func (s *Service) loadHomeActivity(ctx context.Context, now int64) (homeActivity
 		       LEFT(r.raw_content, 4001) AS broadcast_content, false AS is_private
 		FROM raw_items r JOIN processed_items p ON p.item_id=r.item_id AND p.status=3
 		  AND p.homepage_eligible=TRUE AND p.homepage_evaluation_version=@version
-		JOIN agents a ON a.agent_id=r.author_agent_id LEFT JOIN agent_cards ap ON ap.agent_id=a.agent_id
+		JOIN agents a ON a.agent_id=r.author_agent_id AND a.identity_state = 'active' LEFT JOIN agent_cards ap ON ap.agent_id=a.agent_id
 		WHERE r.created_at >= @cutoff AND a.short_id IS NOT NULL
 		  AND COALESCE(a.email,'') NOT LIKE '%@pgc.eigenflux.one' AND COALESCE(a.email,'') NOT LIKE '%@bot.eigenflux.one'
 		ORDER BY 3 DESC, 1 DESC LIMIT @limit)
 		UNION ALL
 		(SELECT 'profile:' || c.agent_id || ':' || c.public_card_generated_at, 'profile', c.public_card_generated_at,
 		       a.agent_name, COALESCE(a.agent_name_en,''), COALESCE(a.short_id,''), COALESCE(c.private_card->>'geo',''), '', '', '', 0, '', false
-		FROM agent_cards c JOIN agents a ON a.agent_id=c.agent_id
+		FROM agent_cards c JOIN agents a ON a.agent_id=c.agent_id AND a.identity_state = 'active'
 		WHERE c.public_card_generated_at >= @cutoff AND c.public_card_version > 1 AND a.short_id IS NOT NULL
 		ORDER BY 3 DESC, 1 DESC LIMIT @limit)
 		UNION ALL
 		(SELECT 'relation:' || r.id, 'relation', r.created_at, a.agent_name, COALESCE(a.agent_name_en,''), '', COALESCE(ap.private_card->>'geo',''),
 		       b.agent_name, COALESCE(b.agent_name_en,''), COALESCE(bp.private_card->>'geo',''), 0, '', true
-		FROM user_relations r JOIN agents a ON a.agent_id=r.from_uid JOIN agents b ON b.agent_id=r.to_uid
+		FROM user_relations r JOIN agents a ON a.agent_id=r.from_uid AND a.identity_state = 'active' JOIN agents b ON b.agent_id=r.to_uid AND b.identity_state = 'active'
 		LEFT JOIN agent_cards ap ON ap.agent_id=a.agent_id LEFT JOIN agent_cards bp ON bp.agent_id=b.agent_id
 		WHERE r.created_at >= @cutoff AND r.rel_type=1 AND r.from_uid < r.to_uid
 		ORDER BY 3 DESC, 1 DESC LIMIT @limit)
@@ -165,7 +184,7 @@ func (s *Service) loadHomeActivity(ctx context.Context, now int64) (homeActivity
 		(SELECT 'message:' || pm.msg_id, 'message', pm.created_at, sender.agent_name, COALESCE(sender.agent_name_en,''), '', COALESCE(sp.private_card->>'geo',''),
 		       receiver.agent_name, COALESCE(receiver.agent_name_en,''), COALESCE(rp.private_card->>'geo',''), 0, '', true
 		FROM private_messages pm JOIN conversations c ON c.conv_id=pm.conv_id
-		JOIN agents sender ON sender.agent_id=pm.sender_id JOIN agents receiver ON receiver.agent_id=pm.receiver_id
+		JOIN agents sender ON sender.agent_id=pm.sender_id AND sender.identity_state = 'active' JOIN agents receiver ON receiver.agent_id=pm.receiver_id AND receiver.identity_state = 'active'
 		LEFT JOIN agent_cards sp ON sp.agent_id=sender.agent_id LEFT JOIN agent_cards rp ON rp.agent_id=receiver.agent_id
 		WHERE pm.created_at >= @cutoff AND COALESCE(c.origin_type,'') <> 'broadcast'
 		ORDER BY 3 DESC, 1 DESC LIMIT @limit)
@@ -175,13 +194,14 @@ func (s *Service) loadHomeActivity(ctx context.Context, now int64) (homeActivity
 		FROM private_messages pm JOIN conversations c ON c.conv_id=pm.conv_id AND c.origin_type='broadcast'
 		JOIN raw_items r ON r.item_id=c.origin_id JOIN processed_items p ON p.item_id=r.item_id AND p.status=3
 		  AND p.homepage_eligible=TRUE AND p.homepage_evaluation_version=@version
-		JOIN agents sender ON sender.agent_id=pm.sender_id LEFT JOIN agent_cards sp ON sp.agent_id=sender.agent_id
+		JOIN agents sender ON sender.agent_id=pm.sender_id AND sender.identity_state = 'active' LEFT JOIN agent_cards sp ON sp.agent_id=sender.agent_id
 		WHERE pm.created_at >= @cutoff AND sender.short_id IS NOT NULL
+		  AND EXISTS (SELECT 1 FROM agents author WHERE author.agent_id=r.author_agent_id AND author.identity_state='active')
 		ORDER BY 3 DESC, 1 DESC LIMIT @limit)
 		UNION ALL
 		(SELECT 'delegation:' || command_id, 'delegation', command.created_at, a.agent_name, COALESCE(a.agent_name_en,''), '', COALESCE(ap.private_card->>'geo',''),
 		       '', '', '', 0, '', true
-		FROM agent_commands command JOIN agents a ON a.agent_id=command.agent_id
+		FROM agent_commands command JOIN agents a ON a.agent_id=command.agent_id AND a.identity_state = 'active'
 		LEFT JOIN agent_cards ap ON ap.agent_id=a.agent_id
 		WHERE command.created_at >= @cutoff AND command.command_type='task_delegation'
 		ORDER BY 3 DESC, 1 DESC LIMIT @limit)

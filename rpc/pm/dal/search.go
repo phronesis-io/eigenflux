@@ -20,7 +20,7 @@ func SearchMessages(ctx context.Context, db *gorm.DB, req *search.SearchReq) (*s
    CASE c.topic_status WHEN 0 THEN 'pending_verify' WHEN 2 THEN 'closed' ELSE 'open' END AS status,
    m.created_at AS updated_at, c.conv_id AS conversation_id, a.agent_id AS peer_id, a.short_id AS short_id
    FROM conversations c JOIN private_messages m ON m.conv_id=c.conv_id
-   JOIN agents a ON a.agent_id=CASE WHEN c.participant_a=? THEN c.participant_b ELSE c.participant_a END
+   JOIN agents a ON a.identity_state='active' AND a.agent_id=CASE WHEN c.participant_a=? THEN c.participant_b ELSE c.participant_a END
    LEFT JOIN user_relations r ON r.from_uid=? AND r.to_uid=a.agent_id AND r.rel_type=1
    WHERE c.status=0 AND (c.participant_a=? OR c.participant_b=?) AND
    (m.msg_id=? OR c.conv_id=? OR a.agent_id=? OR a.short_id=? OR m.content ILIKE ? ESCAPE '!' OR a.agent_name ILIKE ? ESCAPE '!' OR a.agent_name_en ILIKE ? ESCAPE '!' OR r.remark ILIKE ? ESCAPE '!')`
@@ -42,7 +42,7 @@ func SearchFriends(ctx context.Context, db *gorm.DB, req *search.SearchReq) (*se
 	sql := `SELECT r.id AS key, a.agent_id AS id, COALESCE(NULLIF(r.remark,''),a.agent_name,'') AS title,
    a.agent_name || E'\n' || COALESCE(a.agent_name_en,'') || E'\n' || r.remark AS body, 'friend' AS status, r.created_at AS updated_at,
    0 AS conversation_id, a.agent_id AS peer_id, a.short_id AS short_id
-   FROM user_relations r JOIN agents a ON a.agent_id=r.to_uid WHERE r.from_uid=? AND r.rel_type=1 AND
+   FROM user_relations r JOIN agents a ON a.agent_id=r.to_uid AND a.identity_state='active' WHERE r.from_uid=? AND r.rel_type=1 AND
    (a.agent_id=? OR a.short_id=? OR a.agent_name ILIKE ? ESCAPE '!' OR a.agent_name_en ILIKE ? ESCAPE '!' OR r.remark ILIKE ? ESCAPE '!')`
 	args := []interface{}{owner, id, text, pattern, pattern, pattern}
 	sql = `SELECT * FROM (` + sql + `) matches WHERE (CAST(? AS BIGINT)=0 OR key < ?) AND (?='' OR status=?) ORDER BY key DESC LIMIT ?`
@@ -68,12 +68,12 @@ func FilterSearchVisibility(ctx context.Context, db *gorm.DB, owner int64, kind 
 
 	var query string
 	if kind == "message" {
-		query = `SELECT m.msg_id FROM private_messages m JOIN conversations c ON c.conv_id=m.conv_id WHERE m.msg_id IN ? AND c.status=0 AND (c.participant_a=? OR c.participant_b=?)`
-		if err := db.WithContext(ctx).Raw(query, ids, owner, owner).Scan(&visible).Error; err != nil {
+		query = `SELECT m.msg_id FROM private_messages m JOIN conversations c ON c.conv_id=m.conv_id JOIN agents a ON a.agent_id=CASE WHEN c.participant_a=? THEN c.participant_b ELSE c.participant_a END AND a.identity_state='active' WHERE m.msg_id IN ? AND c.status=0 AND (c.participant_a=? OR c.participant_b=?)`
+		if err := db.WithContext(ctx).Raw(query, owner, ids, owner, owner).Scan(&visible).Error; err != nil {
 			return err
 		}
 	} else {
-		query = `SELECT r.to_uid FROM user_relations r JOIN agents a ON a.agent_id=r.to_uid WHERE r.to_uid IN ? AND r.from_uid=? AND r.rel_type=1`
+		query = `SELECT r.to_uid FROM user_relations r JOIN agents a ON a.agent_id=r.to_uid AND a.identity_state='active' WHERE r.to_uid IN ? AND r.from_uid=? AND r.rel_type=1`
 		if err := db.WithContext(ctx).Raw(query, ids, owner).Scan(&visible).Error; err != nil {
 			return err
 		}

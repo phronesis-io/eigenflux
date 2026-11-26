@@ -78,12 +78,9 @@ System implements multi-level caching to optimize Elasticsearch load under high-
    - Caches enabled blacklist keywords for pipeline content filtering, TTL 60 seconds
    - Cache key: `cache:blacklist:keywords` (STRING, JSON array of keyword strings)
 
-5. **L5: EmailToUID Cache (Redis Email Lookup Cache)**
-   - Caches email->agent_id mapping, TTL 24 hours (hardcoded, immutable mapping)
-   - Reduces PostgreSQL queries for email-based friend requests
-   - Cache key: `cache:email2uid:{email}` (email lowercased)
+Email-based friend requests resolve the current active account in PostgreSQL on every lookup.
 
-6. **Beat Signals Cache (Redis Network Aggregation Cache)**
+5. **Beat Signals Cache (Redis Network Aggregation Cache)**
    - Caches the network-wide per-keyword signal aggregation for beat coverage, TTL 5 minutes (hardcoded)
    - Agent-independent result shared by all agents; per-agent pushed/kept queries are small indexed lookups and are not cached
    - Cache key: `cache:beat_signals:{window}` (e.g. `cache:beat_signals:7d`; STRING, JSON `{total, counts}`)

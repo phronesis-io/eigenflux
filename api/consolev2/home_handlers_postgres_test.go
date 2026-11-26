@@ -302,10 +302,20 @@ func TestHomeHTTPContracts(t *testing.T) {
 			t.Fatal(setErr)
 		}
 	}
-	discoveryKey := homeDiscoveryCacheKey("UTC", dayStart)
-	worthKey := homeWorthWatchingCacheKey()
+	ctx := context.Background()
+	homeKey := func(base string) string {
+		t.Helper()
+		key, err := svc.homeVisibilityCacheKey(ctx, base)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return key
+	}
+	discoveryKey := homeKey(homeDiscoveryCacheKey("UTC", dayStart))
+	activityKey := homeKey(homeActivityCacheKey)
+	worthKey := homeKey(homeWorthWatchingCacheKey())
 	writeJSON(discoveryKey, discoveryCached)
-	writeJSON(homeActivityCacheKey, activityCached)
+	writeJSON(activityKey, activityCached)
 	writeJSON(worthKey, worthCached)
 
 	t.Run("cache hit response envelopes and field types", func(t *testing.T) {
@@ -366,8 +376,48 @@ func TestHomeHTTPContracts(t *testing.T) {
 		}
 	})
 
+	t.Run("deletion never reads a warmed homepage generation", func(t *testing.T) {
+		tx := db.Begin()
+		if tx.Error != nil {
+			t.Fatal(tx.Error)
+		}
+		defer tx.Rollback()
+		// Use a temp identity table so this read-path test can run using the
+		// normal application login independently of the operator privilege.
+		if err := tx.Exec(`CREATE TEMP TABLE agents (LIKE public.agents INCLUDING DEFAULTS) ON COMMIT DROP`).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Exec(`INSERT INTO agents SELECT * FROM public.agents WHERE agent_id IN (?, ?, ?)`, agentIDValue, demandAgentID, publishAgentID).Error; err != nil {
+			t.Fatal(err)
+		}
+		original := svc.db
+		svc.db = tx
+		defer func() { svc.db = original }()
+		before := homeKey(homeActivityCacheKey)
+		if err := tx.Exec(`UPDATE agents SET identity_state='deleted' WHERE agent_id=?`, demandAgentID).Error; err != nil {
+			t.Fatal(err)
+		}
+		after := homeKey(homeActivityCacheKey)
+		if before == after {
+			t.Fatal("cached active generation reused")
+		}
+		writeJSON(before, activityCached)
+		if _, hit := svc.readHomeActivityCache(ctx, after); hit {
+			t.Fatal("stale activity cache hit")
+		}
+		result, err := svc.loadHomeActivity(ctx, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, event := range result.Events {
+			if event.ActorShortID == demandShortID || event.BroadcastID == strconv.FormatInt(newDemandItemID, 10) {
+				t.Fatalf("deleted activity visible: %#v", event)
+			}
+		}
+	})
+
 	t.Run("corrupt cache falls back to SQL and rebuilds bounded responses", func(t *testing.T) {
-		for _, key := range []string{discoveryKey, homeActivityCacheKey, worthKey} {
+		for _, key := range []string{discoveryKey, activityKey, worthKey} {
 			if err := redisClient.Set(context.Background(), key, "{", time.Minute).Err(); err != nil {
 				t.Fatal(err)
 			}
@@ -402,7 +452,7 @@ func TestHomeHTTPContracts(t *testing.T) {
 				assertHomeActivityExcludesBroadcast(t, rows, ineligibleItemID)
 			}
 		}
-		for _, key := range []string{discoveryKey, homeActivityCacheKey, worthKey} {
+		for _, key := range []string{discoveryKey, activityKey, worthKey} {
 			raw, err := redisClient.Get(context.Background(), key).Bytes()
 			if err != nil || !json.Valid(raw) {
 				t.Fatalf("cache %s was not rebuilt: err=%v raw=%q", key, err, raw)

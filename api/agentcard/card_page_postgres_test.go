@@ -3,6 +3,7 @@ package agentcardapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"testing"
@@ -16,6 +17,7 @@ import (
 
 	"eigenflux_server/pkg/agentcard"
 	"eigenflux_server/pkg/db"
+	profiledal "eigenflux_server/rpc/profile/dal"
 )
 
 func TestMyCardPagePostgres(t *testing.T) {
@@ -67,7 +69,7 @@ func TestMyCardPagePostgres(t *testing.T) {
 				}
 			}
 			for _, statement := range []string{
-				`CREATE TEMP TABLE agents (agent_id BIGINT PRIMARY KEY, agent_name TEXT, short_id TEXT, bio TEXT, is_official BOOLEAN) ON COMMIT DROP`,
+				`CREATE TEMP TABLE agents (agent_id BIGINT PRIMARY KEY, agent_name TEXT, short_id TEXT, bio TEXT, is_official BOOLEAN, identity_state TEXT DEFAULT 'active') ON COMMIT DROP`,
 				`CREATE TEMP TABLE agent_email_bindings (agent_id BIGINT, status TEXT, verification_state TEXT) ON COMMIT DROP`,
 				`CREATE TEMP TABLE agent_profiles (agent_id BIGINT, profile_version BIGINT, profile_data JSONB) ON COMMIT DROP`,
 				`CREATE TEMP TABLE agent_network_memberships (agent_id BIGINT, member_no BIGINT) ON COMMIT DROP`,
@@ -113,6 +115,13 @@ func TestMyCardPagePostgres(t *testing.T) {
 			wantDisplayName := tc.agentName
 			if wantDisplayName == "" {
 				wantDisplayName = "Agent #AbcDe"
+			}
+			exec(`UPDATE agents SET identity_state='deleted' WHERE agent_id=42`)
+			if _, err := profiledal.GetAgentCard(tx, 42); !errors.Is(err, gorm.ErrRecordNotFound) {
+				t.Fatalf("deleted card remains retrievable: %v", err)
+			}
+			if cards, err := profiledal.GetAgentCards(tx, []int64{42}); err != nil || len(cards) != 0 {
+				t.Fatalf("deleted card in batch: %#v %v", cards, err)
 			}
 			if payload.Data.Card.Public["display_name"] != wantDisplayName {
 				t.Fatalf("display_name = %v, want %q", payload.Data.Card.Public["display_name"], wantDisplayName)

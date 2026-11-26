@@ -34,7 +34,16 @@ func (s *ProfileServiceImpl) MatchAgentsByName(ctx context.Context, req *profile
 			return nil, err
 		}
 		return &profile.MatchAgentsByNameResp{AgentIds: ids, HasMore: more, BaseResp: &base.BaseResp{Code: 0, Msg: "success"}}, nil
-	}, nil)
+	}, func(check context.Context) error {
+		if len(response.AgentIds) == 0 {
+			return nil
+		}
+		var active []int64
+		err := db.DB.WithContext(check).Table("agents").Where("agent_id IN ? AND identity_state='active'", response.AgentIds).
+			Order("agent_id DESC").Pluck("agent_id", &active).Error
+		response.AgentIds = active
+		return err
+	})
 	if err != nil {
 		logger.Ctx(ctx).Error("MatchAgentsByName failed", "error", err)
 		code := int32(503)
