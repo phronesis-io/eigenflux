@@ -117,15 +117,16 @@ Capture concrete goals, needs, capabilities, constraints, and current work when
 evidenced; retain useful de-identified detail rather than generic descriptions.
 Do not duplicate one fact across fields merely to increase completeness.
 
-Before drafting, identify each distinct ongoing need or goal supported by the
-approved context. Include as many actionable intents as the evidence supports,
-up to 10. Split a project into separate intents when distinct needs call for
-materially different signals, triggers, or responses. Merge overlapping needs.
-Leave `intent_actions` empty when no ongoing monitoring need is supported.
+Identify evidence-backed ongoing goals across the approved context. Default to
+one intent per coherent project or objective, combining related needs across
+conversations. Split unrelated goals or goals requiring separate action policies.
+Include up to 10 distinct intents and leave `intent_actions` empty when no
+ongoing monitoring need is supported.
 
-Each intent needs a concrete signal worth monitoring over time in `watch_for`,
-an observable `trigger_when`, and a bounded `action_instruction`. Use `seeking`,
-`offering`, and real work to refine established ongoing goals. Write
+In `watch_for`, name the project or objective and describe its goal and concrete
+signals in plain prose. Keep conditions tied to their own signals. Put observable
+match conditions in `trigger_when` and bounded next steps in `action_instruction`.
+Use `seeking`, `offering`, and real work to refine established ongoing goals. Write
 commission-opportunity intents only with independent evidence of an ongoing
 goal to get paid work or find clients. Keep capabilities and completed
 commissions as profile evidence.
