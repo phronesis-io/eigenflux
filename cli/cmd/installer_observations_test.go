@@ -20,20 +20,31 @@ func TestWindowsInstallerObservationsBeforeDownload(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("requires Windows PowerShell and Windows ACLs")
 	}
-	shell, err := exec.LookPath("powershell.exe")
-	if err != nil {
-		t.Fatal(err)
-	}
 	body, err := os.ReadFile("../../static/install.ps1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	source := string(body)
+	// Keep production best-effort behavior while surfacing a safe location for
+	// any swallowed fixture failure, without printing event bodies or proof.
+	source = strings.Replace(source, "# Missing evidence must not change installation exit codes or diagnostics.", "Write-Host ('Fixture observation failure: ' + $_.Exception.GetType().Name + ' at line ' + $_.InvocationInfo.ScriptLineNumber)", 1)
 	marker := "# ── Main ─"
 	main := strings.Index(source, marker)
 	if main < 0 {
 		t.Fatal("installer main not found")
 	}
+	for _, shellName := range []string{"powershell.exe", "pwsh.exe"} {
+		t.Run(shellName, func(t *testing.T) {
+			shell, err := exec.LookPath(shellName)
+			if err != nil {
+				t.Fatal(err)
+			}
+			testWindowsInstallerObservationsBeforeDownload(t, shell, source, main)
+		})
+	}
+}
+
+func testWindowsInstallerObservationsBeforeDownload(t *testing.T, shell, source string, main int) {
 	for _, scenario := range []string{"fresh", "retry", "disabled", "existing", "bound"} {
 		t.Run(scenario, func(t *testing.T) {
 			home := t.TempDir()
@@ -67,6 +78,13 @@ function Invoke-WebRequest {
  [IO.File]::AppendAllText($env:TEST_INSTALL_REQUESTS, "called` + "`n" + `")
  return @{ StatusCode = 202 }
 }
+# Production observations are best effort. Surface only fixture ACL errors so
+# a failed pre-CLI session has useful diagnostics without changing production.
+$script:fixtureProtectObservationDirectory = ${function:Protect-ObservationDirectory}
+function Protect-ObservationDirectory([string]$Path) {
+ try { & $script:fixtureProtectObservationDirectory $Path }
+ catch { Write-Host ('Fixture ACL failure: ' + $_.Exception.Message); throw }
+}
 function Install-Cli { throw 'synthetic download unavailable' }
 `
 			if err := os.WriteFile(script, []byte(source[:main]+override+source[main:]), 0600); err != nil {
@@ -79,13 +97,22 @@ function Install-Cli { throw 'synthetic download unavailable' }
 				if scenario == "disabled" {
 					optout = "0"
 				}
-				c.Env = append(os.Environ(), "USERPROFILE="+home, "HOME="+home, "EIGENFLUX_HOME="+agentHome, "INVOKING_HOST=codex", "EIGENFLUX_HOST=", "EIGENFLUX_API_URL="+endpoint, "EIGENFLUX_INSTALL_OBSERVATIONS="+optout, "TEST_INSTALL_REQUESTS="+requestPath)
+				// The CI parent is PowerShell 7. Its module path can shadow the
+				// Windows PowerShell 5.1 Security module used for Set-Acl. Let
+				// each interpreter initialize its own module search path.
+				for _, entry := range os.Environ() {
+					name, _, _ := strings.Cut(entry, "=")
+					if !strings.EqualFold(name, "PSModulePath") {
+						c.Env = append(c.Env, entry)
+					}
+				}
+				c.Env = append(c.Env, "USERPROFILE="+home, "HOME="+home, "EIGENFLUX_HOME="+agentHome, "INVOKING_HOST=codex", "EIGENFLUX_HOST=", "EIGENFLUX_API_URL="+endpoint, "EIGENFLUX_INSTALL_OBSERVATIONS="+optout, "TEST_INSTALL_REQUESTS="+requestPath)
 				out, err := c.CombinedOutput()
 				if err == nil {
 					t.Fatal("download failure became installer success")
 				}
 				if !strings.Contains(string(out), "synthetic download unavailable") {
-					t.Fatal("original download error lost")
+					t.Fatalf("original download error lost: %s", out)
 				}
 				return out
 			}
@@ -98,7 +125,7 @@ function Install-Cli { throw 'synthetic download unavailable' }
 			}
 			raw, err := os.ReadFile(filepath.Join(dir, "session.json"))
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("installer session missing: %v\n%s", err, output)
 			}
 			var session struct {
 				ID       string `json:"install_session_id"`
