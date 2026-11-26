@@ -106,7 +106,7 @@ error in the same Home before continuing. The response contains a short-lived
 `console_url`. Validate it before returning the handoff. It must be an absolute HTTP(S) URL with path
 `/dashboard/handoff`, a non-empty `ticket` query parameter, and a non-empty `nonce` URL fragment.
 
-Preserve the validated path, query, and fragment exactly. For a local Console
+Open and forward the issued `handoff_url` (CLI `console_url`) verbatim. Use the exact returned string as the link target. Pass WebView display options separately. For a local Console
 test, replace only the URL scheme and host through URL parsing. Rerun provision
 with the same `<agent-home>` when the URL is missing, malformed, or expired;
 validate the replacement before returning it.
