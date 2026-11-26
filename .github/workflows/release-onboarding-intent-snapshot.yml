@@ -1,0 +1,57 @@
+name: Publish macOS onboarding intent snapshot
+
+on:
+  push:
+    branches: [codex/snapshot-intent-prefill-macos]
+    paths:
+      - 'scripts/snapshots/**'
+      - '.github/workflows/release-onboarding-intent-snapshot.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: onboarding-intent-snapshot-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/codex/snapshot-intent-prefill-macos'
+    runs-on: macos-15
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify installer and Skills source
+        run: |
+          sh -n static/install.sh
+          python -m unittest discover -s tests/onboarding_prefill -p 'test_*.py'
+          python -m unittest discover -s tests/cli_release -p 'test_*install*.py'
+      - name: Build paired immutable snapshot
+        run: python scripts/snapshots/build.py --out build/intent-snapshot
+      - name: Publish only the new snapshot prefix and verify public installation
+        env:
+          AWS_DEFAULT_REGION: auto
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/snapshots/publish.py build/intent-snapshot/public
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: intent-snapshot-audit
+          path: |
+            build/intent-snapshot/audit/
+            build/intent-snapshot/public/provenance.json
+            build/intent-snapshot/public/checksums.json
+          retention-days: 14
