@@ -117,15 +117,18 @@ Capture concrete goals, needs, capabilities, constraints, and current work when
 evidenced; retain useful de-identified detail rather than generic descriptions.
 Do not duplicate one fact across fields merely to increase completeness.
 
-Identify evidence-backed ongoing goals across the approved context. Default to
-one intent per coherent project or objective, combining related needs across
-conversations. Split unrelated goals or goals requiring separate action policies.
-Include up to 10 distinct intents and leave `intent_actions` empty when no
-ongoing monitoring need is supported.
+Group evidence across conversations by ongoing project or objective. Use one
+intent for a shared goal even when its signals, conditions, or next steps differ.
+Split unrelated goals or those requiring separate action policies. Check other
+relevant authorized context for missed goals. Include as many distinct supported
+goals as possible, up to 10. Leave `intent_actions` empty when no ongoing
+monitoring need is supported.
 
-In `watch_for`, name the project or objective and describe its goal and concrete
-signals in plain prose. Keep conditions tied to their own signals. Put observable
-match conditions in `trigger_when` and bounded next steps in `action_instruction`.
+In required `watch_for`, name the project or objective and describe its goal and
+concrete signals in plain prose. The other text fields are optional. Use
+`trigger_when` for evidenced match conditions and `action_instruction` for
+evidenced bounded next steps. Keep conditions tied to their signals and leave
+either optional field as an empty string when unsupported.
 Use `seeking`, `offering`, and real work to refine established ongoing goals. Write
 commission-opportunity intents only with independent evidence of an ongoing
 goal to get paid work or find clients. Keep capabilities and completed
@@ -144,6 +147,6 @@ Check each intent is an object with non-empty `watch_for`, an allowed
 `action_policy`, and an in-range integer `priority`. Preserve the user's
 explicit targets, use cases, and constraints at the most specific level safe
 to share. Replace generic wording with details supported by the approved
-context. Omit an intent if the evidence cannot support an actionable version.
+context. Omit an intent if there is no evidence for a concrete ongoing signal.
 Recheck field types, limits, language, and provenance, then pass the checked
 draft to the Console handoff flow.
