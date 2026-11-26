@@ -47,7 +47,9 @@ def check_native(provenance, hashes):
         info = json.loads(cli(stable, "version", "--format", "json").stdout)
         if (info.get("commit"), info.get("home")) != (expected_commit, str(agent_home)):
             raise ValueError("wrong CLI source or non-default Agent Home")
-        skills_dir.mkdir(exist_ok=True)
+        cli(stable, "skills", "target", "set", "--host", "codex", "--path", str(skills_dir))
+        if cli(stable, "skills", "path", "--host", "codex").stdout.strip() != str(skills_dir):
+            raise ValueError("the registered Skills directory was not resolved")
         unrelated = skills_dir / "personal-skill"
         unrelated.mkdir()
         (unrelated / "SKILL.md").write_text("unmanaged\n")
