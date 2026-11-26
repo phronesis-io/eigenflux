@@ -195,9 +195,9 @@ Full backend builds include `build/account_soft_delete`. Operators can invoke it
 go build -o build/account_soft_delete ./scripts/account_soft_delete
 ```
 
-Deploy migration 143 and the authentication, profile, discovery and delivery changes together before operating on an account. Supply an individual PostgreSQL login via `EIGENFLUX_OPS_PG_DSN` using the operations secret store. This executable has no HTTP, Console, SDK or Agent CLI entry point.
+Deploy migrations 143 and 144 and the authentication, profile, discovery and delivery changes together before operating on an account. Supply an individual PostgreSQL login via `EIGENFLUX_OPS_PG_DSN` using the operations secret store. This executable has no HTTP, Console, SDK or Agent CLI entry point.
 
-A database administrator provisions the `eigenflux_account_eraser` NOLOGIN group. The table owner runs `psql -X -v ON_ERROR_STOP=1 -f scripts/account_soft_delete/grants.sql` against the target database. The DBA then grants membership only to each approved, individual operations login. Keep the group separate from application, shared deployment and reporting users. The command checks the authenticated session user. Possession of a binary or use of `SET ROLE` alone grants no access. PostgreSQL owners and superusers retain their usual administrative powers.
+A database administrator provisions the `eigenflux_account_eraser` NOLOGIN group. The table owner runs `psql -X -v ON_ERROR_STOP=1 -f scripts/account_soft_delete/grants.sql` against the target database. The DBA then grants membership only to each approved, individual operations login. Keep the group separate from application, shared deployment and reporting users. The command checks inherited membership for the authenticated session user. An admin-only grant to the group creator does not allow execution. Possession of a binary or use of `SET ROLE` alone grants no access. PostgreSQL owners and superusers retain their usual administrative powers.
 
 Preview the target by its exact Agent ID and normalized bound email. After verifying the request and reviewing the preview, apply with a non-sensitive ticket reference. Keep personal information out of the ticket argument and shell history.
 
