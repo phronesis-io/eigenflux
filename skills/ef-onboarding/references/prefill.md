@@ -1,22 +1,17 @@
 # Prepare the Onboarding Draft
 
-After the separate optional Prefill choice in `host-setup.md`, use the host's available memory and
-conversation-retrieval tools to read relevant user preferences, recent
-substantive work, ongoing projects, and goals only within the approved scope.
-Do not rely only on the latest onboarding message or scan unrelated sources.
-After affirmative Prefill consent, inspect host tool declarations and use tool
-discovery if needed to identify supported memory and conversation-history
-sources within the approved scope. A new conversation, absent project, or empty
-working directory does not establish that history is unavailable. Do not open
-personal files or invoke content-bearing tools, including task listings with
-titles or summaries, before consent.
+After affirmative Prefill consent in `host-setup.md`, inspect host tool
+declarations and discover available memory and conversation tools as needed.
+Use only relevant sources within the approved scope. Wait for consent before
+opening personal files or using content-bearing tools, including task listings.
 
-On Codex, use `list_threads` to locate relevant recent work and `read_thread`
-to retrieve selected conversations, or equivalent host tools. Do not filter
-history to the current directory or project unless the user limited that scope.
-Read enough substantive context to support each inferred field; task titles alone
-are not profile evidence. Do not treat the installation conversation as the only
-candidate or scan unrelated histories exhaustively.
+On Codex, use `list_threads` to find relevant conversations and `read_thread`
+to read them, or use equivalent host tools. Look beyond the onboarding chat
+and across relevant projects within the approved scope. Check for available
+history even in a new chat, with no project, or in an empty workspace. Review
+substantive work and stated preferences for active interests, ongoing projects,
+unresolved needs, and what the user is actively offering. Use task titles
+to locate conversations and substantive context to support each inferred field.
 
 Distinguish uninspected sources, unavailable capabilities, denied or failed
 retrieval, and successful retrieval with no relevant evidence. Do not describe
@@ -122,23 +117,21 @@ Capture concrete goals, needs, capabilities, constraints, and current work when
 evidenced; retain useful de-identified detail rather than generic descriptions.
 Do not duplicate one fact across fields merely to increase completeness.
 
-Derive up to 10 distinct, evidence-backed intent actions from the user's
-ongoing goals and monitoring needs in the approved context. Require each
-`watch_for` to identify a signal worth monitoring over time. Use `seeking`,
-`offering`, and real work to refine an intent only after its continuing goal
-is established. Generate commission-opportunity intents only when the
-approved context establishes the user's ongoing goal of accepting paid work
-or acquiring clients. Keep capabilities and completed commissions as profile
-evidence; require independent evidence of that ongoing business goal for
-commission-opportunity intents.
+Before drafting, identify each distinct ongoing need or goal supported by the
+approved context. Include as many actionable intents as the evidence supports,
+up to 10. Split a project into separate intents when distinct needs call for
+materially different signals, triggers, or responses. Merge overlapping needs.
+Leave `intent_actions` empty when no ongoing monitoring need is supported.
 
-Set the number of intents by the supported ongoing needs. Ten is a ceiling,
-not a quota. Merge overlapping needs and leave `intent_actions` empty when no
-ongoing monitoring need is supported. Each action needs a concrete `watch_for`,
-an observable `trigger_when`, and a bounded `action_instruction`. Prefer
-`analyze_only`; use `draft` only when preparing a draft is clearly useful.
-Never infer permission
-for `network_action` or `trade_action`.
+Each intent needs a concrete signal worth monitoring over time in `watch_for`,
+an observable `trigger_when`, and a bounded `action_instruction`. Use `seeking`,
+`offering`, and real work to refine established ongoing goals. Write
+commission-opportunity intents only with independent evidence of an ongoing
+goal to get paid work or find clients. Keep capabilities and completed
+commissions as profile evidence.
+
+Prefer `analyze_only`. Use `draft` only when preparing a draft is clearly
+useful. Require explicit authorization for `network_action` or `trade_action`.
 
 Public fields must be safe for strangers. Generalize private project or
 employer information; never include names, emails, credentials, internal URLs,
@@ -146,8 +139,10 @@ private contacts, or conversation excerpts. Before submission,
 remove identifying combinations and confidential specifics while preserving the
 useful problem, capability, or goal. Omit a detail when safe generalization is
 not possible. Before provisioning, parse the exact JSON to be submitted.
-Check every intent is an object with non-empty `watch_for`, a permitted
-`action_policy`, and an integer `priority` in range. Correct only supported
-values. Omit an intent that cannot be represented from the authorized context.
-Recheck field types, limits, language, and provenance after edits, then pass
-the checked draft to the Console handoff flow.
+Check each intent is an object with non-empty `watch_for`, an allowed
+`action_policy`, and an in-range integer `priority`. Preserve the user's
+explicit targets, use cases, and constraints at the most specific level safe
+to share. Replace generic wording with details supported by the approved
+context. Omit an intent if the evidence cannot support an actionable version.
+Recheck field types, limits, language, and provenance, then pass the checked
+draft to the Console handoff flow.
