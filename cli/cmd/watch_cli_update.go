@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"cli.eigenflux.ai/internal/config"
+	"cli.eigenflux.ai/internal/profilestate"
 	"cli.eigenflux.ai/internal/selfupdate"
 	"cli.eigenflux.ai/internal/skills"
 )
@@ -64,6 +65,14 @@ func (w *accountWatch) checkCLIUpdate(ctx context.Context, options selfupdate.Op
 	if !enabled {
 		recorder.Finish("check", "blocked", options.Version, "", "", "server_policy_disabled")
 		return false, w.emitCLIUpdateResult(selfupdate.Result{Status: "skipped", Reason: "server_policy_disabled"}, options.Version, recorder.attempt)
+	}
+	if macOSHostMaintenance(cfg) {
+		state, err := profilestate.LoadRuntime(w.home, w.server.Name)
+		// A damaged optional hint must not stop a healthy notification watch.
+		if err == nil && state.HostMinimumUntil > time.Now().Unix() && selfupdate.ValidVersion(state.HostMinimumCLI) && selfupdate.ValidVersion(options.Version) && selfupdate.Compare(state.HostMinimumCLI, options.Version) > 0 {
+			// A changed minimum bypasses the daily throttle once. Identical retries retain backoff.
+			options.Minimum = state.HostMinimumCLI
+		}
 	}
 	options.Home = w.home
 	options.OnProgress = recorder.Progress(options.Version)

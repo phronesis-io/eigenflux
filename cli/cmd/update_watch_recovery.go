@@ -39,6 +39,53 @@ type updateWatchRecovery struct {
 	MainSession          *dispatch.MainNoticeProbe  `json:"main_session,omitempty"`
 }
 
+// Inspect the host-owned watch without starting a service or opening the desktop helper.
+func macOSHostWatchStatus(cmd *cobra.Command, cfg *config.Config) (result updateWatchRecovery) {
+	defer func() { annotateWatchRecoveryNotice(cmd, cfg, &result) }()
+	result = updateWatchRecovery{Status: "unavailable", Reason: "macos_host_watch", Action: "check watch status from the macOS host"}
+	expected, err := watchBindingIdentity()
+	if err != nil {
+		return result
+	}
+	binding, err := dispatch.ReadBinding(expected.Home, expected.Server)
+	notificationsOnly := os.IsNotExist(err)
+	if notificationsOnly {
+		binding, err = readNotificationWatch(expected.Home, expected.Server)
+	}
+	if err != nil || !sameBindingIdentity(binding, expected) {
+		return result
+	}
+	live := readWatchLiveStatus(binding, notificationsOnly, time.Now())
+	result.DesktopStatus = live.DesktopStatus
+	result.RunningCommit = live.Commit
+	result.RuntimeReady = live.Ready
+	if live.Ready {
+		switch live.DesktopStatus {
+		case "ready", "registered":
+		case "permission_or_setup_required", "unavailable":
+			result.Status = "blocked"
+			result.Reason = live.DesktopCode
+			result.Action = live.DesktopAction
+			if result.Reason == "" {
+				result.Reason = "desktop_unavailable"
+			}
+			if result.Action == "" {
+				result.Action = "check desktop notifications on the macOS host"
+			}
+			return result
+		default:
+			// No desktop observation yet; leave any acknowledged outage active.
+			result.Status = "pending"
+			result.Reason = "desktop_status_pending"
+			result.Action = ""
+			return result
+		}
+		result.Status = "ready"
+		result.Action = ""
+	}
+	return result
+}
+
 type updateRecoveryDeps struct {
 	ordinaryWatch bool
 	idle          func() error

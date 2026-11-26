@@ -124,13 +124,19 @@ func (w *accountWatch) notificationPermissionLoop(ctx context.Context) error {
 			probe := desktopnotify.NewWithObserver(func(e desktopnotify.Observation) { observation = e })
 			call, cancel := context.WithTimeout(ctx, 10*time.Second)
 			// Check never registers a sender, requests permission or displays UI.
-			_ = probe.Check(call)
+			checkErr := probe.Check(call)
 			cancel()
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
 			if err := w.dispatchIdentityOK(); err != nil {
 				return err
+			}
+			if runtime.GOOS == "darwin" {
+				// Setup can stay ready while the owner changes permission in System Settings.
+				if err := w.emit("desktop_permission_status", desktopSetupStatus(checkErr)); err != nil {
+					return err
+				}
 			}
 			hostname, _ := os.Hostname()
 			if observation.Platform != runtime.GOOS {

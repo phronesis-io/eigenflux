@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -43,6 +44,17 @@ func TestHeartbeatUpdateSkipReason(t *testing.T) {
 			}
 		}
 	}
+	if err := cfg.SetKV(macOSHostMaintenanceKey, "true"); err != nil {
+		t.Fatal(err)
+	}
+	want := ""
+	if runtime.GOOS == "darwin" {
+		want = "macos_host_watch"
+	}
+	if got := heartbeatUpdateSkipReason("skill", cfg); got != want {
+		t.Fatalf("host maintenance: %q, want %q", got, want)
+	}
+
 }
 
 func TestHeartbeatAgentShowsThrottleDeadline(t *testing.T) {

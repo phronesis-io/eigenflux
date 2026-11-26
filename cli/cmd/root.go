@@ -59,6 +59,7 @@ Examples:
 		if homeDirFlag != "" {
 			config.SetHomeDir(homeDirFlag)
 		}
+		configureMacOSTrust(cmd)
 		if err := verifyCLIUpdateReexecIdentity(); err != nil {
 			return err
 		}

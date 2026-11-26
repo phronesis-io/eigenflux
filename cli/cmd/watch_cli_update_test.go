@@ -89,6 +89,16 @@ func TestWatchCLIUpdateHonorsBackendPolicyBeforeCDN(t *testing.T) {
 	defer srv.Close()
 	w := newCommissionWatch(t, srv.URL)
 	w.handoff = newWatchHandoff()
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetKV(macOSHostMaintenanceKey, "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordHostMinimumCLI(w.server.Name, 1, "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
 	options := selfupdate.Options{Version: version, CDN: srv.URL}
 	if done, err := w.checkCLIUpdate(context.Background(), options); done || err != nil {
 		t.Fatalf("check: done=%v err=%v", done, err)

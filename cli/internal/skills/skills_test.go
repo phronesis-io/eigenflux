@@ -266,7 +266,20 @@ func TestSyncMinCLIVersionGuard(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	// CLI 0.0.16 < min 9.9.9: must NOT install (no local copy) and error/keep.
-	res, err := Sync(syncOpts(dst, "0.0.16", srv.URL, names))
+	opts := syncOpts(dst, "0.0.16", srv.URL, names)
+	var observed uint64
+	opts.OnReleaseRequirement = func(sequence uint64, minimum string) error {
+		observed = sequence
+		if minimum != "9.9.9" {
+			t.Fatalf("signed minimum: %s", minimum)
+		}
+		return nil
+	}
+	res, err := Sync(opts)
+	if observed != m.Sequence {
+		t.Fatalf("signed sequence %d, want %d", observed, m.Sequence)
+	}
+
 	if err == nil {
 		t.Fatal("expected min-cli-version guard to refuse install on old CLI")
 	}
@@ -406,6 +419,7 @@ func TestSyncIfStaleKeepsLocalWhenManifestUnavailable(t *testing.T) {
 	srv.Close()
 	o := syncOpts(dst, "0.0.16", srv.URL, names)
 	o.IfStale = true
+	o.OnReleaseRequirement = func(uint64, string) error { t.Fatal("offline fallback published a host requirement"); return nil }
 	res, err := Sync(o)
 	if err != nil {
 		t.Fatalf("if-stale should be offline-safe: %v", err)
