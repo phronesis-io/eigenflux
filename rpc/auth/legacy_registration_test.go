@@ -95,6 +95,22 @@ func TestLegacyLoginRejectsUnknownEmailWithoutRegistration(t *testing.T) {
 		if err != nil || verified.BaseResp.Code != 0 || verified.AgentId != agent.AgentID || verified.IsNewAgent {
 			t.Fatalf("legacy OTP: %+v, %v", verified, err)
 		}
+		// Both the direct token and consumed challenge have populated caches.
+		if err := database.Model(agent).Update("identity_state", "deleted").Error; err != nil {
+			t.Fatal(err)
+		}
+		token, err := service.ValidateSession(context.Background(), &auth.ValidateSessionReq{AccessToken: direct.GetAccessToken()})
+		if err != nil || token.BaseResp.Code != 401 {
+			t.Fatalf("deleted cached session: %+v, %v", token, err)
+		}
+		retry, err := service.VerifyLogin(context.Background(), &auth.VerifyLoginReq{LoginMethod: "email", ChallengeId: email, Code: &code})
+		if err != nil || retry.BaseResp.Code == 0 || retry.AccessToken != "" {
+			t.Fatalf("deleted cached OTP: %+v, %v", retry, err)
+		}
+		start, err := service.StartLogin(context.Background(), &auth.StartLoginReq{LoginMethod: "email", Email: email})
+		if err != nil || start.BaseResp.Code != 410 {
+			t.Fatalf("deleted login: %+v, %v", start, err)
+		}
 	}
 
 }

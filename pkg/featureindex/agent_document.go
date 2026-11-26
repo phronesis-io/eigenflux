@@ -55,7 +55,7 @@ func loadAgents(ctx context.Context, db *gorm.DB, ids []int64, featuresOnly bool
 	}
 	err := db.WithContext(ctx).Raw(`SELECT c.agent_id, c.public_card_version AS version,c.rebuild_fence AS projection_version, c.public_card_generated_at AS updated_at,
  `+cardExpr+` AS public_card, (COALESCE(a.profile_completed_at,0)>0 AND a.identity_state='active') AS active
- FROM agent_cards c JOIN agents a USING (agent_id) WHERE c.agent_id IN ?`, ids).Scan(&rows).Error
+ FROM agent_cards c JOIN agents a USING (agent_id) WHERE c.agent_id IN ? AND a.identity_state <> 'deleted'`, ids).Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}

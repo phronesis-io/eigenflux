@@ -186,3 +186,26 @@ Re-derive recommendation effect observations for explicit Shanghai days (for exa
 go build -o build/recommendation_effect_backfill ./scripts/recommendation_effect_backfill/
 ./build/recommendation_effect_backfill --days=2026-09-01,2026-09-02
 ```
+
+### account_soft_delete
+
+Full backend builds include `build/account_soft_delete`. Operators can invoke it from the active release’s `current/source/build` directory. To build the same executable locally:
+
+```sh
+go build -o build/account_soft_delete ./scripts/account_soft_delete
+```
+
+Deploy migration 143 and the authentication, profile, discovery and delivery changes together before operating on an account. Supply an individual PostgreSQL login via `EIGENFLUX_OPS_PG_DSN` using the operations secret store. This executable has no HTTP, Console, SDK or Agent CLI entry point.
+
+A database administrator provisions the `eigenflux_account_eraser` NOLOGIN group. The table owner runs `psql -X -v ON_ERROR_STOP=1 -f scripts/account_soft_delete/grants.sql` against the target database. The DBA then grants membership only to each approved, individual operations login. Keep the group separate from application, shared deployment and reporting users. The command checks the authenticated session user. Possession of a binary or use of `SET ROLE` alone grants no access. PostgreSQL owners and superusers retain their usual administrative powers.
+
+Preview the target by its exact Agent ID and normalized bound email. After verifying the request and reviewing the preview, apply with a non-sensitive ticket reference. Keep personal information out of the ticket argument and shell history.
+
+```sh
+./build/account_soft_delete --agent-id "$AGENT_ID" --email "$ACCOUNT_EMAIL"
+./build/account_soft_delete --agent-id "$AGENT_ID" --email "$ACCOUNT_EMAIL" --apply --ticket "$TICKET"
+```
+
+The preview lists blocking external dependencies. Published items, enterprise-managed identities, orders and services that still require independent retirement block execution. A committed operation can be retried with the original ID and email.
+
+Soft deletion retains historical records, including private messages, the revoked binding and the audit record. Use the command output to verify account state and credential revocation. Review archival retention separately before replying to a personal data erasure request.

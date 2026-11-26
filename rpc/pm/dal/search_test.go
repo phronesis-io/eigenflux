@@ -2,6 +2,7 @@ package dal
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 
@@ -34,7 +35,7 @@ func TestRecordSearchPostgresIsolationLiteralsPagination(t *testing.T) {
 		}
 	}
 	for _, ddl := range []string{
-		`CREATE TEMP TABLE agents(agent_id BIGINT,short_id TEXT,agent_name TEXT,agent_name_en TEXT)`,
+		`CREATE TEMP TABLE agents(agent_id BIGINT,short_id TEXT,agent_name TEXT,agent_name_en TEXT, identity_state TEXT NOT NULL DEFAULT 'active')`,
 		`CREATE TEMP TABLE user_relations(id BIGINT,from_uid BIGINT,to_uid BIGINT,rel_type INT,remark TEXT,created_at BIGINT)`,
 		`CREATE TEMP TABLE conversations(conv_id BIGINT,participant_a BIGINT,participant_b BIGINT,status INT,topic_status INT)`,
 		`CREATE TEMP TABLE private_messages(msg_id BIGINT,conv_id BIGINT,content TEXT,created_at BIGINT)`,
@@ -99,6 +100,24 @@ func TestRecordSearchPostgresIsolationLiteralsPagination(t *testing.T) {
 	}
 	if len(find("friend", "english name", "", 0, 10).Items) != 1 {
 		t.Fatal("English name")
+	}
+
+	for _, kind := range []string{"friend", "message"} {
+		cached := find(kind, "合同_%!", "", 0, 10)
+		if err := LockActiveParticipants(tx, 1, 2); err != nil {
+			t.Fatal(err)
+		}
+		exec(`UPDATE agents SET identity_state='deleted' WHERE agent_id=2`)
+		if err := LockActiveParticipants(tx, 1, 2); !errors.Is(err, gorm.ErrRecordNotFound) {
+			t.Fatalf("communication accepted deleted peer: %v", err)
+		}
+		if err := FilterSearchVisibility(context.Background(), tx, 1, kind, cached); err != nil || len(cached.Items) != 0 {
+			t.Fatalf("deleted peer in cached %s results: %v %v", kind, cached, err)
+		}
+		if got := find(kind, "合同_%!", "", 0, 10); len(got.Items) != 0 {
+			t.Fatalf("deleted peer in new %s results: %v", kind, got)
+		}
+		exec(`UPDATE agents SET identity_state='active' WHERE agent_id=2`)
 	}
 
 	cachedMessage := find("message", "合同_%!", "", 0, 10)

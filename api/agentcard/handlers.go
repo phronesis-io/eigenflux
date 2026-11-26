@@ -439,7 +439,7 @@ func serveSharedPublicCard(ctx context.Context, c *app.RequestContext, targetID 
 		respond(c, http.StatusInternalServerError, 500, "failed to load card", nil)
 		return
 	}
-	c.Header("Cache-Control", "public, max-age=60, stale-while-revalidate=300")
+	c.Header("Cache-Control", "no-store")
 	c.Header("ETag", fmt.Sprintf("\"agent-card-%s-%d\"", shortID, card.PublicCardVersion))
 	identity, err := agentidentity.Get(ctx, db.DB, targetID)
 	if err != nil {

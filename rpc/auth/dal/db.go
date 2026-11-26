@@ -49,6 +49,7 @@ type Agent struct {
 	AgentID            int64  `gorm:"column:agent_id;primaryKey"`
 	ShortID            string `gorm:"column:short_id"`
 	Email              string `gorm:"column:email;not null;unique"`
+	IdentityState      string `gorm:"column:identity_state;not null;default:active"`
 	EmailKind          string `gorm:"column:email_kind;not null"`
 	AgentName          string `gorm:"column:agent_name;not null"`
 	Bio                string `gorm:"column:bio"`
@@ -110,11 +111,27 @@ func CreateSession(db *gorm.DB, session *AgentSession) error {
 	return db.Create(session).Error
 }
 
+// ActiveSession includes the authoritative identity email used by legacy token validation.
+type ActiveSession struct {
+	SessionID int64
+	AgentID   int64
+	Email     string
+}
+
 // GetSessionByTokenHash fetches an active session by token_hash.
 func GetSessionByTokenHash(db *gorm.DB, tokenHash string) (*AgentSession, error) {
-	var s AgentSession
-	now := time.Now().UnixMilli()
-	err := db.Where("token_hash = ? AND status = 0 AND expire_at > ?", tokenHash, now).First(&s).Error
+	var session AgentSession
+	err := db.Where("token_hash = ? AND status = 0 AND expire_at > ?", tokenHash, time.Now().UnixMilli()).First(&session).Error
+	return &session, err
+}
+
+func GetActiveSessionIdentity(db *gorm.DB, tokenHash string) (*ActiveSession, error) {
+	var s ActiveSession
+	err := db.Table("agent_sessions AS sessions").
+		Select("sessions.session_id, sessions.agent_id, agents.email").
+		Joins("JOIN agents ON agents.agent_id = sessions.agent_id").
+		Where("sessions.token_hash = ? AND sessions.status = 0 AND sessions.expire_at > ? AND agents.identity_state = 'active'", tokenHash, time.Now().UnixMilli()).
+		Take(&s).Error
 	return &s, err
 }
 
@@ -128,7 +145,7 @@ func RevokeSession(db *gorm.DB, tokenHash string) error {
 // GetAgentByEmail looks up an agent by email, returns nil if not found.
 func GetAgentByEmail(db *gorm.DB, email string) (*Agent, error) {
 	var agent Agent
-	err := db.Where("email = ?", email).First(&agent).Error
+	err := db.Where("email = ? AND identity_state = 'active'", email).First(&agent).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil

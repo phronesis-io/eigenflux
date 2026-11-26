@@ -8,6 +8,7 @@ import (
 	"eigenflux_server/pkg/cache/keys"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"regexp"
@@ -15,6 +16,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"eigenflux_server/kitex_gen/eigenflux/auth"
 	"eigenflux_server/kitex_gen/eigenflux/base"
@@ -147,6 +150,10 @@ func getCachedVerifyResult(ctx context.Context, challengeID string) *auth.Verify
 	if jerr := json.Unmarshal([]byte(cached), &resp); jerr != nil {
 		return nil
 	}
+	session, err := dal.GetActiveSessionIdentity(db.DB.WithContext(ctx), sha256Hex(resp.AccessToken))
+	if err != nil || session.AgentID != resp.AgentId {
+		return nil
+	}
 	return &resp
 }
 
@@ -188,46 +195,39 @@ func (s *AuthServiceImpl) buildStartLoginDirectResp(loginResp *auth.VerifyLoginR
 const legacyRegistrationRetired = "LEGACY_REGISTRATION_RETIRED: legacy email login cannot create an Agent; follow https://www.eigenflux.ai/install for a new connection"
 
 func (s *AuthServiceImpl) completeEmailLogin(ctx context.Context, normalizedEmail string, clientIP, userAgent *string) (*auth.VerifyLoginResp, error) {
-	var agent *dal.Agent
-	var err error
-
-	agent, err = dal.GetAgentByEmail(db.DB, normalizedEmail)
-	if err != nil {
-		return &auth.VerifyLoginResp{
-			BaseResp: &base.BaseResp{Code: 500, Msg: "db error: " + err.Error()},
-		}, nil
-	}
-
-	if agent == nil {
-		return &auth.VerifyLoginResp{
-			BaseResp: &base.BaseResp{Code: 410, Msg: legacyRegistrationRetired},
-		}, nil
-	}
-	if agent.EmailKind != "" && agent.EmailKind != "legacy_real" {
-		return &auth.VerifyLoginResp{
-			BaseResp: &base.BaseResp{Code: 403, Msg: "this identity must use Console V2 authentication"},
-		}, nil
-	}
-
 	now := time.Now().UnixMilli()
-	_ = dal.SetEmailVerifiedAt(db.DB, agent.AgentID, now)
-
 	accessToken := "at_" + uuid.New().String()
 	tokenHash := sha256Hex(accessToken)
 	expireAt := now + sessionDurationMs
-
-	session := &dal.AgentSession{
-		AgentID:   agent.AgentID,
-		TokenHash: tokenHash,
-		Status:    0,
-		ExpireAt:  expireAt,
-		ClientIP:  clientIP,
-		UserAgent: userAgent,
+	var agent *dal.Agent
+	var rejected *base.BaseResp
+	err := db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Serialize credential issuance with operations that deactivate this identity.
+		var err error
+		agent, err = dal.GetAgentByEmail(tx.Clauses(clause.Locking{Strength: "UPDATE"}), normalizedEmail)
+		if err != nil {
+			return err
+		}
+		if agent == nil {
+			rejected = &base.BaseResp{Code: 410, Msg: legacyRegistrationRetired}
+			return nil
+		}
+		if agent.EmailKind != "" && agent.EmailKind != "legacy_real" {
+			rejected = &base.BaseResp{Code: 403, Msg: "this identity must use Console V2 authentication"}
+			return nil
+		}
+		if err := dal.SetEmailVerifiedAt(tx, agent.AgentID, now); err != nil {
+			return err
+		}
+		return dal.CreateSession(tx, &dal.AgentSession{
+			AgentID: agent.AgentID, TokenHash: tokenHash, ExpireAt: expireAt, ClientIP: clientIP, UserAgent: userAgent,
+		})
+	})
+	if err != nil {
+		return &auth.VerifyLoginResp{BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create session"}}, nil
 	}
-	if err := dal.CreateSession(db.DB, session); err != nil {
-		return &auth.VerifyLoginResp{
-			BaseResp: &base.BaseResp{Code: 500, Msg: "failed to create session: " + err.Error()},
-		}, nil
+	if rejected != nil {
+		return &auth.VerifyLoginResp{BaseResp: rejected}, nil
 	}
 
 	cacheKey := keys.AuthSession + tokenHash
@@ -634,52 +634,31 @@ func (s *AuthServiceImpl) ValidateSession(ctx context.Context, req *auth.Validat
 		}, nil
 	}
 
-	// Check Redis cache
-	cacheKey := keys.AuthSession + tokenHash
-	val, err := cache.Redis(mq.RDB).Read(ctx, cacheKey).Result()
-	if err == nil && val != "" {
-		parts := strings.SplitN(val, ":", 2)
-		var agentID int64
-		var email string
-		fmt.Sscanf(parts[0], "%d", &agentID)
-		if len(parts) > 1 {
-			email = parts[1]
-		}
-		if agentID > 0 {
-			return &auth.ValidateSessionResp{
-				AgentId:  agentID,
-				Email:    &email,
-				BaseResp: &base.BaseResp{Code: 0, Msg: "success"},
-			}, nil
-		}
-	}
-
-	// Cache miss: query DB
-	session, err := dal.GetSessionByTokenHash(db.DB, tokenHash)
-	if err != nil {
+	// A cached token can outlive an account deletion. Use PostgreSQL for the
+	// authorization decision and Redis only to throttle activity updates.
+	session, err := dal.GetActiveSessionIdentity(db.DB.WithContext(ctx), tokenHash)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return &auth.ValidateSessionResp{
 			BaseResp: &base.BaseResp{Code: 401, Msg: "invalid or expired session"},
 		}, nil
 	}
-
-	// Fetch email for agent
-	var agentEmail string
-	var agent dal.Agent
-	if err := db.DB.Select("email").Where("agent_id = ?", session.AgentID).First(&agent).Error; err == nil {
-		agentEmail = agent.Email
+	if err != nil {
+		return &auth.ValidateSessionResp{
+			BaseResp: &base.BaseResp{Code: 503, Msg: "authentication service temporarily unavailable"},
+		}, nil
 	}
-
-	// Cache result, update last_seen_at and extend expire_at (sliding expiration)
-	cache.Redis(mq.RDB).Write(ctx, cacheKey, fmt.Sprintf("%d:%s", session.AgentID, agentEmail), 10*time.Minute)
-	now := time.Now().UnixMilli()
-	newExpireAt := now + sessionDurationMs
-	if err := dal.UpdateSessionActivity(db.DB, session.SessionID, now, newExpireAt); err != nil {
-		logger.Ctx(ctx).Error("failed to update session activity", "err", err, "sessionID", session.SessionID)
+	cacheKey := keys.AuthSession + tokenHash
+	if val, err := cache.Redis(mq.RDB).Read(ctx, cacheKey).Result(); err != nil || val == "" {
+		cache.Redis(mq.RDB).Write(ctx, cacheKey, fmt.Sprintf("%d:%s", session.AgentID, session.Email), 10*time.Minute)
+		now := time.Now().UnixMilli()
+		if err := dal.UpdateSessionActivity(db.DB, session.SessionID, now, now+sessionDurationMs); err != nil {
+			logger.Ctx(ctx).Error("failed to update session activity", "err", err, "sessionID", session.SessionID)
+		}
 	}
 
 	return &auth.ValidateSessionResp{
 		AgentId:  session.AgentID,
-		Email:    &agentEmail,
+		Email:    &session.Email,
 		BaseResp: &base.BaseResp{Code: 0, Msg: "success"},
 	}, nil
 }

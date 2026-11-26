@@ -304,7 +304,7 @@ func GetAgentCard(db *gorm.DB, agentID int64) (*AgentCard, error) {
 			private_card::text as private_card, COALESCE(private_card->>'geo', '') AS country_code, schema_version,
 			source_version, rebuild_fence, card_version, public_card_version,
 			generated_at, public_card_generated_at
-		FROM agent_cards WHERE agent_id = ?`, agentID).Scan(&card).Error
+		FROM agent_cards JOIN agents USING (agent_id) WHERE agent_id = ? AND identity_state = 'active'`, agentID).Scan(&card).Error
 	if err != nil {
 		return nil, err
 	}
@@ -343,8 +343,8 @@ func GetAgentCards(db *gorm.DB, agentIDs []int64) (map[int64]*AgentCard, error) 
 	err := db.Raw(`SELECT agent_id, public_card::text as public_card,
 			schema_version, public_card_version, public_card_generated_at,
 			COALESCE(private_card->>'geo', '') AS country_code
-		FROM agent_cards
-		WHERE agent_id IN ?`, deduplicated).Scan(&cards).Error
+		FROM agent_cards JOIN agents USING (agent_id)
+		WHERE identity_state = 'active' AND agent_id IN ?`, deduplicated).Scan(&cards).Error
 	if err != nil {
 		return nil, err
 	}

@@ -39,6 +39,7 @@ on:
       - 'pkg/testaccountreset/**'
       - 'pkg/recommendationmetrics/**'
       - 'pkg/config/**'
+      - 'scripts/account_soft_delete/**'
       - 'scripts/test_account_reset/**'
       - 'scripts/integration_admin/**'
       - 'examples/enterprise_sdk/**'
@@ -84,6 +85,7 @@ on:
       - 'pkg/testaccountreset/**'
       - 'pkg/recommendationmetrics/**'
       - 'pkg/config/**'
+      - 'scripts/account_soft_delete/**'
       - 'scripts/test_account_reset/**'
       - 'scripts/integration_admin/**'
       - 'examples/enterprise_sdk/**'
@@ -175,6 +177,14 @@ jobs:
         run: go test -race -count=1 ./rpc/pm/dal
       - name: Verify audited PM activity backfill and concurrent updates
         run: go test -race -count=1 ./tests/pmtimestampbackfill
+      - name: Verify protected account state transitions
+        run: ACCOUNT_ERASURE_TEST_DSN="$PG_DSN" bash scripts/account_soft_delete/test_permissions.sh
+      - name: Verify transactional account soft deletion
+        run: |
+          psql "$PG_DSN" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE erasure_ci_test TEMPLATE eigenflux'
+          psql "$PG_DSN" -v ON_ERROR_STOP=1 -c 'CREATE ROLE eigenflux_account_eraser NOLOGIN; GRANT eigenflux_account_eraser TO postgres'
+          ACCOUNT_SOFT_DELETE_TEST_DSN='postgres://postgres:postgres@127.0.0.1:5432/erasure_ci_test?sslmode=disable' go test -race -count=1 ./scripts/account_soft_delete
+          psql "$PG_DSN" -v ON_ERROR_STOP=1 -c 'REVOKE eigenflux_account_eraser FROM postgres; DROP ROLE eigenflux_account_eraser'
       - name: Verify the test-account reset covers every agent-scoped table
         run: go test -count=1 ./pkg/testaccountreset && go vet ./scripts/test_account_reset
       - name: Verify runtime observation and request identity

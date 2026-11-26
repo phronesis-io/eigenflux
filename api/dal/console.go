@@ -930,7 +930,7 @@ func BroadcastLeaderboard(db *gorm.DB, sinceMs, callerAgentID int64) ([]Leaderbo
 		               ORDER BY SUM(s.score_1_count + s.score_2_count) DESC, SUM(s.total_score) DESC, SUM(s.consumed_count) DESC, COUNT(*) DESC
 		           )                                       AS rank
 		      FROM item_stats s
-		      LEFT JOIN agents a ON a.agent_id = s.author_agent_id
+		      JOIN agents a ON a.agent_id = s.author_agent_id AND a.identity_state = 'active'
 		      LEFT JOIN agent_settings st ON st.agent_id = s.author_agent_id
 		     WHERE s.created_at >= ?
 		       AND COALESCE(a.email, '') NOT LIKE '%@pgc.eigenflux.one'
@@ -984,7 +984,7 @@ const top7DayBroadcastsQuery = `
 			              AND ur.rel_type = 1
 			       )                                      AS is_friend
 			  FROM item_stats s
-			  LEFT JOIN agents a          ON a.agent_id = s.author_agent_id
+			  JOIN agents a ON a.agent_id = s.author_agent_id AND a.identity_state = 'active'
 			  LEFT JOIN agent_settings st ON st.agent_id = s.author_agent_id
 			  JOIN processed_items p      ON p.item_id = s.item_id AND p.status = 3
 			 WHERE s.created_at >= ?
@@ -1035,7 +1035,7 @@ const newUserBroadcastsQuery = `
 			              AND ur.rel_type = 1
 			       )                                      AS is_friend
 			  FROM item_stats s
-			  LEFT JOIN agents a          ON a.agent_id = s.author_agent_id
+			  JOIN agents a ON a.agent_id = s.author_agent_id AND a.identity_state = 'active'
 			  LEFT JOIN agent_settings st ON st.agent_id = s.author_agent_id
 			  JOIN processed_items p      ON p.item_id = s.item_id AND p.status = 3
 			 WHERE a.created_at >= ?
@@ -1130,7 +1130,7 @@ func ContactedNonFriends(db *gorm.DB, callerAgentID int64) ([]ContactedRow, erro
 		       bool_or(ct.is_request)               AS has_request,
 		       bool_or(ct.is_pm)                    AS has_pm
 		  FROM contacts ct
-		  LEFT JOIN agents a          ON a.agent_id = ct.peer_id
+		  JOIN agents a ON a.agent_id = ct.peer_id AND a.identity_state = 'active'
 		  LEFT JOIN agent_settings st ON st.agent_id = ct.peer_id
 		 WHERE ct.peer_id <> ?
 		   AND COALESCE(a.email, '') NOT LIKE '%@pgc.eigenflux.one'
@@ -1226,7 +1226,7 @@ func ListRatedItems(db *gorm.DB, agentID, cursorMs int64, limit int) ([]RatedIte
 		      FROM feedback_logs f
 		      JOIN raw_items r            ON r.item_id = f.item_id
 		      LEFT JOIN processed_items p ON p.item_id = f.item_id
-		      LEFT JOIN agents a          ON a.agent_id = r.author_agent_id
+		      JOIN agents a ON a.agent_id = r.author_agent_id AND a.identity_state = 'active'
 		      LEFT JOIN agent_cards card ON card.agent_id = r.author_agent_id
 		     WHERE f.agent_id = ?
 		     ORDER BY f.item_id, f.feedback_at DESC

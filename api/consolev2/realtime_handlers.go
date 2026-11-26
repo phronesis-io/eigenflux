@@ -130,7 +130,8 @@ func (s *Service) consoleSessionStillActive(sessionID string, agentID int64) boo
 	now := time.Now().UnixMilli()
 	err := s.db.Raw(`SELECT EXISTS(SELECT 1 FROM console_v2_sessions session
 		JOIN agent_principals principal ON principal.principal_id = session.principal_id
-		WHERE session.session_id = ? AND session.agent_id = ? AND session.status = 'active'
+		JOIN agents agent ON agent.agent_id = principal.agent_id AND agent.identity_state = 'active'
+		WHERE session.session_id = ? AND session.agent_id = ? AND session.agent_id = principal.agent_id AND session.status = 'active'
 		 AND session.idle_expires_at > ? AND session.absolute_expires_at > ?
 		 AND principal.revoked_at IS NULL AND principal.status IN ('limited','active'))`,
 		sessionID, agentID, now, now).Scan(&active).Error
@@ -196,7 +197,7 @@ func (s *Service) streamCommunicationEvents(ctx context.Context, c *app.RequestC
 		defer unsubscribe()
 		initial := communicationWakeEvent{Type: "reconcile_required", AgentID: strconv.FormatInt(agentIDValue, 10)}
 		_ = connection.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		if err := connection.WriteJSON(initial); err != nil {
+		if !s.consoleSessionStillActive(sessionID, agentIDValue) || connection.WriteJSON(initial) != nil {
 			return
 		}
 		ping := time.NewTicker(30 * time.Second)
@@ -207,7 +208,7 @@ func (s *Service) streamCommunicationEvents(ctx context.Context, c *app.RequestC
 				return
 			case event, ok := <-wake:
 				_ = connection.SetWriteDeadline(time.Now().Add(5 * time.Second))
-				if !ok || connection.WriteJSON(event) != nil {
+				if !ok || !s.consoleSessionStillActive(sessionID, agentIDValue) || connection.WriteJSON(event) != nil {
 					return
 				}
 			case <-ping.C:

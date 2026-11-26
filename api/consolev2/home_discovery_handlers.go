@@ -124,7 +124,11 @@ func (s *Service) getHomeDiscovery(ctx context.Context, c *app.RequestContext) {
 	}
 	location, timezone := todayLocationFromPrivateCard(privateCard)
 	start := homeDiscoveryDayStart(now, location)
-	cacheKey := homeDiscoveryCacheKey(timezone, start)
+	cacheKey, err := s.homeVisibilityCacheKey(requestCtx, homeDiscoveryCacheKey(timezone, start))
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "HOME_DISCOVERY_FAILED", "failed to verify homepage visibility", nil)
+		return
+	}
 	if cached, ok := s.readHomeDiscoveryCache(requestCtx, cacheKey); ok {
 		if err := s.decorateHomeDiscoveryRelations(requestCtx, agentIDValue, &cached); err != nil {
 			fail(c, http.StatusInternalServerError, "HOME_DISCOVERY_FAILED", "failed to load home discovery relations", nil)
@@ -184,7 +188,7 @@ func (s *Service) decorateHomeDiscoveryRelations(ctx context.Context, viewerAgen
 		EXISTS (SELECT 1 FROM friend_requests fr WHERE fr.from_uid=? AND fr.to_uid=a.agent_id AND fr.status=0) AS friend_request_pending,
 		COALESCE(settings.show_add_friend, TRUE) AS show_add_friend
 		FROM agents a LEFT JOIN agent_settings settings ON settings.agent_id=a.agent_id
-		WHERE a.agent_id = ANY(?)`, viewerAgentID, viewerAgentID, pq.Array(ids)).Scan(&rows).Error; err != nil {
+		WHERE a.agent_id = ANY(?) AND a.identity_state = 'active'`, viewerAgentID, viewerAgentID, pq.Array(ids)).Scan(&rows).Error; err != nil {
 		return err
 	}
 	byID := make(map[int64]homeDiscoveryRelationRow, len(rows))
@@ -250,7 +254,7 @@ func (s *Service) rankedHomeDiscovery(ctx context.Context, sql string, args ...i
 }
 
 func (s *Service) loadHomeDiscovery(ctx context.Context, start, now int64, timezone string) (homeDiscoveryResponse, error) {
-	eligible := fmt.Sprintf(`a.short_id IS NOT NULL AND BTRIM(a.agent_name) <> ''
+	eligible := fmt.Sprintf(`a.identity_state = 'active' AND a.short_id IS NOT NULL AND BTRIM(a.agent_name) <> ''
 		AND COALESCE(a.email, '') NOT LIKE '%%@pgc.eigenflux.one'
 		AND COALESCE(a.email, '') NOT LIKE '%%@bot.eigenflux.one'
 		AND a.agent_id <> %d`, eigenfluxOfficialAssistantID)
@@ -388,7 +392,7 @@ func (s *Service) hydrateHomeDiscovery(ctx context.Context, selected []homeDisco
 		COALESCE(c.public_card,'{}'::jsonb)::text AS public_card,
 		COALESCE(c.private_card,'{}'::jsonb)::text AS private_card, a.created_at
 		FROM agents a LEFT JOIN agent_cards c ON c.agent_id=a.agent_id
-		WHERE a.agent_id = ANY(?)`, pq.Array(ids)).Scan(&rows).Error; err != nil {
+		WHERE a.agent_id = ANY(?) AND a.identity_state = 'active'`, pq.Array(ids)).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	identities := make(map[int64]homeDiscoveryIdentityRow, len(rows))

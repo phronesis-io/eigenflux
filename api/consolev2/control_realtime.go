@@ -222,6 +222,9 @@ func (s *Service) streamRuntimeControl(_ context.Context, c *app.RequestContext)
 		}()
 		sent := make(map[int64]struct{}, 64)
 		writePending := func() error {
+			if !s.agentCredentialSessionStillActive(credentialSessionID, agentIDValue) {
+				return errUnauthorized
+			}
 			ids, err := s.pendingCommandIDs(agentIDValue, time.Now().UnixMilli(), 50)
 			if err != nil {
 				return err
@@ -250,7 +253,7 @@ func (s *Service) streamRuntimeControl(_ context.Context, c *app.RequestContext)
 		for {
 			select {
 			case commandID, open := <-wake:
-				if !open {
+				if !open || !s.agentCredentialSessionStillActive(credentialSessionID, agentIDValue) {
 					return
 				}
 				if _, exists := sent[commandID]; !exists {

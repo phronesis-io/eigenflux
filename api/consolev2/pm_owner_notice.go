@@ -250,7 +250,7 @@ func (s *Service) listPMOwnerNotices(ctx context.Context, c *app.RequestContext)
 			FROM pm_owner_notices n JOIN conversations c USING (conv_id)
 			WHERE n.agent_id = ? AND c.status = 0 AND (c.participant_a = ? OR c.participant_b = ?)`+filter+`
 			`+latestOrder+`
-		) latest LEFT JOIN agents a ON a.agent_id = latest.peer_id
+		) latest LEFT JOIN agents a ON a.agent_id = latest.peer_id AND a.identity_state = 'active'
 		WHERE `+visible+pageBoundary+`
 		ORDER BY `+order+`
 		LIMIT ?`, args...).Scan(&rows).Error

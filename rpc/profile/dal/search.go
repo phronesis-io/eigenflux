@@ -16,7 +16,7 @@ func MatchAgentsByName(ctx context.Context, db *gorm.DB, query string) ([]int64,
 	defer cancel()
 	pattern, _ := recordsearch.Literal(query)
 	ids := []int64{}
-	err := db.WithContext(ctx).Raw(`SELECT agent_id FROM agents WHERE agent_name ILIKE ? ESCAPE '!' OR agent_name_en ILIKE ? ESCAPE '!' OR short_id = ? ORDER BY agent_id DESC LIMIT 1001`, pattern, pattern, query).Scan(&ids).Error
+	err := db.WithContext(ctx).Raw(`SELECT agent_id FROM agents WHERE identity_state = 'active' AND (agent_name ILIKE ? ESCAPE '!' OR agent_name_en ILIKE ? ESCAPE '!' OR short_id = ?) ORDER BY agent_id DESC LIMIT 1001`, pattern, pattern, query).Scan(&ids).Error
 	if err != nil {
 		return nil, false, err
 	}

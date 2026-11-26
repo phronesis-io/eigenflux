@@ -366,7 +366,8 @@ func (s *Service) createEmailLoginChallenge(ctx context.Context, c *app.RequestC
 			AgentID           int64  `gorm:"column:agent_id"`
 			VerificationState string `gorm:"column:verification_state"`
 		}
-		if err := tx.Raw(`SELECT agent_id, verification_state FROM agent_email_bindings
+		if err := tx.Raw(`SELECT b.agent_id, b.verification_state FROM agent_email_bindings b
+			JOIN agents a ON a.agent_id = b.agent_id AND a.identity_state = 'active'
 			WHERE normalized_email = ? AND status = 'active'
 			  AND verification_state IN ('verified', 'legacy_unverified')
 			ORDER BY binding_id LIMIT 2`, normalizedEmail).Scan(&bindings).Error; err != nil {
@@ -381,8 +382,8 @@ func (s *Service) createEmailLoginChallenge(ctx context.Context, c *app.RequestC
 				AgentID int64 `gorm:"column:agent_id"`
 			}
 			if err := tx.Raw(`SELECT agent_id FROM agents
-				WHERE email_kind = 'legacy_real' AND lower(btrim(email)) = ?
-				ORDER BY agent_id LIMIT 2`, normalizedEmail).Scan(&legacyOwners).Error; err != nil {
+				WHERE email_kind = 'legacy_real' AND lower(btrim(email)) = ? AND identity_state = 'active'
+				ORDER BY agent_id LIMIT 2 FOR UPDATE`, normalizedEmail).Scan(&legacyOwners).Error; err != nil {
 				return err
 			}
 			ambiguousBinding = len(legacyOwners) > 1
@@ -518,6 +519,13 @@ func (s *Service) verifyEmailBinding(ctx context.Context, c *app.RequestContext)
 		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, keyedHash(s.otpPepper, normalizedEmail)).Error; err != nil {
 			return err
 		}
+		var active bool
+		if err := tx.Raw(`SELECT true FROM agents WHERE agent_id = ? AND identity_state = 'active' FOR UPDATE`, agentIDValue).Scan(&active).Error; err != nil {
+			return err
+		}
+		if !active {
+			return errUnauthorized
+		}
 		var bindingOwners []struct {
 			AgentID int64 `gorm:"column:agent_id"`
 		}
@@ -529,7 +537,7 @@ func (s *Service) verifyEmailBinding(ctx context.Context, c *app.RequestContext)
 			AgentID int64 `gorm:"column:agent_id"`
 		}
 		if err := tx.Raw(`SELECT agent_id FROM agents
-			WHERE lower(btrim(email)) = ? AND email_kind = 'legacy_real' ORDER BY agent_id LIMIT 2`, normalizedEmail).Scan(&legacyOwners).Error; err != nil {
+			WHERE lower(btrim(email)) = ? AND email_kind = 'legacy_real' AND identity_state = 'active' ORDER BY agent_id LIMIT 2`, normalizedEmail).Scan(&legacyOwners).Error; err != nil {
 			return err
 		}
 		otherOwners := map[int64]struct{}{}
@@ -930,6 +938,14 @@ func (s *Service) verifyEmailLogin(ctx context.Context, c *app.RequestContext) {
 		recoveredAgentID = *checked.SubjectAgentID
 		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, keyedHash(s.otpPepper, normalizedEmail)).Error; err != nil {
 			return err
+		}
+		var active bool
+		if err := tx.Raw(`SELECT true FROM agents WHERE agent_id = ? AND identity_state = 'active' FOR UPDATE`, recoveredAgentID).Scan(&active).Error; err != nil {
+			return err
+		}
+		if !active {
+			failureReason = "identity_inactive"
+			return errUnauthorized
 		}
 		var binding struct {
 			BindingID         int64  `gorm:"column:binding_id"`

@@ -472,7 +472,7 @@ func (s *Service) getToday(_ context.Context, c *app.RequestContext) {
 			COALESCE(card.private_card->>'geo', '') AS country_code,
 			COALESCE(settings.show_add_friend, true) AS show_add_friend,
 			COUNT(*) OVER() AS total_count
-		FROM grouped
+		FROM grouped JOIN agents peer ON peer.agent_id = grouped.peer_agent_id AND peer.identity_state = 'active'
 		LEFT JOIN agent_cards card ON card.agent_id = grouped.peer_agent_id
 		LEFT JOIN agent_settings settings ON settings.agent_id = grouped.peer_agent_id
 		ORDER BY grouped.last_interaction_at DESC, grouped.peer_agent_id DESC LIMIT ?`,

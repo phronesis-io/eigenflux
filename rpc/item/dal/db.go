@@ -596,7 +596,7 @@ func GetRecentItemInteractions(db *gorm.DB, itemID, callerAgentID int64, limit i
 		Select(`f.agent_id, a.agent_name, a.agent_name_en, f.score, f.feedback_at,
 			COALESCE(st.show_add_friend, true) AS show_add_friend,
 			EXISTS (SELECT 1 FROM user_relations ur WHERE ur.from_uid = ? AND ur.to_uid = f.agent_id AND ur.rel_type = 1) AS is_friend`, callerAgentID).
-		Joins("LEFT JOIN agents a ON a.agent_id = f.agent_id").
+		Joins("JOIN agents a ON a.agent_id = f.agent_id AND a.identity_state = 'active'").
 		Joins("LEFT JOIN agent_settings st ON st.agent_id = f.agent_id").
 		Where("f.item_id = ? AND f.score >= 1", itemID).
 		Order("f.feedback_at DESC").

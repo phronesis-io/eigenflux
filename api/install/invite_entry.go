@@ -140,7 +140,7 @@ func attributeReportedAgent(t *Token, md map[string]any) {
 		Email     string
 		CreatedAt int64
 	}
-	if err := db.DB.Raw(`SELECT email, created_at FROM agents WHERE agent_id = ?`, agentID).
+	if err := db.DB.Raw(`SELECT email, created_at FROM agents WHERE agent_id = ? AND identity_state = 'active'`, agentID).
 		Scan(&agent).Error; err != nil || agent.Email == "" {
 		return
 	}

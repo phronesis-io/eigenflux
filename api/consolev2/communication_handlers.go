@@ -631,7 +631,7 @@ func (s *Service) searchCommunicationMessages(ctx context.Context, c *app.Reques
 			COALESCE(mm.content, lm.content, '') AS matched_message_preview,
 			COALESCE(mm.created_at, lm.created_at, e.updated_at) AS matched_at
 		FROM eligible e
-		LEFT JOIN agents a ON a.agent_id = e.peer_agent_id
+		LEFT JOIN agents a ON a.agent_id = e.peer_agent_id AND a.identity_state = 'active'
 		LEFT JOIN user_relations ur ON ur.from_uid = ? AND ur.to_uid = e.peer_agent_id AND ur.rel_type = 1
 		LEFT JOIN LATERAL (
 			SELECT pm.msg_id, pm.sender_id, pm.content, pm.created_at
@@ -925,14 +925,17 @@ func (s *Service) listCommunicationFriendRequests(_ context.Context, c *app.Requ
 		return
 	}
 	subjectColumn := "to_uid"
+	peerColumn := "from_uid"
 	remarkProjection := "'' AS remark"
 	if direction == "outgoing" {
 		subjectColumn = "from_uid"
+		peerColumn = "to_uid"
 		remarkProjection = "remark"
 	}
 	var requests []communicationFriendRequest
 	query := `SELECT id, from_uid, to_uid, greeting, ` + remarkProjection + `, created_at FROM friend_requests
-		WHERE status = 0 AND ` + subjectColumn + ` = ?`
+		WHERE status = 0 AND ` + subjectColumn + ` = ?
+        AND EXISTS (SELECT 1 FROM agents WHERE agent_id=friend_requests.` + peerColumn + ` AND identity_state='active')`
 	args := []interface{}{viewerID}
 	if cursor > 0 {
 		query += ` AND id < ?`
@@ -1015,7 +1018,7 @@ func (s *Service) listCommunicationFriends(_ context.Context, c *app.RequestCont
 	}
 	var friends []communicationFriend
 	if err := s.db.Raw(`SELECT r.id, r.to_uid, r.remark, r.created_at FROM user_relations r
-		JOIN agents a ON a.agent_id = r.to_uid
+		JOIN agents a ON a.agent_id = r.to_uid AND a.identity_state = 'active'
 		LEFT JOIN user_relations anchor ON anchor.id = ? AND anchor.from_uid = ?
 		LEFT JOIN agents anchor_agent ON anchor_agent.agent_id = anchor.to_uid
 		WHERE r.from_uid = ? AND r.rel_type = 1

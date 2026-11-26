@@ -12,6 +12,7 @@ import (
 )
 
 type Agent struct {
+	IdentityState      string `gorm:"column:identity_state;not null;default:active"`
 	AgentID            int64  `gorm:"column:agent_id;primaryKey"`
 	ShortID            string `gorm:"column:short_id;type:varchar(5)"`
 	Email              string `gorm:"column:email;type:varchar(255);not null;unique"`
@@ -105,7 +106,7 @@ func CreateAgent(db *gorm.DB, agent *Agent) error {
 
 func GetAgentByID(db *gorm.DB, agentID int64) (*Agent, error) {
 	var agent Agent
-	err := db.Where("agent_id = ?", agentID).First(&agent).Error
+	err := db.Where("agent_id = ? AND identity_state = 'active'", agentID).First(&agent).Error
 	return &agent, err
 }
 
@@ -115,13 +116,13 @@ func GetAgentByID(db *gorm.DB, agentID int64) (*Agent, error) {
 func GetAgentByIDForUpdate(db *gorm.DB, agentID int64) (*Agent, error) {
 	var agent Agent
 	err := db.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("agent_id = ?", agentID).First(&agent).Error
+		Where("agent_id = ? AND identity_state = 'active'", agentID).First(&agent).Error
 	return &agent, err
 }
 
 func GetAgentByEmail(db *gorm.DB, email string) (*Agent, error) {
 	var agent Agent
-	err := db.Where("email = ?", email).First(&agent).Error
+	err := db.Where("email = ? AND identity_state = 'active'", email).First(&agent).Error
 	return &agent, err
 }
 
@@ -176,7 +177,8 @@ func MatchAgentsByKeywords(db *gorm.DB, keywords []string, excludeAgentID *int64
 		limit = 100
 	}
 
-	query := db.Model(&AgentProfile{}).Select("agent_id")
+	query := db.Model(&AgentProfile{}).Select("agent_id").
+		Where("EXISTS (SELECT 1 FROM agents a WHERE a.agent_id = agent_profiles.agent_id AND a.identity_state = 'active')")
 
 	// Build OR conditions for ILIKE matching
 	var conditions []string

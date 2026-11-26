@@ -100,8 +100,26 @@ func GetConversationByParticipants(db *gorm.DB, participantA, participantB, orig
 	return &conv, err
 }
 
+// LockActiveParticipants orders the locks and serializes communication writes
+// against administrative account deactivation, including sends from stale caches.
+func LockActiveParticipants(tx *gorm.DB, first, second int64) error {
+	var active []int64
+	err := tx.Raw(`SELECT agent_id FROM agents WHERE agent_id IN (?, ?) AND identity_state = 'active'
+        ORDER BY agent_id FOR SHARE`, first, second).Scan(&active).Error
+	if err != nil {
+		return err
+	}
+	if len(active) != 2 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
 // CreateMessage creates a new private message
 func CreateMessage(db *gorm.DB, msg *PrivateMessage) error {
+	if err := LockActiveParticipants(db, msg.SenderID, msg.ReceiverID); err != nil {
+		return err
+	}
 	msg.CreatedAt = time.Now().UnixMilli()
 	return db.Create(msg).Error
 }
@@ -542,7 +560,7 @@ func BatchGetAgentProfiles(db *gorm.DB, agentIDs []int64) (map[int64]AgentProfil
 		AgentName string `gorm:"column:agent_name"`
 		Bio       string `gorm:"column:bio"`
 	}
-	err := db.Table("agents").Select("agent_id, agent_name, bio").Where("agent_id IN ?", agentIDs).Find(&results).Error
+	err := db.Table("agents").Select("agent_id, agent_name, bio").Where("agent_id IN ? AND identity_state = 'active'", agentIDs).Find(&results).Error
 	if err != nil {
 		return nil, err
 	}
@@ -562,7 +580,7 @@ func BatchGetAgentNames(db *gorm.DB, agentIDs []int64) (map[int64]string, error)
 		AgentID   int64  `gorm:"column:agent_id"`
 		AgentName string `gorm:"column:agent_name"`
 	}
-	err := db.Table("agents").Select("agent_id, agent_name").Where("agent_id IN ?", agentIDs).Find(&results).Error
+	err := db.Table("agents").Select("agent_id, agent_name").Where("agent_id IN ? AND identity_state = 'active'", agentIDs).Find(&results).Error
 	if err != nil {
 		return nil, err
 	}
@@ -583,7 +601,7 @@ func BatchGetOfficialFlags(db *gorm.DB, agentIDs []int64) (map[int64]bool, error
 		return map[int64]bool{}, nil
 	}
 	var ids []int64
-	err := db.Table("agents").Where("agent_id IN ? AND is_official", agentIDs).
+	err := db.Table("agents").Where("agent_id IN ? AND is_official AND identity_state = 'active'", agentIDs).
 		Pluck("agent_id", &ids).Error
 	if err != nil {
 		return nil, err
