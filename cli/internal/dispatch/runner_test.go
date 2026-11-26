@@ -60,6 +60,10 @@ func TestRunnerFixture(t *testing.T) {
 		time.Sleep(600 * time.Millisecond)
 		_ = os.WriteFile(os.Getenv("EF_TREE_MARKER"), []byte("escaped"), 0600)
 		os.Exit(0)
+	case "interrupted-codex":
+		fmt.Println(`{"type":"thread.started","thread_id":"01a20262-51cf-72b3-91c1-000000000001"}`)
+		time.Sleep(20 * time.Second)
+		os.Exit(0)
 	case "timeout":
 		time.Sleep(20 * time.Second)
 		os.Exit(0)
@@ -99,6 +103,31 @@ func TestArguments(t *testing.T) {
 		})
 	}
 }
+func TestCodexSellerOrderArguments(t *testing.T) {
+	r := Runner{Binding: Binding{Mode: "native", Host: "codex", Args: []string{"--sandbox", "workspace-write"}}}
+	want := []string{"--sandbox", "workspace-write", "exec", "--json", "--skip-git-repo-check", "-"}
+	for _, kind := range []string{"commission_order", "commission_fulfillment"} {
+		t.Run(kind, func(t *testing.T) {
+			req := Request{Kind: kind, Prompt: "order input"}
+			args, stdin, err := r.arguments(req)
+			if err != nil || !reflect.DeepEqual(args, want) || stdin != req.Prompt {
+				t.Fatalf("args %q stdin %q error %v", args, stdin, err)
+			}
+		})
+	}
+}
+
+func TestCodexSellerFulfillmentResumeArguments(t *testing.T) {
+	const sessionID = "11111111-2222-4333-8444-555555555555"
+	r := Runner{Binding: Binding{Mode: "native", Host: "codex"}}
+	req := Request{Kind: "commission_fulfillment", SessionID: sessionID, Prompt: "continue fulfillment"}
+	want := []string{"exec", "--json", "--skip-git-repo-check", "resume", sessionID, "-"}
+	args, stdin, err := r.arguments(req)
+	if err != nil || !reflect.DeepEqual(args, want) || stdin != req.Prompt {
+		t.Fatalf("args %q stdin %q error %v", args, stdin, err)
+	}
+}
+
 func TestNativeResults(t *testing.T) {
 	cases := []struct {
 		host, data, text, session string
@@ -329,5 +358,14 @@ func TestNativeBoundHostOverridesAmbientIdentity(t *testing.T) {
 				t.Fatalf("expected one bound host, got %d", found)
 			}
 		})
+	}
+}
+
+func TestInterruptedCodexFulfillmentReturnsSessionOnly(t *testing.T) {
+	b := fixtureBinding(t, "native", "interrupted-codex")
+	b.Host, b.TimeoutSeconds = "codex", 2
+	result, err := (Runner{Binding: b}).Run(context.Background(), Request{Kind: "commission_fulfillment", Prompt: "order"})
+	if !errors.Is(err, context.DeadlineExceeded) || result.SessionID != "01a20262-51cf-72b3-91c1-000000000001" || result.Text != "" {
+		t.Fatalf("result %+v, err %v", result, err)
 	}
 }

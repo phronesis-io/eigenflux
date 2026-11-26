@@ -74,7 +74,19 @@ func TestMaintenanceNativeOwnerEnvelopeAndNoReplay(t *testing.T) {
 			target.Binding.Args = []string{"--dangerously-bypass-approvals-and-sandbox"}
 			ctx, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
 			defer cancel()
-			result, err := (MainNoticeRunner{Target: target}).RunMaintenance(ctx, noticeCodexRules, noticeCodexData)
+			checkpoints := 0
+			runner := MainNoticeRunner{Target: target, BeforeSubmit: func() error {
+				checkpoints++
+				for _, request := range fixture.requests() {
+					var method string
+					_ = json.Unmarshal(request["method"], &method)
+					if method == "thread-follower-start-turn" {
+						t.Fatal("maintenance write reached Codex before recording submission")
+					}
+				}
+				return nil
+			}}
+			result, err := runner.RunMaintenance(ctx, noticeCodexRules, noticeCodexData)
 			success := scenario == "pm-content" || scenario == "no-final" || scenario == "empty-final"
 			if success {
 				want := ""
@@ -104,8 +116,8 @@ func TestMaintenanceNativeOwnerEnvelopeAndNoReplay(t *testing.T) {
 			if scenario == "active" || scenario == "baseline-busy" || scenario == "unsupported" || scenario == "wrong-thread" {
 				wantStarts = 0
 			}
-			if starts != wantStarts {
-				t.Fatalf("unexpected submission or replay: %d want %d", starts, wantStarts)
+			if starts != wantStarts || checkpoints != wantStarts {
+				t.Fatalf("unexpected submission or replay: %d writes, %d checkpoints, want %d of each", starts, checkpoints, wantStarts)
 			}
 			if scenario == "unsupported" {
 				return

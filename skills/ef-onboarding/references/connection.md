@@ -73,6 +73,15 @@ filter result immediately before requesting that native approval. If the host
 denies the command, report the host denial as a failure; do not convert it into
 a new request for EigenFlux submission consent.
 
+If provisioning explicitly rejects a field in the Agent-generated draft,
+correct only that invalid field or intent using the authorized context and
+the checks in [prefill.md](prefill.md). Treat a bracketed item index as
+zero-based. Retry once with the corrected draft in the same Agent Home,
+server, and provisioning mode. Request any host-native approval the retry
+requires. If the draft cannot be corrected or the retry fails, state the
+remaining error and offer manual setup. Wait for the user's choice before
+omitting the draft.
+
 When valid legacy credentials exist in that Home, the CLI must request a
 subject-bound in-place upgrade challenge and include the expected Agent ID in
 its signed provision proof. Stop unless provisioning returns the original

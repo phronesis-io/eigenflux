@@ -2,7 +2,10 @@ package consolev2
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -114,13 +117,38 @@ func (s *Service) allowPublicRegistration(ctx context.Context, clientIP, keyFing
 }
 
 func (s *Service) issuePublicRegistrationChallenge(ctx context.Context, c *app.RequestContext) {
+	failure := authenticationFailure{ctx: ctx, stage: "registration", route: "/api/v2/agent-identities/registration-challenges"}
 	var req publicRegistrationChallengeRequest
 	if err := decodeBody(c, &req); err != nil {
+		reason := "invalid_request_body"
+		var syntaxErr *json.SyntaxError
+		var typeErr *json.UnmarshalTypeError
+		switch {
+		case errors.As(err, &syntaxErr), errors.Is(err, io.ErrUnexpectedEOF):
+			reason = "malformed_json"
+		case errors.As(err, &typeErr):
+			reason = "invalid_json_type"
+		case strings.HasPrefix(err.Error(), "json: unknown field "):
+			reason = "unknown_json_field"
+		}
+		failure.log(http.StatusBadRequest, "INVALID_REQUEST", reason, nil)
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", err.Error(), nil)
 		return
 	}
 	publicKey, err := decodePublicKey(req.PublicKey)
-	if err != nil || len(req.IdempotencyKey) < 16 || len(req.IdempotencyKey) > 128 {
+	reason := ""
+	switch {
+	case req.PublicKey == "":
+		reason = "public_key_missing"
+	case err != nil:
+		reason = "public_key_invalid"
+	case req.IdempotencyKey == "":
+		reason = "idempotency_key_missing"
+	case len(req.IdempotencyKey) < 16 || len(req.IdempotencyKey) > 128:
+		reason = "idempotency_key_invalid_length"
+	}
+	if reason != "" {
+		failure.log(http.StatusBadRequest, "INVALID_REQUEST", reason, nil)
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "idempotency_key and a valid public_key are required", nil)
 		return
 	}

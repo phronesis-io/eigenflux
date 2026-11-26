@@ -38,6 +38,8 @@ var RatingV2FeatureNames = append(append([]string(nil), RatingFeatureNames...), 
 
 func featureNames(contract string) ([]string, bool) {
 	switch contract {
+	case SnapshotContract:
+		return SnapshotFeatureNames, true
 	case Contract:
 		return FeatureNames, true
 	case RatingContract:
@@ -59,6 +61,8 @@ type Result struct {
 	Probability  float64 `json:"probability"`
 }
 type model struct {
+	Baseline        *float64  `json:"baseline"`
+	Trees           []tree    `json:"trees"`
 	SchemaVersion   int       `json:"schema_version"`
 	ModelType       string    `json:"model_type"`
 	Version         string    `json:"model_version"`
@@ -78,12 +82,21 @@ func (m *model) score(v []float64) (float64, bool) {
 	if len(v) != len(m.FeatureNames) {
 		return 0, false
 	}
-	z := m.Intercept
-	for i, value := range v {
+	for _, value := range v {
 		if !finite(value) || value < 0 || value > 1 {
 			return 0, false
 		}
-		z += value * m.Coefficients[i]
+	}
+	z := m.Intercept
+	if m.Contract == SnapshotContract {
+		z = *m.Baseline
+		for i := range m.Trees {
+			z += m.Trees[i].predict(v)
+		}
+	} else {
+		for i, value := range v {
+			z += value * m.Coefficients[i]
+		}
 	}
 	if !finite(z) {
 		return 0, false
@@ -104,7 +117,11 @@ func load(path, contract string) (*model, error) {
 	if err != nil {
 		return nil, err
 	}
-	if info.Size() > 1<<20 {
+	limit := int64(1 << 20)
+	if contract == SnapshotContract {
+		limit = 4 << 20
+	}
+	if info.Size() > limit {
 		return nil, fmt.Errorf("discovery LR bundle too large")
 	}
 	raw, err := os.ReadFile(path)
@@ -115,12 +132,26 @@ func load(path, contract string) (*model, error) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return nil, err
 	}
-	if m.SchemaVersion != 1 || m.ModelType != "logistic_regression" || m.Contract != contract || m.Version == "" || !m.PromotionPassed || !slices.Equal(m.FeatureNames, names) || len(m.Coefficients) != len(names) || !finite(m.Intercept) || len(m.SelfTests) < 2 {
+	if m.SchemaVersion != 1 || m.Contract != contract || m.Version == "" || !m.PromotionPassed || !slices.Equal(m.FeatureNames, names) || len(m.SelfTests) < 2 {
 		return nil, fmt.Errorf("invalid discovery LR contract or promotion state")
 	}
-	for _, c := range m.Coefficients {
-		if !finite(c) {
-			return nil, fmt.Errorf("nonfinite discovery LR coefficient")
+	if contract == SnapshotContract {
+		if m.ModelType != "gbdt" || m.Baseline == nil || !finite(*m.Baseline) || len(m.Trees) == 0 {
+			return nil, fmt.Errorf("invalid discovery GBDT ensemble")
+		}
+		for i := range m.Trees {
+			if err := m.Trees[i].validate(len(names)); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		if m.ModelType != "logistic_regression" || len(m.Coefficients) != len(names) || !finite(m.Intercept) {
+			return nil, fmt.Errorf("invalid discovery LR parameters")
+		}
+		for _, c := range m.Coefficients {
+			if !finite(c) {
+				return nil, fmt.Errorf("nonfinite discovery LR coefficient")
+			}
 		}
 	}
 	for _, test := range m.SelfTests {

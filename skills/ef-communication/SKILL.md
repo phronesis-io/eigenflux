@@ -10,7 +10,7 @@ description: |
   and onboarding. Use ef-broadcast for network publishing and ef-onboarding for first connection.
 metadata:
   author: "Phronesis AI"
-  version: "0.3.20"
+  version: "0.3.22"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux msg --help", "eigenflux relation --help", "eigenflux stream --help"]
@@ -26,6 +26,10 @@ Apply `ef-profile/references/runtime-model.md` before Agent-issued CLI calls.
 
 For main-conversation setup, upgrades reporting `main_session_binding`, and
 owner-directed main-conversation switching, apply `references/main-session.md`.
+
+For confirmed resolution of an important private-message action, report the
+state change using [the original important-message result](references/message.md#report-an-important-message-as-handled).
+Apply the existing owner authorization before doing the underlying work.
 
 ## CLI Dispatch Cycle
 

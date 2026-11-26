@@ -387,27 +387,12 @@ func TestProvisionLiteralDraftValidation(t *testing.T) {
 	}
 }
 
-func TestProvisionDraftPriorityValidation(t *testing.T) {
-	for _, priority := range []string{`10`, `"10"`, `" HIGH "`, `"medium"`, `"normal"`, `null`} {
-		draft := `{"intent_actions":[{"priority":` + priority + `}]}`
-		got, _, err := parseProvisionDraft([]byte(draft))
-		if err != nil || string(got) != draft {
-			t.Fatalf("priority %s changed draft: %s, %v", priority, got, err)
-		}
-	}
-	for _, priority := range []string{`"urgent"`, `32768`, `"32768"`, `1.5`, `true`} {
-		draft := `{"intent_actions":[{},{"priority":` + priority + `}]}`
-		_, _, err := parseProvisionDraft([]byte(draft))
-		if err == nil || !strings.Contains(err.Error(), "intent_actions[1].priority") {
-			t.Fatalf("priority %s returned %v, want indexed field error", priority, err)
-		}
-	}
-}
-
 func TestProvisionLiteralDraftReachesSignedRequest(t *testing.T) {
 	const payload = `{"identity_card":{"agent_name":"Atlas ' $HOME 中文","geo":"SG"},"field_provenance":{"identity_card.geo":"agent_user_context"}}`
 	var received provisionV2Request
 	calls := 0
+	const invalidDraft = `{"intent_actions":[{},{"priority":1.5}]}`
+	const validationMessage = "intent_actions[1].priority must be a JSON integer from -32768 to 32767"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		w.Header().Set("Content-Type", "application/json")
@@ -417,6 +402,11 @@ func TestProvisionLiteralDraftReachesSignedRequest(t *testing.T) {
 		case "/api/v2/agent-identities/provision":
 			if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
 				t.Error(err)
+			}
+			if string(received.Draft) == invalidDraft {
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprintf(w, `{"error":{"code":"INVALID_DRAFT","message":%q}}`, validationMessage)
+				return
 			}
 			fmt.Fprint(w, `{"code":0,"data":{"agent_id":"agent-1","access_token":"test-new-token","refresh_token":"test-refresh","expires_at":4102444800000,"created":false}}`)
 		default:
@@ -468,5 +458,23 @@ func TestProvisionLiteralDraftReachesSignedRequest(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Fatal("invalid input made an external request")
+	}
+
+	_ = cmd.Flags().Set("draft-json", invalidDraft)
+	if err := agentV2ProvisionCmd.RunE(cmd, nil); err == nil || !strings.Contains(err.Error(), validationMessage) {
+		t.Fatalf("expected server draft validation error, got %v", err)
+	}
+	if calls != 4 || string(received.Draft) != invalidDraft {
+		t.Fatalf("expected server to receive the draft unchanged; calls=%d draft=%s", calls, received.Draft)
+	}
+
+	publicKey := received.PublicKey
+	const correctedDraft = `{"intent_actions":[{},{"priority":0}]}`
+	_ = cmd.Flags().Set("draft-json", correctedDraft)
+	if err := agentV2ProvisionCmd.RunE(cmd, nil); err != nil {
+		t.Fatalf("corrected draft failed in the same home: %v", err)
+	}
+	if calls != 6 || string(received.Draft) != correctedDraft || received.PublicKey != publicKey || received.ExpectedAgentID != "agent-1" {
+		t.Fatalf("corrected draft lost the original identity: calls=%d expected agent=%s", calls, received.ExpectedAgentID)
 	}
 }

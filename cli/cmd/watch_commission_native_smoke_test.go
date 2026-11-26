@@ -47,6 +47,9 @@ func TestCommissionWorkBuddyHostLocalFulfillment(t *testing.T) {
 			binding.Command = append(binding.Command, "--allow-tool", tool)
 		}
 		binding.Args = nil
+		if output, err := exec.Command("git", "init", "--quiet", binding.WorkDir).CombinedOutput(); err != nil {
+			t.Fatalf("isolated Git workspace: %v %s", err, output)
+		}
 	})
 }
 
@@ -63,10 +66,6 @@ func runCommissionHostLocalFulfillment(t *testing.T, host string, configure func
 	w.binding.TimeoutSeconds = 180
 	if err := dispatch.WriteJSON(dispatch.BindingPath(w.home, w.server.Name), *w.binding); err != nil {
 		t.Fatal(err)
-	}
-	initialize := exec.Command("git", "init", "--quiet", w.binding.WorkDir)
-	if output, err := initialize.CombinedOutput(); err != nil {
-		t.Fatalf("isolated Git workspace: %v %s", err, output)
 	}
 	runner := dispatch.Runner{Binding: *w.binding}
 	w.runAgent = func(ctx context.Context, request dispatch.Request) (dispatch.Result, error) {

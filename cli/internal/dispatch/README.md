@@ -221,6 +221,10 @@ server between reconciliations.
 
 ## Commission input inspection
 
+Native Codex runs seller input checks and paid fulfillment with
+`exec --json --skip-git-repo-check -` in the bound workspace. Both stages use
+the sandbox and approval settings from the binding.
+
 CLI 1.0.11 adds `watch --notifications-only` for hosts without an execution
 adapter. It excludes PM, control, Runtime leases and all Agent workers; HTTP
 order intake persists only the existing desktop queue before ACK. The pinned
@@ -518,7 +522,9 @@ The spool retains up to 1,024 consumed event IDs and 256 recent summaries.
 
 Native Codex PM decisions use `exec --json --ephemeral` with supplied history.
 On macOS and Windows, Watch presents only selected summaries through the exact
-Desktop owner's hidden-input transport. Watch serializes its main submissions
+Desktop owner's hidden-input transport. The reply prompt supplies one validated
+link to the configured Console's important-message list as application context.
+Peer links remain excluded. Watch serializes its main submissions
 across PMs, Commission and upgrade repair. An unbound, missing or archived
 Codex conversation routes PM notices to the desktop queue when enabled.
 The notification opens the Console important-message view and excludes private message text. The
@@ -1049,6 +1055,12 @@ with only that code cannot establish their original cause. Retained failures
 remain available to `watch status` and explicit operator retry; restarting watch
 does not replay them. Modified managed Skills stay protected and require repair
 without overwriting owner changes.
+
+A waiting Codex upgrade repair with a legacy guard can recheck the scheduler once
+under the same repair ID. Watch checks signed rules and Codex readiness before
+claiming the recheck at the hidden-input write boundary. Restart can resume
+preflight; uncertain writes are never replayed. Transient Skills failures keep
+the existing acknowledgement for unchanged owner actions.
 
 Codex upgrade repair uses the desktop queue only for recorded owner actions
 that can be resumed in the verified bound thread. Background transport errors

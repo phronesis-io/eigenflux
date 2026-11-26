@@ -15,6 +15,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/lib/pq"
 
+	consoledal "eigenflux_server/api/dal"
 	"eigenflux_server/pkg/agentidentity"
 	pmdal "eigenflux_server/rpc/pm/dal"
 	profiledal "eigenflux_server/rpc/profile/dal"
@@ -823,6 +824,16 @@ func (s *Service) listCommunicationMessages(_ context.Context, c *app.RequestCon
 		"viewer_agent_id": strconv.FormatInt(viewerID, 10), "conv_id": strconv.FormatInt(convID, 10),
 		"messages": messages, "agent_contexts": contexts, "next_cursor": nextCursor, "has_more": hasMore,
 	}
+	if conversation.OriginType == "friend" {
+		note, err := consoledal.ConversationOpening(s.db, viewerID, convID)
+		if err != nil {
+			fail(c, http.StatusInternalServerError, "MESSAGES_READ_FAILED", "could not read friend request note", nil)
+			return
+		}
+		if note != nil {
+			data["friend_request_note"] = note
+		}
+	}
 	for len(messages) > 1 && !communicationReplyFits(data) {
 		anchorIndex := -1
 		if anchored {
@@ -980,12 +991,14 @@ func (s *Service) listCommunicationFriendRequests(_ context.Context, c *app.Requ
 }
 
 type communicationFriend struct {
-	RelationID      int64                 `gorm:"column:id" json:"relation_id"`
-	PeerAgentID     int64                 `gorm:"column:to_uid" json:"peer_agent_id,string"`
-	Remark          string                `gorm:"column:remark" json:"remark"`
-	RemarkTruncated bool                  `gorm:"-" json:"remark_truncated,omitempty"`
-	FriendSince     int64                 `gorm:"column:created_at" json:"friend_since"`
-	LastMessage     *communicationMessage `gorm:"-" json:"last_message,omitempty"`
+	RelationID        int64                         `gorm:"column:id" json:"relation_id"`
+	PeerAgentID       int64                         `gorm:"column:to_uid" json:"peer_agent_id,string"`
+	ConvID            *int64                        `gorm:"-" json:"conv_id,string"`
+	FriendRequestNote *consoledal.FriendRequestNote `gorm:"-" json:"friend_request_note,omitempty"`
+	Remark            string                        `gorm:"column:remark" json:"remark"`
+	RemarkTruncated   bool                          `gorm:"-" json:"remark_truncated,omitempty"`
+	FriendSince       int64                         `gorm:"column:created_at" json:"friend_since"`
+	LastMessage       *communicationMessage         `gorm:"-" json:"last_message,omitempty"`
 }
 
 func (s *Service) listCommunicationFriends(_ context.Context, c *app.RequestContext) {
@@ -1021,34 +1034,40 @@ func (s *Service) listCommunicationFriends(_ context.Context, c *app.RequestCont
 		friends[index].Remark, friends[index].RemarkTruncated = truncateRunes(friends[index].Remark, 500)
 		peerIDs = append(peerIDs, friends[index].PeerAgentID)
 	}
-	if len(peerIDs) > 0 {
-		type latestFriendMessage struct {
-			PeerID int64 `gorm:"column:peer_id"`
-			communicationMessage
+	details, err := consoledal.FriendConversations(s.db, viewerID, peerIDs)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "FRIENDS_READ_FAILED", "could not read friend conversations", nil)
+		return
+	}
+	convIDs := make([]int64, 0, len(friends))
+	for index := range friends {
+		detail := details[friends[index].PeerAgentID]
+		friends[index].FriendRequestNote = detail.Note
+		if detail.ConvID != 0 {
+			friends[index].ConvID = &detail.ConvID
+			convIDs = append(convIDs, detail.ConvID)
 		}
-		var latest []latestFriendMessage
-		if err := s.db.Raw(`SELECT c.peer_id, pm.msg_id, pm.conv_id, pm.sender_id, pm.receiver_id, pm.content, pm.is_read, pm.created_at
-			FROM (
-				SELECT conv_id, CASE WHEN participant_a = ? THEN participant_b ELSE participant_a END AS peer_id
-				FROM conversations
-				WHERE status = 0 AND origin_type = 'friend'
-				  AND ((participant_a = ? AND participant_b = ANY(?)) OR (participant_b = ? AND participant_a = ANY(?)))
-			) c
+	}
+	if len(convIDs) > 0 {
+		var latest []communicationMessage
+		if err := s.db.Raw(`SELECT pm.msg_id, pm.conv_id, pm.sender_id, pm.receiver_id, pm.content, pm.is_read, pm.created_at
+			FROM unnest(CAST(? AS bigint[])) AS c(conv_id)
 			JOIN LATERAL (
 				SELECT msg_id, conv_id, sender_id, receiver_id, content, is_read, created_at
 				FROM private_messages WHERE conv_id = c.conv_id ORDER BY msg_id DESC LIMIT 1
-			) pm ON true`, viewerID, viewerID, pq.Array(peerIDs), viewerID, pq.Array(peerIDs)).Scan(&latest).Error; err != nil {
+			) pm ON true`, pq.Array(convIDs)).Scan(&latest).Error; err != nil {
 			fail(c, http.StatusInternalServerError, "FRIENDS_READ_FAILED", "could not read recent friend messages", nil)
 			return
 		}
-		lastByPeer := make(map[int64]*communicationMessage, len(latest))
+		lastByConversation := make(map[int64]*communicationMessage, len(latest))
 		for index := range latest {
-			message := latest[index].communicationMessage
-			boundCommunicationMessage(&message, 1000)
-			lastByPeer[latest[index].PeerID] = &message
+			boundCommunicationMessage(&latest[index], 1000)
+			lastByConversation[latest[index].ConvID] = &latest[index]
 		}
 		for index := range friends {
-			friends[index].LastMessage = lastByPeer[friends[index].PeerAgentID]
+			if convID := friends[index].ConvID; convID != nil {
+				friends[index].LastMessage = lastByConversation[*convID]
+			}
 		}
 	}
 	relations := make(map[int64]string, len(peerIDs))

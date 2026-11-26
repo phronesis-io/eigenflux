@@ -96,7 +96,9 @@ cycle evidence blocks stopping instead of establishing completion.
 
 Codex foreground setup uses `heartbeat guard-setup` to append owner-thread and
 Agent-fenced Stop, UserPromptSubmit, PermissionRequest and Interrupt hooks.
-The trigger handler admits only the exact verified canonical prompt hash.
+Guard setup requires the exact native scheduler prompt readback. Use the existing
+native migration plan to update stale prompts in place before configuring the
+guard. The trigger handler admits only the exact verified canonical prompt hash.
 Continuation markers retain the same local cycle or an admitted no-plan run;
 quoted templates and ordinary replies do not admit execution. Hook configuration
 remains trust-pending until the host invokes it; setup never changes host trust.

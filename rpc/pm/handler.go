@@ -21,6 +21,7 @@ import (
 	"eigenflux_server/pkg/logger"
 	"eigenflux_server/pkg/metrics"
 	"eigenflux_server/pkg/textguard"
+	stringvalidator "eigenflux_server/pkg/validator"
 	"eigenflux_server/rpc/pm/dal"
 	"eigenflux_server/rpc/pm/icebreak"
 	"eigenflux_server/rpc/pm/notifyutil"
@@ -877,6 +878,14 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 400, Msg: "cannot send a friend request to yourself"}}, nil
 	}
 
+	greeting := req.GetGreeting()
+	if length := stringvalidator.CalculateMultilingualLength(greeting); length > stringvalidator.MaxFriendRequestGreetingLength {
+		return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{
+			Code: 400,
+			Msg:  fmt.Sprintf("greeting has %d weighted characters (maximum %d, CJK counts as 2 and other characters as 1)", length, stringvalidator.MaxFriendRequestGreetingLength),
+		}}, nil
+	}
+
 	rateLimitKey := fmt.Sprintf("ratelimit:friend_request:%d", req.FromUid)
 	count, err := db.RDB.Incr(ctx, rateLimitKey).Result()
 	if err == nil {
@@ -888,11 +897,6 @@ func (s *PMServiceImpl) SendFriendRequest(ctx context.Context, req *pm.SendFrien
 			logger.Ctx(ctx).Warn("SendFriendRequest rate limited", "fromUID", req.FromUid, "count", count, "limit", limit)
 			return &pm.SendFriendRequestResp{BaseResp: &base.BaseResp{Code: 429, Msg: "too many requests, please try again later"}}, nil
 		}
-	}
-
-	greeting := ""
-	if req.Greeting != nil {
-		greeting = truncateByWeightedLength(*req.Greeting, 200)
 	}
 
 	remark := ""

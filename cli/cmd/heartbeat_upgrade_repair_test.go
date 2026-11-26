@@ -68,6 +68,93 @@ func TestUpgradeRepairSurvivesRestartAndGroupsActions(t *testing.T) {
 	}
 }
 
+func TestUpgradeRepairRechecksLegacySchedulerPromptOnce(t *testing.T) {
+	for _, status := range []string{"awaiting_run", "user_action", "submitted", "deferred", "verified"} {
+		t.Run(status, func(t *testing.T) {
+			runtimeTestConfig(t, "https://repair.example.invalid", true)
+			r, err := mutateUpgradeRepair(true, func(r *upgradeRepair) error {
+				r.Status = status
+				r.SchedulerThread = guardTestThread
+				r.GuardDefinition = strings.Repeat("a", 64)
+				if status == "user_action" {
+					r.Blockers = []string{"hook_review"}
+					r.Acknowledged = repairNoticeHash(*r)
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			b := dispatch.Binding{Revision: "current-binding", MainSessionID: "owner-thread"}
+			if r.needsSchedulerPromptRecheck() {
+				if err := finishUpgradeRepairPreflight(r, dispatch.ErrMainNoticeNotSubmitted); err != nil {
+					t.Fatal(err)
+				}
+				reloaded, err := currentUpgradeRepair(false)
+				if err != nil || reloaded.ID != r.ID || reloaded.Status != r.Status || reloaded.Attempts != 0 ||
+					reloaded.Acknowledged != r.Acknowledged || !reloaded.needsSchedulerPromptRecheck() ||
+					reloaded.NextAttempt <= time.Now().UnixMilli() {
+					t.Fatalf("restart during preflight lost the safe retry: %+v %v", reloaded, err)
+				}
+				r, err = mutateUpgradeRepair(false, func(current *upgradeRepair) error {
+					current.NextAttempt = 0
+					return nil
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			claimed, err := claimUpgradeRepairForWatch(r, b)
+			if status == "submitted" || status == "deferred" || status == "verified" {
+				if err == nil {
+					t.Fatalf("reopened %s: %+v", status, claimed)
+				}
+				return
+			}
+			if err != nil || claimed.ID != r.ID || claimed.SchedulerThread != r.SchedulerThread ||
+				claimed.CreatedAt != r.CreatedAt || claimed.Status != "submitted" || !claimed.SchedulerPromptRecheckStarted {
+				t.Fatalf("legacy claim changed repair identity or did not persist admission: %+v %v", claimed, err)
+			}
+			reloaded, err := currentUpgradeRepair(false)
+			if err != nil || reloaded.needsSchedulerPromptRecheck() {
+				t.Fatalf("restart made the same review eligible: %+v %v", reloaded, err)
+			}
+			if _, err := claimUpgradeRepairForWatch(r, b); err == nil {
+				t.Fatal("an earlier reader could claim the same recheck")
+			}
+			if status == "user_action" {
+				retry, err := finishUpgradeRepairDispatch(r.ID, dispatch.ErrMainNoticeBusy)
+				if err != nil || retry.Status != "pending" || retry.Acknowledged != r.Acknowledged {
+					t.Fatalf("known busy response lost the existing action: %+v %v", retry, err)
+				}
+				retry, err = recordUpgradeSkillsFailure(r.ID, &upgradeSkillsError{Reason: "skills_sync_failed"})
+				if err != nil || retry.Generation != r.Generation || retry.Acknowledged != r.Acknowledged ||
+					len(retry.Blockers) != 1 || retry.Blockers[0] != "hook_review" ||
+					retry.NextAttempt <= time.Now().UnixMilli() {
+					t.Fatalf("temporary Skills failure invalidated the existing action: %+v %v", retry, err)
+				}
+				retry, err = mutateUpgradeRepair(false, func(current *upgradeRepair) error {
+					current.NextAttempt = 0
+					return nil
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := claimUpgradeRepairForWatch(retry, b); err != nil {
+					t.Fatal(err)
+				}
+			}
+			reported, err := reportUpgradeRepair(r.ID, status, r.Blockers)
+			if err != nil || reported.needsSchedulerPromptRecheck() {
+				t.Fatalf("returning to %s scheduled a second recheck: %+v %v", status, reported, err)
+			}
+			if status == "user_action" && (reported.NoticeID != r.NoticeID || reported.Notification != "unchanged") {
+				t.Fatalf("unchanged action produced a second notice: %+v", reported)
+			}
+		})
+	}
+}
+
 func TestUpgradeRepairAccountSwitchCannotConsumeOldReceipt(t *testing.T) {
 	_, server := runtimeTestConfig(t, "https://repair.example.invalid", true)
 	r, err := currentUpgradeRepair(true)

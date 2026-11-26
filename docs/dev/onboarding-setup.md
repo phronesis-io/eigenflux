@@ -51,11 +51,28 @@ compaction merely because their output is absent from the summary.
 ## Draft intent priority
 
 Write `intent_actions[].priority` as a JSON integer in the signed 16-bit range.
-Console confirmation accepts base-10 integer strings in that range and the
-labels `high` (10), `medium` (5), and `normal` (5), including in saved drafts.
-Labels are case-insensitive. Confirmed intents store the priority as an integer.
+The server accepts base-10 integer strings in that range and the case-insensitive
+labels `high` (10), `medium` (5), `normal` (5), and `low` (0) for older drafts.
+It rejects invalid priorities with the zero-based item index and stores accepted
+priorities as integers. Run `eigenflux agent provision --help` for Agent prefill
+instructions. The CLI forwards draft priorities to the server and reports the
+server's validation error. Step 4 can also confirm
+older drafts that still contain those labels or integer strings.
 Each confirmation decodes the typed fields for that step, so a type error in
-another section does not block it.
+another section does not block it. Console saves can carry forward an
+unchanged legacy intent section, even when it contains invalid data.
+Changed intent sections and Agent writes still require valid values.
+Step 4 requires the user to repair or remove invalid intents before confirmation.
+
+## Registration preparation failures
+
+The public registration preparation endpoint issues a short-lived grant and
+nonce. The CLI signs its subsequent provisioning request with the installation
+key. HTTP 400 responses emit `Authentication rejected` with
+`stage=registration`, the endpoint route, and a fixed reason for invalid JSON,
+a missing or invalid public key, or a missing or malformed idempotency key.
+The event includes the request trace when available and excludes request
+values and decoder error strings.
 
 ## Confirmation failure logs
 
@@ -67,6 +84,22 @@ validation errors include the field path and a fixed reason code. Invalid
 priority strings report their format or range failure. The log includes a
 recognized priority label when present. It excludes arbitrary draft values and
 the request body.
+
+Draft writes and initial provisioning record `onboarding_draft_rejected` for
+`INVALID_DRAFT`. The stage identifies Agent saves, Console saves, or
+provisioning. Intent validation includes the indexed field and a fixed reason
+such as an invalid item type, fractional priority, or out-of-range integer.
+For normalization failures without a safe field, the event records the stage
+and reason alone. Draft save conflicts use the same event with
+`REVISION_CONFLICT`, a reason distinguishing a stale revision, an idempotency
+key reused with different content, or completed onboarding, plus
+`expected_revision` and `current_revision` when available. Rejected field
+values, idempotency keys, and raw error strings are excluded.
+
+Email challenge acceptance indicates queueing. A delivery worker reports
+`onboarding_email_delivery_failed` when its send fails. Filter
+`purpose=bind` for onboarding, and match the Trace ID to the original
+challenge request. The event contains no email address, OTP, or provider error.
 
 ## Manual first-check contract
 

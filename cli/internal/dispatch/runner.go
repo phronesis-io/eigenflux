@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -22,6 +23,8 @@ import (
 )
 
 const maxRunnerOutput = 1 << 20
+
+var codexThreadID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 var ErrNeedsUser = errors.New("needs_user")
 var ErrCommandLineTooLong = errors.New("windows_command_line_too_long")
@@ -87,6 +90,17 @@ func (r Runner) Run(ctx context.Context, req Request) (Result, error) {
 	}
 	out, stderr, err := r.runProcess(ctx, args, stdin)
 	if err != nil {
+		if r.Binding.Host == "codex" && r.Binding.Mode == "native" && req.Kind == "commission_fulfillment" && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+			// Only the native stream header identifies the interrupted session.
+			line, _, complete := bytes.Cut(out, []byte{'\n'})
+			var header struct {
+				Type     string `json:"type"`
+				ThreadID string `json:"thread_id"`
+			}
+			if complete && json.Unmarshal(line, &header) == nil && header.Type == "thread.started" && codexThreadID.MatchString(header.ThreadID) {
+				return Result{SessionID: header.ThreadID}, err
+			}
+		}
 		return Result{}, err
 	}
 	if r.Binding.Mode == "command" {
@@ -158,7 +172,7 @@ func (r Runner) runProcess(ctx context.Context, args []string, stdin string) ([]
 	case <-ctx.Done():
 		guard.kill()
 		<-done
-		return nil, nil, ctx.Err()
+		return out.data, nil, ctx.Err()
 	}
 	if out.exceeded {
 		return nil, nil, errOutputLimit
@@ -181,8 +195,11 @@ func (r Runner) arguments(req Request) ([]string, string, error) {
 	switch r.Binding.Host {
 	case "codex":
 		args = append(args, "exec", "--json")
-		if req.Kind == "pm_push" {
+		switch req.Kind {
+		case "pm_push":
 			args = append(args, "--ephemeral", "--skip-git-repo-check", "--sandbox", "read-only")
+		case "commission_order", "commission_fulfillment":
+			args = append(args, "--skip-git-repo-check")
 		}
 		if req.SessionID != "" {
 			args = append(args, "resume", req.SessionID)

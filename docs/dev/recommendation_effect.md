@@ -439,3 +439,14 @@ basis and `delivery_cli_version` rows from the rollout onward. Existing finality
 automatically rebuild historical days. No migration invents acceptance times or
 claims a coverage gain. Release markers record server readiness; CLI adoption,
 batch supply effects and legacy-contract model behavior require separate analysis.
+
+### Published broadcast feedback periods
+
+Every minute pipeline-cron checks the delivery day that has just passed its
+Shanghai day+3 boundary. The existing per-day transaction also publishes each
+complete overlapping seven-day observation period through migration 000141.
+Manual backfills use the same trigger. Each revision stores its seven source
+cutoffs, counts, cause and publication timestamp. Grafana reads only the latest
+revision per period through `grafana_broadcast_feedback_periods`. A seven-day
+period includes delivery dates from two days before its start through four days
+after its start. Roll back the Insights reader first if withdrawing the view.

@@ -330,12 +330,17 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 		req.Draft = json.RawMessage(`{}`)
 	}
 	if len(req.Draft) > 64<<10 {
-		fail(c, http.StatusBadRequest, "INVALID_DRAFT", "onboarding_draft must be a JSON object no larger than 64KB", nil)
+		rejectOnboardingDraft(ctx, c, "provision", "draft_too_large",
+			errors.New("onboarding_draft must be a JSON object no larger than 64KB"))
 		return
 	}
 	normalizedDraft, draftObject, err := normalizeOnboardingDraftJSON(req.Draft)
 	if err != nil {
-		fail(c, http.StatusBadRequest, "INVALID_DRAFT", err.Error(), nil)
+		rejectOnboardingDraft(ctx, c, "provision", "draft_normalization_failed", err)
+		return
+	}
+	if err := normalizeDraftIntentPriorities(draftObject); err != nil {
+		rejectOnboardingDraft(ctx, c, "provision", "draft_validation_failed", err)
 		return
 	}
 	if err := validateRequestedAgentProvenance(req.FieldProvenance); err != nil {
@@ -351,13 +356,19 @@ func (s *Service) provision(ctx context.Context, c *app.RequestContext) {
 	req.AgentName = effectiveProvisionAgentName(req.AgentName, draftObject)
 	initialProvenance, err := json.Marshal(deriveInitialProvenance(draftObject, provenanceAgent, req.FieldProvenance, wallNow))
 	if err != nil {
-		fail(c, http.StatusBadRequest, "INVALID_DRAFT", "could not derive onboarding field sources", nil)
+		rejectOnboardingDraft(ctx, c, "provision", "draft_provenance_failed", errors.New("could not derive onboarding field sources"))
 		return
 	}
 
 	requestHash, receiptHashErr := provisionReceiptHash(req)
 	if receiptHashErr != nil {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "could not canonicalize provision receipt", nil)
+		return
+	}
+	// Preserve receipt hashes for retries of previously accepted requests.
+	req.Draft, err = json.Marshal(draftObject)
+	if err != nil {
+		rejectOnboardingDraft(ctx, c, "provision", "draft_encode_failed", errors.New("could not encode onboarding draft"))
 		return
 	}
 	receiptSeed := fingerprint(publicKey) + "\x00" + req.IdempotencyKey + "\x00" + requestHash

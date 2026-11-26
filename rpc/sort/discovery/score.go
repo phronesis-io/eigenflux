@@ -145,19 +145,22 @@ func Merge(in []Candidate, kinds []Kind, mode Mode, limit int, attribution NeedA
 			sources[c.Document.Ref.Key()] = appendUnique(sources[c.Document.Ref.Key()], channel)
 		}
 	}
-	// Rating-scored candidates compete across contexts of equal priority by
+	// Model-scored broadcast pools compete across contexts of equal priority by
 	// policy-adjusted probability. An injected candidate keeps its reserved
 	// place at the front of its context by taking that context's best score,
 	// which also keeps the order consistent with the policy order.
+	modelRanked := func(c Candidate) bool {
+		return ratingRanked(c) || (c.LR != nil && c.LR.Contract == discoverylr.SnapshotContract)
+	}
 	best := map[int64]float64{}
 	for _, c := range in {
-		if ratingRanked(c) {
+		if modelRanked(c) {
 			if prior, ok := best[c.Context.ID]; !ok || c.FinalScore > prior {
 				best[c.Context.ID] = c.FinalScore
 			}
 		}
 	}
-	ratingKey := func(c Candidate) float64 {
+	modelKey := func(c Candidate) float64 {
 		if injected(c) {
 			return best[c.Context.ID]
 		}
@@ -170,8 +173,8 @@ func Merge(in []Candidate, kinds []Kind, mode Mode, limit int, attribution NeedA
 		if a.Context.Priority != b.Context.Priority {
 			return a.Context.Priority > b.Context.Priority
 		}
-		if mode == Recommendation && ratingRanked(a) && ratingRanked(b) {
-			if ka, kb := ratingKey(a), ratingKey(b); ka != kb {
+		if mode == Recommendation && modelRanked(a) && modelRanked(b) {
+			if ka, kb := modelKey(a), modelKey(b); ka != kb {
 				return ka > kb
 			}
 		} else if mode == Recommendation && a.SemanticRank != nil && b.SemanticRank != nil {

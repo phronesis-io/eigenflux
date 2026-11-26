@@ -79,6 +79,8 @@ func TestPostgresSchemaCoverage(t *testing.T) {
 	// Removed indirectly: rows cascade from agents via agent_id, and from conversations via conv_id.
 	handled["agent_email_bindings"] = true
 	handled["private_messages"] = true
+	// The sender must be one of the two participants. Both participant FKs cascade.
+	handled["friend_conversation_openings"] = true
 
 	rows, err := db.Query(`
 		SELECT DISTINCT c.conrelid::regclass::text
@@ -162,6 +164,8 @@ func TestPostgresReset(t *testing.T) {
 		exec(`INSERT INTO agent_onboarding_v2 (agent_id, state, active_context_revision, completed_at, created_at, updated_at) VALUES ($1, 'completed', 1, $2, $2, $2)`, id, now)
 	}
 	exec(`INSERT INTO conversations (conv_id, participant_a, participant_b, initiator_id, last_sender_id, updated_at) VALUES ($1, $2, $3, $3, $3, $4)`, base, target, bystander, now)
+	exec(`INSERT INTO friend_conversation_openings (participant_low, participant_high, sender_agent_id, request_id, greeting, created_at)
+		VALUES ($1, $2, $2, $3, 'test greeting', $4)`, target, bystander, base, now)
 	exec(`INSERT INTO private_messages (msg_id, conv_id, sender_id, receiver_id, content, created_at) VALUES ($1, $1, $2, $3, 'welcome', $4)`, base, bystander, target, now)
 	exec(`INSERT INTO user_relations (from_uid, to_uid, rel_type, created_at) VALUES ($1, $2, 1, $3), ($2, $1, 1, $3)`, target, bystander, now)
 	exec(`INSERT INTO auth_email_challenges (challenge_id, login_method, email, code_hash, expire_at, created_at) VALUES ($1, 'email', $2, 'x', $3, $3)`, fmt.Sprintf("ch-%d", base), email, now)
@@ -202,6 +206,9 @@ func TestPostgresReset(t *testing.T) {
 	if cascaded["agent_onboarding_v2"] != 1 || cascaded["console_v2_sessions"] != 1 || cascaded["private_messages"] != 1 {
 		t.Fatalf("cascade preview = %+v", plan.Cascaded)
 	}
+	if cascaded["friend_conversation_openings"] != 1 {
+		t.Fatalf("friend conversation opening missing from cascade preview: %+v", plan.Cascaded)
+	}
 	if len(plan.Peers) != 1 || plan.Peers[0] != bystander || len(plan.Convs) != 1 || plan.Convs[0].ID != base {
 		t.Fatalf("peers = %v, convs = %v", plan.Peers, plan.Convs)
 	}
@@ -236,7 +243,8 @@ func TestPostgresReset(t *testing.T) {
 		"agent_network_memberships": "agent_id = $1", "agent_principals": "agent_id = $1",
 		"console_v2_sessions": "agent_id = $1", "agent_cli_account_switches": "source_agent_id = $1",
 		"conversations": "participant_a = $1 OR participant_b = $1", "private_messages": "sender_id = $1 OR receiver_id = $1",
-		"user_relations": "from_uid = $1 OR to_uid = $1",
+		"friend_conversation_openings": "participant_low = $1 OR participant_high = $1",
+		"user_relations":               "from_uid = $1 OR to_uid = $1",
 	} {
 		if n := count("SELECT count(*) FROM "+table+" WHERE "+where, target); n != 0 {
 			t.Errorf("%s: %d rows left for the reset agent", table, n)

@@ -288,10 +288,10 @@ an unverified permission rule for a verified recurring trigger.
 
 For authenticated Codex setup or foreground repair, require CLI 1.0.23 and run
 `heartbeat guard-setup --codex-home <absolute-owner-codex-home> --thread
-<verified-trigger-thread>` with the established CLI prefix. Use the installer
-receipt's Codex configuration and the native scheduler's verified owner thread.
-Pass the exact native task prompt through `--scheduler-prompt-file` using an
-owner-only local file when it differs from the default canonical prompt.
+<verified-trigger-thread> --scheduler-prompt-file <absolute-readback-file>`
+with the established CLI prefix. Use the installer receipt's Codex configuration,
+the native scheduler's verified owner thread, and an owner-only file containing
+the exact native task prompt.
 Require the complete canonical prompt and preserve its verified launcher.
 Repair a confirmed launcher-only task through the existing native migration
 procedure, applying its full execution prompt to the same task. Preserve its

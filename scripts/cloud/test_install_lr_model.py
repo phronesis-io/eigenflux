@@ -1,7 +1,8 @@
 """Exercise the real installer with a local OSS command fixture."""
-import os
+import configparser
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -20,7 +21,7 @@ class InstallerFailures(unittest.TestCase):
         self.bin = self.root / "bin"
         self.bin.mkdir()
         for name in ("grep", "tr", "sort", "tail", "mkdir", "mktemp", "find",
-                     "dirname", "cp", "rm", "mv", "readlink", "python3"):
+                     "basename", "cp", "rm", "mv", "readlink", "python3"):
             (self.bin / name).symlink_to(shutil.which(name))
         checksum = self.bin / "sha256sum"
         if shutil.which("sha256sum"):
@@ -35,7 +36,14 @@ class InstallerFailures(unittest.TestCase):
         bundle.mkdir()
         model = json.dumps({"model_version": version}).encode()
         (bundle / "model.json").write_bytes(model)
-        (bundle / "checksums.sha256").write_text(hashlib.sha256(model).hexdigest() + "  model.json\n")
+        files = ["model.json"]
+        if version.startswith("gbdt_"):
+            (bundle / "report.json").write_text('{"promotion_passed": true}')
+            files.append("report.json")
+        (bundle / "checksums.sha256").write_text("".join(
+            f"{hashlib.sha256((bundle / name).read_bytes()).hexdigest()}  {name}\n"
+            for name in files
+        ))
         return bundle
 
     def run_command(self, *args):
@@ -79,34 +87,102 @@ class InstallerFailures(unittest.TestCase):
         self.assertIn("no sample_date=", output)
 
     def test_successful_listing_download_verification_and_activation(self):
-        version = "lr_20261002_0700_2434cdb"
-        bundle = self.root / "bundle"
-        bundle.mkdir()
-        model = json.dumps({"model_version": version}).encode()
-        (bundle / "model.json").write_bytes(model)
-        (bundle / "checksums.sha256").write_text(hashlib.sha256(model).hexdigest() + "  model.json\n")
+        self.check_latest("lr_20261002_0700_2434cdb")
+
+    def test_discovery_gbdt_activation(self):
+        self.env["OSS_MODEL_PREFIX"] = "rec/model/discovery_gbdt"
+        self.check_latest("gbdt_20261002_0700_2434cdb")
+
+    def test_publisher_success_triggers_isolated_gbdt_pull(self):
+        units = SCRIPT.parents[2] / "cloud/systemd"
+        trigger = configparser.ConfigParser()
+        trigger.read(units / "eigenflux-discovery-gbdt-train.service.d/model-pull.conf")
+        pull = units / trigger["Unit"]["OnSuccess"]
+        self.assertEqual(pull.name, "eigenflux-discovery-gbdt-model-pull.service")
+        lines = pull.read_text().splitlines()
+        self.assertIn("Environment=MODEL_ROOT=/data/models/eigenflux/discovery-gbdt", lines)
+        self.assertIn("Environment=OSS_MODEL_PREFIX=rec/model/discovery_gbdt", lines)
+        command = next(line for line in lines if line.startswith("ExecStart="))
+        _, args = command.split("/scripts/cloud/install_lr_model.sh ")
+        self.assertEqual(args.split(), ["--oss-latest", "gbdt"])
+        self.check_latest("gbdt_20261002_0700_2434cdb", "gbdt")
+
+    def check_latest(self, version, *args):
+        self.stub_latest(self.make_bundle(version), version)
+        result = self.run_command("--oss-latest", *args)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.root / "models/current").resolve().name, version)
+        self.assertIn("sample_date=2026-10-01/" + version, result.stdout)
+
+    def stub_latest(self, bundle, version):
         self.env["FIXTURE_BUNDLE"] = str(bundle)
+        self.env["FIXTURE_VERSION"] = version
         oss = self.bin / "ossutil"
         oss.write_text('''#!/bin/bash
 case "$3" in
 ls)
   if [[ "$4" == *sample_date=* ]]; then
-    echo "oss://eigenflux/rec/model/lr/sample_date=2026-10-01/lr_20261002_0700_2434cdb/"
+    for version in "$FIXTURE_VERSION" lr_20250101_0100_1 gbdt_20250101_0100_1; do
+      echo "${4}${version}/"
+    done
+    echo "${4}${FIXTURE_VERSION}_partial/"
+    echo "${4}old_${FIXTURE_VERSION}/"
+    # A newer bundle of the other family is also present.
+    if [[ "$FIXTURE_VERSION" == gbdt_* ]]; then other=lr; else other=gbdt; fi
+    echo "${4}${other}_20990101_0100_1/"
   else
-    echo "oss://eigenflux/rec/model/lr/sample_date=2026-09-30/"
-    echo "oss://eigenflux/rec/model/lr/sample_date=2026-10-01/"
+    echo "${4}sample_date=2026-10-01/"
+    echo "${4}sample_date=2026-09-30/"
   fi
   ;;
-cp) cp -R "$FIXTURE_BUNDLE/." "$7" ;;
+cp)
+  [[ "$6" == */sample_date=2026-10-01/"$FIXTURE_VERSION"/ ]] || exit 8
+  cp -R "$FIXTURE_BUNDLE/." "$7"
+  ;;
 *) exit 9 ;;
 esac
 ''')
         oss.chmod(0o755)
-        result = subprocess.run(["/bin/bash", str(SCRIPT), "--oss-latest"],
-                                env=self.env, text=True, capture_output=True)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual((self.root / "models/current").resolve().name, version)
-        self.assertIn("sample_date=2026-10-01/" + version, result.stdout)
+
+    def test_explicit_gbdt_family_and_rollback(self):
+        self.env["OSS_MODEL_PREFIX"] = "alternate/published"
+        first = "gbdt_20261001_0700_aaaa"
+        second = "gbdt_20261002_0700_bbbb"
+        self.check_latest(first, "gbdt")
+        self.check_latest(second, "gbdt")
+        models = Path(self.env["MODEL_ROOT"])
+        self.assertEqual((models / "previous").resolve().name, first)
+
+        self.assertEqual(self.run_command("--oss-latest", "gbdt").returncode, 0)
+        result = self.run_command("--rollback")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((models / "current").resolve().name, first)
+        self.assertEqual((models / "previous").resolve().name, second)
+
+    def test_failed_gbdt_publication_preserves_links(self):
+        first = "gbdt_20261001_0700_aaaa"
+        second = "gbdt_20261002_0700_bbbb"
+        self.check_latest(first, "gbdt")
+        self.check_latest(second, "gbdt")
+        models = Path(self.env["MODEL_ROOT"])
+        bundle = self.make_bundle("gbdt_20261003_0700_cccc")
+        self.stub_latest(bundle, "gbdt_20261004_0700_dddd")
+        result = self.run_command("--oss-latest", "gbdt")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not match expected version", result.stderr)
+        self.env["FIXTURE_VERSION"] = "gbdt_20261003_0700_cccc"
+        manifest = bundle / "checksums.sha256"
+        original = manifest.read_text()
+        for contents, error in ((original.splitlines()[0] + "\n", "missing checksum"),
+                                (original, "checksum verification failed")):
+            (bundle / "report.json").write_text("incomplete")
+            manifest.write_text(contents)
+            result = self.run_command("--oss-latest", "gbdt")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(error, result.stderr)
+        self.assertEqual((models / "current").resolve().name, second)
+        self.assertEqual((models / "previous").resolve().name, first)
+        self.assertCountEqual((p.name for p in (models / "versions").iterdir()), [first, second])
 
     def test_repeat_install_preserves_previous_and_rollback(self):
         first = self.make_bundle("lr_20261001_0700_aaaa")

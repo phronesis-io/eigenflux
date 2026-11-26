@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -280,7 +281,7 @@ type putDraftResponse struct {
 	BlockedPaths    []string                   `json:"blocked_paths"`
 }
 
-func (s *Service) putOnboardingDraft(_ context.Context, c *app.RequestContext) {
+func (s *Service) putOnboardingDraft(ctx context.Context, c *app.RequestContext) {
 	id, ok := agentID(c)
 	if !ok {
 		fail(c, http.StatusUnauthorized, "AGENT_AUTH_REQUIRED", "Agent V2 authentication is required", nil)
@@ -295,19 +296,24 @@ func (s *Service) putOnboardingDraft(_ context.Context, c *app.RequestContext) {
 		fail(c, http.StatusBadRequest, "INVALID_REQUEST", "expected_revision and idempotency_key are required", nil)
 		return
 	}
+	actorType, stage := provenanceAgent, "agent_save"
+	if _, console := c.Get("console_session_id"); console {
+		actorType, stage = provenanceHuman, "console_save"
+	}
 	if len(req.Draft) == 0 || len(req.Draft) > 64<<10 {
-		fail(c, http.StatusBadRequest, "INVALID_DRAFT", "draft must be a JSON object no larger than 64KB", nil)
+		rejectOnboardingDraft(ctx, c, stage, draftSizeRejection(len(req.Draft)),
+			errors.New("draft must be a JSON object no larger than 64KB"))
 		return
 	}
 	normalizedDraft, draftObject, normalizeErr := normalizeOnboardingDraftJSON(req.Draft)
 	if normalizeErr != nil {
-		fail(c, http.StatusBadRequest, "INVALID_DRAFT", normalizeErr.Error(), nil)
+		rejectOnboardingDraft(ctx, c, stage, "draft_normalization_failed", normalizeErr)
 		return
 	}
-	req.Draft = normalizedDraft
-	actorType := "agent_prefill"
-	if _, console := c.Get("console_session_id"); console {
-		actorType = "human_edit"
+	validationErr := normalizeDraftIntentPriorities(draftObject)
+	if validationErr != nil && actorType == provenanceAgent {
+		rejectOnboardingDraft(ctx, c, stage, "draft_validation_failed", validationErr)
+		return
 	}
 	if actorType == provenanceAgent {
 		if err := validateRequestedAgentProvenance(req.FieldProvenance); err != nil {
@@ -318,9 +324,11 @@ func (s *Service) putOnboardingDraft(_ context.Context, c *app.RequestContext) {
 		req.FieldProvenance = nil
 	}
 	provenanceRequestJSON, _ := json.Marshal(req.FieldProvenance)
-	requestHash := hashString(fmt.Sprintf("%d:%s:%s:%s", req.ExpectedRevision, req.Draft, provenanceRequestJSON, actorType))
+	requestHash := hashString(fmt.Sprintf("%d:%s:%s:%s", req.ExpectedRevision, normalizedDraft, provenanceRequestJSON, actorType))
 	response := putDraftResponse{FieldProvenance: map[string]fieldProvenance{}, BlockedPaths: []string{}}
 	now := time.Now().UnixMilli()
+	var currentRevision int64
+	conflictReason := "revision_update_conflict"
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var prior struct {
 			RequestHash string `gorm:"column:request_hash"`
@@ -332,6 +340,7 @@ func (s *Service) putOnboardingDraft(_ context.Context, c *app.RequestContext) {
 		}
 		if prior.RequestHash != "" {
 			if prior.RequestHash != requestHash {
+				conflictReason = "idempotency_key_reused"
 				return errConflict
 			}
 			return json.Unmarshal([]byte(prior.Response), &response)
@@ -341,7 +350,16 @@ func (s *Service) putOnboardingDraft(_ context.Context, c *app.RequestContext) {
 			WHERE agent_id = ? FOR UPDATE`, id).Scan(&row).Error; err != nil {
 			return err
 		}
-		if row.State == "completed" || row.Revision != req.ExpectedRevision {
+		currentRevision = row.Revision
+		if row.State == "completed" {
+			conflictReason = "onboarding_completed"
+			return errConflict
+		}
+		if row.Revision != req.ExpectedRevision {
+			conflictReason = "revision_mismatch"
+			if req.ExpectedRevision < row.Revision {
+				conflictReason = "stale_revision"
+			}
 			return errConflict
 		}
 		var stored struct {
@@ -360,6 +378,18 @@ func (s *Service) putOnboardingDraft(_ context.Context, c *app.RequestContext) {
 			return err
 		}
 		incoming := draftObject
+		if validationErr != nil {
+			// The Console sends a complete draft even when it saves an earlier
+			// step. Preserve a legacy intent section only when it is unchanged.
+			// The original normalized JSON predates any priority conversions.
+			incoming, err = decodeJSONObject(normalizedDraft)
+			if err != nil {
+				return err
+			}
+			if !sameOnboardingDraftIntents(previous, incoming) {
+				return validationErr
+			}
+		}
 		provenance := decodeProvenance(json.RawMessage(stored.FieldProvenance))
 		if len(provenance) == 0 && validProvenance(stored.ActorType) {
 			provenance = deriveInitialProvenance(previous, stored.ActorType, nil, now)
@@ -399,12 +429,34 @@ func (s *Service) putOnboardingDraft(_ context.Context, c *app.RequestContext) {
 		case replayErr != nil:
 			err = replayErr
 		case found && hashConflict:
+			conflictReason = "idempotency_key_reused"
 			err = errConflict
 		case found:
 			err = nil
 		}
 	}
+	if validationErr != nil && errors.Is(err, validationErr) {
+		rejectOnboardingDraft(ctx, c, stage, "draft_validation_failed", validationErr)
+		return
+	}
 	if errors.Is(err, errConflict) {
+		// An idempotent replay can be rejected before the draft row is read.
+		// Fetch the revision for diagnostics without changing the response.
+		if conflictReason == "idempotency_key_reused" && currentRevision == 0 {
+			readCtx, cancel := context.WithTimeout(ctx, time.Second)
+			var state onboardingState
+			if readErr := s.db.WithContext(readCtx).Raw(
+				`SELECT revision FROM agent_onboarding_v2 WHERE agent_id = ?`, id).Scan(&state).Error; readErr == nil {
+				currentRevision = state.Revision
+			}
+			cancel()
+		}
+		fields := []interface{}{"status", http.StatusConflict, "code", "REVISION_CONFLICT",
+			"stage", stage, "reason", conflictReason, "expected_revision", req.ExpectedRevision}
+		if currentRevision > 0 {
+			fields = append(fields, "current_revision", currentRevision)
+		}
+		logger.Ctx(ctx).Warn("onboarding_draft_rejected", fields...)
 		fail(c, http.StatusConflict, "REVISION_CONFLICT", "draft changed or idempotency key was reused with a different request", nil)
 		return
 	}
@@ -452,6 +504,99 @@ type identityCardDraft struct {
 	InterestsNegative []string `json:"interests_negative"`
 }
 
+type onboardingDraftWriteError struct {
+	field   string
+	reason  string
+	message string
+}
+
+func (e *onboardingDraftWriteError) Error() string { return e.message }
+
+func draftSizeRejection(size int) string {
+	if size == 0 {
+		return "draft_missing"
+	}
+	return "draft_too_large"
+}
+
+func rejectOnboardingDraft(ctx context.Context, c *app.RequestContext, stage, reason string, err error) {
+	fields := []interface{}{"status", http.StatusBadRequest, "code", "INVALID_DRAFT", "stage", stage}
+	var validation *onboardingDraftWriteError
+	if errors.As(err, &validation) {
+		reason = validation.reason
+		fields = append(fields, "field", validation.field)
+	}
+	logger.Ctx(ctx).Warn("onboarding_draft_rejected", append(fields, "reason", reason)...)
+	fail(c, http.StatusBadRequest, "INVALID_DRAFT", err.Error(), nil)
+}
+
+func sameOnboardingDraftIntents(previous, incoming map[string]interface{}) bool {
+	for key, value := range incoming {
+		if !strings.EqualFold(key, "intent_actions") {
+			continue
+		}
+		old, exists := previous[key]
+		if !exists || !reflect.DeepEqual(value, old) {
+			return false
+		}
+	}
+	for key := range previous {
+		if strings.EqualFold(key, "intent_actions") {
+			if _, exists := incoming[key]; !exists {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// Normalize submitted values before they are merged into saved drafts. Older
+// draft revisions are decoded separately when the user confirms step 4.
+func normalizeDraftIntentPriorities(draft map[string]interface{}) error {
+	for section, raw := range draft {
+		if !strings.EqualFold(section, "intent_actions") || raw == nil {
+			continue
+		}
+		items, ok := raw.([]interface{})
+		if !ok {
+			return &onboardingDraftWriteError{"intent_actions", "invalid_list_type", "intent_actions must be a JSON array"}
+		}
+		for index, item := range items {
+			intent, ok := item.(map[string]interface{})
+			if !ok {
+				path := fmt.Sprintf("intent_actions[%d]", index)
+				return &onboardingDraftWriteError{path, "invalid_item_type", path + " must be a JSON object"}
+			}
+			for field, value := range intent {
+				if !strings.EqualFold(field, "priority") {
+					continue
+				}
+				encoded, err := json.Marshal(value)
+				if err != nil {
+					return err
+				}
+				var priority onboardingIntentPriority
+				if err := json.Unmarshal(encoded, &priority); err != nil {
+					reason := "type_mismatch"
+					var stringError *onboardingIntentPriorityError
+					if errors.As(err, &stringError) {
+						reason = stringError.reason
+					} else if number, ok := value.(float64); ok {
+						reason = "fractional_number"
+						if number < -32768 || number > 32767 {
+							reason = "integer_out_of_range"
+						}
+					}
+					path := fmt.Sprintf("intent_actions[%d].priority", index)
+					return &onboardingDraftWriteError{path, reason, path + " must be a JSON integer from -32768 to 32767"}
+				}
+				intent[field] = float64(priority)
+			}
+		}
+	}
+	return nil
+}
+
 // onboardingIntentPriority accepts integer strings and legacy labels in drafts.
 type onboardingIntentPriority int16
 
@@ -473,6 +618,9 @@ func (p *onboardingIntentPriority) UnmarshalJSON(data []byte) error {
 	case "medium", "normal":
 		*p = 5
 		return nil
+	case "low":
+		*p = 0
+		return nil
 	}
 	priority, err := strconv.ParseInt(value, 10, 16)
 	if err != nil {
@@ -481,7 +629,7 @@ func (p *onboardingIntentPriority) UnmarshalJSON(data []byte) error {
 			failure.reason = "integer_out_of_range"
 		}
 		switch label {
-		case "low", "高", "中", "低":
+		case "高", "中", "低":
 			failure.label = label
 		}
 		return failure

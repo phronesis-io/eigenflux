@@ -341,6 +341,7 @@ func main() {
 	// New-user broadcasts: up to 100 broadcasts from agents registered in the
 	// last 3 days, newest first (no praise threshold).
 	h.GET("/api/v1/broadcasts/new-users", middleware.AuthMiddleware(), apihandler.NewUserBroadcasts)
+	h.GET("/api/v1/relations/limits", apihandler.RelationLimits)
 	// Contacted-but-not-friend history: durable friend-request senders + non-friend
 	// broadcast-comment conversation peers, de-duplicated, most-recent first.
 	h.GET("/api/v1/relations/contacted", middleware.AuthMiddleware(), apihandler.ContactedRelations)

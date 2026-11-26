@@ -266,15 +266,15 @@ func TestNeedCosineFeatureIndexExists(t *testing.T) {
 }
 
 func TestExperimentArmsRecordRunningExperimentsOnly(t *testing.T) {
-	require.Nil(t, (&Engine{}).experimentArms(7))
+	require.Nil(t, (&Engine{}).experimentArms(7, nil))
 	var control int64
 	for control = 1; bucketEnabled(needRelativeSalt, control, 5000); control++ {
 	}
 	e := &Engine{NeedRelativeBPS: 5000, RatingNextBPS: 10000}
-	require.Equal(t, map[string]string{"discovery-need-relative-v1": "control", "discovery-rating-lr-v2": "treatment"}, e.experimentArms(control),
+	require.Equal(t, map[string]string{"discovery-need-relative-v1": "control", "discovery-rating-lr-v2": "treatment"}, e.experimentArms(control, nil),
 		"running experiments record their arms independently")
 	e = &Engine{RatingNextBPS: 10000}
-	require.Equal(t, map[string]string{"discovery-rating-lr-v2": "treatment"}, e.experimentArms(control))
+	require.Equal(t, map[string]string{"discovery-rating-lr-v2": "treatment"}, e.experimentArms(control, nil))
 }
 
 func TestRelativeAttributionUsesLocalRanks(t *testing.T) {

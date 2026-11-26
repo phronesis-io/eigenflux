@@ -31,3 +31,15 @@ func TestSendPMRejectsInvalidMessageEncodingBeforeRedis(t *testing.T) {
 		})
 	}
 }
+
+func TestSendFriendRequestRejectsOversizedGreetingBeforeQuota(t *testing.T) {
+	service := &PMServiceImpl{}
+	greeting := strings.Repeat("猫", 199) + "a🐈!"
+	resp, err := service.SendFriendRequest(context.Background(), &pm.SendFriendRequestReq{FromUid: 1, ToUid: 2, Greeting: &greeting})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.RequestId != 0 || resp.BaseResp.Code != 400 || !strings.Contains(resp.BaseResp.Msg, "401 weighted characters (maximum 400") {
+		t.Fatalf("expected a length error without a request ID, got %+v", resp)
+	}
+}

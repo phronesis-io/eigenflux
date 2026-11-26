@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# install_lr_model.sh — atomically install or roll back an LR ranking model
+# install_lr_model.sh — atomically install or roll back an LR or GBDT ranking model
 # bundle for the sort service.
 #
 # The sort service hot-reloads the model at:
@@ -27,16 +27,27 @@
 #   install_lr_model.sh --src         /path/to/bundle_dir
 #   install_lr_model.sh --oss         oss://eigenflux/rec/model/lr/sample_date=2026-08-03/lr_20260803_1625_e69f47d/
 #   install_lr_model.sh --oss-latest  # resolve the newest sample_date + version and install it
+#   install_lr_model.sh --oss-latest gbdt  # pull the latest discovery GBDT bundle
 #   install_lr_model.sh --rollback
 #   install_lr_model.sh --list
 #
 # Environment:
-#   MODEL_ROOT        default /data/models/eigenflux/lr-ranker
+#   MODEL_ROOT        default /data/models/eigenflux/lr-ranker (discovery-gbdt for GBDT latest)
 #   OSS_BUCKET        default eigenflux
-#   OSS_MODEL_PREFIX  default rec/model/lr
+#   OSS_MODEL_PREFIX  default rec/model/lr (rec/model/discovery_gbdt for GBDT latest)
 #   OSS_ENDPOINT      default oss-ap-southeast-1-internal.aliyuncs.com (use the
 #                     public endpoint from outside the aliyun VPC)
 set -euo pipefail
+
+latest_family=lr
+if [[ "${1:-}" == --oss-latest ]]; then
+  if [[ "${OSS_MODEL_PREFIX:-}" == rec/model/discovery_gbdt ]]; then latest_family=gbdt; fi
+  latest_family="${2-$latest_family}"
+  if [[ "$latest_family" == gbdt ]]; then
+    OSS_MODEL_PREFIX="${OSS_MODEL_PREFIX:-rec/model/discovery_gbdt}"
+    MODEL_ROOT="${MODEL_ROOT:-/data/models/eigenflux/discovery-gbdt}"
+  fi
+fi
 
 MODEL_ROOT="${MODEL_ROOT:-/data/models/eigenflux/lr-ranker}"
 VERSIONS_DIR="$MODEL_ROOT/versions"
@@ -75,11 +86,11 @@ resolve_latest_oss() {
     | grep -oE 'sample_date=[0-9]{4}-[0-9]{2}-[0-9]{2}/?' | tr -d '/' | sort -u | tail -1)" || true
   [ -n "$latest_date" ] || die "no sample_date= partitions under $base"
   local date_uri="$base$latest_date/"
-  local latest_version
+  local latest_version version_prefix="$1"
   listing="$(ossutil_cmd ls "$date_uri" -d)" || die "failed to list $date_uri"
   latest_version="$(printf '%s\n' "$listing" \
-    | grep -oE 'lr_[0-9]{8}_[0-9]{4}_[0-9a-f]+/?' | tr -d '/' | sort -u | tail -1)" || true
-  [ -n "$latest_version" ] || die "no lr_* model_version dir under $date_uri"
+    | grep -oE "(^|/)${version_prefix}_[0-9]{8}_[0-9]{4}_[0-9a-f]+/?$" | tr -d '/' | sort -u | tail -1)" || true
+  [ -n "$latest_version" ] || die "no ${version_prefix}_* model_version dir under $date_uri"
   printf '%s%s/' "$date_uri" "$latest_version"
 }
 
@@ -90,11 +101,21 @@ verify_bundle() {
   [ -f "$dir/checksums.sha256" ] || die "bundle missing checksums.sha256: $dir"
   ( cd "$dir" && sha256sum -c checksums.sha256 >/dev/null ) \
     || die "checksum verification failed for $dir"
-}
-
-model_version_of() {
-  # Extract model_version from a bundle's model.json.
-  python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['model_version'])" "$1/model.json"
+  local version
+  version="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['model_version'])" "$dir/model.json")" \
+    || die "could not read model_version: $dir"
+  [[ -n "$version" && "$version" != */* && "$version" != . && "$version" != .. ]] || die "invalid model_version"
+  if [[ -n "${2:-}" && "$version" != "$2" ]]; then
+    die "model_version $version does not match expected version $2"
+  fi
+  if [[ "$version" == gbdt_* ]]; then
+    local artifact
+    for artifact in model report; do
+      grep -Eq "^[[:xdigit:]]{64} [ *]${artifact}[.]json$" "$dir/checksums.sha256" \
+        || die "missing checksum for ${artifact}.json: $dir"
+    done
+  fi
+  printf '%s\n' "$version"
 }
 
 atomic_relink() {
@@ -114,20 +135,18 @@ PY
 
 install_from_dir() {
   local staged="$1"
-  verify_bundle "$staged"
-  local version; version="$(model_version_of "$staged")"
-  [ -n "$version" ] || die "could not read model_version"
+  local version; version="$(verify_bundle "$staged" "${2:-}")"
 
   mkdir -p "$VERSIONS_DIR"
   local dest="$VERSIONS_DIR/$version"
   if [ -d "$dest" ]; then
     log "version $version already installed; re-verifying"
-    verify_bundle "$dest"
+    verify_bundle "$dest" "$version" >/dev/null
   else
     local tmp="$dest.tmp.$$"
     rm -rf "$tmp"
     cp -a "$staged" "$tmp"
-    verify_bundle "$tmp"
+    verify_bundle "$tmp" "$version" >/dev/null
     mv "$tmp" "$dest"
   fi
 
@@ -149,7 +168,7 @@ rollback() {
   [ -L "$PREVIOUS_LINK" ] || die "no previous version to roll back to"
   local prev; prev="$(readlink -f "$PREVIOUS_LINK")"
   [ -d "$prev" ] || die "previous target missing: $prev"
-  verify_bundle "$prev"
+  verify_bundle "$prev" "${prev##*/}" >/dev/null
   local cur; cur="$(readlink -f "$CURRENT_LINK" || true)"
   atomic_relink "$CURRENT_LINK" "$prev"
   [ -n "$cur" ] && atomic_relink "$PREVIOUS_LINK" "$cur"
@@ -163,20 +182,19 @@ pull_oss() {
   ossutil_cmd cp -r -f "$uri" "$out/" >/dev/null
 }
 
-install_from_oss() {
+install_from_oss() (
   local uri="$1"
   local staging; staging="$(mktemp -d)"
-  # shellcheck disable=SC2064
-  trap "rm -rf '$staging'" RETURN
+  trap 'rm -rf "$staging"' EXIT
   pull_oss "$uri" "$staging"
   # ossutil recreates the trailing path component; find the dir with model.json.
-  local bundle; bundle="$(dirname "$(find "$staging" -name model.json -print -quit)")"
-  [ -n "$bundle" ] && [ -f "$bundle/model.json" ] || die "no model.json found under pulled bundle"
-  install_from_dir "$bundle"
-}
+  local model; model="$(find "$staging" -type f -name model.json -print -quit)"
+  [ -n "$model" ] || die "no model.json found under pulled bundle"
+  install_from_dir "${model%/*}" "${2:-}"
+)
 
 main() {
-  [ $# -ge 1 ] || die "usage: --src <dir> | --oss <uri> | --rollback | --list"
+  [ $# -ge 1 ] || die "usage: --src <dir> | --oss <uri> | --oss-latest [lr|gbdt] | --rollback | --list"
   case "$1" in
     --src)
       [ $# -eq 2 ] || die "--src requires a bundle directory"
@@ -187,9 +205,13 @@ main() {
       install_from_oss "$2"
       ;;
     --oss-latest)
-      uri="$(resolve_latest_oss)"
+      [ $# -le 2 ] || die "--oss-latest accepts one optional family: lr or gbdt"
+      local uri version
+      case "$latest_family" in lr|gbdt) ;; *) die "unknown model family: $latest_family" ;; esac
+      uri="$(resolve_latest_oss "$latest_family")"
+      version="${uri%/}"
       log "latest bundle: $uri"
-      install_from_oss "$uri"
+      install_from_oss "$uri" "${version##*/}"
       ;;
     --rollback)
       rollback

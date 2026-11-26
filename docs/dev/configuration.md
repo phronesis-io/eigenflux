@@ -292,3 +292,12 @@ rating-ranked Agents, it selects a stable bucket that the
 (default `/data/models/eigenflux/discovery-rating-lr-v2/current/model.json`).
 The challenger adds real-time item rating counts from `item_stats`. See
 [the challenger](discovery.md#item-rating-count-challenger).
+
+`DISCOVERY_GBDT_BPS` accepts 0–10000 basis points and defaults to 0, which
+skips model loading and scoring. `DISCOVERY_GBDT_MODEL_PATH` defaults to
+`/data/models/eigenflux/discovery-gbdt/current/model.json`. Sort uses the
+existing `DISCOVERY_LR_RELOAD_INTERVAL`. See [snapshot GBDT](discovery.md#snapshot-gbdt).
+
+## macOS CLI certificate bundle
+
+Set `SSL_CERT_FILE` to a readable PEM CA bundle in sandboxed tasks that cannot reach macOS trust services. The CLI verifies outbound EigenFlux HTTPS and WebSocket connections against that bundle. Leave it unset to use macOS system trust. Set it in the scheduled task environment as well when running periodic checks.

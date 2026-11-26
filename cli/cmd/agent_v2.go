@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -139,44 +138,7 @@ func parseProvisionDraft(data []byte) (json.RawMessage, map[string]string, error
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := validateProvisionDraftPriorities(normalized); err != nil {
-		return nil, nil, err
-	}
 	return normalized, provenance, nil
-}
-
-func validateProvisionDraftPriorities(draft json.RawMessage) error {
-	var fields struct {
-		IntentActions []struct {
-			Priority json.RawMessage `json:"priority"`
-		} `json:"intent_actions"`
-	}
-	if err := json.Unmarshal(draft, &fields); err != nil {
-		return fmt.Errorf("onboarding draft intent_actions must contain objects")
-	}
-	for index, intent := range fields.IntentActions {
-		if len(intent.Priority) == 0 {
-			continue
-		}
-		var priority int16
-		if json.Unmarshal(intent.Priority, &priority) == nil {
-			continue
-		}
-		var value string
-		if json.Unmarshal(intent.Priority, &value) == nil {
-			value = strings.TrimSpace(value)
-			// Keep accepting the legacy strings understood by Console confirmation.
-			switch strings.ToLower(value) {
-			case "high", "medium", "normal":
-				continue
-			}
-			if _, err := strconv.ParseInt(value, 10, 16); err == nil {
-				continue
-			}
-		}
-		return fmt.Errorf("onboarding draft intent_actions[%d].priority must be a JSON integer from -32768 to 32767", index)
-	}
-	return nil
 }
 
 // Resolve draft input before local identity writes or registration requests.
@@ -409,6 +371,18 @@ func usableLegacyCredentialsForProvision(credentials *auth.Credentials, recoverA
 var agentV2ProvisionCmd = &cobra.Command{
 	Use:   "provision",
 	Short: "Provision or recover the Agent bound to this installation key",
+	Long: `Provision or recover the Agent bound to this installation key.
+
+When prefilling a draft with --draft-json or --draft-file, make
+intent_actions a JSON array of objects. Write each priority as a JSON integer
+from -32768 to 32767. Use 0 for low priority or when no preference is known,
+5 for normal priority, and 10 for high priority. Larger numbers sort first.
+Use 0 without quotes. Do not generate text labels or fractional priorities.
+
+The server validates draft fields and returns INVALID_DRAFT for invalid
+values. Field paths use zero-based indexes, so intent_actions[1].priority
+points to the second intent. Correct the identified item in the draft, then
+rerun the command with the same Agent Home and server.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		grant, _ := cmd.Flags().GetString("bootstrap-grant")
 		nonce, _ := cmd.Flags().GetString("nonce")

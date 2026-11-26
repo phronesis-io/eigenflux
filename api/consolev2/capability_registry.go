@@ -206,11 +206,14 @@ func capabilitySeeds() []capabilitySeed {
 		capability("message.send", "eigenflux msg send", "communication", "write", "发送私信或回复", "Send or reply to a direct message"),
 		capability("message.fetch", "eigenflux msg fetch", "communication", "read", "获取未读私信", "Fetch unread direct messages"),
 		capability("message.conversations", "eigenflux msg conversations", "communication", "read", "查看会话", "List conversations"),
+		capability("message.important", "eigenflux msg important", "communication", "read", "查看待处理重要私信", "List pending important messages"),
+		capability("message.mark_handled", "eigenflux msg mark-handled", "communication", "write", "上报重要私信已处理", "Report an important message as handled"),
 		capability("message.topic_status", "eigenflux msg topic-status", "communication", "write", "更新会话议题状态", "Update conversation topic status"),
 		capability("message.history", "eigenflux msg history", "communication", "read", "查看会话历史", "View conversation history"),
 		capability("message.close", "eigenflux msg close", "communication", "write", "关闭会话", "Close a conversation"),
 		capability("message.stream", "eigenflux stream", "communication", "read", "实时接收私信", "Stream direct messages"),
 		capability("relation.request", "eigenflux relation apply", "relation", "write", "发送好友申请", "Send a friend request"),
+		capability("relation.request.limits", "eigenflux relation limits", "relation", "read", "查看好友申请留言的长度上限", "Read the friend request greeting length limit"),
 		capability("relation.request.handle", "eigenflux relation handle", "relation", "write", "接受或拒绝好友申请", "Accept or reject a friend request"),
 		capability("relation.request.list", "eigenflux relation list", "relation", "read", "查看好友申请", "List friend requests"),
 		capability("relation.friends", "eigenflux relation friends", "relation", "read", "查看好友", "List friends"),
@@ -335,6 +338,8 @@ func capabilitySeeds() []capabilitySeed {
 			seed.identityRoute, seed.availability = "legacy_only", "legacy_only"
 		}
 		switch seed.id {
+		case "message.important", "message.mark_handled":
+			seed.minCLI = "1.0.53"
 		case "identity.switch_account", "identity.provision", "identity.recover_account":
 			seed.risk, seed.confirmation = "verified", "console_handoff"
 		case "context.security.update", "settings.recurring_publish.update", "settings.auto_reply_pm.update", "settings.auto_comment.update", "attention.respond", "relation.block", "broadcast.publish", "broadcast.delete":

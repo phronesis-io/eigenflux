@@ -239,10 +239,26 @@ func newHeartbeatGuardSetupCommand() *cobra.Command {
 	command := &cobra.Command{Use: "guard-setup", Short: "Install scoped Codex lifecycle hooks; owner review is still required", Args: cobra.NoArgs}
 	command.Flags().String("codex-home", "", "Absolute owner Codex configuration directory")
 	command.Flags().String("thread", "", "Exact owner thread UUID")
-	command.Flags().String("scheduler-prompt-file", "", "Owner-only file containing the exact native scheduler prompt readback")
+	command.Flags().String("scheduler-prompt-file", "", "Required owner-only file containing the exact native scheduler prompt readback")
 	command.RunE = func(cmd *cobra.Command, _ []string) error {
 		codexHome, _ := cmd.Flags().GetString("codex-home")
 		thread, _ := cmd.Flags().GetString("thread")
+		promptFile, _ := cmd.Flags().GetString("scheduler-prompt-file")
+		if !filepath.IsAbs(promptFile) {
+			return fmt.Errorf("--scheduler-prompt-file must be an absolute path to the exact native scheduler prompt readback")
+		}
+		info, err := os.Lstat(promptFile)
+		if err != nil || !info.Mode().IsRegular() || info.Size() > 64<<10 {
+			return fmt.Errorf("scheduler prompt file must be a bounded regular file")
+		}
+		raw, err := os.ReadFile(promptFile)
+		if err != nil {
+			return err
+		}
+		prompt := string(raw)
+		if strings.TrimSpace(prompt) == "" {
+			return fmt.Errorf("scheduler prompt file must not be empty")
+		}
 		cli, err := stableInstalledExecutable()
 		if err != nil {
 			return err
@@ -251,32 +267,9 @@ func newHeartbeatGuardSetupCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		promptFile, _ := cmd.Flags().GetString("scheduler-prompt-file")
-		var supplied []string
-		if promptFile != "" {
-			if !filepath.IsAbs(promptFile) {
-				return fmt.Errorf("--scheduler-prompt-file must be absolute")
-			}
-			info, err := os.Lstat(promptFile)
-			if err != nil || !info.Mode().IsRegular() || info.Size() > 64<<10 {
-				return fmt.Errorf("scheduler prompt file must be a bounded regular file")
-			}
-			raw, err := os.ReadFile(promptFile)
-			if err != nil {
-				return err
-			}
-			if strings.TrimSpace(string(raw)) == "" {
-				return fmt.Errorf("scheduler prompt file must not be empty")
-			}
-			supplied = []string{string(raw)}
-		}
-		changed, err := installCodexGuard(codexHome, cli, scope.Home, scope.Server, thread, scope.AgentID, supplied...)
+		changed, err := installCodexGuard(codexHome, cli, scope.Home, scope.Server, thread, scope.AgentID, prompt)
 		if err != nil {
 			return err
-		}
-		prompt := ""
-		if len(supplied) == 1 {
-			prompt = supplied[0]
 		}
 		promptHash, err := codexGuardPromptHash(cli, scope.Home, scope.Server, prompt)
 		if err != nil {

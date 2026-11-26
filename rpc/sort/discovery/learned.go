@@ -6,9 +6,7 @@ import (
 	"slices"
 )
 
-type LearnedRanker interface {
-	ScoreBatch([][]float64) ([]discoverylr.Result, bool)
-}
+type LearnedRanker = discoverylr.BatchScorer
 
 func learningVector(c Candidate) ([]float64, bool) {
 	values := make([]float64, 0, len(discoverylr.FeatureNames))
