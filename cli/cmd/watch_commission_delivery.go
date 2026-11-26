@@ -57,10 +57,10 @@ func (w *accountWatch) deliverCommissionArtifacts(ctx context.Context, job dispa
 		if !commissionDeliveryParties(before, job.CommissionDelivery) {
 			return w.failCommissionDelivery(job, errCommissionDeliveryRejected, "commission_fulfillment_order_changed", session)
 		}
-		if commissionDeliveryAdvanced(before, result.Decision.OrderVersion) {
+		if commissionDeliveryMatchesJob(before, job, result.Decision.OrderVersion) {
 			return w.confirmCommissionRemoteDelivery(ctx, api, job, before, result, session)
 		}
-		if !sameCommissionIntakeOrder(order, before) || before.State != "in_progress" || before.Version != result.Decision.OrderVersion || strconv.FormatInt(int64(before.SnapshotID), 10) != job.CommissionDelivery.SnapshotID {
+		if !sameCommissionIntakeOrder(order, before) || !commissionFulfillmentWritable(before, time.Now()) || before.Version != result.Decision.OrderVersion || strconv.FormatInt(int64(before.SnapshotID), 10) != job.CommissionDelivery.SnapshotID {
 			return w.failCommissionDelivery(job, errCommissionDeliveryRejected, "commission_fulfillment_order_changed", session)
 		}
 		uploaded := map[string]bool{}
@@ -74,7 +74,7 @@ func (w *accountWatch) deliverCommissionArtifacts(ctx context.Context, job dispa
 				return w.failCommissionDelivery(job, err, "commission_order_unavailable", session)
 			}
 			if !sameCommissionIntakeOrder(before, current) {
-				if commissionDeliveryParties(current, job.CommissionDelivery) && commissionDeliveryAdvanced(current, result.Decision.OrderVersion) {
+				if commissionDeliveryParties(current, job.CommissionDelivery) && commissionDeliveryMatchesJob(current, job, result.Decision.OrderVersion) {
 					return w.confirmCommissionRemoteDelivery(ctx, api, job, current, result, session)
 				}
 				return w.failCommissionDelivery(job, errCommissionDeliveryRejected, "commission_fulfillment_order_changed", session)
@@ -90,6 +90,9 @@ func (w *accountWatch) deliverCommissionArtifacts(ctx context.Context, job dispa
 		base := "/orders/" + id
 		key := childMutationKey("watch-delivery-"+job.ID, result.OutputDirectory)
 		for _, file := range files {
+			if !commissionFulfillmentWritable(before, time.Now()) {
+				return w.failCommissionDelivery(job, errCommissionDeliveryRejected, "commission_fulfillment_order_changed", session)
+			}
 			if err := w.commissionFulfillmentIdentityOK(ctx); err != nil {
 				return w.failCommissionLocalCheck(job, err, session)
 			}
@@ -109,10 +112,10 @@ func (w *accountWatch) deliverCommissionArtifacts(ctx context.Context, job dispa
 		if err != nil {
 			return w.failCommissionDelivery(job, err, "commission_order_unavailable", session)
 		}
-		if commissionDeliveryParties(current, job.CommissionDelivery) && commissionDeliveryAdvanced(current, result.Decision.OrderVersion) {
+		if commissionDeliveryParties(current, job.CommissionDelivery) && commissionDeliveryMatchesJob(current, job, result.Decision.OrderVersion) {
 			return w.confirmCommissionRemoteDelivery(ctx, api, job, current, result, session)
 		}
-		if !sameCommissionIntakeOrder(order, current) {
+		if !sameCommissionIntakeOrder(order, current) || !commissionFulfillmentWritable(current, time.Now()) {
 			return w.failCommissionDelivery(job, errCommissionDeliveryRejected, "commission_fulfillment_order_changed", session)
 		}
 		if err := w.commissionFulfillmentIdentityOK(ctx); err != nil {

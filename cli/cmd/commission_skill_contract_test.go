@@ -187,3 +187,41 @@ func TestCommissionInteractiveFulfillmentReusesIntakeInspection(t *testing.T) {
 		}
 	}
 }
+
+func TestCommissionReworkSkillContract(t *testing.T) {
+	for file, required := range map[string][]string{
+		"SKILL.md":                           {"Require CLI 1.0.54", "one platform-requested rework"},
+		"references/fulfillment-dispatch.md": {"`submission_number`", "`order.delivery_review`", "`changes_requested`", "`rework_due_at`", "frozen contract", "fresh output directory", "same formal submission", "regenerate all required artifacts"},
+		"references/order.md":                {"`delivery_review.status=changes_requested`", "fresh execution version", "Technical retries retain the same submission", "72-hour after-sales window"},
+		"references/recovery.md":             {"new Order version and execution revision", "Keep old jobs, sessions, checkpoints and snapshots unchanged", "Keep workspace writes paused"},
+		"references/main-notice.md":          {"`manual_review`", "`failed`", "single remaining submission", "72-hour after-sales window"},
+	} {
+		body, err := os.ReadFile(filepath.Join("../../skills/ef-commission", file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, text := range required {
+			if !strings.Contains(string(body), text) {
+				t.Errorf("%s lacks %q", file, text)
+			}
+		}
+	}
+	config, err := os.ReadFile("../.cli.config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"CLI_VERSION=", "SKILLS_MIN_CLI_VERSION="} {
+		found := false
+		for _, line := range strings.Split(string(config), "\n") {
+			if value, ok := strings.CutPrefix(line, key); ok {
+				found = true
+				if cliVersionOutdated(value, "1.0.54") {
+					t.Errorf("%s allows an older CLI", key)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("missing %s", key)
+		}
+	}
+}

@@ -30,7 +30,7 @@ func paidCommissionTestOrder() commissionIntakeOrder {
 
 func commissionFulfillmentServer(t *testing.T, current func() commissionIntakeOrder, delivery ...bool) *httptest.Server {
 	t.Helper()
-	var delivered atomic.Bool
+	var deliveredVersion atomic.Int64
 	var uploadedDigest atomic.Value
 	var uploadedBytes atomic.Value
 	return httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
@@ -65,10 +65,10 @@ func commissionFulfillmentServer(t *testing.T, current func() commissionIntakeOr
 						Version int64          `json:"expected_version"`
 						Files   []materialFile `json:"output_files"`
 					}
-					if json.NewDecoder(r.Body).Decode(&body) != nil || body.Version != 3 || len(body.Files) != 1 || body.Files[0].LogicalPath != "outputs/report.txt" || body.Files[0].SHA256 != uploadedDigest.Load() {
+					if json.NewDecoder(r.Body).Decode(&body) != nil || body.Version != current().Version || len(body.Files) != 1 || body.Files[0].LogicalPath != "outputs/report.txt" || body.Files[0].SHA256 != uploadedDigest.Load() {
 						t.Error("invalid delivery manifest")
 					}
-					delivered.Store(true)
+					deliveredVersion.Store(body.Version)
 					materialTestResponse(out, map[string]any{})
 				default:
 					t.Errorf("unexpected mutation %s", r.URL.Path)
@@ -80,8 +80,14 @@ func commissionFulfillmentServer(t *testing.T, current func() commissionIntakeOr
 			return
 		}
 		order := current()
-		if delivered.Load() {
+		if deliveredVersion.Load() == order.Version {
 			order.State, order.Version = "awaiting_buyer_confirmation", order.Version+1
+			if order.DeliveryReview != nil {
+				review := *order.DeliveryReview
+				review.SubmissionNumber++
+				review.Status = "passed"
+				order.DeliveryReview = &review
+			}
 		}
 		switch r.URL.Path {
 		case "/api/v1/orders/901/snapshots/" + strconv.FormatInt(int64(order.SnapshotID), 10) + "/download":

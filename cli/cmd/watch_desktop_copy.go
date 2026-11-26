@@ -20,6 +20,17 @@ type desktopRoleCopy struct {
 // https://pcnlty6lw65j.feishu.cn/wiki/Mw3bwlX2siZlXjkgxx3cF21Pnyc
 // Each string contains the title, a newline, then the body.
 var desktopOrderCopy = map[string]desktopRoleCopy{
+	"delivery_changes_requested": {
+		buyer:  desktopLocalizedCopy{zh: "「{service_name}」等待卖方整改\n首次交付未通过检查，卖方 Agent 将在 {delivery_due} 前按原合同整改重提。", en: "“{service_name}” awaiting seller changes\nThe first delivery needs changes. The seller's Agent will revise and resubmit under the frozen contract by {delivery_due}."},
+		seller: desktopLocalizedCopy{zh: "「{service_name}」正在整改交付\n首次交付未通过检查，你的 Agent 将在 {delivery_due} 前按原合同整改并重新提交一次。", en: "“{service_name}” revising delivery\nYour Agent will revise the first delivery under the frozen contract and resubmit once by {delivery_due}."},
+	},
+	"delivery_manual_review": {
+		buyer: desktopLocalizedCopy{zh: "「{service_name}」交付待平台复核\n平台正在复核交付，结果会另行通知。", en: "“{service_name}” awaiting platform review\nThe platform is reviewing the delivery. The result will follow."},
+	},
+	"delivery_failed": {
+		buyer:  desktopLocalizedCopy{zh: "「{service_name}」交付未通过，正在退款\n退款结果会另行通知。", en: "“{service_name}” delivery failed, refund in progress\nThe refund result will follow."},
+		seller: desktopLocalizedCopy{zh: "「{service_name}」交付未通过，订单退款中\n整改已结束，等待平台退款处理。", en: "“{service_name}” delivery failed, refund in progress\nRework has ended. Await platform refund processing."},
+	},
 	"order.review.created.v1": {seller: desktopLocalizedCopy{
 		zh: "「{service_name}」收到新评价 · {review_score}/5 分\n买方已评价，点击查看详情。",
 		en: "New review for “{service_name}” · {review_score}/5\nThe buyer left a review. Click to view details.",
@@ -282,9 +293,13 @@ func commissionDesktopCopy(language, notificationType string, payload orderNotif
 		}
 		title = strings.ReplaceAll(title, "{review_score}", score)
 	}
+	due := payload.DeliveryDueAt
+	if key == "delivery_changes_requested" {
+		due = payload.DeliveryReview.ReworkDueAt
+	}
 	body = strings.NewReplacer(
 		"{payment_due}", desktopDeadline(language, payload.PaymentDueAt),
-		"{delivery_due}", desktopDeadline(language, payload.DeliveryDueAt),
+		"{delivery_due}", desktopDeadline(language, due),
 		"{confirm_due}", desktopDeadline(language, payload.BuyerConfirmDue),
 	).Replace(body)
 	return title, body
@@ -305,6 +320,9 @@ func commissionDesktopCopyKey(notificationType string, payload orderNotification
 	// Report the specific result before the underlying order state.
 	if event := commissionNoticeResultKind(notificationType, payload); event != "" {
 		return event
+	}
+	if review := commissionDeliveryReviewCopyKey(payload); review != "" {
+		return review
 	}
 	switch payload.CommandKind {
 	case "refund_requested", "complaint_filed", "after_sales_declined", "after_sales_resolved":
@@ -329,6 +347,31 @@ func commissionDesktopCopyKey(notificationType string, payload orderNotification
 		key = "auto_completed"
 	}
 	return key
+}
+
+func commissionDeliveryReviewCopyKey(payload orderNotificationPayload) string {
+	if payload.DeliveryReview == nil {
+		return ""
+	}
+	state := payload.ToState
+	if state == "" {
+		state = payload.State
+	}
+	switch payload.DeliveryReview.Status {
+	case "changes_requested":
+		if state == "in_progress" {
+			return "delivery_changes_requested"
+		}
+	case "manual_review":
+		if state == "validating" {
+			return "delivery_manual_review"
+		}
+	case "failed":
+		if state == "refund_pending" || state == "refunding" {
+			return "delivery_failed"
+		}
+	}
+	return ""
 }
 
 func commissionNoticeResultKind(notificationType string, payload orderNotificationPayload) string {

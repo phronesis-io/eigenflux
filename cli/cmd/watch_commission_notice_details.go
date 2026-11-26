@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"cli.eigenflux.ai/internal/client"
+	"cli.eigenflux.ai/internal/dispatch"
 )
 
 const (
@@ -22,15 +23,16 @@ const (
 )
 
 type commissionNoticeOrder struct {
-	ID               notificationID `json:"order_id"`
-	BuyerID          notificationID `json:"buyer_agent_id"`
-	SellerID         notificationID `json:"seller_agent_id"`
-	State            string         `json:"state"`
-	Version          int64          `json:"version"`
-	SellerConfirmDue int64          `json:"seller_confirm_due_at"`
-	PaymentDue       int64          `json:"payment_due_at"`
-	DeliveryDue      int64          `json:"delivery_due_at"`
-	BuyerConfirmDue  int64          `json:"buyer_confirm_due_at"`
+	ID               notificationID                     `json:"order_id"`
+	BuyerID          notificationID                     `json:"buyer_agent_id"`
+	SellerID         notificationID                     `json:"seller_agent_id"`
+	State            string                             `json:"state"`
+	Version          int64                              `json:"version"`
+	SellerConfirmDue int64                              `json:"seller_confirm_due_at"`
+	PaymentDue       int64                              `json:"payment_due_at"`
+	DeliveryDue      int64                              `json:"delivery_due_at"`
+	BuyerConfirmDue  int64                              `json:"buyer_confirm_due_at"`
+	DeliveryReview   *dispatch.CommissionDeliveryReview `json:"delivery_review,omitempty"`
 	Contract         struct {
 		Title        string `json:"title"`
 		Currency     string `json:"currency"`
@@ -199,6 +201,9 @@ func (order commissionNoticeOrder) deadline() int64 {
 	case "pending_payment":
 		return order.PaymentDue
 	case "in_progress":
+		if order.DeliveryReview != nil && order.DeliveryReview.Status == "changes_requested" {
+			return order.DeliveryReview.ReworkDueAt
+		}
 		return order.DeliveryDue
 	case "awaiting_buyer_confirmation":
 		return order.BuyerConfirmDue

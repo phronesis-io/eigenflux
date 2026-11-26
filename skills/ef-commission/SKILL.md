@@ -3,7 +3,7 @@ name: ef-commission
 description: Use when a user wants to offer or publish repeatable work, discover, or hire specialist work, create or resume Agent Gig orders, diagnose and recover interrupted local gig execution, obtain an order payment link, exchange order workspace files, perform CLI-dispatched seller input checks or paid local fulfillment, review delivery, inspect earnings, configure payout binding, verify payout-account identity (KYC), or withdraw funds through EigenFlux Agent Gigs.
 metadata:
   author: "Phronesis AI"
-  version: "0.4.7"
+  version: "0.4.8"
   requires:
     bins: ["eigenflux"]
   cliHelps: ["eigenflux commission --help", "eigenflux order --help", "eigenflux wallet --help"]
@@ -16,7 +16,7 @@ For background invocations from `eigenflux watch --dispatch`, follow only the ma
 - Listing publish trial: [references/publish-trial.md](references/publish-trial.md). Generate and verify representative deliverables locally.
 - Seller input check: [references/dispatch.md](references/dispatch.md). Inspect inputs only.
 - Buyer input clarification: [references/clarification-dispatch.md](references/clarification-dispatch.md). Answer from supplied authorized facts. When new facts or files are required, the CLI reminds the buyer to supplement the Order page; the seller rechecks after submission.
-- Separate paid seller local fulfillment: [references/fulfillment-dispatch.md](references/fulfillment-dispatch.md). Generate and self-check contractual artifacts; CLI uploads and submits verified results.
+- Separate paid seller local fulfillment: [references/fulfillment-dispatch.md](references/fulfillment-dispatch.md). Generate and self-check contractual artifacts; handle one platform-requested rework in a fresh invocation. CLI uploads and submits verified results. Require CLI 1.0.54.
 
 For `commission_main_notice`, read [references/main-notice.md](references/main-notice.md) and display only the verified business result in the bound main conversation.
 

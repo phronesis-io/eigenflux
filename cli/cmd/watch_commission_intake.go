@@ -36,18 +36,19 @@ var (
 )
 
 type commissionIntakeOrder struct {
-	OrderID           notificationID          `json:"order_id"`
-	BuyerID           notificationID          `json:"buyer_agent_id"`
-	SellerID          notificationID          `json:"seller_agent_id"`
-	Version           int64                   `json:"version"`
-	State             string                  `json:"state"`
-	SnapshotID        notificationID          `json:"current_snapshot_id"`
-	Contract          json.RawMessage         `json:"contract"`
-	BuyerInput        string                  `json:"buyer_input"`
-	DeliveryDueAt     int64                   `json:"delivery_due_at,omitempty"`
-	ExecutionRevision int64                   `json:"execution_revision"`
-	ExecutionIssue    *struct{}               `json:"execution_issue"`
-	InputRequest      *commissionInputRequest `json:"input_request,omitempty"`
+	OrderID           notificationID                     `json:"order_id"`
+	BuyerID           notificationID                     `json:"buyer_agent_id"`
+	SellerID          notificationID                     `json:"seller_agent_id"`
+	Version           int64                              `json:"version"`
+	State             string                             `json:"state"`
+	SnapshotID        notificationID                     `json:"current_snapshot_id"`
+	Contract          json.RawMessage                    `json:"contract"`
+	BuyerInput        string                             `json:"buyer_input"`
+	DeliveryDueAt     int64                              `json:"delivery_due_at,omitempty"`
+	ExecutionRevision int64                              `json:"execution_revision"`
+	ExecutionIssue    *struct{}                          `json:"execution_issue"`
+	InputRequest      *commissionInputRequest            `json:"input_request,omitempty"`
+	DeliveryReview    *dispatch.CommissionDeliveryReview `json:"delivery_review,omitempty"`
 }
 
 // A separate worker keeps intake off the PM execution lane. Its idle tick only
@@ -364,17 +365,25 @@ func (w *accountWatch) dispatchCommissionIntakeWithAcceptance(parent context.Con
 // model inspection for the actual check completed before acceptance.
 func (w *accountWatch) queueCommissionFromCheckedInputs(ctx context.Context, job dispatch.Job, order commissionIntakeOrder) error {
 	id := strconv.FormatInt(int64(order.OrderID), 10)
-	if w.journal.HasCommissionFulfillment(id) {
+	if !commissionFulfillmentWritable(order, time.Now()) {
+		return w.finishDispatch(job, "completed", "commission_order_not_actionable", "", "")
+	}
+	if w.journal.HasCommissionFulfillment(id, dispatch.CommissionFulfillmentJob{OrderVersion: order.Version, ExecutionRevision: order.ExecutionRevision, DeliveryReview: order.DeliveryReview}) {
 		return w.finishDispatch(job, "completed", "commission_fulfillment_already_queued", "", "")
 	}
-	var source dispatch.Job
+	var sourceID string
+	var checked *dispatch.CommissionReadiness
+	if order.DeliveryReview != nil {
+		sourceID, checked = w.journal.CommissionReworkReadiness(id, order.Version)
+	}
 	for _, prior := range w.journal.Snapshot() {
 		readiness := prior.CommissionReadiness
-		if readiness != nil && readiness.Result.Outcome == "ready" && readiness.Result.OrderID == id && readiness.Result.OrderVersion < order.Version && (source.CommissionReadiness == nil || source.CommissionReadiness.Result.OrderVersion < readiness.Result.OrderVersion) {
-			source = prior
+		if readiness != nil && readiness.Result.Outcome == "ready" && readiness.Result.OrderID == id && readiness.Result.OrderVersion < order.Version && (checked == nil || checked.Result.OrderVersion < readiness.Result.OrderVersion) {
+			sourceID = prior.ID
+			checked = readiness
 		}
 	}
-	if source.CommissionReadiness == nil {
+	if checked == nil {
 		return w.finishDispatch(job, "needs_user", "commission_intake_evidence_missing", "", "")
 	}
 	directory, err := os.MkdirTemp(w.binding.WorkDir, ".eigenflux-intake-")
@@ -387,7 +396,7 @@ func (w *accountWatch) queueCommissionFromCheckedInputs(ctx context.Context, job
 		return w.finishDispatch(job, "needs_user", "commission_materials_unavailable", "", "")
 	}
 	fingerprint, err := commissionInputFingerprint(order, files)
-	if err != nil || fingerprint != source.CommissionReadiness.InputFingerprint {
+	if err != nil || fingerprint != checked.InputFingerprint {
 		return w.finishDispatch(job, "needs_user", "commission_fulfillment_inputs_changed", "", "")
 	}
 	current, err := w.readCommissionOrder(ctx, id)
@@ -397,7 +406,26 @@ func (w *accountWatch) queueCommissionFromCheckedInputs(ctx context.Context, job
 	if err := w.commissionIdentityOK(); err != nil {
 		return err
 	}
-	return w.journal.QueueCommissionFromReadiness(job.ID, source.ID, id, order.Version)
+	return w.journal.QueueCommissionFromReadiness(job.ID, sourceID, id, order.Version, dispatch.CommissionFulfillmentExecution{Revision: order.ExecutionRevision, Review: order.DeliveryReview})
+}
+
+func commissionFulfillmentDeadline(order commissionIntakeOrder) int64 {
+	due := order.DeliveryDueAt
+	if review := order.DeliveryReview; review != nil && review.ReworkDueAt > 0 && (due <= 0 || review.ReworkDueAt < due) {
+		due = review.ReworkDueAt
+	}
+	return due
+}
+
+func commissionFulfillmentWritable(order commissionIntakeOrder, now time.Time) bool {
+	if order.State != "in_progress" {
+		return false
+	}
+	if review := order.DeliveryReview; review != nil && (!review.AllowsRework() || order.ExecutionRevision <= 0) {
+		return false
+	}
+	due := commissionFulfillmentDeadline(order)
+	return due <= 0 || now.UnixMilli() < due
 }
 
 func commissionInputFingerprint(order commissionIntakeOrder, files []commissionLocalFile) (string, error) {
@@ -480,7 +508,9 @@ func sameCommissionIntakeOrder(a, b commissionIntakeOrder) bool {
 	}
 	aJSON, _ := json.Marshal(aContract)
 	bJSON, _ := json.Marshal(bContract)
-	return a.OrderID == b.OrderID && a.BuyerID == b.BuyerID && a.SellerID == b.SellerID && a.Version == b.Version && a.State == b.State && a.SnapshotID == b.SnapshotID && a.BuyerInput == b.BuyerInput && string(aJSON) == string(bJSON)
+	aReview, _ := json.Marshal(a.DeliveryReview)
+	bReview, _ := json.Marshal(b.DeliveryReview)
+	return a.OrderID == b.OrderID && a.BuyerID == b.BuyerID && a.SellerID == b.SellerID && a.Version == b.Version && a.State == b.State && a.SnapshotID == b.SnapshotID && a.BuyerInput == b.BuyerInput && a.DeliveryDueAt == b.DeliveryDueAt && string(aReview) == string(bReview) && string(aJSON) == string(bJSON)
 }
 
 func (w *accountWatch) commissionIntakePrompt(ctx context.Context, job dispatch.Job, order commissionIntakeOrder) (dispatch.Request, bool, []commissionLocalFile, func(), error) {
@@ -529,6 +559,12 @@ func (w *accountWatch) commissionAgentPrompt(ctx context.Context, job dispatch.J
 		"request_id": job.ID, "agent_id": w.binding.AgentID, "server": w.binding.Server,
 		"order": order, "local_files": files,
 		"fulfillment_skill": map[string]string{"name": contract.Skill, "path": skillPath, "content": string(skill)},
+	}
+	if job.Kind == "commission_fulfillment" {
+		data["submission_number"] = 1
+		if order.DeliveryReview != nil {
+			data["submission_number"] = order.DeliveryReview.SubmissionNumber + 1
+		}
 	}
 	for key, value := range extra {
 		data[key] = value

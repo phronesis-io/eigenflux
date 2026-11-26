@@ -8,18 +8,43 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 )
 
 type CommissionFulfillmentJob struct {
-	Version          int                      `json:"version"`
-	OrderID          string                   `json:"order_id"`
-	OrderVersion     int64                    `json:"order_version"`
-	IntakeRequestID  string                   `json:"intake_request_id"`
-	IntakeResult     CommissionIntakeDecision `json:"intake_result"`
-	InputFingerprint string                   `json:"input_fingerprint,omitempty"`
+	Version           int                       `json:"version"`
+	OrderID           string                    `json:"order_id"`
+	OrderVersion      int64                     `json:"order_version"`
+	IntakeRequestID   string                    `json:"intake_request_id"`
+	IntakeResult      CommissionIntakeDecision  `json:"intake_result"`
+	InputFingerprint  string                    `json:"input_fingerprint,omitempty"`
+	ExecutionRevision int64                     `json:"execution_revision,omitempty"`
+	DeliveryReview    *CommissionDeliveryReview `json:"delivery_review,omitempty"`
+}
+
+// CommissionDeliveryReview binds one permitted rework to its sealed submission.
+type CommissionDeliveryReview struct {
+	SubmissionNumber int         `json:"submission_number"`
+	Status           string      `json:"status"`
+	Reason           string      `json:"reason"`
+	SnapshotID       json.Number `json:"snapshot_id"`
+	ReworkDueAt      int64       `json:"rework_due_at"`
+}
+
+type CommissionFulfillmentExecution struct {
+	Revision int64
+	Review   *CommissionDeliveryReview
+}
+
+func (review *CommissionDeliveryReview) AllowsRework() bool {
+	if review == nil {
+		return false
+	}
+	snapshot, err := strconv.ParseInt(string(review.SnapshotID), 10, 64)
+	return review.Status == "changes_requested" && review.SubmissionNumber == 1 && strings.TrimSpace(review.Reason) != "" && utf8.ValidString(review.Reason) && len(review.Reason) <= 2000 && err == nil && snapshot > 0 && review.ReworkDueAt > 0
 }
 
 type CommissionArtifact struct {
@@ -75,6 +100,9 @@ func (value *CommissionFulfillmentJob) UnmarshalJSON(raw []byte) error {
 	}
 	if decoded.Version != 1 || decoded.OrderVersion <= 0 || strings.TrimSpace(decoded.IntakeRequestID) == "" {
 		return errors.New("invalid_commission_fulfillment_job")
+	}
+	if decoded.ExecutionRevision < 0 || (decoded.DeliveryReview != nil && (!decoded.DeliveryReview.AllowsRework() || decoded.ExecutionRevision <= 0)) {
+		return errors.New("invalid_commission_fulfillment_rework")
 	}
 	if _, err := positiveNotificationInteger([]byte(decoded.OrderID)); err != nil {
 		return errors.New("invalid_commission_fulfillment_order")
@@ -187,18 +215,29 @@ func validCommissionDirectory(value string) bool {
 	return utf8.ValidString(value) && len(value) <= 4096 && strings.IndexFunc(value, unicode.IsControl) < 0 && filepath.IsAbs(value) && filepath.Clean(value) == value
 }
 
-func commissionFulfillmentID(b Binding, orderID string) string {
+func commissionFulfillmentID(b Binding, orderID string, execution ...CommissionFulfillmentJob) string {
+	if len(execution) == 1 && execution[0].DeliveryReview != nil {
+		value := execution[0]
+		return journalID(b.Scope, b.Revision, "commission_fulfillment", orderID, strconv.FormatInt(value.OrderVersion, 10), strconv.FormatInt(value.ExecutionRevision, 10), strconv.Itoa(value.DeliveryReview.SubmissionNumber))
+	}
 	return journalID(b.Scope, b.Revision, "commission_fulfillment", orderID)
 }
 
 // HasCommissionFulfillment reports a retained execution record for this binding.
-func (j *Journal) HasCommissionFulfillment(orderID string) bool {
+func (j *Journal) HasCommissionFulfillment(orderID string, execution ...CommissionFulfillmentJob) bool {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	id := commissionFulfillmentID(j.binding, orderID)
+	id := commissionFulfillmentID(j.binding, orderID, execution...)
 	for _, job := range j.state.Jobs {
 		if job.ID == id && job.Kind == "commission_fulfillment" {
 			return true
+		}
+		// Execution issue receipts can advance the revision without a new submission.
+		if len(execution) == 1 && execution[0].DeliveryReview != nil && job.Kind == "commission_fulfillment" {
+			var payload CommissionFulfillmentJob
+			if json.Unmarshal(job.Data, &payload) == nil && payload.OrderID == orderID && payload.OrderVersion == execution[0].OrderVersion && payload.DeliveryReview != nil && payload.DeliveryReview.SubmissionNumber == execution[0].DeliveryReview.SubmissionNumber {
+				return true
+			}
 		}
 	}
 	return false
@@ -348,7 +387,7 @@ func validateCommissionFulfillmentResult(job Job, result CommissionFulfillmentRe
 
 func validCommissionFulfillmentJob(job Job, binding Binding) bool {
 	var payload CommissionFulfillmentJob
-	if job.Message != nil || json.Unmarshal(job.Data, &payload) != nil || job.ID != commissionFulfillmentID(binding, payload.OrderID) || (job.CommissionDirectory != "" && !validCommissionDirectory(job.CommissionDirectory)) {
+	if job.Message != nil || json.Unmarshal(job.Data, &payload) != nil || job.ID != commissionFulfillmentID(binding, payload.OrderID, payload) || (job.CommissionDirectory != "" && !validCommissionDirectory(job.CommissionDirectory)) {
 		return false
 	}
 	if job.Code == "commission_fulfillment_prepared" && job.CommissionDirectory == "" {

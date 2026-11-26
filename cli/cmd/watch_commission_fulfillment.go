@@ -76,7 +76,7 @@ func (w *accountWatch) runCommissionFulfillment(parent context.Context, job disp
 	if err != nil {
 		return failPreflight(err, "commission_order_unavailable")
 	}
-	if job.CommissionDelivery != nil && commissionDeliveryAdvanced(order, queued.OrderVersion) {
+	if job.CommissionDelivery != nil && commissionDeliveryMatchesJob(order, job, queued.OrderVersion) {
 		retained := job.CommissionFulfillment
 		if retained == nil {
 			retained = job.CommissionCheckpoint
@@ -86,8 +86,8 @@ func (w *accountWatch) runCommissionFulfillment(parent context.Context, job disp
 		}
 		return w.deliverCommissionArtifacts(ctx, job, order, *retained, job.SessionID)
 	}
-	if resumeSession != "" && order.DeliveryDueAt > 0 {
-		deadline := time.UnixMilli(order.DeliveryDueAt)
+	if due := commissionFulfillmentDeadline(order); due > 0 {
+		deadline := time.UnixMilli(due)
 		if !time.Now().Before(deadline) {
 			return w.finishDispatch(job, "needs_user", "commission_fulfillment_order_changed", resumeSession, "")
 		}
@@ -95,7 +95,9 @@ func (w *accountWatch) runCommissionFulfillment(parent context.Context, job disp
 		ctx, stop = context.WithDeadline(ctx, deadline)
 		defer stop()
 	}
-	if order.State != "in_progress" || order.Version != queued.OrderVersion {
+	queuedReview, _ := json.Marshal(queued.DeliveryReview)
+	currentReview, _ := json.Marshal(order.DeliveryReview)
+	if !commissionFulfillmentWritable(order, time.Now()) || order.Version != queued.OrderVersion || string(queuedReview) != string(currentReview) {
 		return w.finishDispatch(job, "needs_user", "commission_fulfillment_order_changed", "", "")
 	}
 	if err := w.journal.SetCommissionExecution(job.ID, queued.OrderID, order.Version, order.ExecutionRevision, order.ExecutionIssue != nil); err != nil {
@@ -273,7 +275,7 @@ func (w *accountWatch) guardCommissionFulfillment(ctx context.Context, cancel co
 			return
 		case <-orderTick.C:
 			current, err := w.readCommissionOrder(ctx, strconv.FormatInt(int64(expected.OrderID), 10))
-			if err != nil || !sameCommissionIntakeOrder(expected, current) {
+			if err != nil || !sameCommissionIntakeOrder(expected, current) || !commissionFulfillmentWritable(current, time.Now()) {
 				cancel()
 				return
 			}

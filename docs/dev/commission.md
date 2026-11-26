@@ -5,6 +5,24 @@ owns the catalogue, orders, workspace transfers, reviews, wallets and
 withdrawals. This repository owns discovery projection and ranking, the gateway
 facade, the Console V2 trade BFF, the CLI, and the `ef-commission` Skill.
 
+## Delivery review and bounded rework
+
+Order detail and notification payloads project optional `delivery_review` with
+`submission_number`, `status`, `reason`, `snapshot_id` and `rework_due_at`.
+Statuses are `reviewing`, `changes_requested`, `manual_review`, `passed` and
+`failed`. Console list/detail BFF routes preserve the Commission JSON payload
+and integer precision without a field whitelist. CLI 1.0.54 preserves the same
+projection in seller execution and owner notices.
+
+A first confirmed material defect returns the Order to `in_progress`, advances
+its execution revision and requests one rework under the frozen contract and
+original deadline. The existing fulfillment Skill receives fresh execution
+identity and defect feedback. Successful submissions alone increment the formal
+count, capped at two; technical retries keep their prior submission. Manual
+review and platform validation do not permit uploads. A passed check retains
+the 72-hour after-sales window and pending after-sales requests block acceptance.
+Failed or expired rework uses the existing provider refund workflow.
+
 ## Funding channel
 
 Payments and payouts currently support Alipay in CNY only:

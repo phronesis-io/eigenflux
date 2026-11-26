@@ -34,6 +34,9 @@ report each submission or answer once. Keep private details out of summaries.
 | awaiting_seller | Report that the seller is checking the request | Report inspection progress, frozen supply payment and seller acceptance deadline; leave acceptance to the execution worker |
 | pending_payment | Obtain the existing Alipay payment action and show amount, exact link and expiry; payment remains human-operated | Report acceptance, frozen supply payment and payment deadline |
 | in_progress | Report confirmed payment and delivery deadline | Report fulfillment progress and delivery deadline |
+| in_progress with changes_requested | Report the confirmed defect, seller rework and rework_due_at | Report the defect reason, automatic contractual rework and the single remaining submission before rework_due_at |
+| validating with manual_review | Report pending platform review | Report pending platform review; leave execution paused |
+| refund_pending with failed | Report failed delivery and pending provider refund | Report exhausted rework and pending platform refund |
 | validating | Report platform delivery checks in progress | Report submitted delivery and the platform check |
 | awaiting_buyer_confirmation | Download and inspect the delivery; report the files, contract compliance, defects or verification limits; show the Order link and after-sales deadline, and direct requests to the platform | Report the after-sales deadline and pending platform acceptance |
 | After-sales deadline reminder | Report the deadline and Order link | |
@@ -44,6 +47,8 @@ report each submission or answer once. Keep private details out of summaries.
 | review created | Do not repeat a review action | Read with `order get-review`; give the buyer, score and verified review summary |
 | buyer material needed | Read the current waiting_buyer question and missing paths; explain what is needed and show the supplied Order link for the buyer to supplement | Leave intake paused until supplementation |
 | local execution blocked | Report only the applicable confirmed result | Give the blocked stage, verified reason, action and deadline; leave the job paused |
+
+Read `delivery_review` from the current Order. Distinguish `reviewing`, `changes_requested`, `manual_review`, `passed` and `failed`; identify the actual submission number and sealed snapshot. Report one permitted rework only after the verified changes-requested transition. Preserve the original delivery deadline and the 72-hour after-sales window after a passed check. Technical retries keep the submission number.
 
 Handle the event kind before its current state. Match state changes to their
 version and transition in Order history. For workflow results, verify the current

@@ -15,6 +15,9 @@ const (
 )
 
 var commissionDesktopCardTitles = map[string]desktopLocalizedCopy{
+	"delivery_changes_requested":  {"交付整改中", "Revising delivery"},
+	"delivery_manual_review":      {"交付待平台复核", "Awaiting platform review"},
+	"delivery_failed":             {"交付未通过 · 退款中", "Delivery failed · Refunding"},
 	"awaiting_seller":             {"待接单", "Awaiting acceptance"},
 	"pending_payment":             {"待付款", "Awaiting payment"},
 	"in_progress":                 {"已付款 · 待交付", "Paid · Delivery due"},
@@ -59,6 +62,8 @@ func commissionDesktopCard(language, notificationType string, p orderNotificatio
 	}
 	body := desktopCounterpartyPlaceholder + desktopCardService + "\n"
 	switch key {
+	case "delivery_changes_requested":
+		body += desktopCardDeadline(zh, "整改截止", "Revise by", p.DeliveryReview.ReworkDueAt)
 	case "awaiting_seller":
 		title += desktopCardGross
 		body += desktopCardDeadline(zh, "接单截止", "Accept by", p.SellerConfirmDue)
@@ -72,7 +77,7 @@ func commissionDesktopCard(language, notificationType string, p orderNotificatio
 	case "order.settlement.completed.v1":
 		title += desktopCardNet
 		body += desktopCardCredit
-	case "refund_pending", "refunded", "late_payment_detected", "order.refund.processing_error.v1", "order.refund.completed.v1":
+	case "refund_pending", "refunded", "delivery_failed", "late_payment_detected", "order.refund.processing_error.v1", "order.refund.completed.v1":
 		title += desktopCardRefund
 	case "order.review.created.v1":
 		if p.ReviewScore >= 1 && p.ReviewScore <= 5 {
