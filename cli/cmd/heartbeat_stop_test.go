@@ -123,6 +123,12 @@ func TestHeartbeatStopOneBlockPerOrigin(t *testing.T) {
 	if limitHeartbeatStop(s, in, block, io.Discard)["decision"] != nil {
 		t.Fatal("blocked continuation")
 	}
+	in.TurnID = "unbound-retry"
+	in.StopHookActive = true
+	if limitHeartbeatStop(s, in, block, io.Discard)["decision"] != nil {
+		t.Fatal("blocked host retry without origin marker")
+	}
+	in.StopHookActive = false
 	in.TurnID = "fresh"
 	if limitHeartbeatStop(s, in, block, io.Discard)["decision"] != "block" {
 		t.Fatal("suppressed new run")

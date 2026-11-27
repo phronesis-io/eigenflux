@@ -386,7 +386,7 @@ func limitHeartbeatStop(scope maintenance.Scope, in heartbeatStopInput, decision
 	if marker, ok := readHeartbeatHostMarker(scope, in.SessionID, attempt); ok && marker.OriginAttempt != "" {
 		attempt = marker.OriginAttempt
 	}
-	if in.TurnID != "" {
+	if in.TurnID != "" && !in.StopHookActive {
 		dir := filepath.Dir(heartbeatHostRunPath(scope, in.SessionID, in.TurnID))
 		err := os.MkdirAll(dir, 0700)
 		if err == nil {
