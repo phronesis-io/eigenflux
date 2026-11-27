@@ -8,13 +8,20 @@ import (
 
 // RecoverCommission queues authoritative order inspection without inventing a
 // server notification or acknowledging the notification inbox.
-func (j *Journal) RecoverCommission(orderID string, version int64) (string, error) {
+func (j *Journal) RecoverCommission(orderID string, version int64, execution ...CommissionFulfillmentExecution) (string, error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	return j.recoverCommissionLocked(orderID, version, "operator_recovery", "operator_retry")
+	return j.recoverCommissionLocked(orderID, version, "operator_recovery", "operator_retry", execution...)
 }
 
-func (j *Journal) recoverCommissionLocked(orderID string, version int64, source, code string) (string, error) {
+func (j *Journal) recoverCommissionLocked(orderID string, version int64, source, code string, execution ...CommissionFulfillmentExecution) (string, error) {
+	if len(execution) > 1 {
+		return "", errors.New("invalid_commission_fulfillment_execution")
+	}
+	rework := len(execution) == 1 && execution[0].Review != nil
+	if rework && (!execution[0].Review.AllowsRework() || execution[0].Revision <= 0) {
+		return "", errors.New("invalid_commission_fulfillment_rework")
+	}
 	if !j.binding.Handles("commission_order") {
 		return "", errors.New("commission_event_not_subscribed")
 	}
@@ -25,12 +32,16 @@ func (j *Journal) recoverCommissionLocked(orderID string, version int64, source,
 	for _, job := range j.state.Jobs {
 		if job.Kind == "commission_order" && (job.Status == "unknown" || job.Status == "running" || job.Status == "sending") {
 			existing, err := parseCommissionIntakeData(job.Data, j.binding.AgentID)
-			if err != nil || existing.OrderID == orderID {
+			olderVersion, _ := strconv.ParseInt(existing.OrderVersion, 10, 64)
+			if err != nil || existing.OrderID == orderID && !(rework && olderVersion < version) {
 				return "", errors.New("commission_intake_unresolved_use_job_recovery")
 			}
 		}
-		if job.ID == commissionFulfillmentID(j.binding, orderID) {
-			return "", errors.New("commission_fulfillment_exists_use_job_recovery")
+		if job.Kind == "commission_fulfillment" {
+			var queued CommissionFulfillmentJob
+			if json.Unmarshal(job.Data, &queued) != nil || queued.OrderID == orderID && !(rework && queued.OrderVersion < version) {
+				return "", errors.New("commission_fulfillment_exists_use_job_recovery")
+			}
 		}
 		if job.ID == id {
 			return id, nil

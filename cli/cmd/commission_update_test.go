@@ -15,7 +15,7 @@ import (
 
 func updateTestDraft() map[string]json.RawMessage {
 	var draft map[string]json.RawMessage
-	_ = json.Unmarshal([]byte(`{"requires_materials":true,"title":"Title","capability_description":"Capability","request_spec_text":"Inputs","delivery_spec_text":"Outputs","tags":["tag"],"price_fen":100,"currency":"USD","promised_delivery_ms":1000,"request_spec_schema":"{}","delivery_spec_schema":"{}","fulfillment_skill":"test-skill","future_field":{"keep":true}}`), &draft)
+	_ = json.Unmarshal([]byte(`{"requires_materials":true,"title":"Title","capability_description":"Capability","request_spec_text":"Inputs","delivery_spec_text":"Outputs","tags":["tag"],"supply_price_fen":100,"currency":"USD","promised_delivery_ms":1000,"request_spec_schema":"{}","delivery_spec_schema":"{}","fulfillment_skill":"test-skill","future_field":{"keep":true}}`), &draft)
 	return draft
 }
 
@@ -33,8 +33,8 @@ func TestMergeCommissionDraftPreservesOmittedFields(t *testing.T) {
 		flags   map[string]string
 		changed map[string]string
 	}{
-		{"price", map[string]string{"price-fen": "10"}, map[string]string{"price_fen": "10"}},
-		{"explicit-zero-and-false", map[string]string{"price-fen": "0", "requires-materials": "false"}, map[string]string{"price_fen": "0", "requires_materials": "false"}},
+		{"price", map[string]string{"price-fen": "10"}, map[string]string{"supply_price_fen": "10"}},
+		{"explicit-false", map[string]string{"requires-materials": "false"}, map[string]string{"requires_materials": "false"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			cmd := updateTestCommand()
@@ -66,7 +66,7 @@ func TestMergeCommissionDraftPreservesOmittedFields(t *testing.T) {
 }
 
 func TestMergeCommissionDraftRejectsInvalidChanges(t *testing.T) {
-	for _, tt := range []struct{ flag, value string }{{"title", ""}, {"fulfillment-skill", ""}, {"price-fen", "-1"}, {"promised-delivery-ms", "0"}, {"tags", ""}, {"", ""}} {
+	for _, tt := range []struct{ flag, value string }{{"title", ""}, {"fulfillment-skill", ""}, {"price-fen", "-1"}, {"price-fen", "0"}, {"promised-delivery-ms", "0"}, {"tags", ""}, {"", ""}} {
 		t.Run(tt.flag, func(t *testing.T) {
 			cmd := updateTestCommand()
 			if tt.flag != "" {
@@ -114,7 +114,7 @@ func TestCommissionPartialUpdateVersionGuardAndPayload(t *testing.T) {
 					t.Error(err)
 				}
 				want := updateTestDraft()
-				want["price_fen"] = json.RawMessage(`10`)
+				want["supply_price_fen"] = json.RawMessage(`10`)
 				if body.Version != 3 || !reflect.DeepEqual(body.Input, want) || r.Header.Get(idempotencyHeader) == "" {
 					t.Errorf("unsafe update: %+v", body)
 				}

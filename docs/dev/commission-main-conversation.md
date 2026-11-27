@@ -141,14 +141,9 @@ BFF and Console together; verify object-store browser PUT CORS before acceptance
 Ordinary PMs never admit Order files. Internal request/supplied events stay silent
 unless automatic clarification discovers a genuine need for the buyer's help.
 
-## Normal-cycle reminder
+## Platform acceptance
 
-Every full completed-access heartbeat and standalone Feed cycle queries order
-pending-confirmations once per cycle. Include current pending deliveries and
-links in the host result even without new Feed items. Empty results stay quiet;
-failed checks never mean there are no pending Orders. No one-off timer is created. The same rule is present in the local Feed rules,
-mandatory contract and served static copy, overriding Feed silence only for
-current pending confirmations.
+Delivery notices show the after-sales deadline and link to the Order for refunds or complaints. The platform accepts delivery after validation and expiry, subject to any open request. Normal Feed and heartbeat cycles have no receipt-confirmation action.
 
 ## Verification (2026-10-20)
 

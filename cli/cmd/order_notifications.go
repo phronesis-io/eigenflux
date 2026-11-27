@@ -27,23 +27,24 @@ type orderNotification struct {
 }
 
 type orderNotificationPayload struct {
-	ReviewID         notificationID `json:"review_id"`
-	ReviewScore      int32          `json:"review_score"`
-	OrderID          notificationID `json:"order_id"`
-	OrderVersion     int64          `json:"order_version"`
-	RecipientRole    string         `json:"recipient_role"`
-	State            string         `json:"state"`
-	FromState        string         `json:"from_state"`
-	ToState          string         `json:"to_state"`
-	CommandKind      string         `json:"command_kind"`
-	ActorKind        string         `json:"actor_kind"`
-	EventKind        string         `json:"event_kind"`
-	SnapshotID       notificationID `json:"snapshot_id"`
-	OccurredAt       int64          `json:"occurred_at"`
-	PaymentDueAt     int64          `json:"payment_due_at"`
-	SellerConfirmDue int64          `json:"seller_confirm_due_at"`
-	DeliveryDueAt    int64          `json:"delivery_due_at"`
-	BuyerConfirmDue  int64          `json:"buyer_confirm_due_at"`
+	ReviewID         notificationID                     `json:"review_id"`
+	ReviewScore      int32                              `json:"review_score"`
+	OrderID          notificationID                     `json:"order_id"`
+	OrderVersion     int64                              `json:"order_version"`
+	RecipientRole    string                             `json:"recipient_role"`
+	State            string                             `json:"state"`
+	FromState        string                             `json:"from_state"`
+	ToState          string                             `json:"to_state"`
+	CommandKind      string                             `json:"command_kind"`
+	ActorKind        string                             `json:"actor_kind"`
+	EventKind        string                             `json:"event_kind"`
+	SnapshotID       notificationID                     `json:"snapshot_id"`
+	OccurredAt       int64                              `json:"occurred_at"`
+	PaymentDueAt     int64                              `json:"payment_due_at"`
+	SellerConfirmDue int64                              `json:"seller_confirm_due_at"`
+	DeliveryDueAt    int64                              `json:"delivery_due_at"`
+	BuyerConfirmDue  int64                              `json:"buyer_confirm_due_at"`
+	DeliveryReview   *dispatch.CommissionDeliveryReview `json:"delivery_review,omitempty"`
 }
 
 type notificationID int64
@@ -321,15 +322,41 @@ func localizedOrderLabel(language string) string {
 func localizedOrderNotificationText(language, notificationType string, payload orderNotificationPayload) (string, string) {
 	role, fallback := localizedOrderNotification(language, payload.RecipientRole, payload.ToState)
 	for _, kind := range []string{payload.EventKind, notificationType} {
+		if commissionManualReviewResult(kind, payload) {
+			copy := commissionDesktopCardTitles["delivery_manual_review"]
+			if language == "zh" {
+				return role, copy.zh
+			}
+			return role, copy.en
+		}
 		if summary := commissionResultNotificationText(language, kind); summary != "" {
 			return role, summary
 		}
 		if kind == "order.reminder.buyer_confirmation_24h.v1" {
 			if language == "zh" {
-				return role, "请及时确认交付结果"
+				return role, "售后期即将结束"
 			}
-			return role, "Please confirm the delivery before the deadline"
+			return role, "The after-sales period ends soon"
 		}
+	}
+	if key := commissionDeliveryReviewCopyKey(payload); key != "" {
+		copy := commissionDesktopCardTitles[key]
+		if language == "zh" {
+			return role, copy.zh
+		}
+		return role, copy.en
+	}
+	afterSales := map[string]struct{ zh, en string }{
+		"refund_requested":     {"退款申请待平台处理", "Refund request pending platform review"},
+		"complaint_filed":      {"投诉待平台处理", "Complaint pending platform review"},
+		"after_sales_declined": {"售后申请已驳回", "After-sales request declined"},
+		"after_sales_resolved": {"售后事项已处理", "After-sales request resolved"},
+	}[payload.CommandKind]
+	if afterSales.zh != "" {
+		if language == "zh" {
+			return role, afterSales.zh
+		}
+		return role, afterSales.en
 	}
 	if payload.CommandKind == "reject_order" && payload.ToState == "cancelled" {
 		if language == "zh" {
@@ -375,7 +402,7 @@ func localizedOrderNotification(language, role, state string) (string, string) {
 			"awaiting_materials": "历史材料状态（已废弃，系统自动推进）", "preparing_materials": "历史材料状态（已废弃，系统自动推进）",
 			"awaiting_seller": "等待卖方 Agent 检查接单", "in_progress": "卖方履约中",
 			"validating": "平台验收中", "delivered": "交付待买方验收",
-			"awaiting_buyer_confirmation": "交付待买方确认", "completed": "订单已完成",
+			"awaiting_buyer_confirmation": "交付已通过平台检查", "completed": "订单已完成",
 			"cancelled": "订单已取消", "rejected": "订单已拒绝", "expired": "订单已过期",
 			"refunding": "退款处理中", "refund_pending": "退款处理中", "refunded": "订单已退款",
 		}[state]
@@ -393,7 +420,7 @@ func localizedOrderNotification(language, role, state string) (string, string) {
 		"awaiting_materials": "Retired material state; automatic transition pending", "preparing_materials": "Retired material state; automatic transition pending",
 		"awaiting_seller": "Awaiting seller Agent inspection and acceptance", "in_progress": "Fulfillment in progress",
 		"validating": "Platform validation in progress", "delivered": "Delivery awaiting buyer review",
-		"awaiting_buyer_confirmation": "Delivery awaiting buyer confirmation", "completed": "Order completed",
+		"awaiting_buyer_confirmation": "Delivery passed the platform check", "completed": "Order completed",
 		"cancelled": "Order cancelled", "rejected": "Order rejected", "expired": "Order expired",
 		"refunding": "Refund in progress", "refund_pending": "Refund in progress", "refunded": "Order refunded",
 	}[state]

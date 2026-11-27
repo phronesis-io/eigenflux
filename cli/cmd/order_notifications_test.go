@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -86,6 +87,69 @@ func TestLocalizedOrderNotificationUnknownStateFallsBack(t *testing.T) {
 	role, summary := localizedOrderNotification("en", "seller", "future_state")
 	if role != "Seller" || summary != "Order updated" {
 		t.Fatalf("fallback=(%q,%q)", role, summary)
+	}
+}
+
+func TestDrainAfterSalesNotificationsShowsResultsBeforeAcknowledging(t *testing.T) {
+	cases := []struct {
+		command, zh, en string
+	}{
+		{"refund_requested", "退款申请待平台处理", "Refund request pending platform review"},
+		{"complaint_filed", "投诉待平台处理", "Complaint pending platform review"},
+		{"after_sales_declined", "售后申请已驳回", "After-sales request declined"},
+		{"after_sales_resolved", "售后事项已处理", "After-sales request resolved"},
+	}
+	for _, language := range []string{"zh", "en"} {
+		for _, role := range []string{"buyer", "seller"} {
+			t.Run(language+"/"+role, func(t *testing.T) {
+				var output strings.Builder
+				ackCalls := 0
+				var notices []orderNotification
+				for i, tc := range cases {
+					notices = append(notices, orderNotification{
+						NotificationID: strconv.Itoa(i + 1), SourceType: "commission_order", Type: "order.state.changed.v1",
+						Payload: orderNotificationPayload{
+							OrderID: 9007199254740993, OrderVersion: 3, RecipientRole: role,
+							CommandKind: tc.command, EventKind: "order.state.changed.v1",
+							State: "awaiting_buyer_confirmation", ToState: "awaiting_buyer_confirmation",
+							SnapshotID: 9007199254740995, OccurredAt: 1700000000000,
+						},
+					})
+				}
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch r.URL.Path {
+					case "/api/v2/notifications/pending":
+						_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"notifications": notices, "has_more": false}})
+					case "/api/v2/notifications/ack":
+						ackCalls++
+						for _, tc := range cases {
+							want := tc.en
+							if language == "zh" {
+								want = tc.zh
+							}
+							if !strings.Contains(output.String(), want) {
+								t.Errorf("notification acknowledged before displaying %q: %s", want, output.String())
+							}
+						}
+						_, _ = w.Write([]byte(`{"code":0,"data":{"acknowledged":4}}`))
+					default:
+						http.NotFound(w, r)
+					}
+				}))
+				defer server.Close()
+				_, name := runtimeTestConfig(t, server.URL, true)
+				if _, _, _, err := auth.LoadOrCreateIdentity(name); err != nil {
+					t.Fatal(err)
+				}
+				api := client.New(server.URL+"/api/v2", "token", "test", client.Meta{})
+				if err := drainCommissionNotifications(api, "table", language, &output); err != nil {
+					t.Fatal(err)
+				}
+				if ackCalls != 1 {
+					t.Fatalf("ack calls=%d, want 1", ackCalls)
+				}
+			})
+		}
 	}
 }
 

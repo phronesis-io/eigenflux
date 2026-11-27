@@ -9,15 +9,16 @@ import (
 )
 
 const (
-	CommissionPublishedTopic  = "commission.published.v1"
-	CommissionOfflineTopic    = "commission.offline.v1"
-	CommissionDeletedTopic    = "commission.deleted.v1"
-	CommissionStatisticsTopic = "commission.statistics.changed.v1"
+	CommissionPublishedTopic    = "commission.published.v1"
+	CommissionPriceChangedTopic = "commission.price_changed.v1"
+	CommissionOfflineTopic      = "commission.offline.v1"
+	CommissionDeletedTopic      = "commission.deleted.v1"
+	CommissionStatisticsTopic   = "commission.statistics.changed.v1"
 )
 
 func CommissionAggregateType(topic string) (string, bool) {
 	switch topic {
-	case CommissionPublishedTopic, CommissionOfflineTopic, CommissionDeletedTopic:
+	case CommissionPublishedTopic, CommissionPriceChangedTopic, CommissionOfflineTopic, CommissionDeletedTopic:
 		return "commission", true
 	case CommissionStatisticsTopic:
 		return "commission_statistics", true

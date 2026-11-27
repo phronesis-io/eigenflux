@@ -20,6 +20,17 @@ type desktopRoleCopy struct {
 // https://pcnlty6lw65j.feishu.cn/wiki/Mw3bwlX2siZlXjkgxx3cF21Pnyc
 // Each string contains the title, a newline, then the body.
 var desktopOrderCopy = map[string]desktopRoleCopy{
+	"delivery_changes_requested": {
+		buyer:  desktopLocalizedCopy{zh: "「{service_name}」等待卖方整改\n首次交付未通过检查，卖方 Agent 将在 {delivery_due} 前按原合同整改重提。", en: "“{service_name}” awaiting seller changes\nThe first delivery needs changes. The seller's Agent will revise and resubmit under the frozen contract by {delivery_due}."},
+		seller: desktopLocalizedCopy{zh: "「{service_name}」正在整改交付\n首次交付未通过检查，你的 Agent 将在 {delivery_due} 前按原合同整改并重新提交一次。", en: "“{service_name}” revising delivery\nYour Agent will revise the first delivery under the frozen contract and resubmit once by {delivery_due}."},
+	},
+	"delivery_manual_review": {
+		buyer: desktopLocalizedCopy{zh: "「{service_name}」等待平台人工复核\n交付已转人工复核，结果会另行通知。", en: "“{service_name}” awaiting manual platform review\nThe delivery has been referred for manual platform review. The result will follow."},
+	},
+	"delivery_failed": {
+		buyer:  desktopLocalizedCopy{zh: "「{service_name}」交付未通过，正在退款\n退款结果会另行通知。", en: "“{service_name}” delivery failed, refund in progress\nThe refund result will follow."},
+		seller: desktopLocalizedCopy{zh: "「{service_name}」交付未通过，订单退款中\n整改已结束，等待平台退款处理。", en: "“{service_name}” delivery failed, refund in progress\nRework has ended. Await platform refund processing."},
+	},
 	"order.review.created.v1": {seller: desktopLocalizedCopy{
 		zh: "「{service_name}」收到新评价 · {review_score}/5 分\n买方已评价，点击查看详情。",
 		en: "New review for “{service_name}” · {review_score}/5\nThe buyer left a review. Click to view details.",
@@ -56,28 +67,56 @@ var desktopOrderCopy = map[string]desktopRoleCopy{
 	},
 	"validating": {
 		buyer: desktopLocalizedCopy{
-			zh: "「{service_name}」已交付，平台检查中\n检查通过后会通知你查看并确认结果。",
-			en: "“{service_name}” delivered, platform check in progress\nYou'll be asked to review and confirm once the check passes.",
+			zh: "「{service_name}」已交付，平台检查中\n检查通过后可在订单页查看交付结果。",
+			en: "“{service_name}” delivered, platform check in progress\nOpen the order to view the delivery once the check passes.",
 		},
 		seller: desktopLocalizedCopy{
-			zh: "「{service_name}」已提交交付，平台检查中\n无需操作，检查通过后会转给买方确认。",
-			en: "“{service_name}” submitted, platform check in progress\nNothing for you to do. It goes to the buyer for confirmation once the check passes.",
+			zh: "「{service_name}」已提交交付，平台检查中\n检查通过后进入售后期。",
+			en: "“{service_name}” submitted, platform check in progress\nThe after-sales period starts once the check passes.",
 		},
 	},
 	"awaiting_buyer_confirmation": {
 		buyer: desktopLocalizedCopy{
-			zh: "「{service_name}」交付完成，请查看并确认\n请在 {confirm_due} 前确认，逾期将自动确认完成。",
-			en: "“{service_name}” is ready for your review\nPlease confirm by {confirm_due}, or it's confirmed automatically.",
+			zh: "「{service_name}」平台已通过交付检查\n请在 {confirm_due} 前查看交付结果。如需售后，请打开订单。",
+			en: "“{service_name}” is ready for your review\nView the delivery by {confirm_due}. Open the order for after-sales help.",
 		},
 		seller: desktopLocalizedCopy{
-			zh: "「{service_name}」已交给买方，等待确认\n无需操作。买方 {confirm_due} 前未确认将自动完成。",
-			en: "“{service_name}” delivered, waiting for the buyer\nNothing for you to do. If the buyer doesn't confirm by {confirm_due}, it completes automatically.",
+			zh: "「{service_name}」已通过平台交付检查\n售后期至 {confirm_due}，到期后由平台验收。",
+			en: "“{service_name}” delivery passed the platform check\nThe platform accepts delivery after the after-sales deadline at {confirm_due} if there are no pending requests.",
 		},
 	},
+	"refund_requested": {
+		buyer: desktopLocalizedCopy{
+			zh: "「{service_name}」退款申请已提交\n平台将处理申请。点击查看售后进展。",
+			en: "Refund requested for “{service_name}”\nThe platform will review your request. Click to view its status.",
+		},
+		seller: desktopLocalizedCopy{
+			zh: "「{service_name}」买方已申请退款\n退款申请由平台处理。点击查看订单。",
+			en: "The buyer requested a refund for “{service_name}”\nThe platform will review the request. Click to view the order.",
+		},
+	},
+	"complaint_filed": {
+		buyer: desktopLocalizedCopy{
+			zh: "「{service_name}」投诉已提交\n平台将处理投诉。点击查看售后进展。",
+			en: "Complaint filed for “{service_name}”\nThe platform will review your complaint. Click to view its status.",
+		},
+		seller: desktopLocalizedCopy{
+			zh: "「{service_name}」买方已提交投诉\n投诉由平台处理。点击查看订单。",
+			en: "The buyer filed a complaint about “{service_name}”\nThe platform will review the complaint. Click to view the order.",
+		},
+	},
+	"after_sales_declined": {buyer: desktopLocalizedCopy{
+		zh: "「{service_name}」售后申请已驳回\n点击查看订单中的售后状态。",
+		en: "After-sales request declined for “{service_name}”\nClick to view the request status in the order.",
+	}},
+	"after_sales_resolved": {buyer: desktopLocalizedCopy{
+		zh: "「{service_name}」售后事项已处理\n点击查看订单中的售后状态。",
+		en: "After-sales request resolved for “{service_name}”\nClick to view the request status in the order.",
+	}},
 	"order.reminder.buyer_confirmation_24h.v1": {
 		buyer: desktopLocalizedCopy{
-			zh: "「{service_name}」还未确认交付\n请尽快查看结果，{confirm_due} 后将自动确认完成。",
-			en: "“{service_name}” still needs your confirmation\nPlease review it soon. It's confirmed automatically after {confirm_due}.",
+			zh: "「{service_name}」售后期即将结束\n如需退款或投诉，请在 {confirm_due} 前打开订单提交。",
+			en: "“{service_name}” after-sales period ends soon\nOpen the order before {confirm_due} to request a refund or file a complaint.",
 		},
 	},
 	"completed": {
@@ -132,22 +171,22 @@ var desktopOrderCopy = map[string]desktopRoleCopy{
 	}},
 	"auto_completed": {
 		buyer: desktopLocalizedCopy{
-			zh: "「{service_name}」确认超时，订单已自动完成\n点击查看交付结果。",
-			en: "“{service_name}” completed automatically after the confirmation deadline\nClick to view the delivery.",
+			zh: "「{service_name}」平台已验收\n点击查看交付结果。",
+			en: "“{service_name}” accepted by the platform\nClick to view the delivery.",
 		},
 		seller: desktopLocalizedCopy{
-			zh: "「{service_name}」确认超时，订单已自动完成\n收益入账后会另行通知你。",
-			en: "“{service_name}” completed automatically after the confirmation deadline\nYou'll be notified when the earnings are credited.",
+			zh: "「{service_name}」平台已验收\n收益入账后会另行通知你。",
+			en: "“{service_name}” accepted by the platform\nYou'll be notified when the earnings are credited.",
 		},
 	},
 	"refund_pending": {
 		buyer: desktopLocalizedCopy{
-			zh: "「{service_name}」未按时交付，正在退款\n款项将退回你的付款账户，到账后另行通知。",
-			en: "“{service_name}” was not delivered on time, refund started\nYour payment is being returned. You'll be notified when it arrives.",
+			zh: "「{service_name}」正在退款\n款项将退回你的付款账户，到账后另行通知。",
+			en: "“{service_name}” refund started\nYour payment is being returned. You'll be notified when it arrives.",
 		},
 		seller: desktopLocalizedCopy{
-			zh: "「{service_name}」交付超时，订单转为退款\n本单款项退还买方，不计收益。",
-			en: "“{service_name}” delivery overdue, refund in progress\nThe payment goes back to the buyer. No earnings for this order.",
+			zh: "「{service_name}」订单正在退款\n本单款项退还买方，不计收益。",
+			en: "“{service_name}” refund in progress\nThe payment goes back to the buyer. No earnings for this order.",
 		},
 	},
 	"refunded": {
@@ -194,12 +233,12 @@ var desktopOrderCopy = map[string]desktopRoleCopy{
 	},
 	"order.validation.processing_error.v1": {
 		buyer: desktopLocalizedCopy{
-			zh: "「{service_name}」交付检查暂时出错，系统正在重试\n无需操作，检查通过后会通知你确认。",
-			en: "“{service_name}” delivery check hit a problem, retrying\nNothing for you to do. You'll be asked to confirm once it passes.",
+			zh: "「{service_name}」交付检查暂时出错，系统正在重试\n无需操作，检查通过后可在订单页查看。",
+			en: "“{service_name}” delivery check hit a problem, retrying\nNothing for you to do. Open the order to view the delivery once it passes.",
 		},
 		seller: desktopLocalizedCopy{
-			zh: "「{service_name}」交付检查暂时出错，系统正在重试\n无需操作，检查通过后会转给买方确认。",
-			en: "“{service_name}” delivery check hit a problem, retrying\nNothing for you to do. It goes to the buyer once the check passes.",
+			zh: "「{service_name}」交付检查暂时出错，系统正在重试\n检查通过后进入售后期。",
+			en: "“{service_name}” delivery check hit a problem, retrying\nNothing for you to do. The after-sales period starts once the check passes.",
 		},
 	},
 	"local.needs_user": {
@@ -254,9 +293,13 @@ func commissionDesktopCopy(language, notificationType string, payload orderNotif
 		}
 		title = strings.ReplaceAll(title, "{review_score}", score)
 	}
+	due := payload.DeliveryDueAt
+	if key == "delivery_changes_requested" {
+		due = payload.DeliveryReview.ReworkDueAt
+	}
 	body = strings.NewReplacer(
 		"{payment_due}", desktopDeadline(language, payload.PaymentDueAt),
-		"{delivery_due}", desktopDeadline(language, payload.DeliveryDueAt),
+		"{delivery_due}", desktopDeadline(language, due),
 		"{confirm_due}", desktopDeadline(language, payload.BuyerConfirmDue),
 	).Replace(body)
 	return title, body
@@ -275,10 +318,20 @@ func commissionDesktopCopyKey(notificationType string, payload orderNotification
 		key = "refund_pending"
 	}
 	// Report the specific result before the underlying order state.
-	event := commissionNoticeResultKind(notificationType, payload)
-	if event != "" {
-		key = event
-	} else if key == "cancelled" {
+	if event := commissionNoticeResultKind(notificationType, payload); event != "" {
+		if commissionManualReviewResult(event, payload) {
+			return "delivery_manual_review"
+		}
+		return event
+	}
+	if review := commissionDeliveryReviewCopyKey(payload); review != "" {
+		return review
+	}
+	switch payload.CommandKind {
+	case "refund_requested", "complaint_filed", "after_sales_declined", "after_sales_resolved":
+		return payload.CommandKind
+	}
+	if key == "cancelled" {
 		switch payload.CommandKind {
 		case "reject_order":
 			key = "rejected"
@@ -297,6 +350,35 @@ func commissionDesktopCopyKey(notificationType string, payload orderNotification
 		key = "auto_completed"
 	}
 	return key
+}
+
+func commissionManualReviewResult(kind string, payload orderNotificationPayload) bool {
+	return kind == "order.validation.processing_error.v1" && commissionDeliveryReviewCopyKey(payload) == "delivery_manual_review"
+}
+
+func commissionDeliveryReviewCopyKey(payload orderNotificationPayload) string {
+	if payload.DeliveryReview == nil {
+		return ""
+	}
+	state := payload.ToState
+	if state == "" {
+		state = payload.State
+	}
+	switch payload.DeliveryReview.Status {
+	case "changes_requested":
+		if state == "in_progress" {
+			return "delivery_changes_requested"
+		}
+	case "manual_review":
+		if state == "validating" {
+			return "delivery_manual_review"
+		}
+	case "failed":
+		if state == "refund_pending" || state == "refunding" {
+			return "delivery_failed"
+		}
+	}
+	return ""
 }
 
 func commissionNoticeResultKind(notificationType string, payload orderNotificationPayload) string {

@@ -409,7 +409,8 @@ func TestNeedCaptureFirstCycleRunsAfterFeedWithOneIntent(t *testing.T) {
 	if !slices.Equal(next.ExecutionOrder, fullOrder) || next.NeedCapture.FirstCycle || next.NeedCapture.MaxIntents != 2 || len(next.NeedCapture.Intents) != 2 {
 		t.Fatalf("ordinary cycle: %v %+v", next.ExecutionOrder, next.NeedCapture)
 	}
-	if strings.Contains(needCaptureInstructions(next), "120") {
+	instructions := needCaptureInstructions(next)
+	if strings.Contains(instructions, "120 seconds") || strings.Contains(instructions, "120-second") {
 		t.Fatal("time budget text remains")
 	}
 }

@@ -106,6 +106,10 @@ func TestCommissionNotificationTextPriorityAndRejection(t *testing.T) {
 	if _, got := localizedOrderNotificationText("zh", "order.settlement.completed.v1", payload); got != "订单已取消，款项已退回" {
 		t.Fatalf("event_kind must precede envelope type and command: %s", got)
 	}
+	payload.EventKind, payload.CommandKind = "order.refund.processing_error.v1", "refund_requested"
+	if _, got := localizedOrderNotificationText("zh", "order.state.changed.v1", payload); got != "退款处理异常，系统正在重试" {
+		t.Fatalf("workflow results must precede after-sales command text: %s", got)
+	}
 	payload.EventKind, payload.CommandKind = "future.event.v1", ""
 	if _, got := localizedOrderNotificationText("zh", "future.event.v1", payload); got != "订单已取消" {
 		t.Fatalf("unknown types must retain state fallback: %s", got)

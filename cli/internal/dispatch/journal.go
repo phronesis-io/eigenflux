@@ -24,13 +24,14 @@ const (
 )
 
 type journalState struct {
-	Version  int               `json:"version"`
-	Scope    string            `json:"scope"`
-	Revision string            `json:"binding_revision"`
-	AgentID  string            `json:"agent_id"`
-	Sequence uint64            `json:"sequence"`
-	Jobs     []Job             `json:"jobs"`
-	Sessions map[string]string `json:"sessions"`
+	Version                   int                            `json:"version"`
+	Scope                     string                         `json:"scope"`
+	Revision                  string                         `json:"binding_revision"`
+	AgentID                   string                         `json:"agent_id"`
+	Sequence                  uint64                         `json:"sequence"`
+	Jobs                      []Job                          `json:"jobs"`
+	Sessions                  map[string]string              `json:"sessions"`
+	ActiveCommissionReadiness map[string]CommissionReadiness `json:"active_commission_readiness,omitempty"`
 }
 
 // Journal requires the caller to hold the account watch lock for its lifetime.
@@ -85,6 +86,11 @@ func readJournal(b Binding) (journalState, bool, error) {
 	}
 	if s.Version != 1 || s.Scope != b.Scope || s.Revision != b.Revision || s.AgentID != b.AgentID || s.Sessions == nil || s.Jobs == nil {
 		return journalState{}, false, errors.New("journal_identity_or_version_mismatch")
+	}
+	for orderID, readiness := range s.ActiveCommissionReadiness {
+		if orderID != readiness.Result.OrderID || !validCommissionReadiness(readiness) {
+			return journalState{}, false, errors.New("invalid_journal_commission_readiness")
+		}
 	}
 	seen := map[string]bool{}
 	for _, job := range s.Jobs {
@@ -264,6 +270,13 @@ func cloneJournal(s journalState) journalState {
 	next.Sessions = make(map[string]string, len(s.Sessions))
 	for k, v := range s.Sessions {
 		next.Sessions[k] = v
+	}
+	if s.ActiveCommissionReadiness != nil {
+		next.ActiveCommissionReadiness = make(map[string]CommissionReadiness, len(s.ActiveCommissionReadiness))
+		for orderID, readiness := range s.ActiveCommissionReadiness {
+			readiness.Result.InspectedFiles = append([]string{}, readiness.Result.InspectedFiles...)
+			next.ActiveCommissionReadiness[orderID] = readiness
+		}
 	}
 	return next
 }

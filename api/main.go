@@ -499,6 +499,7 @@ func registerCommissionConsoleBFFRoutes(read consoleBFFReadRegistrar, write cons
 	read("trade/orders/:order_id", access, trade.TradeOrder)
 	read("trade/orders/:order_id/review", access, trade.TradeOrderReview)
 	write(http.MethodPost, "trade/orders/:order_id/payment", access, trade.TradeOrderPayment)
+	write(http.MethodPost, "trade/orders/:order_id/after-sales", access, trade.TradeOrderAfterSales)
 	write(http.MethodPost, "trade/orders/:order_id/input-uploads", access, trade.TradeOrderInputUpload)
 	write(http.MethodPost, "trade/orders/:order_id/input-uploads/confirm", access, trade.TradeOrderInputUploadConfirm)
 	write(http.MethodPost, "trade/orders/:order_id/supplement-inputs", access, trade.TradeOrderSupplementInputs)

@@ -66,7 +66,7 @@ func (c *CommissionIndexConsumer) Handle(ctx context.Context, _ string, values m
 		metrics.CommissionProjectionFailures.WithLabelValues("order_source").Inc()
 		return HandleRetry
 	}
-	if catalogue.CommissionID != event.CommissionID || catalogue.CatalogueVersion <= 0 || statistics.StatisticsVersion < 0 {
+	if catalogue.CommissionID != event.CommissionID || catalogue.CatalogueVersion < event.AggregateVersion || statistics.StatisticsVersion < 0 {
 		return HandleRetry
 	}
 	if !strings.EqualFold(catalogue.Status, "active") || ((event.Topic == commissionOfflineTopic || event.Topic == featureindex.CommissionDeletedTopic) && catalogue.CatalogueVersion <= event.AggregateVersion) {

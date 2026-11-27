@@ -19,10 +19,38 @@ func validCommissionReadiness(value CommissionReadiness) bool {
 	return result.Outcome == "ready" && validCommissionInputFingerprint(value.InputFingerprint) && validateCommissionIntakeDecision(result, result.RequestID, result.OrderID, result.OrderVersion) == nil
 }
 
-// Readiness is active business evidence until fulfillment owns a durable copy,
-// not an ordinary completed-job deduplication receipt.
+// CommissionReworkReadiness exposes only the original check, not private job data.
+func (j *Journal) CommissionReworkReadiness(orderID string, version int64) (string, *CommissionReadiness) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if readiness, ok := j.state.ActiveCommissionReadiness[orderID]; ok && readiness.Result.OrderVersion < version {
+		readiness.Result.InspectedFiles = append([]string{}, readiness.Result.InspectedFiles...)
+		return readiness.Result.RequestID, &readiness
+	}
+	for _, job := range j.state.Jobs {
+		if job.Kind != "commission_fulfillment" {
+			continue
+		}
+		var previous CommissionFulfillmentJob
+		if json.Unmarshal(job.Data, &previous) != nil || previous.OrderID != orderID || previous.OrderVersion >= version || previous.DeliveryReview != nil {
+			continue
+		}
+		readiness := CommissionReadiness{Result: previous.IntakeResult, InputFingerprint: previous.InputFingerprint}
+		if !validCommissionReadiness(readiness) {
+			continue
+		}
+		readiness.Result.InspectedFiles = append([]string{}, readiness.Result.InspectedFiles...)
+		return job.ID, &readiness
+	}
+	return "", nil
+}
+
+// Active-order evidence has a separate bound from ordinary completed receipts.
 func commissionReadinessCount(state journalState, completedOnly bool) int {
 	count := 0
+	if !completedOnly {
+		count = len(state.ActiveCommissionReadiness)
+	}
 	for _, job := range state.Jobs {
 		if job.CommissionReadiness != nil && (!completedOnly || completedStatus(job.Status)) {
 			count++
@@ -33,6 +61,10 @@ func commissionReadinessCount(state journalState, completedOnly bool) int {
 
 func clearCommissionReadiness(state *journalState, orderID string) bool {
 	changed := false
+	if _, ok := state.ActiveCommissionReadiness[orderID]; ok {
+		delete(state.ActiveCommissionReadiness, orderID)
+		changed = true
+	}
 	for i := range state.Jobs {
 		if value := state.Jobs[i].CommissionReadiness; value != nil && value.Result.OrderID == orderID {
 			state.Jobs[i].CommissionReadiness = nil
@@ -88,14 +120,38 @@ func (j *Journal) SaveCommissionReadiness(id string, value CommissionReadiness) 
 
 // QueueCommissionFromReadiness binds an earlier real inspection to the current
 // paid version without changing the historical decision's version or request ID.
-func (j *Journal) QueueCommissionFromReadiness(id, sourceID, orderID string, orderVersion int64) error {
+func (j *Journal) QueueCommissionFromReadiness(id, sourceID, orderID string, orderVersion int64, execution ...CommissionFulfillmentExecution) error {
+	if len(execution) > 1 {
+		return errors.New("invalid_commission_fulfillment_execution")
+	}
+	payload := CommissionFulfillmentJob{Version: 1, OrderID: orderID, OrderVersion: orderVersion, IntakeRequestID: sourceID}
+	if len(execution) == 1 {
+		payload.ExecutionRevision, payload.DeliveryReview = execution[0].Revision, execution[0].Review
+	}
+	if payload.ExecutionRevision < 0 || payload.DeliveryReview != nil && (!payload.DeliveryReview.AllowsRework() || payload.ExecutionRevision <= 0) {
+		return errors.New("invalid_commission_fulfillment_rework")
+	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	next := cloneJournal(j.state)
 	var readiness *CommissionReadiness
+	if active, ok := next.ActiveCommissionReadiness[orderID]; ok && active.Result.RequestID == sourceID {
+		readiness = &active
+	}
 	for _, job := range next.Jobs {
+		if readiness != nil {
+			break
+		}
 		if job.ID == sourceID && job.Kind == "commission_order" {
 			readiness = job.CommissionReadiness
+			break
+		}
+		if job.ID == sourceID && job.Kind == "commission_fulfillment" && payload.DeliveryReview != nil {
+			var previous CommissionFulfillmentJob
+			if json.Unmarshal(job.Data, &previous) == nil && previous.OrderID == orderID && previous.OrderVersion < orderVersion && previous.DeliveryReview == nil {
+				readiness = &CommissionReadiness{Result: previous.IntakeResult, InputFingerprint: previous.InputFingerprint}
+				payload.IntakeRequestID = previous.IntakeRequestID
+			}
 			break
 		}
 	}
@@ -112,24 +168,37 @@ func (j *Journal) QueueCommissionFromReadiness(id, sourceID, orderID string, ord
 		if job.Kind != "commission_order" || job.Status != "running" || err != nil || versionErr != nil || notificationVersion > orderVersion || key.RecipientRole != "seller" || key.OrderID != orderID {
 			return errors.New("commission_fulfillment_requires_paid_seller")
 		}
-		fulfillmentID := commissionFulfillmentID(j.binding, orderID)
+		payload.IntakeResult, payload.InputFingerprint = readiness.Result, readiness.InputFingerprint
+		payload.IntakeRequestID = readiness.Result.RequestID
+		fulfillmentID := commissionFulfillmentID(j.binding, orderID, payload)
 		found := false
 		for _, existing := range next.Jobs {
 			if existing.ID == fulfillmentID {
 				found = true
 				break
 			}
+			if payload.DeliveryReview != nil && existing.Kind == "commission_fulfillment" {
+				var previous CommissionFulfillmentJob
+				if json.Unmarshal(existing.Data, &previous) == nil && previous.OrderID == orderID && previous.OrderVersion == orderVersion && previous.DeliveryReview != nil {
+					found = true
+					break
+				}
+			}
 		}
 		if !found {
-			payload, err := json.Marshal(CommissionFulfillmentJob{Version: 1, OrderID: orderID, OrderVersion: orderVersion, IntakeRequestID: sourceID, IntakeResult: readiness.Result, InputFingerprint: readiness.InputFingerprint})
+			data, err := json.Marshal(payload)
 			if err != nil {
 				return err
 			}
-			next.Jobs = append(next.Jobs, j.newHint(fulfillmentID, "commission_fulfillment", payload))
+			next.Jobs = append(next.Jobs, j.newHint(fulfillmentID, "commission_fulfillment", data))
 		}
-		// The fulfillment payload now owns the exact evidence. Release all
-		// source protection atomically with its durable queue admission.
+		// Move the exact ready evidence out of the ordinary receipt window.
+		// Terminal Order observation releases this independent bounded record.
 		clearCommissionReadiness(&next, orderID)
+		if next.ActiveCommissionReadiness == nil {
+			next.ActiveCommissionReadiness = map[string]CommissionReadiness{}
+		}
+		next.ActiveCommissionReadiness[orderID] = *readiness
 		job = &next.Jobs[i]
 		if job.CommissionDiagnostic == nil {
 			job.CommissionDiagnostic = &CommissionDiagnostic{}

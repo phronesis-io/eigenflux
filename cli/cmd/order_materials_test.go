@@ -91,13 +91,16 @@ func TestCreateOrderUploadsLongTextAndResumesFinalizedPreparation(t *testing.T) 
 			if finalized {
 				fmt.Fprint(w, `{"code":0,"data":{"preparation_id":51,"order":{"order_id":51}}}`)
 			} else {
-				fmt.Fprint(w, `{"code":0,"data":{"preparation_id":51,"contract":{"request_spec_schema":"{}"}}}`)
+				fmt.Fprint(w, `{"code":0,"data":{"preparation_id":51,"contract":{"sale_price_fen":1000,"request_spec_schema":"{}"}}}`)
 			}
 		case "/api/v1/order-preparations/51/uploads":
 			fmt.Fprintf(w, `{"code":0,"data":{"grant":{"object_id":71,"method":"PUT","url":%q}}}`, server.URL+"/object")
 		case "/api/v1/order-preparations/51/uploads/confirm":
 			fmt.Fprint(w, `{"code":0,"data":{}}`)
 		case "/api/v1/orders":
+			if string(body["expected_sale_price_fen"]) != "1000" {
+				t.Errorf("the prepared order did not carry the approved sale price: %s", body["expected_sale_price_fen"])
+			}
 			if _, ok := body["buyer_input"]; ok {
 				t.Error("inline input leaked")
 			}
@@ -116,6 +119,7 @@ func TestCreateOrderUploadsLongTextAndResumesFinalizedPreparation(t *testing.T) 
 	})
 	materialFlag(t, orderCreateCmd, "buyer-input-file", local)
 	materialFlag(t, orderCreateCmd, "idempotency-key", "long-input")
+	materialFlag(t, orderCreateCmd, "expected-sale-price-fen", "1000")
 	for i := 0; i < 2; i++ {
 		if err := orderCreateCmd.RunE(orderCreateCmd, []string{"77"}); err != nil {
 			t.Fatal(err)
@@ -132,7 +136,7 @@ func TestCreateOrderDoesNotFinalizeFailedUpload(t *testing.T) {
 	materialTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/order-preparations":
-			fmt.Fprint(w, `{"code":0,"data":{"preparation_id":51,"contract":{"request_spec_schema":"{}"}}}`)
+			fmt.Fprint(w, `{"code":0,"data":{"preparation_id":51,"contract":{"sale_price_fen":1000,"request_spec_schema":"{}"}}}`)
 		case "/api/v1/order-preparations/51/uploads":
 			fmt.Fprint(w, `{"code":409,"msg":"upload rejected"}`)
 		default:
@@ -140,6 +144,7 @@ func TestCreateOrderDoesNotFinalizeFailedUpload(t *testing.T) {
 		}
 	})
 	materialFlag(t, orderCreateCmd, "buyer-input", "材料")
+	materialFlag(t, orderCreateCmd, "expected-sale-price-fen", "1000")
 	if err := orderCreateCmd.RunE(orderCreateCmd, []string{"77"}); err == nil || !strings.Contains(err.Error(), "--preparation-id 51") {
 		t.Fatalf("error=%v", err)
 	}
@@ -241,5 +246,18 @@ func TestSellerAcceptanceRequiresInspectedVersionAndBoundAgent(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Fatal("unbound acceptance sent network mutation")
+	}
+}
+
+func TestCreateOrderRequiresBuyerApprovedPriceBeforePreparing(t *testing.T) {
+	materialTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unapproved quote sent a request to %s", r.URL.Path)
+		w.WriteHeader(http.StatusBadRequest)
+	})
+	materialFlag(t, orderCreateCmd, "expected-sale-price-fen", "0")
+	materialFlag(t, orderCreateCmd, "buyer-input", "Prepared material")
+	err := orderCreateCmd.RunE(orderCreateCmd, []string{"77"})
+	if err == nil || !strings.Contains(err.Error(), "--expected-sale-price-fen") {
+		t.Fatalf("expected approved price error, got %v", err)
 	}
 }

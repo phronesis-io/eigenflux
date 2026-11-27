@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -115,7 +116,8 @@ func TestDesktopCopyEventPrecedenceAndAliases(t *testing.T) {
 	for _, tt := range []struct{ state, kind, envelope, command, want string }{
 		{"cancelled", "order.refund.processing_error.v1", "order.refund.completed.v1", "reject_order", "refund hit a problem"},
 		{"in_progress", "future.event", "order.refund.completed.v1", "", "cancelled, payment returned"},
-		{"in_progress", "future.event", "order.reminder.buyer_confirmation_24h.v1", "", "still needs your confirmation"},
+		{"in_progress", "future.event", "order.reminder.buyer_confirmation_24h.v1", "", "after-sales period ends soon"},
+		{"refund_pending", "order.refund.processing_error.v1", "order.state.changed.v1", "refund_requested", "refund hit a problem"},
 		{"awaiting_payment", "", "order.state.changed.v1", "", "accepted, payment needed"},
 		{"awaiting_materials", "", "order.state.changed.v1", "", "order is being updated"},
 		{"refunding", "", "order.state.changed.v1", "", "refund started"},
@@ -123,6 +125,55 @@ func TestDesktopCopyEventPrecedenceAndAliases(t *testing.T) {
 		title, body := commissionDesktopCopy("en", tt.envelope, orderNotificationPayload{ToState: tt.state, EventKind: tt.kind, CommandKind: tt.command, RecipientRole: "buyer"})
 		if !strings.Contains(title, tt.want) || strings.Contains(body, "1970") || strings.Contains(body, "{confirm_due}") || strings.Contains(body, "{payment_due}") {
 			t.Fatalf("%+v: %s / %s", tt, title, body)
+		}
+	}
+}
+
+func TestDesktopAfterSalesNotifications(t *testing.T) {
+	cases := []struct {
+		command, state       string
+		buyer, seller, macOS string
+	}{
+		{"refund_requested", "awaiting_buyer_confirmation", "退款申请已提交", "买方已申请退款", "退款申请待平台处理"},
+		{"complaint_filed", "validating", "投诉已提交", "买方已提交投诉", "投诉待平台处理"},
+		{"after_sales_declined", "awaiting_buyer_confirmation", "售后申请已驳回", "售后申请已驳回", "售后申请已驳回"},
+		{"after_sales_resolved", "awaiting_buyer_confirmation", "售后事项已处理", "售后事项已处理", "售后事项已处理"},
+		{"refund_approved", "refund_pending", "正在退款", "订单正在退款", "订单退款中"},
+		{"delivery_review_refunded", "refund_pending", "正在退款", "订单正在退款", "订单退款中"},
+	}
+	for _, tc := range cases {
+		for _, role := range []string{"buyer", "seller"} {
+			for _, platform := range []string{"windows", "darwin"} {
+				t.Run(tc.command+"/"+role+"/"+platform, func(t *testing.T) {
+					var fact desktopOrderFact
+					if err := json.Unmarshal(commissionTestNotification(81, 901, "42"), &fact); err != nil {
+						t.Fatal(err)
+					}
+					fact.Payload.ToState, fact.Payload.CommandKind, fact.Payload.RecipientRole = tc.state, tc.command, role
+					fact.Payload.EventKind = "order.state.changed.v1"
+					raw, err := json.Marshal(fact)
+					if err != nil {
+						t.Fatal(err)
+					}
+					message, err := commissionDesktopMessageForPlatform(raw, "https://example.com", "42", "zh", platform)
+					if err != nil {
+						t.Fatal(err)
+					}
+					want := tc.buyer
+					if platform == "darwin" {
+						want = tc.macOS
+					} else if role == "seller" {
+						want = tc.seller
+					}
+					if !strings.Contains(message.Title, want) {
+						t.Fatalf("title %q should contain %q", message.Title, want)
+					}
+					target, err := url.Parse(message.URL)
+					if err != nil || target.Query().Get("order_id") != "901" || target.Query().Get("role") != role {
+						t.Fatalf("notification should open the participant's order: %q", message.URL)
+					}
+				})
+			}
 		}
 	}
 }

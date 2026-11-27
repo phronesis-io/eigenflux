@@ -74,6 +74,46 @@ func validCommissionNotificationValues(t *testing.T) map[string]any {
 	}
 }
 
+func TestParseCommissionManualReviewKeepsIndependentSameVersionReceipt(t *testing.T) {
+	for _, role := range []string{"buyer", "seller"} {
+		t.Run(role, func(t *testing.T) {
+			var receipts []commissionOrderNotificationEvent
+			for index, status := range []string{"reviewing", "manual_review"} {
+				values := validCommissionNotificationValues(t)
+				id := int64(100 + index)
+				payload := map[string]any{
+					"event_id": id, "event_kind": "order.validation.processing_error.v1",
+					"order_id": 20, "order_version": 3, "recipient_agent_id": 30, "recipient_role": role,
+					"state": "validating", "from_state": "validating", "to_state": "validating",
+					"actor_kind": "system", "snapshot_id": 50, "occurred_at": 60,
+					"delivery_review": map[string]any{"status": status, "submission_number": 2},
+				}
+				encoded, err := json.Marshal(payload)
+				if err != nil {
+					t.Fatal(err)
+				}
+				values["event_id"], values["outbox_id"] = strconv.FormatInt(id, 10), strconv.FormatInt(id, 10)
+				values["event_kind"], values["payload_json"] = payload["event_kind"], string(encoded)
+				values["dedupe_key"] = "order:20:intent:71:event:order.validation.processing_error.v1:recipient:30:submission:2"
+				if status == "manual_review" {
+					values["dedupe_key"] = values["dedupe_key"].(string) + ":manual_review"
+				}
+				event, parsed, err := parseCommissionOrderNotification(values)
+				if err != nil {
+					t.Fatalf("existing schema rejected %s receipt: %v", status, err)
+				}
+				if event.PayloadJSON != string(encoded) || event.OutboxID != id || parsed.RecipientRole != role {
+					t.Fatalf("receipt identity or raw review metadata changed: %#v", event)
+				}
+				receipts = append(receipts, event)
+			}
+			if receipts[0].OrderVersion != receipts[1].OrderVersion || receipts[0].OutboxID == receipts[1].OutboxID || receipts[0].DedupeKey == receipts[1].DedupeKey {
+				t.Fatalf("same-version final receipt lost independent identity: %#v", receipts)
+			}
+		})
+	}
+}
+
 func TestParseCommissionOrderNotificationValidatesEnvelopeAndRecipient(t *testing.T) {
 	values := validCommissionNotificationValues(t)
 	event, payload, err := parseCommissionOrderNotification(values)

@@ -45,8 +45,8 @@ type pendingConfirmationAccount struct {
 func newOrderPendingConfirmationsCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "pending-confirmations",
-		Short: "Read buyer deliveries awaiting confirmation and prepare a reminder",
-		Long:  "Read current buyer orders awaiting confirmation. The JSON result is read-only and may be shown after every regular heartbeat or Feed cycle. This command never confirms delivery, marks reminders read, or calls an Agent.",
+		Short: "Read delivered orders in the after-sales period",
+		Long:  "Read buyer orders awaiting platform acceptance. This compatibility command is read-only. Use the order page in My Gigs for after-sales requests.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			language, _ := cmd.Flags().GetString("language")
@@ -235,9 +235,9 @@ func readPendingConfirmations(ctx context.Context, api *client.Client, account p
 			result.CheckedAt = time.Now().UnixMilli()
 			if len(result.Orders) > 0 {
 				result.Status = "pending"
-				result.Reminder = fmt.Sprintf("You have %d delivered order(s) awaiting confirmation. Please review the results and confirm your orders promptly.", len(result.Orders))
+				result.Reminder = fmt.Sprintf("You have %d delivered order(s) awaiting platform acceptance. Open My Gigs for after-sales help.", len(result.Orders))
 				if language == "zh" {
-					result.Reminder = fmt.Sprintf("您有 %d 笔订单已交付，等待确认。请及时检查交付结果并确认订单。", len(result.Orders))
+					result.Reminder = fmt.Sprintf("您有 %d 笔订单已交付，等待平台验收。如需售后，请打开「我的委托」。", len(result.Orders))
 				}
 			}
 			return result, nil

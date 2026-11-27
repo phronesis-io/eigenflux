@@ -25,6 +25,9 @@ var (
 func (w *accountWatch) commissionDeliveryJob(job dispatch.Job) dispatch.Job {
 	for _, current := range w.journal.Snapshot() {
 		if current.ID == job.ID {
+			// Snapshot intentionally redacts private payloads; the claimed job's
+			// immutable input still fences this delivery's formal submission.
+			current.Data = job.Data
 			return current
 		}
 	}
@@ -108,6 +111,24 @@ func commissionDeliveryAdvanced(order commissionIntakeOrder, version int64) bool
 	return order.State == "validating" || order.State == "awaiting_buyer_confirmation" || order.State == "completed"
 }
 
+func commissionDeliveryMatchesJob(order commissionIntakeOrder, job dispatch.Job, version int64) bool {
+	if !commissionDeliveryAdvanced(order, version) {
+		return false
+	}
+	if order.DeliveryReview == nil {
+		return true
+	}
+	var queued dispatch.CommissionFulfillmentJob
+	if json.Unmarshal(job.Data, &queued) != nil {
+		return false
+	}
+	submission := 1
+	if queued.DeliveryReview != nil {
+		submission = queued.DeliveryReview.SubmissionNumber + 1
+	}
+	return order.DeliveryReview.SubmissionNumber == submission
+}
+
 // Verify only the exact expected artifact bytes in the authoritative snapshot.
 // The shared downloader bounds reads to the declared size plus one (64 MiB total
 // was already validated), rejects redirects and does not forward API credentials.
@@ -149,7 +170,7 @@ func (w *accountWatch) verifyCommissionRemoteArtifacts(ctx context.Context, api 
 }
 
 func (w *accountWatch) confirmCommissionRemoteDelivery(ctx context.Context, api *client.Client, job dispatch.Job, order commissionIntakeOrder, result dispatch.CommissionFulfillmentResult, session string) error {
-	if !commissionDeliveryParties(order, job.CommissionDelivery) || !commissionDeliveryAdvanced(order, result.Decision.OrderVersion) {
+	if !commissionDeliveryParties(order, job.CommissionDelivery) || !commissionDeliveryMatchesJob(order, job, result.Decision.OrderVersion) {
 		return w.failCommissionDelivery(job, errCommissionDeliveryRejected, "commission_fulfillment_order_changed", session)
 	}
 	started := time.Now()
@@ -167,7 +188,7 @@ func (w *accountWatch) confirmCommissionRemoteDelivery(ctx context.Context, api 
 	}
 	if !sameCommissionIntakeOrder(order, confirmed) {
 		// A normal platform validation transition may advance while downloading.
-		if commissionDeliveryParties(confirmed, job.CommissionDelivery) && commissionDeliveryAdvanced(confirmed, result.Decision.OrderVersion) {
+		if commissionDeliveryParties(confirmed, job.CommissionDelivery) && commissionDeliveryMatchesJob(confirmed, job, result.Decision.OrderVersion) {
 			return w.failCommissionDelivery(job, errors.New("commission_delivery_snapshot_advanced"), "commission_delivery_verification_unavailable", session)
 		}
 		return w.failCommissionDelivery(job, errCommissionDeliveryRejected, "commission_fulfillment_order_changed", session)

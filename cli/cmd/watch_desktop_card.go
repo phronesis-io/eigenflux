@@ -15,14 +15,23 @@ const (
 )
 
 var commissionDesktopCardTitles = map[string]desktopLocalizedCopy{
+	"delivery_changes_requested":  {"交付整改中", "Revising delivery"},
+	"delivery_manual_review":      {"等待平台人工复核", "Awaiting manual platform review"},
+	"delivery_failed":             {"交付未通过 · 退款中", "Delivery failed · Refunding"},
 	"awaiting_seller":             {"待接单", "Awaiting acceptance"},
 	"pending_payment":             {"待付款", "Awaiting payment"},
 	"in_progress":                 {"已付款 · 待交付", "Paid · Delivery due"},
 	"validating":                  {"交付检查中", "Checking delivery"},
-	"awaiting_buyer_confirmation": {"待确认交付", "Confirm delivery"},
-	"order.reminder.buyer_confirmation_24h.v1": {"交付确认提醒", "Confirmation reminder"},
+	"awaiting_buyer_confirmation": {"售后期内", "After-sales period"},
+
+	"refund_requested":     {"退款申请待平台处理", "Refund request pending platform review"},
+	"complaint_filed":      {"投诉待平台处理", "Complaint pending platform review"},
+	"after_sales_declined": {"售后申请已驳回", "After-sales request declined"},
+	"after_sales_resolved": {"售后事项已处理", "After-sales request resolved"},
+
+	"order.reminder.buyer_confirmation_24h.v1": {"售后期提醒", "After-sales reminder"},
 	"completed":                            {"订单已完成", "Order completed"},
-	"auto_completed":                       {"确认超时 · 自动完成", "Confirmation timed out · Completed"},
+	"auto_completed":                       {"平台已验收", "Accepted by the platform"},
 	"rejected":                             {"卖家已拒单", "Seller declined"},
 	"cancelled":                            {"订单已取消", "Order cancelled"},
 	"payment_expired":                      {"付款超时 · 订单关闭", "Payment timeout · Closed"},
@@ -30,11 +39,11 @@ var commissionDesktopCardTitles = map[string]desktopLocalizedCopy{
 	"buyer_cancelled":                      {"买家已取消订单", "Buyer cancelled"},
 	"late_payment_detected":                {"付款超时 · 退款中", "Late payment · Refunding"},
 	"risk_blocked":                         {"平台风控 · 订单关闭", "Risk checks · Closed"},
-	"refund_pending":                       {"交付超时 · 退款中", "Delivery overdue · Refunding"},
+	"refund_pending":                       {"订单退款中", "Refund in progress"},
 	"refunded":                             {"订单已退款", "Order refunded"},
 	"order.refund.processing_error.v1":     {"退款异常 · 重试中", "Refund issue · Retrying"},
 	"order.refund.completed.v1":            {"取消订单 · 退款已退回", "Cancelled · Refunded"},
-	"order.settlement.completed.v1":        {"净入账", "Net credited"},
+	"order.settlement.completed.v1":        {"供货款入账", "Supply payment credited"},
 	"order.settlement.processing_error.v1": {"入账异常 · 重试中", "Credit issue · Retrying"},
 	"order.validation.processing_error.v1": {"交付检查异常 · 重试中", "Delivery check · Retrying"},
 	"order.review.created.v1":              {"收到评价", "Review received"},
@@ -53,6 +62,8 @@ func commissionDesktopCard(language, notificationType string, p orderNotificatio
 	}
 	body := desktopCounterpartyPlaceholder + desktopCardService + "\n"
 	switch key {
+	case "delivery_changes_requested":
+		body += desktopCardDeadline(zh, "整改截止", "Revise by", p.DeliveryReview.ReworkDueAt)
 	case "awaiting_seller":
 		title += desktopCardGross
 		body += desktopCardDeadline(zh, "接单截止", "Accept by", p.SellerConfirmDue)
@@ -62,11 +73,11 @@ func commissionDesktopCard(language, notificationType string, p orderNotificatio
 	case "in_progress":
 		body += desktopCardDeadline(zh, "交付截止", "Deliver by", p.DeliveryDueAt)
 	case "awaiting_buyer_confirmation", "order.reminder.buyer_confirmation_24h.v1":
-		body += desktopCardDeadline(zh, "确认截止", "Confirm by", p.BuyerConfirmDue)
+		body += desktopCardDeadline(zh, "售后截止", "After-sales deadline", p.BuyerConfirmDue)
 	case "order.settlement.completed.v1":
 		title += desktopCardNet
 		body += desktopCardCredit
-	case "refund_pending", "refunded", "late_payment_detected", "order.refund.processing_error.v1", "order.refund.completed.v1":
+	case "refund_pending", "refunded", "delivery_failed", "late_payment_detected", "order.refund.processing_error.v1", "order.refund.completed.v1":
 		title += desktopCardRefund
 	case "order.review.created.v1":
 		if p.ReviewScore >= 1 && p.ReviewScore <= 5 {

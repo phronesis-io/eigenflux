@@ -18,7 +18,14 @@ func TestCommissionSkillContract(t *testing.T) {
 	}
 
 	skill := string(skillBody)
+	for _, retired := range []string{"## Platform Commission", "buyer completion", "recommending `complete`", "deliver, complete"} {
+		if strings.Contains(skill, retired) {
+			t.Errorf("Skill still instructs %q", retired)
+		}
+	}
 	for _, required := range []string{
+		"## Order Prices and Supply Payments",
+		"direct refund requests and complaints to the Order page in My Gigs",
 		"## Funding Channel",
 		"Payments and payouts currently support Alipay in CNY only",
 		"never as a separate qualification to raise up front",
@@ -67,17 +74,21 @@ func TestCommissionSkillContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	order := string(orderBody)
+	for _, retired := range []string{"eigenflux order complete ", "pending-confirmations", "20% platform commission"} {
+		if strings.Contains(order, retired) {
+			t.Errorf("Order workflow still instructs %q", retired)
+		}
+	}
 	for _, required := range []string{
-		"## Buyer Acceptance Report",
+		"## Buyer Delivery Report",
 		"actual downloaded files",
 		"contract compliance, concrete defects or verification limits",
-		"recommendation in the current conversation",
 		"Distinguish platform validation",
-		"Retain buyer authorization for receipt confirmation",
+		"Direct refunds and complaints to the Order page",
 		"reuse the verified inspection and restate its",
 	} {
 		if !strings.Contains(order, required) {
-			t.Errorf("buyer acceptance report is missing %q", required)
+			t.Errorf("buyer delivery report is missing %q", required)
 		}
 	}
 	for _, required := range []string{
@@ -115,6 +126,20 @@ func TestCommissionSkillContract(t *testing.T) {
 		if !strings.Contains(wallet, required) {
 			t.Errorf("Wallet payout disclosure is missing %q", required)
 		}
+	}
+
+	broadcastBody, err := os.ReadFile(filepath.Join(repoRoot, "skills/ef-broadcast/references/publish.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broadcast := string(broadcastBody)
+	for _, required := range []string{"Keep prices and order amounts out of the broadcast", "lead with the service's practical use", "Include the verified delivery promise and capability link"} {
+		if !strings.Contains(broadcast, required) {
+			t.Errorf("Agent Gig broadcast rule is missing %q", required)
+		}
+	}
+	if strings.Contains(broadcast, "include the verified public price") {
+		t.Error("Agent Gig broadcast still instructs publishing a price")
 	}
 }
 
@@ -159,6 +184,44 @@ func TestCommissionInteractiveFulfillmentReusesIntakeInspection(t *testing.T) {
 	} {
 		if strings.Contains(fulfillment, obsolete) {
 			t.Errorf("paid fulfillment repeats intake inspection: %q", obsolete)
+		}
+	}
+}
+
+func TestCommissionReworkSkillContract(t *testing.T) {
+	for file, required := range map[string][]string{
+		"SKILL.md":                           {"Require CLI 1.0.54", "one platform-requested rework"},
+		"references/fulfillment-dispatch.md": {"`submission_number`", "`order.delivery_review`", "`changes_requested`", "`rework_due_at`", "frozen contract", "fresh output directory", "same formal submission", "regenerate all required artifacts"},
+		"references/order.md":                {"`delivery_review.status=changes_requested`", "fresh execution version", "Technical retries retain the same submission", "72-hour after-sales window"},
+		"references/recovery.md":             {"new Order version and execution revision", "Keep old jobs, sessions, checkpoints and snapshots unchanged", "Keep workspace writes paused"},
+		"references/main-notice.md":          {"`manual_review`", "`failed`", "single remaining submission", "72-hour after-sales window"},
+	} {
+		body, err := os.ReadFile(filepath.Join("../../skills/ef-commission", file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, text := range required {
+			if !strings.Contains(string(body), text) {
+				t.Errorf("%s lacks %q", file, text)
+			}
+		}
+	}
+	config, err := os.ReadFile("../.cli.config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"CLI_VERSION=", "SKILLS_MIN_CLI_VERSION="} {
+		found := false
+		for _, line := range strings.Split(string(config), "\n") {
+			if value, ok := strings.CutPrefix(line, key); ok {
+				found = true
+				if cliVersionOutdated(value, "1.0.54") {
+					t.Errorf("%s allows an older CLI", key)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("missing %s", key)
 		}
 	}
 }

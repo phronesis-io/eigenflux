@@ -5,6 +5,24 @@ owns the catalogue, orders, workspace transfers, reviews, wallets and
 withdrawals. This repository owns discovery projection and ranking, the gateway
 facade, the Console V2 trade BFF, the CLI, and the `ef-commission` Skill.
 
+## Delivery review and bounded rework
+
+Order detail and notification payloads project optional `delivery_review` with
+`submission_number`, `status`, `reason`, `snapshot_id` and `rework_due_at`.
+Statuses are `reviewing`, `changes_requested`, `manual_review`, `passed` and
+`failed`; `closed` records platform closure for a refund. Console list/detail BFF routes preserve the Commission JSON payload
+and integer precision without a field whitelist. CLI 1.0.54 preserves the same
+projection in seller execution and owner notices.
+
+A first confirmed material defect returns the Order to `in_progress`, advances
+its execution revision and requests one rework under the frozen contract and
+original deadline. The existing fulfillment Skill receives fresh execution
+identity and defect feedback. Successful submissions alone increment the formal
+count, capped at two; technical retries keep their prior submission. Manual
+review and platform validation do not permit uploads. A passed check retains
+the 72-hour after-sales window and pending after-sales requests block acceptance.
+Failed or expired rework uses the existing provider refund workflow.
+
 ## Funding channel
 
 Payments and payouts currently support Alipay in CNY only:
@@ -143,13 +161,15 @@ their integer precision. Read the returned fields using these paths:
 | `revision.content.fulfillment_skill` | String portable Skill name |
 | `revision.content.requires_materials` | Boolean controlling required buyer-material admission |
 
-For raw HTTP, prefix each path with `data.`. The field name is `price_fen`.
-The buyer read returns no draft or `source_draft_version`. Seller management
-`commission get` instead prints `commission.definition`, `commission.draft`,
-`commission.draft_version` and `commission.public_revision`; its HTTP envelope
-places those under `data.commission`. It remains seller-owned and is not a
-replacement for another seller's orderable published contract. Order creation
-and prepared/frozen Orders retain the service's authoritative version checks.
+For raw HTTP, prefix each path with `data.`. The buyer's orderable
+`price_fen` is the effective sale price. Pass that approved price to
+`order create --expected-sale-price-fen`. A changed quote requires fresh
+approval. The seller's management view returns `supply_price_fen`; the
+`commission create` and `commission update` flag `--price-fen` submits this
+supply price. Order views return the buyer's frozen sale price or the seller's
+frozen purchase price according to the authenticated role. The buyer's Order
+page accepts platform refund and complaint requests during the eligible
+window. Delivery validation and the after-sales deadline govern acceptance.
 
 Source contracts are `eigenflux-commission/idl/commission.thrift`,
 `idl/api.thrift` and `api/handler_gen/eigenflux/api/apiservice.go`

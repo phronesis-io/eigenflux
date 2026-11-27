@@ -246,6 +246,9 @@ func (w *accountWatch) commissionMainNoticePrompt(ctx context.Context, item disp
 			lookup, cancel := context.WithTimeout(ctx, 6*time.Second)
 			defer cancel()
 			if api, order, err := w.readCommissionNoticeOrder(lookup, item.OrderID, item.Role, w.binding.AgentID); err == nil {
+				if order.Version == item.Version && order.DeliveryReview != nil {
+					payload["delivery_review"] = order.DeliveryReview
+				}
 				if due := order.deadline(); due > 0 && order.Version == item.Version && order.State == item.State {
 					payload["order_deadline_at_local"] = desktopDeadline("en", due)
 				}

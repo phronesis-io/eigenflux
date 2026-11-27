@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func TestCommissionBuyerNoticeCarriesSignedAcceptanceReport(t *testing.T) {
+func TestCommissionBuyerNoticeCarriesSignedPlatformAcceptanceRules(t *testing.T) {
 	w := newCommissionWatch(t, "http://127.0.0.1:1", "commission_order")
 	installCommissionIntakeRules(t, w)
 	rule, err := os.ReadFile("../../skills/ef-commission/references/main-notice.md")
@@ -25,11 +25,11 @@ func TestCommissionBuyerNoticeCarriesSignedAcceptanceReport(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !strings.Contains(prompt, string(rule)) {
-			t.Fatal("main notice omitted or replaced the signed acceptance instructions")
+			t.Fatal("main notice omitted or replaced the signed platform acceptance instructions")
 		}
-		for _, required := range []string{"Download and inspect the delivery", "contract compliance", "defects or verification limits", "acceptance recommendation", "Distinguish platform validation from Agent content inspection", "reuse the verified inspection and restate its conclusion", "Do not pay, accept, confirm receipt"} {
+		for _, required := range []string{"Download and inspect the delivery", "contract compliance", "defects or verification limits", "after-sales deadline", "Distinguish platform validation from Agent content inspection", "reuse the verified inspection and restate its conclusion", "Do not pay, accept, refund, cancel"} {
 			if !strings.Contains(prompt, required) {
-				t.Errorf("%s notice missing acceptance boundary %q", state, required)
+				t.Errorf("%s notice missing platform acceptance boundary %q", state, required)
 			}
 		}
 	}
@@ -44,7 +44,7 @@ func TestCommissionMainNoticeAllRolesAndFailureNoBusinessWrite(t *testing.T) {
 				calls := 0
 				w.runMainNotice = func(_ context.Context, prompt string) (dispatch.Result, error) {
 					calls++
-					if !strings.Contains(prompt, `"role":"`+role+`"`) || !strings.Contains(prompt, `"observed_state":"`+state+`"`) || !strings.Contains(prompt, "Do not pay, accept, confirm receipt") || !strings.Contains(prompt, "--homedir") || !strings.Contains(prompt, w.home) {
+					if !strings.Contains(prompt, `"role":"`+role+`"`) || !strings.Contains(prompt, `"observed_state":"`+state+`"`) || !strings.Contains(prompt, "Do not pay, accept, refund, cancel") || !strings.Contains(prompt, "--homedir") || !strings.Contains(prompt, w.home) {
 						t.Error("missing role/state/safety")
 					}
 					return dispatch.Result{}, errors.New("host unavailable")

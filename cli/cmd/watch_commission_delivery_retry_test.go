@@ -31,13 +31,14 @@ func dueCommissionDelivery(t *testing.T, w *accountWatch, jobID string) dispatch
 		t.Fatal(err)
 	}
 	var state struct {
-		Version  int               `json:"version"`
-		Scope    string            `json:"scope"`
-		Revision string            `json:"binding_revision"`
-		AgentID  string            `json:"agent_id"`
-		Sequence uint64            `json:"sequence"`
-		Jobs     []dispatch.Job    `json:"jobs"`
-		Sessions map[string]string `json:"sessions"`
+		Version                   int                                     `json:"version"`
+		Scope                     string                                  `json:"scope"`
+		Revision                  string                                  `json:"binding_revision"`
+		AgentID                   string                                  `json:"agent_id"`
+		Sequence                  uint64                                  `json:"sequence"`
+		Jobs                      []dispatch.Job                          `json:"jobs"`
+		Sessions                  map[string]string                       `json:"sessions"`
+		ActiveCommissionReadiness map[string]dispatch.CommissionReadiness `json:"active_commission_readiness,omitempty"`
 	}
 	if err := json.Unmarshal(body, &state); err != nil {
 		t.Fatal(err)

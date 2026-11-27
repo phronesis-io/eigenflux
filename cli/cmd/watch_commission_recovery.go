@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"time"
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/config"
@@ -55,13 +56,16 @@ func recoverWatchCommission(cmd *cobra.Command, b dispatch.Binding, q *dispatch.
 	if order.State != "awaiting_seller" && order.State != "in_progress" {
 		return errors.New("commission_order_not_recoverable")
 	}
+	if order.State == "in_progress" && !commissionFulfillmentWritable(order, time.Now()) {
+		return errors.New("commission_order_not_recoverable")
+	}
 	var jobID string
 	err = auth.WithV2CredentialsLockContext(cmd.Context(), b.Server, commissionIntakeTimeout, func() error {
 		if err := w.commissionIdentityOK(); err != nil {
 			return err
 		}
 		var saveErr error
-		jobID, saveErr = q.RecoverCommission(id, order.Version)
+		jobID, saveErr = q.RecoverCommission(id, order.Version, dispatch.CommissionFulfillmentExecution{Revision: order.ExecutionRevision, Review: order.DeliveryReview})
 		return saveErr
 	})
 	if err != nil {

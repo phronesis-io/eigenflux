@@ -61,8 +61,8 @@ func TestCommissionReadinessSurvivesCompletedReceiptWindowUntilPaid(t *testing.T
 	if err := j.QueueCommissionFromReadiness(paid.ID, source.ID, "901", 3); err != nil {
 		t.Fatal(err)
 	}
-	if commissionReadinessCount(j.state, false) != 0 {
-		t.Fatal("durable fulfillment did not release source evidence protection")
+	if commissionReadinessCount(j.state, false) != 1 || j.state.ActiveCommissionReadiness["901"].InputFingerprint != evidence.InputFingerprint {
+		t.Fatal("durable fulfillment lost its independently retained evidence")
 	}
 	addCompletedReadinessNoise(t, j, "after-payment")
 	j = mustJournal(t, j.binding)

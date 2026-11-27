@@ -71,7 +71,7 @@ func TestOrderPendingConfirmationsReadsAllPagesAndRepeatsReminder(t *testing.T) 
 					if result.Orders[0].OrderID != "9223372036854775807" || result.Orders[1].OrderID != "9007199254740993" || result.Reminder == "" || strings.Contains(text, "private input") || strings.Contains(text, "untrusted title") {
 						t.Fatalf("identity precision, reminder, or projection failed: %s", text)
 					}
-					if language == "zh" && !strings.Contains(result.Reminder, "请及时") || language == "en" && !strings.Contains(result.Reminder, "promptly") {
+					if language == "zh" && !strings.Contains(result.Reminder, "等待平台验收") || language == "en" && !strings.Contains(result.Reminder, "awaiting platform acceptance") {
 						t.Fatalf("wrong language: %s", result.Reminder)
 					}
 					for _, order := range result.Orders {

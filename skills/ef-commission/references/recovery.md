@@ -21,10 +21,10 @@ Apply authoritative lifecycle and business waits first; resolve uncertain execut
 | Seller notification intake is absent and the current Order is `awaiting_seller` or `in_progress` | Run `eigenflux watch retry --order-id ORDER_ID` once; require the existing `commission_order` subscription. |
 | Matching job is `unknown`, or execution may already have produced external effects | Establish the actual stage outcome, then apply reconciliation below. |
 | Matching job is pending or running, or CLI has scheduled a bounded delivery retry | Allow the existing execution to proceed; inspect runtime health and recorded retry progress. |
-| Order is awaiting buyer input, payment, platform validation or buyer confirmation | Follow the business wait below. |
+| Order is awaiting buyer input, payment, platform validation or after-sales expiry | Follow the business wait below. |
 | Order is cancelled, refunded, refund-pending or completed | Follow its authoritative lifecycle state; retain local execution evidence. |
 
-`recover` repairs watch infrastructure. `retry JOB_ID` requeues a failed or blocked job. `retry --order-id` records missing intake and preserves existing jobs. `reconcile` records an evidenced outcome; execution requires a subsequent eligible retry.
+`recover` repairs watch infrastructure. `retry JOB_ID` requeues a failed or blocked job. `retry --order-id` records missing intake and preserves existing jobs. For a verified `changes_requested` Order, use its new Order version and execution revision to queue a fresh rework job from retained ready input evidence. Keep old jobs, sessions, checkpoints and snapshots unchanged; retry only the matching current execution. `reconcile` records an evidenced outcome; execution requires a subsequent eligible retry.
 
 ## Reconcile Uncertain Work
 
@@ -47,6 +47,6 @@ Use `completed` and `failed` for Commission jobs. Reserve `replied`, `no_reply` 
 ## Business Waits
 
 - `awaiting_seller` with `input_request.status=waiting_buyer`: wait for formal buyer submission while required facts remain missing. When the seller confirms the existing materials are sufficient under the frozen contract, withdraw the obsolete request through `order withdraw-input-request` using the current Order version and request ID, then verify fresh background inspection and acceptance. Preserve the buyer's original materials; derive the writing scope from them and the fulfillment skill. Submitted buyer supplements also wake seller reinspection. Passing inspection permits acceptance, then payment is required.
-- `pending_payment`: wait for verified payment. `in_progress` permits paid local fulfillment after ready input inspection.
-- `validating`: wait for platform validation. `awaiting_buyer_confirmation`: follow buyer artifact inspection and completion approval.
+- `pending_payment`: wait for verified payment. `in_progress` permits paid local fulfillment after ready input inspection. With `delivery_review.status=changes_requested`, require `submission_number=1`, an unexpired `rework_due_at` and CLI 1.0.54; allow one fresh rework invocation under the original frozen Skill and contract. Stop when the limit or deadline is reached and wait for authoritative refund processing.
+- `validating`: wait for platform validation; `reviewing` is a check in progress and `manual_review` requires platform handling. Keep workspace writes paused. A technical retry preserves the formal submission count. `awaiting_buyer_confirmation`: inspect the delivery and direct after-sales requests to the platform through the Order page.
 - Report the observed Order, local recovery action, verified progress and remaining actor/action. Separate runtime readiness, job-stage completion, server delivery and buyer acceptance. Retain unverified status until the corresponding evidence exists.

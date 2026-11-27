@@ -165,6 +165,17 @@ reuse verified files on explicit job retry. Legacy uncertain work without delive
 retry metadata requires operator reconciliation; loose files do not establish a
 checkpoint or authorize automatic replay.
 
+CLI 1.0.54 processes one platform-requested rework through the existing frozen
+fulfillment Skill. Require current `in_progress`, `delivery_review.status` of
+`changes_requested`, submission 1 and an unexpired original delivery deadline.
+Use a fresh job, session and output directory for the new Order version and
+execution revision. Retain the verified original input check independently of completed-job
+compaction until observing the terminal Order. Keep its existing 256-Order bound. Regenerate and self-check all contractual paths before upload and
+the second submission. Preserve prior artifacts and snapshots. Duplicate events
+and issue-report revision updates do not repeat this execution. A technical
+delivery retry retains its own keys and submission number. Before rework submission, replay the original scoped upload/confirmation keys against staging; the latest sealed Order-state snapshot can contain the previous delivery files and has a different ID from the reviewed delivery snapshot. Verify the new sealed bytes after the matching submission succeeds. Platform validation,
+manual review, expiry, submission 2 and refund processing pause seller writes.
+
 WorkBuddy Commission runs through the current CLI-managed ACP bridge grant
 read-only access to the frozen contract's validated Skill directory. Existing
 workspace permissions stay unchanged. Keep the bridge executable paired with
@@ -316,7 +327,7 @@ Paid fulfillment continues to require and reuse the original checked inputs.
 
 ### Missed seller order recovery
 
-Stop watch and run `watch retry --order-id ORDER_ID` with the bound Home and server to persist one seller intake when notifications were missed or previously read. The authoritative order must belong to the current seller and be awaiting seller acceptance or in progress. The binding must subscribe to `commission_order`; status and doctor expose its subscription independently of PM readiness. Start `watch --dispatch` afterward to execute the queued intake. Existing fulfillment records and uncertain intake jobs require the existing job-ID retry/reconcile workflow. This command neither creates notification records nor acknowledges the inbox.
+Stop watch and run `watch retry --order-id ORDER_ID` with the bound Home and server to persist one seller intake when notifications were missed or previously read. The authoritative order must belong to the current seller and be awaiting seller acceptance or in progress. The binding must subscribe to `commission_order`; status and doctor expose its subscription independently of PM readiness. Start `watch --dispatch` afterward to execute the queued intake. A valid changes-requested Order admits missing intake for its new version while preserving old jobs. Existing current-version fulfillment records and uncertain current intake jobs require their job-ID retry/reconcile workflow. Expired or exhausted rework remains paused. This command neither creates notification records nor acknowledges the inbox.
 
 ## Test listing publish verification
 

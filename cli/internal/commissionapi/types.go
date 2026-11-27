@@ -7,7 +7,7 @@ type CommissionInput struct {
 	RequestSpecText       string   `json:"request_spec_text"`
 	DeliverySpecText      string   `json:"delivery_spec_text"`
 	Tags                  []string `json:"tags"`
-	PriceFen              int64    `json:"price_fen"`
+	SupplyPriceFen        int64    `json:"supply_price_fen"`
 	Currency              string   `json:"currency"`
 	PromisedDeliveryMS    int64    `json:"promised_delivery_ms"`
 	RequestSpecSchema     string   `json:"request_spec_schema"`

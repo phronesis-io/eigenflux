@@ -310,6 +310,9 @@ order/version/role execution key; desktop delivery independently preserves each
 notification ID. Terminal and desktop use the same event priority:
 recognized `payload.event_kind`, then envelope `type`, then order state. Seller
 rejection uses `command_kind=reject_order`. Wallet credit does not mean withdrawal.
+For `order.validation.processing_error.v1`, a `manual_review` delivery review
+while the Order remains `validating` takes precedence over automatic-retry copy
+in terminal and desktop notices. Other result events keep their priority.
 
 At desktop submission, read the role-checked Order for its frozen title,
 counterparty and amounts. Resolve the counterparty through the public Agent
@@ -330,7 +333,8 @@ Restart watch after changing OS language; already queued messages keep their
 text. Detection and native boundaries live in `desktopnotify/README.md`.
 
 `watch_desktop_copy.go` owns buyer/seller title/body templates from the approved
-copy document; terminal summaries stay unchanged. Render event deadlines at
+copy document and the shared manual-review result predicate; terminal summaries
+use the same manual-review status as desktop cards. Render event deadlines at
 intake in local time with the UTC offset, referring to the order page if absent.
 `watch_desktop_service.go` resolves the frozen contract title through the existing
 order detail API in the desktop worker, never under the intake credential lock.
@@ -357,9 +361,9 @@ Use a fresh Agent session. Require matching request/order/version and `ready`, `
 
 ## Paid local fulfillment
 
-`SaveCommissionReadiness` persists the original ready check before acceptance. `QueueCommissionFromReadiness` atomically queues paid fulfillment after fingerprint validation, retaining the original inspection version separately from the current execution version. Protect unconsumed readiness from ordinary log compaction. Deduplicate by binding scope/revision/order, including across notification versions. A new paid notification without verifiable readiness blocks; it never invents or repeats a pre-acceptance model check. Historical orders are not bulk-scanned.
+`SaveCommissionReadiness` persists the original ready check before acceptance. `QueueCommissionFromReadiness` atomically queues paid fulfillment after fingerprint validation, retaining the original inspection version separately from the current execution version. Keep active-order readiness in a separate identity-pinned journal map after queue admission, independently of the 1024 completed-receipt window. Bound active evidence to 256 Orders and reject new acceptance at capacity. Release it only after observing completed, cancelled, rejected, refunded or expired state; retain it through platform validation, rework, refund processing and after-sales. Deduplicate the initial paid execution by binding scope/revision/order, including across notification versions. CLI 1.0.54 admits one `delivery_review.status=changes_requested` rework with `submission_number=1` and an unexpired original delivery deadline. Derive its fresh job ID from the binding, Order version, execution revision and prior submission number. Reuse the original ready result and input fingerprint from the independent active-order record; a retained first fulfillment payload remains a compatible source. Keep prior jobs and snapshots intact. Duplicate current-version notifications and execution-issue revision updates retain the same rework job. A new paid notification without verifiable readiness blocks; it never invents or repeats a pre-acceptance model check. Historical orders are not bulk-scanned.
 
-The separate fulfillment worker re-reads the same paid order version, resolves signed `fulfillment-dispatch.md`, and verifies freshly downloaded inputs against the retained contract/input/file fingerprint. The signed invocation rules own the result protocol; the bound skill and its references supply business execution and artifact requirements only. It uses the binding's host timeout, not the intake budget. Poll order state every 10 seconds independently of one-second local identity checks; a blocked network read cannot delay identity cancellation. Changed identity/order stops work. Interrupted Agent execution is not replayed; verified delivery work follows the bounded recovery below.
+The separate fulfillment worker re-reads the same paid order version, resolves signed `fulfillment-dispatch.md`, and verifies freshly downloaded inputs against the retained contract/input/file fingerprint. The signed invocation rules own the result protocol; the bound skill and its references supply business execution and artifact requirements only. It uses the binding's host timeout, not the intake budget. Poll order state every 10 seconds independently of one-second local identity checks; a blocked network read cannot delay identity cancellation. Changed identity/order stops work. The rework invocation carries the authoritative five-field `delivery_review` and next `submission_number`; the existing fulfillment Skill regenerates and self-checks all contracted paths in a fresh directory. The original delivery deadline bounds generation, uploads and resubmission. `validating`, manual review, a second submitted delivery, expiry and refund states never authorize workspace writes. Technical retries keep the original job, artifacts and mutation keys and do not create another formal submission. Remote delivery recovery matches the exact submission number before checking snapshot bytes, preventing an old job from confirming a later delivery. Interrupted Agent execution is not replayed; verified delivery work follows the bounded recovery below.
 
 Persist a new private output directory inside the bound WorkDir before invoking a fresh Agent session. Skills perform the frozen procedure, write new local deliverables and self-check contractual conditions. CLI requires a matching structured decision, then verifies all declared regular files through a confined filesystem root, rejects symlinks/traversal and duplicates, and computes SHA-256/byte counts from bounded reads. Limits: 128 outputs / 64 MiB. Portable validation cannot prove hard-link origin. Models may only claim local completion; unsupported tools, permissions or external effects require user action.
 
@@ -376,7 +380,7 @@ An explicit retry of a failed/needs-user job with a checkpoint reuses its verifi
 
 CLI 1.0.27 persists a separate delivery retry record after verified `artifacts_ready` output. It allows at most five total attempts, including the first, with 1/2/5/10-minute delays. Due times and attempt counts survive restart; a waiting job does not block other fulfillment jobs. Retry only the retained artifacts, never the Agent invocation. Revalidate the original identity, configuration, order parties/version, inputs, signed rules and exact output bytes before continuing.
 
-Freeze verified bytes into private upload copies before writes. Every attempt retains the original output directory, upload/confirm keys and delivery key/body with its original expected version. After an uncertain response, first read the authoritative order and download the current snapshot's declared outputs under bounded byte limits, comparing sizes and SHA-256. Matching delivered outputs confirm success without another submission. For an unchanged paid order, resume only the original uploads and delivery under the same keys. Changed files, conflicting remote artifacts, permission denial, changed identity/configuration/input/order, cancellation or refund stop recovery; expired upload grants never cause allocation under a fresh key. Exhausted or unresolved attempts retain their evidence for inspection. Legacy `unknown` work without retry metadata remains operator-only.
+Freeze verified bytes into private upload copies before writes. Every attempt retains the original output directory, upload/confirm keys and delivery key/body with its original expected version. After an uncertain response, first read the authoritative order and download the current snapshot's declared outputs under bounded byte limits, comparing sizes and SHA-256. Matching delivered outputs confirm success without another submission. For an unchanged paid order, resume only the original uploads and delivery under the same keys. During rework, `delivery_review.snapshot_id` identifies the reviewed delivery while `current_snapshot_id` identifies the latest sealed Order state; their IDs can differ. Neither is the new mutable staging set. Keep the current snapshot as the delivery-retry fence and preserve the reviewed snapshot as historical evidence. Revalidate local frozen hashes and the current identity/version, then replay each original upload grant and confirmation key. The service binds the existing object to the workspace, seller, logical path, size and hash; admitted objects return without another PUT. Only the matching new formal submission permits sealed snapshot download and final byte verification. A lost delivery response reads the new snapshot before any replay. Prior snapshots remain immutable. Changed files, conflicting remote artifacts, permission denial, changed identity/configuration/input/order, cancellation or refund stop recovery; expired upload grants never cause allocation under a fresh key. Exhausted or unresolved attempts retain their evidence for inspection. Legacy `unknown` work without retry metadata remains operator-only.
 
 `commission_delivery_confirmed` confirms submission, not buyer acceptance. Order-level deduplication follows the journal retention window; manually completed records eventually trimmed from the latest 1024 records are not permanent tombstones. Recheck order and bytes before any later submission.
 
@@ -823,7 +827,7 @@ workspace upload guards and original deadlines remain unchanged. Deploy matching
 Commission migrations 15/16 and Console BFF; verify browser PUT CORS. See
 cmd/watch_commission_material_notice.go and api/tradebff/ORDER_INPUTS.md.
 
-## Publisher notification permission and buyer confirmation
+## Publisher notification permission and after-sales
 
 Before creation and again before publication approval, Skills run notify status
 --publish-preflight --format json on the seller's computer and show any warning with its settings link and
@@ -833,14 +837,13 @@ telemetry. The create and publish commands retain bilingual stderr guidance as a
 Preserve existing approval; permission warnings do not add a publication gate or
 claim that clicking the settings link enabled notifications.
 
-The read-only order pending-confirmations command paginates authoritative buyer
-Orders and returns reminders for every normal cycle without a read receipt. Exact
-Commission access denial returns not_enabled and remains quiet, rather than empty.
-Full completed-access heartbeat appends commission_confirmations; standalone Feed
-uses the same rule in feed.md, contract.md and the synchronized served static
-contract. Pending confirmation is an explicit exception to Feed silence, including
-empty or unchanged Feed cycles. Do not expand maintenance/control or baseline access,
-append prose to machine Feed JSON, or automatically confirm receipt.
+The compatibility order pending-confirmations command reads buyer orders awaiting platform acceptance. Desktop notices show the after-sales deadline and direct the buyer to the Order page. Normal Feed and heartbeat cycles do not query receipt confirmations.
+
+Ordinary CLI notification output describes refund requests, complaints and
+platform decisions by command even when the order state stays the same.
+Workflow result events take priority. The notification is acknowledged only
+after the result has been written successfully.
+
 
 ## WorkBuddy publication preflight
 
@@ -1041,7 +1044,7 @@ It distinguishes watch infrastructure recovery, failed-job retry, missing Order
 intake and evidence-based reconciliation. Retry and reconciliation require the
 account watch lock; verify remote effects before replay and retain intentional
 disabled task state. Runtime readiness, local stage completion and server
-delivery are separate acceptance checks.
+delivery are separate acceptance checks. Missing changes-requested intake can be recovered for the new version while preserving old fulfillment records; an existing current-version job still requires its own recovery. Desktop, terminal and main notices distinguish requested changes, manual review and failed delivery with provider refund pending.
 
 ## PM prompt preparation diagnostics
 
