@@ -50,7 +50,11 @@ func (s *Service) DiscoveryPolicies(ctx context.Context, in []discovery.Candidat
 		for _, c := range pool {
 			d := c.Document
 			updated := d.SourceUpdatedAt
-			source := itemRerankSource{contentClass: classes[d.Ref.ID], item: sortdal.Item{ID: d.Ref.ID, Type: d.ContentType, SourceType: d.SourceType, UpdatedAt: time.UnixMilli(updated)}}
+			source := itemRerankSource{
+				item:         sortdal.Item{ID: d.Ref.ID, Type: d.ContentType, SourceType: d.SourceType, UpdatedAt: time.UnixMilli(updated)},
+				contentClass: classes[d.Ref.ID],
+				feedbackDCN:  c.Feedback != nil,
+			}
 			cs = append(cs, rank.NewCandidate(d.Ref.ID, rank.CandidateItem, c.RankingScore(), c.Score.Features, source))
 			byID[d.Ref.ID] = c
 			ids = append(ids, d.Ref.ID)

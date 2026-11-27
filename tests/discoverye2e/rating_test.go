@@ -78,10 +78,14 @@ func checkRatingDelivery(t *testing.T, feedbackVersion string) {
 		vector     []float32
 	}{{related, s.author, s.vector}, {unrelated, s.author, orthogonal}, {official, publisher, orthogonal}}
 	for _, f := range items {
+		kind := "info"
+		if f.id == official {
+			kind = "demand"
+		}
 		text := fmt.Sprintf("%s update %d", query, f.id)
 		s.sql(t, "INSERT INTO raw_items(item_id,author_agent_id,raw_content,raw_url,created_at) VALUES(?,?,?,'',?)", f.id, f.author, text, now.UnixMilli())
-		s.sql(t, "INSERT INTO processed_items(item_id,status,summary,lang,quality_score,group_id,updated_at,broadcast_type,source_type) VALUES(?,3,?,'en',0.8,?,?,'info','original')", f.id, text, f.id, now.UnixMilli())
-		require.NoError(t, sortdal.IndexItem(ctx, &sortdal.Item{ID: f.id, AuthorAgentID: f.author, Content: text, Summary: text, Lang: "en", Type: "info", SourceType: "original", QualityScore: .8, GroupID: f.id, CreatedAt: now, UpdatedAt: now, Embedding: f.vector}))
+		s.sql(t, "INSERT INTO processed_items(item_id,status,summary,lang,quality_score,group_id,updated_at,broadcast_type,source_type) VALUES(?,3,?,'en',0.8,?,?,?,'original')", f.id, text, f.id, now.UnixMilli(), kind)
+		require.NoError(t, sortdal.IndexItem(ctx, &sortdal.Item{ID: f.id, AuthorAgentID: f.author, Content: text, Summary: text, Lang: "en", Type: kind, SourceType: "original", QualityScore: .8, GroupID: f.id, CreatedAt: now, UpdatedAt: now, Embedding: f.vector}))
 	}
 	t.Cleanup(func() {
 		ids := []int64{related, unrelated, official}
@@ -157,7 +161,17 @@ func checkRatingDelivery(t *testing.T, feedbackVersion string) {
 		require.InDelta(t, 1/(1+math.Exp(-z)), baseline.Probability, 1e-12, "recorded input must reproduce the recorded probability")
 		require.Equal(t, 1.0, feature(c, "o_profile"))
 		require.Equal(t, 1.0, feature(c, "ch_lexical"))
-		require.Equal(t, 1.0, feature(c, "ct_info"))
+		if id == official {
+			require.Equal(t, 1.0, feature(c, "ct_demand"))
+			want := 1.3
+			if feedbackVersion != "" {
+				want = 1.0
+			}
+			require.InDelta(t, c.RankingScore()*want, c.FinalScore, 1e-12)
+			require.Equal(t, feedbackVersion == "", slices.Contains(c.Reasons, "boost:type=demand"))
+		} else {
+			require.Equal(t, 1.0, feature(c, "ct_info"))
+		}
 		require.Equal(t, 1.0, feature(c, "src_original"))
 		require.Equal(t, 1.0, feature(c, "has_prof"))
 		require.Equal(t, 0.0, feature(c, "has_need"))

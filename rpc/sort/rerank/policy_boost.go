@@ -10,9 +10,10 @@ import (
 // Values by Weight. Field is one of "type" (broadcast_type), "source_type", or
 // "content_class" (ugc/pgc, derived from the author's email suffix).
 type BoostRule struct {
-	Field  string
-	Values []string
-	Weight float64
+	ExcludeDCNv2 bool
+	Field        string
+	Values       []string
+	Weight       float64
 }
 
 // BoostPolicy applies multiplicative score boosts to item candidates based on
@@ -52,7 +53,7 @@ func (p *BoostPolicy) Apply(cands []rank.Candidate) []rank.Candidate {
 		}
 		weight := 1.0
 		for _, rule := range p.Rules {
-			if rule.Weight <= 0 {
+			if rule.Weight <= 0 || (rule.ExcludeDCNv2 && fields.FeedbackDCN) {
 				continue
 			}
 			value := fields.value(rule.Field)
@@ -87,10 +88,11 @@ func containsValue(values []string, target string) bool {
 // itemBoostFields is implemented by rerank sources that can expose the category
 // fields a BoostPolicy reads. Mirrors the itemFreshnessFields pattern.
 type itemBoostFieldsProvider interface {
-	ItemBoostFields() (broadcastType string, sourceType string, contentClass string)
+	ItemBoostFields() (broadcastType, sourceType, contentClass string, feedbackDCN bool)
 }
 
 type boostFields struct {
+	FeedbackDCN   bool
 	BroadcastType string
 	SourceType    string
 	ContentClass  string
@@ -114,8 +116,8 @@ func itemBoostFields(src any) (boostFields, bool) {
 		return boostFields{}, false
 	}
 	if v, ok := src.(itemBoostFieldsProvider); ok {
-		bt, st, cc := v.ItemBoostFields()
-		return boostFields{BroadcastType: bt, SourceType: st, ContentClass: cc}, true
+		bt, st, cc, dcn := v.ItemBoostFields()
+		return boostFields{BroadcastType: bt, SourceType: st, ContentClass: cc, FeedbackDCN: dcn}, true
 	}
 	return boostFields{}, false
 }

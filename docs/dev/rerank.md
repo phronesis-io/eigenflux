@@ -28,7 +28,9 @@ in `[-1, 1]`. See [Need relative attribution](discovery.md#need-relative-attribu
 Like every policy, an invalid `need_mix` disables all configured policies for
 the process.
 
-`boost` accepts an optional `item_boosts` list of `{item_id, weight}` entries. IDs and weights must be positive, weights must be finite, and IDs must be unique. A matching item has its score multiplied by the configured weight and skips `boost_rules`; nonmatching items retain the existing attribute-rule behavior. The repository configuration omits `item_boosts`; operators add it only when production IDs and weights are required.
+`boost` accepts an optional `item_boosts` list of `{item_id, weight}` entries. IDs and weights must be positive, weights must be finite, and IDs must be unique. A matching item has its score multiplied by the configured weight and skips `boost_rules`; nonmatching items retain the existing attribute-rule behavior. The repository configuration applies a 2.0 multiplier to its listed item IDs.
+
+A boost rule with `exclude_dcnv2: true` applies only to candidates scored by another ranker. The default demand rule uses this flag. A validated DCNv2 score receives a demand multiplier of 1.0 and omits the `boost:type=demand` replay reason. Rating LR, including fallback, and snapshot GBDT use the configured 1.3. Supply and UGC rules apply to all scorers.
 
 ## Verification
 

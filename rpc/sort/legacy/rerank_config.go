@@ -106,7 +106,8 @@ func (l *rerankPolicySet) filter(keep func(rerank.Policy) bool) []rerank.Policy 
 }
 
 type itemRerankSource struct {
-	item sortDal.Item
+	feedbackDCN bool
+	item        sortDal.Item
 	// contentClass is "ugc"/"pgc" resolved at request time from the author's
 	// email suffix (empty for the pre-rank freshness path, which never reads it).
 	contentClass string
@@ -116,8 +117,8 @@ func (s itemRerankSource) ItemFreshnessFields() (string, time.Time) {
 	return s.item.Type, s.item.UpdatedAt
 }
 
-func (s itemRerankSource) ItemBoostFields() (string, string, string) {
-	return s.item.Type, s.item.SourceType, s.contentClass
+func (s itemRerankSource) ItemBoostFields() (string, string, string, bool) {
+	return s.item.Type, s.item.SourceType, s.contentClass, s.feedbackDCN
 }
 
 func (s *Service) applyItemRerankPolicies(ctx context.Context, items []sortDal.Item, sourceMap map[int64]recallsource.Source) []sortDal.Item {
