@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 
+	"cli.eigenflux.ai/internal/config"
 	"cli.eigenflux.ai/internal/maintenance"
 	"github.com/spf13/cobra"
 )
@@ -375,6 +376,33 @@ func heartbeatStopDecision(scope maintenance.Scope, in heartbeatStopInput, threa
 	return map[string]any{"decision": "block", "reason": fmt.Sprintf("EigenFlux cycle %s is still open. Pending rule pages: %v. Missing stages: %v. Resume this exact cycle from confirmed receipts; do not repeat completed work or create a replacement plan. Read missing pages with heartbeat rules, execute missing stages, then run heartbeat cycle-check --cycle %s --finish. Report a genuine failed stage and cycle failure only when confirmed.", id, rules, stages, id)}, nil
 }
 
+// Claim the single continuation before emitting a block. Concurrent hook processes
+// and host continuations share the originating attempt's marker.
+func limitHeartbeatStop(scope maintenance.Scope, in heartbeatStopInput, decision map[string]any, log io.Writer) map[string]any {
+	if decision["decision"] != "block" {
+		return decision
+	}
+	attempt := heartbeatHostAttempt(in.SessionID, in.TurnID)
+	if marker, ok := readHeartbeatHostMarker(scope, in.SessionID, attempt); ok && marker.OriginAttempt != "" {
+		attempt = marker.OriginAttempt
+	}
+	if in.TurnID != "" && !in.StopHookActive {
+		dir := filepath.Dir(heartbeatHostRunPath(scope, in.SessionID, in.TurnID))
+		err := os.MkdirAll(dir, 0700)
+		if err == nil {
+			var f *os.File
+			f, err = os.OpenFile(filepath.Join(dir, attempt+".stop"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+			if err == nil {
+				if f.Close() == nil {
+					return decision
+				}
+			}
+		}
+	}
+	fmt.Fprintln(log, "[eigenflux:maintenance] component=runtime phase=stop result=unverified")
+	return map[string]any{}
+}
+
 func init() {
 	stop := &cobra.Command{Use: "stop-check", Short: "Codex Stop hook: continue an unfinished current-turn EigenFlux cycle", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		var in heartbeatStopInput
@@ -392,7 +420,9 @@ func init() {
 		}
 		scope, err := maintenanceScope(activeServerName())
 		if err != nil {
-			return json.NewEncoder(cmd.OutOrStdout()).Encode(heartbeatStopUnavailableDecision(in))
+			scope = maintenance.Scope{Home: config.HomeDir(), Server: activeServerName(), AgentID: expected}
+			decision := heartbeatStopUnavailableDecision(in)
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(limitHeartbeatStop(scope, in, decision, cmd.ErrOrStderr()))
 		}
 		if expected != "" && scope.AgentID != expected {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{})
@@ -402,7 +432,7 @@ func init() {
 			fmt.Fprintln(cmd.ErrOrStderr(), "[eigenflux:maintenance] component=runtime phase=cycle error_code=local_verification_unavailable")
 			decision = map[string]any{"decision": "block", "reason": heartbeatVerificationReason(heartbeatHostAttempt(in.SessionID, in.TurnID))}
 		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(decision)
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(limitHeartbeatStop(scope, in, decision, cmd.ErrOrStderr()))
 	}}
 	stop.Flags().String("thread", "", "Exact owner thread; other chats pass through")
 	stop.Flags().String("expected-agent", "", "Pinned Agent identity; account switches pass through")
