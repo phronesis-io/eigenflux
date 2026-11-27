@@ -48,6 +48,9 @@ type Engine struct {
 	PGCAuthors        PGCAuthors
 	FriendFeedEnabled bool
 	NeedRelativeBPS   int
+	// NeedRotationBPS selects Agents whose broadcast recommendations rotate
+	// across every eligible Need instead of the five newest (see need_rotation.go).
+	NeedRotationBPS int
 	// NeedMix reserves positions for equal-priority Needs in the relative attribution bucket; nil keeps global order.
 	NeedMix      *NeedMix
 	SourceLimits []SourceLimit
@@ -123,7 +126,15 @@ func (e *Engine) contexts(ctx context.Context, owner int64, r Request, mode Mode
 		for i, kind := range r.SourceKinds {
 			kinds[i] = string(kind)
 		}
-		active, err := e.Needs.Active(ctx, owner, kinds, now)
+		rotation := e.needRotation(owner, r.SourceKinds)
+		var active []need.Snapshot
+		var err error
+		if rotation {
+			active, err = e.Needs.(EligibleNeedReader).Eligible(ctx, owner, kinds, now)
+			active = rotateNeeds(active, owner, now)
+		} else {
+			active, err = e.Needs.Active(ctx, owner, kinds, now)
+		}
 		if err != nil {
 			return nil, "", err
 		}
@@ -132,6 +143,10 @@ func (e *Engine) contexts(ctx context.Context, owner int64, r Request, mode Mode
 			c, err := e.needContext(ctx, owner, now, snapshot)
 			if err != nil {
 				return nil, "", err
+			}
+			if rotation {
+				// Priority already decided pinning; selected Needs share one page tier.
+				c.Priority = 0
 			}
 			captured = append(captured, c)
 			for _, kind := range c.Kinds {
@@ -253,7 +268,7 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 	attribution := NeedAttributionOff
 	if e.replayCosineReference {
 		attribution = NeedAttributionCosine
-	} else if mode == Recommendation && bucketEnabled(needRelativeSalt, owner, e.NeedRelativeBPS) {
+	} else if mode == Recommendation && (bucketEnabled(needRelativeSalt, owner, e.NeedRelativeBPS) || e.needRotation(owner, r.SourceKinds)) {
 		attribution = NeedAttributionRelative
 	}
 	resultLimit := r.Limit
