@@ -12,7 +12,8 @@ import (
 	"eigenflux_server/rpc/sort/discoverylr"
 )
 
-const feedbackSalt = "discovery-feedback-dcnv2-v1:"
+const feedbackExperiment = "discovery-feedback-dcnv2-v1"
+const feedbackSalt = feedbackExperiment + ":"
 const feedbackContract = "feedback_history_agent_item_v1"
 
 type FeedbackEvidence struct {
@@ -123,4 +124,29 @@ func (e *Engine) applyFeedback(ctx context.Context, owner int64, candidates []Ca
 		c.FinalScore = c.RankingScore()
 	}
 	metrics.DiscoveryLRScoring.WithLabelValues("feedback_dcn_scored").Inc()
+}
+
+// Count the final selection once per assigned Sort request, including a refill.
+// GBDT takes precedence over this experiment in both arms.
+func (e *Engine) feedbackOutcome(arm string, owner int64, candidates []Candidate, err error) string {
+	if err != nil {
+		return "error"
+	}
+	if len(candidates) == 0 {
+		return "empty"
+	}
+	c := candidates[0]
+	if c.LR != nil && c.LR.Contract == discoverylr.SnapshotContract {
+		return "gbdt_bypass"
+	}
+	if arm == "treatment" && c.Feedback != nil {
+		return "served"
+	}
+	if arm == "control" && ratingRanked(c) && c.LR != nil {
+		if bucketEnabled(ratingNextSalt, owner, e.RatingNextBPS) && c.LR.Contract != discoverylr.RatingV2Contract {
+			return "fallback"
+		}
+		return "served"
+	}
+	return "fallback"
 }

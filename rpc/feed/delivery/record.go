@@ -151,6 +151,9 @@ func sampleValues(ctx context.Context, owner int64, x discovery.Execution, impre
 	if version := reqinfo.ClientFromContext(ctx).CLIVer; version != "" {
 		features["context"] = map[string]string{"cli_ver": version}
 	}
+	if x.FeedbackOutcome != "" {
+		features["feedback_outcome"] = x.FeedbackOutcome
+	}
 	if len(x.Experiments) > 0 {
 		features["experiments"] = x.Experiments
 	}

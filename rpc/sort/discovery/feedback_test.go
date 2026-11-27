@@ -82,3 +82,23 @@ func TestFeedbackBatchRanksAndFallsBackAtomically(t *testing.T) {
 		}
 	}
 }
+
+func TestFeedbackOutcomeKeepsAssignmentAcrossFallback(t *testing.T) {
+	e := Engine{RatingNextBPS: 10000}
+	v1 := []Candidate{{LR: &discoverylr.Result{Contract: discoverylr.RatingContract}}}
+	for _, arm := range []string{"control", "treatment"} {
+		if got := e.feedbackOutcome(arm, 1, v1, nil); got != "fallback" {
+			t.Fatal(arm, got)
+		}
+		if got := e.feedbackOutcome(arm, 1, []Candidate{{LR: &discoverylr.Result{Contract: discoverylr.SnapshotContract}}}, nil); got != "gbdt_bypass" {
+			t.Fatal(arm, got)
+		}
+		if got := e.feedbackOutcome(arm, 1, nil, nil); got != "empty" {
+			t.Fatal(arm, got)
+		}
+	}
+	e.RatingNextBPS = 0
+	if e.feedbackOutcome("control", 1, v1, nil) != "served" || e.feedbackOutcome("treatment", 1, []Candidate{{Feedback: &FeedbackEvidence{}}}, nil) != "served" {
+		t.Fatal("incorrect served classification")
+	}
+}

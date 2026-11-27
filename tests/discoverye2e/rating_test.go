@@ -124,6 +124,15 @@ func checkRatingDelivery(t *testing.T, feedbackVersion string) {
 		}](t, []byte(raw)).Search
 		baseline := c.LR
 		if feedbackVersion != "" {
+			var routing struct {
+				Arm     string
+				Outcome string
+			}
+			require.NoError(t, s.db.Table("replay_logs").
+				Select("agent_features #>> '{experiments,discovery-feedback-dcnv2-v1}' AS arm, agent_features->>'feedback_outcome' AS outcome").
+				Where("impression_id=? AND item_id=?", result.ImpressionID, id).Scan(&routing).Error)
+			require.Equal(t, "treatment", routing.Arm)
+			require.Equal(t, "served", routing.Outcome)
 			require.Nil(t, c.LR)
 			require.NotNil(t, c.Feedback)
 			require.Equal(t, feedbackVersion, c.Feedback.ModelVersion)
