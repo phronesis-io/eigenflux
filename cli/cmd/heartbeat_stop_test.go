@@ -3,6 +3,7 @@ package cmd
 import (
 	"cli.eigenflux.ai/internal/maintenance"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -94,5 +95,36 @@ func TestStopGuardCannotBeBypassedByProseAndResumesCheckedCycle(t *testing.T) {
 	write("resume", "eigenflux feed get --item-id 1", `{"cycle_id":"`+c.ID+`","status":"incomplete"}`)
 	if id, err := stopCycleFromTranscript(p, "resume"); err != nil || id != "" {
 		t.Fatal("untrusted output selected cycle")
+	}
+}
+
+func TestHeartbeatStopOneBlockPerOrigin(t *testing.T) {
+	s := maintenance.Scope{Home: t.TempDir(), Server: "test", AgentID: "1"}
+	in := heartbeatStopInput{SessionID: "thread", TurnID: "first"}
+	block := map[string]any{"decision": "block"}
+	results := make(chan bool, 8)
+	for range 8 {
+		go func() { results <- limitHeartbeatStop(s, in, block, io.Discard)["decision"] == "block" }()
+	}
+	count := 0
+	for range 8 {
+		if <-results {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("got %d blocks", count)
+	}
+	origin := heartbeatHostAttempt(in.SessionID, in.TurnID)
+	in.TurnID = "continuation"
+	if err := admitHeartbeatHostRun(s, in.SessionID, in.TurnID, "", origin); err != nil {
+		t.Fatal(err)
+	}
+	if limitHeartbeatStop(s, in, block, io.Discard)["decision"] != nil {
+		t.Fatal("blocked continuation")
+	}
+	in.TurnID = "fresh"
+	if limitHeartbeatStop(s, in, block, io.Discard)["decision"] != "block" {
+		t.Fatal("suppressed new run")
 	}
 }

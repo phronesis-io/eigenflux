@@ -176,10 +176,11 @@ func admitHeartbeatHostRun(scope maintenance.Scope, session, turn, continuationC
 	// Prune only this helper's expired, hashed markers, never host scheduling data.
 	entries, _ := os.ReadDir(filepath.Dir(p))
 	for _, entry := range entries {
-		if len(entry.Name()) != 69 || !strings.HasSuffix(entry.Name(), ".json") {
+		ext := filepath.Ext(entry.Name())
+		if len(entry.Name()) != 69 || (ext != ".json" && ext != ".stop") {
 			continue
 		}
-		if _, e := hex.DecodeString(strings.TrimSuffix(entry.Name(), ".json")); e != nil {
+		if _, e := hex.DecodeString(strings.TrimSuffix(entry.Name(), ext)); e != nil {
 			continue
 		}
 		if info, e := entry.Info(); e == nil && info.Mode().IsRegular() && time.Since(info.ModTime()) > maintenance.Retention {
