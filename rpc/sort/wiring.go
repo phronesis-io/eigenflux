@@ -30,6 +30,9 @@ func initDiscovery(ctx context.Context, cfg *config.Config, policies func(contex
 	if cfg.DiscoveryNeedRelativeBPS < 0 || cfg.DiscoveryNeedRelativeBPS > 10000 {
 		return nil, nil, fmt.Errorf("DISCOVERY_NEED_RELATIVE_BPS must be in [0,10000]")
 	}
+	if cfg.DiscoveryNeedRotationBPS < 0 || cfg.DiscoveryNeedRotationBPS > 10000 {
+		return nil, nil, fmt.Errorf("DISCOVERY_NEED_ROTATION_BPS must be in [0,10000]")
+	}
 	if cfg.DiscoveryGBDTBPS < 0 || cfg.DiscoveryGBDTBPS > 10000 {
 		return nil, nil, fmt.Errorf("DISCOVERY_GBDT_BPS must be in [0,10000]")
 	}
@@ -92,7 +95,7 @@ func initDiscovery(ctx context.Context, cfg *config.Config, policies func(contex
 	}
 	engine := &discovery.Engine{
 		FriendFeedEnabled: cfg.FriendFeedEnabled, SourceLimits: sourceLimits,
-		NeedRelativeBPS: cfg.DiscoveryNeedRelativeBPS, NeedMix: needMix,
+		NeedRelativeBPS: cfg.DiscoveryNeedRelativeBPS, NeedRotationBPS: cfg.DiscoveryNeedRotationBPS, NeedMix: needMix,
 		Compiler: &discovery.Compiler{Cache: contexts, Embedder: embed, NeedVectors: vectors, EmbeddingVersion: vectors.Generation()},
 		Needs:    discovery.CachedNeeds{NeedReader: need.Store{DB: db.DB}, Cache: contexts},
 		IDs:      ids, Rules: rules, Policies: policies, Sources: sources,

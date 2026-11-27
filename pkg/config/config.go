@@ -239,6 +239,7 @@ type Config struct {
 	LRRankerModelPath          string
 	LRRankerReloadInterval     string
 	DiscoveryNeedRelativeBPS   int
+	DiscoveryNeedRotationBPS   int
 	DiscoveryGBDTBPS           int
 	DiscoveryGBDTModelPath     string
 	DiscoveryLREnabled         bool
@@ -457,6 +458,7 @@ func Load() *Config {
 		LRRankerModelPath:            getEnv("LR_RANKER_MODEL_PATH", "/data/models/eigenflux/lr-ranker/current/model.json"),
 		LRRankerReloadInterval:       getEnv("LR_RANKER_RELOAD_INTERVAL", "60s"),
 		DiscoveryNeedRelativeBPS:     getEnvInt("DISCOVERY_NEED_RELATIVE_BPS", 0),
+		DiscoveryNeedRotationBPS:     getEnvInt("DISCOVERY_NEED_ROTATION_BPS", 0),
 		DiscoveryGBDTBPS:             getEnvInt("DISCOVERY_GBDT_BPS", 0),
 		DiscoveryGBDTModelPath:       getEnv("DISCOVERY_GBDT_MODEL_PATH", "/data/models/eigenflux/discovery-gbdt/current/model.json"),
 		DiscoveryLREnabled:           getEnvBool("DISCOVERY_LR_ENABLED", false),

@@ -127,6 +127,29 @@ func (s Store) Active(ctx context.Context, owner int64, kinds []string, now int6
 	return out, nil
 }
 
+// Eligible lists every matching Need in Active's eligibility and order, without
+// the five-Need bound. Rotation-enabled selection applies its own window after
+// the Discovery cache, so Active stays unchanged for control Agents.
+func (s Store) Eligible(ctx context.Context, owner int64, kinds []string, now int64) ([]Snapshot, error) {
+	var rows []snapshotRow
+	err := s.DB.WithContext(ctx).Raw(`SELECT need_input_id AS input_id, intent_id, intent_version, input
+ FROM current_need_inputs WHERE agent_id=? AND input->>'need_type' IN ?
+ AND (input->'constraints'->>'deadline_ms' IS NULL OR (input->'constraints'->>'deadline_ms')::bigint > ?)
+ ORDER BY COALESCE((input->>'priority')::double precision,0) DESC, created_at DESC, need_input_id ASC`, owner, kinds, now).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Snapshot, 0, len(rows))
+	for _, row := range rows {
+		snapshot, err := row.snapshot()
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, snapshot)
+	}
+	return out, nil
+}
+
 // CheckIntent authorizes an inline execution without creating another input.
 func (s Store) CheckIntent(ctx context.Context, owner, intentID, version int64) error {
 	var exists bool

@@ -278,6 +278,15 @@ Vector-backed captured broadcast Needs always receive seven-day fresh dense
 recall and consumed-group exclusion, with a 240-candidate context cap.
 See [Need relative attribution](discovery.md#need-relative-attribution-experiment).
 
+`DISCOVERY_NEED_ROTATION_BPS` defaults to 0 and accepts 0–10000. Selected
+Agents' broadcast-only recommendations choose up to 8 Needs from every eligible
+broadcast Need instead of the five newest: up to 4 Needs with priority above 0
+are pinned, and the remaining slots rotate across Intents once per hour. The
+selected Needs share one page tier and receive relative attribution and
+`need_mix` allocation. Agents with 8 or fewer eligible Needs use all of them.
+Restart Sort to apply changes. Design and rollout:
+`docs/design/need-selection-rotation/prd.md`.
+
 Broadcast recommendations use profile and captured Need vectors for semantic
 recall, eligibility and ordering. Sort loads the positive-rating model at
 `DISCOVERY_RATING_LR_MODEL_PATH` (default
