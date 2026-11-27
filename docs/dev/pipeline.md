@@ -2,6 +2,8 @@
 
 The optional three-kind, rule-only search/recommendation cutover is documented in [Search and Recommendation MVP](discovery.md). It is disabled by default; the legacy behavior below applies when `ENABLE_NEED_SEARCH=false`.
 
+Safety-provider transport, refusal and response errors fail closed as processing failures (`status=2`) after bounded retries, and enter the item stream DLQ. They are not content-policy discards. A valid unsafe verdict remains a discard. Failure-status persistence errors leave the message pending. Delivery heartbeats stop and join before owner-fenced ACK/DLQ, while the local active-delivery fence remains held through finalization.
+
 ## Async Messaging
 
 `ItemService.PublishItem` commits the raw submission, pending processed row and
