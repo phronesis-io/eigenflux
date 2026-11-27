@@ -137,3 +137,16 @@ func TestCodexOwnerIPCDarwinRejectsUnsafePaths(t *testing.T) {
 		})
 	}
 }
+
+func TestMainNoticeProbeDarwinRefusedSocket(t *testing.T) {
+	binding, listener := ownerIPCTestSocket(t)
+	listener.SetUnlinkOnClose(false)
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	binding.MainSessionID = "test-session"
+	probe := ProbeMainNotice(context.Background(), MainNoticeTarget{Host: "codex", SessionID: binding.MainSessionID, Binding: binding})
+	if probe.Code != "main_notice_owner_ipc_unavailable" || probe.Diagnostic != "connect_ECONNREFUSED" || probe.TransportAvailable || probe.TargetMatched {
+		t.Fatalf("unexpected probe: %+v", probe)
+	}
+}

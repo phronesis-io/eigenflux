@@ -673,6 +673,8 @@ owner-returned turn ID, completed status, its final_answer and no userMessage;
 old turns, commentary, admission alone or a visible input never count. Cancellation
 closes IPC and the owned reader, not the Desktop or its admitted turn.
 
+On macOS an unavailable IPC probe includes a redacted diagnostic for endpoint validation, dial, peer verification or initialization failures. Owner discovery follows successful initialization.
+
 watch doctor --probe-main sends only initialize/discovery. owner_ready means the
 exact target is reachable and the implemented adapter is enabled, not that it is idle
 or a business event completed. Its implementation_status and host_verified fields

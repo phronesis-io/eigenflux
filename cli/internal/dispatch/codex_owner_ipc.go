@@ -20,6 +20,14 @@ const codexOwnerIPCMaxFrame = 8 << 20
 
 var errCodexOwnerIPCUnsupported = errors.New("main_notice_owner_ipc_unsupported")
 
+// Keep existing dispatch errors while exposing only fixed probe details.
+type ipcProbeFailure struct {
+	error
+	detail string
+}
+
+func (e *ipcProbeFailure) Unwrap() error { return e.error }
+
 // The caller owns notice admission and uncertainty. This transport sends each
 // request once, never reconnects, and never selects or starts a Desktop owner.
 type codexOwnerIPC struct {
@@ -49,14 +57,14 @@ func openCodexOwnerIPC(ctx context.Context, binding Binding) (*codexOwnerIPC, er
 	raw, handledBy, err := c.call(ctx, "initialize", 0, map[string]string{"clientType": "external-agent"}, "")
 	if err != nil {
 		_ = c.Close()
-		return nil, err
+		return nil, &ipcProbeFailure{err, "initialize_failed"}
 	}
 	var initialized struct {
 		ClientID string `json:"clientId"`
 	}
 	if json.Unmarshal(raw, &initialized) != nil || !validCodexOwnerIPCIdentifier(initialized.ClientID) || handledBy != "" && initialized.ClientID != handledBy {
 		_ = c.Close()
-		return nil, errors.New("main_notice_owner_initialize_invalid")
+		return nil, &ipcProbeFailure{errors.New("main_notice_owner_initialize_invalid"), "initialize_invalid_response"}
 	}
 	c.clientID = initialized.ClientID
 	return c, nil

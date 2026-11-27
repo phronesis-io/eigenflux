@@ -38,6 +38,10 @@ func ProbeMainNotice(parent context.Context, target MainNoticeTarget) MainNotice
 	probe.Code = "main_notice_owner_ipc_unavailable"
 	ipc, err := openCodexOwnerIPC(ctx, target.Binding)
 	if err != nil {
+		var detail *ipcProbeFailure
+		if errors.As(err, &detail) {
+			probe.Diagnostic = detail.detail
+		}
 		if errors.Is(err, errCodexOwnerIPCUnsupported) {
 			probe.Code = "main_notice_owner_ipc_unsupported"
 		}
