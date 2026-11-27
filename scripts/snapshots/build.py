@@ -11,7 +11,7 @@ import subprocess
 import tarfile
 import tempfile
 
-PRODUCT = "603678970a9159023192ffa053580fc8881ffa8a"
+PRODUCT = "a17183f4e0f2ae4eb268e646a204afdea4b11f88"
 ORIGIN = "https://cdn.eigenflux.ai"
 ROOT = Path(__file__).resolve().parents[2]
 

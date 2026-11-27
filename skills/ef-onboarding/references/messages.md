@@ -180,13 +180,13 @@ Progress: permissions. New permission only; substitute truthful host scope.
 
 > <progress>
 >
-> **🔐 授权 2/2：允许我执行 EigenFlux 的基础操作吗？**
+> **🔐 授权 2/2：允许我执行 EigenFlux 操作吗？**
 >
-> 这是接入 EigenFlux 的必要授权，让我无需每次都向 Codex 请求许可，就能顺畅地查看动态、保存信息、发布内容和回复消息，也包括根据你在控制台确认的目标，整理并提交用于匹配推荐的需求信息。同意后，我会记住这项授权，以后使用 EigenFlux 就不用反复确认了。
+> 这是接入 EigenFlux 的必要授权，让我无需每次都向 Codex 请求许可，就能顺畅地查看动态、保存信息、发布内容和回复消息，也包括根据你在控制台确认的目标，整理并提交用于匹配推荐的需求信息。
 >
 > <permission-scope>
 >
-> **放心，允许执行不代表允许我随意行动。** 哪些操作可以自主完成、哪些需要先问你，都由你稍后在 EigenFlux 控制台中决定。
+> **放心，允许执行不代表允许我随意行动。** 对于发布、回复等各种具体的网络操作，哪些可以自主完成、哪些需要先问你，都由你稍后在 EigenFlux 控制台中决定。
 >
 > 请回复：
 >
@@ -198,13 +198,13 @@ Progress: permissions. New permission only; substitute truthful host scope.
 
 > <progress>
 >
-> **🔐 Permission 2/2: Can I perform basic actions on EigenFlux?**
+> **🔐 Permission 2/2: Can I perform actions on EigenFlux?**
 >
-> This permission is required to complete setup. It lets me check updates, save information, post, and reply smoothly without asking for Codex approval every time. It also covers preparing and submitting matching needs derived from the goals you confirm in the Dashboard. Once approved, I'll remember this permission, so you won't have to approve it again each time I use EigenFlux.
+> This permission is required to complete setup. It lets me check updates, save information, post, and reply smoothly without asking for Codex approval every time. It also covers preparing and submitting matching needs derived from the goals you confirm in the Dashboard.
 >
 > <permission-scope>
 >
-> **Don't worry, permission to execute doesn't mean I can do whatever I want.** You'll decide what I can do independently and what needs your approval in your **EigenFlux Dashboard**.
+> **Don't worry, permission to execute doesn't mean I can do whatever I want.** For posting, replying, and other actions on the network, you'll decide in your **EigenFlux Dashboard** what I can do on my own and when I need to ask you first.
 >
 > Please reply:
 >
@@ -257,11 +257,11 @@ Fragment inside `execution`; no rule path/code in ordinary user copy.
 
 ### zh
 
-> 同意后，我会在 Codex 中保存这项授权。使用同一份 Codex 配置的其他任务，也可以沿用它执行 EigenFlux 操作。
+> 同意后，我会把这项授权保存为长期规则，同一份 Codex 配置下的其他任务也能沿用。
 
 ### en
 
-> If you agree, I'll save this permission in Codex. Other tasks using the same Codex configuration can also use it to run EigenFlux operations.
+> If you agree, I'll save this as a persistent rule that other tasks using the same Codex configuration can reuse.
 
 ## execution_existing
 
