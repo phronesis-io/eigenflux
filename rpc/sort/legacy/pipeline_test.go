@@ -10,6 +10,7 @@ import (
 	"eigenflux_server/pkg/recallsource"
 	sortDal "eigenflux_server/rpc/sort/dal"
 	"eigenflux_server/rpc/sort/discovery"
+	"eigenflux_server/rpc/sort/discoverylr"
 	"eigenflux_server/rpc/sort/ranker"
 
 	"github.com/stretchr/testify/assert"
@@ -165,4 +166,37 @@ func TestConfiguredSwingPageCeiling(t *testing.T) {
 		}
 	}
 	require.Equal(t, 5, swings)
+}
+
+func TestConfiguredDiscoveryBoostUsesActualScorer(t *testing.T) {
+	const pinned = 350893866519363584
+	dcn := &discovery.FeedbackEvidence{Score: 0.5} // Normalized score 0.5.
+	lr := &discoverylr.Result{Contract: discoverylr.RatingContract, Probability: 0.5}
+	gbdt := &discoverylr.Result{Contract: discoverylr.SnapshotContract, Probability: 0.5}
+	for _, tc := range []struct {
+		name        string
+		id          int64
+		kind, class string
+		feedback    *discovery.FeedbackEvidence
+		lr          *discoverylr.Result
+		want        float64
+		reasons     []string
+	}{
+		{"DCN demand", 1, "demand", "pgc", dcn, nil, 0.5, nil},
+		{"DCN demand UGC", 1, "demand", "ugc", dcn, nil, 0.6, []string{"boost:content_class=ugc"}},
+		{"DCN supply UGC", 1, "supply", "ugc", dcn, nil, 0.78, []string{"boost:type=supply", "boost:content_class=ugc"}},
+		{"item override", pinned, "demand", "ugc", dcn, nil, 1, []string{"boost:item_id=350893866519363584"}},
+		{"LR control or fallback", 1, "demand", "ugc", nil, lr, 0.78, []string{"boost:type=demand", "boost:content_class=ugc"}},
+		{"GBDT", 1, "demand", "pgc", nil, gbdt, 0.65, []string{"boost:type=demand"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := NewDiscoveryReplayPolicies(nil, "../../../configs/sort/rerank.yaml", time.Now(), map[int64]string{tc.id: tc.class}, map[int64]bool{})
+			c := discovery.Candidate{Document: discovery.Document{Ref: discovery.SourceRef{Type: discovery.Broadcast, ID: tc.id}, ContentType: tc.kind}, Feedback: tc.feedback, LR: tc.lr}
+			got, err := s.DiscoveryPolicies(context.Background(), []discovery.Candidate{c}, discovery.Recommendation, 1)
+			require.NoError(t, err)
+			require.Len(t, got, 1)
+			require.InDelta(t, tc.want, got[0].FinalScore, 1e-12)
+			require.ElementsMatch(t, tc.reasons, got[0].Reasons)
+		})
+	}
 }

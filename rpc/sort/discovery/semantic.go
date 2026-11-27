@@ -84,6 +84,7 @@ func (e *Engine) experimentArms(owner int64, kinds []Kind) map[string]string {
 	assign(needRelativeSalt, e.NeedRelativeBPS)
 	assign(ratingNextSalt, e.RatingNextBPS)
 	if len(kinds) == 1 && kinds[0] == Broadcast {
+		assign(feedbackSalt, e.FeedbackBPS)
 		assign(gbdtSalt, e.GBDTBPS)
 	}
 	if len(arms) == 0 {

@@ -33,6 +33,9 @@ func initDiscovery(ctx context.Context, cfg *config.Config, policies func(contex
 	if cfg.DiscoveryGBDTBPS < 0 || cfg.DiscoveryGBDTBPS > 10000 {
 		return nil, nil, fmt.Errorf("DISCOVERY_GBDT_BPS must be in [0,10000]")
 	}
+	if cfg.DiscoveryFeedbackDCNBPS < 0 || cfg.DiscoveryFeedbackDCNBPS > 10000 {
+		return nil, nil, fmt.Errorf("DISCOVERY_FEEDBACK_DCN_BPS must be in [0,10000]")
+	}
 	if cfg.DiscoveryRatingLRV2BPS < 0 || cfg.DiscoveryRatingLRV2BPS > 10000 {
 		return nil, nil, fmt.Errorf("DISCOVERY_RATING_LR_V2_BPS must be in [0,10000]")
 	}
@@ -95,6 +98,10 @@ func initDiscovery(ctx context.Context, cfg *config.Config, policies func(contex
 		IDs:      ids, Rules: rules, Policies: policies, Sources: sources,
 		GBDTBPS:       cfg.DiscoveryGBDTBPS,
 		RatingNextBPS: cfg.DiscoveryRatingLRV2BPS, PGCAuthors: pgcAuthors,
+	}
+	if cfg.DiscoveryFeedbackDCNBPS > 0 {
+		engine.FeedbackBPS = cfg.DiscoveryFeedbackDCNBPS
+		engine.Feedback = discovery.NewFeedbackClient()
 	}
 	interval, err := time.ParseDuration(cfg.DiscoveryLRReloadInterval)
 	if err != nil {

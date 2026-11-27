@@ -26,6 +26,20 @@ import (
 // recorded input vector reproduces the recorded probability, and the page
 // follows the model.
 func TestDiscoveryRatingRecommendation(t *testing.T) {
+	checkRatingDelivery(t, "")
+}
+
+// An operator supplies a local sidecar and a snapshot covering the fixture clock.
+func TestDiscoveryFeedbackRecommendation(t *testing.T) {
+	version := os.Getenv("DISCOVERY_E2E_FEEDBACK_MODEL_VERSION")
+	if version == "" {
+		t.Skip("requires a local feedbackscore checkpoint and daily snapshot")
+	}
+	checkRatingDelivery(t, version)
+}
+
+func checkRatingDelivery(t *testing.T, feedbackVersion string) {
+	t.Helper()
 	raw, err := os.ReadFile("../../rpc/sort/discoverylr/testdata/discovery_rating_lr_v1.json")
 	require.NoError(t, err)
 	var fixture struct {
@@ -40,7 +54,13 @@ func TestDiscoveryRatingRecommendation(t *testing.T) {
 	require.NoError(t, json.Unmarshal(fixture.Model, &model))
 	path := filepath.Join(t.TempDir(), "rating.json")
 	require.NoError(t, os.WriteFile(path, fixture.Model, 0600))
-	s := startStack(t, map[string]string{"DISCOVERY_RATING_LR_MODEL_PATH": path})
+	settings := map[string]string{"DISCOVERY_RATING_LR_MODEL_PATH": path, "DISCOVERY_FEEDBACK_DCN_BPS": "0"}
+	scoreKind := "positive_rating_probability"
+	if feedbackVersion != "" {
+		settings["DISCOVERY_FEEDBACK_DCN_BPS"] = "10000"
+		scoreKind = "expected_feedbackscore"
+	}
+	s := startStack(t, settings)
 	ctx := context.Background()
 	now := time.Now()
 	query := fmt.Sprintf("ratingtoken%d", s.owner)
@@ -58,10 +78,14 @@ func TestDiscoveryRatingRecommendation(t *testing.T) {
 		vector     []float32
 	}{{related, s.author, s.vector}, {unrelated, s.author, orthogonal}, {official, publisher, orthogonal}}
 	for _, f := range items {
+		kind := "info"
+		if f.id == official {
+			kind = "demand"
+		}
 		text := fmt.Sprintf("%s update %d", query, f.id)
 		s.sql(t, "INSERT INTO raw_items(item_id,author_agent_id,raw_content,raw_url,created_at) VALUES(?,?,?,'',?)", f.id, f.author, text, now.UnixMilli())
-		s.sql(t, "INSERT INTO processed_items(item_id,status,summary,lang,quality_score,group_id,updated_at,broadcast_type,source_type) VALUES(?,3,?,'en',0.8,?,?,'info','original')", f.id, text, f.id, now.UnixMilli())
-		require.NoError(t, sortdal.IndexItem(ctx, &sortdal.Item{ID: f.id, AuthorAgentID: f.author, Content: text, Summary: text, Lang: "en", Type: "info", SourceType: "original", QualityScore: .8, GroupID: f.id, CreatedAt: now, UpdatedAt: now, Embedding: f.vector}))
+		s.sql(t, "INSERT INTO processed_items(item_id,status,summary,lang,quality_score,group_id,updated_at,broadcast_type,source_type) VALUES(?,3,?,'en',0.8,?,?,?,'original')", f.id, text, f.id, now.UnixMilli(), kind)
+		require.NoError(t, sortdal.IndexItem(ctx, &sortdal.Item{ID: f.id, AuthorAgentID: f.author, Content: text, Summary: text, Lang: "en", Type: kind, SourceType: "original", QualityScore: .8, GroupID: f.id, CreatedAt: now, UpdatedAt: now, Embedding: f.vector}))
 	}
 	t.Cleanup(func() {
 		ids := []int64{related, unrelated, official}
@@ -84,12 +108,14 @@ func TestDiscoveryRatingRecommendation(t *testing.T) {
 	at := map[int64]int{}
 	for i, item := range result.Items {
 		at[item.Ref.ID] = i + 1
-		require.Equal(t, "positive_rating_probability", item.Match["score_kind"], "%+v", item)
+		require.Equal(t, scoreKind, item.Match["score_kind"], "%+v", item)
 	}
 	for _, id := range []int64{related, unrelated, official} {
 		require.NotZero(t, at[id], "rule-eligible keyword matches stay eligible: %+v", result)
 	}
-	require.Less(t, at[related], at[unrelated], "profile similarity orders the page through the model: %+v", result)
+	if feedbackVersion == "" {
+		require.Less(t, at[related], at[unrelated], "profile similarity orders the page through the model: %+v", result)
+	}
 	s.waitSamples(t, result.ImpressionID, len(result.Items))
 	feature := func(c discovery.Candidate, name string) float64 {
 		return c.RatingFeatures[slices.Index(discoverylr.RatingFeatureNames, name)]
@@ -100,19 +126,52 @@ func TestDiscoveryRatingRecommendation(t *testing.T) {
 		c := decode[struct {
 			Search discovery.Candidate `json:"search"`
 		}](t, []byte(raw)).Search
-		require.NotNil(t, c.LR)
-		require.Equal(t, discoverylr.RatingContract, c.LR.Contract)
-		require.Equal(t, model.Version, c.LR.ModelVersion)
+		baseline := c.LR
+		if feedbackVersion != "" {
+			var routing struct {
+				Arm     string
+				Outcome string
+			}
+			require.NoError(t, s.db.Table("replay_logs").
+				Select("agent_features #>> '{experiments,discovery-feedback-dcnv2-v1}' AS arm, agent_features->>'feedback_outcome' AS outcome").
+				Where("impression_id=? AND item_id=?", result.ImpressionID, id).Scan(&routing).Error)
+			require.Equal(t, "treatment", routing.Arm)
+			require.Equal(t, "served", routing.Outcome)
+			require.Nil(t, c.LR)
+			require.NotNil(t, c.Feedback)
+			require.Equal(t, feedbackVersion, c.Feedback.ModelVersion)
+			require.Equal(t, "feedback_history_agent_item_v1", c.Feedback.Contract)
+			require.Positive(t, c.Feedback.SnapshotCutoff)
+			public := result.Items[at[id]-1].Match
+			require.Equal(t, feedbackVersion, public["scorer_version"])
+			require.NotContains(t, public, "score")
+			require.GreaterOrEqual(t, c.Feedback.Score, -1.0)
+			require.LessOrEqual(t, c.Feedback.Score, 2.0)
+			baseline = c.Feedback.Baseline
+		}
+		require.NotNil(t, baseline)
+		require.Equal(t, discoverylr.RatingContract, baseline.Contract)
+		require.Equal(t, model.Version, baseline.ModelVersion)
 		require.Len(t, c.RatingFeatures, len(discoverylr.RatingFeatureNames))
 		require.Equal(t, "rule_score", c.Score.Kind, "frozen rule evidence must survive rating and delivery")
 		z := model.Intercept
 		for i, v := range c.RatingFeatures {
 			z += v * model.Coefficients[i]
 		}
-		require.InDelta(t, 1/(1+math.Exp(-z)), c.LR.Probability, 1e-12, "recorded input must reproduce the recorded probability")
+		require.InDelta(t, 1/(1+math.Exp(-z)), baseline.Probability, 1e-12, "recorded input must reproduce the recorded probability")
 		require.Equal(t, 1.0, feature(c, "o_profile"))
 		require.Equal(t, 1.0, feature(c, "ch_lexical"))
-		require.Equal(t, 1.0, feature(c, "ct_info"))
+		if id == official {
+			require.Equal(t, 1.0, feature(c, "ct_demand"))
+			want := 1.3
+			if feedbackVersion != "" {
+				want = 1.0
+			}
+			require.InDelta(t, c.RankingScore()*want, c.FinalScore, 1e-12)
+			require.Equal(t, feedbackVersion == "", slices.Contains(c.Reasons, "boost:type=demand"))
+		} else {
+			require.Equal(t, 1.0, feature(c, "ct_info"))
+		}
 		require.Equal(t, 1.0, feature(c, "src_original"))
 		require.Equal(t, 1.0, feature(c, "has_prof"))
 		require.Equal(t, 0.0, feature(c, "has_need"))

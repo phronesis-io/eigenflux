@@ -15,8 +15,8 @@ type testItemBoostSource struct {
 	contentClass  string
 }
 
-func (s testItemBoostSource) ItemBoostFields() (string, string, string) {
-	return s.broadcastType, s.sourceType, s.contentClass
+func (s testItemBoostSource) ItemBoostFields() (string, string, string, bool) {
+	return s.broadcastType, s.sourceType, s.contentClass, false
 }
 
 func boostCand(id int64, score float64, broadcastType, contentClass string) *rank.BasicCandidate {

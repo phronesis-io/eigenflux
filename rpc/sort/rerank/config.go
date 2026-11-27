@@ -63,9 +63,10 @@ type ItemFreshnessRuleConfig struct {
 }
 
 type BoostRuleConfig struct {
-	Field  string   `yaml:"field"`
-	Values []string `yaml:"values"`
-	Weight float64  `yaml:"weight"`
+	ExcludeDCNv2 bool     `yaml:"exclude_dcnv2"`
+	Field        string   `yaml:"field"`
+	Values       []string `yaml:"values"`
+	Weight       float64  `yaml:"weight"`
 }
 
 type ItemBoostConfig struct {
@@ -320,9 +321,10 @@ func (pc PolicyConfig) newBoostPolicy() (*BoostPolicy, error) {
 			return nil, fmt.Errorf("boost rule for field %q has non-positive weight %v", rc.Field, rc.Weight)
 		}
 		rules = append(rules, BoostRule{
-			Field:  rc.Field,
-			Values: rc.Values,
-			Weight: rc.Weight,
+			ExcludeDCNv2: rc.ExcludeDCNv2,
+			Field:        rc.Field,
+			Values:       rc.Values,
+			Weight:       rc.Weight,
 		})
 	}
 	return &BoostPolicy{Rules: rules, ItemWeights: itemWeights}, nil

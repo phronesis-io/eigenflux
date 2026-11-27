@@ -43,6 +43,8 @@ type Engine struct {
 	// rating-ranked Agents.
 	RatingNext        LearnedRanker
 	RatingNextBPS     int
+	Feedback          *FeedbackClient
+	FeedbackBPS       int
 	PGCAuthors        PGCAuthors
 	FriendFeedEnabled bool
 	NeedRelativeBPS   int
@@ -66,7 +68,8 @@ type Execution struct {
 	FallbackReason string        `json:"fallback_reason,omitempty"`
 	Refill         *RefillReport `json:"refill,omitempty"`
 	// Experiments maps each running experiment to this Agent's arm.
-	Experiments map[string]string `json:"experiments,omitempty"`
+	Experiments     map[string]string `json:"experiments,omitempty"`
+	FeedbackOutcome string            `json:"feedback_outcome,omitempty"`
 }
 
 func (e *Engine) contexts(ctx context.Context, owner int64, r Request, mode Mode, now int64) ([]Context, string, error) {
@@ -219,6 +222,10 @@ func (e *Engine) Execute(ctx context.Context, owner int64, r Request, mode Mode,
 		status := x.Status
 		if resultErr != nil {
 			status = "error"
+		}
+		if arm := x.Experiments[feedbackExperiment]; arm != "" {
+			x.FeedbackOutcome = e.feedbackOutcome(arm, owner, x.Candidates, resultErr)
+			metrics.DiscoveryFeedbackRequests.WithLabelValues(arm, x.FeedbackOutcome).Inc()
 		}
 		metrics.DiscoveryDuration.WithLabelValues(string(mode), status).Observe(time.Since(started).Seconds())
 		if x.FallbackReason != "" {

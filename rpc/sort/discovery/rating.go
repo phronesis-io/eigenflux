@@ -89,12 +89,14 @@ type ratingRequest struct {
 	pgc         map[int64]bool
 	// heat holds the challenger's item counts; after a failed read the request
 	// uses the incumbent model.
-	heat       map[int64]RatingCounts
-	heatFailed bool
+	heat            map[int64]RatingCounts
+	heatFailed      bool
+	feedbackFailed  bool
+	feedbackVersion string
 }
 
 func ratingRanked(c Candidate) bool {
-	return c.LR != nil && discoverylr.IsRating(c.LR.Contract)
+	return c.Feedback != nil || (c.LR != nil && discoverylr.IsRating(c.LR.Contract))
 }
 
 func injected(c Candidate) bool {
@@ -402,6 +404,7 @@ func (e *Engine) rankRating(ctx context.Context, owner int64, kinds []Kind, cont
 		candidates[i].RatingFeatures = vectors[j]
 		candidates[i].FinalScore = result.Probability
 	}
+	e.applyFeedback(ctx, owner, candidates, indices, channels, state)
 	return true
 }
 

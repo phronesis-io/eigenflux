@@ -245,6 +245,7 @@ type Config struct {
 	DiscoveryLRModelPath       string
 	DiscoveryLRReloadInterval  string
 	DiscoveryRatingLRModelPath string
+	DiscoveryFeedbackDCNBPS    int
 	// DiscoveryRatingLRV2BPS is the share of rating-ranked Agents (basis
 	// points) served by the discovery_rating_lr_v2 challenger.
 	DiscoveryRatingLRV2BPS       int
@@ -462,6 +463,7 @@ func Load() *Config {
 		DiscoveryLRModelPath:         getEnv("DISCOVERY_LR_MODEL_PATH", "/data/models/eigenflux/discovery-lr/current/model.json"),
 		DiscoveryLRReloadInterval:    getEnv("DISCOVERY_LR_RELOAD_INTERVAL", "60s"),
 		DiscoveryRatingLRModelPath:   getEnv("DISCOVERY_RATING_LR_MODEL_PATH", "/data/models/eigenflux/discovery-rating-lr/current/model.json"),
+		DiscoveryFeedbackDCNBPS:      getEnvInt("DISCOVERY_FEEDBACK_DCN_BPS", 0),
 		DiscoveryRatingLRV2BPS:       getEnvInt("DISCOVERY_RATING_LR_V2_BPS", 0),
 		DiscoveryRatingLRV2ModelPath: getEnv("DISCOVERY_RATING_LR_V2_MODEL_PATH", "/data/models/eigenflux/discovery-rating-lr-v2/current/model.json"),
 		FeatureIndexConfigDir:        getEnv("FEATURE_INDEX_CONFIG_DIR", "configs/featureindex"),

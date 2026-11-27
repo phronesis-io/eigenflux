@@ -228,3 +228,10 @@ Feature census tests cover physical key counts across generations/components,
 zero counts after expiry, fenced resumable checkpoints, replica pacing, and
 Prometheus exposition. Miss-rate tests exclude repeated request-cache reads and
 Redis errors while including physical misses and logical expiry.
+
+
+To exercise the feedbackscore DCNv2 across Sort, Feed and replay storage, run
+the companion ML loopback scorer on port 8771 with a test snapshot for today's
+Shanghai date. Set `DISCOVERY_E2E_FEEDBACK_MODEL_VERSION` to its
+`feedback-dcnv2-<first 16 checkpoint SHA-256 hex digits>` version and run
+`TestDiscoveryFeedbackRecommendation` with the same isolated stack.

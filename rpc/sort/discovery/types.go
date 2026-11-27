@@ -224,9 +224,10 @@ type Score struct {
 	Missing       []string           `json:"missing,omitempty"`
 }
 type Candidate struct {
-	LR *discoverylr.Result `json:"lr,omitempty"`
+	Feedback *FeedbackEvidence   `json:"feedback_ranker,omitempty"`
+	LR       *discoverylr.Result `json:"lr,omitempty"`
 	// RatingFeatures is the rating model's input in the order of the contract
-	// recorded in LR.
+	// recorded in LR or in the feedback ranker's baseline_lr.
 	RatingFeatures []float64 `json:"rating_features,omitempty"`
 	FinalScore     float64   `json:"final_score"`
 	// SemanticRank and SemanticTier order similarity-scored candidates in the
@@ -287,6 +288,12 @@ func PublicItem(c Candidate) ResultItem {
 		if discoverylr.IsRating(c.LR.Contract) {
 			r.Match["score_kind"] = "positive_rating_probability"
 		}
+	}
+	if c.Feedback != nil {
+		r.Match["score"] = c.Feedback.Score
+		r.Match["scorer_type"] = "dcnv2"
+		r.Match["scorer_version"] = c.Feedback.ModelVersion
+		r.Match["score_kind"] = "expected_feedbackscore"
 	}
 	if c.Document.ExactMatch != "" {
 		r.Match["exact"] = c.Document.ExactMatch

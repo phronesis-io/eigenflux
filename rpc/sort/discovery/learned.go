@@ -70,6 +70,9 @@ func (e *Engine) rankLearned(candidates []Candidate, mode Mode) {
 }
 
 func (c Candidate) RankingScore() float64 {
+	if c.Feedback != nil {
+		return (c.Feedback.Score + 1) / 3
+	}
 	if c.LR != nil {
 		return c.LR.Probability
 	}
