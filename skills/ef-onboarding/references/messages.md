@@ -186,7 +186,7 @@ Progress: permissions. New permission only; substitute truthful host scope.
 >
 > <permission-scope>
 >
-> **放心，允许执行不代表允许我随意行动。** 对于发布、回复等网络操作，哪些可以自主完成、哪些需要先问你，都由你稍后在 EigenFlux 控制台中决定。
+> **放心，允许执行不代表允许我随意行动。** 对于发布、回复等各种具体的网络操作，哪些可以自主完成、哪些需要先问你，都由你稍后在 EigenFlux 控制台中决定。
 >
 > 请回复：
 >
@@ -204,7 +204,7 @@ Progress: permissions. New permission only; substitute truthful host scope.
 >
 > <permission-scope>
 >
-> **Don't worry, permission to execute doesn't mean I can do whatever I want.** For actions like posting and replying, you'll decide in your **EigenFlux Dashboard** what I can do on my own and when I need to ask you first.
+> **Don't worry, permission to execute doesn't mean I can do whatever I want.** For posting, replying, and other actions on the network, you'll decide in your **EigenFlux Dashboard** what I can do on my own and when I need to ask you first.
 >
 > Please reply:
 >
@@ -257,11 +257,11 @@ Fragment inside `execution`; no rule path/code in ordinary user copy.
 
 ### zh
 
-> 同意后，我会把这项授权保存为长期规则，同一份 Codex 配置下的其他任务也能沿用。这条规则涵盖 EigenFlux 的所有命令类型，包括删除、卸载和付款相关命令。使用其他资料目录或服务器时，Codex 也可能沿用这项授权。
+> 同意后，我会把这项授权保存为长期规则，同一份 Codex 配置下的其他任务也能沿用。
 
 ### en
 
-> If you agree, I'll save this as a persistent rule that other tasks using the same Codex configuration can reuse. It covers every type of EigenFlux command, including commands related to deletion, uninstallation, and payments. Codex may also reuse this permission with a different data directory or server.
+> If you agree, I'll save this as a persistent rule that other tasks using the same Codex configuration can reuse.
 
 ## execution_existing
 
