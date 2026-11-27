@@ -25,7 +25,7 @@ var desktopOrderCopy = map[string]desktopRoleCopy{
 		seller: desktopLocalizedCopy{zh: "「{service_name}」正在整改交付\n首次交付未通过检查，你的 Agent 将在 {delivery_due} 前按原合同整改并重新提交一次。", en: "“{service_name}” revising delivery\nYour Agent will revise the first delivery under the frozen contract and resubmit once by {delivery_due}."},
 	},
 	"delivery_manual_review": {
-		buyer: desktopLocalizedCopy{zh: "「{service_name}」交付待平台复核\n平台正在复核交付，结果会另行通知。", en: "“{service_name}” awaiting platform review\nThe platform is reviewing the delivery. The result will follow."},
+		buyer: desktopLocalizedCopy{zh: "「{service_name}」等待平台人工复核\n交付已转人工复核，结果会另行通知。", en: "“{service_name}” awaiting manual platform review\nThe delivery has been referred for manual platform review. The result will follow."},
 	},
 	"delivery_failed": {
 		buyer:  desktopLocalizedCopy{zh: "「{service_name}」交付未通过，正在退款\n退款结果会另行通知。", en: "“{service_name}” delivery failed, refund in progress\nThe refund result will follow."},
@@ -319,6 +319,9 @@ func commissionDesktopCopyKey(notificationType string, payload orderNotification
 	}
 	// Report the specific result before the underlying order state.
 	if event := commissionNoticeResultKind(notificationType, payload); event != "" {
+		if commissionManualReviewResult(event, payload) {
+			return "delivery_manual_review"
+		}
 		return event
 	}
 	if review := commissionDeliveryReviewCopyKey(payload); review != "" {
@@ -347,6 +350,10 @@ func commissionDesktopCopyKey(notificationType string, payload orderNotification
 		key = "auto_completed"
 	}
 	return key
+}
+
+func commissionManualReviewResult(kind string, payload orderNotificationPayload) bool {
+	return kind == "order.validation.processing_error.v1" && commissionDeliveryReviewCopyKey(payload) == "delivery_manual_review"
 }
 
 func commissionDeliveryReviewCopyKey(payload orderNotificationPayload) string {

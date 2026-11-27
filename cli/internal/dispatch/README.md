@@ -310,6 +310,9 @@ order/version/role execution key; desktop delivery independently preserves each
 notification ID. Terminal and desktop use the same event priority:
 recognized `payload.event_kind`, then envelope `type`, then order state. Seller
 rejection uses `command_kind=reject_order`. Wallet credit does not mean withdrawal.
+For `order.validation.processing_error.v1`, a `manual_review` delivery review
+while the Order remains `validating` takes precedence over automatic-retry copy
+in terminal and desktop notices. Other result events keep their priority.
 
 At desktop submission, read the role-checked Order for its frozen title,
 counterparty and amounts. Resolve the counterparty through the public Agent
@@ -330,7 +333,8 @@ Restart watch after changing OS language; already queued messages keep their
 text. Detection and native boundaries live in `desktopnotify/README.md`.
 
 `watch_desktop_copy.go` owns buyer/seller title/body templates from the approved
-copy document; terminal summaries stay unchanged. Render event deadlines at
+copy document and the shared manual-review result predicate; terminal summaries
+use the same manual-review status as desktop cards. Render event deadlines at
 intake in local time with the UTC offset, referring to the order page if absent.
 `watch_desktop_service.go` resolves the frozen contract title through the existing
 order detail API in the desktop worker, never under the intake credential lock.

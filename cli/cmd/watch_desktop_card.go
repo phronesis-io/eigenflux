@@ -16,7 +16,7 @@ const (
 
 var commissionDesktopCardTitles = map[string]desktopLocalizedCopy{
 	"delivery_changes_requested":  {"交付整改中", "Revising delivery"},
-	"delivery_manual_review":      {"交付待平台复核", "Awaiting platform review"},
+	"delivery_manual_review":      {"等待平台人工复核", "Awaiting manual platform review"},
 	"delivery_failed":             {"交付未通过 · 退款中", "Delivery failed · Refunding"},
 	"awaiting_seller":             {"待接单", "Awaiting acceptance"},
 	"pending_payment":             {"待付款", "Awaiting payment"},

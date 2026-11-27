@@ -322,6 +322,13 @@ func localizedOrderLabel(language string) string {
 func localizedOrderNotificationText(language, notificationType string, payload orderNotificationPayload) (string, string) {
 	role, fallback := localizedOrderNotification(language, payload.RecipientRole, payload.ToState)
 	for _, kind := range []string{payload.EventKind, notificationType} {
+		if commissionManualReviewResult(kind, payload) {
+			copy := commissionDesktopCardTitles["delivery_manual_review"]
+			if language == "zh" {
+				return role, copy.zh
+			}
+			return role, copy.en
+		}
 		if summary := commissionResultNotificationText(language, kind); summary != "" {
 			return role, summary
 		}
