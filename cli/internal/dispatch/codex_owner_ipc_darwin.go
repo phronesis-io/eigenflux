@@ -18,7 +18,7 @@ import (
 func dialCodexOwnerIPC(ctx context.Context, binding Binding) (net.Conn, error) {
 	home := binding.Env["CODEX_HOME"]
 	if !filepath.IsAbs(home) || strings.ContainsRune(home, 0) {
-		return nil, errors.New("main_notice_owner_home_invalid")
+		return nil, &ipcProbeFailure{errors.New("main_notice_owner_home_invalid"), "endpoint_home_invalid"}
 	}
 	parent := filepath.Join(home, "ipc")
 	path := filepath.Join(parent, "ipc.sock")
@@ -38,12 +38,16 @@ func dialCodexOwnerIPC(ctx context.Context, binding Binding) (net.Conn, error) {
 		return info.Mode()&os.ModeSocket != 0 && info.Mode().Perm() == 0600
 	}
 	if !private(parent, true) || !private(path, false) {
-		return nil, errors.New("main_notice_owner_socket_untrusted")
+		return nil, &ipcProbeFailure{errors.New("main_notice_owner_socket_untrusted"), "endpoint_missing_or_untrusted"}
 	}
 	dialer := net.Dialer{Timeout: 5 * time.Second}
 	conn, err := dialer.DialContext(ctx, "unix", path)
 	if err != nil {
-		return nil, errors.New("main_notice_owner_ipc_unavailable")
+		code := "connect_failed"
+		if errors.Is(err, syscall.ECONNREFUSED) {
+			code = "connect_ECONNREFUSED"
+		}
+		return nil, &ipcProbeFailure{errors.New("main_notice_owner_ipc_unavailable"), code}
 	}
 	trusted := false
 	if socket, ok := conn.(*net.UnixConn); ok {
@@ -58,7 +62,7 @@ func dialCodexOwnerIPC(ctx context.Context, binding Binding) (net.Conn, error) {
 	}
 	if !trusted {
 		_ = conn.Close()
-		return nil, errors.New("main_notice_owner_peer_mismatch")
+		return nil, &ipcProbeFailure{errors.New("main_notice_owner_peer_mismatch"), "peer_verification_failed"}
 	}
 	return conn, nil
 }

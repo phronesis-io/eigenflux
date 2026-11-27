@@ -19,6 +19,11 @@ current-thread and scheduler selectors exclusive to native Codex bindings.
 
 ## Codex setup
 
+Report `main_notice_owner_ipc_unavailable` as an incomplete IPC connection or
+initialization. Include the probe diagnostic when present. State that owner
+discovery is pending. Require separate evidence before attributing the failure
+to Desktop version incompatibility.
+
 Require CLI 1.0.2. Keep account identity, Agent Home, server and host-owned
 conversation storage fixed. Complete initial binding automatically during
 setup, an owner-requested upgrade, or a full native Codex heartbeat listing
