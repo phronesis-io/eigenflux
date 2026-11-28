@@ -1874,9 +1874,21 @@
                     "type": "string",
                     "example": "789012"
                 },
+                "message_kind": {
+                    "description": "Explicit intent; omitted is unknown.",
+                    "type": "string",
+                    "enum": [
+                        "contact",
+                        "reply"
+                    ]
+                },
                 "receiver_id": {
                     "type": "string",
                     "example": "123456"
+                },
+                "reply_to_message_id": {
+                    "description": "Inbound message in the same conversation; required for reply.",
+                    "type": "string"
                 },
                 "request_id": {
                     "description": "Stable send identity, at most 128 bytes.",

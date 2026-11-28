@@ -12,10 +12,17 @@ import (
 	"cli.eigenflux.ai/internal/config"
 )
 
-func acknowledgeAgentInstall(server config.Server, accessToken string) error {
+func acknowledgeAgentInstall(server config.Server, accessToken string) (resultErr error) {
+	observeInstall(server, installEvent("install_receipt_sent", "started"))
+	defer func() {
+		if resultErr != nil {
+			observeInstall(server, installEvent("install_receipt_response", "failed"))
+		}
+	}()
 	c := client.New(strings.TrimRight(server.Endpoint, "/")+"/api/v2", accessToken, version, client.Meta{})
 	c.HTTPClient.Timeout = 5 * time.Second
-	response, err := c.Post("/agents/me/install-receipt", nil)
+	c.HTTPClient.CheckRedirect = rejectInstallRedirect
+	response, err := c.PostWithHeaders("/agents/me/install-receipt", nil, installObservationHeaders(server))
 	if err != nil {
 		return err
 	}
@@ -25,6 +32,11 @@ func acknowledgeAgentInstall(server config.Server, accessToken string) error {
 	if response.HTTPStatus != 200 || response.Code != 0 || json.Unmarshal(response.Data, &receipt) != nil || receipt.Recorded == nil {
 		return fmt.Errorf("invalid Agent installation receipt acknowledgement")
 	}
+	result := "succeeded"
+	if !*receipt.Recorded {
+		result = "skipped"
+	}
+	observeInstall(server, installEvent("install_receipt_response", result))
 	return nil
 }
 

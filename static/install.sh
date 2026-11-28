@@ -134,6 +134,7 @@ detect_invoking_host() {
 }
 
 INVOKING_HOST=$(detect_invoking_host)
+OBSERVATION_HOST="$INVOKING_HOST"
 
 # Only these three have a host plugin to set up. Everything else identifies no
 # plugin host: "terminal" is what the CLI itself defaults EIGENFLUX_HOST to, and
@@ -223,6 +224,119 @@ fetch_latest_cli_version() {
   esac
   printf '%s' "$version_value" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' || return 1
   printf '%s\n' "$version_value"
+}
+
+# Initial-install observations use the CLI's private queue before a CLI exists.
+# No Python/jq dependency, credentials read, shell lock, or acknowledgement guess.
+# Subshells isolate errors, tracing, umask and traps from the actual installation.
+ef_install_observe() { (
+  set +x
+  umask 077
+  [ "${EIGENFLUX_INSTALL_OBSERVATIONS:-}" != "0" ] || exit 0
+  command -v openssl >/dev/null 2>&1 || exit 0
+  command -v curl >/dev/null 2>&1 || exit 0
+  observation_type="$1"; observation_result="$2"; observation_component="${3:-}"; observation_reason="${4:-}"
+  case "$observation_type:$observation_result:$observation_component:$observation_reason" in
+    install_started:started::|host_detected:succeeded::|host_detected:pending::|component_install:started:cli:|component_install:succeeded:cli:|component_install:failed:cli:unknown_failure|component_install:started:skills:|component_install:succeeded:skills:|component_install:failed:skills:unknown_failure|component_install:skipped:skills:network_error|component_install:skipped:skills:no_content) ;;
+    *) exit 0 ;;
+  esac
+  observation_home=$(resolve_eigenflux_home "$HOMEDIR_FLAG" "$EXPLICIT_EIGENFLUX_HOME" "$INVOKING_HOST") || exit 0
+  case "$observation_home" in /*) ;; *) exit 0 ;; esac
+  # Inspect existence only, in this resolved Home. Updates and legacy identities
+  # must never manufacture a fresh-install session or anonymous observations.
+  for credential in "$observation_home"/credentials.json "$observation_home"/agent-v2-credentials.json "$observation_home"/servers/*/credentials.json "$observation_home"/servers/*/agent-v2-credentials.json; do
+    [ ! -e "$credential" ] && [ ! -L "$credential" ] || exit 0
+  done
+  [ ! -L "$observation_home/servers" ] || exit 0
+  observation_endpoint=$(printf '%s' "$EIGENFLUX_API_URL" | sed 's:/*$::')
+  # A deliberately conservative subset of URL syntax avoids config/JSON
+  # escaping ambiguities. Unsupported custom URLs simply have no observation.
+  printf '%s' "$observation_endpoint" | grep -Eq '^https?://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._~/-]+)?$' || exit 0
+  observation_hash=$(printf '%s' "$observation_endpoint" | openssl dgst -sha256 | sed 's/^.*= //') || exit 0
+  printf '%s' "$observation_hash" | grep -Eq '^[a-f0-9]{64}$' || exit 0
+  observation_base="$observation_home/install-observations"
+  observation_dir="$observation_base/$observation_hash"
+  for directory in "$observation_base" "$observation_dir"; do
+    [ ! -L "$directory" ] || exit 0
+    mkdir -p "$directory" || exit 0
+    [ -d "$directory" ] && [ ! -L "$directory" ] || exit 0
+    chmod 700 "$directory" || exit 0
+  done
+  observation_now=$(date +%s) || exit 0
+  case "$observation_now" in ''|*[!0-9]*) exit 0 ;; esac
+  observation_now=$((observation_now * 1000))
+  observation_path="$observation_dir/session.json"
+  if [ ! -e "$observation_path" ] && [ ! -L "$observation_path" ]; then
+    [ "$observation_type" = install_started ] || exit 0
+    observation_id=$(openssl rand -hex 16) || exit 0
+    observation_proof=$(openssl rand -hex 32) || exit 0
+    printf '%s' "$observation_id" | grep -Eq '^[a-f0-9]{32}$' || exit 0
+    printf '%s' "$observation_proof" | grep -Eq '^[a-f0-9]{64}$' || exit 0
+    observation_tmp=$(mktemp "$observation_dir/.installer-XXXXXXXX") || exit 0
+    trap 'rm -f "$observation_tmp"' 0
+    printf '{"install_session_id":"%s","proof":"%s","endpoint":"%s","created_at":%s}' "$observation_id" "$observation_proof" "$observation_endpoint" "$observation_now" > "$observation_tmp" || exit 0
+    # Atomic create-if-absent: a concurrent installer wins without replacement.
+    ln "$observation_tmp" "$observation_path" 2>/dev/null || :
+    rm -f "$observation_tmp"
+  fi
+  [ -f "$observation_path" ] && [ ! -L "$observation_path" ] || exit 0
+  [ "$(wc -c < "$observation_path")" -le 4096 ] || exit 0
+  observation_session=$(cat "$observation_path") || exit 0
+  observation_id=$(printf '%s' "$observation_session" | sed -n 's/^.*"install_session_id":"\([a-f0-9]*\)".*$/\1/p')
+  observation_proof=$(printf '%s' "$observation_session" | sed -n 's/^.*"proof":"\([a-f0-9]*\)".*$/\1/p')
+  observation_created=$(printf '%s' "$observation_session" | sed -n 's/^.*"created_at":\([0-9]*\).*$/\1/p')
+  printf '%s' "$observation_id" | grep -Eq '^[a-f0-9]{32}$' || exit 0
+  printf '%s' "$observation_proof" | grep -Eq '^[a-f0-9]{64}$' || exit 0
+  printf '%s' "$observation_created" | grep -Eq '^[0-9]{13}$' || exit 0
+  # Exact CLI encoding with no agent_id: bound, expired, corrupt or unexpected
+  # sessions are not repaired, replaced or downgraded by an anonymous installer.
+  observation_expected=$(printf '{"install_session_id":"%s","proof":"%s","endpoint":"%s","created_at":%s}' "$observation_id" "$observation_proof" "$observation_endpoint" "$observation_created")
+  [ "$observation_session" = "$observation_expected" ] || exit 0
+  [ "$observation_created" -ge $((observation_now - 604800000)) ] && [ "$observation_created" -le $((observation_now + 60000)) ] || exit 0
+  observation_queue="$observation_dir/$observation_id"
+  [ ! -L "$observation_queue" ] || exit 0
+  mkdir -p "$observation_queue" || exit 0
+  chmod 700 "$observation_queue" || exit 0
+  observation_count=0
+  for observation_file in "$observation_queue"/*; do
+    [ -e "$observation_file" ] || [ -L "$observation_file" ] || continue
+    observation_count=$((observation_count + 1))
+  done
+  [ "$observation_count" -lt 128 ] || exit 0
+  observation_host=$(printf '%s' "${OBSERVATION_HOST:-unknown}" | tr '[:upper:]' '[:lower:]')
+  case "$observation_host" in
+    codex|openclaw|workbuddy|hermes|deepseek|deepseek-harness|dsh|claude-code|claude|cursor|opencode|gemini-cli|gemini|qoder|trae|kilo|roo|cline|windsurf|antigravity|kimi|kiro|jarvis) ;;
+    *) observation_host=unknown ;;
+  esac
+  if [ "$observation_type" = host_detected ] && [ "$observation_host" = unknown ]; then observation_result=pending; fi
+  observation_event_id=$(openssl rand -hex 16) || exit 0
+  printf '%s' "$observation_event_id" | grep -Eq '^[a-f0-9]{32}$' || exit 0
+  observation_event=$(printf '{"event_id":"%s","event_at":%s,"event_type":"%s","result":"%s","component":"%s","runtime_name":"%s","reason":"%s"}' "$observation_event_id" "$observation_now" "$observation_type" "$observation_result" "$observation_component" "$observation_host" "$observation_reason")
+  observation_tmp=$(mktemp "$observation_queue/.installer-XXXXXXXX") || exit 0
+  trap 'rm -f "$observation_tmp"' 0
+  printf '%s' "$observation_event" > "$observation_tmp" || exit 0
+  # Recheck after preparing the event; the CLI may have bound/replaced session.
+  [ "$(cat "$observation_path")" = "$observation_session" ] || exit 0
+  ln "$observation_tmp" "$observation_queue/$observation_event_id.json" || exit 0
+  rm -f "$observation_tmp"
+  observation_payload=$(printf '{"install_session_id":"%s","events":[%s]}' "$observation_id" "$observation_event" | sed 's/"/\\"/g')
+  # Proof is only on stdin, never curl argv, output or URL. -q disables .curlrc;
+  # no redirect following. A response never removes the queued event: the CLI
+  # later validates the real acknowledgement and drains exact retries.
+  {
+    printf 'url = "%s/api/v2/install-telemetry/events:batch"\n' "$observation_endpoint"
+    printf 'header = "Content-Type: application/json"\n'
+    printf 'header = "X-Install-Session-Proof: %s"\n' "$observation_proof"
+    printf 'data = "%s"\n' "$observation_payload"
+  } | curl -q --config - --silent --connect-timeout 1 --max-time 2 --output /dev/null >/dev/null 2>&1 || :
+) >/dev/null 2>&1 || :
+}
+
+ef_install_observe_exit() {
+  observation_exit_code="$1"
+  if [ "$observation_exit_code" -ne 0 ] && [ -n "${EF_OBSERVATION_COMPONENT:-}" ]; then
+    ef_install_observe component_install failed "$EF_OBSERVATION_COMPONENT" unknown_failure
+  fi
 }
 
 # ── Step 1: Install CLI binary ────────────────────────────────
@@ -414,6 +528,7 @@ install_skills() {
   [ -n "$EF_BIN" ] && RESOLVED_SKILLS_TARGET="$("$EF_BIN" skills path $HOST_ARG 2>/dev/null || true)"
   if [ -n "$EF_BIN" ] && "$EF_BIN" skills sync $HOST_ARG >/dev/null 2>&1; then
     INSTALL_SKILLS_TARGET="$RESOLVED_SKILLS_TARGET"
+    ef_install_observe component_install succeeded skills
     ok "EigenFlux skills synced from R2"
     return
   fi
@@ -429,10 +544,11 @@ install_skills() {
   [ -n "$EF_BIN" ] && SKILLS_DIR="$("$EF_BIN" skills path $HOST_ARG 2>/dev/null || true)"
   [ -n "$SKILLS_DIR" ] || SKILLS_DIR="$HOME/.agents/skills"
   TMP_DIR=$(mktemp -d)
-  trap "rm -rf '$TMP_DIR'" EXIT
+  trap 'ef_install_observe_exit "$?"; rm -rf "$TMP_DIR"' EXIT
 
   TARBALL_URL="https://github.com/${GITHUB_REPO}/archive/refs/heads/${BRANCH}.tar.gz"
   if ! curl -fsSL "$TARBALL_URL" | tar xz -C "$TMP_DIR" 2>/dev/null; then
+    ef_install_observe component_install skipped skills network_error
     info "Skills installation skipped (no R2, GitHub download failed)"
     return
   fi
@@ -440,6 +556,7 @@ install_skills() {
   EXTRACTED=$(ls "$TMP_DIR")
   SRC_SKILLS="$TMP_DIR/$EXTRACTED/skills"
   if [ ! -d "$SRC_SKILLS" ]; then
+    ef_install_observe component_install skipped skills no_content
     info "Skills installation skipped (no skills found)"
     return
   fi
@@ -476,6 +593,7 @@ install_skills() {
   : > "$SKILLS_DIR/.ef-stale"
   INSTALL_SKILLS_TARGET=""
 
+  ef_install_observe component_install succeeded skills
   ok "EigenFlux skills bootstrapped to ${SKILLS_DIR} (provisional — will refresh from R2 on next sync)"
   info "Uninstall will preserve provisional Skills at ${SKILLS_DIR}; no verified managed target was registered."
 }
@@ -1265,11 +1383,21 @@ report_attribution() {
 # ── Main ──────────────────────────────────────────────────────
 
 info "EigenFlux installer ${INSTALLER_VERSION} (source ${INSTALLER_SOURCE_COMMIT})"
+ef_install_observe install_started started
+ef_install_observe host_detected succeeded
+EF_OBSERVATION_COMPONENT=cli
+trap 'ef_install_observe_exit "$?"' EXIT
+ef_install_observe component_install started cli
 install_cli
+ef_install_observe component_install succeeded cli
+EF_OBSERVATION_COMPONENT=""
 report_attribution
 migrate_config
 persist_install_ref
+EF_OBSERVATION_COMPONENT=skills
+ef_install_observe component_install started skills
 install_skills
+EF_OBSERVATION_COMPONENT=""
 provision_agent_v2
 setup_agents
 

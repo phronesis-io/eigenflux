@@ -14968,11 +14968,13 @@ func (p *LatestItemsResp) String() string {
 
 // ===== PM Structs =====
 type SendPMReq struct {
-	ReceiverID *string `thrift:"receiver_id,1,optional" form:"receiver_id" json:"receiver_id,omitempty"`
-	Content    string  `thrift:"content,2,required" form:"content,required" json:"content,required"`
-	ItemID     *string `thrift:"item_id,3,optional" form:"item_id" json:"item_id,omitempty"`
-	ConvID     *string `thrift:"conv_id,4,optional" form:"conv_id" json:"conv_id,omitempty"`
-	RequestID  *string `thrift:"request_id,5,optional" form:"request_id" json:"request_id,omitempty"`
+	ReceiverID       *string `thrift:"receiver_id,1,optional" form:"receiver_id" json:"receiver_id,omitempty"`
+	Content          string  `thrift:"content,2,required" form:"content,required" json:"content,required"`
+	ItemID           *string `thrift:"item_id,3,optional" form:"item_id" json:"item_id,omitempty"`
+	ConvID           *string `thrift:"conv_id,4,optional" form:"conv_id" json:"conv_id,omitempty"`
+	RequestID        *string `thrift:"request_id,5,optional" form:"request_id" json:"request_id,omitempty"`
+	MessageKind      *string `thrift:"message_kind,6,optional" form:"message_kind" json:"message_kind,omitempty"`
+	ReplyToMessageID *string `thrift:"reply_to_message_id,7,optional" form:"reply_to_message_id" json:"reply_to_message_id,omitempty"`
 }
 
 func NewSendPMReq() *SendPMReq {
@@ -15022,12 +15024,32 @@ func (p *SendPMReq) GetRequestID() (v string) {
 	return *p.RequestID
 }
 
+var SendPMReq_MessageKind_DEFAULT string
+
+func (p *SendPMReq) GetMessageKind() (v string) {
+	if !p.IsSetMessageKind() {
+		return SendPMReq_MessageKind_DEFAULT
+	}
+	return *p.MessageKind
+}
+
+var SendPMReq_ReplyToMessageID_DEFAULT string
+
+func (p *SendPMReq) GetReplyToMessageID() (v string) {
+	if !p.IsSetReplyToMessageID() {
+		return SendPMReq_ReplyToMessageID_DEFAULT
+	}
+	return *p.ReplyToMessageID
+}
+
 var fieldIDToName_SendPMReq = map[int16]string{
 	1: "receiver_id",
 	2: "content",
 	3: "item_id",
 	4: "conv_id",
 	5: "request_id",
+	6: "message_kind",
+	7: "reply_to_message_id",
 }
 
 func (p *SendPMReq) IsSetReceiverID() bool {
@@ -15044,6 +15066,14 @@ func (p *SendPMReq) IsSetConvID() bool {
 
 func (p *SendPMReq) IsSetRequestID() bool {
 	return p.RequestID != nil
+}
+
+func (p *SendPMReq) IsSetMessageKind() bool {
+	return p.MessageKind != nil
+}
+
+func (p *SendPMReq) IsSetReplyToMessageID() bool {
+	return p.ReplyToMessageID != nil
 }
 
 func (p *SendPMReq) Read(iprot thrift.TProtocol) (err error) {
@@ -15102,6 +15132,22 @@ func (p *SendPMReq) Read(iprot thrift.TProtocol) (err error) {
 		case 5:
 			if fieldTypeId == thrift.STRING {
 				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 6:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField6(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 7:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField7(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -15197,6 +15243,28 @@ func (p *SendPMReq) ReadField5(iprot thrift.TProtocol) error {
 	p.RequestID = _field
 	return nil
 }
+func (p *SendPMReq) ReadField6(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.MessageKind = _field
+	return nil
+}
+func (p *SendPMReq) ReadField7(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.ReplyToMessageID = _field
+	return nil
+}
 
 func (p *SendPMReq) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -15222,6 +15290,14 @@ func (p *SendPMReq) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField5(oprot); err != nil {
 			fieldId = 5
+			goto WriteFieldError
+		}
+		if err = p.writeField6(oprot); err != nil {
+			fieldId = 6
+			goto WriteFieldError
+		}
+		if err = p.writeField7(oprot); err != nil {
+			fieldId = 7
 			goto WriteFieldError
 		}
 	}
@@ -15333,6 +15409,44 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+
+func (p *SendPMReq) writeField6(oprot thrift.TProtocol) (err error) {
+	if p.IsSetMessageKind() {
+		if err = oprot.WriteFieldBegin("message_kind", thrift.STRING, 6); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.MessageKind); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
+}
+
+func (p *SendPMReq) writeField7(oprot thrift.TProtocol) (err error) {
+	if p.IsSetReplyToMessageID() {
+		if err = oprot.WriteFieldBegin("reply_to_message_id", thrift.STRING, 7); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.ReplyToMessageID); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
 }
 
 func (p *SendPMReq) String() string {

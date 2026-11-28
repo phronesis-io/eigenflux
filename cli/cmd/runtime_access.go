@@ -8,6 +8,7 @@ import (
 
 	"cli.eigenflux.ai/internal/auth"
 	"cli.eigenflux.ai/internal/client"
+	"cli.eigenflux.ai/internal/config"
 )
 
 type runtimeAccess struct {
@@ -21,16 +22,16 @@ func runtimeAccessForServer(serverName string) (runtimeAccess, error) {
 		return runtimeAccess{}, unavailableV2Identity(err)
 	}
 	if hasV2 {
-		c, _, err := newV2ClientForServer(serverName, true)
+		c, server, err := newV2ClientForServer(serverName, true)
 		if err != nil {
 			return runtimeAccess{}, err
 		}
-		return readRuntimeAccess(c, true)
+		return readRuntimeAccess(c, true, *server)
 	}
 	return readRuntimeAccess(newClientForServer(serverName), false)
 }
 
-func readRuntimeAccess(c *client.Client, v2 bool) (runtimeAccess, error) {
+func readRuntimeAccess(c *client.Client, v2 bool, server ...config.Server) (runtimeAccess, error) {
 	if !v2 {
 		response, err := c.Get("/agents/me", nil)
 		if err != nil {
@@ -44,7 +45,13 @@ func readRuntimeAccess(c *client.Client, v2 bool) (runtimeAccess, error) {
 		}
 		return runtimeAccess{Mode: "legacy", OnboardingState: "completed"}, nil
 	}
-	response, err := c.Get("/agent-context", nil)
+	var response *client.APIResponse
+	var err error
+	if len(server) > 0 {
+		response, err = getInstallContext(c, server[0], nil)
+	} else {
+		response, err = c.Get("/agent-context", nil)
+	}
 	if err != nil {
 		var apiErr *client.APIError
 		if errors.As(err, &apiErr) && ((apiErr.StatusCode == http.StatusConflict && apiErr.ErrorCode == "ONBOARDING_REQUIRED") ||

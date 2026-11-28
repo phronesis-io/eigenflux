@@ -104,7 +104,7 @@ func TestOnboardingSkillContract(t *testing.T) {
 			"references/messages.md", "references/host-setup.md", "references/prefill.md", "references/connection.md",
 			"Treat\nincomplete V2 setup as existing-account maintenance", "unless the user explicitly",
 			"https://cdn.eigenflux.ai/skills/latest/install.md#verify-and-continue",
-			"CLI 0.0.54+", "current-host\n   installation verification", "bare-CLI setup",
+			"CLI 1.0.54+", "current-host\n   installation verification", "bare-CLI setup",
 			"No answer grants no permission", "Generic continuation grants no missing consent",
 			"natural-language", "host-native\nexecution approvals remain separate",
 			"never derive identity from cwd", "not historical onboarding text in a scheduled",

@@ -392,7 +392,7 @@ func (w *accountWatch) sendDispatchReply(ctx context.Context, job dispatch.Job, 
 		if !current.SecurityBoundary.AutoReplyPM {
 			return dispatch.ErrNeedsUser
 		}
-		resp, err := c.Post("/pm/send", map[string]string{"conv_id": job.Message.Conversation, "request_id": "pm-reply:" + job.Message.ID, "content": text})
+		resp, err := c.Post("/pm/send", map[string]string{"conv_id": job.Message.Conversation, "request_id": "pm-reply:" + job.Message.ID, "content": text, "message_kind": "reply", "reply_to_message_id": job.Message.ID})
 		if err != nil {
 			return err
 		}

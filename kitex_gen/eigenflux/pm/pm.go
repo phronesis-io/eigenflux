@@ -59,12 +59,14 @@ func (p *FriendRequestAction) Value() (driver.Value, error) {
 }
 
 type SendPMReq struct {
-	SenderId   int64   `thrift:"sender_id,1,required" frugal:"1,required,i64" json:"sender_id"`
-	ReceiverId int64   `thrift:"receiver_id,2,required" frugal:"2,required,i64" json:"receiver_id"`
-	Content    string  `thrift:"content,3,required" frugal:"3,required,string" json:"content"`
-	ItemId     *int64  `thrift:"item_id,4,optional" frugal:"4,optional,i64" json:"item_id,omitempty"`
-	ConvId     *int64  `thrift:"conv_id,5,optional" frugal:"5,optional,i64" json:"conv_id,omitempty"`
-	RequestId  *string `thrift:"request_id,6,optional" frugal:"6,optional,string" json:"request_id,omitempty"`
+	SenderId         int64   `thrift:"sender_id,1,required" frugal:"1,required,i64" json:"sender_id"`
+	ReceiverId       int64   `thrift:"receiver_id,2,required" frugal:"2,required,i64" json:"receiver_id"`
+	Content          string  `thrift:"content,3,required" frugal:"3,required,string" json:"content"`
+	ItemId           *int64  `thrift:"item_id,4,optional" frugal:"4,optional,i64" json:"item_id,omitempty"`
+	ConvId           *int64  `thrift:"conv_id,5,optional" frugal:"5,optional,i64" json:"conv_id,omitempty"`
+	RequestId        *string `thrift:"request_id,6,optional" frugal:"6,optional,string" json:"request_id,omitempty"`
+	MessageKind      *string `thrift:"message_kind,7,optional" frugal:"7,optional,string" json:"message_kind,omitempty"`
+	ReplyToMessageId *int64  `thrift:"reply_to_message_id,8,optional" frugal:"8,optional,i64" json:"reply_to_message_id,omitempty"`
 }
 
 func NewSendPMReq() *SendPMReq {
@@ -112,6 +114,24 @@ func (p *SendPMReq) GetRequestId() (v string) {
 	}
 	return *p.RequestId
 }
+
+var SendPMReq_MessageKind_DEFAULT string
+
+func (p *SendPMReq) GetMessageKind() (v string) {
+	if !p.IsSetMessageKind() {
+		return SendPMReq_MessageKind_DEFAULT
+	}
+	return *p.MessageKind
+}
+
+var SendPMReq_ReplyToMessageId_DEFAULT int64
+
+func (p *SendPMReq) GetReplyToMessageId() (v int64) {
+	if !p.IsSetReplyToMessageId() {
+		return SendPMReq_ReplyToMessageId_DEFAULT
+	}
+	return *p.ReplyToMessageId
+}
 func (p *SendPMReq) SetSenderId(val int64) {
 	p.SenderId = val
 }
@@ -130,6 +150,12 @@ func (p *SendPMReq) SetConvId(val *int64) {
 func (p *SendPMReq) SetRequestId(val *string) {
 	p.RequestId = val
 }
+func (p *SendPMReq) SetMessageKind(val *string) {
+	p.MessageKind = val
+}
+func (p *SendPMReq) SetReplyToMessageId(val *int64) {
+	p.ReplyToMessageId = val
+}
 
 func (p *SendPMReq) IsSetItemId() bool {
 	return p.ItemId != nil
@@ -141,6 +167,14 @@ func (p *SendPMReq) IsSetConvId() bool {
 
 func (p *SendPMReq) IsSetRequestId() bool {
 	return p.RequestId != nil
+}
+
+func (p *SendPMReq) IsSetMessageKind() bool {
+	return p.MessageKind != nil
+}
+
+func (p *SendPMReq) IsSetReplyToMessageId() bool {
+	return p.ReplyToMessageId != nil
 }
 
 func (p *SendPMReq) String() string {
@@ -157,6 +191,8 @@ var fieldIDToName_SendPMReq = map[int16]string{
 	4: "item_id",
 	5: "conv_id",
 	6: "request_id",
+	7: "message_kind",
+	8: "reply_to_message_id",
 }
 
 type SendPMResp struct {

@@ -80,7 +80,7 @@ $tokens = $null
 $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($env:INSTALLER_SOURCE, [ref]$tokens, [ref]$errors)
 if ($errors.Count -ne 0) { throw ($errors | Out-String) }
-foreach ($name in @('Info', 'Ok', 'Get-InvokingHost', 'Resolve-EigenfluxHome', 'Save-InstallReferral', 'Report-InstallAttribution')) {
+foreach ($name in @('Info', 'Ok', 'Get-InvokingHost', 'Resolve-EigenfluxHome', 'Save-InstallReferral', 'Report-InstallAttribution', 'Write-InstallObservation')) {
     $function = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
     if (-not $function) { throw "Missing installer function: $name" }
     Invoke-Expression $function.Extent.Text
@@ -93,14 +93,20 @@ function Setup-Agents { }
 $ExplicitEigenfluxHome = $env:TEST_HOME
 $source = (Get-Content -Raw -Encoding UTF8 $env:INSTALLER_SOURCE).Replace("`r`n", "`n")
 $main = $source.Substring($source.IndexOf('# ── Main'))
-$steps = $main.Substring($main.IndexOf("`nInstall-Cli`n") + 1)
-$steps = $steps.Substring(0, $steps.IndexOf("`nSetup-Agents`n") + "`nSetup-Agents`n".Length)
+# Include the actual initial-install observations and CLI try/catch wrapper.
+# Starting at a bare Install-Cli line silently selected the wrong slice after
+# that call gained its wrapper. Telemetry is opted out in this referral fixture.
+$steps = $main.Substring($main.IndexOf("`n") + 1)
+$lastStep = $steps.IndexOf("`nSetup-Agents`n")
+if ($lastStep -lt 0) { throw 'Missing installer setup boundary' }
+$steps = $steps.Substring(0, $lastStep + "`nSetup-Agents`n".Length)
 $flow = [scriptblock]::Create($ast.ParamBlock.Extent.Text + "`n" + $steps)
 & $flow -Ref $env:TEST_REF -Endpoint $env:TEST_ENDPOINT
 ''', encoding='utf-8-sig')
                 env = dict(os.environ, HOME=temp, USERPROFILE=temp, TEMP=temp, TMP=temp,
                            EIGENFLUX_HOME=str(home), EIGENFLUX_SKILLS_DIR=str(directory / 'skills'),
                            EIGENFLUX_CDN_URL='http://127.0.0.1:1', INVOKING_HOST='codex',
+                           EIGENFLUX_INSTALL_OBSERVATIONS='0',
                            INSTALLER_SOURCE=str(ROOT / 'static/install.ps1'),
                            TEST_CLI=str(self.cli), TEST_HOME=str(home), TEST_REF=ref,
                            TEST_ENDPOINT=endpoint, TEST_FAILURE=failure)

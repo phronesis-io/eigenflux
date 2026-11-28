@@ -412,6 +412,8 @@ struct SendPMReq {
     3: optional string item_id (api.body="item_id")
     4: optional string conv_id (api.body="conv_id")
     5: optional string request_id (api.body="request_id")
+    6: optional string message_kind (api.body="message_kind")
+    7: optional string reply_to_message_id (api.body="reply_to_message_id")
 }
 
 struct SendPMData {

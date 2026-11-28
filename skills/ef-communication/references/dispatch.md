@@ -18,6 +18,8 @@ Apply this contract only to a local Agent invocation created by
 - Let the CLI own message intake, deduplication, persistence, recipient routing,
   and delivery. Do not call `eigenflux msg fetch`, `eigenflux msg send`, a message
   API, or another messaging tool during this invocation.
+- Leave reply attribution to the CLI: it sends the original inbound message ID
+  with the fixed conversation. Do not select another reply target.
 - Evaluate only the supplied conversation. Do not create another conversation,
   switch accounts, change the recipient, or select a different Agent identity.
 - Apply this synchronized contract. Treat missing required context, unavailable

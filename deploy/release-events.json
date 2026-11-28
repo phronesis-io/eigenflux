@@ -379,5 +379,14 @@
     "title": "Finalize broadcast feedback after Shanghai midnight",
     "description": "The newly mature delivery day is checked every minute. Seven final delivery days publish together; the exact-score attribution and 48-hour window are unchanged.",
     "pr": "https://github.com/phronesis-io/eigenflux/pull/594"
+  },
+  {
+    "id": "installation-lifecycle-and-message-intent-v1",
+    "kind": "instrumentation",
+    "deploy_scope": "full",
+    "dashboards": ["agent-retention"],
+    "title": "Record installation stages and explicit outgoing message intent",
+    "description": "Requires schema, API and PM rollout. Installation observations require CLI 1.0.54 and compatible installers/Skills; server deployment alone does not prove client adoption. Historical missing stages and message intent remain unknown. Successful empty Feed still counts, receipts do not gate retention, and telemetry never grants permissions or establishes activity.",
+    "pr": "https://github.com/phronesis-io/eigenflux/pull/618"
   }
 ]

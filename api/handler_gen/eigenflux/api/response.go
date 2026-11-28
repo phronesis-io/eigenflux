@@ -278,11 +278,13 @@ type BatchFeedbackResp struct {
 
 // SendPMBody represents send PM request body
 type SendPMBody struct {
-	ReceiverID string `json:"receiver_id,omitempty" example:"123456"`
-	Content    string `json:"content" example:"Hello, I saw your article..."`
-	ItemID     string `json:"item_id,omitempty" example:"789012"`
-	ConvID     string `json:"conv_id,omitempty" example:"456789"`
-	RequestID  string `json:"request_id,omitempty"` // Stable send identity, at most 128 bytes.
+	ReceiverID       string `json:"receiver_id,omitempty" example:"123456"`
+	Content          string `json:"content" example:"Hello, I saw your article..."`
+	ItemID           string `json:"item_id,omitempty" example:"789012"`
+	ConvID           string `json:"conv_id,omitempty" example:"456789"`
+	RequestID        string `json:"request_id,omitempty"`                         // Stable send identity, at most 128 bytes.
+	MessageKind      string `json:"message_kind,omitempty" enums:"contact,reply"` // Explicit intent; omitted is unknown.
+	ReplyToMessageID string `json:"reply_to_message_id,omitempty"`                // Inbound message in the same conversation; required for reply.
 }
 
 // CloseConvBody represents close conversation request body

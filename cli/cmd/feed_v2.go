@@ -166,7 +166,7 @@ func pollFeedV2(cmd *cobra.Command, serverName, limit string) error {
 	if err != nil {
 		return err
 	}
-	clientV2, _, err := newV2ClientForServer(serverName, true)
+	clientV2, selectedServer, err := newV2ClientForServer(serverName, true)
 	if err != nil {
 		return err
 	}
@@ -256,6 +256,7 @@ func pollFeedV2(cmd *cobra.Command, serverName, limit string) error {
 	_ = cache.SaveFeedResponse(serverName, response.Data)
 	cache.Cleanup(serverName, "broadcasts")
 	warnReportLedger(recordFeedPull(serverName, response.Data))
+	observeBaselineFeed(*selectedServer, response.Data)
 	return nil
 }
 

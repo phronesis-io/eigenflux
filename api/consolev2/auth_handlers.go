@@ -1455,6 +1455,10 @@ func (s *Service) exchangeHandoff(_ context.Context, c *app.RequestContext) {
 	if accountSwitchToken != "" {
 		s.setCLIAccountSwitchCookie(c, accountSwitchToken, int(cliAccountSwitchTTL/time.Second))
 	}
+	// Only the committed exchange can supply the installation observer's actor
+	// and website journey. Never derive either from an unverified ticket.
+	c.Set("agent_id", agentIDValue)
+	c.Set("console_session_id", sessionID)
 	reply(c, http.StatusOK, map[string]interface{}{
 		"agent_id":            fmt.Sprintf("%d", agentIDValue),
 		"csrf_token":          csrfSecret,

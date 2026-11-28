@@ -37,7 +37,7 @@ var contextV2PullCmd = &cobra.Command{
 				ifNewer = cached.Revision
 			}
 		}
-		response, err := clientV2.Get("/agent-context", map[string]string{"if_newer": strconv.FormatInt(ifNewer, 10)})
+		response, err := getInstallContext(clientV2, *server, map[string]string{"if_newer": strconv.FormatInt(ifNewer, 10)})
 		if err != nil {
 			return err
 		}

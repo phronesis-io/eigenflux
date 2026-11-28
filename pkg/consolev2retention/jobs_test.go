@@ -13,6 +13,7 @@ func TestRetentionMatrixIsBounded(t *testing.T) {
 		"bootstrap_grants": false, "signature_nonces": false, "email_challenges": false,
 		"handoffs": false, "console_sessions": false, "credential_sessions": false,
 		"idempotency_responses": false, "telemetry_events": false, "uninstall_feedback": false, "usage_sessions": false,
+		"install_lifecycle_events": false, "install_lifecycle_sessions": false, "install_lifecycle_limits": false,
 		"runtime_leases": false, "control_outbox": false, "feed_exposures": false,
 		"commission_notifications_pending": false, "commission_notifications_acknowledged": false,
 		"command_expiry": false, "attention_command_expiry_recovery": false,

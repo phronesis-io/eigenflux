@@ -100,11 +100,15 @@ func (s *PMServiceImpl) SendPM(ctx context.Context, req *pm.SendPMReq) (*pm.Send
 	if len(req.GetRequestId()) > 128 {
 		return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 400, Msg: "request_id must not exceed 128 bytes"}}, nil
 	}
+	if err := validateMessageIntent(req); err != nil {
+		return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 400, Msg: err.Error()}}, nil
+	}
 
 	targetKind, targetID := sendTarget(req)
 	if targetKind == "friend" && targetID == req.SenderId {
 		return selfTargetPMResp(), nil
 	}
+	targetKind = intentTargetKind(req, targetKind)
 	lease, replay, err := s.sendGuard.Acquire(ctx, sendguard.RequestFingerprint(req.SenderId, targetKind, targetID, req.Content, req.GetRequestId()))
 	if errors.Is(err, sendguard.ErrInProgress) {
 		return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 409, Msg: err.Error()}}, nil
@@ -280,19 +284,24 @@ func (s *PMServiceImpl) handleNewConversation(ctx context.Context, req *pm.SendP
 
 		// Create message
 		msg := &dal.PrivateMessage{
-			MsgID:        msgID,
-			ConvID:       convID,
-			SenderID:     req.SenderId,
-			ReceiverID:   receiverID,
-			Content:      req.Content,
-			IsRead:       false,
-			SenderName:   senderName,
-			ReceiverName: receiverName,
+			MsgID:            msgID,
+			ConvID:           convID,
+			SenderID:         req.SenderId,
+			ReceiverID:       receiverID,
+			Content:          req.Content,
+			IsRead:           false,
+			SenderName:       senderName,
+			ReceiverName:     receiverName,
+			MessageKind:      req.MessageKind,
+			ReplyToMessageID: req.ReplyToMessageId,
 		}
 		return dal.CreateMessage(tx, msg)
 	})
 
 	if err != nil {
+		if errors.Is(err, dal.ErrInvalidMessageIntent) {
+			return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 400, Msg: dal.ErrInvalidMessageIntent.Error()}}, nil
+		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 404, Msg: "agent not found"}}, nil
 		}
@@ -396,14 +405,16 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq, skip
 	err = db.DB.Transaction(func(tx *gorm.DB) error {
 		// Create message
 		msg := &dal.PrivateMessage{
-			MsgID:        msgID,
-			ConvID:       convID,
-			SenderID:     req.SenderId,
-			ReceiverID:   receiverID,
-			Content:      req.Content,
-			IsRead:       false,
-			SenderName:   senderName,
-			ReceiverName: receiverName,
+			MsgID:            msgID,
+			ConvID:           convID,
+			SenderID:         req.SenderId,
+			ReceiverID:       receiverID,
+			Content:          req.Content,
+			IsRead:           false,
+			SenderName:       senderName,
+			ReceiverName:     receiverName,
+			MessageKind:      req.MessageKind,
+			ReplyToMessageID: req.ReplyToMessageId,
 		}
 		if err := dal.CreateMessage(tx, msg); err != nil {
 			return err
@@ -415,6 +426,9 @@ func (s *PMServiceImpl) handleReply(ctx context.Context, req *pm.SendPMReq, skip
 
 	if err != nil {
 		_ = s.iceBreaker.RollbackIceBreak(ctx, convID, iceStatus)
+		if errors.Is(err, dal.ErrInvalidMessageIntent) {
+			return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 400, Msg: dal.ErrInvalidMessageIntent.Error()}}, nil
+		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 404, Msg: "agent not found"}}, nil
 		}
@@ -480,10 +494,14 @@ func (s *PMServiceImpl) handleFriendPM(ctx context.Context, req *pm.SendPMReq) (
 		msg := &dal.PrivateMessage{
 			MsgID: msgID, ConvID: convID, SenderID: req.SenderId, ReceiverID: req.ReceiverId,
 			Content: req.Content, IsRead: false, SenderName: nameMap[req.SenderId], ReceiverName: nameMap[req.ReceiverId],
+			MessageKind: req.MessageKind, ReplyToMessageID: req.ReplyToMessageId,
 		}
 		return dal.CreateMessage(tx, msg)
 	})
 	if err != nil {
+		if errors.Is(err, dal.ErrInvalidMessageIntent) {
+			return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 400, Msg: dal.ErrInvalidMessageIntent.Error()}}, nil
+		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return &pm.SendPMResp{BaseResp: &base.BaseResp{Code: 404, Msg: "agent not found"}}, nil
 		}
